@@ -10,6 +10,7 @@ from app.models.paciente import Paciente
 from app.models.clinica import Clinica
 from app.models.servico import Servico
 from app.models.user import User
+from app.models.tutor import Tutor
 from app.schemas.agendamento import AgendamentoCreate, AgendamentoUpdate, AgendamentoResponse, AgendamentoLista
 from app.core.security import get_current_user, require_papel
 
@@ -32,10 +33,13 @@ def listar_agendamentos(
         Agendamento,
         Paciente.nome.label('paciente_nome'),
         Clinica.nome.label('clinica_nome'),
-        Servico.nome.label('servico_nome')
+        Servico.nome.label('servico_nome'),
+        Tutor.nome.label('tutor_nome'),
+        Tutor.telefone.label('tutor_telefone')
     ).outerjoin(Paciente, Agendamento.paciente_id == Paciente.id)\
      .outerjoin(Clinica, Agendamento.clinica_id == Clinica.id)\
-     .outerjoin(Servico, Agendamento.servico_id == Servico.id)
+     .outerjoin(Servico, Agendamento.servico_id == Servico.id)\
+     .outerjoin(Tutor, Paciente.tutor_id == Tutor.id)
 
     if data_inicio:
         query = query.filter(Agendamento.inicio >= data_inicio)
@@ -50,10 +54,10 @@ def listar_agendamentos(
 
     total = query.count()
     results = query.offset(skip).limit(limit).all()
-    
+
     # Montar resposta com nomes
     items = []
-    for ag, paciente_nome, clinica_nome, servico_nome in results:
+    for ag, paciente_nome, clinica_nome, servico_nome, tutor_nome, tutor_telefone in results:
         items.append({
             "id": ag.id,
             "paciente_id": ag.paciente_id,
@@ -66,8 +70,8 @@ def listar_agendamentos(
             "data": ag.data,
             "hora": ag.hora,
             "paciente": paciente_nome or "Paciente não informado",
-            "tutor": "",
-            "telefone": "",
+            "tutor": tutor_nome or "Tutor não informado",
+            "telefone": tutor_telefone or "",
             "servico": servico_nome or "",
             "clinica": clinica_nome or "Clínica não informada",
             "criado_por_nome": ag.criado_por_nome,
