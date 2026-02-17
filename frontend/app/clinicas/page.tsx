@@ -54,7 +54,10 @@ export default function ClinicasPage() {
             <h1 className="text-2xl font-bold text-gray-900">Clínicas</h1>
             <p className="text-gray-500">Gerencie as clínicas parceiras</p>
           </div>
-          <button className="flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
+          <button 
+            onClick={() => router.push("/clinicas/novo")}
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+          >
             <Plus className="w-4 h-4" />
             Nova Clínica
           </button>
