@@ -41,10 +41,21 @@ def listar_agendamentos(
      .outerjoin(Servico, Agendamento.servico_id == Servico.id)\
      .outerjoin(Tutor, Paciente.tutor_id == Tutor.id)
 
+    # Converter strings para datetime para filtrar corretamente
     if data_inicio:
-        query = query.filter(Agendamento.inicio >= data_inicio)
+        try:
+            dt_inicio = datetime.fromisoformat(data_inicio.replace('Z', '+00:00'))
+            query = query.filter(Agendamento.inicio >= dt_inicio)
+        except:
+            # Se não conseguir converter, ignora o filtro
+            pass
     if data_fim:
-        query = query.filter(Agendamento.inicio <= data_fim)
+        try:
+            dt_fim = datetime.fromisoformat(data_fim.replace('Z', '+00:00'))
+            query = query.filter(Agendamento.inicio <= dt_fim)
+        except:
+            # Se não conseguir converter, ignora o filtro
+            pass
     if status:
         query = query.filter(Agendamento.status == status)
     if clinica_id:
@@ -122,11 +133,42 @@ def criar_agendamento(
     db_agendamento.criado_em = now
     db_agendamento.created_at = now
     db_agendamento.updated_at = now
+    
+    # Preencher data e hora a partir do inicio
+    if db_agendamento.inicio:
+        db_agendamento.data = db_agendamento.inicio.strftime('%Y-%m-%d')
+        db_agendamento.hora = db_agendamento.inicio.strftime('%H:%M')
 
     db.add(db_agendamento)
     db.commit()
     db.refresh(db_agendamento)
-    return db_agendamento
+    
+    # Buscar nomes para retornar no response
+    paciente = db.query(Paciente).filter(Paciente.id == db_agendamento.paciente_id).first()
+    clinica = db.query(Clinica).filter(Clinica.id == db_agendamento.clinica_id).first() if db_agendamento.clinica_id else None
+    servico = db.query(Servico).filter(Servico.id == db_agendamento.servico_id).first() if db_agendamento.servico_id else None
+    
+    # Montar response manualmente para garantir compatibilidade
+    return {
+        "id": db_agendamento.id,
+        "paciente_id": db_agendamento.paciente_id,
+        "clinica_id": db_agendamento.clinica_id,
+        "servico_id": db_agendamento.servico_id,
+        "inicio": str(db_agendamento.inicio) if db_agendamento.inicio else None,
+        "fim": str(db_agendamento.fim) if db_agendamento.fim else None,
+        "status": db_agendamento.status,
+        "observacoes": db_agendamento.observacoes,
+        "data": db_agendamento.data,
+        "hora": db_agendamento.hora,
+        "paciente": paciente.nome if paciente else "Paciente não encontrado",
+        "tutor": "",
+        "telefone": "",
+        "servico": servico.nome if servico else "",
+        "clinica": clinica.nome if clinica else "Clínica não informada",
+        "criado_por_nome": db_agendamento.criado_por_nome,
+        "confirmado_por_nome": db_agendamento.confirmado_por_nome,
+        "created_at": str(db_agendamento.created_at) if db_agendamento.created_at else None,
+    }
 
 @router.put("/{agendamento_id}", response_model=AgendamentoResponse)
 def atualizar_agendamento(
@@ -143,13 +185,43 @@ def atualizar_agendamento(
     update_data = agendamento.dict(exclude_unset=True)
     for field, value in update_data.items():
         setattr(db_agendamento, field, value)
+    
+    # Atualizar data e hora se inicio foi alterado
+    if 'inicio' in update_data and db_agendamento.inicio:
+        db_agendamento.data = db_agendamento.inicio.strftime('%Y-%m-%d')
+        db_agendamento.hora = db_agendamento.inicio.strftime('%H:%M')
 
     db_agendamento.atualizado_em = datetime.now()
     db_agendamento.updated_at = datetime.now()
 
     db.commit()
     db.refresh(db_agendamento)
-    return db_agendamento
+    
+    # Buscar nomes para retornar no response
+    paciente = db.query(Paciente).filter(Paciente.id == db_agendamento.paciente_id).first()
+    clinica = db.query(Clinica).filter(Clinica.id == db_agendamento.clinica_id).first() if db_agendamento.clinica_id else None
+    servico = db.query(Servico).filter(Servico.id == db_agendamento.servico_id).first() if db_agendamento.servico_id else None
+    
+    return {
+        "id": db_agendamento.id,
+        "paciente_id": db_agendamento.paciente_id,
+        "clinica_id": db_agendamento.clinica_id,
+        "servico_id": db_agendamento.servico_id,
+        "inicio": str(db_agendamento.inicio) if db_agendamento.inicio else None,
+        "fim": str(db_agendamento.fim) if db_agendamento.fim else None,
+        "status": db_agendamento.status,
+        "observacoes": db_agendamento.observacoes,
+        "data": db_agendamento.data,
+        "hora": db_agendamento.hora,
+        "paciente": paciente.nome if paciente else "Paciente não encontrado",
+        "tutor": "",
+        "telefone": "",
+        "servico": servico.nome if servico else "",
+        "clinica": clinica.nome if clinica else "Clínica não informada",
+        "criado_por_nome": db_agendamento.criado_por_nome,
+        "confirmado_por_nome": db_agendamento.confirmado_por_nome,
+        "created_at": str(db_agendamento.created_at) if db_agendamento.created_at else None,
+    }
 
 @router.patch("/{agendamento_id}/status")
 def atualizar_status(
