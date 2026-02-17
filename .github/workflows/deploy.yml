@@ -1,0 +1,57 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup SSH
+      uses: webfactory/ssh-agent@v0.8.0
+      with:
+        ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+    
+    - name: Add VPS to known hosts
+      run: |
+        mkdir -p ~/.ssh
+        ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+    
+    - name: Deploy to VPS
+      run: |
+        ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+          cd /var/www/fortcordis-v2
+          
+          # Backup antes do deploy
+          echo "📦 Criando backup..."
+          tar -czf backup_$(date +%Y%m%d_%H%M%S).tar.gz backend frontend 2>/dev/null || true
+          
+          # Puxar últimas alterações
+          echo "⬇️  Atualizando código..."
+          git fetch origin
+          git reset --hard origin/main
+          
+          # Deploy Backend
+          echo "🐍 Deploy Backend..."
+          cd backend
+          source venv/bin/activate 2>/dev/null || python3 -m venv venv && source venv/bin/activate
+          pip install -r requirements.txt
+          sudo systemctl restart fortcordis-backend 2>/dev/null || echo "⚠️  Reinicie manualmente"
+          cd ..
+          
+          # Deploy Frontend
+          echo "⚛️  Deploy Frontend..."
+          cd frontend
+          npm install
+          npm run build
+          sudo systemctl restart fortcordis-frontend 2>/dev/null || echo "⚠️  Reinicie manualmente"
+          cd ..
+          
+          echo "✅ Deploy concluído!"
+        EOF
