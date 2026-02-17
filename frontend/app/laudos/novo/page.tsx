@@ -141,7 +141,6 @@ export default function NovoLaudoPage() {
   
   // Imagens do laudo
   const [imagens, setImagens] = useState<any[]>([]);
-  const [sessionId] = useState(() => Math.random().toString(36).substring(2, 15));
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -720,7 +719,6 @@ export default function NovoLaudoPage() {
                     </div>
                     
                     <ImageUploader 
-                      sessionId={sessionId}
                       onImagensChange={setImagens}
                     />
                     

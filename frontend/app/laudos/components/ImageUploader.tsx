@@ -1,60 +1,32 @@
 "use client";
 
-import React, { useState, useCallback, useEffect } from "react";
-import { Upload, X, Image as ImageIcon, GripVertical, Loader2 } from "lucide-react";
+import React, { useState, useCallback } from "react";
+import { Upload, X, Loader2, MoveUp, MoveDown } from "lucide-react";
 
 interface Imagem {
-  id: number;
+  id: string;  // ID único local
   nome: string;
   descricao: string;
   ordem: number;
-  url_preview: string;
+  dataUrl: string;  // URL de dados para preview
   tamanho: number;
+  file: File;  // Arquivo original para upload posterior
 }
 
 interface ImageUploaderProps {
-  sessionId: string;
   onImagensChange?: (imagens: Imagem[]) => void;
 }
 
-export default function ImageUploader({ sessionId, onImagensChange }: ImageUploaderProps) {
+export default function ImageUploader({ onImagensChange }: ImageUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [imagens, setImagens] = useState<Imagem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Carregar imagens existentes da sessão
-  useEffect(() => {
-    if (sessionId) {
-      carregarImagens();
-    }
-  }, [sessionId]);
-
-  const carregarImagens = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(`/api/v1/imagens/temp/session/${sessionId}`, {
-        headers: { "Authorization": `Bearer ${token}` }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setImagens(data.items || []);
-        onImagensChange?.(data.items || []);
-      }
-    } catch (err) {
-      console.error("Erro ao carregar imagens:", err);
-    }
-  };
+  const gerarId = () => Math.random().toString(36).substring(2, 15);
 
   const processarArquivos = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-
-    const token = localStorage.getItem("token");
-    if (!token) {
-      setError("Você precisa estar logado");
-      return;
-    }
 
     setUploading(true);
     setError(null);
@@ -77,39 +49,30 @@ export default function ImageUploader({ sessionId, onImagensChange }: ImageUploa
       }
 
       try {
-        const formData = new FormData();
-        formData.append("arquivo", file);
-        formData.append("descricao", "");
-        formData.append("ordem", (imagens.length + i).toString());
-
-        const response = await fetch("/api/v1/imagens/upload-temp", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${token}`,
-          },
-          body: formData,
+        // Criar URL de dados para preview imediato
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
         });
 
-        if (!response.ok) {
-          throw new Error(`Erro ao upload ${file.name}`);
-        }
-
-        const data = await response.json();
         novasImagens.push({
-          id: data.imagem_id,
-          nome: data.nome,
+          id: gerarId(),
+          nome: file.name,
           descricao: "",
-          ordem: data.ordem,
-          url_preview: data.url_preview,
-          tamanho: data.tamanho,
+          ordem: imagens.length + novasImagens.length,
+          dataUrl,
+          tamanho: file.size,
+          file,
         });
       } catch (err) {
-        console.error(`Erro ao fazer upload de ${file.name}:`, err);
+        console.error(`Erro ao processar ${file.name}:`, err);
       }
     }
 
-    setImagens(prev => [...prev, ...novasImagens]);
-    onImagensChange?.([...imagens, ...novasImagens]);
+    const todasImagens = [...imagens, ...novasImagens];
+    setImagens(todasImagens);
+    onImagensChange?.(todasImagens);
     setUploading(false);
   };
 
@@ -131,23 +94,15 @@ export default function ImageUploader({ sessionId, onImagensChange }: ImageUploa
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     processarArquivos(e.target.files);
-    e.target.value = ""; // Reset input
+    e.target.value = "";
   }, [imagens]);
 
-  const removerImagem = async (imagemId: number) => {
-    try {
-      const token = localStorage.getItem("token");
-      await fetch(`/api/v1/imagens/temp/${imagemId}`, {
-        method: "DELETE",
-        headers: { "Authorization": `Bearer ${token}` }
-      });
-      
-      const novasImagens = imagens.filter(img => img.id !== imagemId);
-      setImagens(novasImagens);
-      onImagensChange?.(novasImagens);
-    } catch (err) {
-      console.error("Erro ao remover imagem:", err);
-    }
+  const removerImagem = (id: string) => {
+    const novasImagens = imagens.filter(img => img.id !== id);
+    // Reordenar
+    novasImagens.forEach((img, idx) => img.ordem = idx);
+    setImagens(novasImagens);
+    onImagensChange?.(novasImagens);
   };
 
   const moverImagem = (index: number, direcao: "up" | "down") => {
@@ -199,7 +154,7 @@ export default function ImageUploader({ sessionId, onImagensChange }: ImageUploa
           {uploading ? (
             <div className="flex flex-col items-center">
               <Loader2 className="h-10 w-10 text-blue-500 animate-spin mb-3" />
-              <p className="text-sm text-gray-600">Enviando imagens...</p>
+              <p className="text-sm text-gray-600">Processando imagens...</p>
             </div>
           ) : (
             <div className="flex flex-col items-center">
@@ -237,30 +192,38 @@ export default function ImageUploader({ sessionId, onImagensChange }: ImageUploa
                 {/* Preview */}
                 <div className="aspect-square bg-gray-100 relative">
                   <img
-                    src={imagem.url_preview}
+                    src={imagem.dataUrl}
                     alt={imagem.nome}
                     className="w-full h-full object-cover"
                   />
+                  
+                  {/* Número da ordem */}
+                  <div className="absolute top-2 left-2 bg-teal-600 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center">
+                    {index + 1}
+                  </div>
                   
                   {/* Overlay com controles */}
                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                     <button
                       onClick={() => moverImagem(index, "up")}
                       disabled={index === 0}
-                      className="p-1 bg-white rounded hover:bg-gray-100 disabled:opacity-50"
+                      className="p-2 bg-white rounded-full hover:bg-gray-100 disabled:opacity-50"
+                      title="Mover para cima"
                     >
-                      ↑
+                      <MoveUp className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => moverImagem(index, "down")}
                       disabled={index === imagens.length - 1}
-                      className="p-1 bg-white rounded hover:bg-gray-100 disabled:opacity-50"
+                      className="p-2 bg-white rounded-full hover:bg-gray-100 disabled:opacity-50"
+                      title="Mover para baixo"
                     >
-                      ↓
+                      <MoveDown className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => removerImagem(imagem.id)}
-                      className="p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                      className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600"
+                      title="Remover"
                     >
                       <X className="w-4 h-4" />
                     </button>
