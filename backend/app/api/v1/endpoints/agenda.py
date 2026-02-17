@@ -180,9 +180,17 @@ def atualizar_status(
 def deletar_agendamento(
     agendamento_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_papel("admin"))
+    current_user: User = Depends(get_current_user)
 ):
     """Deleta agendamento (só admin)"""
+    from sqlalchemy import text
+    papel = db.execute(
+        text("SELECT p.nome FROM papeis p JOIN usuario_papel up ON p.id = up.papel_id WHERE up.usuario_id = :uid"),
+        {"uid": current_user.id}
+    ).fetchone()
+    if not papel or papel[0] != "admin":
+        raise HTTPException(status_code=403, detail="Apenas administradores podem excluir agendamentos")
+
     db_agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
     if not db_agendamento:
         raise HTTPException(status_code=404, detail="Agendamento não encontrado")
