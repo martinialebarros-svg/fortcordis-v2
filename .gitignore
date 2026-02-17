@@ -11,3 +11,4 @@ frontend/.next/
 # Outros
 *.log
 .DS_Store
+backups/
