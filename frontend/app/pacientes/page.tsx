@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
-import { Users, Search, Plus, Dog, Cat, User } from "lucide-react";
+import { Users, Search, Plus, Dog, Cat, User, Edit2, Trash2 } from "lucide-react";
 
 interface Paciente {
   id: number;
@@ -110,17 +110,26 @@ export default function PacientesPage() {
           ) : (
             <div className="divide-y">
               {pacientesFiltrados.map((paciente) => (
-                <div key={paciente.id} className="p-4 flex items-center gap-4 hover:bg-gray-50">
+                <div key={paciente.id} className="p-4 flex items-center gap-4 hover:bg-gray-50 group">
                   <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
                     {getEspecieIcon(paciente.especie)}
                   </div>
-                  <div className="flex-1">
+                  <div className="flex-1 cursor-pointer" onClick={() => router.push(`/pacientes/${paciente.id}`)}>
                     <h3 className="font-medium text-gray-900">{paciente.nome}</h3>
                     <p className="text-sm text-gray-500">Tutor: {paciente.tutor || "Não informado"}</p>
                   </div>
-                  <div className="text-right text-sm text-gray-500">
+                  <div className="text-right text-sm text-gray-500 hidden sm:block">
                     {paciente.especie && <p>{paciente.especie}</p>}
                     {paciente.raca && <p className="text-gray-400">{paciente.raca}</p>}
+                  </div>
+                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => router.push(`/pacientes/${paciente.id}`)}
+                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
+                      title="Editar"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               ))}
