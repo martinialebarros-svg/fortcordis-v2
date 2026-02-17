@@ -75,45 +75,56 @@ def criar_paciente(
     # Buscar ou criar tutor
     tutor_id = None
     if paciente.tutor:
-        tutor = db.query(Tutor).filter(Tutor.nome.ilike(paciente.tutor)).first()
-        if not tutor:
-            # Criar novo tutor
-            tutor = Tutor(
-                nome=paciente.tutor,
-                email="",
-                telefone=""
-            )
-            db.add(tutor)
-            db.commit()
-            db.refresh(tutor)
-        tutor_id = tutor.id
+        try:
+            tutor = db.query(Tutor).filter(Tutor.nome.ilike(paciente.tutor)).first()
+            if not tutor:
+                # Criar novo tutor
+                tutor = Tutor(
+                    nome=paciente.tutor,
+                    email="",
+                    telefone="",
+                    ativo=1
+                )
+                db.add(tutor)
+                db.commit()
+                db.refresh(tutor)
+            tutor_id = tutor.id
+        except Exception as e:
+            db.rollback()
+            print(f"[ERRO] Ao criar tutor: {e}")
+            # Continua sem tutor
     
     # Criar paciente
-    db_paciente = Paciente(
-        nome=paciente.nome,
-        tutor_id=tutor_id,
-        especie=paciente.especie,
-        raca=paciente.raca,
-        sexo=paciente.sexo,
-        peso=paciente.peso_kg,
-        nascimento=paciente.data_nascimento,
-        microchip=paciente.microchip,
-        observacoes=paciente.observacoes
-    )
-    
-    db.add(db_paciente)
-    db.commit()
-    db.refresh(db_paciente)
-    
-    return {
-        "id": db_paciente.id,
-        "nome": db_paciente.nome,
-        "tutor": paciente.tutor or "",
-        "especie": db_paciente.especie,
-        "raca": db_paciente.raca,
-        "sexo": db_paciente.sexo,
-        "peso_kg": db_paciente.peso_kg
-    }
+    try:
+        db_paciente = Paciente(
+            nome=paciente.nome,
+            tutor_id=tutor_id,
+            especie=paciente.especie,
+            raca=paciente.raca,
+            sexo=paciente.sexo,
+            peso_kg=paciente.peso_kg,
+            nascimento=paciente.data_nascimento,
+            microchip=paciente.microchip,
+            observacoes=paciente.observacoes,
+            ativo=1
+        )
+        
+        db.add(db_paciente)
+        db.commit()
+        db.refresh(db_paciente)
+        
+        return {
+            "id": db_paciente.id,
+            "nome": db_paciente.nome,
+            "tutor": paciente.tutor or "",
+            "especie": db_paciente.especie,
+            "raca": db_paciente.raca,
+            "sexo": db_paciente.sexo,
+            "peso_kg": db_paciente.peso_kg
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao criar paciente: {str(e)}")
 
 
 @router.get("/{paciente_id}")

@@ -63,26 +63,29 @@ def criar_clinica(
             detail=f"Ja existe uma clinica com o nome '{clinica.nome}'"
         )
     
-    db_clinica = Clinica(
-        nome=clinica.nome,
-        cnpj=clinica.cnpj,
-        telefone=clinica.telefone,
-        email=clinica.email,
-        endereco=clinica.endereco,
-
-        ativo=1
-    )
-    
-    db.add(db_clinica)
-    db.commit()
-    db.refresh(db_clinica)
-    
-    return {
-        "id": db_clinica.id,
-        "nome": db_clinica.nome,
-        "cnpj": db_clinica.cnpj,
-        "telefone": db_clinica.telefone
-    }
+    try:
+        db_clinica = Clinica(
+            nome=clinica.nome,
+            cnpj=clinica.cnpj,
+            telefone=clinica.telefone,
+            email=clinica.email,
+            endereco=clinica.endereco,
+            ativo=True
+        )
+        
+        db.add(db_clinica)
+        db.commit()
+        db.refresh(db_clinica)
+        
+        return {
+            "id": db_clinica.id,
+            "nome": db_clinica.nome,
+            "cnpj": db_clinica.cnpj,
+            "telefone": db_clinica.telefone
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao criar clinica: {str(e)}")
 
 
 @router.get("/{clinica_id}")
