@@ -32,7 +32,7 @@ class FraseQualitativa(Base):
     # Auditoria
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
 
 
 class FraseQualitativaHistorico(Base):
@@ -48,4 +48,4 @@ class FraseQualitativaHistorico(Base):
     acao = Column(String(50))  # CREATE, UPDATE, DELETE
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = Column(Integer, ForeignKey("usuarios.id"), nullable=True)

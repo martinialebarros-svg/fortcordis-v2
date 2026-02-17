@@ -6,10 +6,10 @@ from app.utils.frases_seed import seed_frases
 print("Criando tabelas de frases...")
 FraseQualitativa.__table__.create(engine, checkfirst=True)
 FraseQualitativaHistorico.__table__.create(engine, checkfirst=True)
-print("✅ Tabelas criadas!")
+print("[OK] Tabelas criadas!")
 
 print("\nAdicionando frases padrão...")
 db = SessionLocal()
 seed_frases(db)
 db.close()
-print("✅ Seed completo!")
+print("[OK] Seed completo!")

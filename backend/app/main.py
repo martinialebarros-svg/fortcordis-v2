@@ -1,7 +1,7 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1.endpoints import auth, admin, agenda, pacientes, clinicas, servicos, laudos, financeiro, xml_import, frases
+from app.api.v1.endpoints import auth, admin, agenda, pacientes, clinicas, servicos, laudos, financeiro, xml_import, frases, imagens
 from app.models import user, papel, agendamento
 from app.core.websocket import manager
 
@@ -32,6 +32,7 @@ app.include_router(laudos.router, prefix="/api/v1", tags=["laudos"])
 app.include_router(financeiro.router, prefix="/api/v1/financeiro", tags=["financeiro"])
 app.include_router(xml_import.router, prefix="/api/v1/xml", tags=["xml_import"])
 app.include_router(frases.router, prefix="/api/v1/frases", tags=["frases"])
+app.include_router(imagens.router, prefix="/api/v1/imagens", tags=["imagens"])
 
 # WebSocket endpoint
 @app.websocket("/ws/{client_id}")

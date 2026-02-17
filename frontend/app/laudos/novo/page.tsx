@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import XmlUploader from "../components/XmlUploader";
-import { Save, ArrowLeft, Heart, User, Activity, FileText, BookOpen, Settings } from "lucide-react";
+import ImageUploader from "../components/ImageUploader";
+import { Save, ArrowLeft, Heart, User, Activity, FileText, BookOpen, Settings, Image as ImageIcon } from "lucide-react";
 
 interface DadosPaciente {
   nome: string;
@@ -84,7 +85,7 @@ const CAMPOS_QUALITATIVA = [
 export default function NovoLaudoPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [aba, setAba] = useState<"paciente" | "medidas" | "qualitativa" | "conteudo" | "frases">("paciente");
+  const [aba, setAba] = useState<"paciente" | "medidas" | "qualitativa" | "imagens" | "conteudo" | "frases">("paciente");
   
   // Dados do paciente
   const [paciente, setPaciente] = useState({
@@ -137,6 +138,10 @@ export default function NovoLaudoPage() {
   // Lista de frases (para aba Frases)
   const [frases, setFrases] = useState<FraseQualitativa[]>([]);
   const [fraseEditando, setFraseEditando] = useState<FraseQualitativa | null>(null);
+  
+  // Imagens do laudo
+  const [imagens, setImagens] = useState<any[]>([]);
+  const [sessionId] = useState(() => Math.random().toString(36).substring(2, 15));
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -470,6 +475,17 @@ export default function NovoLaudoPage() {
                   Qualitativa
                 </button>
                 <button
+                  onClick={() => setAba("imagens")}
+                  className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
+                    aba === "imagens"
+                      ? "text-teal-600 border-b-2 border-teal-600"
+                      : "text-gray-600 hover:text-gray-800"
+                  }`}
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  Imagens
+                </button>
+                <button
                   onClick={() => setAba("conteudo")}
                   className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
                     aba === "conteudo"
@@ -691,6 +707,29 @@ export default function NovoLaudoPage() {
                         />
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {aba === "imagens" && (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-medium text-gray-900">Imagens do Exame</h3>
+                      <span className="text-sm text-gray-500">
+                        {imagens.length} imagem(ns)
+                      </span>
+                    </div>
+                    
+                    <ImageUploader 
+                      sessionId={sessionId}
+                      onImagensChange={setImagens}
+                    />
+                    
+                    <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                      <p className="text-sm text-blue-800">
+                        <strong>Dica:</strong> As imagens serão inseridas automaticamente no PDF do laudo. 
+                        Arraste para reordenar ou clique no X para remover.
+                      </p>
+                    </div>
                   </div>
                 )}
 
