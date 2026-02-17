@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import XmlUploader from "../components/XmlUploader";
-import { Save, ArrowLeft, Heart, User, Activity, FileText } from "lucide-react";
+import { Save, ArrowLeft, Heart, User, Activity, FileText, BookOpen, Settings } from "lucide-react";
 
 interface DadosPaciente {
   nome: string;
@@ -25,6 +25,20 @@ interface DadosExame {
   clinica: string;
   veterinario_solicitante: string;
   fc: string;
+}
+
+interface FraseQualitativa {
+  id: number;
+  chave: string;
+  patologia: string;
+  grau: string;
+  valvas: string;
+  camaras: string;
+  funcao: string;
+  pericardio: string;
+  vasos: string;
+  ad_vd: string;
+  conclusao: string;
 }
 
 // Parâmetros ecocardiográficos
@@ -57,10 +71,20 @@ const PARAMETROS_MEDIDAS = [
   { key: "TR_Vmax", label: "TR Vmax (m/s)", categoria: "Regurgitação" },
 ];
 
+// Campos da qualitativa detalhada
+const CAMPOS_QUALITATIVA = [
+  { key: "valvas", label: "Válvulas", placeholder: "Descreva o estado das válvulas cardíacas..." },
+  { key: "camaras", label: "Câmaras", placeholder: "Descreva as cavidades cardíacas..." },
+  { key: "funcao", label: "Função", placeholder: "Descreva a função cardíaca..." },
+  { key: "pericardio", label: "Pericárdio", placeholder: "Descreva o pericárdio..." },
+  { key: "vasos", label: "Vasos", placeholder: "Descreva os grandes vasos..." },
+  { key: "ad_vd", label: "AD/VD", placeholder: "Descreva as câmaras direitas..." },
+];
+
 export default function NovoLaudoPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [aba, setAba] = useState<"paciente" | "medidas" | "conteudo">("paciente");
+  const [aba, setAba] = useState<"paciente" | "medidas" | "qualitativa" | "conteudo" | "frases">("paciente");
   
   // Dados do paciente
   const [paciente, setPaciente] = useState({
@@ -78,6 +102,16 @@ export default function NovoLaudoPage() {
   // Medidas
   const [medidas, setMedidas] = useState<Record<string, string>>({});
   
+  // Qualitativa
+  const [qualitativa, setQualitativa] = useState({
+    valvas: "",
+    camaras: "",
+    funcao: "",
+    pericardio: "",
+    vasos: "",
+    ad_vd: "",
+  });
+  
   // Conteúdo do laudo
   const [conteudo, setConteudo] = useState({
     descricao: "",
@@ -91,18 +125,110 @@ export default function NovoLaudoPage() {
   
   // Mensagem de sucesso
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
+  
+  // Sidebar - Frases
+  const [patologias, setPatologias] = useState<string[]>([]);
+  const [patologiaSelecionada, setPatologiaSelecionada] = useState("Normal");
+  const [graus, setGraus] = useState<string[]>(["Normal", "Leve", "Moderada", "Importante", "Grave"]);
+  const [grauSelecionado, setGrauSelecionado] = useState("Normal");
+  const [layoutQualitativa, setLayoutQualitativa] = useState<"detalhado" | "enxuto">("detalhado");
+  const [aplicandoFrase, setAplicandoFrase] = useState(false);
+  
+  // Lista de frases (para aba Frases)
+  const [frases, setFrases] = useState<FraseQualitativa[]>([]);
+  const [fraseEditando, setFraseEditando] = useState<FraseQualitativa | null>(null);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
       router.push("/");
+      return;
     }
+    carregarPatologias();
+    carregarFrases();
   }, [router]);
+
+  const carregarPatologias = async () => {
+    try {
+      const response = await api.get("/frases/patologias");
+      if (response.data && response.data.length > 0) {
+        setPatologias(response.data);
+      } else {
+        // Padrões caso não tenha no banco
+        setPatologias(["Normal", "Endocardiose Mitral", "Cardiomiopatia Dilatada", "Estenose Aórtica", "Estenose Pulmonar"]);
+      }
+    } catch (error) {
+      console.error("Erro ao carregar patologias:", error);
+      setPatologias(["Normal", "Endocardiose Mitral", "Cardiomiopatia Dilatada"]);
+    }
+  };
+
+  const carregarFrases = async () => {
+    try {
+      const response = await api.get("/frases?limit=100");
+      setFrases(response.data.items || []);
+    } catch (error) {
+      console.error("Erro ao carregar frases:", error);
+    }
+  };
+
+  const handleGerarTexto = async () => {
+    setAplicandoFrase(true);
+    try {
+      const request = {
+        patologia: patologiaSelecionada,
+        grau_refluxo: patologiaSelecionada === "Endocardiose Mitral" ? grauSelecionado : undefined,
+        grau_geral: patologiaSelecionada !== "Endocardiose Mitral" ? grauSelecionado : undefined,
+        layout: layoutQualitativa,
+      };
+      
+      const response = await api.post("/frases/aplicar", request);
+      
+      if (response.data.success && response.data.dados) {
+        const dados = response.data.dados;
+        
+        if (layoutQualitativa === "enxuto") {
+          setQualitativa({
+            valvas: dados.valvas || "",
+            camaras: dados.camaras || "",
+            funcao: dados.funcao || "",
+            pericardio: dados.pericardio || "",
+            vasos: dados.vasos || "",
+            ad_vd: dados.ad_vd || "",
+          });
+        } else {
+          // Layout detalhado
+          setQualitativa({
+            valvas: dados.valvas || "",
+            camaras: dados.camaras || "",
+            funcao: dados.funcao || "",
+            pericardio: dados.pericardio || "",
+            vasos: dados.vasos || "",
+            ad_vd: dados.ad_vd || "",
+          });
+        }
+        
+        setConteudo(prev => ({
+          ...prev,
+          conclusao: dados.conclusao || prev.conclusao,
+        }));
+        
+        setMensagemSucesso("Texto gerado com sucesso!");
+        setTimeout(() => setMensagemSucesso(null), 3000);
+      } else {
+        alert("Frase não encontrada para esta patologia/grau.");
+      }
+    } catch (error) {
+      console.error("Erro ao gerar texto:", error);
+      alert("Erro ao gerar texto qualitativo.");
+    } finally {
+      setAplicandoFrase(false);
+    }
+  };
 
   const handleDadosImportados = (dados: DadosExame) => {
     console.log("Dados recebidos do XML:", dados);
     
-    // Preenche dados do paciente
     if (dados.paciente) {
       const novoPaciente = {
         nome: dados.paciente.nome || "",
@@ -117,26 +243,21 @@ export default function NovoLaudoPage() {
           ? dados.paciente.data_exame.substring(0, 10) 
           : new Date().toISOString().split('T')[0],
       };
-      console.log("Novo paciente:", novoPaciente);
       setPaciente(novoPaciente);
     }
     
-    // Preenche medidas
     if (dados.medidas) {
       const medidasFormatadas: Record<string, string> = {};
       Object.entries(dados.medidas).forEach(([key, value]) => {
         medidasFormatadas[key] = value.toString();
       });
-      console.log("Medidas formatadas:", medidasFormatadas);
       setMedidas(medidasFormatadas);
     }
     
-    // Preenche clínica
     if (dados.clinica) {
       setClinica(dados.clinica);
     }
     
-    // Mostra mensagem de sucesso
     setMensagemSucesso("Dados do XML importados com sucesso!");
     setTimeout(() => setMensagemSucesso(null), 5000);
   };
@@ -144,17 +265,16 @@ export default function NovoLaudoPage() {
   const handleSalvar = async () => {
     setLoading(true);
     try {
-      // Primeiro cria o paciente se não existir
       const payload = {
         paciente,
         medidas,
+        qualitativa,
         conteudo,
         clinica,
         veterinario,
         data_exame: paciente.data_exame,
       };
       
-      // TODO: Implementar endpoint completo de criação de laudo
       await api.post("/laudos", payload);
       alert("Laudo salvo com sucesso!");
       router.push("/laudos");
@@ -170,9 +290,13 @@ export default function NovoLaudoPage() {
     setMedidas(prev => ({ ...prev, [key]: value }));
   };
 
+  const handleQualitativaChange = (key: string, value: string) => {
+    setQualitativa(prev => ({ ...prev, [key]: value }));
+  };
+
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-6xl mx-auto">
+      <div className="p-6 max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
           <div className="flex items-center gap-3">
@@ -197,16 +321,18 @@ export default function NovoLaudoPage() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Coluna Esquerda - Upload XML */}
-          <div className="lg:col-span-1">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          {/* Coluna Esquerda - Upload XML e Suspeita */}
+          <div className="lg:col-span-1 space-y-6">
+            {/* Upload XML */}
             <div className="bg-white p-6 rounded-lg shadow-sm border">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Activity className="w-5 h-5 text-teal-600" />
                 Importar XML
               </h2>
+              
               {mensagemSucesso && (
-                <div className="mb-4 p-3 bg-green-100 border border-green-300 text-green-800 rounded-lg">
+                <div className="mb-4 p-3 bg-green-100 border border-green-300 text-green-800 rounded-lg text-sm">
                   {mensagemSucesso}
                 </div>
               )}
@@ -219,16 +345,100 @@ export default function NovoLaudoPage() {
                 </p>
               </div>
             </div>
+
+            {/* Suspeita - Sidebar */}
+            <div className="bg-white p-6 rounded-lg shadow-sm border">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <Heart className="w-5 h-5 text-teal-600" />
+                Suspeita
+              </h2>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Patologia
+                  </label>
+                  <select
+                    value={patologiaSelecionada}
+                    onChange={(e) => setPatologiaSelecionada(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 text-sm"
+                  >
+                    {patologias.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Grau
+                  </label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={graus.length - 1}
+                    step={1}
+                    value={graus.indexOf(grauSelecionado)}
+                    onChange={(e) => setGrauSelecionado(graus[parseInt(e.target.value)])}
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-teal-600"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    {graus.map((g) => (
+                      <span key={g} className={grauSelecionado === g ? "font-bold text-teal-600" : ""}>
+                        {g}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Layout
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setLayoutQualitativa("detalhado")}
+                      className={`flex-1 px-3 py-2 text-sm rounded-lg border ${
+                        layoutQualitativa === "detalhado"
+                          ? "bg-teal-100 border-teal-300 text-teal-800"
+                          : "bg-white border-gray-300 text-gray-700"
+                      }`}
+                    >
+                      Detalhado
+                    </button>
+                    <button
+                      onClick={() => setLayoutQualitativa("enxuto")}
+                      className={`flex-1 px-3 py-2 text-sm rounded-lg border ${
+                        layoutQualitativa === "enxuto"
+                          ? "bg-teal-100 border-teal-300 text-teal-800"
+                          : "bg-white border-gray-300 text-gray-700"
+                      }`}
+                    >
+                      Enxuto
+                    </button>
+                  </div>
+                </div>
+                
+                <button
+                  onClick={handleGerarTexto}
+                  disabled={aplicandoFrase}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50"
+                >
+                  <BookOpen className="w-4 h-4" />
+                  {aplicandoFrase ? "Gerando..." : "Gerar Texto"}
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Coluna Direita - Formulário */}
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-3">
             <div className="bg-white rounded-lg shadow-sm border">
               {/* Abas */}
-              <div className="flex border-b">
+              <div className="flex border-b overflow-x-auto">
                 <button
                   onClick={() => setAba("paciente")}
-                  className={`px-6 py-3 font-medium flex items-center gap-2 ${
+                  className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
                     aba === "paciente"
                       ? "text-teal-600 border-b-2 border-teal-600"
                       : "text-gray-600 hover:text-gray-800"
@@ -239,7 +449,7 @@ export default function NovoLaudoPage() {
                 </button>
                 <button
                   onClick={() => setAba("medidas")}
-                  className={`px-6 py-3 font-medium flex items-center gap-2 ${
+                  className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
                     aba === "medidas"
                       ? "text-teal-600 border-b-2 border-teal-600"
                       : "text-gray-600 hover:text-gray-800"
@@ -249,8 +459,19 @@ export default function NovoLaudoPage() {
                   Medidas
                 </button>
                 <button
+                  onClick={() => setAba("qualitativa")}
+                  className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
+                    aba === "qualitativa"
+                      ? "text-teal-600 border-b-2 border-teal-600"
+                      : "text-gray-600 hover:text-gray-800"
+                  }`}
+                >
+                  <BookOpen className="w-4 h-4" />
+                  Qualitativa
+                </button>
+                <button
                   onClick={() => setAba("conteudo")}
-                  className={`px-6 py-3 font-medium flex items-center gap-2 ${
+                  className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
                     aba === "conteudo"
                       ? "text-teal-600 border-b-2 border-teal-600"
                       : "text-gray-600 hover:text-gray-800"
@@ -258,6 +479,17 @@ export default function NovoLaudoPage() {
                 >
                   <FileText className="w-4 h-4" />
                   Conteúdo
+                </button>
+                <button
+                  onClick={() => setAba("frases")}
+                  className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
+                    aba === "frases"
+                      ? "text-teal-600 border-b-2 border-teal-600"
+                      : "text-gray-600 hover:text-gray-800"
+                  }`}
+                >
+                  <Settings className="w-4 h-4" />
+                  Frases
                 </button>
               </div>
 
@@ -405,7 +637,6 @@ export default function NovoLaudoPage() {
 
                 {aba === "medidas" && (
                   <div className="space-y-6">
-                    {/* Agrupar por categoria */}
                     {["Câmaras", "Paredes", "Volumes", "Função", "Razões", "Fluxos", "Gradientes", "Mitral", "Tempos", "Regurgitação"].map((categoria) => {
                       const parametrosCategoria = PARAMETROS_MEDIDAS.filter(
                         (p) => p.categoria === categoria
@@ -415,7 +646,7 @@ export default function NovoLaudoPage() {
                       return (
                         <div key={categoria}>
                           <h4 className="font-medium text-gray-900 mb-3">{categoria}</h4>
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                             {parametrosCategoria.map((param) => (
                               <div key={param.key}>
                                 <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -434,6 +665,32 @@ export default function NovoLaudoPage() {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+
+                {aba === "qualitativa" && (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-medium text-gray-900">Qualitativa Detalhada</h3>
+                      <span className="text-sm text-gray-500">
+                        Use a barra lateral para gerar texto automaticamente
+                      </span>
+                    </div>
+                    
+                    {CAMPOS_QUALITATIVA.map((campo) => (
+                      <div key={campo.key}>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          {campo.label}
+                        </label>
+                        <textarea
+                          value={qualitativa[campo.key as keyof typeof qualitativa]}
+                          onChange={(e) => handleQualitativaChange(campo.key, e.target.value)}
+                          rows={3}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                          placeholder={campo.placeholder}
+                        />
+                      </div>
+                    ))}
                   </div>
                 )}
 
@@ -477,6 +734,55 @@ export default function NovoLaudoPage() {
                         placeholder="Observações adicionais..."
                       />
                     </div>
+                  </div>
+                )}
+
+                {aba === "frases" && (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-medium text-gray-900">Gerenciamento de Frases</h3>
+                      <button className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm">
+                        + Nova Frase
+                      </button>
+                    </div>
+                    
+                    {frases.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        Nenhuma frase cadastrada. Clique em "Nova Frase" para adicionar.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-2 text-left">Patologia</th>
+                              <th className="px-4 py-2 text-left">Grau</th>
+                              <th className="px-4 py-2 text-left">Conclusão</th>
+                              <th className="px-4 py-2 text-right">Ações</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {frases.map((frase) => (
+                              <tr key={frase.id} className="hover:bg-gray-50">
+                                <td className="px-4 py-2">{frase.patologia}</td>
+                                <td className="px-4 py-2">{frase.grau}</td>
+                                <td className="px-4 py-2 truncate max-w-xs">
+                                  {frase.conclusao.substring(0, 50)}...
+                                </td>
+                                <td className="px-4 py-2 text-right">
+                                  <button className="text-teal-600 hover:text-teal-800 mr-2">
+                                    Editar
+                                  </button>
+                                  <button className="text-red-600 hover:text-red-800">
+                                    Excluir
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
