@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
-import { Building2, Search, Plus, MapPin, Phone } from "lucide-react";
+import { Building2, Search, Plus, MapPin, Phone, Edit2 } from "lucide-react";
 
 interface Clinica {
   id: number;
@@ -102,27 +102,38 @@ export default function ClinicasPage() {
           ) : (
             <div className="divide-y">
               {clinicasFiltradas.map((clinica) => (
-                <div key={clinica.id} className="p-4 hover:bg-gray-50">
-                  <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                      <Building2 className="w-5 h-5 text-purple-600" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-medium text-gray-900">{clinica.nome}</h3>
-                      {clinica.endereco && (
-                        <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
-                          <MapPin className="w-3 h-3" />
-                          {clinica.endereco}
-                        </p>
-                      )}
-                      {clinica.telefone && (
-                        <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
-                          <Phone className="w-3 h-3" />
-                          {clinica.telefone}
-                        </p>
-                      )}
-                    </div>
+                <div key={clinica.id} className="p-4 hover:bg-gray-50 group flex items-start gap-4">
+                  <div 
+                    className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center cursor-pointer"
+                    onClick={() => router.push(`/clinicas/${clinica.id}`)}
+                  >
+                    <Building2 className="w-5 h-5 text-purple-600" />
                   </div>
+                  <div 
+                    className="flex-1 cursor-pointer"
+                    onClick={() => router.push(`/clinicas/${clinica.id}`)}
+                  >
+                    <h3 className="font-medium text-gray-900">{clinica.nome}</h3>
+                    {clinica.endereco && (
+                      <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
+                        <MapPin className="w-3 h-3" />
+                        {clinica.endereco}
+                      </p>
+                    )}
+                    {clinica.telefone && (
+                      <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
+                        <Phone className="w-3 h-3" />
+                        {clinica.telefone}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => router.push(`/clinicas/${clinica.id}`)}
+                    className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Editar"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
                 </div>
               ))}
             </div>
