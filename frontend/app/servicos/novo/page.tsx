@@ -59,6 +59,16 @@ export default function NovoServicoPage() {
       return;
     }
 
+    // Verificar se o usuário está autenticado
+    const token = localStorage.getItem("token");
+    console.log("Token no localStorage:", token ? "Presente" : "Ausente");
+    
+    if (!token) {
+      alert("Sessão expirada. Por favor, faça login novamente.");
+      router.push("/");
+      return;
+    }
+
     setLoading(true);
     try {
       const payload = {
