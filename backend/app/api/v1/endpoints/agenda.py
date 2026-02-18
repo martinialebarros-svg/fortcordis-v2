@@ -258,24 +258,52 @@ def atualizar_status(
     
     # Se status for "Realizado", gerar Ordem de Serviço automaticamente
     if status == "Realizado":
-        # Buscar dados da clínica para obter a tabela de preço
+        # Buscar dados da clínica para determinar a região
         clinica = db.query(Clinica).filter(Clinica.id == db_agendamento.clinica_id).first()
         
         # Determinar valor do serviço
         valor_servico = Decimal("0.00")
         
         if clinica and db_agendamento.servico_id:
-            # Buscar preço na tabela da clínica
-            preco = db.query(PrecoServico).filter(
-                PrecoServico.tabela_preco_id == clinica.tabela_preco_id,
-                PrecoServico.servico_id == db_agendamento.servico_id
-            ).first()
+            # Buscar serviço com os novos preços por região
+            servico = db.query(Servico).filter(Servico.id == db_agendamento.servico_id).first()
             
-            if preco:
-                if tipo_horario == 'plantao' and preco.preco_plantao:
-                    valor_servico = preco.preco_plantao
-                elif preco.preco_comercial:
-                    valor_servico = preco.preco_comercial
+            if servico:
+                # Determinar qual tabela de preço usar baseado na clínica
+                tabela_id = clinica.tabela_preco_id if clinica.tabela_preco_id else 1
+                
+                # Mapear tabela_id para região
+                # 1 = Fortaleza, 2 = Região Metropolitana, 3 = Domiciliar
+                if tabela_id == 1:
+                    # Fortaleza
+                    if tipo_horario == 'plantao' and servico.preco_fortaleza_plantao:
+                        valor_servico = servico.preco_fortaleza_plantao
+                    elif servico.preco_fortaleza_comercial:
+                        valor_servico = servico.preco_fortaleza_comercial
+                elif tabela_id == 2:
+                    # Região Metropolitana
+                    if tipo_horario == 'plantao' and servico.preco_rm_plantao:
+                        valor_servico = servico.preco_rm_plantao
+                    elif servico.preco_rm_comercial:
+                        valor_servico = servico.preco_rm_comercial
+                elif tabela_id == 3:
+                    # Domiciliar
+                    if tipo_horario == 'plantao' and servico.preco_domiciliar_plantao:
+                        valor_servico = servico.preco_domiciliar_plantao
+                    elif servico.preco_domiciliar_comercial:
+                        valor_servico = servico.preco_domiciliar_comercial
+                else:
+                    # Fallback: tentar buscar na tabela de preços antiga
+                    preco = db.query(PrecoServico).filter(
+                        PrecoServico.tabela_preco_id == tabela_id,
+                        PrecoServico.servico_id == db_agendamento.servico_id
+                    ).first()
+                    
+                    if preco:
+                        if tipo_horario == 'plantao' and preco.preco_plantao:
+                            valor_servico = preco.preco_plantao
+                        elif preco.preco_comercial:
+                            valor_servico = preco.preco_comercial
         
         # Gerar número da OS (ANO + MES + SEQUENCIAL)
         hoje = datetime.now()
