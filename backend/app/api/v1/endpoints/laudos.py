@@ -230,6 +230,7 @@ def gerar_pdf_laudo(
     from fastapi.responses import StreamingResponse
     from app.utils.pdf_laudo import gerar_pdf_laudo_eco
     from app.models.paciente import Paciente
+    from app.models.configuracao import Configuracao, ConfiguracaoUsuario
     import traceback
     
     try:
@@ -239,6 +240,14 @@ def gerar_pdf_laudo(
         
         # Buscar paciente
         paciente = db.query(Paciente).filter(Paciente.id == laudo.paciente_id).first()
+        
+        # Buscar configurações do sistema
+        config_sistema = db.query(Configuracao).first()
+        
+        # Buscar configurações do usuário
+        config_usuario = db.query(ConfiguracaoUsuario).filter(
+            ConfiguracaoUsuario.user_id == current_user.id
+        ).first()
         
         # Extrair dados do paciente
         dados_paciente = {
@@ -290,11 +299,38 @@ def gerar_pdf_laudo(
             "qualitativa": qualitativa,
             "conclusao": laudo.diagnostico or "",
             "clinica": "",
-            "imagens": []
+            "imagens": [],
+            "veterinario_nome": current_user.nome,
+            "veterinario_crmv": config_usuario.crmv if config_usuario else ""
         }
         
-        # Gerar PDF
-        pdf_bytes = gerar_pdf_laudo_eco(dados)
+        # Definir logomarca e assinatura
+        logomarca = None
+        assinatura = None
+        texto_rodape = None
+        
+        if config_sistema:
+            # Usar logomarca do sistema se configurado
+            if config_sistema.mostrar_logomarca and config_sistema.logomarca_dados:
+                logomarca = config_sistema.logomarca_dados
+            # Texto do rodapé
+            texto_rodape = config_sistema.texto_rodape_laudo
+        
+        # Assinatura: preferência pela do usuário, senão usa a do sistema
+        if config_usuario and config_usuario.assinatura_dados:
+            assinatura = config_usuario.assinatura_dados
+        elif config_sistema and config_sistema.mostrar_assinatura and config_sistema.assinatura_dados:
+            assinatura = config_sistema.assinatura_dados
+        
+        # Gerar PDF com configurações
+        pdf_bytes = gerar_pdf_laudo_eco(
+            dados,
+            logomarca_bytes=logomarca,
+            assinatura_bytes=assinatura,
+            nome_veterinario=current_user.nome,
+            crmv=config_usuario.crmv if config_usuario else "",
+            texto_rodape=texto_rodape
+        )
         
         return StreamingResponse(
             BytesIO(pdf_bytes),

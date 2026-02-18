@@ -14,7 +14,8 @@ import {
   X,
   User,
   FileText,
-  DollarSign
+  DollarSign,
+  Settings
 } from "lucide-react";
 
 const menuItems = [
@@ -25,6 +26,7 @@ const menuItems = [
   { href: "/servicos", label: "Serviços", icon: Stethoscope },
   { href: "/laudos", label: "Laudos", icon: FileText },
   { href: "/financeiro", label: "Financeiro", icon: DollarSign },
+  { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 
 export default function DashboardLayout({

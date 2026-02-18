@@ -1,4 +1,6 @@
 """Geração de PDF de laudos ecocardiográficos"""
+import os
+import tempfile
 from io import BytesIO
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
@@ -115,13 +117,43 @@ def create_pdf_styles():
     return styles
 
 
-def criar_cabecalho(dados: Dict[str, Any]) -> List:
+def criar_cabecalho(dados: Dict[str, Any], logomarca_bytes: bytes = None) -> List:
     """Cria o cabeçalho do laudo com dados do paciente"""
     elements = []
     styles = create_pdf_styles()
     
-    # Título principal
-    elements.append(Paragraph("LAUDO ECOCARDIOGRÁFICO", styles['TituloPrincipal']))
+    # Se tem logomarca, cria layout com imagem + título
+    if logomarca_bytes:
+        try:
+            # Salvar logomarca temporariamente
+            temp_logo = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+            temp_logo.write(logomarca_bytes)
+            temp_logo.close()
+            
+            # Criar tabela com logo e título
+            logo = Image(temp_logo.name, width=35*mm, height=20*mm)
+            logo.hAlign = 'LEFT'
+            
+            titulo = Paragraph("<b>LAUDO ECOCARDIOGRÁFICO</b>", styles['TituloPrincipal'])
+            
+            # Tabela: [logo] [título]
+            header_data = [[logo, titulo]]
+            header_table = Table(header_data, colWidths=[40*mm, 140*mm])
+            header_table.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('ALIGN', (1, 0), (1, 0), 'CENTER'),
+            ]))
+            elements.append(header_table)
+            
+            # Limpar arquivo temporário
+            os.unlink(temp_logo.name)
+        except Exception as e:
+            # Se falhar ao carregar logo, usa título simples
+            elements.append(Paragraph("LAUDO ECOCARDIOGRÁFICO", styles['TituloPrincipal']))
+    else:
+        # Título principal sem logo
+        elements.append(Paragraph("LAUDO ECOCARDIOGRÁFICO", styles['TituloPrincipal']))
+    
     elements.append(Spacer(1, 3*mm))
     
     # Dados do paciente em formato de tabela
@@ -342,16 +374,59 @@ def criar_secao_conclusao(conclusao: str) -> List:
     return elements
 
 
-def criar_rodape() -> List:
+def criar_secao_assinatura(nome_veterinario: str, crmv: str = "", assinatura_bytes: bytes = None) -> List:
+    """Cria a seção de assinatura"""
+    elements = []
+    styles = create_pdf_styles()
+    
+    elements.append(Spacer(1, 10*mm))
+    
+    # Linha divisória antes da assinatura
+    line_data = [['']]
+    line_table = Table(line_data, colWidths=[180*mm])
+    line_table.setStyle(TableStyle([
+        ('LINEBELOW', (0, 0), (-1, -1), 1, colors.grey),
+    ]))
+    elements.append(line_table)
+    elements.append(Spacer(1, 5*mm))
+    
+    # Se tem assinatura em imagem
+    if assinatura_bytes:
+        try:
+            # Salvar assinatura temporariamente
+            temp_ass = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+            temp_ass.write(assinatura_bytes)
+            temp_ass.close()
+            
+            # Adicionar imagem da assinatura
+            ass_img = Image(temp_ass.name, width=50*mm, height=20*mm)
+            ass_img.hAlign = 'LEFT'
+            elements.append(ass_img)
+            
+            # Limpar arquivo temporário
+            os.unlink(temp_ass.name)
+        except Exception as e:
+            pass  # Se falhar, continua sem imagem
+    
+    # Nome e CRMV
+    elements.append(Paragraph(f"<b>{nome_veterinario}</b>", styles['Normal']))
+    if crmv:
+        elements.append(Paragraph(f"Médico Veterinário - CRMV: {crmv}", styles['Normal']))
+    else:
+        elements.append(Paragraph("Médico Veterinário", styles['Normal']))
+    
+    return elements
+
+
+def criar_rodape(texto_rodape: str = None) -> List:
     """Cria o rodapé"""
     elements = []
     styles = create_pdf_styles()
     
+    texto = texto_rodape or "Fort Cordis Cardiologia Veterinária | Fortaleza-CE"
+    
     elements.append(Spacer(1, 8*mm))
-    elements.append(Paragraph(
-        "Fort Cordis Cardiologia Veterinária | Fortaleza-CE | www.fortcordis.com.br",
-        styles['Rodape']
-    ))
+    elements.append(Paragraph(texto, styles['Rodape']))
     elements.append(Paragraph(
         f"Documento gerado eletronicamente em {datetime.now().strftime('%d/%m/%Y %H:%M')}",
         styles['Rodape']
@@ -360,7 +435,14 @@ def criar_rodape() -> List:
     return elements
 
 
-def gerar_pdf_laudo_eco(dados: Dict[str, Any]) -> bytes:
+def gerar_pdf_laudo_eco(
+    dados: Dict[str, Any],
+    logomarca_bytes: bytes = None,
+    assinatura_bytes: bytes = None,
+    nome_veterinario: str = None,
+    crmv: str = None,
+    texto_rodape: str = None
+) -> bytes:
     """
     Gera o PDF completo do laudo ecocardiográfico.
     
@@ -372,6 +454,11 @@ def gerar_pdf_laudo_eco(dados: Dict[str, Any]) -> bytes:
             - conclusao: string
             - clinica: string (opcional)
             - imagens: list de bytes (opcional)
+        logomarca_bytes: bytes da imagem da logomarca
+        assinatura_bytes: bytes da imagem da assinatura
+        nome_veterinario: nome do veterinário para assinatura
+        crmv: número do CRMV do veterinário
+        texto_rodape: texto personalizado para o rodapé
     
     Returns:
         bytes: Conteúdo do PDF
@@ -388,8 +475,8 @@ def gerar_pdf_laudo_eco(dados: Dict[str, Any]) -> bytes:
     
     elements = []
     
-    # 1. Cabeçalho com dados do paciente
-    elements.extend(criar_cabecalho(dados))
+    # 1. Cabeçalho com dados do paciente e logomarca
+    elements.extend(criar_cabecalho(dados, logomarca_bytes))
     
     # 2. Análise Quantitativa
     elements.append(Paragraph("ANÁLISE QUANTITATIVA", create_pdf_styles()['SecaoTitulo']))
@@ -448,8 +535,13 @@ def gerar_pdf_laudo_eco(dados: Dict[str, Any]) -> bytes:
     conclusao = dados.get('conclusao', '')
     elements.extend(criar_secao_conclusao(conclusao))
     
-    # 5. Rodapé
-    elements.extend(criar_rodape())
+    # 5. Assinatura
+    vet_nome = nome_veterinario or dados.get('veterinario_nome') or "Médico Veterinário"
+    vet_crmv = crmv or dados.get('veterinario_crmv') or ""
+    elements.extend(criar_secao_assinatura(vet_nome, vet_crmv, assinatura_bytes))
+    
+    # 6. Rodapé
+    elements.extend(criar_rodape(texto_rodape))
     
     # 6. Imagens (se houver)
     imagens = dados.get('imagens', [])
