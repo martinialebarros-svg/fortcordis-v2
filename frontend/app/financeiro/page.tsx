@@ -9,7 +9,7 @@ import {
   DollarSign, TrendingUp, TrendingDown, Plus, Search, 
   Calendar, CheckCircle, XCircle, Clock, Edit, Trash2,
   Filter, Download, BarChart3, PieChart, ArrowUpRight, ArrowDownRight,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, FileText, Receipt
 } from "lucide-react";
 
 interface Transacao {
@@ -29,6 +29,21 @@ interface Transacao {
   parcela_atual?: number;
 }
 
+interface OrdemServico {
+  id: number;
+  numero_os: string;
+  paciente: string;
+  clinica: string;
+  servico: string;
+  data_atendimento: string;
+  tipo_horario: string;
+  valor_servico: number;
+  desconto: number;
+  valor_final: number;
+  status: string;
+  created_at: string;
+}
+
 interface Resumo {
   entradas: number;
   saidas: number;
@@ -41,6 +56,7 @@ interface Resumo {
 
 export default function FinanceiroPage() {
   const [transacoes, setTransacoes] = useState<Transacao[]>([]);
+  const [ordensServico, setOrdensServico] = useState<OrdemServico[]>([]);
   const [resumo, setResumo] = useState<Resumo>({
     entradas: 0,
     saidas: 0,
@@ -57,6 +73,7 @@ export default function FinanceiroPage() {
   const [filtroTipo, setFiltroTipo] = useState<string>("todos");
   const [filtroStatus, setFiltroStatus] = useState<string>("todos");
   const [busca, setBusca] = useState("");
+  const [abaAtiva, setAbaAtiva] = useState<"transacoes" | "ordens">("transacoes");
   const router = useRouter();
 
   useEffect(() => {
@@ -71,11 +88,13 @@ export default function FinanceiroPage() {
   const carregarDados = async () => {
     try {
       setLoading(true);
-      const [respTransacoes, respResumo] = await Promise.all([
+      const [respTransacoes, respResumo, respOS] = await Promise.all([
         api.get("/financeiro/transacoes?limit=100"),
         api.get(`/financeiro/resumo?periodo=${periodo}`),
+        api.get("/ordens-servico"),
       ]);
       setTransacoes(respTransacoes.data.items || []);
+      setOrdensServico(respOS.data.items || []);
       setResumo(respResumo.data);
     } catch (error) {
       console.error("Erro ao carregar:", error);
@@ -184,6 +203,36 @@ export default function FinanceiroPage() {
     }
   };
 
+  const handlePagarOS = async (os: OrdemServico) => {
+    try {
+      // Atualizar OS para Pago
+      await api.put(`/ordens-servico/${os.id}`, {
+        status: "Pago",
+        desconto: os.desconto,
+        observacoes: "Pago via financeiro"
+      });
+      
+      // Criar transação automaticamente
+      await api.post("/financeiro/transacoes", {
+        tipo: "entrada",
+        categoria: "consulta",
+        valor: os.valor_final,
+        desconto: 0,
+        forma_pagamento: "dinheiro",
+        status: "Recebido",
+        descricao: `Recebimento OS ${os.numero_os} - ${os.paciente}`,
+        data_transacao: new Date().toISOString(),
+        observacoes: `Gerado da OS ${os.numero_os} - ${os.servico}`,
+      });
+      
+      alert("OS marcada como paga e transação criada!");
+      carregarDados();
+    } catch (error: any) {
+      console.error("Erro ao pagar OS:", error);
+      alert("Erro ao processar pagamento: " + (error.response?.data?.detail || error.message));
+    }
+  };
+
   // Filtrar transações
   const transacoesFiltradas = transacoes.filter((t) => {
     const matchTipo = filtroTipo === "todos" || t.tipo === filtroTipo;
@@ -196,6 +245,23 @@ export default function FinanceiroPage() {
     return matchTipo && matchStatus && matchBusca;
   });
 
+  // Filtrar OS
+  const osFiltradas = ordensServico.filter((os) => {
+    const matchStatus = filtroStatus === "todos" || os.status === filtroStatus;
+    const termo = busca.toLowerCase();
+    const matchBusca = !busca || 
+      os.numero_os?.toLowerCase().includes(termo) ||
+      os.paciente?.toLowerCase().includes(termo) ||
+      os.clinica?.toLowerCase().includes(termo);
+    return matchStatus && matchBusca;
+  });
+
+  // Calcular resumo de OS
+  const osPendentes = ordensServico.filter(os => os.status === 'Pendente');
+  const osPagas = ordensServico.filter(os => os.status === 'Pago');
+  const valorTotalOS = osPagas.reduce((acc, os) => acc + os.valor_final, 0);
+  const valorPendenteOS = osPendentes.reduce((acc, os) => acc + os.valor_final, 0);
+
   return (
     <DashboardLayout>
       <div className="p-6">
@@ -205,13 +271,15 @@ export default function FinanceiroPage() {
             <h1 className="text-2xl font-bold text-gray-900">Financeiro</h1>
             <p className="text-gray-500">Controle financeiro completo</p>
           </div>
-          <button 
-            onClick={handleNova}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Nova Transação
-          </button>
+          <div className="flex gap-2">
+            <button 
+              onClick={handleNova}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Nova Transação
+            </button>
+          </div>
         </div>
 
         {/* Período */}
@@ -279,25 +347,54 @@ export default function FinanceiroPage() {
                 <DollarSign className="w-6 h-6 text-blue-600" />
               </div>
             </div>
-            <p className="text-xs text-gray-400 mt-2">
-              {resumo.saldo >= 0 ? 'Positivo' : 'Negativo'}
-            </p>
           </div>
 
           <div className="bg-white p-5 rounded-xl shadow-sm border">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">A Receber</p>
-                <p className="text-2xl font-bold text-yellow-600">{formatarValor(resumo.a_receber)}</p>
+                <p className="text-sm text-gray-500">OS Pendentes</p>
+                <p className="text-2xl font-bold text-yellow-600">{formatarValor(valorPendenteOS)}</p>
               </div>
               <div className="w-12 h-12 bg-yellow-50 rounded-lg flex items-center justify-center">
-                <Clock className="w-6 h-6 text-yellow-600" />
+                <FileText className="w-6 h-6 text-yellow-600" />
               </div>
             </div>
-            <p className="text-xs text-gray-400 mt-2">
-              A pagar: {formatarValor(resumo.a_pagar)}
+            <p className="text-xs text-gray-500 mt-2">
+              {osPendentes.length} ordem(ns) pendente(s)
             </p>
           </div>
+        </div>
+
+        {/* Abas */}
+        <div className="flex gap-2 mb-6 border-b">
+          <button
+            onClick={() => setAbaAtiva("transacoes")}
+            className={`flex items-center gap-2 px-4 py-3 font-medium border-b-2 transition-colors ${
+              abaAtiva === "transacoes"
+                ? "border-green-500 text-green-600"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            <Receipt className="w-4 h-4" />
+            Transações
+            <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">
+              {transacoes.length}
+            </span>
+          </button>
+          <button
+            onClick={() => setAbaAtiva("ordens")}
+            className={`flex items-center gap-2 px-4 py-3 font-medium border-b-2 transition-colors ${
+              abaAtiva === "ordens"
+                ? "border-green-500 text-green-600"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            Ordens de Serviço
+            <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full text-xs">
+              {osPendentes.length} pendente
+            </span>
+          </button>
         </div>
 
         {/* Filtros */}
@@ -308,23 +405,25 @@ export default function FinanceiroPage() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
               <input
                 type="text"
-                placeholder="Buscar transação..."
+                placeholder={abaAtiva === "transacoes" ? "Buscar transação..." : "Buscar OS..."}
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
               />
             </div>
             
-            {/* Filtro Tipo */}
-            <select
-              value={filtroTipo}
-              onChange={(e) => setFiltroTipo(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
-            >
-              <option value="todos">Todos os tipos</option>
-              <option value="entrada">Entradas</option>
-              <option value="saida">Saídas</option>
-            </select>
+            {/* Filtro Tipo (apenas para transações) */}
+            {abaAtiva === "transacoes" && (
+              <select
+                value={filtroTipo}
+                onChange={(e) => setFiltroTipo(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+              >
+                <option value="todos">Todos os tipos</option>
+                <option value="entrada">Entradas</option>
+                <option value="saida">Saídas</option>
+              </select>
+            )}
 
             {/* Filtro Status */}
             <select
@@ -349,125 +448,196 @@ export default function FinanceiroPage() {
           </div>
         </div>
 
-        {/* Transações */}
-        <div className="bg-white rounded-xl shadow-sm border">
-          <div className="p-5 border-b flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-gray-900">
-              Transações 
-              <span className="text-sm font-normal text-gray-500 ml-2">
-                ({transacoesFiltradas.length})
-              </span>
-            </h2>
-            <button
-              onClick={() => alert("Exportação em desenvolvimento")}
-              className="text-sm text-green-600 hover:text-green-800 flex items-center gap-1"
-            >
-              <Download className="w-4 h-4" />
-              Exportar
-            </button>
-          </div>
-          
-          {loading ? (
-            <div className="p-8 text-center text-gray-500">Carregando...</div>
-          ) : transacoesFiltradas.length === 0 ? (
-            <div className="p-12 text-center">
-              <DollarSign className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500">Nenhuma transação encontrada</p>
-              <button
-                onClick={handleNova}
-                className="mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-              >
-                Criar Transação
-              </button>
+        {/* Conteúdo - Transações */}
+        {abaAtiva === "transacoes" && (
+          <div className="bg-white rounded-xl shadow-sm border">
+            <div className="p-5 border-b flex justify-between items-center">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Transações 
+                <span className="text-sm font-normal text-gray-500 ml-2">
+                  ({transacoesFiltradas.length})
+                </span>
+              </h2>
             </div>
-          ) : (
-            <div className="divide-y">
-              {transacoesFiltradas.map((t) => (
-                <div key={t.id} className="p-4 hover:bg-gray-50">
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                    {/* Icon */}
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                      t.tipo === 'entrada' ? 'bg-green-100' : 'bg-red-100'
-                    }`}>
-                      {t.tipo === 'entrada' ? (
-                        <ArrowUpRight className="w-5 h-5 text-green-600" />
-                      ) : (
-                        <ArrowDownRight className="w-5 h-5 text-red-600" />
-                      )}
-                    </div>
-
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium text-gray-900">{t.descricao}</p>
-                        <span className={`px-2 py-0.5 text-xs rounded-full ${getStatusColor(t.status)}`}>
-                          {getStatusIcon(t.status)}
-                          <span className="ml-1">{t.status}</span>
-                        </span>
+            
+            {loading ? (
+              <div className="p-8 text-center text-gray-500">Carregando...</div>
+            ) : transacoesFiltradas.length === 0 ? (
+              <div className="p-12 text-center">
+                <DollarSign className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-500">Nenhuma transação encontrada</p>
+              </div>
+            ) : (
+              <div className="divide-y">
+                {transacoesFiltradas.map((t) => (
+                  <div key={t.id} className="p-4 hover:bg-gray-50">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                      {/* Icon */}
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                        t.tipo === 'entrada' ? 'bg-green-100' : 'bg-red-100'
+                      }`}>
+                        {t.tipo === 'entrada' ? (
+                          <ArrowUpRight className="w-5 h-5 text-green-600" />
+                        ) : (
+                          <ArrowDownRight className="w-5 h-5 text-red-600" />
+                        )}
                       </div>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500 mt-1">
-                        <span className="bg-gray-100 px-2 py-0.5 rounded text-xs">
-                          {getCategoriaNome(t.categoria)}
-                        </span>
-                        {t.paciente_nome && <span>• {t.paciente_nome}</span>}
-                        <span>• {formatarData(t.data_transacao)}</span>
-                        <span>• {getFormaPagamentoNome(t.forma_pagamento)}</span>
-                        {t.parcelas && t.parcelas > 1 && (
-                          <span className="text-blue-600">
-                            • Parcela {t.parcela_atual || 1}/{t.parcelas}
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium text-gray-900">{t.descricao}</p>
+                          <span className={`px-2 py-0.5 text-xs rounded-full ${getStatusColor(t.status)}`}>
+                            {getStatusIcon(t.status)}
+                            <span className="ml-1">{t.status}</span>
                           </span>
-                        )}
+                        </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500 mt-1">
+                          <span className="bg-gray-100 px-2 py-0.5 rounded text-xs">
+                            {getCategoriaNome(t.categoria)}
+                          </span>
+                          {t.paciente_nome && <span>• {t.paciente_nome}</span>}
+                          <span>• {formatarData(t.data_transacao)}</span>
+                          <span>• {getFormaPagamentoNome(t.forma_pagamento)}</span>
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Valor e Ações */}
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <p className={`font-bold ${
-                          t.tipo === 'entrada' ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          {t.tipo === 'entrada' ? '+' : '-'}{formatarValor(t.valor_final)}
-                        </p>
-                        {(t.desconto || 0) > 0 && (
-                          <p className="text-xs text-gray-400">
-                            Desc: {formatarValor(t.desconto)}
+                      {/* Valor e Ações */}
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className={`font-medium ${
+                            t.tipo === 'entrada' ? 'text-green-600' : 'text-red-600'
+                          }`}>
+                            {t.tipo === 'entrada' ? '+' : '-'}{formatarValor(t.valor_final)}
                           </p>
-                        )}
-                      </div>
+                          {(t.desconto || 0) > 0 && (
+                            <p className="text-xs text-gray-400">
+                              Desc: {formatarValor(t.desconto)}
+                            </p>
+                          )}
+                        </div>
 
-                      {/* Ações */}
-                      <div className="flex gap-1">
-                        {t.status === 'Pendente' && (
+                        {/* Ações */}
+                        <div className="flex gap-1">
+                          {t.status === 'Pendente' && (
+                            <button
+                              onClick={() => handlePagar(t.id)}
+                              className="p-1.5 text-green-600 hover:bg-green-50 rounded"
+                              title="Marcar como pago/recebido"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                            </button>
+                          )}
                           <button
-                            onClick={() => handlePagar(t.id)}
-                            className="p-1.5 text-green-600 hover:bg-green-50 rounded"
-                            title="Marcar como pago/recebido"
+                            onClick={() => handleEditar(t)}
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
+                            title="Editar"
                           >
-                            <CheckCircle className="w-4 h-4" />
+                            <Edit className="w-4 h-4" />
                           </button>
-                        )}
-                        <button
-                          onClick={() => handleEditar(t)}
-                          className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                          title="Editar"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleExcluir(t.id)}
-                          className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                          title="Excluir"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                          <button
+                            onClick={() => handleExcluir(t.id)}
+                            className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                            title="Excluir"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Conteúdo - Ordens de Serviço */}
+        {abaAtiva === "ordens" && (
+          <div className="bg-white rounded-xl shadow-sm border">
+            <div className="p-5 border-b flex justify-between items-center">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Ordens de Serviço
+                <span className="text-sm font-normal text-gray-500 ml-2">
+                  ({osFiltradas.length})
+                </span>
+              </h2>
+              <p className="text-sm text-gray-500">
+                Geradas automaticamente dos agendamentos
+              </p>
             </div>
-          )}
-        </div>
+            
+            {loading ? (
+              <div className="p-8 text-center text-gray-500">Carregando...</div>
+            ) : osFiltradas.length === 0 ? (
+              <div className="p-12 text-center">
+                <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-500">Nenhuma ordem de serviço encontrada</p>
+              </div>
+            ) : (
+              <div className="divide-y">
+                {osFiltradas.map((os) => (
+                  <div key={os.id} className="p-4 hover:bg-gray-50">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                      {/* Icon */}
+                      <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-blue-100">
+                        <FileText className="w-5 h-5 text-blue-600" />
+                      </div>
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium text-gray-900">OS {os.numero_os}</p>
+                          <span className={`px-2 py-0.5 text-xs rounded-full ${getStatusColor(os.status)}`}>
+                            {getStatusIcon(os.status)}
+                            <span className="ml-1">{os.status}</span>
+                          </span>
+                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                            {os.tipo_horario === 'plantao' ? 'Plantão' : 'Comercial'}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500 mt-1">
+                          <span className="font-medium">{os.paciente}</span>
+                          <span>• {os.clinica}</span>
+                          <span>• {os.servico}</span>
+                          <span>• {formatarData(os.data_atendimento)}</span>
+                        </div>
+                      </div>
+
+                      {/* Valor e Ações */}
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="font-bold text-gray-900">
+                            {formatarValor(os.valor_final)}
+                          </p>
+                          {(os.desconto || 0) > 0 && (
+                            <p className="text-xs text-gray-400">
+                              Desc: {formatarValor(os.desconto)}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Ações */}
+                        <div className="flex gap-1">
+                          {os.status === 'Pendente' && (
+                            <button
+                              onClick={() => handlePagarOS(os)}
+                              className="px-3 py-1.5 text-sm bg-green-600 text-white hover:bg-green-700 rounded-lg flex items-center gap-1"
+                              title="Marcar como pago e criar transação"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                              Receber
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Links para relatórios */}
         <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
