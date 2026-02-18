@@ -157,6 +157,23 @@ def atualizar_ordem(
     }
 
 
+@router.delete("/{os_id}", status_code=status.HTTP_204_NO_CONTENT)
+def deletar_ordem(
+    os_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Remove uma ordem de serviço"""
+    os = db.query(OrdemServico).filter(OrdemServico.id == os_id).first()
+    if not os:
+        raise HTTPException(status_code=404, detail="Ordem de serviço não encontrada")
+    
+    db.delete(os)
+    db.commit()
+    
+    return None
+
+
 @router.get("/clinica/{clinica_id}/pendentes")
 def ordens_pendentes_clinica(
     clinica_id: int,
