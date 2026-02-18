@@ -44,6 +44,15 @@ interface OrdemServico {
   created_at: string;
 }
 
+const FORMAS_PAGAMENTO = [
+  { id: "dinheiro", nome: "Dinheiro" },
+  { id: "cartao_credito", nome: "Cartão de Crédito" },
+  { id: "cartao_debito", nome: "Cartão de Débito" },
+  { id: "pix", nome: "PIX" },
+  { id: "boleto", nome: "Boleto" },
+  { id: "transferencia", nome: "Transferência" },
+];
+
 interface Resumo {
   entradas: number;
   saidas: number;
@@ -74,6 +83,8 @@ export default function FinanceiroPage() {
   const [filtroStatus, setFiltroStatus] = useState<string>("todos");
   const [busca, setBusca] = useState("");
   const [abaAtiva, setAbaAtiva] = useState<"transacoes" | "ordens">("transacoes");
+  const [modalReceberOS, setModalReceberOS] = useState<OrdemServico | null>(null);
+  const [formaPagamentoOS, setFormaPagamentoOS] = useState("dinheiro");
   const router = useRouter();
 
   useEffect(() => {
@@ -203,12 +214,19 @@ export default function FinanceiroPage() {
     }
   };
 
-  const handlePagarOS = async (os: OrdemServico) => {
+  const handlePagarOS = (os: OrdemServico) => {
+    setModalReceberOS(os);
+    setFormaPagamentoOS("dinheiro");
+  };
+
+  const confirmarRecebimentoOS = async () => {
+    if (!modalReceberOS) return;
+    
     try {
       // Atualizar OS para Pago
-      await api.put(`/ordens-servico/${os.id}`, {
+      await api.put(`/ordens-servico/${modalReceberOS.id}`, {
         status: "Pago",
-        desconto: os.desconto,
+        desconto: modalReceberOS.desconto,
         observacoes: "Pago via financeiro"
       });
       
@@ -216,20 +234,34 @@ export default function FinanceiroPage() {
       await api.post("/financeiro/transacoes", {
         tipo: "entrada",
         categoria: "consulta",
-        valor: os.valor_final,
+        valor: modalReceberOS.valor_final,
         desconto: 0,
-        forma_pagamento: "dinheiro",
+        forma_pagamento: formaPagamentoOS,
         status: "Recebido",
-        descricao: `Recebimento OS ${os.numero_os} - ${os.paciente}`,
+        descricao: `Recebimento OS ${modalReceberOS.numero_os} - ${modalReceberOS.paciente}`,
         data_transacao: new Date().toISOString(),
-        observacoes: `Gerado da OS ${os.numero_os} - ${os.servico}`,
+        observacoes: `Gerado da OS ${modalReceberOS.numero_os} - ${modalReceberOS.servico}`,
       });
       
+      setModalReceberOS(null);
       alert("OS marcada como paga e transação criada!");
       carregarDados();
     } catch (error: any) {
       console.error("Erro ao pagar OS:", error);
       alert("Erro ao processar pagamento: " + (error.response?.data?.detail || error.message));
+    }
+  };
+
+  const handleExcluirOS = async (os: OrdemServico) => {
+    if (!confirm(`Tem certeza que deseja excluir a OS ${os.numero_os}?`)) return;
+    
+    try {
+      await api.delete(`/ordens-servico/${os.id}`);
+      alert("OS excluída com sucesso!");
+      carregarDados();
+    } catch (error: any) {
+      console.error("Erro ao excluir OS:", error);
+      alert("Erro ao excluir OS: " + (error.response?.data?.detail || error.message));
     }
   };
 
@@ -629,6 +661,13 @@ export default function FinanceiroPage() {
                               Receber
                             </button>
                           )}
+                          <button
+                            onClick={() => handleExcluirOS(os)}
+                            className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                            title="Excluir OS"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -680,13 +719,90 @@ export default function FinanceiroPage() {
         </div>
       </div>
 
-      {/* Modal */}
+      {/* Modal de Transação */}
       <TransacaoModal
         isOpen={modalAberto}
         onClose={() => setModalAberto(false)}
         onSuccess={carregarDados}
         transacao={transacaoEditando}
       />
+
+      {/* Modal de Receber OS */}
+      {modalReceberOS && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-md">
+            <div className="p-6 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Receber Ordem de Serviço</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                OS {modalReceberOS.numero_os} - {modalReceberOS.paciente}
+              </p>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Valor:</span>
+                  <span className="font-medium">{formatarValor(modalReceberOS.valor_final)}</span>
+                </div>
+                <div className="flex justify-between text-sm mt-1">
+                  <span className="text-gray-600">Clínica:</span>
+                  <span className="font-medium">{modalReceberOS.clinica}</span>
+                </div>
+                <div className="flex justify-between text-sm mt-1">
+                  <span className="text-gray-600">Serviço:</span>
+                  <span className="font-medium">{modalReceberOS.servico}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Forma de Pagamento
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {FORMAS_PAGAMENTO.map((fp) => (
+                    <label
+                      key={fp.id}
+                      className={`cursor-pointer border-2 rounded-lg p-3 text-center transition-all ${
+                        formaPagamentoOS === fp.id
+                          ? "border-green-500 bg-green-50"
+                          : "border-gray-200 hover:border-gray-300"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="forma_pagamento"
+                        value={fp.id}
+                        checked={formaPagamentoOS === fp.id}
+                        onChange={() => setFormaPagamentoOS(fp.id)}
+                        className="hidden"
+                      />
+                      <span className={`text-sm ${formaPagamentoOS === fp.id ? "text-green-700 font-medium" : "text-gray-700"}`}>
+                        {fp.nome}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-6 border-t flex justify-end gap-3">
+              <button
+                onClick={() => setModalReceberOS(null)}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg border"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarRecebimentoOS}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              >
+                <CheckCircle className="w-4 h-4" />
+                Confirmar Recebimento
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }
