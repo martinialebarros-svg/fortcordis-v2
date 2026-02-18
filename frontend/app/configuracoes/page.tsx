@@ -91,6 +91,16 @@ export default function ConfiguracoesPage() {
     carregarConfiguracoes();
   }, [router]);
 
+  const carregarImagem = async (url: string): Promise<string | null> => {
+    try {
+      const response = await api.get(url, { responseType: 'blob' });
+      return URL.createObjectURL(response.data);
+    } catch (error) {
+      console.error(`Erro ao carregar imagem ${url}:`, error);
+      return null;
+    }
+  };
+
   const carregarConfiguracoes = async () => {
     try {
       setLoading(true);
@@ -102,12 +112,14 @@ export default function ConfiguracoesPage() {
         
         // Carregar preview da logomarca se existir
         if (respEmpresa.data.tem_logomarca) {
-          setPreviewLogo("/api/v1/configuracoes/logomarca");
+          const logoUrl = await carregarImagem("/configuracoes/logomarca");
+          if (logoUrl) setPreviewLogo(logoUrl);
         }
         
         // Carregar preview da assinatura do sistema se existir
         if (respEmpresa.data.tem_assinatura) {
-          setPreviewAssinaturaSistema("/api/v1/configuracoes/assinatura");
+          const assUrl = await carregarImagem("/configuracoes/assinatura");
+          if (assUrl) setPreviewAssinaturaSistema(assUrl);
         }
       }
       
@@ -118,7 +130,8 @@ export default function ConfiguracoesPage() {
         
         // Carregar preview da assinatura do usuário se existir
         if (respUsuario.data.tem_assinatura) {
-          setPreviewAssinaturaUsuario("/api/v1/configuracoes/usuario/assinatura");
+          const assUrl = await carregarImagem("/configuracoes/usuario/assinatura");
+          if (assUrl) setPreviewAssinaturaUsuario(assUrl);
         }
       }
     } catch (error) {
