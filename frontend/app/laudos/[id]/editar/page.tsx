@@ -25,7 +25,10 @@ interface Paciente {
   especie: string;
   raca: string;
   sexo: string;
-  peso_kg: number;
+  peso_kg: number | null;
+  idade: string;
+  tutor: string;
+  telefone: string;
 }
 
 export default function EditarLaudoPage({ params }: { params: { id: string } }) {
@@ -52,6 +55,18 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     pericardio: "",
     vasos: "",
     ad_vd: "",
+  });
+
+  // Dados do paciente (editáveis)
+  const [pacienteForm, setPacienteForm] = useState({
+    nome: "",
+    especie: "Canina",
+    raca: "",
+    sexo: "Macho",
+    peso: "",
+    idade: "",
+    tutor: "",
+    telefone: "",
   });
 
   // Lista de parâmetros ecocardiográficos
@@ -104,7 +119,20 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       if (laudoData.paciente_id) {
         try {
           const respPaciente = await api.get(`/pacientes/${laudoData.paciente_id}`);
-          setPaciente(respPaciente.data);
+          const pacienteData = respPaciente.data;
+          setPaciente(pacienteData);
+          
+          // Preencher formulário do paciente
+          setPacienteForm({
+            nome: pacienteData.nome || "",
+            especie: pacienteData.especie || "Canina",
+            raca: pacienteData.raca || "",
+            sexo: pacienteData.sexo || "Macho",
+            peso: pacienteData.peso_kg ? pacienteData.peso_kg.toString() : "",
+            idade: pacienteData.idade || "",
+            tutor: pacienteData.tutor || "",
+            telefone: pacienteData.telefone || "",
+          });
         } catch (e) {
           console.error("Erro ao carregar paciente:", e);
         }
@@ -150,7 +178,22 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
   const handleSalvar = async () => {
     setSalvando(true);
     try {
-      // Montar descrição com medidas
+      // 1. Salvar dados do paciente primeiro
+      if (paciente?.id) {
+        const pacientePayload = {
+          nome: pacienteForm.nome,
+          especie: pacienteForm.especie,
+          raca: pacienteForm.raca,
+          sexo: pacienteForm.sexo,
+          peso_kg: pacienteForm.peso ? parseFloat(pacienteForm.peso) : null,
+          idade: pacienteForm.idade,
+          tutor: pacienteForm.tutor,
+          telefone: pacienteForm.telefone,
+        };
+        await api.put(`/pacientes/${paciente.id}`, pacientePayload);
+      }
+
+      // 2. Montar descrição do laudo com medidas
       let descricao = "## Medidas Ecocardiográficas\n";
       Object.entries(medidas).forEach(([key, value]) => {
         if (value) {
@@ -165,8 +208,9 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
         }
       });
       
+      // 3. Salvar laudo
       const payload = {
-        titulo: titulo || `Laudo de Ecocardiograma - ${paciente?.nome || 'Paciente'}`,
+        titulo: titulo || `Laudo de Ecocardiograma - ${pacienteForm.nome || 'Paciente'}`,
         descricao,
         diagnostico,
         observacoes,
@@ -174,11 +218,11 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       };
       
       await api.put(`/laudos/${params.id}`, payload);
-      alert("Laudo salvo com sucesso!");
+      alert("Laudo e dados do paciente salvos com sucesso!");
       router.push(`/laudos/${params.id}`);
     } catch (error) {
-      console.error("Erro ao salvar laudo:", error);
-      alert("Erro ao salvar laudo.");
+      console.error("Erro ao salvar:", error);
+      alert("Erro ao salvar. Verifique os dados e tente novamente.");
     } finally {
       setSalvando(false);
     }
@@ -369,41 +413,124 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
 
           {/* Sidebar */}
           <div className="space-y-6">
-            {/* Dados do Paciente */}
+            {/* Dados do Paciente - Editável */}
             <div className="bg-white rounded-lg shadow-sm border p-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <User className="w-5 h-5 text-teal-600" />
                 Dados do Paciente
               </h2>
               
-              {paciente ? (
-                <div className="space-y-3 text-sm">
-                  <div>
-                    <span className="text-gray-500">Nome:</span>
-                    <p className="font-medium">{paciente.nome}</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Espécie:</span>
-                    <p className="font-medium">{paciente.especie}</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Raça:</span>
-                    <p className="font-medium">{paciente.raca || "N/A"}</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Sexo:</span>
-                    <p className="font-medium">{paciente.sexo}</p>
-                  </div>
-                  {paciente.peso_kg && (
-                    <div>
-                      <span className="text-gray-500">Peso:</span>
-                      <p className="font-medium">{paciente.peso_kg} kg</p>
-                    </div>
-                  )}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nome do Paciente *
+                  </label>
+                  <input
+                    type="text"
+                    value={pacienteForm.nome}
+                    onChange={(e) => setPacienteForm({ ...pacienteForm, nome: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                    placeholder="Nome do animal"
+                  />
                 </div>
-              ) : (
-                <p className="text-gray-500">Paciente não encontrado</p>
-              )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Espécie
+                    </label>
+                    <select
+                      value={pacienteForm.especie}
+                      onChange={(e) => setPacienteForm({ ...pacienteForm, especie: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                    >
+                      <option value="Canina">Canina</option>
+                      <option value="Felina">Felina</option>
+                      <option value="Outra">Outra</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Sexo
+                    </label>
+                    <select
+                      value={pacienteForm.sexo}
+                      onChange={(e) => setPacienteForm({ ...pacienteForm, sexo: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                    >
+                      <option value="Macho">Macho</option>
+                      <option value="Fêmea">Fêmea</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Raça
+                  </label>
+                  <input
+                    type="text"
+                    value={pacienteForm.raca}
+                    onChange={(e) => setPacienteForm({ ...pacienteForm, raca: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                    placeholder="Ex: SRD, Labrador, etc"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Peso (kg)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={pacienteForm.peso}
+                      onChange={(e) => setPacienteForm({ ...pacienteForm, peso: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                      placeholder="0.0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Idade
+                    </label>
+                    <input
+                      type="text"
+                      value={pacienteForm.idade}
+                      onChange={(e) => setPacienteForm({ ...pacienteForm, idade: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                      placeholder="Ex: 5 anos"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Tutor
+                  </label>
+                  <input
+                    type="text"
+                    value={pacienteForm.tutor}
+                    onChange={(e) => setPacienteForm({ ...pacienteForm, tutor: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                    placeholder="Nome do tutor"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Telefone
+                  </label>
+                  <input
+                    type="text"
+                    value={pacienteForm.telefone}
+                    onChange={(e) => setPacienteForm({ ...pacienteForm, telefone: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                    placeholder="(00) 00000-0000"
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Ações */}
