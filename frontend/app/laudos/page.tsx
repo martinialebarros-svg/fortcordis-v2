@@ -201,11 +201,11 @@ export default function LaudosPage() {
                           <Eye className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => router.push(`/laudos/${laudo.id}/editar`)}
+                          onClick={() => router.push(`/laudos/${laudo.id}`)}
                           className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="Editar"
+                          title="Visualizar"
                         >
-                          <Pencil className="w-4 h-4" />
+                          <Eye className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => downloadPDF(laudo.id, laudo.titulo)}
