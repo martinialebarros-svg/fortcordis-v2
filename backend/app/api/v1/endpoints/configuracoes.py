@@ -33,29 +33,35 @@ def obter_configuracoes(
     current_user: User = Depends(get_current_user)
 ):
     """Obtém todas as configurações do sistema"""
-    config = get_or_create_configuracao(db)
-    
-    return {
-        "id": config.id,
-        "nome_empresa": config.nome_empresa,
-        "endereco": config.endereco,
-        "telefone": config.telefone,
-        "email": config.email,
-        "cidade": config.cidade,
-        "estado": config.estado,
-        "website": config.website,
-        "tem_logomarca": config.logomarca_dados is not None,
-        "tem_assinatura": config.assinatura_dados is not None,
-        "texto_cabecalho_laudo": config.texto_cabecalho_laudo,
-        "texto_rodape_laudo": config.texto_rodape_laudo,
-        "mostrar_logomarca": config.mostrar_logomarca,
-        "mostrar_assinatura": config.mostrar_assinatura,
-        "horario_comercial_inicio": config.horario_comercial_inicio,
-        "horario_comercial_fim": config.horario_comercial_fim,
-        "dias_trabalho": config.dias_trabalho,
-        "created_at": config.created_at.isoformat() if config.created_at else None,
-        "updated_at": config.updated_at.isoformat() if config.updated_at else None,
-    }
+    import traceback
+    try:
+        config = get_or_create_configuracao(db)
+        
+        return {
+            "id": config.id,
+            "nome_empresa": config.nome_empresa,
+            "endereco": config.endereco,
+            "telefone": config.telefone,
+            "email": config.email,
+            "cidade": config.cidade,
+            "estado": config.estado,
+            "website": config.website,
+            "tem_logomarca": config.logomarca_dados is not None,
+            "tem_assinatura": config.assinatura_dados is not None,
+            "texto_cabecalho_laudo": config.texto_cabecalho_laudo,
+            "texto_rodape_laudo": config.texto_rodape_laudo,
+            "mostrar_logomarca": config.mostrar_logomarca,
+            "mostrar_assinatura": config.mostrar_assinatura,
+            "horario_comercial_inicio": config.horario_comercial_inicio,
+            "horario_comercial_fim": config.horario_comercial_fim,
+            "dias_trabalho": config.dias_trabalho,
+            "created_at": config.created_at.isoformat() if config.created_at else None,
+            "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+        }
+    except Exception as e:
+        print(f"ERRO ao obter configurações: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Erro ao carregar configurações: {str(e)}")
 
 
 @router.put("/configuracoes", response_model=dict)

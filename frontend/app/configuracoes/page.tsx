@@ -165,9 +165,7 @@ export default function ConfiguracoesPage() {
     formData.append("arquivo", file);
 
     try {
-      await api.post("/configuracoes/logomarca", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      await api.post("/configuracoes/logomarca", formData);
       
       // Criar preview local
       const reader = new FileReader();
@@ -194,9 +192,7 @@ export default function ConfiguracoesPage() {
     formData.append("arquivo", file);
 
     try {
-      await api.post("/configuracoes/assinatura", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      await api.post("/configuracoes/assinatura", formData);
       
       const reader = new FileReader();
       reader.onloadend = () => setPreviewAssinaturaSistema(reader.result as string);
@@ -222,9 +218,7 @@ export default function ConfiguracoesPage() {
     formData.append("arquivo", file);
 
     try {
-      await api.post("/configuracoes/usuario/assinatura", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      await api.post("/configuracoes/usuario/assinatura", formData);
       
       const reader = new FileReader();
       reader.onloadend = () => setPreviewAssinaturaUsuario(reader.result as string);
