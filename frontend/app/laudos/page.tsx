@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
-import { FileText, Plus, Search, FileCheck, Clock, User, Calendar, Download, Eye, Pencil, Trash2 } from "lucide-react";
+import { FileText, Plus, Search, FileCheck, Clock, User, Calendar, Download, Eye, Pencil, Trash2, Edit } from "lucide-react";
 
 interface Laudo {
   id: number;
@@ -57,6 +57,29 @@ export default function LaudosPage() {
       setLoading(false);
     }
   };
+
+  // Filtrar laudos por busca
+  const laudosFiltrados = laudos.filter((laudo) => {
+    if (!busca.trim()) return true;
+    const termo = busca.toLowerCase();
+    return (
+      laudo.titulo?.toLowerCase().includes(termo) ||
+      laudo.tipo?.toLowerCase().includes(termo) ||
+      laudo.status?.toLowerCase().includes(termo) ||
+      laudo.paciente_id?.toString().includes(termo)
+    );
+  });
+
+  // Filtrar exames por busca
+  const examesFiltrados = exames.filter((exame) => {
+    if (!busca.trim()) return true;
+    const termo = busca.toLowerCase();
+    return (
+      exame.tipo_exame?.toLowerCase().includes(termo) ||
+      exame.status?.toLowerCase().includes(termo) ||
+      exame.paciente_id?.toString().includes(termo)
+    );
+  });
 
   const downloadPDF = async (laudoId: number, titulo: string) => {
     try {
@@ -129,7 +152,7 @@ export default function LaudosPage() {
             }`}
           >
             <FileText className="w-4 h-4 inline mr-2" />
-            Laudos ({laudos.length})
+            Laudos ({laudosFiltrados.length})
           </button>
           <button
             onClick={() => setTab("exames")}
@@ -140,7 +163,7 @@ export default function LaudosPage() {
             }`}
           >
             <FileCheck className="w-4 h-4 inline mr-2" />
-            Exames ({exames.length})
+            Exames ({examesFiltrados.length})
           </button>
         </div>
 
@@ -163,14 +186,14 @@ export default function LaudosPage() {
           {loading ? (
             <div className="p-8 text-center text-gray-500">Carregando...</div>
           ) : tab === "laudos" ? (
-            laudos.length === 0 ? (
+            laudosFiltrados.length === 0 ? (
               <div className="p-12 text-center">
                 <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                 <p className="text-gray-500">Nenhum laudo encontrado</p>
               </div>
             ) : (
               <div className="divide-y">
-                {laudos.map((laudo) => (
+                {laudosFiltrados.map((laudo) => (
                   <div key={laudo.id} className="p-4 hover:bg-gray-50">
                     <div className="flex items-start gap-4">
                       <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center">
@@ -201,11 +224,11 @@ export default function LaudosPage() {
                           <Eye className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => router.push(`/laudos/${laudo.id}`)}
+                          onClick={() => router.push(`/laudos/${laudo.id}/editar`)}
                           className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="Visualizar"
+                          title="Editar"
                         >
-                          <Eye className="w-4 h-4" />
+                          <Edit className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => downloadPDF(laudo.id, laudo.titulo)}
@@ -228,14 +251,14 @@ export default function LaudosPage() {
               </div>
             )
           ) : (
-            exames.length === 0 ? (
+            examesFiltrados.length === 0 ? (
               <div className="p-12 text-center">
                 <FileCheck className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                 <p className="text-gray-500">Nenhum exame encontrado</p>
               </div>
             ) : (
               <div className="divide-y">
-                {exames.map((exame) => (
+                {examesFiltrados.map((exame) => (
                   <div key={exame.id} className="p-4 hover:bg-gray-50">
                     <div className="flex items-start gap-4">
                       <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
