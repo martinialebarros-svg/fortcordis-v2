@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
-import { FileText, Plus, Search, FileCheck, Clock, User, Calendar } from "lucide-react";
+import { FileText, Plus, Search, FileCheck, Clock, User, Calendar, Download, Eye, Pencil } from "lucide-react";
 
 interface Laudo {
   id: number;
@@ -55,6 +55,25 @@ export default function LaudosPage() {
       console.error("Erro ao carregar:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const downloadPDF = async (laudoId: number, titulo: string) => {
+    try {
+      const response = await api.get(`/laudos/${laudoId}/pdf`, {
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${titulo.replace(/\s+/g, '_')}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      alert('Erro ao gerar PDF. Tente novamente.');
     }
   };
 
@@ -156,9 +175,32 @@ export default function LaudosPage() {
                           </span>
                         </div>
                       </div>
-                      <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(laudo.status)}`}>
-                        {laudo.status}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(laudo.status)}`}>
+                          {laudo.status}
+                        </span>
+                        <button
+                          onClick={() => router.push(`/laudos/${laudo.id}`)}
+                          className="p-2 text-gray-600 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                          title="Visualizar"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => router.push(`/laudos/${laudo.id}/editar`)}
+                          className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Editar"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => downloadPDF(laudo.id, laudo.titulo)}
+                          className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Baixar PDF"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}

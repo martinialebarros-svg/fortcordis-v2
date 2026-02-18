@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
+from io import BytesIO
 
 from app.db.database import get_db
 from app.models.laudo import Laudo, Exame
@@ -44,87 +45,126 @@ def criar_laudo(
     current_user: User = Depends(get_current_user)
 ):
     """Cria novo laudo"""
-    # Verificar se é um laudo de ecocardiograma (com estrutura complexa)
-    if "paciente" in laudo_data and isinstance(laudo_data["paciente"], dict):
-        return criar_laudo_ecocardiograma(laudo_data, db, current_user)
-    
-    # Laudo padrão
-    laudo = Laudo(
-        paciente_id=laudo_data.get("paciente_id"),
-        agendamento_id=laudo_data.get("agendamento_id"),
-        veterinario_id=current_user.id,
-        tipo=laudo_data.get("tipo", "exame"),
-        titulo=laudo_data.get("titulo"),
-        descricao=laudo_data.get("descricao"),
-        diagnostico=laudo_data.get("diagnostico"),
-        observacoes=laudo_data.get("observacoes"),
-        anexos=laudo_data.get("anexos"),
-        status=laudo_data.get("status", "Rascunho"),
-        criado_por_id=current_user.id,
-        criado_por_nome=current_user.nome
-    )
-    
-    db.add(laudo)
-    db.commit()
-    db.refresh(laudo)
-    
-    return laudo
+    import traceback
+    try:
+        # Verificar se é um laudo de ecocardiograma (com estrutura complexa)
+        if "paciente" in laudo_data and isinstance(laudo_data["paciente"], dict):
+            return criar_laudo_ecocardiograma(laudo_data, db, current_user)
+        
+        # Laudo padrão
+        laudo = Laudo(
+            paciente_id=laudo_data.get("paciente_id"),
+            agendamento_id=laudo_data.get("agendamento_id"),
+            veterinario_id=current_user.id,
+            tipo=laudo_data.get("tipo", "exame"),
+            titulo=laudo_data.get("titulo"),
+            descricao=laudo_data.get("descricao"),
+            diagnostico=laudo_data.get("diagnostico"),
+            observacoes=laudo_data.get("observacoes"),
+            anexos=laudo_data.get("anexos"),
+            status=laudo_data.get("status", "Rascunho"),
+            criado_por_id=current_user.id,
+            criado_por_nome=current_user.nome
+        )
+        
+        db.add(laudo)
+        db.commit()
+        db.refresh(laudo)
+        
+        return laudo
+    except Exception as e:
+        print(f"ERRO AO CRIAR LAUDO: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
 
 
 def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User):
     """Cria um laudo de ecocardiograma com a estrutura específica"""
-    paciente = laudo_data.get("paciente", {})
-    medidas = laudo_data.get("medidas", {})
-    qualitativa = laudo_data.get("qualitativa", {})
-    conteudo = laudo_data.get("conteudo", {})
-    clinica = laudo_data.get("clinica", {})
-    veterinario = laudo_data.get("veterinario", {})
+    import traceback
+    from app.models.paciente import Paciente
     
-    # Montar descrição com medidas
-    descricao_parts = ["## Medidas Ecocardiográficas\n"]
-    for key, value in medidas.items():
-        if value:
-            descricao_parts.append(f"- {key}: {value}")
-    
-    descricao_parts.append("\n## Avaliação Qualitativa\n")
-    for key, value in qualitativa.items():
-        if value:
-            descricao_parts.append(f"- {key}: {value}")
-    
-    descricao = "\n".join(descricao_parts)
-    
-    # Montar diagnóstico com conclusões
-    diagnostico = conteudo.get("conclusao", "")
-    
-    # Observações adicionais
-    observacoes = conteudo.get("observacoes", "")
-    
-    # Criar o laudo
-    laudo = Laudo(
-        paciente_id=paciente.get("id") if isinstance(paciente, dict) else None,
-        agendamento_id=None,
-        veterinario_id=current_user.id,
-        tipo="ecocardiograma",
-        titulo=f"Laudo de Ecocardiograma - {paciente.get('nome', 'Paciente')}",
-        descricao=descricao,
-        diagnostico=diagnostico,
-        observacoes=observacoes,
-        anexos=None,
-        status=laudo_data.get("status", "Finalizado"),
-        criado_por_id=current_user.id,
-        criado_por_nome=current_user.nome
-    )
-    
-    db.add(laudo)
-    db.commit()
-    db.refresh(laudo)
-    
-    return {
-        "id": laudo.id,
-        "mensagem": "Laudo de ecocardiograma salvo com sucesso",
-        "paciente": paciente.get("nome") if isinstance(paciente, dict) else None,
-        "tipo": "ecocardiograma"
-    }
+    try:
+        paciente = laudo_data.get("paciente", {})
+        medidas = laudo_data.get("medidas", {})
+        qualitativa = laudo_data.get("qualitativa", {})
+        conteudo = laudo_data.get("conteudo", {})
+        clinica = laudo_data.get("clinica", {})
+        veterinario = laudo_data.get("veterinario", {})
+        
+        print(f"Criando laudo eco para paciente: {paciente.get('nome')}")
+        
+        # Verificar se o paciente tem ID, senão criar um novo
+        paciente_id = paciente.get("id")
+        if not paciente_id and paciente.get("nome"):
+            print(f"Criando novo paciente: {paciente.get('nome')}")
+            # Criar novo paciente
+            novo_paciente = Paciente(
+                nome=paciente.get("nome", "Paciente sem nome"),
+                especie=paciente.get("especie", ""),
+                raca=paciente.get("raca", ""),
+                sexo=paciente.get("sexo", ""),
+                peso_kg=float(paciente.get("peso", 0)) if paciente.get("peso") else None,
+                observacoes=f"Tutor: {paciente.get('tutor', '')}\nTelefone: {paciente.get('telefone', '')}",
+                ativo=1
+            )
+            db.add(novo_paciente)
+            db.commit()
+            db.refresh(novo_paciente)
+            paciente_id = novo_paciente.id
+            print(f"Paciente criado com ID: {paciente_id}")
+        
+        if not paciente_id:
+            raise ValueError("Não foi possível determinar o paciente para o laudo")
+        
+        # Montar descrição com medidas
+        descricao_parts = ["## Medidas Ecocardiográficas\n"]
+        for key, value in medidas.items():
+            if value:
+                descricao_parts.append(f"- {key}: {value}")
+        
+        descricao_parts.append("\n## Avaliação Qualitativa\n")
+        for key, value in qualitativa.items():
+            if value:
+                descricao_parts.append(f"- {key}: {value}")
+        
+        descricao = "\n".join(descricao_parts)
+        
+        # Montar diagnóstico com conclusões
+        diagnostico = conteudo.get("conclusao", "")
+        
+        # Observações adicionais
+        observacoes = conteudo.get("observacoes", "")
+        
+        # Criar o laudo
+        laudo = Laudo(
+            paciente_id=paciente_id,
+            agendamento_id=None,
+            veterinario_id=current_user.id,
+            tipo="ecocardiograma",
+            titulo=f"Laudo de Ecocardiograma - {paciente.get('nome', 'Paciente')}",
+            descricao=descricao,
+            diagnostico=diagnostico,
+            observacoes=observacoes,
+            anexos=None,
+            status=laudo_data.get("status", "Finalizado"),
+            criado_por_id=current_user.id,
+            criado_por_nome=current_user.nome
+        )
+        
+        db.add(laudo)
+        db.commit()
+        db.refresh(laudo)
+        
+        return {
+            "id": laudo.id,
+            "mensagem": "Laudo de ecocardiograma salvo com sucesso",
+            "paciente": paciente.get("nome") if isinstance(paciente, dict) else None,
+            "tipo": "ecocardiograma"
+        }
+    except Exception as e:
+        print(f"ERRO AO CRIAR LAUDO ECO: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Erro ao criar laudo: {str(e)}")
 
 
 @router.get("/laudos/{laudo_id}")
@@ -186,104 +226,87 @@ def gerar_pdf_laudo(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Gera PDF de um laudo"""
+    """Gera PDF profissional de um laudo ecocardiográfico"""
     from fastapi.responses import StreamingResponse
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import cm
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-    from reportlab.lib import colors
-    from io import BytesIO
+    from app.utils.pdf_laudo import gerar_pdf_laudo_eco
+    from app.models.paciente import Paciente
+    import traceback
     
-    laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
-    if not laudo:
-        raise HTTPException(status_code=404, detail="Laudo não encontrado")
-    
-    # Criar PDF
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4,
-                            rightMargin=2*cm, leftMargin=2*cm,
-                            topMargin=2*cm, bottomMargin=2*cm)
-    
-    styles = getSampleStyleSheet()
-    elements = []
-    
-    # Título
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=18,
-        textColor=colors.HexColor('#1e40af'),
-        spaceAfter=20,
-        alignment=1  # Center
-    )
-    elements.append(Paragraph("LAUDO MÉDICO VETERINÁRIO", title_style))
-    elements.append(Spacer(1, 20))
-    
-    # Informações do laudo
-    info_data = [
-        ["Título:", laudo.titulo or "Não informado"],
-        ["Tipo:", laudo.tipo or "Não informado"],
-        ["Data:", laudo.data_laudo.strftime("%d/%m/%Y") if laudo.data_laudo else "Não informada"],
-        ["Status:", laudo.status or "Não informado"],
-        ["Veterinário:", laudo.criado_por_nome or "Não informado"],
-    ]
-    
-    info_table = Table(info_data, colWidths=[4*cm, 12*cm])
-    info_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f3f4f6')),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-        ('ALIGN', (1, 0), (1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-        ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-    ]))
-    elements.append(info_table)
-    elements.append(Spacer(1, 20))
-    
-    # Descrição
-    if laudo.descricao:
-        elements.append(Paragraph("<b>DESCRIÇÃO</b>", styles['Heading2']))
-        # Converter markdown simples para HTML
-        descricao_html = laudo.descricao.replace("\n", "<br/>")
-        elements.append(Paragraph(descricao_html, styles['Normal']))
-        elements.append(Spacer(1, 12))
-    
-    # Diagnóstico
-    if laudo.diagnostico:
-        elements.append(Paragraph("<b>DIAGNÓSTICO</b>", styles['Heading2']))
-        diagnostico_html = laudo.diagnostico.replace("\n", "<br/>")
-        elements.append(Paragraph(diagnostico_html, styles['Normal']))
-        elements.append(Spacer(1, 12))
-    
-    # Observações
-    if laudo.observacoes:
-        elements.append(Paragraph("<b>OBSERVAÇÕES</b>", styles['Heading2']))
-        observacoes_html = laudo.observacoes.replace("\n", "<br/>")
-        elements.append(Paragraph(observacoes_html, styles['Normal']))
-    
-    # Rodapé
-    elements.append(Spacer(1, 40))
-    footer_style = ParagraphStyle(
-        'Footer',
-        parent=styles['Normal'],
-        fontSize=9,
-        textColor=colors.grey,
-        alignment=1
-    )
-    elements.append(Paragraph("Este laudo foi gerado eletronicamente pelo sistema FortCordis.", footer_style))
-    
-    doc.build(elements)
-    buffer.seek(0)
-    
-    return StreamingResponse(
-        buffer,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=laudo_{laudo_id}.pdf"}
-    )
+    try:
+        laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
+        if not laudo:
+            raise HTTPException(status_code=404, detail="Laudo não encontrado")
+        
+        # Buscar paciente
+        paciente = db.query(Paciente).filter(Paciente.id == laudo.paciente_id).first()
+        
+        # Extrair dados do paciente
+        dados_paciente = {
+            "nome": paciente.nome if paciente else "N/A",
+            "especie": paciente.especie if paciente else "Canina",
+            "raca": paciente.raca if paciente else "",
+            "sexo": paciente.sexo if paciente else "",
+            "idade": "",
+            "peso": f"{paciente.peso_kg:.1f}" if paciente and paciente.peso_kg else "",
+            "tutor": "",
+            "data_exame": laudo.data_laudo.strftime("%d/%m/%Y") if laudo.data_laudo else datetime.now().strftime("%d/%m/%Y")
+        }
+        
+        # Extrair medidas da descrição (formato markdown)
+        medidas = {}
+        qualitativa = {}
+        
+        if laudo.descricao:
+            import re
+            descricao = laudo.descricao
+            
+            # Extrair medidas (formato: - Ao: 1.50) - aceita números decimais
+            for match in re.finditer(r'-\s*(\w+):\s*([\d.]+)', descricao):
+                chave = match.group(1)
+                valor = match.group(2)
+                medidas[chave] = valor
+            
+            # Extrair qualitativa - procura por seção "Avaliação Qualitativa"
+            qualitativa_match = re.search(r'Avaliação Qualitativa[\s\n]*(-.*?)(?=\n##|\Z)', descricao, re.DOTALL)
+            if qualitativa_match:
+                qualitativa_texto = qualitativa_match.group(1)
+                for match in re.finditer(r'-\s*(\w+):?\s*(.+?)(?=\n-|\Z)', qualitativa_texto, re.DOTALL):
+                    campo = match.group(1).lower().strip()
+                    valor = match.group(2).strip()
+                    if campo in ['valvas', 'camaras', 'funcao', 'pericardio', 'vasos', 'ad_vd']:
+                        qualitativa[campo] = valor
+            
+            # Se não achou nada, tenta extrair direto das linhas
+            if not qualitativa:
+                for match in re.finditer(r'-\s*(valvas|camaras|funcao|pericardio|vasos|ad_vd):\s*(.+?)(?=\n-|\Z)', descricao, re.IGNORECASE | re.DOTALL):
+                    campo = match.group(1).lower().strip()
+                    valor = match.group(2).strip()
+                    qualitativa[campo] = valor
+        
+        # Preparar dados para o PDF
+        dados = {
+            "paciente": dados_paciente,
+            "medidas": medidas,
+            "qualitativa": qualitativa,
+            "conclusao": laudo.diagnostico or "",
+            "clinica": "",
+            "imagens": []
+        }
+        
+        # Gerar PDF
+        pdf_bytes = gerar_pdf_laudo_eco(dados)
+        
+        return StreamingResponse(
+            BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename=laudo_{laudo_id}_{dados_paciente['nome'].replace(' ', '_')}.pdf"}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"ERRO AO GERAR PDF: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar PDF: {str(e)}")
 
 
 # Exames
@@ -322,8 +345,8 @@ def criar_exame(
     """Cria novo exame"""
     exame = Exame(
         laudo_id=exame_data.get("laudo_id"),
-        paciente_id=exame_data.get("paciente_id"),
-        tipo_exame=exame_data.get("tipo_exame"),
+        paciente_id=exame_data["paciente_id"],
+        tipo_exame=exame_data["tipo_exame"],
         resultado=exame_data.get("resultado"),
         valor_referencia=exame_data.get("valor_referencia"),
         unidade=exame_data.get("unidade"),
@@ -341,24 +364,52 @@ def criar_exame(
     return exame
 
 
-@router.patch("/exames/{exame_id}/resultado")
-def atualizar_resultado_exame(
+@router.get("/exames/{exame_id}")
+def obter_exame(
     exame_id: int,
-    resultado_data: dict,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Atualiza resultado de um exame"""
+    """Obtém um exame específico"""
+    exame = db.query(Exame).filter(Exame.id == exame_id).first()
+    if not exame:
+        raise HTTPException(status_code=404, detail="Exame não encontrado")
+    return exame
+
+
+@router.put("/exames/{exame_id}")
+def atualizar_exame(
+    exame_id: int,
+    exame_data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Atualiza um exame"""
     exame = db.query(Exame).filter(Exame.id == exame_id).first()
     if not exame:
         raise HTTPException(status_code=404, detail="Exame não encontrado")
     
-    exame.resultado = resultado_data.get("resultado")
-    exame.valor_referencia = resultado_data.get("valor_referencia")
-    exame.unidade = resultado_data.get("unidade")
-    exame.status = "Concluido"
-    exame.data_resultado = datetime.now()
+    for field, value in exame_data.items():
+        if hasattr(exame, field):
+            setattr(exame, field, value)
     
     db.commit()
     db.refresh(exame)
     return exame
+
+
+@router.delete("/exames/{exame_id}")
+def deletar_exame(
+    exame_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Remove um exame"""
+    exame = db.query(Exame).filter(Exame.id == exame_id).first()
+    if not exame:
+        raise HTTPException(status_code=404, detail="Exame não encontrado")
+    
+    db.delete(exame)
+    db.commit()
+    
+    return {"message": "Exame removido com sucesso"}

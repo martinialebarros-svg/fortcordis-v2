@@ -3,6 +3,32 @@ import re
 from typing import Dict, Any, Optional
 from bs4 import BeautifulSoup
 
+def _parse_data_iso(data_str: str) -> str:
+    """Converte data do formato brasileiro (DD/MM/YYYY) ou americano (MM/DD/YYYY) para ISO (YYYY-MM-DD)."""
+    if not data_str:
+        return ""
+    
+    data_str = data_str.strip()
+    
+    # Se já está no formato ISO, retorna
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", data_str):
+        return data_str
+    
+    # Tenta formato DD/MM/YYYY ou DD-MM-YYYY
+    match = re.match(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$", data_str)
+    if match:
+        dia, mes, ano = match.groups()
+        return f"{ano}-{int(mes):02d}-{int(dia):02d}"
+    
+    # Tenta formato YYYY/MM/DD ou YYYY-MM-DD
+    match = re.match(r"^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$", data_str)
+    if match:
+        ano, mes, dia = match.groups()
+        return f"{ano}-{int(mes):02d}-{int(dia):02d}"
+    
+    # Se não conseguiu converter, retorna a string original
+    return data_str
+
 def _parse_num(texto: str) -> Optional[float]:
     """Extrai o primeiro número decimal de uma string."""
     if not texto:
@@ -164,9 +190,10 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     peso = f"{peso_xml:.2f}".rstrip("0").rstrip(".") if peso_xml else ""
     
     # Data do exame
-    data_exame = _find_text_ci(soup, [
+    data_exame_raw = _find_text_ci(soup, [
         "StudyDate", "ExamDate", "ExamDateTime", "ExamDateTimeUTC", "StudyDateUTC", "date"
     ])
+    data_exame = _parse_data_iso(data_exame_raw)
     
     # Idade
     idade = _find_text_ci(soup, ["age", "Age", "PatientAge"])
