@@ -127,7 +127,7 @@ def criar_agendamento(
     """Cria novo agendamento"""
     now = datetime.now()
 
-    db_agendamento = Agendamento(**agendamento.dict())
+    db_agendamento = Agendamento(**agendamento.model_dump())
     db_agendamento.criado_por_id = current_user.id
     db_agendamento.criado_por_nome = current_user.nome
     db_agendamento.criado_em = now
