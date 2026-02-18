@@ -14,6 +14,7 @@ class Clinica(Base):
     cidade = Column(String)  # Para identificar a região
     estado = Column(String)
     cep = Column(String)
+    observacoes = Column(Text)  # Observações gerais da clínica
     
     # Tabela de preço associada (1 = Fortaleza, 2 = Região Metropolitana, 3 = Domiciliar, 4 = Personalizado)
     tabela_preco_id = Column(Integer, default=1)
