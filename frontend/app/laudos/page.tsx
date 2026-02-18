@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
-import { FileText, Plus, Search, FileCheck, Clock, User, Calendar, Download, Eye, Pencil } from "lucide-react";
+import { FileText, Plus, Search, FileCheck, Clock, User, Calendar, Download, Eye, Pencil, Trash2 } from "lucide-react";
 
 interface Laudo {
   id: number;
@@ -74,6 +74,20 @@ export default function LaudosPage() {
       window.URL.revokeObjectURL(url);
     } catch (error) {
       alert('Erro ao gerar PDF. Tente novamente.');
+    }
+  };
+
+  const deletarLaudo = async (laudoId: number) => {
+    if (!confirm('Tem certeza que deseja excluir este laudo? Esta ação não pode ser desfeita.')) {
+      return;
+    }
+    
+    try {
+      await api.delete(`/laudos/${laudoId}`);
+      setLaudos(laudos.filter(l => l.id !== laudoId));
+      alert('Laudo excluído com sucesso!');
+    } catch (error) {
+      alert('Erro ao excluir laudo. Tente novamente.');
     }
   };
 
@@ -199,6 +213,13 @@ export default function LaudosPage() {
                           title="Baixar PDF"
                         >
                           <Download className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => deletarLaudo(laudo.id)}
+                          className="p-2 text-gray-600 hover:text-red-700 hover:bg-red-100 rounded-lg transition-colors"
+                          title="Excluir"
+                        >
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
