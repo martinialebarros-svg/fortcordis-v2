@@ -117,21 +117,16 @@ def create_pdf_styles():
     return styles
 
 
-def criar_cabecalho(dados: Dict[str, Any], logomarca_bytes: bytes = None) -> List:
+def criar_cabecalho(dados: Dict[str, Any], temp_logo_path: str = None) -> List:
     """Cria o cabeçalho do laudo com dados do paciente"""
     elements = []
     styles = create_pdf_styles()
     
     # Se tem logomarca, cria layout com imagem + título
-    if logomarca_bytes:
+    if temp_logo_path and os.path.exists(temp_logo_path):
         try:
-            # Salvar logomarca temporariamente
-            temp_logo = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
-            temp_logo.write(logomarca_bytes)
-            temp_logo.close()
-            
             # Criar tabela com logo e título
-            logo = Image(temp_logo.name, width=35*mm, height=20*mm)
+            logo = Image(temp_logo_path, width=35*mm, height=20*mm)
             logo.hAlign = 'LEFT'
             
             titulo = Paragraph("<b>LAUDO ECOCARDIOGRÁFICO</b>", styles['TituloPrincipal'])
@@ -144,11 +139,9 @@ def criar_cabecalho(dados: Dict[str, Any], logomarca_bytes: bytes = None) -> Lis
                 ('ALIGN', (1, 0), (1, 0), 'CENTER'),
             ]))
             elements.append(header_table)
-            
-            # Limpar arquivo temporário
-            os.unlink(temp_logo.name)
         except Exception as e:
-            # Se falhar ao carregar logo, usa título simples
+            print(f"Erro ao adicionar logomarca: {e}")
+            # Título principal sem logo
             elements.append(Paragraph("LAUDO ECOCARDIOGRÁFICO", styles['TituloPrincipal']))
     else:
         # Título principal sem logo
@@ -374,7 +367,7 @@ def criar_secao_conclusao(conclusao: str) -> List:
     return elements
 
 
-def criar_secao_assinatura(nome_veterinario: str, crmv: str = "", assinatura_bytes: bytes = None) -> List:
+def criar_secao_assinatura(nome_veterinario: str, crmv: str = "", temp_assinatura_path: str = None) -> List:
     """Cria a seção de assinatura"""
     elements = []
     styles = create_pdf_styles()
@@ -391,22 +384,14 @@ def criar_secao_assinatura(nome_veterinario: str, crmv: str = "", assinatura_byt
     elements.append(Spacer(1, 5*mm))
     
     # Se tem assinatura em imagem
-    if assinatura_bytes:
+    if temp_assinatura_path and os.path.exists(temp_assinatura_path):
         try:
-            # Salvar assinatura temporariamente
-            temp_ass = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
-            temp_ass.write(assinatura_bytes)
-            temp_ass.close()
-            
             # Adicionar imagem da assinatura
-            ass_img = Image(temp_ass.name, width=50*mm, height=20*mm)
+            ass_img = Image(temp_assinatura_path, width=50*mm, height=20*mm)
             ass_img.hAlign = 'LEFT'
             elements.append(ass_img)
-            
-            # Limpar arquivo temporário
-            os.unlink(temp_ass.name)
         except Exception as e:
-            pass  # Se falhar, continua sem imagem
+            print(f"Erro ao adicionar assinatura: {e}")
     
     # Nome e CRMV
     elements.append(Paragraph(f"<b>{nome_veterinario}</b>", styles['Normal']))
@@ -463,101 +448,131 @@ def gerar_pdf_laudo_eco(
     Returns:
         bytes: Conteúdo do PDF
     """
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        rightMargin=15*mm,
-        leftMargin=15*mm,
-        topMargin=15*mm,
-        bottomMargin=15*mm
-    )
+    temp_files = []
     
-    elements = []
-    
-    # 1. Cabeçalho com dados do paciente e logomarca
-    elements.extend(criar_cabecalho(dados, logomarca_bytes))
-    
-    # 2. Análise Quantitativa
-    elements.append(Paragraph("ANÁLISE QUANTITATIVA", create_pdf_styles()['SecaoTitulo']))
-    elements.append(Spacer(1, 2*mm))
-    
-    # Definição dos parâmetros por grupo
-    # Grupo: Câmaras
-    params_camaras = [
-        {'chave': 'Ao', 'label': 'Ao (Diâmetro Aórtico)', 'unidade': 'cm', 'ref_min': 0.87, 'ref_max': 1.15},
-        {'chave': 'LA', 'label': 'LA (Átrio Esquerdo)', 'unidade': 'cm', 'ref_min': 0.77, 'ref_max': 1.20},
-        {'chave': 'LA_Ao', 'label': 'LA/Ao', 'unidade': '', 'ref_min': 0.83, 'ref_max': 1.17},
-        {'chave': 'LVIDd', 'label': 'LVIDd (DIVEd)', 'unidade': 'cm', 'ref_min': 1.60, 'ref_max': 2.40},
-        {'chave': 'LVIDs', 'label': 'LVIDs (DIVEs)', 'unidade': 'cm', 'ref_min': 0.90, 'ref_max': 1.60},
-    ]
-    
-    # Grupo: Paredes
-    params_paredes = [
-        {'chave': 'IVSd', 'label': 'IVSd (SEVd)', 'unidade': 'cm', 'ref_min': 0.35, 'ref_max': 0.55},
-        {'chave': 'IVSs', 'label': 'IVSs (SEVs)', 'unidade': 'cm', 'ref_min': 0.45, 'ref_max': 0.75},
-        {'chave': 'LVPWd', 'label': 'LVPWd (PPVEd)', 'unidade': 'cm', 'ref_min': 0.35, 'ref_max': 0.55},
-        {'chave': 'LVPWs', 'label': 'LVPWs (PPVEs)', 'unidade': 'cm', 'ref_min': 0.50, 'ref_max': 0.80},
-    ]
-    
-    # Grupo: Função
-    params_funcao = [
-        {'chave': 'EF', 'label': 'EF (Fração de Ejeção)', 'unidade': '%', 'ref_min': 55, 'ref_max': 80},
-        {'chave': 'FS', 'label': 'FS (Encurtamento)', 'unidade': '%', 'ref_min': 28, 'ref_max': 42},
-        {'chave': 'TAPSE', 'label': 'TAPSE', 'unidade': 'cm', 'ref_min': 0.16, 'ref_max': 0.26},
-        {'chave': 'MAPSE', 'label': 'MAPSE', 'unidade': 'cm', 'ref_min': 0.40, 'ref_max': 0.60},
-    ]
-    
-    # Grupo: Fluxos Doppler
-    params_fluxos = [
-        {'chave': 'MV_E', 'label': 'MV E (Velocidade E)', 'unidade': 'm/s', 'ref_min': 0.50, 'ref_max': 0.90},
-        {'chave': 'MV_A', 'label': 'MV A (Velocidade A)', 'unidade': 'm/s', 'ref_min': 0.30, 'ref_max': 0.60},
-        {'chave': 'MV_E_A', 'label': 'MV E/A', 'unidade': '', 'ref_min': 1.0, 'ref_max': 2.5},
-        {'chave': 'Vmax_Ao', 'label': 'Vmax Ao', 'unidade': 'm/s', 'ref_min': 0.80, 'ref_max': 1.40},
-        {'chave': 'Vmax_Pulm', 'label': 'Vmax Pulm', 'unidade': 'm/s', 'ref_min': 0.60, 'ref_max': 1.00},
-    ]
-    
-    # Adicionar tabelas
-    elements.append(criar_tabela_medidas("CÂMARAS", params_camaras, dados))
-    elements.append(Spacer(1, 3*mm))
-    elements.append(criar_tabela_medidas("PAREDES", params_paredes, dados))
-    elements.append(Spacer(1, 3*mm))
-    elements.append(criar_tabela_medidas("FUNÇÃO", params_funcao, dados))
-    elements.append(Spacer(1, 3*mm))
-    elements.append(criar_tabela_medidas("FLUXOS DOPPLER", params_fluxos, dados))
-    
-    # 3. Análise Qualitativa
-    qualitativa = dados.get('qualitativa', {})
-    if any(v.strip() for v in qualitativa.values()):
-        elements.extend(criar_secao_qualitativa(qualitativa))
-    
-    # 4. Conclusão
-    conclusao = dados.get('conclusao', '')
-    elements.extend(criar_secao_conclusao(conclusao))
-    
-    # 5. Assinatura
-    vet_nome = nome_veterinario or dados.get('veterinario_nome') or "Médico Veterinário"
-    vet_crmv = crmv or dados.get('veterinario_crmv') or ""
-    elements.extend(criar_secao_assinatura(vet_nome, vet_crmv, assinatura_bytes))
-    
-    # 6. Rodapé
-    elements.extend(criar_rodape(texto_rodape))
-    
-    # 6. Imagens (se houver)
-    imagens = dados.get('imagens', [])
-    if imagens:
-        elements.append(PageBreak())
-        elements.append(Paragraph("IMAGENS DO EXAME", create_pdf_styles()['SecaoTitulo']))
-        elements.append(Spacer(1, 5*mm))
+    try:
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=15*mm,
+            leftMargin=15*mm,
+            topMargin=15*mm,
+            bottomMargin=15*mm
+        )
         
-        # Aqui seria implementado o layout das imagens
-        # Por enquanto, apenas um placeholder
-        elements.append(Paragraph("[Imagens do exame serão inseridas aqui]", create_pdf_styles()['Normal']))
-    
-    # Gerar PDF
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer.getvalue()
+        elements = []
+        
+        # Criar arquivos temporários para imagens
+        temp_logo_path = None
+        temp_assinatura_path = None
+        
+        if logomarca_bytes:
+            temp_logo = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+            temp_logo.write(logomarca_bytes)
+            temp_logo.close()
+            temp_logo_path = temp_logo.name
+            temp_files.append(temp_logo_path)
+        
+        if assinatura_bytes:
+            temp_ass = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+            temp_ass.write(assinatura_bytes)
+            temp_ass.close()
+            temp_assinatura_path = temp_ass.name
+            temp_files.append(temp_assinatura_path)
+        
+        # 1. Cabeçalho com dados do paciente e logomarca
+        elements.extend(criar_cabecalho(dados, temp_logo_path))
+        
+        # 2. Análise Quantitativa
+        elements.append(Paragraph("ANÁLISE QUANTITATIVA", create_pdf_styles()['SecaoTitulo']))
+        elements.append(Spacer(1, 2*mm))
+        
+        # Definição dos parâmetros por grupo
+        # Grupo: Câmaras
+        params_camaras = [
+            {'chave': 'Ao', 'label': 'Ao (Diâmetro Aórtico)', 'unidade': 'cm', 'ref_min': 0.87, 'ref_max': 1.15},
+            {'chave': 'LA', 'label': 'LA (Átrio Esquerdo)', 'unidade': 'cm', 'ref_min': 0.77, 'ref_max': 1.20},
+            {'chave': 'LA_Ao', 'label': 'LA/Ao', 'unidade': '', 'ref_min': 0.83, 'ref_max': 1.17},
+            {'chave': 'LVIDd', 'label': 'LVIDd (DIVEd)', 'unidade': 'cm', 'ref_min': 1.60, 'ref_max': 2.40},
+            {'chave': 'LVIDs', 'label': 'LVIDs (DIVEs)', 'unidade': 'cm', 'ref_min': 0.90, 'ref_max': 1.60},
+        ]
+        
+        # Grupo: Paredes
+        params_paredes = [
+            {'chave': 'IVSd', 'label': 'IVSd (SEVd)', 'unidade': 'cm', 'ref_min': 0.35, 'ref_max': 0.55},
+            {'chave': 'IVSs', 'label': 'IVSs (SEVs)', 'unidade': 'cm', 'ref_min': 0.45, 'ref_max': 0.75},
+            {'chave': 'LVPWd', 'label': 'LVPWd (PPVEd)', 'unidade': 'cm', 'ref_min': 0.35, 'ref_max': 0.55},
+            {'chave': 'LVPWs', 'label': 'LVPWs (PPVEs)', 'unidade': 'cm', 'ref_min': 0.50, 'ref_max': 0.80},
+        ]
+        
+        # Grupo: Função
+        params_funcao = [
+            {'chave': 'EF', 'label': 'EF (Fração de Ejeção)', 'unidade': '%', 'ref_min': 55, 'ref_max': 80},
+            {'chave': 'FS', 'label': 'FS (Encurtamento)', 'unidade': '%', 'ref_min': 28, 'ref_max': 42},
+            {'chave': 'TAPSE', 'label': 'TAPSE', 'unidade': 'cm', 'ref_min': 0.16, 'ref_max': 0.26},
+            {'chave': 'MAPSE', 'label': 'MAPSE', 'unidade': 'cm', 'ref_min': 0.40, 'ref_max': 0.60},
+        ]
+        
+        # Grupo: Fluxos Doppler
+        params_fluxos = [
+            {'chave': 'MV_E', 'label': 'MV E (Velocidade E)', 'unidade': 'm/s', 'ref_min': 0.50, 'ref_max': 0.90},
+            {'chave': 'MV_A', 'label': 'MV A (Velocidade A)', 'unidade': 'm/s', 'ref_min': 0.30, 'ref_max': 0.60},
+            {'chave': 'MV_E_A', 'label': 'MV E/A', 'unidade': '', 'ref_min': 1.0, 'ref_max': 2.5},
+            {'chave': 'Vmax_Ao', 'label': 'Vmax Ao', 'unidade': 'm/s', 'ref_min': 0.80, 'ref_max': 1.40},
+            {'chave': 'Vmax_Pulm', 'label': 'Vmax Pulm', 'unidade': 'm/s', 'ref_min': 0.60, 'ref_max': 1.00},
+        ]
+        
+        # Adicionar tabelas
+        elements.append(criar_tabela_medidas("CÂMARAS", params_camaras, dados))
+        elements.append(Spacer(1, 3*mm))
+        elements.append(criar_tabela_medidas("PAREDES", params_paredes, dados))
+        elements.append(Spacer(1, 3*mm))
+        elements.append(criar_tabela_medidas("FUNÇÃO", params_funcao, dados))
+        elements.append(Spacer(1, 3*mm))
+        elements.append(criar_tabela_medidas("FLUXOS DOPPLER", params_fluxos, dados))
+        
+        # 3. Análise Qualitativa
+        qualitativa = dados.get('qualitativa', {})
+        if any(v.strip() for v in qualitativa.values()):
+            elements.extend(criar_secao_qualitativa(qualitativa))
+        
+        # 4. Conclusão
+        conclusao = dados.get('conclusao', '')
+        elements.extend(criar_secao_conclusao(conclusao))
+        
+        # 5. Assinatura
+        vet_nome = nome_veterinario or dados.get('veterinario_nome') or "Médico Veterinário"
+        vet_crmv = crmv or dados.get('veterinario_crmv') or ""
+        elements.extend(criar_secao_assinatura(vet_nome, vet_crmv, temp_assinatura_path))
+        
+        # 6. Rodapé
+        elements.extend(criar_rodape(texto_rodape))
+        
+        # 7. Imagens (se houver)
+        imagens = dados.get('imagens', [])
+        if imagens:
+            elements.append(PageBreak())
+            elements.append(Paragraph("IMAGENS DO EXAME", create_pdf_styles()['SecaoTitulo']))
+            elements.append(Spacer(1, 5*mm))
+            
+            # Aqui seria implementado o layout das imagens
+            # Por enquanto, apenas um placeholder
+            elements.append(Paragraph("[Imagens do exame serão inseridas aqui]", create_pdf_styles()['Normal']))
+        
+        # Gerar PDF
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer.getvalue()
+        
+    finally:
+        # Limpar arquivos temporários
+        for temp_file in temp_files:
+            try:
+                if os.path.exists(temp_file):
+                    os.unlink(temp_file)
+            except Exception as e:
+                print(f"Erro ao remover arquivo temporário {temp_file}: {e}")
 
 
 # Mantém compatibilidade com código anterior
