@@ -7,6 +7,7 @@ import api from "@/lib/axios";
 import XmlUploader from "../components/XmlUploader";
 import ImageUploader from "../components/ImageUploader";
 import { Save, ArrowLeft, Heart, User, Activity, FileText, BookOpen, Settings, Image as ImageIcon } from "lucide-react";
+import { ReferenciaComparison } from "../components/ReferenciaComparison";
 
 interface DadosPaciente {
   nome: string;
@@ -90,7 +91,7 @@ const CAMPOS_QUALITATIVA = [
 export default function NovoLaudoPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [aba, setAba] = useState<"paciente" | "medidas" | "qualitativa" | "imagens" | "conteudo" | "frases">("paciente");
+  const [aba, setAba] = useState<"paciente" | "medidas" | "qualitativa" | "imagens" | "conteudo" | "frases" | "referencias">("paciente");
   
   // Dados do paciente
   const [paciente, setPaciente] = useState({
@@ -553,6 +554,17 @@ export default function NovoLaudoPage() {
                   <Settings className="w-4 h-4" />
                   Frases
                 </button>
+                <button
+                  onClick={() => setAba("referencias")}
+                  className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
+                    aba === "referencias"
+                      ? "text-teal-600 border-b-2 border-teal-600"
+                      : "text-gray-600 hover:text-gray-800"
+                  }`}
+                >
+                  <BookOpen className="w-4 h-4" />
+                  Referências
+                </button>
               </div>
 
               {/* Conteúdo das Abas */}
@@ -879,6 +891,36 @@ export default function NovoLaudoPage() {
                         </table>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {aba === "referencias" && (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-medium text-gray-900">Tabelas de Referência</h3>
+                      <a 
+                        href="/referencias"
+                        target="_blank"
+                        className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm flex items-center gap-2"
+                      >
+                        <BookOpen className="w-4 h-4" />
+                        Editar Tabelas
+                      </a>
+                    </div>
+                    
+                    <div className="p-4 bg-blue-50 rounded-lg">
+                      <p className="text-sm text-blue-800">
+                        <strong>Nota:</strong> As tabelas de referência são usadas para comparar automaticamente 
+                        as medidas do paciente com os valores normais. Clique em "Editar Tabelas" para gerenciar 
+                        os valores de referência.
+                      </p>
+                    </div>
+                    
+                    <ReferenciaComparison 
+                      especie={paciente.especie === "Felina" ? "Felina" : "Canina"}
+                      peso={paciente.peso ? parseFloat(paciente.peso) : undefined}
+                      medidas={medidas}
+                    />
                   </div>
                 )}
               </div>

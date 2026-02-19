@@ -15,7 +15,8 @@ import {
   User,
   FileText,
   DollarSign,
-  Settings
+  Settings,
+  BookOpen
 } from "lucide-react";
 
 const menuItems = [
@@ -25,6 +26,7 @@ const menuItems = [
   { href: "/clinicas", label: "Clínicas", icon: Building2 },
   { href: "/servicos", label: "Serviços", icon: Stethoscope },
   { href: "/laudos", label: "Laudos", icon: FileText },
+  { href: "/referencias-eco", label: "Referências Eco", icon: BookOpen },
   { href: "/financeiro", label: "Financeiro", icon: DollarSign },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];

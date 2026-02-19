@@ -11,3 +11,4 @@ from app.models.frase import FraseQualitativa, FraseQualitativaHistorico
 from app.models.imagem_laudo import ImagemLaudo, ImagemTemporaria
 from app.models.tabela_preco import TabelaPreco, PrecoServico
 from app.models.ordem_servico import OrdemServico
+from app.models.referencia_eco import ReferenciaEco
