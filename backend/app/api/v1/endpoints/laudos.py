@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 from io import BytesIO
+import os
+import re
 
 from app.db.database import get_db
 from app.models.laudo import Laudo, Exame
@@ -22,7 +24,11 @@ def listar_laudos(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Lista laudos com filtros"""
+    """Lista laudos com filtros e dados do paciente/tutor"""
+    from app.models.paciente import Paciente
+    from app.models.tutor import Tutor
+    from app.models.clinica import Clinica
+    
     query = db.query(Laudo)
     
     if paciente_id:
@@ -33,9 +39,41 @@ def listar_laudos(
         query = query.filter(Laudo.status == status)
     
     total = query.count()
-    items = query.offset(skip).limit(limit).all()
+    items = query.order_by(Laudo.id.desc()).offset(skip).limit(limit).all()
     
-    return {"total": total, "items": items}
+    # Enriquecer com dados do paciente e tutor
+    resultado = []
+    for laudo in items:
+        paciente = db.query(Paciente).filter(Paciente.id == laudo.paciente_id).first()
+        
+        tutor_nome = None
+        if paciente and paciente.tutor_id:
+            tutor = db.query(Tutor).filter(Tutor.id == paciente.tutor_id).first()
+            if tutor:
+                tutor_nome = tutor.nome
+        
+        clinica_nome = None
+        if laudo.clinic_id:
+            clinica = db.query(Clinica).filter(Clinica.id == laudo.clinic_id).first()
+            if clinica:
+                clinica_nome = clinica.nome
+        
+        resultado.append({
+            "id": laudo.id,
+            "paciente_id": laudo.paciente_id,
+            "paciente_nome": paciente.nome if paciente else "Desconhecido",
+            "paciente_tutor": tutor_nome or "",
+            "clinica": clinica_nome or laudo.medico_solicitante or "",
+            "clinic_id": laudo.clinic_id,
+            "tipo": laudo.tipo,
+            "titulo": laudo.titulo,
+            "status": laudo.status,
+            "data_exame": laudo.data_exame.isoformat() if laudo.data_exame else None,
+            "data_laudo": laudo.data_laudo.isoformat() if laudo.data_laudo else None,
+            "created_at": laudo.created_at.isoformat() if laudo.created_at else None,
+        })
+    
+    return {"total": total, "items": resultado}
 
 
 @router.post("/laudos", status_code=status.HTTP_201_CREATED)
@@ -82,6 +120,7 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
     """Cria um laudo de ecocardiograma com a estrutura específica"""
     import traceback
     from app.models.paciente import Paciente
+    from app.models.tutor import Tutor
     
     try:
         paciente = laudo_data.get("paciente", {})
@@ -97,14 +136,39 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
         paciente_id = paciente.get("id")
         if not paciente_id and paciente.get("nome"):
             print(f"Criando novo paciente: {paciente.get('nome')}")
+            
+            # Criar ou buscar tutor
+            tutor_id = None
+            tutor_nome = paciente.get('tutor', '').strip()
+            if tutor_nome:
+                # Buscar tutor existente
+                tutor = db.query(Tutor).filter(Tutor.nome == tutor_nome).first()
+                if not tutor:
+                    # Criar novo tutor
+                    tutor = Tutor(
+                        nome=tutor_nome,
+                        telefone=paciente.get('telefone', ''),
+                        ativo=1
+                    )
+                    db.add(tutor)
+                    db.commit()
+                    db.refresh(tutor)
+                    print(f"Tutor criado com ID: {tutor.id}")
+                tutor_id = tutor.id
+            
             # Criar novo paciente
+            observacoes = ""
+            if paciente.get('idade'):
+                observacoes += f"Idade: {paciente.get('idade')}\n"
+            
             novo_paciente = Paciente(
                 nome=paciente.get("nome", "Paciente sem nome"),
                 especie=paciente.get("especie", ""),
                 raca=paciente.get("raca", ""),
                 sexo=paciente.get("sexo", ""),
                 peso_kg=float(paciente.get("peso", 0)) if paciente.get("peso") else None,
-                observacoes=f"Tutor: {paciente.get('tutor', '')}\nTelefone: {paciente.get('telefone', '')}",
+                tutor_id=tutor_id,
+                observacoes=observacoes if observacoes else None,
                 ativo=1
             )
             db.add(novo_paciente)
@@ -135,6 +199,30 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
         # Observações adicionais
         observacoes = conteudo.get("observacoes", "")
         
+        # Extrair clinic_id (pode vir como objeto ou ID direto)
+        clinic_id = None
+        if isinstance(clinica, dict):
+            clinic_id = clinica.get("id")
+        elif isinstance(clinica, (int, str)):
+            try:
+                clinic_id = int(clinica)
+            except:
+                clinic_id = None
+        
+        # Data do exame
+        from datetime import datetime
+        data_exame_str = paciente.get("data_exame") or paciente.get("data")
+        data_exame = None
+        if data_exame_str:
+            try:
+                # Tentar parse ISO format
+                data_exame = datetime.fromisoformat(data_exame_str.replace('Z', '+00:00'))
+            except:
+                try:
+                    data_exame = datetime.strptime(data_exame_str, "%Y-%m-%d")
+                except:
+                    pass
+        
         # Criar o laudo
         laudo = Laudo(
             paciente_id=paciente_id,
@@ -147,6 +235,9 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
             observacoes=observacoes,
             anexos=None,
             status=laudo_data.get("status", "Finalizado"),
+            clinic_id=clinic_id,
+            data_exame=data_exame,
+            medico_solicitante=veterinario.get("nome") if isinstance(veterinario, dict) else None,
             criado_por_id=current_user.id,
             criado_por_nome=current_user.nome
         )
@@ -173,11 +264,106 @@ def obter_laudo(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Obtém um laudo específico"""
+    """Obtém um laudo específico com dados completos do paciente e clínica"""
+    from app.models.paciente import Paciente
+    from app.models.tutor import Tutor
+    from app.models.clinica import Clinica
+    
     laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
     if not laudo:
         raise HTTPException(status_code=404, detail="Laudo não encontrado")
-    return laudo
+    
+    # Buscar dados do paciente
+    paciente = db.query(Paciente).filter(Paciente.id == laudo.paciente_id).first()
+    
+    # Buscar dados do tutor se existir
+    tutor_nome = None
+    tutor_telefone = None
+    if paciente and paciente.tutor_id:
+        tutor = db.query(Tutor).filter(Tutor.id == paciente.tutor_id).first()
+        if tutor:
+            tutor_nome = tutor.nome
+            tutor_telefone = tutor.telefone
+    
+    # Calcular idade do paciente se tiver data de nascimento
+    idade = ""
+    if paciente and paciente.nascimento:
+        try:
+            nasc = datetime.strptime(str(paciente.nascimento), "%Y-%m-%d")
+            hoje = datetime.now()
+            meses = (hoje.year - nasc.year) * 12 + hoje.month - nasc.month
+            if meses < 12:
+                idade = f"{meses}m"
+            else:
+                anos = meses // 12
+                meses_rest = meses % 12
+                if meses_rest > 0:
+                    idade = f"{anos}a {meses_rest}m"
+                else:
+                    idade = f"{anos}a"
+        except:
+            idade = str(paciente.nascimento)
+    
+    # Extrair idade das observações se não calculou
+    if not idade and paciente and paciente.observacoes:
+        match = re.search(r'Idade:\s*(.+?)(?:\n|$)', paciente.observacoes)
+        if match:
+            idade = match.group(1).strip()
+    
+    # Buscar nome da clínica
+    clinica_nome = None
+    if laudo.clinic_id:
+        clinica = db.query(Clinica).filter(Clinica.id == laudo.clinic_id).first()
+        if clinica:
+            clinica_nome = clinica.nome
+    
+    # Buscar imagens do laudo
+    from app.models.imagem_laudo import ImagemLaudo
+    imagens = db.query(ImagemLaudo).filter(
+        ImagemLaudo.laudo_id == laudo_id,
+        ImagemLaudo.ativo == 1
+    ).order_by(ImagemLaudo.ordem).all()
+    
+    imagens_list = []
+    for img in imagens:
+        imagens_list.append({
+            "id": img.id,
+            "nome": img.nome_arquivo,
+            "ordem": img.ordem,
+            "descricao": img.descricao,
+            "url": f"/imagens/{img.id}",
+            "tamanho": img.tamanho_bytes
+        })
+    
+    return {
+        "id": laudo.id,
+        "paciente_id": laudo.paciente_id,
+        "paciente": {
+            "id": paciente.id if paciente else None,
+            "nome": paciente.nome if paciente else "Desconhecido",
+            "tutor": tutor_nome or "",
+            "telefone": tutor_telefone or "",
+            "especie": paciente.especie if paciente else "",
+            "raca": paciente.raca if paciente else "",
+            "sexo": paciente.sexo if paciente else "",
+            "peso_kg": paciente.peso_kg if paciente else None,
+            "idade": idade,
+        },
+        "clinica": clinica_nome or laudo.medico_solicitante or "",
+        "clinic_id": laudo.clinic_id,
+        "medico_solicitante": laudo.medico_solicitante,
+        "data_exame": laudo.data_exame.isoformat() if laudo.data_exame else None,
+        "tipo": laudo.tipo,
+        "titulo": laudo.titulo,
+        "descricao": laudo.descricao,
+        "diagnostico": laudo.diagnostico,
+        "observacoes": laudo.observacoes,
+        "status": laudo.status,
+        "created_at": laudo.created_at.isoformat() if laudo.created_at else None,
+        "updated_at": laudo.updated_at.isoformat() if laudo.updated_at else None,
+        "data_laudo": laudo.data_laudo.isoformat() if laudo.data_laudo else None,
+        "imagens": imagens_list,
+    }
 
 
 @router.put("/laudos/{laudo_id}")
@@ -208,15 +394,23 @@ def deletar_laudo(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Remove um laudo"""
+    """Remove um laudo e suas imagens associadas"""
+    from app.models.imagem_laudo import ImagemLaudo
+    
     laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
     if not laudo:
         raise HTTPException(status_code=404, detail="Laudo não encontrado")
     
+    # Remover imagens associadas ao laudo
+    imagens = db.query(ImagemLaudo).filter(ImagemLaudo.laudo_id == laudo_id).all()
+    for img in imagens:
+        db.delete(img)
+    
+    # Remover o laudo
     db.delete(laudo)
     db.commit()
     
-    return {"message": "Laudo removido com sucesso"}
+    return {"message": "Laudo e imagens removidos com sucesso"}
 
 
 # Endpoint para gerar PDF
@@ -230,6 +424,9 @@ def gerar_pdf_laudo(
     from fastapi.responses import StreamingResponse
     from app.utils.pdf_laudo import gerar_pdf_laudo_eco
     from app.models.paciente import Paciente
+    from app.models.tutor import Tutor
+    from app.models.clinica import Clinica
+    from app.models.imagem_laudo import ImagemLaudo
     from app.models.configuracao import Configuracao, ConfiguracaoUsuario
     import traceback
     
@@ -241,6 +438,37 @@ def gerar_pdf_laudo(
         # Buscar paciente
         paciente = db.query(Paciente).filter(Paciente.id == laudo.paciente_id).first()
         
+        # Buscar tutor do paciente
+        tutor_nome = ""
+        if paciente and paciente.tutor_id:
+            tutor = db.query(Tutor).filter(Tutor.id == paciente.tutor_id).first()
+            if tutor:
+                tutor_nome = tutor.nome
+        
+        # Buscar clínica
+        clinica_nome = ""
+        if laudo.clinic_id:
+            clinica = db.query(Clinica).filter(Clinica.id == laudo.clinic_id).first()
+            if clinica:
+                clinica_nome = clinica.nome
+        elif laudo.medico_solicitante:
+            clinica_nome = laudo.medico_solicitante
+        
+        # Buscar imagens do laudo
+        imagens = db.query(ImagemLaudo).filter(
+            ImagemLaudo.laudo_id == laudo_id,
+            ImagemLaudo.ativo == 1
+        ).order_by(ImagemLaudo.ordem).all()
+        
+        # Preparar lista de imagens (bytes)
+        imagens_bytes = []
+        for img in imagens:
+            if img.conteudo:
+                imagens_bytes.append(img.conteudo)
+            elif img.caminho_arquivo and os.path.exists(img.caminho_arquivo):
+                with open(img.caminho_arquivo, 'rb') as f:
+                    imagens_bytes.append(f.read())
+        
         # Buscar configurações do sistema
         config_sistema = db.query(Configuracao).first()
         
@@ -248,6 +476,21 @@ def gerar_pdf_laudo(
         config_usuario = db.query(ConfiguracaoUsuario).filter(
             ConfiguracaoUsuario.user_id == current_user.id
         ).first()
+        
+        # Formatar data do exame
+        data_exame = laudo.data_exame or laudo.data_laudo
+        
+        # Garantir que data_exame é um objeto datetime
+        if data_exame and isinstance(data_exame, str):
+            try:
+                data_exame = datetime.fromisoformat(data_exame.replace('Z', '+00:00'))
+            except:
+                try:
+                    data_exame = datetime.strptime(data_exame, "%Y-%m-%d")
+                except:
+                    data_exame = None
+        
+        data_exame_str = data_exame.strftime("%d/%m/%Y") if data_exame else datetime.now().strftime("%d/%m/%Y")
         
         # Extrair dados do paciente
         dados_paciente = {
@@ -257,16 +500,21 @@ def gerar_pdf_laudo(
             "sexo": paciente.sexo if paciente else "",
             "idade": "",
             "peso": f"{paciente.peso_kg:.1f}" if paciente and paciente.peso_kg else "",
-            "tutor": "",
-            "data_exame": laudo.data_laudo.strftime("%d/%m/%Y") if laudo.data_laudo else datetime.now().strftime("%d/%m/%Y")
+            "tutor": tutor_nome,
+            "data_exame": data_exame_str
         }
+        
+        # Extrair idade das observações do paciente
+        if paciente and paciente.observacoes:
+            match = re.search(r'Idade:\s*(.+?)(?:\n|$)', paciente.observacoes)
+            if match:
+                dados_paciente["idade"] = match.group(1).strip()
         
         # Extrair medidas da descrição (formato markdown)
         medidas = {}
         qualitativa = {}
         
         if laudo.descricao:
-            import re
             descricao = laudo.descricao
             
             # Extrair medidas (formato: - Ao: 1.50) - aceita números decimais
@@ -298,8 +546,8 @@ def gerar_pdf_laudo(
             "medidas": medidas,
             "qualitativa": qualitativa,
             "conclusao": laudo.diagnostico or "",
-            "clinica": "",
-            "imagens": [],
+            "clinica": clinica_nome,
+            "imagens": imagens_bytes,
             "veterinario_nome": current_user.nome,
             "veterinario_crmv": config_usuario.crmv if config_usuario else ""
         }
@@ -332,10 +580,31 @@ def gerar_pdf_laudo(
             texto_rodape=texto_rodape
         )
         
+        # Montar nome do arquivo: data__nome_do_pet__nome_do_tutor__nome_da_clinica.pdf
+        try:
+            data_nome = data_exame.strftime("%Y-%m-%d") if data_exame else datetime.now().strftime("%Y-%m-%d")
+        except:
+            data_nome = datetime.now().strftime("%Y-%m-%d")
+        
+        # Sanitizar nomes para filename (remove caracteres inválidos)
+        def sanitizar(texto, padrao):
+            if not texto or texto == "N/A":
+                return padrao
+            # Remover caracteres inválidos para filename
+            texto = re.sub(r'[^\w\s-]', '', texto)
+            texto = texto.strip().replace(' ', '_')
+            return texto[:30] if texto else padrao
+        
+        pet_nome = sanitizar(dados_paciente.get('nome'), 'Pet')
+        tutor_nome_arq = sanitizar(tutor_nome, 'SemTutor')
+        clinica_nome_arq = sanitizar(clinica_nome, 'SemClinica')
+        
+        filename = f"{data_nome}__{pet_nome}__{tutor_nome_arq}__{clinica_nome_arq}.pdf"
+        
         return StreamingResponse(
             BytesIO(pdf_bytes),
             media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename=laudo_{laudo_id}_{dados_paciente['nome'].replace(' ', '_')}.pdf"}
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
         )
     except HTTPException:
         raise

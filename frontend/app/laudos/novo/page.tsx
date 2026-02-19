@@ -20,10 +20,15 @@ interface DadosPaciente {
   data_exame: string;
 }
 
+interface Clinica {
+  id: number;
+  nome: string;
+}
+
 interface DadosExame {
   paciente: DadosPaciente;
   medidas: Record<string, number>;
-  clinica: string;
+  clinica: string | { id: number; nome: string };
   veterinario_solicitante: string;
   fc: string;
 }
@@ -121,7 +126,9 @@ export default function NovoLaudoPage() {
   });
   
   // Clinica
-  const [clinica, setClinica] = useState("");
+  const [clinicaId, setClinicaId] = useState<string>("");
+  const [clinicaNome, setClinicaNome] = useState<string>("");
+  const [clinicas, setClinicas] = useState<Clinica[]>([]);
   const [veterinario, setVeterinario] = useState("");
   
   // Mensagem de sucesso
@@ -141,6 +148,7 @@ export default function NovoLaudoPage() {
   
   // Imagens do laudo
   const [imagens, setImagens] = useState<any[]>([]);
+  const [sessionId] = useState<string>(() => Math.random().toString(36).substring(2, 15));
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -150,7 +158,17 @@ export default function NovoLaudoPage() {
     }
     carregarPatologias();
     carregarFrases();
+    carregarClinicas();
   }, [router]);
+
+  const carregarClinicas = async () => {
+    try {
+      const response = await api.get("/clinicas");
+      setClinicas(response.data.items || []);
+    } catch (error) {
+      console.error("Erro ao carregar clínicas:", error);
+    }
+  };
 
   const carregarPatologias = async () => {
     try {
@@ -259,7 +277,20 @@ export default function NovoLaudoPage() {
     }
     
     if (dados.clinica) {
-      setClinica(dados.clinica);
+      // Se vier como string, usa direto; se vier como objeto, extrai o id
+      if (typeof dados.clinica === 'string') {
+        // Buscar clínica pelo nome
+        const clinicaEncontrada = clinicas.find(c => c.nome === dados.clinica);
+        if (clinicaEncontrada) {
+          setClinicaId(clinicaEncontrada.id.toString());
+          setClinicaNome(clinicaEncontrada.nome);
+        } else {
+          setClinicaNome(dados.clinica);
+        }
+      } else if (dados.clinica && typeof dados.clinica === 'object') {
+        setClinicaId(dados.clinica.id?.toString() || "");
+        setClinicaNome(dados.clinica.nome || "");
+      }
     }
     
     setMensagemSucesso("Dados do XML importados com sucesso!");
@@ -269,17 +300,33 @@ export default function NovoLaudoPage() {
   const handleSalvar = async () => {
     setLoading(true);
     try {
+      // Enviar clínica como objeto com id ou nome
+      const clinicaPayload = clinicaId 
+        ? { id: parseInt(clinicaId), nome: clinicaNome }
+        : clinicaNome;
+      
       const payload = {
         paciente,
         medidas,
         qualitativa,
         conteudo,
-        clinica,
-        veterinario,
+        clinica: clinicaPayload,
+        veterinario: { nome: veterinario },
         data_exame: paciente.data_exame,
       };
       
-      await api.post("/laudos", payload);
+      const response = await api.post("/laudos", payload);
+      const laudoId = response.data.id;
+      
+      // Associar imagens ao laudo se houver imagens enviadas
+      if (imagens.length > 0 && imagens.some(img => img.uploaded)) {
+        try {
+          await api.post(`/imagens/associar/${laudoId}?session_id=${sessionId}`);
+        } catch (imgError) {
+          console.error("Erro ao associar imagens:", imgError);
+        }
+      }
+      
       alert("Laudo salvo com sucesso!");
       router.push("/laudos");
     } catch (error) {
@@ -627,12 +674,23 @@ export default function NovoLaudoPage() {
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             Clínica
                           </label>
-                          <input
-                            type="text"
-                            value={clinica}
-                            onChange={(e) => setClinica(e.target.value)}
+                          <select
+                            value={clinicaId}
+                            onChange={(e) => {
+                              const selectedId = e.target.value;
+                              setClinicaId(selectedId);
+                              const selectedClinica = clinicas.find(c => c.id.toString() === selectedId);
+                              setClinicaNome(selectedClinica?.nome || "");
+                            }}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-                          />
+                          >
+                            <option value="">Selecione uma clínica</option>
+                            {clinicas.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.nome}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -720,6 +778,7 @@ export default function NovoLaudoPage() {
                     
                     <ImageUploader 
                       onImagensChange={setImagens}
+                      sessionId={sessionId}
                     />
                     
                     <div className="mt-4 p-4 bg-blue-50 rounded-lg">

@@ -203,6 +203,35 @@ def atualizar_paciente(
     }
 
 
+@router.get("/{paciente_id}/tutor")
+def obter_tutor_paciente(
+    paciente_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Obtém o tutor de um paciente"""
+    paciente = db.query(Paciente).filter(Paciente.id == paciente_id).first()
+    
+    if not paciente:
+        raise HTTPException(status_code=404, detail="Paciente não encontrado")
+    
+    if not paciente.tutor_id:
+        raise HTTPException(status_code=404, detail="Paciente não tem tutor cadastrado")
+    
+    tutor = db.query(Tutor).filter(Tutor.id == paciente.tutor_id).first()
+    
+    if not tutor:
+        raise HTTPException(status_code=404, detail="Tutor não encontrado")
+    
+    return {
+        "id": tutor.id,
+        "nome": tutor.nome,
+        "telefone": tutor.telefone,
+        "whatsapp": tutor.whatsapp,
+        "email": tutor.email
+    }
+
+
 @router.delete("/{paciente_id}")
 def deletar_paciente(
     paciente_id: int,

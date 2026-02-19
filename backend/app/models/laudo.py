@@ -30,6 +30,13 @@ class Laudo(Base):
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
+    # Clínica
+    clinic_id = Column(Integer, nullable=True)  # ID da clínica vinculada
+    
+    # Dados adicionais
+    data_exame = Column(DateTime(timezone=True))  # Data do exame
+    medico_solicitante = Column(String)  # Médico solicitante
+    
     # Auditoria
     criado_por_id = Column(Integer)
     criado_por_nome = Column(String)

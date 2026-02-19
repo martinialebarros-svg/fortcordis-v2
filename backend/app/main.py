@@ -1,7 +1,7 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1.endpoints import auth, admin, agenda, pacientes, clinicas, servicos, laudos, financeiro, xml_import, frases, imagens, tabelas_preco, ordens_servico, configuracoes
+from app.api.v1.endpoints import auth, admin, agenda, pacientes, clinicas, servicos, laudos, financeiro, xml_import, frases, imagens, tabelas_preco, ordens_servico, configuracoes, tutores
 from app.models import user, papel, agendamento
 from app.core.websocket import manager
 
@@ -19,6 +19,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
 # Rotas REST
@@ -36,6 +37,7 @@ app.include_router(imagens.router, prefix="/api/v1/imagens", tags=["imagens"])
 app.include_router(tabelas_preco.router, prefix="/api/v1/tabelas-preco", tags=["tabelas_preco"])
 app.include_router(ordens_servico.router, prefix="/api/v1/ordens-servico", tags=["ordens_servico"])
 app.include_router(configuracoes.router, prefix="/api/v1", tags=["configuracoes"])
+app.include_router(tutores.router, prefix="/api/v1/tutores", tags=["tutores"])
 
 # WebSocket endpoint
 @app.websocket("/ws/{client_id}")

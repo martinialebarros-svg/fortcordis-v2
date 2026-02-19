@@ -16,6 +16,7 @@ from reportlab.platypus import (
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib.utils import ImageReader
 
 
 # Cores do tema
@@ -556,9 +557,100 @@ def gerar_pdf_laudo_eco(
             elements.append(Paragraph("IMAGENS DO EXAME", create_pdf_styles()['SecaoTitulo']))
             elements.append(Spacer(1, 5*mm))
             
-            # Aqui seria implementado o layout das imagens
-            # Por enquanto, apenas um placeholder
-            elements.append(Paragraph("[Imagens do exame serão inseridas aqui]", create_pdf_styles()['Normal']))
+            # Layout 3x3 (9 imagens por página) - ocupa mais a página
+            # Tamanho de cada imagem maior para preencher melhor
+            IMG_WIDTH = 58*mm
+            IMG_HEIGHT = 45*mm
+            ESPACAMENTO = 4*mm  # Espaço entre imagens
+            
+            # Processar imagens em grupos de 9
+            for page_idx in range(0, len(imagens), 9):
+                if page_idx > 0:
+                    elements.append(PageBreak())
+                    elements.append(Paragraph("IMAGENS DO EXAME (continuação)", create_pdf_styles()['SecaoTitulo']))
+                    elements.append(Spacer(1, 5*mm))
+                
+                # Pegar até 9 imagens para esta página
+                page_imagens = imagens[page_idx:page_idx + 9]
+                
+                # Criar grid 3x3 (3 colunas, 3 linhas)
+                table_data = []
+                row = []
+                
+                for idx, img_bytes in enumerate(page_imagens):
+                    try:
+                        if not img_bytes:
+                            continue
+                            
+                        # Criar arquivo temporário para a imagem
+                        temp_img = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+                        temp_img.write(img_bytes)
+                        temp_img.close()
+                        temp_files.append(temp_img.name)
+                        
+                        # Adicionar imagem ao grid com proporção preservada
+                        try:
+                            img_reader = ImageReader(temp_img.name)
+                            img_width, img_height = img_reader.getSize()
+                            
+                            # Calcular proporção para caber no espaço
+                            aspect = img_height / float(img_width) if img_width else 1
+                            if aspect > (IMG_HEIGHT / IMG_WIDTH):
+                                # Altura limita
+                                draw_height = IMG_HEIGHT
+                                draw_width = IMG_HEIGHT / aspect if aspect else IMG_WIDTH
+                            else:
+                                # Largura limita
+                                draw_width = IMG_WIDTH
+                                draw_height = IMG_WIDTH * aspect
+                        except:
+                            # Se falhar ao obter dimensões, usar tamanho padrão
+                            draw_width = IMG_WIDTH
+                            draw_height = IMG_HEIGHT
+                        
+                        img = Image(temp_img.name, width=draw_width, height=draw_height)
+                        
+                        row.append(img)
+                        
+                        # Cada linha tem 3 imagens
+                        if len(row) == 3:
+                            table_data.append(row)
+                            row = []
+                    except Exception as e:
+                        print(f"Erro ao adicionar imagem {page_idx + idx}: {e}")
+                        import traceback
+                        traceback.print_exc()
+                
+                # Adicionar última linha se incompleta
+                if row:
+                    # Preencher células vazias para completar a linha
+                    while len(row) < 3:
+                        row.append("")
+                    table_data.append(row)
+                
+                # Completar até 3 linhas se necessário para manter o grid
+                while len(table_data) < 3:
+                    table_data.append(["", "", ""])
+                
+                # Criar tabela com as imagens
+                if table_data:
+                    col_widths = [IMG_WIDTH, IMG_WIDTH, IMG_WIDTH]
+                    
+                    img_table = Table(table_data, colWidths=col_widths)
+                    img_table.setStyle(TableStyle([
+                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        ('LEFTPADDING', (0, 0), (-1, -1), ESPACAMENTO),
+                        ('RIGHTPADDING', (0, 0), (-1, -1), ESPACAMENTO),
+                        ('TOPPADDING', (0, 0), (-1, -1), ESPACAMENTO),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), ESPACAMENTO),
+                        # Grid completo com linhas cinzas
+                        ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+                        # Cor de fundo branca para todas as células
+                        ('BACKGROUND', (0, 0), (-1, -1), colors.white),
+                    ]))
+                    elements.append(img_table)
+                    elements.append(Spacer(1, 5*mm))
         
         # Gerar PDF
         doc.build(elements)

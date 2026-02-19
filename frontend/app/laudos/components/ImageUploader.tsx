@@ -1,29 +1,59 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { Upload, X, Loader2, MoveUp, MoveDown } from "lucide-react";
+import api from "@/lib/axios";
 
 interface Imagem {
-  id: string;  // ID único local
+  id: string;
   nome: string;
   descricao: string;
   ordem: number;
-  dataUrl: string;  // URL de dados para preview
+  dataUrl: string;
   tamanho: number;
-  file: File;  // Arquivo original para upload posterior
+  file?: File;
+  serverId?: number;
+  uploaded: boolean;
 }
 
 interface ImageUploaderProps {
   onImagensChange?: (imagens: Imagem[]) => void;
+  sessionId: string;
 }
 
-export default function ImageUploader({ onImagensChange }: ImageUploaderProps) {
+export default function ImageUploader({ onImagensChange, sessionId }: ImageUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [imagens, setImagens] = useState<Imagem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const gerarId = () => Math.random().toString(36).substring(2, 15);
+
+  const fazerUploadImagem = async (imagem: Imagem): Promise<boolean> => {
+    if (!imagem.file || imagem.uploaded) return true;
+    
+    try {
+      const formData = new FormData();
+      formData.append("arquivo", imagem.file);
+      formData.append("ordem", imagem.ordem.toString());
+      formData.append("descricao", imagem.descricao || "");
+      formData.append("session_id", sessionId);
+      
+      const response = await api.post("/imagens/upload-temp", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+      
+      if (response.data && response.data.success) {
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error("Erro ao fazer upload:", err);
+      return false;
+    }
+  };
 
   const processarArquivos = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -36,27 +66,24 @@ export default function ImageUploader({ onImagensChange }: ImageUploaderProps) {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       
-      // Validar tipo
       if (!file.type.startsWith("image/")) {
         setError(`Arquivo ${file.name} não é uma imagem válida`);
         continue;
       }
 
-      // Validar tamanho (10MB)
       if (file.size > 10 * 1024 * 1024) {
         setError(`Arquivo ${file.name} excede 10MB`);
         continue;
       }
 
       try {
-        // Criar URL de dados para preview imediato
         const dataUrl = await new Promise<string>((resolve) => {
           const reader = new FileReader();
           reader.onloadend = () => resolve(reader.result as string);
           reader.readAsDataURL(file);
         });
 
-        novasImagens.push({
+        const novaImagem: Imagem = {
           id: gerarId(),
           nome: file.name,
           descricao: "",
@@ -64,7 +91,10 @@ export default function ImageUploader({ onImagensChange }: ImageUploaderProps) {
           dataUrl,
           tamanho: file.size,
           file,
-        });
+          uploaded: false,
+        };
+
+        novasImagens.push(novaImagem);
       } catch (err) {
         console.error(`Erro ao processar ${file.name}:`, err);
       }
@@ -73,6 +103,16 @@ export default function ImageUploader({ onImagensChange }: ImageUploaderProps) {
     const todasImagens = [...imagens, ...novasImagens];
     setImagens(todasImagens);
     onImagensChange?.(todasImagens);
+
+    // Fazer upload das novas imagens
+    for (const imagem of novasImagens) {
+      const sucesso = await fazerUploadImagem(imagem);
+      if (sucesso) {
+        imagem.uploaded = true;
+        setImagens([...todasImagens]);
+      }
+    }
+
     setUploading(false);
   };
 
@@ -97,9 +137,17 @@ export default function ImageUploader({ onImagensChange }: ImageUploaderProps) {
     e.target.value = "";
   }, [imagens]);
 
-  const removerImagem = (id: string) => {
+  const removerImagem = async (id: string) => {
+    const imagem = imagens.find(img => img.id === id);
+    if (imagem?.uploaded && sessionId) {
+      try {
+        await api.delete(`/imagens/temp/${id}?session_id=${sessionId}`);
+      } catch (e) {
+        console.error("Erro ao remover imagem do servidor:", e);
+      }
+    }
+    
     const novasImagens = imagens.filter(img => img.id !== id);
-    // Reordenar
     novasImagens.forEach((img, idx) => img.ordem = idx);
     setImagens(novasImagens);
     onImagensChange?.(novasImagens);
@@ -113,8 +161,6 @@ export default function ImageUploader({ onImagensChange }: ImageUploaderProps) {
     const newIndex = direcao === "up" ? index - 1 : index + 1;
     
     [novasImagens[index], novasImagens[newIndex]] = [novasImagens[newIndex], novasImagens[index]];
-    
-    // Atualizar ordem
     novasImagens.forEach((img, i) => img.ordem = i);
     
     setImagens(novasImagens);
@@ -154,7 +200,7 @@ export default function ImageUploader({ onImagensChange }: ImageUploaderProps) {
           {uploading ? (
             <div className="flex flex-col items-center">
               <Loader2 className="h-10 w-10 text-blue-500 animate-spin mb-3" />
-              <p className="text-sm text-gray-600">Processando imagens...</p>
+              <p className="text-sm text-gray-600">Enviando imagens...</p>
             </div>
           ) : (
             <div className="flex flex-col items-center">
@@ -181,6 +227,11 @@ export default function ImageUploader({ onImagensChange }: ImageUploaderProps) {
         <div className="space-y-2">
           <h4 className="font-medium text-gray-700">
             Imagens ({imagens.length})
+            {imagens.some(img => !img.uploaded) && (
+              <span className="text-xs text-yellow-600 ml-2">
+                (algumas ainda não foram enviadas)
+              </span>
+            )}
           </h4>
           
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -201,6 +252,13 @@ export default function ImageUploader({ onImagensChange }: ImageUploaderProps) {
                   <div className="absolute top-2 left-2 bg-teal-600 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center">
                     {index + 1}
                   </div>
+
+                  {/* Status de upload */}
+                  {!imagem.uploaded && (
+                    <div className="absolute top-2 right-2 bg-yellow-500 text-white text-xs px-2 py-1 rounded">
+                      Enviando...
+                    </div>
+                  )}
                   
                   {/* Overlay com controles */}
                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">

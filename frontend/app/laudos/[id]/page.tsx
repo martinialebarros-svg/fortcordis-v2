@@ -6,19 +6,6 @@ import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import { ArrowLeft, FileText, Download, Edit, Printer } from "lucide-react";
 
-interface Laudo {
-  id: number;
-  paciente_id: number;
-  tipo: string;
-  titulo: string;
-  descricao: string;
-  diagnostico: string;
-  observacoes: string;
-  status: string;
-  data_laudo: string;
-  criado_por_nome: string;
-}
-
 interface Paciente {
   id: number;
   nome: string;
@@ -26,6 +13,25 @@ interface Paciente {
   raca: string;
   sexo: string;
   peso_kg: number;
+  idade?: string;
+  tutor?: string;
+  telefone?: string;
+}
+
+interface Laudo {
+  id: number;
+  paciente_id: number;
+  paciente?: Paciente;
+  tipo: string;
+  titulo: string;
+  descricao: string;
+  diagnostico: string;
+  observacoes: string;
+  status: string;
+  data_laudo: string;
+  data_exame?: string;
+  clinica?: string;
+  criado_por_nome: string;
 }
 
 export default function VisualizarLaudoPage({ params }: { params: { id: string } }) {
@@ -53,8 +59,11 @@ export default function VisualizarLaudoPage({ params }: { params: { id: string }
       const respLaudo = await api.get(`/laudos/${params.id}`);
       setLaudo(respLaudo.data);
       
-      // Carregar paciente
-      if (respLaudo.data.paciente_id) {
+      // Carregar dados do paciente (agora vem no laudo)
+      if (respLaudo.data.paciente) {
+        setPaciente(respLaudo.data.paciente);
+      } else if (respLaudo.data.paciente_id) {
+        // Fallback: buscar paciente separadamente (para laudos antigos)
         try {
           const respPaciente = await api.get(`/pacientes/${respLaudo.data.paciente_id}`);
           setPaciente(respPaciente.data);
@@ -94,19 +103,40 @@ export default function VisualizarLaudoPage({ params }: { params: { id: string }
 
   const downloadPDF = async () => {
     try {
-      const response = await api.get(`/laudos/${params.id}/pdf`, {
-        responseType: 'blob'
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/v1/laudos/${params.id}/pdf`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
       
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      if (!response.ok) {
+        throw new Error('Erro ao baixar PDF');
+      }
+      
+      // Extrair nome do arquivo do header Content-Disposition
+      let filename = `laudo_${params.id}.pdf`;
+      const contentDisposition = response.headers.get('content-disposition');
+      console.log('Content-Disposition:', contentDisposition);
+      
+      if (contentDisposition) {
+        // Regex que aceita tanto filename="..." quanto filename=...
+        const match = contentDisposition.match(/filename="?([^";\s]+)"?/);
+        if (match && match[1]) {
+          filename = match[1];
+          console.log('Nome extraído:', filename);
+        }
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `laudo_${params.id}.pdf`);
+      link.setAttribute('download', filename);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (error) {
+      console.error('Erro:', error);
       alert('Erro ao baixar PDF.');
     }
   };
@@ -210,12 +240,36 @@ export default function VisualizarLaudoPage({ params }: { params: { id: string }
                   <p className="font-medium">{paciente.peso_kg} kg</p>
                 </div>
               )}
+              {paciente?.idade && (
+                <div>
+                  <span className="text-gray-500">Idade:</span>
+                  <p className="font-medium">{paciente.idade}</p>
+                </div>
+              )}
+              {paciente?.tutor && (
+                <div>
+                  <span className="text-gray-500">Tutor:</span>
+                  <p className="font-medium">{paciente.tutor}</p>
+                </div>
+              )}
+              {paciente?.telefone && (
+                <div>
+                  <span className="text-gray-500">Telefone:</span>
+                  <p className="font-medium">{paciente.telefone}</p>
+                </div>
+              )}
               <div>
-                <span className="text-gray-500">Data:</span>
+                <span className="text-gray-500">Data do Exame:</span>
                 <p className="font-medium">
-                  {new Date(laudo.data_laudo).toLocaleDateString('pt-BR')}
+                  {new Date(laudo.data_exame || laudo.data_laudo).toLocaleDateString('pt-BR')}
                 </p>
               </div>
+              {laudo.clinica && (
+                <div>
+                  <span className="text-gray-500">Clínica:</span>
+                  <p className="font-medium">{laudo.clinica}</p>
+                </div>
+              )}
             </div>
           </div>
 

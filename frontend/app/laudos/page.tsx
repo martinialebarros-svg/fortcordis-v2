@@ -10,10 +10,13 @@ interface Laudo {
   id: number;
   paciente_id: number;
   paciente_nome?: string;
+  paciente_tutor?: string;
+  clinica?: string;
   tipo: string;
   titulo: string;
   status: string;
   data_laudo: string;
+  data_exame?: string;
   veterinario_id: number;
 }
 
@@ -64,6 +67,9 @@ export default function LaudosPage() {
     const termo = busca.toLowerCase();
     return (
       laudo.titulo?.toLowerCase().includes(termo) ||
+      laudo.paciente_nome?.toLowerCase().includes(termo) ||
+      laudo.paciente_tutor?.toLowerCase().includes(termo) ||
+      laudo.clinica?.toLowerCase().includes(termo) ||
       laudo.tipo?.toLowerCase().includes(termo) ||
       laudo.status?.toLowerCase().includes(termo) ||
       laudo.paciente_id?.toString().includes(termo)
@@ -83,14 +89,32 @@ export default function LaudosPage() {
 
   const downloadPDF = async (laudoId: number, titulo: string) => {
     try {
-      const response = await api.get(`/laudos/${laudoId}/pdf`, {
-        responseType: 'blob'
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/v1/laudos/${laudoId}/pdf`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
       
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      if (!response.ok) {
+        throw new Error('Erro ao baixar PDF');
+      }
+      
+      // Extrair nome do arquivo do header Content-Disposition
+      let filename = `${titulo.replace(/\s+/g, '_')}.pdf`;
+      const contentDisposition = response.headers.get('content-disposition');
+      
+      if (contentDisposition) {
+        // Regex que aceita tanto filename="..." quanto filename=...
+        const match = contentDisposition.match(/filename="?([^";\s]+)"?/);
+        if (match && match[1]) {
+          filename = match[1];
+        }
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `${titulo.replace(/\s+/g, '_')}.pdf`);
+      link.setAttribute('download', filename);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -111,6 +135,20 @@ export default function LaudosPage() {
       alert('Laudo excluído com sucesso!');
     } catch (error) {
       alert('Erro ao excluir laudo. Tente novamente.');
+    }
+  };
+
+  const deletarExame = async (exameId: number) => {
+    if (!confirm('Tem certeza que deseja excluir este exame? Esta ação não pode ser desfeita.')) {
+      return;
+    }
+    
+    try {
+      await api.delete(`/exames/${exameId}`);
+      setExames(exames.filter(e => e.id !== exameId));
+      alert('Exame excluído com sucesso!');
+    } catch (error) {
+      alert('Erro ao excluir exame. Tente novamente.');
     }
   };
 
@@ -200,15 +238,23 @@ export default function LaudosPage() {
                         <FileText className="w-5 h-5 text-teal-600" />
                       </div>
                       <div className="flex-1">
-                        <h3 className="font-medium text-gray-900">{laudo.titulo}</h3>
-                        <div className="flex gap-4 text-sm text-gray-500 mt-1">
+                        <h3 className="font-medium text-gray-900">
+                          {laudo.paciente_nome || `Paciente #${laudo.paciente_id}`}
+                        </h3>
+                        <div className="flex flex-wrap gap-4 text-sm text-gray-500 mt-1">
                           <span className="flex items-center gap-1">
                             <User className="w-3 h-3" />
-                            Paciente #{laudo.paciente_id}
+                            {laudo.paciente_tutor || "Sem tutor"}
                           </span>
+                          {laudo.clinica && (
+                            <span className="flex items-center gap-1">
+                              <FileText className="w-3 h-3" />
+                              {laudo.clinica}
+                            </span>
+                          )}
                           <span className="flex items-center gap-1">
                             <Calendar className="w-3 h-3" />
-                            {new Date(laudo.data_laudo).toLocaleDateString('pt-BR')}
+                            {new Date(laudo.data_exame || laudo.data_laudo).toLocaleDateString('pt-BR')}
                           </span>
                         </div>
                       </div>
@@ -271,9 +317,18 @@ export default function LaudosPage() {
                           <span>R$ {exame.valor?.toFixed(2)}</span>
                         </div>
                       </div>
-                      <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(exame.status)}`}>
-                        {exame.status}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(exame.status)}`}>
+                          {exame.status}
+                        </span>
+                        <button
+                          onClick={() => deletarExame(exame.id)}
+                          className="p-2 text-gray-600 hover:text-red-700 hover:bg-red-100 rounded-lg transition-colors"
+                          title="Excluir"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}

@@ -36,6 +36,7 @@ async def upload_imagem_temporaria(
     arquivo: UploadFile = File(...),
     descricao: str = Form(""),
     ordem: int = Form(0),
+    session_id: str = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> Any:
@@ -59,11 +60,11 @@ async def upload_imagem_temporaria(
             detail=f"Arquivo muito grande. Máximo: {MAX_FILE_SIZE / 1024 / 1024}MB"
         )
     
-    # Criar registro temporário
-    session_id = str(uuid.uuid4())
+    # Usar session_id fornecido ou criar um novo
+    session_id_usado = session_id if session_id else str(uuid.uuid4())
     
     imagem_temp = ImagemTemporaria(
-        session_id=session_id,
+        session_id=session_id_usado,
         nome_arquivo=arquivo.filename,
         tipo_mime=arquivo.content_type or f"image/{get_file_extension(arquivo.filename)}",
         tamanho_bytes=len(conteudo),
@@ -80,10 +81,10 @@ async def upload_imagem_temporaria(
     return {
         "success": True,
         "imagem_id": imagem_temp.id,
-        "session_id": session_id,
+        "session_id": session_id_usado,
         "nome": imagem_temp.nome_arquivo,
         "tamanho": imagem_temp.tamanho_bytes,
-        "url_preview": f"/api/v1/imagens/temp/{imagem_temp.id}"
+        "url_preview": f"/imagens/temp/{imagem_temp.id}"
     }
 
 
@@ -150,7 +151,7 @@ def listar_imagens_temporarias(
                 "descricao": img.descricao,
                 "ordem": img.ordem,
                 "tamanho": img.tamanho_bytes,
-                "url_preview": f"/api/v1/imagens/temp/{img.id}"
+                "url_preview": f"/imagens/temp/{img.id}"
             }
             for img in imagens
         ],
@@ -166,13 +167,28 @@ def associar_imagens_ao_laudo(
     current_user: User = Depends(get_current_user)
 ):
     """Associa imagens temporárias a um laudo salvo"""
+    # Limpar imagens temporárias expiradas primeiro
+    imagens_expiradas = db.query(ImagemTemporaria).filter(
+        ImagemTemporaria.expira_em <= datetime.utcnow()
+    ).all()
+    for img_exp in imagens_expiradas:
+        db.delete(img_exp)
+    
+    # Buscar imagens temporárias do session_id atual
     imagens_temp = db.query(ImagemTemporaria).filter(
         ImagemTemporaria.session_id == session_id,
         ImagemTemporaria.expira_em > datetime.utcnow()
     ).all()
     
     if not imagens_temp:
+        db.commit()  # Commit da limpeza
         return {"message": "Nenhuma imagem para associar"}
+    
+    # Buscar a maior ordem existente no laudo
+    ultima_ordem = db.query(ImagemLaudo).filter(
+        ImagemLaudo.laudo_id == laudo_id,
+        ImagemLaudo.ativo == 1
+    ).count()
     
     count = 0
     for img_temp in imagens_temp:
@@ -182,7 +198,7 @@ def associar_imagens_ao_laudo(
             tipo_mime=img_temp.tipo_mime,
             tamanho_bytes=img_temp.tamanho_bytes,
             conteudo=img_temp.conteudo,
-            ordem=img_temp.ordem,
+            ordem=ultima_ordem + count,  # Continuar ordem após imagens existentes
             descricao=img_temp.descricao,
             ativo=1
         )
@@ -221,7 +237,7 @@ def listar_imagens_do_laudo(
                 "ordem": img.ordem,
                 "pagina": img.pagina,
                 "tamanho": img.tamanho_bytes,
-                "url": f"/api/v1/imagens/{img.id}"
+                "url": f"/imagens/{img.id}"
             }
             for img in imagens
         ],

@@ -4,11 +4,28 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../../layout-dashboard";
 import api from "@/lib/axios";
+import ImageUploader from "../../components/ImageUploader";
 import { ArrowLeft, Save, FileText, User, Activity, Heart } from "lucide-react";
+
+interface Clinica {
+  id: number;
+  nome: string;
+}
+
+interface Imagem {
+  id: number;
+  nome: string;
+  ordem: number;
+  descricao: string;
+  url: string;
+  dataUrl?: string;
+  tamanho: number;
+}
 
 interface Laudo {
   id: number;
   paciente_id: number;
+  paciente?: Paciente;
   tipo: string;
   titulo: string;
   descricao: string;
@@ -16,6 +33,11 @@ interface Laudo {
   observacoes: string;
   status: string;
   data_laudo: string;
+  data_exame?: string;
+  clinic_id?: number;
+  clinica?: string;
+  medico_solicitante?: string;
+  imagens?: Imagem[];
   criado_por_nome: string;
 }
 
@@ -29,6 +51,7 @@ interface Paciente {
   idade: string;
   tutor: string;
   telefone: string;
+  tutor_id?: number;
 }
 
 export default function EditarLaudoPage({ params }: { params: { id: string } }) {
@@ -68,6 +91,16 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     tutor: "",
     telefone: "",
   });
+  
+  // Clínica
+  const [clinicaId, setClinicaId] = useState<string>("");
+  const [clinicas, setClinicas] = useState<Clinica[]>([]);
+  const [medicoSolicitante, setMedicoSolicitante] = useState("");
+  
+  // Imagens
+  const [imagens, setImagens] = useState<Imagem[]>([]);
+  const [imagensTemp, setImagensTemp] = useState<any[]>([]);
+  const [sessionId] = useState<string>(() => Math.random().toString(36).substring(2, 15));
 
   // Lista de parâmetros ecocardiográficos
   const parametrosMedidas = [
@@ -98,7 +131,17 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       return;
     }
     carregarLaudo();
+    carregarClinicas();
   }, [router, params.id]);
+  
+  const carregarClinicas = async () => {
+    try {
+      const response = await api.get("/clinicas");
+      setClinicas(response.data.items || []);
+    } catch (error) {
+      console.error("Erro ao carregar clínicas:", error);
+    }
+  };
 
   const carregarLaudo = async () => {
     try {
@@ -115,8 +158,55 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       setObservacoes(laudoData.observacoes || "");
       setStatus(laudoData.status || "Rascunho");
       
-      // Carregar paciente
-      if (laudoData.paciente_id) {
+      // Preencher clínica
+      if (laudoData.clinic_id) {
+        setClinicaId(laudoData.clinic_id.toString());
+      }
+      setMedicoSolicitante(laudoData.medico_solicitante || "");
+      
+      // Carregar imagens (converter para data URLs)
+      if (laudoData.imagens && laudoData.imagens.length > 0) {
+        const token = localStorage.getItem('token');
+        const imagensComDataUrl = await Promise.all(
+          laudoData.imagens.map(async (img: Imagem) => {
+            try {
+              const resp = await api.get(img.url, { 
+                responseType: 'blob',
+                headers: token ? { Authorization: `Bearer ${token}` } : {}
+              });
+              const dataUrl = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(resp.data);
+              });
+              return { ...img, dataUrl };
+            } catch (e) {
+              console.error("Erro ao carregar imagem:", e);
+              return img;
+            }
+          })
+        );
+        setImagens(imagensComDataUrl);
+      }
+      
+      // Carregar dados do paciente (agora vem no laudo)
+      if (laudoData.paciente) {
+        const pacienteData = laudoData.paciente;
+        setPaciente(pacienteData);
+        
+        // Preencher formulário do paciente - os dados já vêm completos do backend
+        setPacienteForm({
+          nome: pacienteData.nome || "",
+          especie: pacienteData.especie || "Canina",
+          raca: pacienteData.raca || "",
+          sexo: pacienteData.sexo || "Macho",
+          peso: pacienteData.peso_kg ? pacienteData.peso_kg.toString() : "",
+          idade: pacienteData.idade || "",
+          tutor: pacienteData.tutor || "",
+          telefone: pacienteData.telefone || "",
+        });
+      } else if (laudoData.paciente_id) {
+        // Fallback: buscar paciente separadamente (para laudos antigos)
         try {
           const respPaciente = await api.get(`/pacientes/${laudoData.paciente_id}`);
           const pacienteData = respPaciente.data;
@@ -180,17 +270,42 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     try {
       // 1. Salvar dados do paciente primeiro
       if (paciente?.id) {
+        // Montar observações com idade
+        let observacoesPaciente = "";
+        if (pacienteForm.idade) {
+          observacoesPaciente += `Idade: ${pacienteForm.idade}\n`;
+        }
+        
         const pacientePayload = {
           nome: pacienteForm.nome,
           especie: pacienteForm.especie,
           raca: pacienteForm.raca,
           sexo: pacienteForm.sexo,
           peso_kg: pacienteForm.peso ? parseFloat(pacienteForm.peso) : null,
-          idade: pacienteForm.idade,
-          tutor: pacienteForm.tutor,
-          telefone: pacienteForm.telefone,
+          observacoes: observacoesPaciente || null,
         };
         await api.put(`/pacientes/${paciente.id}`, pacientePayload);
+        
+        // 2. Salvar/atualizar tutor
+        if (pacienteForm.tutor) {
+          try {
+            const tutorPayload = {
+              nome: pacienteForm.tutor,
+              telefone: pacienteForm.telefone,
+            };
+            
+            // Se já existe tutor, atualiza; senão, cria novo
+            if (paciente?.tutor_id) {
+              await api.put(`/tutores/${paciente.tutor_id}`, tutorPayload);
+            } else {
+              const respTutor = await api.post("/tutores", tutorPayload);
+              // Atualizar paciente com o novo tutor_id
+              await api.put(`/pacientes/${paciente.id}`, { tutor_id: respTutor.data.id });
+            }
+          } catch (e) {
+            console.error("Erro ao salvar tutor:", e);
+          }
+        }
       }
 
       // 2. Montar descrição do laudo com medidas
@@ -209,7 +324,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       });
       
       // 3. Salvar laudo
-      const payload = {
+      const payload: any = {
         titulo: titulo || `Laudo de Ecocardiograma - ${pacienteForm.nome || 'Paciente'}`,
         descricao,
         diagnostico,
@@ -217,7 +332,27 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
         status,
       };
       
+      // Adicionar clinic_id se selecionado
+      if (clinicaId) {
+        payload.clinic_id = parseInt(clinicaId);
+      }
+      
+      // Adicionar médico solicitante
+      if (medicoSolicitante) {
+        payload.medico_solicitante = medicoSolicitante;
+      }
+      
       await api.put(`/laudos/${params.id}`, payload);
+      
+      // 4. Associar novas imagens ao laudo se houver
+      if (imagensTemp.length > 0 && imagensTemp.some(img => img.uploaded)) {
+        try {
+          await api.post(`/imagens/associar/${params.id}?session_id=${sessionId}`);
+        } catch (imgError) {
+          console.error("Erro ao associar imagens:", imgError);
+        }
+      }
+      
       alert("Laudo e dados do paciente salvos com sucesso!");
       router.push(`/laudos/${params.id}`);
     } catch (error) {
@@ -530,6 +665,104 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                     placeholder="(00) 00000-0000"
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* Clínica */}
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-teal-600" />
+                Clínica
+              </h2>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Clínica
+                  </label>
+                  <select
+                    value={clinicaId}
+                    onChange={(e) => setClinicaId(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                  >
+                    <option value="">Selecione uma clínica</option>
+                    {clinicas.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nome}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Médico Solicitante
+                  </label>
+                  <input
+                    type="text"
+                    value={medicoSolicitante}
+                    onChange={(e) => setMedicoSolicitante(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                    placeholder="Nome do veterinário solicitante"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Imagens */}
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-teal-600" />
+                Imagens do Exame
+              </h2>
+              
+              {imagens.length === 0 ? (
+                <p className="text-sm text-gray-500">Nenhuma imagem cadastrada.</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  {imagens.map((img, idx) => (
+                    <div key={img.id} className="relative group border rounded-lg overflow-hidden">
+                      <img 
+                        src={img.dataUrl || img.url} 
+                        alt={img.nome}
+                        className="w-full h-32 object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = '/placeholder-image.png';
+                        }}
+                      />
+                      <div className="absolute top-2 left-2 bg-teal-600 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center">
+                        {idx + 1}
+                      </div>
+                      <button
+                        onClick={async () => {
+                          if (confirm("Deseja remover esta imagem?")) {
+                            try {
+                              await api.delete(`/imagens/${img.id}`);
+                              setImagens(imagens.filter(i => i.id !== img.id));
+                            } catch (e) {
+                              alert("Erro ao remover imagem");
+                            }
+                          }
+                        }}
+                        className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Remover"
+                      >
+                        ×
+                      </button>
+                      <p className="text-xs text-gray-600 p-2 truncate">{img.nome}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              
+              {/* Adicionar novas imagens */}
+              <div className="mt-6 pt-6 border-t">
+                <h3 className="text-sm font-medium text-gray-700 mb-3">Adicionar Novas Imagens</h3>
+                <ImageUploader 
+                  onImagensChange={setImagensTemp}
+                  sessionId={sessionId}
+                />
               </div>
             </div>
 
