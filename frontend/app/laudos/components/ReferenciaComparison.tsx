@@ -6,7 +6,7 @@ import { useReferenciaEco } from "../hooks/useReferenciaEco";
 import { ComparacaoMedida } from "../types/referencia-eco";
 
 interface ReferenciaComparisonProps {
-  especie?: "canino" | "felino" | string;
+  especie?: "Canina" | "Felina" | string;
   peso?: number;
   medidas: Record<string, string>;
 }
@@ -117,7 +117,7 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
         <span className="text-lg">📊</span>
         <div>
           <p className="font-medium text-teal-900">
-            Referência: {especie === "canino" ? "Canino" : "Felino"} - {peso}kg
+            Referência: {especie?.toLowerCase() === "canina" ? "Canino" : "Felino"} - {peso}kg
           </p>
           <p className="text-sm text-teal-700">
             Valores de referência aplicados às medidas do paciente

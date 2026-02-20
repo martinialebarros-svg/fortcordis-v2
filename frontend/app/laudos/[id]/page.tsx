@@ -76,9 +76,10 @@ export default function VisualizarLaudoPage({ params }: { params: { id: string }
       if (respLaudo.data.descricao) {
         const descricao = respLaudo.data.descricao;
         
-        // Extrair medidas
+        // Extrair medidas (formato: - DIVEd: 1.50)
+        // Regex atualizada para capturar nomes com underscores
         const medidasExtraidas: Record<string, string> = {};
-        const regexMedidas = /-\s*(\w+):\s*([\d.]+)/g;
+        const regexMedidas = /-\s*([\w_]+):\s*([\d.]+)/g;
         let match;
         while ((match = regexMedidas.exec(descricao)) !== null) {
           medidasExtraidas[match[1]] = match[2];

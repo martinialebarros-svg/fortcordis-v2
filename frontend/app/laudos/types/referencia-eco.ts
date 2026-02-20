@@ -1,29 +1,33 @@
 export interface ReferenciaEco {
   id: number;
-  especie: "canino" | "felino";
+  especie: "Canina" | "Felina";
   peso_kg: number;
   
-  // Medidas estruturais
-  lvidd_min?: number;
-  lvidd_max?: number;
-  lvids_min?: number;
-  lvids_max?: number;
-  ivsd_min?: number;
-  ivsd_max?: number;
-  ivss_min?: number;
-  ivss_max?: number;
-  lvpwd_min?: number;
-  lvpwd_max?: number;
-  lvpws_min?: number;
-  lvpws_max?: number;
+  // Medidas estruturais (VE - Modo M)
+  lvid_d_min?: number;
+  lvid_d_max?: number;
+  lvid_s_min?: number;
+  lvid_s_max?: number;
+  ivs_d_min?: number;
+  ivs_d_max?: number;
+  ivs_s_min?: number;
+  ivs_s_max?: number;
+  lvpw_d_min?: number;
+  lvpw_d_max?: number;
+  lvpw_s_min?: number;
+  lvpw_s_max?: number;
   
   // Função
   fs_min?: number;
   fs_max?: number;
   ef_min?: number;
   ef_max?: number;
+  tapse_min?: number;
+  tapse_max?: number;
+  mapse_min?: number;
+  mapse_max?: number;
   
-  // Vasos
+  // Vasos (Aorta e Átrio Esquerdo)
   ao_min?: number;
   ao_max?: number;
   la_min?: number;
@@ -31,7 +35,13 @@ export interface ReferenciaEco {
   la_ao_min?: number;
   la_ao_max?: number;
   
-  // Doppler
+  // Artéria Pulmonar
+  ap_min?: number;
+  ap_max?: number;
+  ap_ao_min?: number;
+  ap_ao_max?: number;
+  
+  // Doppler (Diastólica)
   vmax_ao_min?: number;
   vmax_ao_max?: number;
   vmax_pulm_min?: number;
@@ -42,8 +52,18 @@ export interface ReferenciaEco {
   mv_a_max?: number;
   mv_ea_min?: number;
   mv_ea_max?: number;
+  mv_dt_min?: number;
+  mv_dt_max?: number;
+  ivrt_min?: number;
+  ivrt_max?: number;
+  tdi_e_min?: number;
+  tdi_e_max?: number;
+  tdi_a_min?: number;
+  tdi_a_max?: number;
+  e_e_linha_min?: number;
+  e_e_linha_max?: number;
   
-  // Volumes (caninos)
+  // Volumes
   edv_min?: number;
   edv_max?: number;
   esv_min?: number;
@@ -63,30 +83,34 @@ export interface ComparacaoMedida {
 }
 
 export interface ReferenciaFormData {
-  especie: "canino" | "felino";
+  especie: "Canina" | "Felina";
   peso_kg: number;
   
-  // Medidas estruturais
-  lvidd_min?: number;
-  lvidd_max?: number;
-  lvids_min?: number;
-  lvids_max?: number;
-  ivsd_min?: number;
-  ivsd_max?: number;
-  ivss_min?: number;
-  ivss_max?: number;
-  lvpwd_min?: number;
-  lvpwd_max?: number;
-  lvpws_min?: number;
-  lvpws_max?: number;
+  // Medidas estruturais (VE - Modo M)
+  lvid_d_min?: number;
+  lvid_d_max?: number;
+  lvid_s_min?: number;
+  lvid_s_max?: number;
+  ivs_d_min?: number;
+  ivs_d_max?: number;
+  ivs_s_min?: number;
+  ivs_s_max?: number;
+  lvpw_d_min?: number;
+  lvpw_d_max?: number;
+  lvpw_s_min?: number;
+  lvpw_s_max?: number;
   
   // Função
   fs_min?: number;
   fs_max?: number;
   ef_min?: number;
   ef_max?: number;
+  tapse_min?: number;
+  tapse_max?: number;
+  mapse_min?: number;
+  mapse_max?: number;
   
-  // Vasos
+  // Vasos (Aorta e Átrio Esquerdo)
   ao_min?: number;
   ao_max?: number;
   la_min?: number;
@@ -94,7 +118,13 @@ export interface ReferenciaFormData {
   la_ao_min?: number;
   la_ao_max?: number;
   
-  // Doppler
+  // Artéria Pulmonar
+  ap_min?: number;
+  ap_max?: number;
+  ap_ao_min?: number;
+  ap_ao_max?: number;
+  
+  // Doppler (Diastólica)
   vmax_ao_min?: number;
   vmax_ao_max?: number;
   vmax_pulm_min?: number;
@@ -105,8 +135,18 @@ export interface ReferenciaFormData {
   mv_a_max?: number;
   mv_ea_min?: number;
   mv_ea_max?: number;
+  mv_dt_min?: number;
+  mv_dt_max?: number;
+  ivrt_min?: number;
+  ivrt_max?: number;
+  tdi_e_min?: number;
+  tdi_e_max?: number;
+  tdi_a_min?: number;
+  tdi_a_max?: number;
+  e_e_linha_min?: number;
+  e_e_linha_max?: number;
   
-  // Volumes (caninos)
+  // Volumes
   edv_min?: number;
   edv_max?: number;
   esv_min?: number;

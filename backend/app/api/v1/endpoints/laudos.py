@@ -374,14 +374,48 @@ def atualizar_laudo(
     current_user: User = Depends(get_current_user)
 ):
     """Atualiza um laudo"""
+    def parse_data_exame(value):
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return None
+            try:
+                return datetime.fromisoformat(value.replace('Z', '+00:00'))
+            except ValueError:
+                try:
+                    return datetime.strptime(value, "%Y-%m-%d")
+                except ValueError:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Formato invalido para data_exame. Use YYYY-MM-DD ou ISO datetime."
+                    )
+        raise HTTPException(status_code=422, detail="Formato invalido para data_exame.")
+
     laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
     if not laudo:
-        raise HTTPException(status_code=404, detail="Laudo não encontrado")
-    
+        raise HTTPException(status_code=404, detail="Laudo nao encontrado")
+
+    if "data_exame" in laudo_data:
+        laudo_data["data_exame"] = parse_data_exame(laudo_data.get("data_exame"))
+
+    if "clinic_id" in laudo_data:
+        clinic_id = laudo_data.get("clinic_id")
+        if clinic_id in ("", None):
+            laudo_data["clinic_id"] = None
+        else:
+            try:
+                laudo_data["clinic_id"] = int(clinic_id)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=422, detail="clinic_id invalido.")
+
     for field, value in laudo_data.items():
         if hasattr(laudo, field):
             setattr(laudo, field, value)
-    
+
     laudo.updated_at = datetime.now()
     db.commit()
     db.refresh(laudo)
@@ -428,6 +462,8 @@ def gerar_pdf_laudo(
     from app.models.clinica import Clinica
     from app.models.imagem_laudo import ImagemLaudo
     from app.models.configuracao import Configuracao, ConfiguracaoUsuario
+    from app.models.referencia_eco import ReferenciaEco
+    from sqlalchemy import func
     import traceback
     
     try:
@@ -517,8 +553,9 @@ def gerar_pdf_laudo(
         if laudo.descricao:
             descricao = laudo.descricao
             
-            # Extrair medidas (formato: - Ao: 1.50) - aceita números decimais
-            for match in re.finditer(r'-\s*(\w+):\s*([\d.]+)', descricao):
+            # Extrair medidas (formato: - DIVEd: 1.50) - aceita números decimais
+            # Regex atualizada para capturar nomes com underscores e acentos
+            for match in re.finditer(r'-\s*([\w_]+):\s*([\d.]+)', descricao):
                 chave = match.group(1)
                 valor = match.group(2)
                 medidas[chave] = valor
@@ -540,6 +577,20 @@ def gerar_pdf_laudo(
                     valor = match.group(2).strip()
                     qualitativa[campo] = valor
         
+        # Buscar referência ecocardiográfica por espécie e peso (mesma lógica da aba Referências)
+        referencia_eco = None
+        if paciente and paciente.especie and paciente.peso_kg is not None:
+            ref = db.query(ReferenciaEco).filter(
+                ReferenciaEco.especie.ilike(paciente.especie)
+            ).order_by(
+                func.abs(ReferenciaEco.peso_kg - float(paciente.peso_kg))
+            ).first()
+            if ref:
+                referencia_eco = {
+                    col.name: getattr(ref, col.name)
+                    for col in ref.__table__.columns
+                }
+
         # Preparar dados para o PDF
         dados = {
             "paciente": dados_paciente,
@@ -547,6 +598,7 @@ def gerar_pdf_laudo(
             "qualitativa": qualitativa,
             "conclusao": laudo.diagnostico or "",
             "clinica": clinica_nome,
+            "referencia_eco": referencia_eco,
             "imagens": imagens_bytes,
             "veterinario_nome": current_user.nome,
             "veterinario_crmv": config_usuario.crmv if config_usuario else ""

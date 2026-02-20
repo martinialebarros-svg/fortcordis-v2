@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
 
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import mm, cm
+from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import (
@@ -27,6 +27,139 @@ COR_CINZA_MEDIO = colors.HexColor('#6b7280')
 COR_CINZA_CLARO = colors.HexColor('#f3f4f6')
 COR_BRANCO = colors.white
 COR_PRETO = colors.black
+
+
+# Campos de comprimento que devem ser exibidos/comparados em mm.
+CHAVES_COMPRIMENTO_MM = {
+    "DIVEd",
+    "SIVd",
+    "PLVEd",
+    "DIVES",
+    "SIVs",
+    "PLVES",
+    "TAPSE",
+    "MAPSE",
+    "Aorta",
+    "Atrio_esquerdo",
+    "Ao_nivel_AP",
+    "AP",
+}
+
+
+def _to_float(valor: Any) -> Optional[float]:
+    """Converte valor para float de forma tolerante (aceita string com vírgula)."""
+    if valor is None or valor == "":
+        return None
+    try:
+        if isinstance(valor, str):
+            return float(valor.replace(",", "."))
+        return float(valor)
+    except (TypeError, ValueError):
+        return None
+
+
+def normalizar_medidas_para_pdf(medidas: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normaliza medidas para garantir consistência de unidade no PDF.
+
+    - Padrão atual: comprimentos em mm.
+    - Compatibilidade: converte automaticamente de cm->mm quando detectar
+      conjunto claramente em cm (laudos antigos).
+    """
+    medidas_norm = dict(medidas or {})
+
+    valores_comprimento = []
+    for chave in CHAVES_COMPRIMENTO_MM:
+        valor = _to_float(medidas_norm.get(chave))
+        if valor and valor > 0:
+            valores_comprimento.append(valor)
+
+    if len(valores_comprimento) < 3:
+        return medidas_norm
+
+    qtd_cm_like = sum(1 for v in valores_comprimento if 0.3 <= v <= 3.5)
+    qtd_mm_like = sum(1 for v in valores_comprimento if v >= 5.0)
+
+    # Heurística: maioria em faixa típica de cm e sem sinais fortes de mm.
+    if qtd_cm_like >= 3 and qtd_cm_like >= (qtd_mm_like * 2):
+        for chave in CHAVES_COMPRIMENTO_MM:
+            valor = _to_float(medidas_norm.get(chave))
+            if valor and valor > 0:
+                medidas_norm[chave] = round(valor * 10, 2)
+
+    return medidas_norm
+
+
+def formatar_referencia(ref_min: Optional[float], ref_max: Optional[float], unidade: str) -> str:
+    """Formata faixa de referência incluindo unidade quando aplicável."""
+    if ref_min is None or ref_max is None:
+        return "--"
+    if ref_min == 0 and ref_max == 0:
+        return "--"
+    sufixo = f" {unidade}" if unidade else ""
+    return f"{ref_min:.2f} - {ref_max:.2f}{sufixo}"
+
+
+# Mapeamento: chave da medida no laudo -> prefixo de campo na tabela referencias_eco
+MAPEAMENTO_REFERENCIA_ECO = {
+    "DIVEd": "lvid_d",
+    "DIVES": "lvid_s",
+    "SIVd": "ivs_d",
+    "SIVs": "ivs_s",
+    "PLVEd": "lvpw_d",
+    "PLVES": "lvpw_s",
+    "VDF": "edv",
+    "VSF": "esv",
+    "FE_Teicholz": "ef",
+    "DeltaD_FS": "fs",
+    "TAPSE": "tapse",
+    "MAPSE": "mapse",
+    "Aorta": "ao",
+    "Atrio_esquerdo": "la",
+    "AE_Ao": "la_ao",
+    "Ao_nivel_AP": "ao",
+    "AP": "ap",
+    "AP_Ao": "ap_ao",
+    "Onda_E": "mv_e",
+    "Onda_A": "mv_a",
+    "E_A": "mv_ea",
+    "TD": "mv_dt",
+    "TRIV": "ivrt",
+    "e_doppler": "tdi_e",
+    "a_doppler": "tdi_a",
+    "E_E_linha": "e_e_linha",
+    "Vmax_aorta": "vmax_ao",
+    "Vmax_pulmonar": "vmax_pulm",
+}
+
+
+def aplicar_referencia_eco(parametros: List[Dict], referencia_eco: Optional[Dict[str, Any]]) -> List[Dict]:
+    """
+    Aplica os valores de referência vindos da tabela referencias_eco aos parâmetros do PDF.
+
+    Quando a referência existe, qualquer faixa fixa hardcoded é removida e só permanecem
+    os campos realmente presentes na tabela para evitar mostrar valores inexistentes.
+    """
+    if not referencia_eco:
+        return parametros
+
+    params_atualizados: List[Dict] = []
+    for param in parametros:
+        atualizado = dict(param)
+        atualizado["ref_min"] = None
+        atualizado["ref_max"] = None
+
+        prefixo = MAPEAMENTO_REFERENCIA_ECO.get(str(param.get("chave", "")))
+        if prefixo:
+            ref_min = referencia_eco.get(f"{prefixo}_min")
+            ref_max = referencia_eco.get(f"{prefixo}_max")
+            if ref_min is not None and ref_max is not None:
+                atualizado["ref_min"] = ref_min
+                atualizado["ref_max"] = ref_max
+
+        params_atualizados.append(atualizado)
+
+    return params_atualizados
 
 
 def create_pdf_styles():
@@ -243,22 +376,19 @@ def criar_tabela_medidas(titulo: str, parametros: List[Dict], dados: Dict[str, A
         
         valor = dados.get('medidas', {}).get(chave, 0)
         
-        try:
-            valor_float = float(valor) if valor else 0
-        except:
-            valor_float = 0
+        valor_float = _to_float(valor) or 0
         
         # Formata valor
         if valor_float == 0:
             valor_str = "--"
-            ref_str = f"{ref_min:.2f} - {ref_max:.2f}" if ref_min and ref_max else "--"
+            ref_str = formatar_referencia(ref_min, ref_max, unidade)
             interp_str = ""
             interp_color = COR_PRETO
         else:
             valor_str = f"{valor_float:.2f} {unidade}".strip()
-            ref_str = f"{ref_min:.2f} - {ref_max:.2f}" if ref_min and ref_max else "--"
+            ref_str = formatar_referencia(ref_min, ref_max, unidade)
             
-            if ref_min and ref_max:
+            if ref_min is not None and ref_max is not None and not (ref_min == 0 and ref_max == 0):
                 interp_str, interp_color = interpretar_parametro(valor_float, ref_min, ref_max)
             else:
                 interp_str = ""
@@ -483,75 +613,131 @@ def gerar_pdf_laudo_eco(
             temp_files.append(temp_assinatura_path)
         
         # 1. Cabeçalho com dados do paciente e logomarca
-        elements.extend(criar_cabecalho(dados, temp_logo_path))
+        dados_pdf = dict(dados)
+        dados_pdf["medidas"] = normalizar_medidas_para_pdf(dados.get("medidas", {}))
+        elements.extend(criar_cabecalho(dados_pdf, temp_logo_path))
         
         # 2. Análise Quantitativa
         elements.append(Paragraph("ANÁLISE QUANTITATIVA", create_pdf_styles()['SecaoTitulo']))
         elements.append(Spacer(1, 2*mm))
         
-        # Definição dos parâmetros por grupo
-        # Grupo: Câmaras
-        params_camaras = [
-            {'chave': 'Ao', 'label': 'Ao (Diâmetro Aórtico)', 'unidade': 'cm', 'ref_min': 0.87, 'ref_max': 1.15},
-            {'chave': 'LA', 'label': 'LA (Átrio Esquerdo)', 'unidade': 'cm', 'ref_min': 0.77, 'ref_max': 1.20},
-            {'chave': 'LA_Ao', 'label': 'LA/Ao', 'unidade': '', 'ref_min': 0.83, 'ref_max': 1.17},
-            {'chave': 'LVIDd', 'label': 'LVIDd (DIVEd)', 'unidade': 'cm', 'ref_min': 1.60, 'ref_max': 2.40},
-            {'chave': 'LVIDs', 'label': 'LVIDs (DIVEs)', 'unidade': 'cm', 'ref_min': 0.90, 'ref_max': 1.60},
+        # Definição dos parâmetros por grupo - NOVOS NOMES DOS CAMPOS
+        # Grupo: VE - Modo M (Diâstole)
+        params_ve_diastole = [
+            {'chave': 'DIVEd', 'label': 'DIVEd (Diâmetro interno do VE em diástole)', 'unidade': 'mm', 'ref_min': 16.0, 'ref_max': 24.0},
+            {'chave': 'DIVEd_normalizado', 'label': 'DIVEd normalizado (DIVEd [cm] / peso^0,234)', 'unidade': '', 'ref_min': 1.27, 'ref_max': 1.85},
+            {'chave': 'SIVd', 'label': 'SIVd (Septo interventricular em diástole)', 'unidade': 'mm', 'ref_min': 3.5, 'ref_max': 5.5},
+            {'chave': 'PLVEd', 'label': 'PLVEd (Parede livre do VE em diástole)', 'unidade': 'mm', 'ref_min': 3.5, 'ref_max': 5.5},
         ]
         
-        # Grupo: Paredes
-        params_paredes = [
-            {'chave': 'IVSd', 'label': 'IVSd (SEVd)', 'unidade': 'cm', 'ref_min': 0.35, 'ref_max': 0.55},
-            {'chave': 'IVSs', 'label': 'IVSs (SEVs)', 'unidade': 'cm', 'ref_min': 0.45, 'ref_max': 0.75},
-            {'chave': 'LVPWd', 'label': 'LVPWd (PPVEd)', 'unidade': 'cm', 'ref_min': 0.35, 'ref_max': 0.55},
-            {'chave': 'LVPWs', 'label': 'LVPWs (PPVEs)', 'unidade': 'cm', 'ref_min': 0.50, 'ref_max': 0.80},
+        # Grupo: VE - Modo M (Sístole)
+        params_ve_sistole = [
+            {'chave': 'DIVES', 'label': 'DIVÉs (Diâmetro interno do VE em sístole)', 'unidade': 'mm', 'ref_min': 9.0, 'ref_max': 16.0},
+            {'chave': 'SIVs', 'label': 'SIVs (Septo interventricular em sístole)', 'unidade': 'mm', 'ref_min': 4.5, 'ref_max': 7.5},
+            {'chave': 'PLVES', 'label': 'PLVÉs (Parede livre do VE em sístole)', 'unidade': 'mm', 'ref_min': 5.0, 'ref_max': 8.0},
         ]
         
-        # Grupo: Função
-        params_funcao = [
-            {'chave': 'EF', 'label': 'EF (Fração de Ejeção)', 'unidade': '%', 'ref_min': 55, 'ref_max': 80},
-            {'chave': 'FS', 'label': 'FS (Encurtamento)', 'unidade': '%', 'ref_min': 28, 'ref_max': 42},
-            {'chave': 'TAPSE', 'label': 'TAPSE', 'unidade': 'cm', 'ref_min': 0.16, 'ref_max': 0.26},
-            {'chave': 'MAPSE', 'label': 'MAPSE', 'unidade': 'cm', 'ref_min': 0.40, 'ref_max': 0.60},
+        # Grupo: Volumes e Função
+        params_volumes_funcao = [
+            {'chave': 'VDF', 'label': 'VDF (Volume diastólico final - Teicholz)', 'unidade': 'ml', 'ref_min': 0, 'ref_max': 0},
+            {'chave': 'VSF', 'label': 'VSF (Volume sistólico final - Teicholz)', 'unidade': 'ml', 'ref_min': 0, 'ref_max': 0},
+            {'chave': 'FE_Teicholz', 'label': 'FE (Fração de ejeção - Teicholz)', 'unidade': '%', 'ref_min': 55, 'ref_max': 80},
+            {'chave': 'DeltaD_FS', 'label': 'Delta D / %FS (Encurtamento)', 'unidade': '%', 'ref_min': 28, 'ref_max': 42},
+            {'chave': 'TAPSE', 'label': 'TAPSE (Excursão sistólica plano anular tricúspide)', 'unidade': 'mm', 'ref_min': 15, 'ref_max': 20},
+            {'chave': 'MAPSE', 'label': 'MAPSE (Excursão sistólica plano anular mitral)', 'unidade': 'mm', 'ref_min': 8, 'ref_max': 12},
         ]
         
-        # Grupo: Fluxos Doppler
-        params_fluxos = [
-            {'chave': 'MV_E', 'label': 'MV E (Velocidade E)', 'unidade': 'm/s', 'ref_min': 0.50, 'ref_max': 0.90},
-            {'chave': 'MV_A', 'label': 'MV A (Velocidade A)', 'unidade': 'm/s', 'ref_min': 0.30, 'ref_max': 0.60},
-            {'chave': 'MV_E_A', 'label': 'MV E/A', 'unidade': '', 'ref_min': 1.0, 'ref_max': 2.5},
-            {'chave': 'Vmax_Ao', 'label': 'Vmax Ao', 'unidade': 'm/s', 'ref_min': 0.80, 'ref_max': 1.40},
-            {'chave': 'Vmax_Pulm', 'label': 'Vmax Pulm', 'unidade': 'm/s', 'ref_min': 0.60, 'ref_max': 1.00},
+        # Grupo: Átrio Esquerdo / Aorta
+        params_ae_aorta = [
+            {'chave': 'Aorta', 'label': 'Aorta (Diâmetro aórtico)', 'unidade': 'mm', 'ref_min': 8.7, 'ref_max': 11.5},
+            {'chave': 'Atrio_esquerdo', 'label': 'Átrio Esquerdo', 'unidade': 'mm', 'ref_min': 7.7, 'ref_max': 12.0},
+            {'chave': 'AE_Ao', 'label': 'AE/Ao (Relação Átrio Esquerdo/Aorta)', 'unidade': '', 'ref_min': 0.83, 'ref_max': 1.17},
+            {'chave': 'Ao_nivel_AP', 'label': 'Ao (Aorta - nível AP)', 'unidade': 'mm', 'ref_min': 8.7, 'ref_max': 11.5},
         ]
         
-        # Adicionar tabelas
-        elements.append(criar_tabela_medidas("CÂMARAS", params_camaras, dados))
+        # Grupo: Artéria Pulmonar
+        params_ap = [
+            {'chave': 'AP', 'label': 'AP (Artéria pulmonar)', 'unidade': 'mm', 'ref_min': 7.0, 'ref_max': 10.0},
+            {'chave': 'AP_Ao', 'label': 'AP/Ao (Relação Artéria Pulmonar/Aorta)', 'unidade': '', 'ref_min': 0.70, 'ref_max': 1.10},
+        ]
+        
+        # Grupo: Diastólica
+        params_diastolica = [
+            {'chave': 'Onda_E', 'label': "Onda E (Velocidade de preenchimento rápido)", 'unidade': 'm/s', 'ref_min': 0.50, 'ref_max': 0.90},
+            {'chave': 'Onda_A', 'label': "Onda A (Velocidade de preenchimento atrial)", 'unidade': 'm/s', 'ref_min': 0.30, 'ref_max': 0.60},
+            {'chave': 'E_A', 'label': 'E/A (Relação E/A)', 'unidade': '', 'ref_min': 1.0, 'ref_max': 2.5},
+            {'chave': 'TD', 'label': 'TD (Tempo de desaceleração)', 'unidade': 'ms', 'ref_min': 100, 'ref_max': 200},
+            {'chave': 'TRIV', 'label': 'TRIV (Tempo relaxamento isovolumétrico)', 'unidade': 'ms', 'ref_min': 40, 'ref_max': 90},
+            {'chave': 'MR_dp_dt', 'label': 'MR dp/dt (Derivada de pressão)', 'unidade': 'mmHg/s', 'ref_min': 0, 'ref_max': 0},
+            {'chave': 'e_doppler', 'label': "e' (Doppler tecidual - anel lateral)", 'unidade': 'm/s', 'ref_min': 0.08, 'ref_max': 0.16},
+            {'chave': 'a_doppler', 'label': "a' (Doppler tecidual - anel lateral)", 'unidade': 'm/s', 'ref_min': 0.04, 'ref_max': 0.10},
+            {'chave': 'doppler_tecidual_relacao', 'label': "e'/a' (Relação Doppler tecidual)", 'unidade': '', 'ref_min': 1.0, 'ref_max': 2.0},
+            {'chave': 'E_E_linha', 'label': "E/E' (Relação E/e')", 'unidade': '', 'ref_min': 0, 'ref_max': 12},
+        ]
+        
+        # Grupo: Regurgitações
+        params_regurgitacoes = [
+            {'chave': 'IM_Vmax', 'label': 'IM (Insuficiência mitral) Vmax', 'unidade': 'm/s', 'ref_min': 0, 'ref_max': 0},
+            {'chave': 'IT_Vmax', 'label': 'IT (Insuficiência tricúspide) Vmax', 'unidade': 'm/s', 'ref_min': 0, 'ref_max': 0},
+            {'chave': 'IA_Vmax', 'label': 'IA (Insuficiência aórtica) Vmax', 'unidade': 'm/s', 'ref_min': 0, 'ref_max': 0},
+            {'chave': 'IP_Vmax', 'label': 'IP (Insuficiência pulmonar) Vmax', 'unidade': 'm/s', 'ref_min': 0, 'ref_max': 0},
+        ]
+        
+        # Grupo: Doppler - Saídas
+        params_doppler_saidas = [
+            {'chave': 'Vmax_aorta', 'label': 'Vmax Aorta (Velocidade máxima aórtica)', 'unidade': 'm/s', 'ref_min': 0.80, 'ref_max': 1.40},
+            {'chave': 'Grad_aorta', 'label': 'Gradiente Aorta (Gradiente máximo)', 'unidade': 'mmHg', 'ref_min': 0, 'ref_max': 10},
+            {'chave': 'Vmax_pulmonar', 'label': 'Vmax Pulmonar (Velocidade máxima pulmonar)', 'unidade': 'm/s', 'ref_min': 0.60, 'ref_max': 1.00},
+            {'chave': 'Grad_pulmonar', 'label': 'Gradiente Pulmonar (Gradiente máximo)', 'unidade': 'mmHg', 'ref_min': 0, 'ref_max': 10},
+        ]
+        
+        # Adicionar tabelas na ordem do layout da interface
+        # Se houver refer?ncia da tabela, sobrescreve as faixas com os valores reais do banco.
+        referencia_eco = dados_pdf.get("referencia_eco")
+        params_ve_diastole = aplicar_referencia_eco(params_ve_diastole, referencia_eco)
+        params_ve_sistole = aplicar_referencia_eco(params_ve_sistole, referencia_eco)
+        params_volumes_funcao = aplicar_referencia_eco(params_volumes_funcao, referencia_eco)
+        params_ae_aorta = aplicar_referencia_eco(params_ae_aorta, referencia_eco)
+        params_ap = aplicar_referencia_eco(params_ap, referencia_eco)
+        params_diastolica = aplicar_referencia_eco(params_diastolica, referencia_eco)
+        params_regurgitacoes = aplicar_referencia_eco(params_regurgitacoes, referencia_eco)
+        params_doppler_saidas = aplicar_referencia_eco(params_doppler_saidas, referencia_eco)
+
+        elements.append(criar_tabela_medidas("VE - MODO M (DIÁSTOLE)", params_ve_diastole, dados_pdf))
         elements.append(Spacer(1, 3*mm))
-        elements.append(criar_tabela_medidas("PAREDES", params_paredes, dados))
+        elements.append(criar_tabela_medidas("VE - MODO M (SÍSTOLE)", params_ve_sistole, dados_pdf))
         elements.append(Spacer(1, 3*mm))
-        elements.append(criar_tabela_medidas("FUNÇÃO", params_funcao, dados))
+        elements.append(criar_tabela_medidas("VOLUMES E FUNÇÃO", params_volumes_funcao, dados_pdf))
         elements.append(Spacer(1, 3*mm))
-        elements.append(criar_tabela_medidas("FLUXOS DOPPLER", params_fluxos, dados))
+        elements.append(criar_tabela_medidas("ÁTRIO ESQUERDO / AORTA", params_ae_aorta, dados_pdf))
+        elements.append(Spacer(1, 3*mm))
+        elements.append(criar_tabela_medidas("ARTÉRIA PULMONAR", params_ap, dados_pdf))
+        elements.append(Spacer(1, 3*mm))
+        elements.append(criar_tabela_medidas("DIASTÓLICA", params_diastolica, dados_pdf))
+        elements.append(Spacer(1, 3*mm))
+        elements.append(criar_tabela_medidas("REGURGITAÇÕES", params_regurgitacoes, dados_pdf))
+        elements.append(Spacer(1, 3*mm))
+        elements.append(criar_tabela_medidas("DOPPLER - SAÍDAS", params_doppler_saidas, dados_pdf))
         
         # 3. Análise Qualitativa
-        qualitativa = dados.get('qualitativa', {})
+        qualitativa = dados_pdf.get('qualitativa', {})
         if any(v.strip() for v in qualitativa.values()):
             elements.extend(criar_secao_qualitativa(qualitativa))
         
         # 4. Conclusão
-        conclusao = dados.get('conclusao', '')
+        conclusao = dados_pdf.get('conclusao', '')
         elements.extend(criar_secao_conclusao(conclusao))
         
         # 5. Assinatura
-        vet_nome = nome_veterinario or dados.get('veterinario_nome') or "Médico Veterinário"
-        vet_crmv = crmv or dados.get('veterinario_crmv') or ""
+        vet_nome = nome_veterinario or dados_pdf.get('veterinario_nome') or "Médico Veterinário"
+        vet_crmv = crmv or dados_pdf.get('veterinario_crmv') or ""
         elements.extend(criar_secao_assinatura(vet_nome, vet_crmv, temp_assinatura_path))
         
         # 6. Rodapé
         elements.extend(criar_rodape(texto_rodape))
         
         # 7. Imagens (se houver)
-        imagens = dados.get('imagens', [])
+        imagens = dados_pdf.get('imagens', [])
         if imagens:
             elements.append(PageBreak())
             elements.append(Paragraph("IMAGENS DO EXAME", create_pdf_styles()['SecaoTitulo']))

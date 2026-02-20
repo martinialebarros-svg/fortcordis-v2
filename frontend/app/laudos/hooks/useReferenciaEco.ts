@@ -5,37 +5,72 @@ import api from "@/lib/axios";
 import { ComparacaoMedida, ReferenciaEco } from "../types/referencia-eco";
 
 // Mapeamento de parâmetros das medidas para os campos da referência
+// As chaves devem corresponder aos 'key' definidos na nova aba Medidas
+// e aos nomes retornados pelo XML parser atualizado
 const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categoria: string }> = {
-  // Estrutural
-  LVIDd: { campo: "lvidd", nome: "LVIDd (cm)", categoria: "estrutural" },
-  LVIDs: { campo: "lvids", nome: "LVIDs (cm)", categoria: "estrutural" },
-  IVSd: { campo: "ivsd", nome: "IVSd (cm)", categoria: "estrutural" },
-  IVSs: { campo: "ivss", nome: "IVSs (cm)", categoria: "estrutural" },
-  LVPWd: { campo: "lvpwd", nome: "LVPWd (cm)", categoria: "estrutural" },
-  LVPWs: { campo: "lvpws", nome: "LVPWs (cm)", categoria: "estrutural" },
+  // === VE - MODO M (DIÁSTOLE) ===
+  DIVEd: { campo: "lvid_d", nome: "DIVEd (Diâmetro interno VE diástole)", categoria: "estrutural" },
+  SIVd: { campo: "ivs_d", nome: "SIVd (Septo interventricular diástole)", categoria: "estrutural" },
+  PLVEd: { campo: "lvpw_d", nome: "PLVEd (Parede livre VE diástole)", categoria: "estrutural" },
   
-  // Função
-  FS: { campo: "fs", nome: "FS (%)", categoria: "funcao" },
-  EF: { campo: "ef", nome: "EF (%)", categoria: "funcao" },
+  // === VE - MODO M (SÍSTOLE) ===
+  DIVES: { campo: "lvid_s", nome: "DIVÉs (Diâmetro interno VE sístole)", categoria: "estrutural" },
+  SIVs: { campo: "ivs_s", nome: "SIVs (Septo interventricular sístole)", categoria: "estrutural" },
+  PLVES: { campo: "lvpw_s", nome: "PLVÉs (Parede livre VE sístole)", categoria: "estrutural" },
   
-  // Vasos
-  Ao: { campo: "ao", nome: "Ao (cm)", categoria: "vasos" },
-  "Ao (d)": { campo: "ao", nome: "Ao (cm)", categoria: "vasos" },
-  LA: { campo: "la", nome: "LA (cm)", categoria: "vasos" },
-  "LA/Ao": { campo: "la_ao", nome: "LA/Ao", categoria: "vasos" },
-  "LA/Ao (d)": { campo: "la_ao", nome: "LA/Ao", categoria: "vasos" },
+  // === VOLUMES E FUNÇÃO ===
+  VDF: { campo: "edv", nome: "VDF (Volume diastólico final)", categoria: "funcao" },
+  VSF: { campo: "esv", nome: "VSF (Volume sistólico final)", categoria: "funcao" },
+  FE_Teicholz: { campo: "ef", nome: "FE (Fração de ejeção - Teicholz)", categoria: "funcao" },
+  DeltaD_FS: { campo: "fs", nome: "Delta D / %FS (Encurtamento)", categoria: "funcao" },
+  TAPSE: { campo: "tapse", nome: "TAPSE", categoria: "funcao" },
+  MAPSE: { campo: "mapse", nome: "MAPSE", categoria: "funcao" },
   
-  // Doppler
-  "Vmax Ao": { campo: "vmax_ao", nome: "Vmax Ao (m/s)", categoria: "doppler" },
-  "Vmax Pulm": { campo: "vmax_pulm", nome: "Vmax Pulm (m/s)", categoria: "doppler" },
-  "MV E": { campo: "mv_e", nome: "MV E (m/s)", categoria: "doppler" },
-  "MV A": { campo: "mv_a", nome: "MV A (m/s)", categoria: "doppler" },
-  "MV E/A": { campo: "mv_ea", nome: "MV E/A", categoria: "doppler" },
+  // === ÁTRIO ESQUERDO / AORTA ===
+  Aorta: { campo: "ao", nome: "Aorta", categoria: "vasos" },
+  Atrio_esquerdo: { campo: "la", nome: "Átrio Esquerdo", categoria: "vasos" },
+  AE_Ao: { campo: "la_ao", nome: "AE/Ao", categoria: "vasos" },
   
-  // Volumes
-  EDV: { campo: "edv", nome: "EDV (ml)", categoria: "estrutural" },
-  ESV: { campo: "esv", nome: "ESV (ml)", categoria: "estrutural" },
-  SV: { campo: "sv", nome: "SV (ml)", categoria: "estrutural" },
+  // === ARTÉRIA PULMONAR ===
+  AP: { campo: "ap", nome: "AP (Artéria pulmonar)", categoria: "vasos" },
+  AP_Ao: { campo: "ap_ao", nome: "AP/Ao", categoria: "vasos" },
+  
+  // === DIASTÓLICA ===
+  Onda_E: { campo: "mv_e", nome: "Onda E", categoria: "doppler" },
+  Onda_A: { campo: "mv_a", nome: "Onda A", categoria: "doppler" },
+  E_A: { campo: "mv_ea", nome: "E/A", categoria: "doppler" },
+  TD: { campo: "mv_dt", nome: "TD (Tempo desaceleração)", categoria: "doppler" },
+  TRIV: { campo: "ivrt", nome: "TRIV", categoria: "doppler" },
+  e_doppler: { campo: "tdi_e", nome: "e' (Doppler tecidual)", categoria: "doppler" },
+  a_doppler: { campo: "tdi_a", nome: "a' (Doppler tecidual)", categoria: "doppler" },
+  E_E_linha: { campo: "e_e_linha", nome: "E/E'", categoria: "doppler" },
+  
+  // === DOPPLER - SAÍDAS ===
+  Vmax_aorta: { campo: "vmax_ao", nome: "Vmax Aorta", categoria: "doppler" },
+  Vmax_pulmonar: { campo: "vmax_pulm", nome: "Vmax Pulmonar", categoria: "doppler" },
+  
+  // === NOMES ANTIGOS (para compatibilidade com XMLs antigos e banco) ===
+  LVIDd: { campo: "lvid_d", nome: "DIVEd (Diâmetro interno VE diástole)", categoria: "estrutural" },
+  LVIDs: { campo: "lvid_s", nome: "DIVÉs (Diâmetro interno VE sístole)", categoria: "estrutural" },
+  IVSd: { campo: "ivs_d", nome: "SIVd (Septo interventricular diástole)", categoria: "estrutural" },
+  IVSs: { campo: "ivs_s", nome: "SIVs (Septo interventricular sístole)", categoria: "estrutural" },
+  LVPWd: { campo: "lvpw_d", nome: "PLVEd (Parede livre VE diástole)", categoria: "estrutural" },
+  LVPWs: { campo: "lvpw_s", nome: "PLVÉs (Parede livre VE sístole)", categoria: "estrutural" },
+  FS: { campo: "fs", nome: "Delta D / %FS (Encurtamento)", categoria: "funcao" },
+  EF: { campo: "ef", nome: "FE (Fração de ejeção)", categoria: "funcao" },
+  EDV: { campo: "edv", nome: "VDF (Volume diastólico final)", categoria: "funcao" },
+  ESV: { campo: "esv", nome: "VSF (Volume sistólico final)", categoria: "funcao" },
+  SV: { campo: "sv", nome: "SV (Volume sistólico)", categoria: "funcao" },
+  Ao: { campo: "ao", nome: "Aorta", categoria: "vasos" },
+  LA: { campo: "la", nome: "Átrio Esquerdo", categoria: "vasos" },
+  LA_Ao: { campo: "la_ao", nome: "AE/Ao", categoria: "vasos" },
+  MV_E: { campo: "mv_e", nome: "Onda E", categoria: "doppler" },
+  MV_A: { campo: "mv_a", nome: "Onda A", categoria: "doppler" },
+  MV_E_A: { campo: "mv_ea", nome: "E/A", categoria: "doppler" },
+  MV_DT: { campo: "mv_dt", nome: "TD (Tempo desaceleração)", categoria: "doppler" },
+  IVRT: { campo: "ivrt", nome: "TRIV", categoria: "doppler" },
+  Vmax_Ao: { campo: "vmax_ao", nome: "Vmax Aorta", categoria: "doppler" },
+  Vmax_Pulm: { campo: "vmax_pulm", nome: "Vmax Pulmonar", categoria: "doppler" },
 };
 
 export function useReferenciaEco() {
@@ -184,13 +219,36 @@ export function useReferenciaEcoLegacy(especie: string, pesoKg?: number) {
 }
 
 // Mapeamento de parâmetros do XML para os campos da referência (compatibilidade)
+// Inclui novos nomes e nomes antigos para retrocompatibilidade
 export const mapeamentoParametros: Record<string, string> = {
-  "LVIDd": "lvidd",
-  "LVIDs": "lvids",
-  "IVSd": "ivsd",
-  "IVSs": "ivss",
-  "LVPWd": "lvpwd",
-  "LVPWs": "lvpws",
+  // Novos nomes
+  "DIVEd": "lvid_d",
+  "DIVES": "lvid_s",
+  "SIVd": "ivs_d",
+  "SIVs": "ivs_s",
+  "PLVEd": "lvpw_d",
+  "PLVES": "lvpw_s",
+  "VDF": "edv",
+  "VSF": "esv",
+  "FE_Teicholz": "ef",
+  "DeltaD_FS": "fs",
+  "Aorta": "ao",
+  "Atrio_esquerdo": "la",
+  "AE_Ao": "la_ao",
+  "Onda_E": "mv_e",
+  "Onda_A": "mv_a",
+  "E_A": "mv_ea",
+  "TD": "mv_dt",
+  "TRIV": "ivrt",
+  "Vmax_aorta": "vmax_ao",
+  "Vmax_pulmonar": "vmax_pulm",
+  // Nomes antigos (retrocompatibilidade)
+  "LVIDd": "lvid_d",
+  "LVIDs": "lvid_s",
+  "IVSd": "ivs_d",
+  "IVSs": "ivs_s",
+  "LVPWd": "lvpw_d",
+  "LVPWs": "lvpw_s",
   "FS": "fs",
   "EF": "ef",
   "Ao": "ao",

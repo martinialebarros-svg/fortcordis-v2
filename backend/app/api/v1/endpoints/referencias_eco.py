@@ -45,27 +45,42 @@ def _referencia_to_dict(r: ReferenciaEco) -> dict:
         "id": r.id,
         "especie": r.especie,
         "peso_kg": r.peso_kg,
+        # VE - Modo M
         "lvid_d_min": r.lvid_d_min, "lvid_d_max": r.lvid_d_max,
         "lvid_s_min": r.lvid_s_min, "lvid_s_max": r.lvid_s_max,
         "ivs_d_min": r.ivs_d_min, "ivs_d_max": r.ivs_d_max,
         "ivs_s_min": r.ivs_s_min, "ivs_s_max": r.ivs_s_max,
         "lvpw_d_min": r.lvpw_d_min, "lvpw_d_max": r.lvpw_d_max,
         "lvpw_s_min": r.lvpw_s_min, "lvpw_s_max": r.lvpw_s_max,
+        # Função
         "fs_min": r.fs_min, "fs_max": r.fs_max,
         "ef_min": r.ef_min, "ef_max": r.ef_max,
+        "tapse_min": r.tapse_min, "tapse_max": r.tapse_max,
+        "mapse_min": r.mapse_min, "mapse_max": r.mapse_max,
+        # Vasos
         "ao_min": r.ao_min, "ao_max": r.ao_max,
         "la_min": r.la_min, "la_max": r.la_max,
         "la_ao_min": r.la_ao_min, "la_ao_max": r.la_ao_max,
+        # Artéria Pulmonar
+        "ap_min": r.ap_min, "ap_max": r.ap_max,
+        "ap_ao_min": r.ap_ao_min, "ap_ao_max": r.ap_ao_max,
+        # Fluxos
         "vmax_ao_min": r.vmax_ao_min, "vmax_ao_max": r.vmax_ao_max,
         "vmax_pulm_min": r.vmax_pulm_min, "vmax_pulm_max": r.vmax_pulm_max,
+        # Mitral/Diastólica
         "mv_e_min": r.mv_e_min, "mv_e_max": r.mv_e_max,
         "mv_a_min": r.mv_a_min, "mv_a_max": r.mv_a_max,
         "mv_ea_min": r.mv_ea_min, "mv_ea_max": r.mv_ea_max,
+        "mv_dt_min": r.mv_dt_min, "mv_dt_max": r.mv_dt_max,
+        "ivrt_min": r.ivrt_min, "ivrt_max": r.ivrt_max,
+        # Doppler Tecidual
+        "tdi_e_min": r.tdi_e_min, "tdi_e_max": r.tdi_e_max,
+        "tdi_a_min": r.tdi_a_min, "tdi_a_max": r.tdi_a_max,
+        "e_e_linha_min": r.e_e_linha_min, "e_e_linha_max": r.e_e_linha_max,
+        # Volumes
         "edv_min": r.edv_min, "edv_max": r.edv_max,
         "esv_min": r.esv_min, "esv_max": r.esv_max,
         "sv_min": r.sv_min, "sv_max": r.sv_max,
-        "mv_dt_min": r.mv_dt_min, "mv_dt_max": r.mv_dt_max,
-        "ivrt_min": r.ivrt_min, "ivrt_max": r.ivrt_max,
     }
 
 
@@ -108,12 +123,11 @@ def _importar_csv_from_content(content: str, especie: str, db: Session) -> int:
 class ReferenciaEcoCreate(BaseModel):
     especie: str
     peso_kg: float
-    # Câmaras
+    # VE - Modo M
     lvid_d_min: Optional[float] = None
     lvid_d_max: Optional[float] = None
     lvid_s_min: Optional[float] = None
     lvid_s_max: Optional[float] = None
-    # Paredes
     ivs_d_min: Optional[float] = None
     ivs_d_max: Optional[float] = None
     ivs_s_min: Optional[float] = None
@@ -127,6 +141,10 @@ class ReferenciaEcoCreate(BaseModel):
     fs_max: Optional[float] = None
     ef_min: Optional[float] = None
     ef_max: Optional[float] = None
+    tapse_min: Optional[float] = None
+    tapse_max: Optional[float] = None
+    mapse_min: Optional[float] = None
+    mapse_max: Optional[float] = None
     # Vasos
     ao_min: Optional[float] = None
     ao_max: Optional[float] = None
@@ -134,17 +152,34 @@ class ReferenciaEcoCreate(BaseModel):
     la_max: Optional[float] = None
     la_ao_min: Optional[float] = None
     la_ao_max: Optional[float] = None
+    # Artéria Pulmonar
+    ap_min: Optional[float] = None
+    ap_max: Optional[float] = None
+    ap_ao_min: Optional[float] = None
+    ap_ao_max: Optional[float] = None
     # Fluxos
     vmax_ao_min: Optional[float] = None
     vmax_ao_max: Optional[float] = None
     vmax_pulm_min: Optional[float] = None
     vmax_pulm_max: Optional[float] = None
+    # Mitral/Diastólica
     mv_e_min: Optional[float] = None
     mv_e_max: Optional[float] = None
     mv_a_min: Optional[float] = None
     mv_a_max: Optional[float] = None
     mv_ea_min: Optional[float] = None
     mv_ea_max: Optional[float] = None
+    mv_dt_min: Optional[float] = None
+    mv_dt_max: Optional[float] = None
+    ivrt_min: Optional[float] = None
+    ivrt_max: Optional[float] = None
+    # Doppler Tecidual
+    tdi_e_min: Optional[float] = None
+    tdi_e_max: Optional[float] = None
+    tdi_a_min: Optional[float] = None
+    tdi_a_max: Optional[float] = None
+    e_e_linha_min: Optional[float] = None
+    e_e_linha_max: Optional[float] = None
     # Volumes
     edv_min: Optional[float] = None
     edv_max: Optional[float] = None
@@ -152,11 +187,6 @@ class ReferenciaEcoCreate(BaseModel):
     esv_max: Optional[float] = None
     sv_min: Optional[float] = None
     sv_max: Optional[float] = None
-    # Tempos
-    mv_dt_min: Optional[float] = None
-    mv_dt_max: Optional[float] = None
-    ivrt_min: Optional[float] = None
-    ivrt_max: Optional[float] = None
 
 
 class ReferenciaEcoUpdate(ReferenciaEcoCreate):

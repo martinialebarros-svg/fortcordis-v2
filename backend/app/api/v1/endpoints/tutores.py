@@ -25,6 +25,7 @@ class TutorUpdate(BaseModel):
     email: Optional[str] = None
 
 
+@router.get("")
 @router.get("/")
 def listar_tutores(
     skip: int = 0,
@@ -48,6 +49,7 @@ def listar_tutores(
     }
 
 
+@router.post("", status_code=status.HTTP_201_CREATED)
 @router.post("/", status_code=status.HTTP_201_CREATED)
 def criar_tutor(
     tutor: TutorCreate,

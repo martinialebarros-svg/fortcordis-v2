@@ -6,8 +6,82 @@ import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import XmlUploader from "../components/XmlUploader";
 import ImageUploader from "../components/ImageUploader";
-import { Save, ArrowLeft, Heart, User, Activity, FileText, BookOpen, Settings, Image as ImageIcon } from "lucide-react";
+import { Save, ArrowLeft, Heart, User, Activity, FileText, BookOpen, Settings, Image as ImageIcon, Minus, Plus } from "lucide-react";
 import { ReferenciaComparison } from "../components/ReferenciaComparison";
+
+// Componente de input de medida com botões +/-
+interface MedidaInputProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  reference?: string;
+  readOnly?: boolean;
+}
+
+function MedidaInput({ label, value, onChange, reference, readOnly = false }: MedidaInputProps) {
+  const handleDecrement = () => {
+    if (readOnly) return;
+    const numValue = parseFloat(value) || 0;
+    if (numValue > 0) {
+      onChange((numValue - 0.01).toFixed(2));
+    }
+  };
+
+  const handleIncrement = () => {
+    if (readOnly) return;
+    const numValue = parseFloat(value) || 0;
+    onChange((numValue + 0.01).toFixed(2));
+  };
+
+  return (
+    <div className="space-y-1">
+      <label className="block text-xs text-gray-600 leading-tight">
+        {label}
+      </label>
+      {reference && (
+        <span className="text-[10px] text-gray-400">{reference}</span>
+      )}
+      <div className="flex items-center gap-1">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => {
+            if (!readOnly) onChange(e.target.value);
+          }}
+          readOnly={readOnly}
+          className="flex-1 px-2 py-1.5 bg-blue-50 border-0 rounded text-sm text-gray-700 focus:ring-1 focus:ring-teal-500"
+          placeholder="0,00"
+        />
+        {!readOnly && (
+          <>
+            <button
+              onClick={handleDecrement}
+              className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+              type="button"
+            >
+              <Minus className="w-3 h-3" />
+            </button>
+            <button
+              onClick={handleIncrement}
+              className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+              type="button"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const parseNumero = (valor?: string): number | null => {
+  if (!valor) return null;
+  const numero = Number(valor.toString().replace(",", ".").trim());
+  return Number.isFinite(numero) ? numero : null;
+};
+
+const formatar2Casas = (valor: number): string => valor.toFixed(2);
 
 interface DadosPaciente {
   nome: string;
@@ -50,21 +124,21 @@ interface FraseQualitativa {
 
 // Parâmetros ecocardiográficos
 const PARAMETROS_MEDIDAS = [
-  { key: "Ao", label: "Ao (cm)", categoria: "Câmaras" },
-  { key: "LA", label: "LA (cm)", categoria: "Câmaras" },
+  { key: "Ao", label: "Ao (mm)", categoria: "Câmaras" },
+  { key: "LA", label: "LA (mm)", categoria: "Câmaras" },
   { key: "LA_Ao", label: "LA/Ao", categoria: "Razões" },
-  { key: "IVSd", label: "IVSd (cm)", categoria: "Paredes" },
-  { key: "LVIDd", label: "LVIDd (cm)", categoria: "Câmaras" },
-  { key: "LVPWd", label: "LVPWd (cm)", categoria: "Paredes" },
-  { key: "IVSs", label: "IVSs (cm)", categoria: "Paredes" },
-  { key: "LVIDs", label: "LVIDs (cm)", categoria: "Câmaras" },
-  { key: "LVPWs", label: "LVPWs (cm)", categoria: "Paredes" },
+  { key: "IVSd", label: "IVSd (mm)", categoria: "Paredes" },
+  { key: "LVIDd", label: "LVIDd (mm)", categoria: "Câmaras" },
+  { key: "LVPWd", label: "LVPWd (mm)", categoria: "Paredes" },
+  { key: "IVSs", label: "IVSs (mm)", categoria: "Paredes" },
+  { key: "LVIDs", label: "LVIDs (mm)", categoria: "Câmaras" },
+  { key: "LVPWs", label: "LVPWs (mm)", categoria: "Paredes" },
   { key: "EDV", label: "EDV (ml)", categoria: "Volumes" },
   { key: "ESV", label: "ESV (ml)", categoria: "Volumes" },
   { key: "EF", label: "EF (%)", categoria: "Função" },
   { key: "FS", label: "FS (%)", categoria: "Função" },
-  { key: "MAPSE", label: "MAPSE (cm)", categoria: "Função" },
-  { key: "TAPSE", label: "TAPSE (cm)", categoria: "Função" },
+  { key: "MAPSE", label: "MAPSE (mm)", categoria: "Função" },
+  { key: "TAPSE", label: "TAPSE (mm)", categoria: "Função" },
   { key: "Vmax_Ao", label: "Vmax Ao (m/s)", categoria: "Fluxos" },
   { key: "Grad_Ao", label: "Grad Ao (mmHg)", categoria: "Gradientes" },
   { key: "Vmax_Pulm", label: "Vmax Pulm (m/s)", categoria: "Fluxos" },
@@ -162,6 +236,34 @@ export default function NovoLaudoPage() {
     carregarClinicas();
   }, [router]);
 
+  useEffect(() => {
+    const aorta = parseNumero(medidas["Aorta"]);
+    const atrioEsquerdo = parseNumero(medidas["Atrio_esquerdo"]);
+    const divedMm = parseNumero(medidas["DIVEd"]);
+    const peso = parseNumero(paciente.peso);
+
+    const aeAoCalculado =
+      aorta !== null && aorta > 0 && atrioEsquerdo !== null && atrioEsquerdo > 0
+        ? formatar2Casas(atrioEsquerdo / aorta)
+        : "";
+
+    const divedNormalizadoCalculado =
+      divedMm !== null && divedMm > 0 && peso !== null && peso > 0
+        ? formatar2Casas((divedMm / 10) / Math.pow(peso, 0.234))
+        : "";
+
+    if (
+      medidas["AE_Ao"] !== aeAoCalculado ||
+      medidas["DIVEd_normalizado"] !== divedNormalizadoCalculado
+    ) {
+      setMedidas((prev) => ({
+        ...prev,
+        AE_Ao: aeAoCalculado,
+        DIVEd_normalizado: divedNormalizadoCalculado,
+      }));
+    }
+  }, [medidas["Aorta"], medidas["Atrio_esquerdo"], medidas["DIVEd"], paciente.peso]);
+
   const carregarClinicas = async () => {
     try {
       const response = await api.get("/clinicas");
@@ -249,6 +351,56 @@ export default function NovoLaudoPage() {
     }
   };
 
+  // Mapeamento de campos antigos para novos (compatibilidade com XMLs)
+  const mapearCamposMedidas = (medidasOriginais: Record<string, number>): Record<string, string> => {
+    const mapeamento: Record<string, string> = {
+      // Campos antigos -> novos
+      "LVIDd": "DIVEd",
+      "LVIDs": "DIVES",
+      "IVSd": "SIVd",
+      "IVSs": "SIVs",
+      "LVPWd": "PLVEd",
+      "LVPWs": "PLVES",
+      "EDV": "VDF",
+      "ESV": "VSF",
+      "EF": "FE_Teicholz",
+      "FS": "DeltaD_FS",
+      "LA": "Atrio_esquerdo",
+      "Ao": "Aorta",
+      "LA_Ao": "AE_Ao",
+      "MV_E": "Onda_E",
+      "MV_A": "Onda_A",
+      "MV_E_A": "E_A",
+      "MV_DT": "TD",
+      "IVRT": "TRIV",
+      "TDI_e": "e_doppler",
+      "TDI_a": "a_doppler",
+      "EEp": "E_E_linha",
+      "Vmax_Ao": "Vmax_aorta",
+      "Grad_Ao": "Grad_aorta",
+      "Vmax_Pulm": "Vmax_pulmonar",
+      "Grad_Pulm": "Grad_pulmonar",
+      "MR_Vmax": "IM_Vmax",
+      "TR_Vmax": "IT_Vmax",
+      "AR_Vmax": "IA_Vmax",
+      "PR_Vmax": "IP_Vmax",
+      "DIVdN": "DIVEd_normalizado",
+    };
+
+    const medidasFormatadas: Record<string, string> = {};
+    
+    Object.entries(medidasOriginais).forEach(([key, value]) => {
+      // Se o valor for válido
+      if (value !== null && value !== undefined && !isNaN(value)) {
+        // Usa o nome mapeado se existir, senão usa o nome original
+        const novoNome = mapeamento[key] || key;
+        medidasFormatadas[novoNome] = value.toString();
+      }
+    });
+    
+    return medidasFormatadas;
+  };
+
   const handleDadosImportados = (dados: DadosExame) => {
     console.log("Dados recebidos do XML:", dados);
     
@@ -270,10 +422,7 @@ export default function NovoLaudoPage() {
     }
     
     if (dados.medidas) {
-      const medidasFormatadas: Record<string, string> = {};
-      Object.entries(dados.medidas).forEach(([key, value]) => {
-        medidasFormatadas[key] = value.toString();
-      });
+      const medidasFormatadas = mapearCamposMedidas(dados.medidas);
       setMedidas(medidasFormatadas);
     }
     
@@ -722,34 +871,232 @@ export default function NovoLaudoPage() {
 
                 {aba === "medidas" && (
                   <div className="space-y-6">
-                    {["Câmaras", "Paredes", "Volumes", "Função", "Razões", "Fluxos", "Gradientes", "Mitral", "Tempos", "Regurgitação"].map((categoria) => {
-                      const parametrosCategoria = PARAMETROS_MEDIDAS.filter(
-                        (p) => p.categoria === categoria
-                      );
-                      if (parametrosCategoria.length === 0) return null;
+                    {/* Grid principal com 3 colunas */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      {/* Coluna 1: VE - Modo M */}
+                      <div className="space-y-4">
+                        <h4 className="font-semibold text-gray-900 text-sm">VE - Modo M</h4>
+                        
+                        <MedidaInput 
+                          label="DIVEd (mm - Diâmetro interno do VE em diástole)"
+                          value={medidas["DIVEd"] || ""}
+                          onChange={(v) => handleMedidaChange("DIVEd", v)}
+                        />
+                        <MedidaInput 
+                          label="DIVEd normalizado (DIVEd [cm] / peso^0,234)"
+                          value={medidas["DIVEd_normalizado"] || ""}
+                          onChange={(v) => handleMedidaChange("DIVEd_normalizado", v)}
+                          readOnly
+                          reference="Ref.: 1.27-1.85"
+                        />
+                        <MedidaInput 
+                          label="SIVd (mm - Septo interventricular em diástole)"
+                          value={medidas["SIVd"] || ""}
+                          onChange={(v) => handleMedidaChange("SIVd", v)}
+                        />
+                        <MedidaInput 
+                          label="PLVEd (mm - Parede livre do VE em diástole)"
+                          value={medidas["PLVEd"] || ""}
+                          onChange={(v) => handleMedidaChange("PLVEd", v)}
+                        />
+                        <MedidaInput 
+                          label="DIVÉs (mm - Diâmetro interno do VE em sístole)"
+                          value={medidas["DIVES"] || ""}
+                          onChange={(v) => handleMedidaChange("DIVES", v)}
+                        />
+                        <MedidaInput 
+                          label="SIVs (mm - Septo interventricular em sístole)"
+                          value={medidas["SIVs"] || ""}
+                          onChange={(v) => handleMedidaChange("SIVs", v)}
+                        />
+                        <MedidaInput 
+                          label="PLVÉs (mm - Parede livre do VE em sístole)"
+                          value={medidas["PLVES"] || ""}
+                          onChange={(v) => handleMedidaChange("PLVES", v)}
+                        />
+                        <MedidaInput 
+                          label="VDF (Teicholz)"
+                          value={medidas["VDF"] || ""}
+                          onChange={(v) => handleMedidaChange("VDF", v)}
+                        />
+                        <MedidaInput 
+                          label="VSF (Teicholz)"
+                          value={medidas["VSF"] || ""}
+                          onChange={(v) => handleMedidaChange("VSF", v)}
+                        />
+                        <MedidaInput 
+                          label="FE (Teicholz)"
+                          value={medidas["FE_Teicholz"] || ""}
+                          onChange={(v) => handleMedidaChange("FE_Teicholz", v)}
+                        />
+                        <MedidaInput 
+                          label="Delta D / %FS"
+                          value={medidas["DeltaD_FS"] || ""}
+                          onChange={(v) => handleMedidaChange("DeltaD_FS", v)}
+                        />
+                        <MedidaInput 
+                          label="TAPSE (mm - excursão sistólica do plano anular tricúspide)"
+                          value={medidas["TAPSE"] || ""}
+                          onChange={(v) => handleMedidaChange("TAPSE", v)}
+                        />
+                        <MedidaInput 
+                          label="MAPSE (mm - excursão sistólica do plano anular mitral)"
+                          value={medidas["MAPSE"] || ""}
+                          onChange={(v) => handleMedidaChange("MAPSE", v)}
+                        />
+                      </div>
 
-                      return (
-                        <div key={categoria}>
-                          <h4 className="font-medium text-gray-900 mb-3">{categoria}</h4>
-                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                            {parametrosCategoria.map((param) => (
-                              <div key={param.key}>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">
-                                  {param.label}
-                                </label>
-                                <input
-                                  type="text"
-                                  value={medidas[param.key] || ""}
-                                  onChange={(e) => handleMedidaChange(param.key, e.target.value)}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 text-sm"
-                                  placeholder="0.00"
-                                />
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
+                      {/* Coluna 2: Átrio esquerdo/Aorta e Diastólica */}
+                      <div className="space-y-4">
+                        <h4 className="font-semibold text-gray-900 text-sm">Átrio esquerdo/ Aorta</h4>
+                        
+                        <MedidaInput 
+                          label="Aorta (mm)"
+                          value={medidas["Aorta"] || ""}
+                          onChange={(v) => handleMedidaChange("Aorta", v)}
+                        />
+                        <MedidaInput 
+                          label="Átrio esquerdo (mm)"
+                          value={medidas["Atrio_esquerdo"] || ""}
+                          onChange={(v) => handleMedidaChange("Atrio_esquerdo", v)}
+                        />
+                        <MedidaInput 
+                          label="AE/Ao (Átrio esquerdo/Aorta)"
+                          value={medidas["AE_Ao"] || ""}
+                          onChange={(v) => handleMedidaChange("AE_Ao", v)}
+                          readOnly
+                        />
+
+                        <hr className="border-gray-200 my-4" />
+
+                        <h4 className="font-semibold text-gray-900 text-sm">Diastólica</h4>
+                        
+                        <MedidaInput 
+                          label="Onda E"
+                          value={medidas["Onda_E"] || ""}
+                          onChange={(v) => handleMedidaChange("Onda_E", v)}
+                        />
+                        <MedidaInput 
+                          label="Onda A"
+                          value={medidas["Onda_A"] || ""}
+                          onChange={(v) => handleMedidaChange("Onda_A", v)}
+                        />
+                        <MedidaInput 
+                          label="E/A (relação E/A)"
+                          value={medidas["E_A"] || ""}
+                          onChange={(v) => handleMedidaChange("E_A", v)}
+                        />
+                        <MedidaInput 
+                          label="TD (tempo desaceleração)"
+                          value={medidas["TD"] || ""}
+                          onChange={(v) => handleMedidaChange("TD", v)}
+                        />
+                        <MedidaInput 
+                          label="TRIV (tempo relaxamento isovolumétrico)"
+                          value={medidas["TRIV"] || ""}
+                          onChange={(v) => handleMedidaChange("TRIV", v)}
+                        />
+                        <MedidaInput 
+                          label="MR dp/dt"
+                          value={medidas["MR_dp_dt"] || ""}
+                          onChange={(v) => handleMedidaChange("MR_dp_dt", v)}
+                        />
+                        <MedidaInput 
+                          label="e' (Doppler tecidual)"
+                          value={medidas["e_doppler"] || ""}
+                          onChange={(v) => handleMedidaChange("e_doppler", v)}
+                        />
+                        <MedidaInput 
+                          label="a' (Doppler tecidual)"
+                          value={medidas["a_doppler"] || ""}
+                          onChange={(v) => handleMedidaChange("a_doppler", v)}
+                        />
+                        <MedidaInput 
+                          label="Doppler tecidual (Relação e'/a')"
+                          value={medidas["doppler_tecidual_relacao"] || ""}
+                          onChange={(v) => handleMedidaChange("doppler_tecidual_relacao", v)}
+                        />
+                        <MedidaInput 
+                          label="E/E'"
+                          value={medidas["E_E_linha"] || ""}
+                          onChange={(v) => handleMedidaChange("E_E_linha", v)}
+                          reference="Ref.: <12"
+                        />
+                      </div>
+
+                      {/* Coluna 3: Artéria pulmonar/Aorta e Regurgitações */}
+                      <div className="space-y-4">
+                        <h4 className="font-semibold text-gray-900 text-sm">Artéria pulmonar/ Aorta</h4>
+                        
+                        <MedidaInput 
+                          label="AP (mm - Artéria pulmonar)"
+                          value={medidas["AP"] || ""}
+                          onChange={(v) => handleMedidaChange("AP", v)}
+                        />
+                        <MedidaInput 
+                          label="Ao (mm - Aorta - nível AP)"
+                          value={medidas["Ao_nivel_AP"] || ""}
+                          onChange={(v) => handleMedidaChange("Ao_nivel_AP", v)}
+                        />
+                        <MedidaInput 
+                          label="AP/Ao (Artéria pulmonar/Aorta)"
+                          value={medidas["AP_Ao"] || ""}
+                          onChange={(v) => handleMedidaChange("AP_Ao", v)}
+                        />
+
+                        <hr className="border-gray-200 my-4" />
+
+                        <h4 className="font-semibold text-gray-900 text-sm">Regurgitações</h4>
+                        
+                        <MedidaInput 
+                          label="IM (insuficiência mitral) Vmax"
+                          value={medidas["IM_Vmax"] || ""}
+                          onChange={(v) => handleMedidaChange("IM_Vmax", v)}
+                        />
+                        <MedidaInput 
+                          label="IT (insuficiência tricúspide) Vmax"
+                          value={medidas["IT_Vmax"] || ""}
+                          onChange={(v) => handleMedidaChange("IT_Vmax", v)}
+                        />
+                        <MedidaInput 
+                          label="IA (insuficiência aórtica) Vmax"
+                          value={medidas["IA_Vmax"] || ""}
+                          onChange={(v) => handleMedidaChange("IA_Vmax", v)}
+                        />
+                        <MedidaInput 
+                          label="IP (insuficiência pulmonar) Vmax"
+                          value={medidas["IP_Vmax"] || ""}
+                          onChange={(v) => handleMedidaChange("IP_Vmax", v)}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Linha inferior: Doppler - Saídas */}
+                    <div className="border-t pt-6 mt-6">
+                      <h4 className="font-semibold text-gray-900 text-sm mb-4">Doppler - Saídas</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <MedidaInput 
+                          label="Vmax aorta"
+                          value={medidas["Vmax_aorta"] || ""}
+                          onChange={(v) => handleMedidaChange("Vmax_aorta", v)}
+                        />
+                        <MedidaInput 
+                          label="Gradiente aorta"
+                          value={medidas["Grad_aorta"] || ""}
+                          onChange={(v) => handleMedidaChange("Grad_aorta", v)}
+                        />
+                        <MedidaInput 
+                          label="Vmax pulmonar"
+                          value={medidas["Vmax_pulmonar"] || ""}
+                          onChange={(v) => handleMedidaChange("Vmax_pulmonar", v)}
+                        />
+                        <MedidaInput 
+                          label="Gradiente pulmonar"
+                          value={medidas["Grad_pulmonar"] || ""}
+                          onChange={(v) => handleMedidaChange("Grad_pulmonar", v)}
+                        />
+                      </div>
+                    </div>
                   </div>
                 )}
 

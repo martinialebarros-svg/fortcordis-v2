@@ -35,6 +35,12 @@ class ReferenciaEco(Base):
     ef_min = Column(Float)      # Fração de ejeção
     ef_max = Column(Float)
     
+    # TAPSE e MAPSE (mm) - atualizada para mm em 2026-02-19
+    tapse_min = Column(Float)   # Excursão sistólica plano anular tricúspide
+    tapse_max = Column(Float)
+    mapse_min = Column(Float)   # Excursão sistólica plano anular mitral
+    mapse_max = Column(Float)
+    
     # Grandes vasos (mm)
     ao_min = Column(Float)      # Aorta
     ao_max = Column(Float)
@@ -44,6 +50,12 @@ class ReferenciaEco(Base):
     # Razões
     la_ao_min = Column(Float)   # Razão LA/Ao
     la_ao_max = Column(Float)
+    
+    # Artéria Pulmonar
+    ap_min = Column(Float)      # Artéria pulmonar
+    ap_max = Column(Float)
+    ap_ao_min = Column(Float)   # Razão AP/Ao
+    ap_ao_max = Column(Float)
     
     # Fluxos Doppler (m/s)
     vmax_ao_min = Column(Float)     # Vmax da aorta
@@ -59,6 +71,14 @@ class ReferenciaEco(Base):
     mv_ea_min = Column(Float)       # Razão E/A
     mv_ea_max = Column(Float)
     
+    # Doppler Tecidual
+    tdi_e_min = Column(Float)       # e' (cm/s)
+    tdi_e_max = Column(Float)
+    tdi_a_min = Column(Float)       # a' (cm/s)
+    tdi_a_max = Column(Float)
+    e_e_linha_min = Column(Float)   # E/E'
+    e_e_linha_max = Column(Float)
+    
     # Volumes (ml) - usado principalmente em caninos
     edv_min = Column(Float)         # Volume diastólico final
     edv_max = Column(Float)
@@ -70,5 +90,5 @@ class ReferenciaEco(Base):
     # Outros tempos e medidas
     mv_dt_min = Column(Float)       # Deceleração da onda E (ms)
     mv_dt_max = Column(Float)
-    ivrt_min = Column(Float)        # Tempo de relaxação isovolumétrico (ms)
+    ivrt_min = Column(Float)        # Tempo de relaxamento isovolumétrico (ms)
     ivrt_max = Column(Float)
