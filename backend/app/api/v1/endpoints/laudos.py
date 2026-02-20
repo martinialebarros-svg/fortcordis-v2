@@ -553,11 +553,11 @@ def gerar_pdf_laudo(
         if laudo.descricao:
             descricao = laudo.descricao
             
-            # Extrair medidas (formato: - DIVEd: 1.50) - aceita números decimais
-            # Regex atualizada para capturar nomes com underscores e acentos
-            for match in re.finditer(r'-\s*([\w_]+):\s*([\d.]+)', descricao):
+            # Extrair medidas (formato: - DIVEd: 1.50 ou - Fracao_encurtamento_AE: 21,5)
+            # Aceita números com ponto ou vírgula decimal
+            for match in re.finditer(r'-\s*([\w_]+):\s*([\d.,]+)', descricao):
                 chave = match.group(1)
-                valor = match.group(2)
+                valor = match.group(2).replace(",", ".")
                 medidas[chave] = valor
             
             # Extrair qualitativa - procura por seção "Avaliação Qualitativa"

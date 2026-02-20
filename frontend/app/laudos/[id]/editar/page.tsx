@@ -264,6 +264,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
   // Mapeamento de campos antigos para novos (compatibilidade com XMLs)
   const mapearCamposMedidas = (medidasOriginais: Record<string, number>): Record<string, string> => {
     const mapeamento: Record<string, string> = {
+      // Campos em inglês (XML cru) -> nomes em português
       "LVIDd": "DIVEd",
       "LVIDs": "DIVES",
       "IVSd": "SIVd",
@@ -294,6 +295,44 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       "AR_Vmax": "IA_Vmax",
       "PR_Vmax": "IP_Vmax",
       "DIVdN": "DIVEd_normalizado",
+      // Campos já em português (XML já processado pelo backend) -> mesmos nomes
+      "DIVEd": "DIVEd",
+      "DIVES": "DIVES",
+      "SIVd": "SIVd",
+      "SIVs": "SIVs",
+      "PLVEd": "PLVEd",
+      "PLVES": "PLVES",
+      "VDF": "VDF",
+      "VSF": "VSF",
+      "FE_Teicholz": "FE_Teicholz",
+      "DeltaD_FS": "DeltaD_FS",
+      "Atrio_esquerdo": "Atrio_esquerdo",
+      "Aorta": "Aorta",
+      "AE_Ao": "AE_Ao",
+      "Onda_E": "Onda_E",
+      "Onda_A": "Onda_A",
+      "E_A": "E_A",
+      "TD": "TD",
+      "TRIV": "TRIV",
+      "e_doppler": "e_doppler",
+      "a_doppler": "a_doppler",
+      "E_E_linha": "E_E_linha",
+      "Vmax_aorta": "Vmax_aorta",
+      "Grad_aorta": "Grad_aorta",
+      "Vmax_pulmonar": "Vmax_pulmonar",
+      "Grad_pulmonar": "Grad_pulmonar",
+      "IM_Vmax": "IM_Vmax",
+      "IT_Vmax": "IT_Vmax",
+      "IA_Vmax": "IA_Vmax",
+      "IP_Vmax": "IP_Vmax",
+      "DIVEd_normalizado": "DIVEd_normalizado",
+      "TAPSE": "TAPSE",
+      "MAPSE": "MAPSE",
+      "Ao_nivel_AP": "Ao_nivel_AP",
+      "AP": "AP",
+      "AP_Ao": "AP_Ao",
+      "MR_dp_dt": "MR_dp_dt",
+      "doppler_tecidual_relacao": "doppler_tecidual_relacao",
     };
 
     const medidasFormatadas: Record<string, string> = {};
@@ -452,12 +491,12 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       if (laudoData.descricao) {
         const descricao = laudoData.descricao;
 
-        // Extrair medidas (formato: - DIVEd: 1.50)
+        // Extrair medidas (formato: - DIVEd: 1.50 ou - Fracao_encurtamento_AE: 21,5)
         const medidasExtraidas: Record<string, string> = {};
-        const regexMedidas = /-\s*([\w_]+):\s*([\d.]+)/g;
+        const regexMedidas = /-\s*([\w_]+):\s*([\d.,]+)/g;
         let match;
         while ((match = regexMedidas.exec(descricao)) !== null) {
-          medidasExtraidas[match[1]] = match[2];
+          medidasExtraidas[match[1]] = match[2].replace(",", ".");
         }
         setMedidas(medidasExtraidas);
 
@@ -1039,6 +1078,23 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                           onChange={(v) => handleMedidaChange("AE_Ao", v)}
                           readOnly
                         />
+
+                        {pacienteForm.especie === "Felina" && (
+                          <>
+                            <MedidaInput
+                              label="Fração de encurtamento do AE (átrio esquerdo)"
+                              value={medidas["Fracao_encurtamento_AE"] ?? ""}
+                              onChange={(v) => handleMedidaChange("Fracao_encurtamento_AE", v)}
+                              reference="Ref.: 21 - 25%"
+                            />
+                            <MedidaInput
+                              label="Fluxo auricular"
+                              value={medidas["Fluxo_auricular"] ?? ""}
+                              onChange={(v) => handleMedidaChange("Fluxo_auricular", v)}
+                              reference="Ref.: >0,25 m/s"
+                            />
+                          </>
+                        )}
 
                         <hr className="border-gray-200 my-4" />
 

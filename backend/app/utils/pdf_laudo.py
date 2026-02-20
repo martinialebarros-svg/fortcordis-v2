@@ -437,6 +437,7 @@ def criar_tabela_medidas(titulo: str, parametros: List[Dict], dados: Dict[str, A
         unidade = param.get('unidade', '')
         ref_min = param.get('ref_min')
         ref_max = param.get('ref_max')
+        ref_text = param.get('ref_text')  # Referência em texto fixo (ex: ">0,25 m/s")
         
         valor = dados.get('medidas', {}).get(chave, 0)
         valor_float = _to_float(valor) or 0
@@ -444,12 +445,12 @@ def criar_tabela_medidas(titulo: str, parametros: List[Dict], dados: Dict[str, A
         # Formata valor
         if valor_float == 0:
             valor_str = "--"
-            ref_str = formatar_referencia(ref_min, ref_max, unidade) if mostrar_referencia else ""
+            ref_str = (ref_text if ref_text else formatar_referencia(ref_min, ref_max, unidade)) if mostrar_referencia else ""
             interp_str = ""
             interp_color = COR_PRETO
         else:
             valor_str = f"{valor_float:.2f} {unidade}".strip()
-            ref_str = formatar_referencia(ref_min, ref_max, unidade) if mostrar_referencia else ""
+            ref_str = (ref_text if ref_text else formatar_referencia(ref_min, ref_max, unidade)) if mostrar_referencia else ""
             
             if ref_min is not None and ref_max is not None and not (ref_min == 0 and ref_max == 0):
                 interp_str, interp_color = interpretar_parametro(valor_float, ref_min, ref_max)
@@ -871,6 +872,13 @@ def gerar_pdf_laudo_eco(
             {'chave': 'Atrio_esquerdo', 'label': 'Átrio esquerdo', 'unidade': 'mm', 'ref_min': None, 'ref_max': None},
             {'chave': 'AE_Ao', 'label': 'AE/Ao (Átrio esquerdo/Aorta)', 'unidade': '', 'ref_min': 0.80, 'ref_max': 1.60},
         ]
+        # Medidas específicas felinos (dentro da mesma tabela AE/Ao)
+        paciente_especie = (dados_pdf.get("paciente") or {}).get("especie") or ""
+        if paciente_especie.lower() == "felina":
+            params_ae_aorta.extend([
+                {'chave': 'Fracao_encurtamento_AE', 'label': 'Fração de encurtamento do AE (átrio esquerdo)', 'unidade': '%', 'ref_min': 21.0, 'ref_max': 25.0},
+                {'chave': 'Fluxo_auricular', 'label': 'Fluxo auricular', 'unidade': 'm/s', 'ref_text': '>0,25 m/s'},
+            ])
         
         # Grupo: Artéria Pulmonar / Aorta - SEM Interpretação
         params_ap_aorta = [

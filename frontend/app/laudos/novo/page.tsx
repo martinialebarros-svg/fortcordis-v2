@@ -354,7 +354,7 @@ export default function NovoLaudoPage() {
   // Mapeamento de campos antigos para novos (compatibilidade com XMLs)
   const mapearCamposMedidas = (medidasOriginais: Record<string, number>): Record<string, string> => {
     const mapeamento: Record<string, string> = {
-      // Campos antigos -> novos
+      // Campos em inglês (XML cru) -> nomes em português
       "LVIDd": "DIVEd",
       "LVIDs": "DIVES",
       "IVSd": "SIVd",
@@ -385,6 +385,44 @@ export default function NovoLaudoPage() {
       "AR_Vmax": "IA_Vmax",
       "PR_Vmax": "IP_Vmax",
       "DIVdN": "DIVEd_normalizado",
+      // Campos já em português (XML já processado pelo backend) -> mesmos nomes
+      "DIVEd": "DIVEd",
+      "DIVES": "DIVES",
+      "SIVd": "SIVd",
+      "SIVs": "SIVs",
+      "PLVEd": "PLVEd",
+      "PLVES": "PLVES",
+      "VDF": "VDF",
+      "VSF": "VSF",
+      "FE_Teicholz": "FE_Teicholz",
+      "DeltaD_FS": "DeltaD_FS",
+      "Atrio_esquerdo": "Atrio_esquerdo",
+      "Aorta": "Aorta",
+      "AE_Ao": "AE_Ao",
+      "Onda_E": "Onda_E",
+      "Onda_A": "Onda_A",
+      "E_A": "E_A",
+      "TD": "TD",
+      "TRIV": "TRIV",
+      "e_doppler": "e_doppler",
+      "a_doppler": "a_doppler",
+      "E_E_linha": "E_E_linha",
+      "Vmax_aorta": "Vmax_aorta",
+      "Grad_aorta": "Grad_aorta",
+      "Vmax_pulmonar": "Vmax_pulmonar",
+      "Grad_pulmonar": "Grad_pulmonar",
+      "IM_Vmax": "IM_Vmax",
+      "IT_Vmax": "IT_Vmax",
+      "IA_Vmax": "IA_Vmax",
+      "IP_Vmax": "IP_Vmax",
+      "DIVEd_normalizado": "DIVEd_normalizado",
+      "TAPSE": "TAPSE",
+      "MAPSE": "MAPSE",
+      "Ao_nivel_AP": "Ao_nivel_AP",
+      "AP": "AP",
+      "AP_Ao": "AP_Ao",
+      "MR_dp_dt": "MR_dp_dt",
+      "doppler_tecidual_relacao": "doppler_tecidual_relacao",
     };
 
     const medidasFormatadas: Record<string, string> = {};
@@ -403,6 +441,7 @@ export default function NovoLaudoPage() {
 
   const handleDadosImportados = (dados: DadosExame) => {
     console.log("Dados recebidos do XML:", dados);
+    console.log("Medidas brutas do XML:", dados.medidas);
     
     if (dados.paciente) {
       const novoPaciente = {
@@ -422,8 +461,13 @@ export default function NovoLaudoPage() {
     }
     
     if (dados.medidas) {
+      console.log("Processando medidas...");
       const medidasFormatadas = mapearCamposMedidas(dados.medidas);
+      console.log("Medidas formatadas:", medidasFormatadas);
       setMedidas(medidasFormatadas);
+      console.log("Medidas setadas no estado");
+    } else {
+      console.log("Nenhuma medida encontrada nos dados");
     }
     
     if (dados.clinica) {
@@ -966,6 +1010,23 @@ export default function NovoLaudoPage() {
                           onChange={(v) => handleMedidaChange("AE_Ao", v)}
                           readOnly
                         />
+
+                        {paciente.especie === "Felina" && (
+                          <>
+                            <MedidaInput
+                              label="Fração de encurtamento do AE (átrio esquerdo)"
+                              value={medidas["Fracao_encurtamento_AE"] ?? ""}
+                              onChange={(v) => handleMedidaChange("Fracao_encurtamento_AE", v)}
+                              reference="Ref.: 21 - 25%"
+                            />
+                            <MedidaInput
+                              label="Fluxo auricular"
+                              value={medidas["Fluxo_auricular"] ?? ""}
+                              onChange={(v) => handleMedidaChange("Fluxo_auricular", v)}
+                              reference="Ref.: >0,25 m/s"
+                            />
+                          </>
+                        )}
 
                         <hr className="border-gray-200 my-4" />
 
