@@ -252,14 +252,13 @@ def create_pdf_styles():
 
 
 def criar_cabecalho(dados: Dict[str, Any], temp_logo_path: str = None) -> List:
-    """Cria o cabeçalho do laudo com dados do paciente"""
+    """Cria o cabeçalho do laudo com dados do paciente - formato do modelo de referência"""
     elements = []
     styles = create_pdf_styles()
     
-    # Se tem logomarca, cria layout com imagem + título
+    # Se tem logomarca, cria layout com imagem à esquerda + título centralizado
     if temp_logo_path and os.path.exists(temp_logo_path):
         try:
-            # Criar tabela com logo e título
             logo = Image(temp_logo_path, width=35*mm, height=20*mm)
             logo.hAlign = 'LEFT'
             
@@ -275,62 +274,52 @@ def criar_cabecalho(dados: Dict[str, Any], temp_logo_path: str = None) -> List:
             elements.append(header_table)
         except Exception as e:
             print(f"Erro ao adicionar logomarca: {e}")
-            # Título principal sem logo
             elements.append(Paragraph("LAUDO ECOCARDIOGRÁFICO", styles['TituloPrincipal']))
     else:
-        # Título principal sem logo
         elements.append(Paragraph("LAUDO ECOCARDIOGRÁFICO", styles['TituloPrincipal']))
     
-    elements.append(Spacer(1, 3*mm))
-    
-    # Dados do paciente em formato de tabela
-    paciente = dados.get('paciente', {})
-    
-    info_data = [
-        [
-            Paragraph(f"<b>Paciente:</b> {paciente.get('nome', 'N/A')}", styles['Normal']),
-            Paragraph(f"<b>Espécie:</b> {paciente.get('especie', 'N/A')}", styles['Normal']),
-            Paragraph(f"<b>Raça:</b> {paciente.get('raca', 'N/A')}", styles['Normal'])
-        ],
-        [
-            Paragraph(f"<b>Sexo:</b> {paciente.get('sexo', 'N/A')}", styles['Normal']),
-            Paragraph(f"<b>Idade:</b> {paciente.get('idade', 'N/A')}", styles['Normal']),
-            Paragraph(f"<b>Peso:</b> {paciente.get('peso', 'N/A')} kg", styles['Normal'])
-        ],
-        [
-            Paragraph(f"<b>Tutor:</b> {paciente.get('tutor', 'N/A')}", styles['Normal']),
-            Paragraph(f"<b>Data:</b> {paciente.get('data_exame', datetime.now().strftime('%d/%m/%Y'))}", styles['Normal']),
-            ""
-        ]
-    ]
-    
-    # Adiciona clínica se existir
-    clinica = dados.get('clinica', '')
-    if clinica:
-        info_data.append([
-            Paragraph(f"<b>Clínica:</b> {clinica}", styles['Normal']),
-            "",
-            ""
-        ])
-    
-    info_table = Table(info_data, colWidths=[65*mm, 50*mm, 50*mm])
-    info_table.setStyle(TableStyle([
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('LEFTPADDING', (0, 0), (-1, -1), 3),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 3),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-        ('TOPPADDING', (0, 0), (-1, -1), 3),
-    ]))
-    elements.append(info_table)
     elements.append(Spacer(1, 2*mm))
     
-    # Linha divisória
-    line_data = [['']]
-    line_table = Table(line_data, colWidths=[180*mm])
-    line_table.setStyle(TableStyle([
-        ('LINEBELOW', (0, 0), (-1, -1), 1, COR_PRIMARIA),
-    ]))
-    elements.append(line_table)
+    # Dados do paciente em formato de linha única com pipe (|) como separador
+    # Seguindo o modelo: Paciente: X | Espécie: X | Raça: X
+    paciente = dados.get('paciente', {})
+    clinica = dados.get('clinica', '')
+    
+    # Linha 1: Paciente | Espécie | Raça
+    linha1 = f"<b>Paciente:</b> {paciente.get('nome', 'N/A')} | <b>Espécie:</b> {paciente.get('especie', 'N/A')} | <b>Raça:</b> {paciente.get('raca', 'N/A')}"
+    elements.append(Paragraph(linha1, styles['Normal']))
+    elements.append(Spacer(1, 1*mm))
+    
+    # Linha 2: Sexo | Idade | Peso
+    peso = paciente.get('peso', 'N/A')
+    peso_str = f"{peso} kg" if peso and peso != 'N/A' else 'N/A'
+    linha2 = f"<b>Sexo:</b> {paciente.get('sexo', 'N/A')} | <b>Idade:</b> {paciente.get('idade', 'N/A')} | <b>Peso:</b> {peso_str}"
+    elements.append(Paragraph(linha2, styles['Normal']))
+    elements.append(Spacer(1, 1*mm))
+    
+    # Linha 3: Tutor | Solicitante
+    solicitante = paciente.get('solicitante', '') or ''
+    linha3 = f"<b>Tutor:</b> {paciente.get('tutor', 'N/A')} | <b>Solicitante:</b> {solicitante}"
+    elements.append(Paragraph(linha3, styles['Normal']))
+    elements.append(Spacer(1, 1*mm))
+    
+    # Linha 4: Clínica
+    if clinica:
+        elements.append(Paragraph(f"<b>Clínica:</b> {clinica}", styles['Normal']))
+        elements.append(Spacer(1, 1*mm))
+    
+    # Linha 5: Data
+    data_exame = paciente.get('data_exame', datetime.now().strftime('%d/%m/%Y'))
+    elements.append(Paragraph(f"<b>Data:</b> {data_exame}", styles['Normal']))
+    elements.append(Spacer(1, 1*mm))
+    
+    # Linha 6: Ritmo | FC | Estado
+    ritmo = paciente.get('ritmo', 'Sinusal') or 'Sinusal'
+    fc = paciente.get('fc', '') or ''
+    fc_str = f"{fc} bpm" if fc else "bpm"
+    estado = paciente.get('estado', 'Calmo') or 'Calmo'
+    linha6 = f"<b>Ritmo:</b> {ritmo} | <b>FC:</b> {fc_str} | <b>Estado:</b> {estado}"
+    elements.append(Paragraph(linha6, styles['Normal']))
     elements.append(Spacer(1, 3*mm))
     
     return elements
@@ -346,25 +335,42 @@ def interpretar_parametro(valor: float, ref_min: float, ref_max: float) -> Tuple
         return "Normal", colors.HexColor('#16a34a')  # Verde
 
 
-def criar_tabela_medidas(titulo: str, parametros: List[Dict], dados: Dict[str, Any]) -> Table:
-    """Cria uma tabela de medidas ecocardiográficas"""
+def criar_tabela_medidas(titulo: str, parametros: List[Dict], dados: Dict[str, Any], 
+                         mostrar_referencia: bool = True, mostrar_interpretacao: bool = False) -> Table:
+    """Cria uma tabela de medidas ecocardiográficas
+    
+    Args:
+        titulo: Título da seção
+        parametros: Lista de parâmetros com chave, label, unidade, ref_min, ref_max
+        dados: Dicionário com os valores das medidas
+        mostrar_referencia: Se True, mostra coluna de referência
+        mostrar_interpretacao: Se True, mostra coluna de interpretação
+    """
     styles = create_pdf_styles()
     
-    # Cabeçalho da tabela
-    data = [[
-        Paragraph(f"<b>{titulo}</b>", styles['Normal']),
-        '',
-        '',
-        ''
-    ]]
+    # Determinar colunas a exibir
+    colunas = ["Parâmetro", "Valor"]
+    if mostrar_referencia:
+        colunas.append("Referência")
+    if mostrar_interpretacao:
+        colunas.append("Interpretação")
     
-    # Sub-cabeçalho
-    data.append([
-        Paragraph("<b>Parâmetro</b>", styles['Normal']),
-        Paragraph("<b>Valor</b>", styles['Normal']),
-        Paragraph("<b>Referência</b>", styles['Normal']),
-        Paragraph("<b>Interpretação</b>", styles['Normal'])
-    ])
+    # Calcular larguras das colunas - ajustado para layout do modelo
+    num_colunas = len(colunas)
+    if num_colunas == 2:
+        col_widths = [130*mm, 50*mm]
+    elif num_colunas == 3:
+        col_widths = [100*mm, 40*mm, 40*mm]
+    else:  # 4 colunas
+        col_widths = [80*mm, 35*mm, 35*mm, 30*mm]
+    
+    # Cabeçalho da tabela (título da seção)
+    header_cells = [Paragraph(f"<b>{titulo}</b>", styles['Normal'])] + [''] * (num_colunas - 1)
+    data = [header_cells]
+    
+    # Sub-cabeçalho com nomes das colunas
+    subheader_cells = [Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]
+    data.append(subheader_cells)
     
     # Dados
     for param in parametros:
@@ -375,18 +381,17 @@ def criar_tabela_medidas(titulo: str, parametros: List[Dict], dados: Dict[str, A
         ref_max = param.get('ref_max')
         
         valor = dados.get('medidas', {}).get(chave, 0)
-        
         valor_float = _to_float(valor) or 0
         
         # Formata valor
         if valor_float == 0:
             valor_str = "--"
-            ref_str = formatar_referencia(ref_min, ref_max, unidade)
+            ref_str = formatar_referencia(ref_min, ref_max, unidade) if mostrar_referencia else ""
             interp_str = ""
             interp_color = COR_PRETO
         else:
             valor_str = f"{valor_float:.2f} {unidade}".strip()
-            ref_str = formatar_referencia(ref_min, ref_max, unidade)
+            ref_str = formatar_referencia(ref_min, ref_max, unidade) if mostrar_referencia else ""
             
             if ref_min is not None and ref_max is not None and not (ref_min == 0 and ref_max == 0):
                 interp_str, interp_color = interpretar_parametro(valor_float, ref_min, ref_max)
@@ -394,17 +399,24 @@ def criar_tabela_medidas(titulo: str, parametros: List[Dict], dados: Dict[str, A
                 interp_str = ""
                 interp_color = COR_PRETO
         
-        data.append([
+        # Construir linha conforme colunas visíveis
+        row = [
             Paragraph(label, styles['Normal']),
-            Paragraph(valor_str, styles['Normal']),
-            Paragraph(ref_str, styles['Normal']),
-            Paragraph(f"<font color='{interp_color.hexval()}'>{interp_str}</font>", styles['Normal'])
-        ])
+            Paragraph(valor_str, styles['Normal'])
+        ]
+        if mostrar_referencia:
+            row.append(Paragraph(ref_str, styles['Normal']))
+        if mostrar_interpretacao:
+            row.append(Paragraph(f"<font color='{interp_color.hexval()}'>{interp_str}</font>", styles['Normal']))
+        
+        data.append(row)
     
     # Criar tabela
-    table = Table(data, colWidths=[55*mm, 35*mm, 45*mm, 35*mm])
-    table.setStyle(TableStyle([
-        # Título da seção
+    table = Table(data, colWidths=col_widths)
+    
+    # Estilos base - cores do modelo original
+    table_style = [
+        # Título da seção (fundo azul escuro)
         ('BACKGROUND', (0, 0), (-1, 0), COR_PRIMARIA),
         ('TEXTCOLOR', (0, 0), (-1, 0), COR_BRANCO),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
@@ -413,7 +425,7 @@ def criar_tabela_medidas(titulo: str, parametros: List[Dict], dados: Dict[str, A
         ('ALIGN', (0, 0), (-1, 0), 'LEFT'),
         ('LEFTPADDING', (0, 0), (-1, 0), 6),
         
-        # Cabeçalho
+        # Cabeçalho das colunas (fundo cinza claro)
         ('BACKGROUND', (0, 1), (-1, 1), COR_CINZA_CLARO),
         ('TEXTCOLOR', (0, 1), (-1, 1), COR_CINZA_ESCURO),
         ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
@@ -426,22 +438,152 @@ def criar_tabela_medidas(titulo: str, parametros: List[Dict], dados: Dict[str, A
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('LEFTPADDING', (0, 0), (-1, -1), 4),
         ('RIGHTPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
         
         # Grade
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ('BOX', (0, 0), (-1, -1), 1, COR_PRIMARIA),
         
-        # Alternância de cores nas linhas
+        # Alternância de cores nas linhas de dados
         ('ROWBACKGROUNDS', (0, 2), (-1, -1), [COR_BRANCO, COR_CINZA_CLARO]),
-    ]))
+    ]
+    
+    table.setStyle(TableStyle(table_style))
     
     return table
 
 
+def criar_tabela_medidas_com_interpretacao(titulo: str, parametros: List[Dict], dados: Dict[str, Any]) -> Table:
+    """Cria uma tabela de medidas com colunas Valor, Referência e Interpretação
+    
+    Usado para seções como Átrio Esquerdo/Aorta, Doppler-Saídas, etc.
+    """
+    styles = create_pdf_styles()
+    
+    colunas = ["Parâmetro", "Valor", "Referência", "Interpretação"]
+    col_widths = [80*mm, 30*mm, 35*mm, 35*mm]
+    
+    # Cabeçalho da tabela
+    header_cells = [Paragraph(f"<b>{titulo}</b>", styles['Normal'])] + [''] * 3
+    data = [header_cells]
+    
+    # Sub-cabeçalho
+    subheader_cells = [Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]
+    data.append(subheader_cells)
+    
+    # Dados
+    for param in parametros:
+        chave = param['chave']
+        label = param['label']
+        unidade = param.get('unidade', '')
+        ref_min = param.get('ref_min')
+        ref_max = param.get('ref_max')
+        
+        valor = dados.get('medidas', {}).get(chave, 0)
+        valor_float = _to_float(valor) or 0
+        
+        if valor_float == 0:
+            valor_str = "--"
+            ref_str = "--"
+            interp_str = ""
+            interp_color = COR_PRETO
+        else:
+            valor_str = f"{valor_float:.2f} {unidade}".strip()
+            ref_str = formatar_referencia(ref_min, ref_max, "")
+            
+            if ref_min is not None and ref_max is not None and not (ref_min == 0 and ref_max == 0):
+                interp_str, interp_color = interpretar_parametro(valor_float, ref_min, ref_max)
+            else:
+                interp_str = "--"
+                interp_color = COR_PRETO
+        
+        row = [
+            Paragraph(label, styles['Normal']),
+            Paragraph(valor_str, styles['Normal']),
+            Paragraph(ref_str, styles['Normal']),
+            Paragraph(f"<font color='{interp_color.hexval()}'>{interp_str}</font>", styles['Normal'])
+        ]
+        data.append(row)
+    
+    table = Table(data, colWidths=col_widths)
+    
+    table_style = [
+        ('BACKGROUND', (0, 0), (-1, 0), COR_PRIMARIA),
+        ('TEXTCOLOR', (0, 0), (-1, 0), COR_BRANCO),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('SPAN', (0, 0), (-1, 0)),
+        ('ALIGN', (0, 0), (-1, 0), 'LEFT'),
+        ('LEFTPADDING', (0, 0), (-1, 0), 6),
+        
+        ('BACKGROUND', (0, 1), (-1, 1), COR_CINZA_CLARO),
+        ('TEXTCOLOR', (0, 1), (-1, 1), COR_CINZA_ESCURO),
+        ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 1), (-1, 1), 9),
+        ('ALIGN', (1, 1), (-1, 1), 'CENTER'),
+        
+        ('FONTSIZE', (0, 2), (-1, -1), 9),
+        ('ALIGN', (1, 2), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 4),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('BOX', (0, 0), (-1, -1), 1, COR_PRIMARIA),
+        ('ROWBACKGROUNDS', (0, 2), (-1, -1), [COR_BRANCO, COR_CINZA_CLARO]),
+    ]
+    
+    table.setStyle(TableStyle(table_style))
+    return table
+
+
+def criar_secao_ad_vd(texto: str) -> List:
+    """Cria a seção AD/VD como texto (não tabela) - conforme modelo de referência"""
+    elements = []
+    styles = create_pdf_styles()
+    
+    if not texto or not texto.strip():
+        return elements
+    
+    # Título da seção
+    titulo_data = [[Paragraph("<b>AD/VD (Subjetivo)</b>", styles['Normal'])]]
+    titulo_table = Table(titulo_data, colWidths=[180*mm])
+    titulo_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), COR_PRIMARIA),
+        ('TEXTCOLOR', (0, 0), (-1, 0), COR_BRANCO),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('LEFTPADDING', (0, 0), (-1, 0), 6),
+        ('TOPPADDING', (0, 0), (-1, 0), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
+    ]))
+    elements.append(titulo_table)
+    
+    # Texto do AD/VD
+    texto_data = [[Paragraph(texto.strip(), styles['Normal'])]]
+    texto_table = Table(texto_data, colWidths=[180*mm])
+    texto_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), COR_BRANCO),
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(texto_table)
+    
+    return elements
+
+
 def criar_secao_qualitativa(qualitativa: Dict[str, str]) -> List:
-    """Cria a seção de análise qualitativa"""
+    """Cria a seção de análise qualitativa - formato do modelo de referência
+    
+    No modelo de referência, os itens são apresentados com marcadores (*) em formato de lista.
+    AD/VD é mostrado separadamente antes desta seção.
+    """
     elements = []
     styles = create_pdf_styles()
     
@@ -450,29 +592,21 @@ def criar_secao_qualitativa(qualitativa: Dict[str, str]) -> List:
     elements.append(Paragraph("ANÁLISE QUALITATIVA", styles['SecaoTitulo']))
     elements.append(Spacer(1, 2*mm))
     
+    # Campos conforme modelo de referência (sem AD/VD, que é mostrado separadamente)
     campos = [
-        ('valvas', 'Válvulas'),
+        ('valvas', 'Valvas'),
         ('camaras', 'Câmaras'),
         ('funcao', 'Função'),
         ('pericardio', 'Pericárdio'),
-        ('vasos', 'Vasos'),
-        ('ad_vd', 'AD/VD')
+        ('vasos', 'Vasos sanguíneos'),
     ]
     
     for chave, label in campos:
         texto = qualitativa.get(chave, '').strip()
         if texto:
-            data = [[
-                Paragraph(f"<b>{label}:</b>", styles['QualitativaLabel']),
-                Paragraph(texto, styles['QualitativaTexto'])
-            ]]
-            table = Table(data, colWidths=[25*mm, 155*mm])
-            table.setStyle(TableStyle([
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ('LEFTPADDING', (0, 0), (-1, -1), 0),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-            ]))
-            elements.append(table)
+            # Formato com asterisco como no modelo: * Label: texto
+            elements.append(Paragraph(f"<b>* {label}:</b> {texto}", styles['QualitativaTexto']))
+            elements.append(Spacer(1, 1*mm))
     
     return elements
 
@@ -535,7 +669,7 @@ def criar_secao_assinatura(nome_veterinario: str, crmv: str = "", temp_assinatur
 
 
 def criar_rodape(texto_rodape: str = None) -> List:
-    """Cria o rodapé"""
+    """Cria o rodapé para o final do conteúdo (não usado mais, ver footer_todas_paginas)"""
     elements = []
     styles = create_pdf_styles()
     
@@ -543,12 +677,28 @@ def criar_rodape(texto_rodape: str = None) -> List:
     
     elements.append(Spacer(1, 8*mm))
     elements.append(Paragraph(texto, styles['Rodape']))
-    elements.append(Paragraph(
-        f"Documento gerado eletronicamente em {datetime.now().strftime('%d/%m/%Y %H:%M')}",
-        styles['Rodape']
-    ))
     
     return elements
+
+
+def footer_todas_paginas(canvas_obj, doc, texto_rodape: str = None):
+    """Adiciona rodapé em todas as páginas do PDF - conforme modelo de referência"""
+    canvas_obj.saveState()
+    
+    texto = texto_rodape or "Fort Cordis Cardiologia Veterinária | Fortaleza-CE"
+    
+    # Configurações do rodapé
+    canvas_obj.setFont('Helvetica-Oblique', 8)
+    canvas_obj.setFillColor(COR_CINZA_MEDIO)
+    
+    # Posição do rodapé (centralizado na parte inferior)
+    page_width = A4[0]
+    y_position = 10*mm
+    
+    # Texto do rodapé centralizado
+    canvas_obj.drawCentredString(page_width / 2, y_position, texto)
+    
+    canvas_obj.restoreState()
 
 
 def gerar_pdf_laudo_eco(
@@ -621,107 +771,124 @@ def gerar_pdf_laudo_eco(
         elements.append(Paragraph("ANÁLISE QUANTITATIVA", create_pdf_styles()['SecaoTitulo']))
         elements.append(Spacer(1, 2*mm))
         
-        # Definição dos parâmetros por grupo - NOVOS NOMES DOS CAMPOS
-        # Grupo: VE - Modo M (Diâstole)
-        params_ve_diastole = [
+        # =================================================================
+        # Definição dos parâmetros - Layout conforme modelo de referência
+        # =================================================================
+        
+        # Grupo: VE - Modo M (tabela única com todos os parâmetros)
+        # Conforme solicitado: COM Referência, SEM Interpretação
+        params_ve_modo_m = [
             {'chave': 'DIVEd', 'label': 'DIVEd (Diâmetro interno do VE em diástole)', 'unidade': 'mm', 'ref_min': 16.0, 'ref_max': 24.0},
-            {'chave': 'DIVEd_normalizado', 'label': 'DIVEd normalizado (DIVEd [cm] / peso^0,234)', 'unidade': '', 'ref_min': 1.27, 'ref_max': 1.85},
+            {'chave': 'DIVEd_normalizado', 'label': 'DIVEd normalizado (DIVEd / peso^0,294)', 'unidade': '', 'ref_min': 1.27, 'ref_max': 1.85},
             {'chave': 'SIVd', 'label': 'SIVd (Septo interventricular em diástole)', 'unidade': 'mm', 'ref_min': 3.5, 'ref_max': 5.5},
             {'chave': 'PLVEd', 'label': 'PLVEd (Parede livre do VE em diástole)', 'unidade': 'mm', 'ref_min': 3.5, 'ref_max': 5.5},
-        ]
-        
-        # Grupo: VE - Modo M (Sístole)
-        params_ve_sistole = [
-            {'chave': 'DIVES', 'label': 'DIVÉs (Diâmetro interno do VE em sístole)', 'unidade': 'mm', 'ref_min': 9.0, 'ref_max': 16.0},
+            {'chave': 'DIVES', 'label': 'DIVEs (Diâmetro interno do VE em sístole)', 'unidade': 'mm', 'ref_min': 9.0, 'ref_max': 16.0},
             {'chave': 'SIVs', 'label': 'SIVs (Septo interventricular em sístole)', 'unidade': 'mm', 'ref_min': 4.5, 'ref_max': 7.5},
-            {'chave': 'PLVES', 'label': 'PLVÉs (Parede livre do VE em sístole)', 'unidade': 'mm', 'ref_min': 5.0, 'ref_max': 8.0},
+            {'chave': 'PLVES', 'label': 'PLVEs (Parede livre do VE em sístole)', 'unidade': 'mm', 'ref_min': 5.0, 'ref_max': 8.0},
+            {'chave': 'VDF', 'label': 'VDF (Teicholz)', 'unidade': 'ml', 'ref_min': 0, 'ref_max': 0},
+            {'chave': 'VSF', 'label': 'VSF (Teicholz)', 'unidade': 'ml', 'ref_min': 0, 'ref_max': 0},
+            {'chave': 'FE_Teicholz', 'label': 'FE (Teicholz)', 'unidade': '%', 'ref_min': 55, 'ref_max': 80},
+            {'chave': 'DeltaD_FS', 'label': 'Delta D / %FS', 'unidade': '%', 'ref_min': 28, 'ref_max': 42},
+            {'chave': 'TAPSE', 'label': 'TAPSE (excursão sistólica do plano anular tricúspide)', 'unidade': 'mm', 'ref_min': 15, 'ref_max': 20},
+            {'chave': 'MAPSE', 'label': 'MAPSE (excursão sistólica do plano anular mitral)', 'unidade': 'mm', 'ref_min': 8, 'ref_max': 12},
         ]
         
-        # Grupo: Volumes e Função
-        params_volumes_funcao = [
-            {'chave': 'VDF', 'label': 'VDF (Volume diastólico final - Teicholz)', 'unidade': 'ml', 'ref_min': 0, 'ref_max': 0},
-            {'chave': 'VSF', 'label': 'VSF (Volume sistólico final - Teicholz)', 'unidade': 'ml', 'ref_min': 0, 'ref_max': 0},
-            {'chave': 'FE_Teicholz', 'label': 'FE (Fração de ejeção - Teicholz)', 'unidade': '%', 'ref_min': 55, 'ref_max': 80},
-            {'chave': 'DeltaD_FS', 'label': 'Delta D / %FS (Encurtamento)', 'unidade': '%', 'ref_min': 28, 'ref_max': 42},
-            {'chave': 'TAPSE', 'label': 'TAPSE (Excursão sistólica plano anular tricúspide)', 'unidade': 'mm', 'ref_min': 15, 'ref_max': 20},
-            {'chave': 'MAPSE', 'label': 'MAPSE (Excursão sistólica plano anular mitral)', 'unidade': 'mm', 'ref_min': 8, 'ref_max': 12},
-        ]
-        
-        # Grupo: Átrio Esquerdo / Aorta
+        # Grupo: Átrio Esquerdo / Aorta - SEM Interpretação
         params_ae_aorta = [
-            {'chave': 'Aorta', 'label': 'Aorta (Diâmetro aórtico)', 'unidade': 'mm', 'ref_min': 8.7, 'ref_max': 11.5},
-            {'chave': 'Atrio_esquerdo', 'label': 'Átrio Esquerdo', 'unidade': 'mm', 'ref_min': 7.7, 'ref_max': 12.0},
-            {'chave': 'AE_Ao', 'label': 'AE/Ao (Relação Átrio Esquerdo/Aorta)', 'unidade': '', 'ref_min': 0.83, 'ref_max': 1.17},
-            {'chave': 'Ao_nivel_AP', 'label': 'Ao (Aorta - nível AP)', 'unidade': 'mm', 'ref_min': 8.7, 'ref_max': 11.5},
+            {'chave': 'Aorta', 'label': 'Aorta', 'unidade': 'mm', 'ref_min': None, 'ref_max': None},
+            {'chave': 'Atrio_esquerdo', 'label': 'Átrio esquerdo', 'unidade': 'mm', 'ref_min': None, 'ref_max': None},
+            {'chave': 'AE_Ao', 'label': 'AE/Ao (Átrio esquerdo/Aorta)', 'unidade': '', 'ref_min': 0.80, 'ref_max': 1.60},
         ]
         
-        # Grupo: Artéria Pulmonar
-        params_ap = [
-            {'chave': 'AP', 'label': 'AP (Artéria pulmonar)', 'unidade': 'mm', 'ref_min': 7.0, 'ref_max': 10.0},
-            {'chave': 'AP_Ao', 'label': 'AP/Ao (Relação Artéria Pulmonar/Aorta)', 'unidade': '', 'ref_min': 0.70, 'ref_max': 1.10},
+        # Grupo: Artéria Pulmonar / Aorta - SEM Interpretação
+        params_ap_aorta = [
+            {'chave': 'AP', 'label': 'AP (Artéria pulmonar)', 'unidade': 'mm', 'ref_min': None, 'ref_max': None},
+            {'chave': 'Ao_nivel_AP', 'label': 'Ao (Aorta - nível AP)', 'unidade': 'mm', 'ref_min': None, 'ref_max': None},
+            {'chave': 'AP_Ao', 'label': 'AP/Ao (Artéria pulmonar/Aorta)', 'unidade': '', 'ref_min': None, 'ref_max': None},
         ]
         
-        # Grupo: Diastólica
-        params_diastolica = [
-            {'chave': 'Onda_E', 'label': "Onda E (Velocidade de preenchimento rápido)", 'unidade': 'm/s', 'ref_min': 0.50, 'ref_max': 0.90},
-            {'chave': 'Onda_A', 'label': "Onda A (Velocidade de preenchimento atrial)", 'unidade': 'm/s', 'ref_min': 0.30, 'ref_max': 0.60},
-            {'chave': 'E_A', 'label': 'E/A (Relação E/A)', 'unidade': '', 'ref_min': 1.0, 'ref_max': 2.5},
-            {'chave': 'TD', 'label': 'TD (Tempo de desaceleração)', 'unidade': 'ms', 'ref_min': 100, 'ref_max': 200},
-            {'chave': 'TRIV', 'label': 'TRIV (Tempo relaxamento isovolumétrico)', 'unidade': 'ms', 'ref_min': 40, 'ref_max': 90},
-            {'chave': 'MR_dp_dt', 'label': 'MR dp/dt (Derivada de pressão)', 'unidade': 'mmHg/s', 'ref_min': 0, 'ref_max': 0},
-            {'chave': 'e_doppler', 'label': "e' (Doppler tecidual - anel lateral)", 'unidade': 'm/s', 'ref_min': 0.08, 'ref_max': 0.16},
-            {'chave': 'a_doppler', 'label': "a' (Doppler tecidual - anel lateral)", 'unidade': 'm/s', 'ref_min': 0.04, 'ref_max': 0.10},
-            {'chave': 'doppler_tecidual_relacao', 'label': "e'/a' (Relação Doppler tecidual)", 'unidade': '', 'ref_min': 1.0, 'ref_max': 2.0},
-            {'chave': 'E_E_linha', 'label': "E/E' (Relação E/e')", 'unidade': '', 'ref_min': 0, 'ref_max': 12},
-        ]
-        
-        # Grupo: Regurgitações
-        params_regurgitacoes = [
-            {'chave': 'IM_Vmax', 'label': 'IM (Insuficiência mitral) Vmax', 'unidade': 'm/s', 'ref_min': 0, 'ref_max': 0},
-            {'chave': 'IT_Vmax', 'label': 'IT (Insuficiência tricúspide) Vmax', 'unidade': 'm/s', 'ref_min': 0, 'ref_max': 0},
-            {'chave': 'IA_Vmax', 'label': 'IA (Insuficiência aórtica) Vmax', 'unidade': 'm/s', 'ref_min': 0, 'ref_max': 0},
-            {'chave': 'IP_Vmax', 'label': 'IP (Insuficiência pulmonar) Vmax', 'unidade': 'm/s', 'ref_min': 0, 'ref_max': 0},
-        ]
-        
-        # Grupo: Doppler - Saídas
+        # Grupo: Doppler - Saídas - SEM Interpretação
         params_doppler_saidas = [
-            {'chave': 'Vmax_aorta', 'label': 'Vmax Aorta (Velocidade máxima aórtica)', 'unidade': 'm/s', 'ref_min': 0.80, 'ref_max': 1.40},
-            {'chave': 'Grad_aorta', 'label': 'Gradiente Aorta (Gradiente máximo)', 'unidade': 'mmHg', 'ref_min': 0, 'ref_max': 10},
-            {'chave': 'Vmax_pulmonar', 'label': 'Vmax Pulmonar (Velocidade máxima pulmonar)', 'unidade': 'm/s', 'ref_min': 0.60, 'ref_max': 1.00},
-            {'chave': 'Grad_pulmonar', 'label': 'Gradiente Pulmonar (Gradiente máximo)', 'unidade': 'mmHg', 'ref_min': 0, 'ref_max': 10},
+            {'chave': 'Vmax_aorta', 'label': 'Vmax aorta', 'unidade': 'm/s', 'ref_min': 0.00, 'ref_max': 2.20},
+            {'chave': 'Grad_aorta', 'label': 'Gradiente aorta', 'unidade': 'mmHg', 'ref_min': None, 'ref_max': None},
+            {'chave': 'Vmax_pulmonar', 'label': 'Vmax pulmonar', 'unidade': 'm/s', 'ref_min': 0.00, 'ref_max': 2.20},
+            {'chave': 'Grad_pulmonar', 'label': 'Gradiente pulmonar', 'unidade': 'mmHg', 'ref_min': None, 'ref_max': None},
         ]
         
-        # Adicionar tabelas na ordem do layout da interface
-        # Se houver refer?ncia da tabela, sobrescreve as faixas com os valores reais do banco.
+        # Grupo: Diastólica - SEM Interpretação
+        params_diastolica = [
+            {'chave': 'Onda_E', 'label': 'Onda E', 'unidade': 'm/s', 'ref_min': 0.50, 'ref_max': 1.09},
+            {'chave': 'Onda_A', 'label': 'Onda A', 'unidade': 'm/s', 'ref_min': 0.30, 'ref_max': 0.80},
+            {'chave': 'E_A', 'label': 'E/A (relação E/A)', 'unidade': '', 'ref_min': 1.00, 'ref_max': 2.00},
+            {'chave': 'TD', 'label': 'TD (tempo desaceleração)', 'unidade': 'ms', 'ref_min': 0.00, 'ref_max': 160.00},
+            {'chave': 'TRIV', 'label': 'TRIV (tempo relaxamento isovolumétrico)', 'unidade': 'ms', 'ref_min': None, 'ref_max': None},
+            {'chave': 'MR_dp_dt', 'label': 'MR dp/dt', 'unidade': 'mmHg/s', 'ref_min': None, 'ref_max': None},
+            {'chave': 'doppler_tecidual_relacao', 'label': "Doppler tecidual (Relação e'/a')", 'unidade': '', 'ref_min': None, 'ref_max': None},
+            {'chave': 'E_E_linha', 'label': "E/E'", 'unidade': '', 'ref_min': 0, 'ref_max': 12},
+        ]
+        
+        # Grupo: Regurgitações - SEM Interpretação
+        params_regurgitacoes = [
+            {'chave': 'IM_Vmax', 'label': 'IM (insuficiência mitral) Vmax', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
+            {'chave': 'IT_Vmax', 'label': 'IT (insuficiência tricúspide) Vmax', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
+            {'chave': 'IA_Vmax', 'label': 'IA (insuficiência aórtica) Vmax', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
+            {'chave': 'IP_Vmax', 'label': 'IP (insuficiência pulmonar) Vmax', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
+        ]
+        
+        # Aplicar referências do banco de dados se disponíveis
         referencia_eco = dados_pdf.get("referencia_eco")
-        params_ve_diastole = aplicar_referencia_eco(params_ve_diastole, referencia_eco)
-        params_ve_sistole = aplicar_referencia_eco(params_ve_sistole, referencia_eco)
-        params_volumes_funcao = aplicar_referencia_eco(params_volumes_funcao, referencia_eco)
+        params_ve_modo_m = aplicar_referencia_eco(params_ve_modo_m, referencia_eco)
         params_ae_aorta = aplicar_referencia_eco(params_ae_aorta, referencia_eco)
-        params_ap = aplicar_referencia_eco(params_ap, referencia_eco)
+        params_ap_aorta = aplicar_referencia_eco(params_ap_aorta, referencia_eco)
+        params_doppler_saidas = aplicar_referencia_eco(params_doppler_saidas, referencia_eco)
         params_diastolica = aplicar_referencia_eco(params_diastolica, referencia_eco)
         params_regurgitacoes = aplicar_referencia_eco(params_regurgitacoes, referencia_eco)
-        params_doppler_saidas = aplicar_referencia_eco(params_doppler_saidas, referencia_eco)
-
-        elements.append(criar_tabela_medidas("VE - MODO M (DIÁSTOLE)", params_ve_diastole, dados_pdf))
-        elements.append(Spacer(1, 3*mm))
-        elements.append(criar_tabela_medidas("VE - MODO M (SÍSTOLE)", params_ve_sistole, dados_pdf))
-        elements.append(Spacer(1, 3*mm))
-        elements.append(criar_tabela_medidas("VOLUMES E FUNÇÃO", params_volumes_funcao, dados_pdf))
-        elements.append(Spacer(1, 3*mm))
-        elements.append(criar_tabela_medidas("ÁTRIO ESQUERDO / AORTA", params_ae_aorta, dados_pdf))
-        elements.append(Spacer(1, 3*mm))
-        elements.append(criar_tabela_medidas("ARTÉRIA PULMONAR", params_ap, dados_pdf))
-        elements.append(Spacer(1, 3*mm))
-        elements.append(criar_tabela_medidas("DIASTÓLICA", params_diastolica, dados_pdf))
-        elements.append(Spacer(1, 3*mm))
-        elements.append(criar_tabela_medidas("REGURGITAÇÕES", params_regurgitacoes, dados_pdf))
-        elements.append(Spacer(1, 3*mm))
-        elements.append(criar_tabela_medidas("DOPPLER - SAÍDAS", params_doppler_saidas, dados_pdf))
         
-        # 3. Análise Qualitativa
+        # =================================================================
+        # Montar tabelas conforme modelo de referência
+        # =================================================================
+        
+        # VE - Modo M: COM Referência (diferença solicitada pelo usuário)
+        elements.append(criar_tabela_medidas("VE - Modo M", params_ve_modo_m, dados_pdf, 
+                                              mostrar_referencia=True, mostrar_interpretacao=False))
+        elements.append(Spacer(1, 3*mm))
+        
+        # Átrio Esquerdo / Aorta: COM Referência, SEM Interpretação
+        elements.append(criar_tabela_medidas("Átrio esquerdo/ Aorta", params_ae_aorta, dados_pdf,
+                                              mostrar_referencia=True, mostrar_interpretacao=False))
+        elements.append(Spacer(1, 3*mm))
+        
+        # Artéria Pulmonar / Aorta: COM Referência, SEM Interpretação
+        elements.append(criar_tabela_medidas("Artéria pulmonar/ Aorta", params_ap_aorta, dados_pdf,
+                                              mostrar_referencia=True, mostrar_interpretacao=False))
+        elements.append(Spacer(1, 3*mm))
+        
+        # Doppler - Saídas: COM Referência, SEM Interpretação
+        elements.append(criar_tabela_medidas("Doppler - Saídas", params_doppler_saidas, dados_pdf,
+                                              mostrar_referencia=True, mostrar_interpretacao=False))
+        elements.append(Spacer(1, 3*mm))
+        
+        # Diastólica: COM Referência, SEM Interpretação
+        elements.append(criar_tabela_medidas("Diastólica", params_diastolica, dados_pdf,
+                                              mostrar_referencia=True, mostrar_interpretacao=False))
+        elements.append(Spacer(1, 3*mm))
+        
+        # Regurgitações: COM Referência, SEM Interpretação
+        elements.append(criar_tabela_medidas("Regurgitações", params_regurgitacoes, dados_pdf,
+                                              mostrar_referencia=True, mostrar_interpretacao=False))
+        elements.append(Spacer(1, 3*mm))
+        
+        # 3. Análise Qualitativa e AD/VD
         qualitativa = dados_pdf.get('qualitativa', {})
-        if any(v.strip() for v in qualitativa.values()):
+        
+        # AD/VD (Subjetivo) - Seção de texto antes da análise qualitativa
+        ad_vd_texto = qualitativa.get('ad_vd', '').strip() if qualitativa else ''
+        if ad_vd_texto:
+            elements.extend(criar_secao_ad_vd(ad_vd_texto))
+            elements.append(Spacer(1, 3*mm))
+        
+        # Análise Qualitativa (sem AD/VD, que já foi mostrado)
+        if qualitativa and any(qualitativa.get(k, '').strip() for k in ['valvas', 'camaras', 'funcao', 'pericardio', 'vasos']):
             elements.extend(criar_secao_qualitativa(qualitativa))
         
         # 4. Conclusão
@@ -733,33 +900,32 @@ def gerar_pdf_laudo_eco(
         vet_crmv = crmv or dados_pdf.get('veterinario_crmv') or ""
         elements.extend(criar_secao_assinatura(vet_nome, vet_crmv, temp_assinatura_path))
         
-        # 6. Rodapé
-        elements.extend(criar_rodape(texto_rodape))
+        # 6. Espaço antes das imagens (rodapé será adicionado automaticamente em todas as páginas)
+        elements.append(Spacer(1, 5*mm))
         
-        # 7. Imagens (se houver)
+        # 7. Imagens (se houver) - Layout conforme modelo de referência
         imagens = dados_pdf.get('imagens', [])
         if imagens:
             elements.append(PageBreak())
-            elements.append(Paragraph("IMAGENS DO EXAME", create_pdf_styles()['SecaoTitulo']))
+            elements.append(Paragraph("IMAGENS", create_pdf_styles()['SecaoTitulo']))
             elements.append(Spacer(1, 5*mm))
             
-            # Layout 3x3 (9 imagens por página) - ocupa mais a página
-            # Tamanho de cada imagem maior para preencher melhor
-            IMG_WIDTH = 58*mm
-            IMG_HEIGHT = 45*mm
-            ESPACAMENTO = 4*mm  # Espaço entre imagens
+            # Layout 2x3 (6 imagens por página) - similar ao modelo de referência
+            IMG_WIDTH = 85*mm
+            IMG_HEIGHT = 70*mm
+            ESPACAMENTO = 3*mm
             
-            # Processar imagens em grupos de 9
-            for page_idx in range(0, len(imagens), 9):
+            # Processar imagens em grupos de 6
+            for page_idx in range(0, len(imagens), 6):
                 if page_idx > 0:
                     elements.append(PageBreak())
-                    elements.append(Paragraph("IMAGENS DO EXAME (continuação)", create_pdf_styles()['SecaoTitulo']))
+                    elements.append(Paragraph("IMAGENS", create_pdf_styles()['SecaoTitulo']))
                     elements.append(Spacer(1, 5*mm))
                 
-                # Pegar até 9 imagens para esta página
-                page_imagens = imagens[page_idx:page_idx + 9]
+                # Pegar até 6 imagens para esta página
+                page_imagens = imagens[page_idx:page_idx + 6]
                 
-                # Criar grid 3x3 (3 colunas, 3 linhas)
+                # Criar grid 2x3 (2 colunas, 3 linhas)
                 table_data = []
                 row = []
                 
@@ -782,24 +948,20 @@ def gerar_pdf_laudo_eco(
                             # Calcular proporção para caber no espaço
                             aspect = img_height / float(img_width) if img_width else 1
                             if aspect > (IMG_HEIGHT / IMG_WIDTH):
-                                # Altura limita
                                 draw_height = IMG_HEIGHT
                                 draw_width = IMG_HEIGHT / aspect if aspect else IMG_WIDTH
                             else:
-                                # Largura limita
                                 draw_width = IMG_WIDTH
                                 draw_height = IMG_WIDTH * aspect
                         except:
-                            # Se falhar ao obter dimensões, usar tamanho padrão
                             draw_width = IMG_WIDTH
                             draw_height = IMG_HEIGHT
                         
                         img = Image(temp_img.name, width=draw_width, height=draw_height)
-                        
                         row.append(img)
                         
-                        # Cada linha tem 3 imagens
-                        if len(row) == 3:
+                        # Cada linha tem 2 imagens
+                        if len(row) == 2:
                             table_data.append(row)
                             row = []
                     except Exception as e:
@@ -809,18 +971,13 @@ def gerar_pdf_laudo_eco(
                 
                 # Adicionar última linha se incompleta
                 if row:
-                    # Preencher células vazias para completar a linha
-                    while len(row) < 3:
+                    while len(row) < 2:
                         row.append("")
                     table_data.append(row)
                 
-                # Completar até 3 linhas se necessário para manter o grid
-                while len(table_data) < 3:
-                    table_data.append(["", "", ""])
-                
                 # Criar tabela com as imagens
                 if table_data:
-                    col_widths = [IMG_WIDTH, IMG_WIDTH, IMG_WIDTH]
+                    col_widths = [IMG_WIDTH + ESPACAMENTO, IMG_WIDTH + ESPACAMENTO]
                     
                     img_table = Table(table_data, colWidths=col_widths)
                     img_table.setStyle(TableStyle([
@@ -830,16 +987,17 @@ def gerar_pdf_laudo_eco(
                         ('RIGHTPADDING', (0, 0), (-1, -1), ESPACAMENTO),
                         ('TOPPADDING', (0, 0), (-1, -1), ESPACAMENTO),
                         ('BOTTOMPADDING', (0, 0), (-1, -1), ESPACAMENTO),
-                        # Grid completo com linhas cinzas
-                        ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
-                        # Cor de fundo branca para todas as células
-                        ('BACKGROUND', (0, 0), (-1, -1), colors.white),
                     ]))
                     elements.append(img_table)
-                    elements.append(Spacer(1, 5*mm))
+                    elements.append(Spacer(1, 3*mm))
         
-        # Gerar PDF
-        doc.build(elements)
+        # Gerar PDF com rodapé em todas as páginas
+        rodape_texto = texto_rodape or "Fort Cordis Cardiologia Veterinária | Fortaleza-CE"
+        
+        def add_footer(canvas_obj, doc):
+            footer_todas_paginas(canvas_obj, doc, rodape_texto)
+        
+        doc.build(elements, onFirstPage=add_footer, onLaterPages=add_footer)
         buffer.seek(0)
         return buffer.getvalue()
         
