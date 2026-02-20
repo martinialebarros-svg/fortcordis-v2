@@ -19,14 +19,18 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.utils import ImageReader
 
 
-# Cores do tema
-COR_PRIMARIA = colors.HexColor('#1e40af')  # Azul escuro
-COR_SECUNDARIA = colors.HexColor('#3b82f6')  # Azul médio
-COR_CINZA_ESCURO = colors.HexColor('#374151')
+# Cores do tema - preto e cinza com fontes brancas (teste)
+COR_PRIMARIA = colors.HexColor('#000000')   # Preto - títulos de seção
+COR_SECUNDARIA = colors.HexColor('#374151') # Cinza escuro
+COR_CINZA_ESCURO = colors.HexColor('#374151')   # Cinza escuro
 COR_CINZA_MEDIO = colors.HexColor('#6b7280')
-COR_CINZA_CLARO = colors.HexColor('#f3f4f6')
+COR_CINZA_CLARO = colors.HexColor('#e5e7eb')    # Cinza claro para linhas alternadas
+COR_HEADER_BG = colors.HexColor('#4b5563')      # Cinza médio - cabeçalhos de coluna (texto branco)
 COR_BRANCO = colors.white
 COR_PRETO = colors.black
+
+# Largura do conteúdo (igual à soma das colunas das tabelas de dados)
+LARGURA_TABELAS = 180 * mm
 
 
 # Campos de comprimento que devem ser exibidos/comparados em mm.
@@ -170,7 +174,7 @@ def create_pdf_styles():
         'TituloPrincipal',
         parent=styles['Heading1'],
         fontSize=16,
-        textColor=COR_PRIMARIA,
+        textColor=COR_PRETO,
         spaceAfter=6,
         alignment=1,  # Center
         fontName='Helvetica-Bold'
@@ -180,7 +184,7 @@ def create_pdf_styles():
         'Subtitulo',
         parent=styles['Heading2'],
         fontSize=12,
-        textColor=COR_CINZA_ESCURO,
+        textColor=COR_PRETO,
         spaceAfter=12,
         fontName='Helvetica-Bold'
     ))
@@ -204,12 +208,31 @@ def create_pdf_styles():
     styles.add(ParagraphStyle(
         'SecaoTitulo',
         parent=styles['Heading3'],
-        fontSize=11,
+        fontSize=13,
         textColor=COR_BRANCO,
         backColor=COR_PRIMARIA,
         spaceAfter=6,
         spaceBefore=12,
-        leftIndent=6,
+        leftIndent=0,
+        rightIndent=0,
+        fontName='Helvetica-Bold'
+    ))
+    
+    # Estilo para títulos de tabela (texto branco em fundo preto)
+    styles.add(ParagraphStyle(
+        'TabelaTitulo',
+        parent=styles['Normal'],
+        fontSize=10,
+        textColor=COR_BRANCO,
+        fontName='Helvetica-Bold'
+    ))
+    
+    # Estilo para cabeçalhos de coluna (texto branco em fundo cinza)
+    styles.add(ParagraphStyle(
+        'TabelaHeader',
+        parent=styles['Normal'],
+        fontSize=9,
+        textColor=COR_BRANCO,
         fontName='Helvetica-Bold'
     ))
     
@@ -251,6 +274,23 @@ def create_pdf_styles():
     return styles
 
 
+def criar_titulo_secao(texto: str) -> Table:
+    """Cria o título de seção (ANÁLISE QUANTITATIVA, etc.) como tabela de uma célula
+    com a mesma largura das tabelas de dados, para alinhar a linha e o bloco."""
+    styles = create_pdf_styles()
+    data = [[Paragraph(texto, styles['SecaoTitulo'])]]
+    table = Table(data, colWidths=[LARGURA_TABELAS])
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), COR_PRIMARIA),
+        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+    ]))
+    return table
+
+
 def criar_cabecalho(dados: Dict[str, Any], temp_logo_path: str = None) -> List:
     """Cria o cabeçalho do laudo com dados do paciente - formato do modelo de referência"""
     elements = []
@@ -259,12 +299,30 @@ def criar_cabecalho(dados: Dict[str, Any], temp_logo_path: str = None) -> List:
     # Se tem logomarca, cria layout com imagem à esquerda + título centralizado
     if temp_logo_path and os.path.exists(temp_logo_path):
         try:
-            logo = Image(temp_logo_path, width=35*mm, height=20*mm)
+            # Calcular dimensões preservando aspect ratio
+            MAX_LOGO_WIDTH = 35*mm
+            MAX_LOGO_HEIGHT = 20*mm
+            
+            img_reader = ImageReader(temp_logo_path)
+            img_width, img_height = img_reader.getSize()
+            aspect = img_height / float(img_width) if img_width else 1
+            
+            # Ajustar para caber no espaço máximo mantendo proporção
+            if aspect > (MAX_LOGO_HEIGHT / MAX_LOGO_WIDTH):
+                # Altura é o fator limitante
+                draw_height = MAX_LOGO_HEIGHT
+                draw_width = MAX_LOGO_HEIGHT / aspect
+            else:
+                # Largura é o fator limitante
+                draw_width = MAX_LOGO_WIDTH
+                draw_height = MAX_LOGO_WIDTH * aspect
+            
+            logo = Image(temp_logo_path, width=draw_width, height=draw_height)
             logo.hAlign = 'LEFT'
             
             titulo = Paragraph("<b>LAUDO ECOCARDIOGRÁFICO</b>", styles['TituloPrincipal'])
             
-            # Tabela: [logo] [título]
+            # Tabela: [logo] [título] - título sem fundo, texto preto centralizado
             header_data = [[logo, titulo]]
             header_table = Table(header_data, colWidths=[40*mm, 140*mm])
             header_table.setStyle(TableStyle([
@@ -364,12 +422,12 @@ def criar_tabela_medidas(titulo: str, parametros: List[Dict], dados: Dict[str, A
     else:  # 4 colunas
         col_widths = [80*mm, 35*mm, 35*mm, 30*mm]
     
-    # Cabeçalho da tabela (título da seção)
-    header_cells = [Paragraph(f"<b>{titulo}</b>", styles['Normal'])] + [''] * (num_colunas - 1)
+    # Cabeçalho da tabela (título da seção) - texto branco em fundo azul
+    header_cells = [Paragraph(f"<b>{titulo}</b>", styles['TabelaTitulo'])] + [''] * (num_colunas - 1)
     data = [header_cells]
     
-    # Sub-cabeçalho com nomes das colunas
-    subheader_cells = [Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]
+    # Sub-cabeçalho com nomes das colunas - texto escuro em fundo claro
+    subheader_cells = [Paragraph(f"<b>{col}</b>", styles['TabelaHeader']) for col in colunas]
     data.append(subheader_cells)
     
     # Dados
@@ -425,9 +483,9 @@ def criar_tabela_medidas(titulo: str, parametros: List[Dict], dados: Dict[str, A
         ('ALIGN', (0, 0), (-1, 0), 'LEFT'),
         ('LEFTPADDING', (0, 0), (-1, 0), 6),
         
-        # Cabeçalho das colunas (fundo cinza claro)
-        ('BACKGROUND', (0, 1), (-1, 1), COR_CINZA_CLARO),
-        ('TEXTCOLOR', (0, 1), (-1, 1), COR_CINZA_ESCURO),
+        # Cabeçalho das colunas (fundo cinza, texto branco)
+        ('BACKGROUND', (0, 1), (-1, 1), COR_HEADER_BG),
+        ('TEXTCOLOR', (0, 1), (-1, 1), COR_BRANCO),
         ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 1), (-1, 1), 9),
         ('ALIGN', (1, 1), (-1, 1), 'CENTER'),
@@ -464,12 +522,12 @@ def criar_tabela_medidas_com_interpretacao(titulo: str, parametros: List[Dict], 
     colunas = ["Parâmetro", "Valor", "Referência", "Interpretação"]
     col_widths = [80*mm, 30*mm, 35*mm, 35*mm]
     
-    # Cabeçalho da tabela
-    header_cells = [Paragraph(f"<b>{titulo}</b>", styles['Normal'])] + [''] * 3
+    # Cabeçalho da tabela - texto branco em fundo azul
+    header_cells = [Paragraph(f"<b>{titulo}</b>", styles['TabelaTitulo'])] + [''] * 3
     data = [header_cells]
     
-    # Sub-cabeçalho
-    subheader_cells = [Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]
+    # Sub-cabeçalho - texto escuro em fundo claro
+    subheader_cells = [Paragraph(f"<b>{col}</b>", styles['TabelaHeader']) for col in colunas]
     data.append(subheader_cells)
     
     # Dados
@@ -517,8 +575,8 @@ def criar_tabela_medidas_com_interpretacao(titulo: str, parametros: List[Dict], 
         ('ALIGN', (0, 0), (-1, 0), 'LEFT'),
         ('LEFTPADDING', (0, 0), (-1, 0), 6),
         
-        ('BACKGROUND', (0, 1), (-1, 1), COR_CINZA_CLARO),
-        ('TEXTCOLOR', (0, 1), (-1, 1), COR_CINZA_ESCURO),
+        ('BACKGROUND', (0, 1), (-1, 1), COR_HEADER_BG),
+        ('TEXTCOLOR', (0, 1), (-1, 1), COR_BRANCO),
         ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 1), (-1, 1), 9),
         ('ALIGN', (1, 1), (-1, 1), 'CENTER'),
@@ -548,14 +606,11 @@ def criar_secao_ad_vd(texto: str) -> List:
     if not texto or not texto.strip():
         return elements
     
-    # Título da seção
-    titulo_data = [[Paragraph("<b>AD/VD (Subjetivo)</b>", styles['Normal'])]]
+    # Título da seção - texto branco em fundo azul
+    titulo_data = [[Paragraph("<b>AD/VD (Subjetivo)</b>", styles['TabelaTitulo'])]]
     titulo_table = Table(titulo_data, colWidths=[180*mm])
     titulo_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), COR_PRIMARIA),
-        ('TEXTCOLOR', (0, 0), (-1, 0), COR_BRANCO),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 10),
         ('LEFTPADDING', (0, 0), (-1, 0), 6),
         ('TOPPADDING', (0, 0), (-1, 0), 4),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
@@ -589,7 +644,7 @@ def criar_secao_qualitativa(qualitativa: Dict[str, str]) -> List:
     
     # Título da seção
     elements.append(Spacer(1, 4*mm))
-    elements.append(Paragraph("ANÁLISE QUALITATIVA", styles['SecaoTitulo']))
+    elements.append(criar_titulo_secao("ANÁLISE QUALITATIVA"))
     elements.append(Spacer(1, 2*mm))
     
     # Campos conforme modelo de referência (sem AD/VD, que é mostrado separadamente)
@@ -620,7 +675,7 @@ def criar_secao_conclusao(conclusao: str) -> List:
         return elements
     
     elements.append(Spacer(1, 4*mm))
-    elements.append(Paragraph("CONCLUSÃO", styles['SecaoTitulo']))
+    elements.append(criar_titulo_secao("CONCLUSÃO"))
     elements.append(Spacer(1, 2*mm))
     
     # Divide a conclusão em parágrafos
@@ -651,8 +706,25 @@ def criar_secao_assinatura(nome_veterinario: str, crmv: str = "", temp_assinatur
     # Se tem assinatura em imagem
     if temp_assinatura_path and os.path.exists(temp_assinatura_path):
         try:
-            # Adicionar imagem da assinatura
-            ass_img = Image(temp_assinatura_path, width=50*mm, height=20*mm)
+            # Calcular dimensões preservando aspect ratio
+            MAX_ASS_WIDTH = 50*mm
+            MAX_ASS_HEIGHT = 25*mm
+            
+            img_reader = ImageReader(temp_assinatura_path)
+            img_width, img_height = img_reader.getSize()
+            aspect = img_height / float(img_width) if img_width else 1
+            
+            # Ajustar para caber no espaço máximo mantendo proporção
+            if aspect > (MAX_ASS_HEIGHT / MAX_ASS_WIDTH):
+                # Altura é o fator limitante
+                draw_height = MAX_ASS_HEIGHT
+                draw_width = MAX_ASS_HEIGHT / aspect
+            else:
+                # Largura é o fator limitante
+                draw_width = MAX_ASS_WIDTH
+                draw_height = MAX_ASS_WIDTH * aspect
+            
+            ass_img = Image(temp_assinatura_path, width=draw_width, height=draw_height)
             ass_img.hAlign = 'LEFT'
             elements.append(ass_img)
         except Exception as e:
@@ -767,8 +839,8 @@ def gerar_pdf_laudo_eco(
         dados_pdf["medidas"] = normalizar_medidas_para_pdf(dados.get("medidas", {}))
         elements.extend(criar_cabecalho(dados_pdf, temp_logo_path))
         
-        # 2. Análise Quantitativa
-        elements.append(Paragraph("ANÁLISE QUANTITATIVA", create_pdf_styles()['SecaoTitulo']))
+        # 2. Análise Quantitativa (título com mesma largura das tabelas)
+        elements.append(criar_titulo_secao("ANÁLISE QUANTITATIVA"))
         elements.append(Spacer(1, 2*mm))
         
         # =================================================================
@@ -907,7 +979,7 @@ def gerar_pdf_laudo_eco(
         imagens = dados_pdf.get('imagens', [])
         if imagens:
             elements.append(PageBreak())
-            elements.append(Paragraph("IMAGENS", create_pdf_styles()['SecaoTitulo']))
+            elements.append(criar_titulo_secao("IMAGENS"))
             elements.append(Spacer(1, 5*mm))
             
             # Layout 2x3 (6 imagens por página) - similar ao modelo de referência
@@ -919,7 +991,7 @@ def gerar_pdf_laudo_eco(
             for page_idx in range(0, len(imagens), 6):
                 if page_idx > 0:
                     elements.append(PageBreak())
-                    elements.append(Paragraph("IMAGENS", create_pdf_styles()['SecaoTitulo']))
+                    elements.append(criar_titulo_secao("IMAGENS"))
                     elements.append(Spacer(1, 5*mm))
                 
                 # Pegar até 6 imagens para esta página
