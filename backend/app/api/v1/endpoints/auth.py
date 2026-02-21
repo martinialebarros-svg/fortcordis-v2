@@ -17,9 +17,11 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 def verify_password(plain_password, hashed_password):
-    """Verifica senha - suporta bcrypt ou plain text (legado)"""
+    """Verifica senha - suporta bcrypt ou plain text (legado).
+    Trunca a senha em 72 bytes antes de chamar bcrypt para evitar ValueError."""
     if hashed_password.startswith('$2'):
-        return pwd_context.verify(plain_password, hashed_password)
+        truncated = plain_password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
+        return pwd_context.verify(truncated, hashed_password)
     else:
         return plain_password == hashed_password
 

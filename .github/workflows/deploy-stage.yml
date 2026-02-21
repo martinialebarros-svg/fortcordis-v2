@@ -1,0 +1,51 @@
+name: Deploy to Stage (VPS)
+
+on:
+  push:
+    branches:
+      - stage
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup SSH
+      uses: webfactory/ssh-agent@v0.8.0
+      with:
+        ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+    - name: Add VPS to known hosts
+      run: |
+        mkdir -p ~/.ssh
+        ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+    - name: Deploy to VPS (stage)
+      run: |
+        ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+          set -e
+          cd /var/www/fortcordis-stage
+
+          echo "Atualizando codigo (branch stage)..."
+          git fetch origin stage
+          git reset --hard origin/stage
+
+          echo "Deploy Backend..."
+          cd backend
+          source venv/bin/activate || (python3 -m venv venv && source venv/bin/activate)
+          pip install -r requirements.txt -q
+          sudo systemctl restart fortcordis-stage-backend
+          cd ..
+
+          echo "Deploy Frontend..."
+          cd frontend
+          npm ci --prefer-offline
+          npm run build
+          sudo systemctl restart fortcordis-stage-frontend
+          cd ..
+
+          echo "Deploy stage concluido!"
+        EOF
