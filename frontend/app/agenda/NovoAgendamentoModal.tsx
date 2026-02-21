@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, User, Building, Calendar, Clock } from "lucide-react";
+import { X, User, Building, Calendar, Clock, Phone } from "lucide-react";
 import axios from "axios";
 
 interface NovoAgendamentoModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  agendamento?: any; // Agendamento sendo editado (opcional)
+  agendamento?: any;
 }
 
 export default function NovoAgendamentoModal({ 
@@ -21,6 +21,7 @@ export default function NovoAgendamentoModal({
   const [pacientes, setPacientes] = useState<any[]>([]);
   const [clinicas, setClinicas] = useState<any[]>([]);
   const [servicos, setServicos] = useState<any[]>([]);
+  const [tutorSelecionado, setTutorSelecionado] = useState<string>("");
   
   const [formData, setFormData] = useState({
     paciente_id: "",
@@ -35,11 +36,10 @@ export default function NovoAgendamentoModal({
 
   // Preencher formulário quando estiver editando
   useEffect(() => {
-    console.log("Modal recebeu agendamento:", agendamento);
     if (isEditando && agendamento) {
       const inicio = new Date(agendamento.inicio);
-      const data = inicio.toISOString().split('T')[0]; // YYYY-MM-DD
-      const hora = inicio.toTimeString().slice(0, 5); // HH:MM
+      const data = inicio.toISOString().split('T')[0];
+      const hora = inicio.toTimeString().slice(0, 5);
       
       setFormData({
         paciente_id: agendamento.paciente_id?.toString() || "",
@@ -49,8 +49,15 @@ export default function NovoAgendamentoModal({
         hora: hora,
         observacoes: agendamento.observacoes || "",
       });
+      
+      // Buscar tutor do paciente selecionado
+      if (agendamento.paciente_id) {
+        const paciente = pacientes.find(p => p.id === agendamento.paciente_id);
+        if (paciente?.tutor) {
+          setTutorSelecionado(paciente.tutor);
+        }
+      }
     } else {
-      // Reset quando for novo
       setFormData({
         paciente_id: "",
         clinica_id: "",
@@ -59,12 +66,12 @@ export default function NovoAgendamentoModal({
         hora: "",
         observacoes: "",
       });
+      setTutorSelecionado("");
     }
-  }, [agendamento, isEditando, isOpen]);
+  }, [agendamento, isEditando, isOpen, pacientes]);
 
   // Carregar dados dos selects
   useEffect(() => {
-    console.log("Modal recebeu agendamento:", agendamento);
     if (isOpen) {
       carregarDados();
     }
@@ -73,10 +80,8 @@ export default function NovoAgendamentoModal({
   const carregarDados = async () => {
     try {
       const token = localStorage.getItem("token");
-      // Tentar carregar pacientes, clinicas e servicos
-      // Se der 404, usamos arrays vazios
       try {
-        const resPacientes = await axios.get("/api/v1/pacientes", {
+        const resPacientes = await axios.get("/api/v1/pacientes/", {
           headers: { Authorization: `Bearer ${token}` },
         });
         setPacientes(resPacientes.data.items || []);
@@ -85,7 +90,7 @@ export default function NovoAgendamentoModal({
       }
       
       try {
-        const resClinicas = await axios.get("/api/v1/clinicas", {
+        const resClinicas = await axios.get("/api/v1/clinicas/", {
           headers: { Authorization: `Bearer ${token}` },
         });
         setClinicas(resClinicas.data.items || []);
@@ -94,7 +99,7 @@ export default function NovoAgendamentoModal({
       }
 
       try {
-        const resServicos = await axios.get("/api/v1/servicos", {
+        const resServicos = await axios.get("/api/v1/servicos/", {
           headers: { Authorization: `Bearer ${token}` },
         });
         setServicos(resServicos.data.items || []);
@@ -104,6 +109,14 @@ export default function NovoAgendamentoModal({
     } catch (error) {
       console.error("Erro ao carregar dados:", error);
     }
+  };
+
+  const handlePacienteChange = (pacienteId: string) => {
+    setFormData({...formData, paciente_id: pacienteId});
+    
+    // Buscar tutor do paciente selecionado
+    const paciente = pacientes.find(p => p.id.toString() === pacienteId);
+    setTutorSelecionado(paciente?.tutor || "");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -125,20 +138,17 @@ export default function NovoAgendamentoModal({
       };
 
       if (isEditando) {
-        // PUT para editar
         await axios.put(`/api/v1/agenda/${agendamento.id}`, payload, {
           headers: { Authorization: `Bearer ${token}` },
         });
       } else {
-        // POST para criar
-        await axios.post("/api/v1/agenda/", payload, {
+        await axios.post("/api/v1/agenda", payload, {
           headers: { Authorization: `Bearer ${token}` },
         });
       }
 
       onSuccess();
       onClose();
-      // Reset form
       setFormData({
         paciente_id: "",
         clinica_id: "",
@@ -147,6 +157,7 @@ export default function NovoAgendamentoModal({
         hora: "",
         observacoes: "",
       });
+      setTutorSelecionado("");
     } catch (error: any) {
       alert(`Erro ao ${isEditando ? 'editar' : 'criar'} agendamento: ` + (error.response?.data?.detail || error.message));
     } finally {
@@ -179,15 +190,24 @@ export default function NovoAgendamentoModal({
               required
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               value={formData.paciente_id}
-              onChange={(e) => setFormData({...formData, paciente_id: e.target.value})}
+              onChange={(e) => handlePacienteChange(e.target.value)}
             >
               <option value="">Selecione...</option>
               {pacientes.map((p) => (
                 <option key={p.id} value={p.id.toString()}>
-                  {p.nome} {p.tutor ? `(${p.tutor})` : ""}
+                  {p.nome}
                 </option>
               ))}
             </select>
+            
+            {/* Exibir Tutor quando paciente é selecionado */}
+            {tutorSelecionado && (
+              <div className="mt-2 flex items-center gap-2 text-sm text-gray-600 bg-blue-50 p-2 rounded-lg">
+                <User className="w-4 h-4 text-blue-500" />
+                <span className="font-medium">Tutor:</span>
+                <span>{tutorSelecionado}</span>
+              </div>
+            )}
           </div>
 
           {/* Clínica */}

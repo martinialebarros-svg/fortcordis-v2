@@ -16,14 +16,14 @@ router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
-def verify_password(plain_password, hashed_password):
-    """Verifica senha - suporta bcrypt ou plain text (legado).
-    Trunca a senha em 72 bytes antes de chamar bcrypt para evitar ValueError."""
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verifica senha - suporta bcrypt ou plain text (legado). Bcrypt limita a 72 bytes."""
     if hashed_password.startswith('$2'):
-        truncated = plain_password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
-        return pwd_context.verify(truncated, hashed_password)
-    else:
-        return plain_password == hashed_password
+        # bcrypt não aceita senha > 72 bytes; trunca para evitar ValueError
+        pwd_bytes = plain_password.encode("utf-8")[:72]
+        plain_truncated = pwd_bytes.decode("utf-8", errors="ignore")
+        return pwd_context.verify(plain_truncated, hashed_password)
+    return plain_password == hashed_password
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()

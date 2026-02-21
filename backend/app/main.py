@@ -2,7 +2,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api.v1.endpoints import auth, admin, agenda, pacientes, clinicas, servicos
+from app.api.v1.endpoints import auth, admin, agenda, pacientes, clinicas, servicos, laudos, financeiro, xml_import, frases, imagens, tabelas_preco, ordens_servico, configuracoes, tutores, referencias_eco
 from app.models import user, papel, agendamento
 from app.core.websocket import manager
 from app.db.database import SessionLocal
@@ -21,6 +21,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
 # Rotas REST
@@ -30,6 +31,16 @@ app.include_router(agenda.router, prefix="/api/v1/agenda", tags=["agenda"])
 app.include_router(pacientes.router, prefix="/api/v1/pacientes", tags=["pacientes"])
 app.include_router(clinicas.router, prefix="/api/v1/clinicas", tags=["clinicas"])
 app.include_router(servicos.router, prefix="/api/v1/servicos", tags=["servicos"])
+app.include_router(laudos.router, prefix="/api/v1", tags=["laudos"])
+app.include_router(financeiro.router, prefix="/api/v1/financeiro", tags=["financeiro"])
+app.include_router(xml_import.router, prefix="/api/v1/xml", tags=["xml_import"])
+app.include_router(frases.router, prefix="/api/v1/frases", tags=["frases"])
+app.include_router(imagens.router, prefix="/api/v1/imagens", tags=["imagens"])
+app.include_router(tabelas_preco.router, prefix="/api/v1/tabelas-preco", tags=["tabelas_preco"])
+app.include_router(ordens_servico.router, prefix="/api/v1/ordens-servico", tags=["ordens_servico"])
+app.include_router(configuracoes.router, prefix="/api/v1", tags=["configuracoes"])
+app.include_router(tutores.router, prefix="/api/v1/tutores", tags=["tutores"])
+app.include_router(referencias_eco.router, prefix="/api/v1/referencias-eco", tags=["referencias_eco"])
 
 # WebSocket endpoint
 @app.websocket("/ws/{client_id}")

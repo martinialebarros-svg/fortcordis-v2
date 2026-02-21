@@ -58,16 +58,16 @@ class AgendamentoResponse(BaseModel):
     fim: Optional[str] = None  # Retorna como string
     status: str
     observacoes: Optional[str] = None
-    data: Optional[str]
-    hora: Optional[str]
-    paciente: Optional[str]
-    tutor: Optional[str]
-    telefone: Optional[str]
-    servico: Optional[str]
-    clinica: Optional[str]
-    criado_por_nome: Optional[str]
-    confirmado_por_nome: Optional[str]
-    created_at: Optional[str]  # Retorna como string
+    data: Optional[str] = None
+    hora: Optional[str] = None
+    paciente: Optional[str] = None
+    tutor: Optional[str] = None
+    telefone: Optional[str] = None
+    servico: Optional[str] = None
+    clinica: Optional[str] = None
+    criado_por_nome: Optional[str] = None
+    confirmado_por_nome: Optional[str] = None
+    created_at: Optional[str] = None  # Retorna como string
 
     class Config:
         from_attributes = True
