@@ -1,4 +1,7 @@
-"""Parser XML para exames de ecocardiograma (Vivid IQ e compatíveis)"""
+"""
+Parser XML melhorado para exames de ecocardiograma.
+Adiciona mais flexibilidade na busca de parâmetros e melhor logging.
+"""
 import re
 from typing import Dict, Any, Optional
 from bs4 import BeautifulSoup
@@ -26,7 +29,6 @@ def _parse_data_iso(data_str: str) -> str:
         ano, mes, dia = match.groups()
         return f"{ano}-{int(mes):02d}-{int(dia):02d}"
     
-    # Se não conseguiu converter, retorna a string original
     return data_str
 
 def _parse_num(texto: str) -> Optional[float]:
@@ -119,8 +121,7 @@ def buscar_parametro_por_name(soup, possible_names: list, tipo_valor: str = "ave
                 if unit_node:
                     unit = (unit_node.get_text() or "").strip().lower()
 
-                # Verificar se é medida de comprimento (não converter volumes, velocidades, tempos etc.)
-                # Inclui detecção por tokens para casos como "LA" e "AE" isolados.
+                # Verificar se é medida de comprimento
                 is_comprimento = any(termo in name_l for termo in [
                     "div", "siv", "plv", "lvid", "lvpw", "ivs", "ao",
                     "ap", "tapse", "mapse", "root", "diam", "atri"
@@ -137,25 +138,74 @@ def buscar_parametro_por_name(soup, possible_names: list, tipo_valor: str = "ave
 
     return None
 
+def buscar_parametro_flexivel(soup, nomes_possiveis: list, debug: bool = False) -> Optional[float]:
+    """
+    Busca um parâmetro de forma flexível, tentando várias variações de nome.
+    Também busca em tags <measurement> e <value> alternativos.
+    """
+    # Primeiro tenta a busca padrão
+    val = buscar_parametro_por_name(soup, nomes_possiveis)
+    if val is not None:
+        return val
+    
+    # Se não encontrou, tenta buscar por padrões no texto
+    for p in soup.find_all("parameter"):
+        name_attr = p.get("NAME") or p.get("Name") or p.get("name") or ""
+        name_l = str(name_attr).strip().lower()
+        
+        # Verifica se algum dos nomes possíveis está contido no nome do parâmetro
+        for nome_busca in nomes_possiveis:
+            nome_busca_l = nome_busca.lower()
+            # Remove prefixos comuns para comparar
+            nome_limpo = re.sub(r'^(2d/|mm/|mm_|2d_)', '', nome_busca_l)
+            if nome_limpo in name_l or name_l in nome_busca_l:
+                node_val = p.find("aver") or p.find("val") or p.find("value")
+                txt = (node_val.get_text() if node_val else p.get_text() or "").strip()
+                val = _parse_num(txt)
+                if val is not None:
+                    if debug:
+                        print(f"[XML_PARSER] Encontrado '{name_attr}' = {val}")
+                    return val
+    
+    return None
+
 def debug_listar_parametros(soup):
     """Lista todos os parâmetros encontrados no XML para debug."""
     print("[XML_PARSER DEBUG] === TODOS OS PARÂMETROS ENCONTRADOS ===")
     count = 0
+    parametros_modo_m = []
+    
     for p in soup.find_all("parameter"):
         name_attr = p.get("NAME") or p.get("Name") or p.get("name") or ""
         node_val = p.find("aver") or p.find("val") or p.find("value")
         txt = (node_val.get_text() if node_val else p.get_text() or "").strip()
         unit_node = p.find("unit")
-        unit = (unit_node.get_text() or "").strip() if unit_node else ""
+        unit = (unit_node.get_text() if unit_node else "").strip()
+        
         if name_attr:
             print(f"  NAME='{name_attr}' VALUE='{txt}' UNIT='{unit}'")
             count += 1
-    print(f"[XML_PARSER DEBUG] === FIM DOS PARÂMETROS ({count} encontrados) ===")
+            
+            # Coletar parâmetros do modo M
+            name_l = name_attr.lower()
+            if any(x in name_l for x in ['ivsd', 'lvidd', 'lvpwd', 'ivss', 'lvids', 'lvpws', 'mm/', 'mm_']):
+                parametros_modo_m.append({
+                    'name': name_attr,
+                    'value': txt,
+                    'unit': unit
+                })
+    
+    print(f"\n[XML_PARSER DEBUG] === PARÂMETROS DO MODO M ({len(parametros_modo_m)} encontrados) ===")
+    for p in parametros_modo_m:
+        print(f"  {p['name']}: {p['value']} {p['unit']}")
+    
+    print(f"\n[XML_PARSER DEBUG] === FIM DOS PARÂMETROS ({count} total) ===")
 
 
 def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     """
     Parse XML de ecocardiograma e retorna dados estruturados.
+    Versão melhorada com mais flexibilidade na busca de parâmetros.
     """
     try:
         soup = BeautifulSoup(xml_content, 'xml')
@@ -279,158 +329,182 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     
     # --- Medidas 2D ---
     # Ao Root Diam -> Aorta
-    val = buscar_parametro_por_name(soup, ["2D/Ao Root Diam", "Ao Root Diam", "Ao Root", "AO ROOT"])
+    val = buscar_parametro_flexivel(soup, ["2D/Ao Root Diam", "Ao Root Diam", "Ao Root", "AO ROOT", "Ao"])
     if val: medidas["Aorta"] = val
     
     # Ao (nível AP) - mesma medida mas pode ter nome diferente
-    val = buscar_parametro_por_name(soup, ["Ao", "Aorta", "AO"])
+    val = buscar_parametro_flexivel(soup, ["Ao", "Aorta", "AO"])
     if val: medidas["Ao_nivel_AP"] = val
     
     # LA (Left Atrium / AE) -> Átrio esquerdo
-    val = buscar_parametro_por_name(soup, ["2D/LA", "LA", "Left Atrium", "D. AE", "AE", "Atrium"])
+    val = buscar_parametro_flexivel(soup, ["2D/LA", "LA", "Left Atrium", "D. AE", "AE", "Atrium"])
     if val:
         # Fallback defensivo para XMLs onde LA/AE vem em cm e não foi detectado pela regra geral.
         medidas["Atrio_esquerdo"] = val * 10 if 0 < val < 5 else val
     
     # LA/Ao Ratio -> AE/Ao
-    val = buscar_parametro_por_name(soup, ["2D/LA/Ao", "LA/Ao", "LA/AO", "AE/Ao", "AE/AO"])
+    val = buscar_parametro_flexivel(soup, ["2D/LA/Ao", "LA/Ao", "LA/AO", "AE/Ao", "AE/AO"])
     if val: medidas["AE_Ao"] = val
     
     # AP (Artéria pulmonar)
-    val = buscar_parametro_por_name(soup, ["PA", "Pulmonary Artery", "Artéria Pulmonar", "AP"])
+    val = buscar_parametro_flexivel(soup, ["PA", "Pulmonary Artery", "Artéria Pulmonar", "AP"])
     if val: medidas["AP"] = val
     
     # AP/Ao
-    val = buscar_parametro_por_name(soup, ["PA/Ao", "AP/Ao", "Pulmonary Artery/Aorta"])
+    val = buscar_parametro_flexivel(soup, ["PA/Ao", "AP/Ao", "Pulmonary Artery/Aorta"])
     if val: medidas["AP_Ao"] = val
     
     # --- Medidas M-Mode (MM) e 2D ---
-    # Nota: Alguns aparelhos usam prefixo "MM/", outros usam "2D/"
+    # VERSÃO MELHORADA: Mais variações de nomes para capturar modo M
     
-    # IVSd -> SIVd
-    val = buscar_parametro_por_name(soup, ["2D/IVSd", "MM/IVSd", "IVSd", "SIVd"])
+    # IVSd -> SIVd (Septo interventricular em diástole)
+    val = buscar_parametro_flexivel(soup, [
+        "2D/IVSd", "MM/IVSd", "IVSd", "SIVd",
+        "MM_IVSd", "MM IVSd", "IVSd (MM)", "IVSd MM",
+        "Septum d", "Septal Wall d"
+    ])
     if val: medidas["SIVd"] = val
 
-    # LVIDd -> DIVEd
-    val = buscar_parametro_por_name(soup, ["2D/LVIDd", "MM/LVIDd", "LVIDd", "DIVEd"])
+    # LVIDd -> DIVEd (Diâmetro do VE em diástole)
+    val = buscar_parametro_flexivel(soup, [
+        "2D/LVIDd", "MM/LVIDd", "LVIDd", "DIVEd",
+        "MM_LVIDd", "MM LVIDd", "LVIDd (MM)", "LVIDd MM",
+        "LV d", "Left Ventricle d"
+    ])
     if val: medidas["DIVEd"] = val
 
-    # LVPWd -> PLVEd
-    val = buscar_parametro_por_name(soup, ["2D/LVPWd", "MM/LVPWd", "LVPWd", "PPVEd", "PLVEd"])
+    # LVPWd -> PLVEd (Parede posterior do VE em diástole)
+    val = buscar_parametro_flexivel(soup, [
+        "2D/LVPWd", "MM/LVPWd", "LVPWd", "PPVEd", "PLVEd",
+        "MM_LVPWd", "MM LVPWd", "LVPWd (MM)", "LVPWd MM",
+        "PW d", "Posterior Wall d"
+    ])
     if val: medidas["PLVEd"] = val
 
-    # IVSs -> SIVs
-    val = buscar_parametro_por_name(soup, ["2D/IVSs", "MM/IVSs", "IVSs", "SIVs"])
+    # IVSs -> SIVs (Septo interventricular em sístole)
+    val = buscar_parametro_flexivel(soup, [
+        "2D/IVSs", "MM/IVSs", "IVSs", "SIVs",
+        "MM_IVSs", "MM IVSs", "IVSs (MM)", "IVSs MM",
+        "Septum s", "Septal Wall s"
+    ])
     if val: medidas["SIVs"] = val
 
-    # LVIDs -> DIVÉs
-    val = buscar_parametro_por_name(soup, ["2D/LVIDs", "MM/LVIDs", "LVIDs", "DIVEs", "DIVÉs"])
+    # LVIDs -> DIVÉs (Diâmetro do VE em sístole)
+    val = buscar_parametro_flexivel(soup, [
+        "2D/LVIDs", "MM/LVIDs", "LVIDs", "DIVEs", "DIVÉs",
+        "MM_LVIDs", "MM LVIDs", "LVIDs (MM)", "LVIDs MM",
+        "LV s", "Left Ventricle s"
+    ])
     if val: medidas["DIVES"] = val
 
-    # LVPWs -> PLVÉs
-    val = buscar_parametro_por_name(soup, ["2D/LVPWs", "MM/LVPWs", "LVPWs", "PPVEs", "PLVÉs"])
+    # LVPWs -> PLVÉs (Parede posterior do VE em sístole)
+    val = buscar_parametro_flexivel(soup, [
+        "2D/LVPWs", "MM/LVPWs", "LVPWs", "PPVEs", "PLVÉs",
+        "MM_LVPWs", "MM LVPWs", "LVPWs (MM)", "LVPWs MM",
+        "PW s", "Posterior Wall s"
+    ])
     if val: medidas["PLVES"] = val
     
     # Volumes -> VDF (Teicholz)
-    val = buscar_parametro_por_name(soup, ["2D/EDV(Teich)", "MM/EDV(Teich)", "EDV(Teich)", "VDF(Teich)", "EDV", "VDF"])
+    val = buscar_parametro_flexivel(soup, ["2D/EDV(Teich)", "MM/EDV(Teich)", "EDV(Teich)", "VDF(Teich)", "EDV", "VDF"])
     if val: medidas["VDF"] = val
     
-    val = buscar_parametro_por_name(soup, ["2D/ESV(Teich)", "MM/ESV(Teich)", "ESV(Teich)", "VSF(Teich)", "ESV", "VSF"])
+    val = buscar_parametro_flexivel(soup, ["2D/ESV(Teich)", "MM/ESV(Teich)", "ESV(Teich)", "VSF(Teich)", "ESV", "VSF"])
     if val: medidas["VSF"] = val
     
-    val = buscar_parametro_por_name(soup, ["2D/SV(Teich)", "MM/SV(Teich)", "SV(Teich)", "SV"])
+    val = buscar_parametro_flexivel(soup, ["2D/SV(Teich)", "MM/SV(Teich)", "SV(Teich)", "SV"])
     if val: medidas["SV"] = val
     
     # Função -> FE (Teicholz)
-    val = buscar_parametro_por_name(soup, ["2D/EF(Teich)", "MM/EF(Teich)", "EF(Teich)", "EF", "FE(Teich)", "FE"])
+    val = buscar_parametro_flexivel(soup, ["2D/EF(Teich)", "MM/EF(Teich)", "EF(Teich)", "EF", "FE(Teich)", "FE"])
     if val: medidas["FE_Teicholz"] = val
     
     # %FS -> Delta D / %FS
-    val = buscar_parametro_por_name(soup, ["2D/%FS", "MM/%FS", "%FS", "Delta D", "FS"])
+    val = buscar_parametro_flexivel(soup, ["2D/%FS", "MM/%FS", "%FS", "Delta D", "FS", "Fractional Shortening"])
     if val: medidas["DeltaD_FS"] = val
     
     # RWT
-    val = buscar_parametro_por_name(soup, ["2D/LVPW RWTd", "MM/LVPW RWTd", "RWTd", "RWT"])
+    val = buscar_parametro_flexivel(soup, ["2D/LVPW RWTd", "MM/LVPW RWTd", "RWTd", "RWT"])
     if val: medidas["RWT"] = val
     
     # DIVdN (normalizado) -> DIVEd normalizado
-    val = buscar_parametro_por_name(soup, ["2D/LVIDdN", "DIVdN", "LVIDdN", "DIVEdN"])
+    val = buscar_parametro_flexivel(soup, ["2D/LVIDdN", "DIVdN", "LVIDdN", "DIVEdN"])
     if val: medidas["DIVEd_normalizado"] = val
     
     # TAPSE
-    val = buscar_parametro_por_name(soup, ["MM/TAPSE", "2D/TAPSE", "TAPSE"])
+    val = buscar_parametro_flexivel(soup, ["MM/TAPSE", "2D/TAPSE", "TAPSE"])
     if val: medidas["TAPSE"] = val
 
     # MAPSE
-    val = buscar_parametro_por_name(soup, ["MM/MAPSE", "2D/MAPSE", "MAPSE"])
+    val = buscar_parametro_flexivel(soup, ["MM/MAPSE", "2D/MAPSE", "MAPSE"])
     if val: medidas["MAPSE"] = val
     
     # --- Medidas Doppler (PW) ---
     # Mitral Valve -> Diastólica
-    val = buscar_parametro_por_name(soup, ["MV E Velocity", "Veloc. E VM", "MVE", "E Velocity", "Onda E"])
+    val = buscar_parametro_flexivel(soup, ["MV E Velocity", "Veloc. E VM", "MVE", "E Velocity", "Onda E"])
     if val: medidas["Onda_E"] = val
     
-    val = buscar_parametro_por_name(soup, ["MV A Velocity", "Veloc. A VM", "MVA", "A Velocity", "Onda A"])
+    val = buscar_parametro_flexivel(soup, ["MV A Velocity", "Veloc. A VM", "MVA", "A Velocity", "Onda A"])
     if val: medidas["Onda_A"] = val
     
-    val = buscar_parametro_por_name(soup, ["MV E/A Ratio", "E/A VM", "E/A Ratio", "MV_E_A", "E/A"])
+    val = buscar_parametro_flexivel(soup, ["MV E/A Ratio", "E/A VM", "E/A Ratio", "MV_E_A", "E/A"])
     if val: medidas["E_A"] = val
     
-    val = buscar_parametro_por_name(soup, ["MV Dec Time", "T.Des. VM", "Dec Time", "MV_DT", "TD"])
+    val = buscar_parametro_flexivel(soup, ["MV Dec Time", "T.Des. VM", "Dec Time", "MV_DT", "TD"])
     if val: medidas["TD"] = val
     
-    val = buscar_parametro_por_name(soup, ["MV Dec Slope", "Rampa Des.VM", "Dec Slope", "MV_Slope"])
+    val = buscar_parametro_flexivel(soup, ["MV Dec Slope", "Rampa Des.VM", "Dec Slope", "MV_Slope"])
     if val: medidas["MV_Slope"] = val
     
     # E' (E prime) -> e' Doppler tecidual
-    val = buscar_parametro_por_name(soup, ["MV Eprime Velocity", "E'", "Eprime Velocity", "Eprime", "e'"])
+    val = buscar_parametro_flexivel(soup, ["MV Eprime Velocity", "E'", "Eprime Velocity", "Eprime", "e'"])
     if val: medidas["e_doppler"] = val
     
     # a' -> a' Doppler tecidual
-    val = buscar_parametro_por_name(soup, ["a´", "a'", "Aprime Velocity", "a'"])
+    val = buscar_parametro_flexivel(soup, ["a´", "a'", "Aprime Velocity", "a'"])
     if val: medidas["a_doppler"] = val
     
     # E/E' -> E/E'
-    val = buscar_parametro_por_name(soup, ["MV E/Eprime Ratio/Calc", "E/E'", "EEp"])
+    val = buscar_parametro_flexivel(soup, ["MV E/Eprime Ratio/Calc", "E/E'", "EEp"])
     if val: medidas["E_E_linha"] = val
     
     # IVRT -> TRIV
-    val = buscar_parametro_por_name(soup, ["IVRT", "TRIV"])
+    val = buscar_parametro_flexivel(soup, ["IVRT", "TRIV"])
     if val: medidas["TRIV"] = val
     
     # MR dp/dt
-    val = buscar_parametro_por_name(soup, ["MR dp/dt", "Mitral Regurg dp/dt", "MR dpdt"])
+    val = buscar_parametro_flexivel(soup, ["MR dp/dt", "Mitral Regurg dp/dt", "MR dpdt"])
     if val: medidas["MR_dp_dt"] = val
     
     # Aórtica -> Doppler Saídas
-    val = buscar_parametro_por_name(soup, ["LVOT Vmax P", "Vmáx VSVE", "LVOT Vmax", "Aortic Vmax", "Vmax aorta"])
+    val = buscar_parametro_flexivel(soup, ["LVOT Vmax P", "Vmáx VSVE", "LVOT Vmax", "Aortic Vmax", "Vmax aorta"])
     if val: medidas["Vmax_aorta"] = val
     
-    val = buscar_parametro_por_name(soup, ["LVOT maxPG", "máxPG VSVE", "LVOT max PG", "Aortic maxPG", "Gradiente aorta"])
+    val = buscar_parametro_flexivel(soup, ["LVOT maxPG", "máxPG VSVE", "LVOT max PG", "Aortic maxPG", "Gradiente aorta"])
     if val: medidas["Grad_aorta"] = val
     
     # Pulmonar -> Doppler Saídas
-    val = buscar_parametro_por_name(soup, ["RVOT Vmax P", "Vmáx VSVD", "RVOT Vmax", "Pulmonic Vmax", "Vmax pulmonar"])
+    val = buscar_parametro_flexivel(soup, ["RVOT Vmax P", "Vmáx VSVD", "RVOT Vmax", "Pulmonic Vmax", "Vmax pulmonar"])
     if val: medidas["Vmax_pulmonar"] = val
     
-    val = buscar_parametro_por_name(soup, ["RVOT maxPG", "maxPG VSVD", "RVOT max PG", "Pulmonic maxPG", "Gradiente pulmonar"])
+    val = buscar_parametro_flexivel(soup, ["RVOT maxPG", "maxPG VSVD", "RVOT max PG", "Pulmonic maxPG", "Gradiente pulmonar"])
     if val: medidas["Grad_pulmonar"] = val
     
     # --- Medidas de regurgitação (Continuous Wave) ---
     # MR (Mitral Regurgitation) -> IM (insuficiência mitral) Vmax
-    val = buscar_parametro_por_name(soup, ["MR maxPG", "Mitral Regurg maxPG", "MR max PG", "IM Vmax"])
+    val = buscar_parametro_flexivel(soup, ["MR maxPG", "Mitral Regurg maxPG", "MR max PG", "IM Vmax"])
     if val: medidas["IM_Vmax"] = val
     
     # TR (Tricuspid Regurgitation) -> IT (insuficiência tricúspide) Vmax
-    val = buscar_parametro_por_name(soup, ["TR maxPG", "Tricuspid Regurg maxPG", "TR max PG", "IT Vmax"])
+    val = buscar_parametro_flexivel(soup, ["TR maxPG", "Tricuspid Regurg maxPG", "TR max PG", "IT Vmax"])
     if val: medidas["IT_Vmax"] = val
     
     # AR (Aortic Regurgitation) -> IA (insuficiência aórtica) Vmax
-    val = buscar_parametro_por_name(soup, ["AR maxPG", "Aortic Regurg maxPG", "AR max PG", "IA Vmax"])
+    val = buscar_parametro_flexivel(soup, ["AR maxPG", "Aortic Regurg maxPG", "AR max PG", "IA Vmax"])
     if val: medidas["IA_Vmax"] = val
     
     # PR (Pulmonic Regurgitation) -> IP (insuficiência pulmonar) Vmax
-    val = buscar_parametro_por_name(soup, ["PR maxPG", "Pulmonic Regurg maxPG", "PR max PG", "IP Vmax"])
+    val = buscar_parametro_flexivel(soup, ["PR maxPG", "Pulmonic Regurg maxPG", "PR max PG", "IP Vmax"])
     if val: medidas["IP_Vmax"] = val
     
     # TDI_e_a ratio -> Doppler tecidual (Relação e'/a')
@@ -449,8 +523,13 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     dados["accession_number"] = _find_text_ci(soup, ["AccessionNumber"])
     
     # Log das medidas extraídas (apenas para debug)
-    print(f"[XML_PARSER] Total de medidas extraídas: {len(medidas)}")
-    if medidas:
-        print(f"[XML_PARSER] Medidas: {medidas}")
+    print(f"\n[XML_PARSER] Total de medidas extraídas: {len(medidas)}")
+    
+    # Log específico para medidas do modo M
+    medidas_modo_m = {k: v for k, v in medidas.items() if k in ['SIVd', 'DIVEd', 'PLVEd', 'SIVs', 'DIVES', 'PLVES']}
+    if medidas_modo_m:
+        print(f"[XML_PARSER] Medidas do Modo M: {medidas_modo_m}")
+    else:
+        print("[XML_PARSER] ⚠️ NENHUMA MEDIDA DO MODO M ENCONTRADA!")
     
     return dados

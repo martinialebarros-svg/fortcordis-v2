@@ -1,0 +1,81 @@
+# Workflow para corrigir o banco de dados na VPS
+# Pode ser executado manualmente quando houver problemas
+name: Fix Database (Manual)
+
+on:
+  workflow_dispatch:  # Só executa manualmente pelo GitHub
+    inputs:
+      environment:
+        description: 'Ambiente (stage ou production)'
+        required: true
+        default: 'stage'
+        type: choice
+        options:
+          - stage
+          - production
+
+jobs:
+  fix-database:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Fix Database
+        run: |
+          if [ "${{ inputs.environment }}" == "stage" ]; then
+            PROJECT_DIR="/var/www/fortcordis-stage"
+            SERVICE_NAME="fortcordis-stage-backend"
+          else
+            PROJECT_DIR="/var/www/fortcordis-v2"
+            SERVICE_NAME="fortcordis-backend"
+          fi
+          
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << EOF
+            set -e
+            echo "🔧 Corrigindo banco de dados no ambiente: ${{ inputs.environment }}"
+            cd $PROJECT_DIR
+            
+            echo "📦 Atualizando código..."
+            git fetch origin
+            git reset --hard origin/${{ inputs.environment }}
+            
+            echo "🔍 Executando diagnóstico..."
+            cd backend
+            source venv/bin/activate
+            python3 diagnostico_vps.py || true
+            
+            echo "📊 Criando tabelas e seeds..."
+            python3 setup_database.py
+            
+            echo "🔄 Reiniciando serviço..."
+            sudo systemctl restart $SERVICE_NAME
+            
+            echo "✅ Correção concluída!"
+            echo ""
+            echo "📋 Verificando status:"
+            sleep 2
+            sudo systemctl is-active $SERVICE_NAME && echo "✅ Serviço ativo" || echo "❌ Serviço inativo"
+          EOF
+
+      - name: Health Check
+        run: |
+          sleep 5
+          if [ "${{ inputs.environment }}" == "stage" ]; then
+            URL="https://stage.fortcordis.com.br/health"
+          else
+            URL="https://fortcordis.com.br/health"
+          fi
+          
+          echo "🧪 Testando health check: $URL"
+          curl -s $URL || echo "⚠️ Health check falhou - verifique manualmente"
