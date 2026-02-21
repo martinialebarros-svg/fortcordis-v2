@@ -1,16 +1,110 @@
+import json
+import os
+import logging
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 
 from app.api.v1.endpoints import auth, admin, agenda, pacientes, clinicas, servicos, laudos, financeiro, xml_import, frases, imagens, tabelas_preco, ordens_servico, configuracoes, tutores, referencias_eco
-from app.models import user, papel, agendamento
+# Importar todos os modelos para registrar no Base.metadata
+import app.models  # noqa: F401
 from app.core.websocket import manager
+from app.db.database import engine, Base, SessionLocal
+
+logger = logging.getLogger(__name__)
+
+
+def inicializar_banco():
+    """Cria tabelas e seed de frases automaticamente na inicialização."""
+    from app.models.frase import FraseQualitativa, FraseQualitativaHistorico
+    from app.utils.frases_seed import seed_frases
+
+    try:
+        # Criar todas as tabelas que ainda não existem
+        Base.metadata.create_all(bind=engine)
+        logger.info("Tabelas verificadas/criadas com sucesso.")
+    except Exception as e:
+        logger.error(f"Erro ao criar tabelas: {e}")
+        return
+
+    # Seed de frases se a tabela estiver vazia
+    db = SessionLocal()
+    try:
+        count = db.query(FraseQualitativa).count()
+        if count == 0:
+            logger.info("Tabela frases_qualitativas vazia. Executando seed...")
+            seed_frases(db)
+
+            # Tentar importar frases personalizadas do JSON se disponível
+            json_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frases_personalizadas.json")
+            if os.path.exists(json_path):
+                try:
+                    import re
+                    with open(json_path, "r", encoding="utf-8") as f:
+                        dados = json.load(f)
+
+                    for chave, frase_data in dados.items():
+                        match = re.match(r"(.+)\s*\(([^)]+)\)", chave)
+                        if match:
+                            patologia = match.group(1).strip()
+                            grau = match.group(2).strip()
+                        else:
+                            patologia = chave.strip()
+                            grau = "Normal"
+
+                        existing = db.query(FraseQualitativa).filter(
+                            FraseQualitativa.chave == chave
+                        ).first()
+
+                        if not existing:
+                            frase = FraseQualitativa(
+                                chave=chave,
+                                patologia=patologia,
+                                grau=grau,
+                                valvas=frase_data.get("valvas", ""),
+                                camaras=frase_data.get("camaras", ""),
+                                funcao=frase_data.get("funcao", ""),
+                                pericardio=frase_data.get("pericardio", ""),
+                                vasos=frase_data.get("vasos", ""),
+                                ad_vd=frase_data.get("ad_vd", ""),
+                                conclusao=frase_data.get("conclusao", ""),
+                                detalhado=frase_data.get("det", {}),
+                                layout=frase_data.get("layout", "enxuto"),
+                                ativo=1,
+                            )
+                            db.add(frase)
+
+                    db.commit()
+                    total = db.query(FraseQualitativa).count()
+                    logger.info(f"Frases personalizadas importadas. Total: {total}")
+                except Exception as e:
+                    logger.warning(f"Erro ao importar frases personalizadas: {e}")
+                    db.rollback()
+            else:
+                logger.info(f"Seed padrão concluído. Total de frases: {db.query(FraseQualitativa).count()}")
+        else:
+            logger.info(f"Frases já existem no banco ({count} registros). Seed ignorado.")
+    except Exception as e:
+        logger.error(f"Erro ao verificar/seed frases: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Inicialização e encerramento da aplicação."""
+    inicializar_banco()
+    yield
+
 
 app = FastAPI(
     redirect_slashes=False,
     title="FortCordis API",
     description="API do sistema FortCordis",
     version="2.0.0",
-
+    lifespan=lifespan,
 )
 
 app.add_middleware(
