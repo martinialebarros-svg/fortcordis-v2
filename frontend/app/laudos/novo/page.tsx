@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
@@ -162,6 +162,41 @@ const CAMPOS_QUALITATIVA = [
   { key: "ad_vd", label: "AD/VD", placeholder: "Descreva as câmaras direitas..." },
 ];
 
+// Subcampos para o layout detalhado
+const SUBCAMPOS_DETALHADO: Record<string, { key: string; label: string }[]> = {
+  valvas: [
+    { key: "mitral", label: "Mitral" },
+    { key: "tricuspide", label: "Tricúspide" },
+    { key: "aortica", label: "Aórtica" },
+    { key: "pulmonar", label: "Pulmonar" },
+  ],
+  camaras: [
+    { key: "ae", label: "Átrio Esquerdo" },
+    { key: "ad", label: "Átrio Direito" },
+    { key: "ve", label: "Ventrículo Esquerdo" },
+    { key: "vd", label: "Ventrículo Direito" },
+  ],
+  funcao: [
+    { key: "sistolica_ve", label: "Sistólica VE" },
+    { key: "sistolica_vd", label: "Sistólica VD" },
+    { key: "diastolica", label: "Diastólica" },
+    { key: "sincronia", label: "Sincronia" },
+  ],
+  pericardio: [
+    { key: "efusao", label: "Efusão" },
+    { key: "espessamento", label: "Espessamento" },
+    { key: "tamponamento", label: "Tamponamento" },
+  ],
+  vasos: [
+    { key: "aorta", label: "Aorta" },
+    { key: "art_pulmonar", label: "Art. Pulmonar" },
+    { key: "veias_pulmonares", label: "Veias Pulmonares" },
+    { key: "cava_hepaticas", label: "Cava/Hepáticas" },
+  ],
+};
+
+type DetalhadoState = Record<string, Record<string, string>>;
+
 export default function NovoLaudoPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -216,6 +251,7 @@ export default function NovoLaudoPage() {
   const [grauSelecionado, setGrauSelecionado] = useState("Normal");
   const [layoutQualitativa, setLayoutQualitativa] = useState<"detalhado" | "enxuto">("detalhado");
   const [aplicandoFrase, setAplicandoFrase] = useState(false);
+  const [qualitativaDetalhada, setQualitativaDetalhada] = useState<DetalhadoState>({});
   
   // Lista de frases (para aba Frases)
   const [frases, setFrases] = useState<FraseQualitativa[]>([]);
@@ -224,6 +260,7 @@ export default function NovoLaudoPage() {
   // Imagens do laudo
   const [imagens, setImagens] = useState<any[]>([]);
   const [sessionId] = useState<string>(() => Math.random().toString(36).substring(2, 15));
+  const isInitialMount = useRef(true);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -263,6 +300,42 @@ export default function NovoLaudoPage() {
       }));
     }
   }, [medidas["Aorta"], medidas["Atrio_esquerdo"], medidas["DIVEd"], paciente.peso]);
+
+  // Fix 4: Carregar graus dinamicamente quando a patologia muda
+  useEffect(() => {
+    const carregarGraus = async () => {
+      try {
+        const response = await api.get(`/frases/graus?patologia=${encodeURIComponent(patologiaSelecionada)}`);
+        if (response.data && response.data.length > 0) {
+          setGraus(response.data);
+          // Se o grau atual não existe na nova lista, selecionar o primeiro
+          if (!response.data.includes(grauSelecionado)) {
+            setGrauSelecionado(response.data[0]);
+          }
+        } else {
+          setGraus(["Normal", "Leve", "Moderada", "Importante", "Grave"]);
+          setGrauSelecionado("Normal");
+        }
+      } catch (error) {
+        console.error("Erro ao carregar graus:", error);
+        setGraus(["Normal", "Leve", "Moderada", "Importante", "Grave"]);
+      }
+    };
+    if (patologiaSelecionada) {
+      carregarGraus();
+    }
+  }, [patologiaSelecionada]);
+
+  // Fix 2: Auto-gerar texto quando grau, patologia ou layout muda (não na montagem inicial)
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    if (patologiaSelecionada && grauSelecionado) {
+      handleGerarTexto();
+    }
+  }, [grauSelecionado, patologiaSelecionada, layoutQualitativa]);
 
   const carregarClinicas = async () => {
     try {
@@ -306,38 +379,42 @@ export default function NovoLaudoPage() {
         grau_geral: patologiaSelecionada !== "Endocardiose Mitral" ? grauSelecionado : undefined,
         layout: layoutQualitativa,
       };
-      
+
       const response = await api.post("/frases/aplicar", request);
-      
+
       if (response.data.success && response.data.dados) {
         const dados = response.data.dados;
-        
-        if (layoutQualitativa === "enxuto") {
-          setQualitativa({
-            valvas: dados.valvas || "",
-            camaras: dados.camaras || "",
-            funcao: dados.funcao || "",
-            pericardio: dados.pericardio || "",
-            vasos: dados.vasos || "",
-            ad_vd: dados.ad_vd || "",
-          });
-        } else {
-          // Layout detalhado
-          setQualitativa({
-            valvas: dados.valvas || "",
-            camaras: dados.camaras || "",
-            funcao: dados.funcao || "",
-            pericardio: dados.pericardio || "",
-            vasos: dados.vasos || "",
-            ad_vd: dados.ad_vd || "",
-          });
+
+        // Sempre preencher os campos planos (enxuto)
+        setQualitativa({
+          valvas: dados.valvas || "",
+          camaras: dados.camaras || "",
+          funcao: dados.funcao || "",
+          pericardio: dados.pericardio || "",
+          vasos: dados.vasos || "",
+          ad_vd: dados.ad_vd || "",
+        });
+
+        // Se layout detalhado e tem subcampos, preencher o estado detalhado
+        if (layoutQualitativa === "detalhado" && dados.det) {
+          const det = dados.det as Record<string, Record<string, string>>;
+          const novoDetalhado: DetalhadoState = {};
+          for (const [secao, subcampos] of Object.entries(det)) {
+            if (typeof subcampos === "object" && subcampos !== null) {
+              novoDetalhado[secao] = {};
+              for (const [sub, valor] of Object.entries(subcampos)) {
+                novoDetalhado[secao][sub] = (valor as string) || "";
+              }
+            }
+          }
+          setQualitativaDetalhada(novoDetalhado);
         }
-        
+
         setConteudo(prev => ({
           ...prev,
           conclusao: dados.conclusao || prev.conclusao,
         }));
-        
+
         setMensagemSucesso("Texto gerado com sucesso!");
         setTimeout(() => setMensagemSucesso(null), 3000);
       } else {
@@ -1164,26 +1241,94 @@ export default function NovoLaudoPage() {
                 {aba === "qualitativa" && (
                   <div className="space-y-4">
                     <div className="flex justify-between items-center mb-4">
-                      <h3 className="font-medium text-gray-900">Qualitativa Detalhada</h3>
+                      <h3 className="font-medium text-gray-900">
+                        {layoutQualitativa === "detalhado" ? "Qualitativa Detalhada" : "Qualitativa Enxuta"}
+                      </h3>
                       <span className="text-sm text-gray-500">
                         Use a barra lateral para gerar texto automaticamente
                       </span>
                     </div>
-                    
-                    {CAMPOS_QUALITATIVA.map((campo) => (
-                      <div key={campo.key}>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          {campo.label}
-                        </label>
-                        <textarea
-                          value={qualitativa[campo.key as keyof typeof qualitativa]}
-                          onChange={(e) => handleQualitativaChange(campo.key, e.target.value)}
-                          rows={3}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-                          placeholder={campo.placeholder}
-                        />
-                      </div>
-                    ))}
+
+                    {layoutQualitativa === "detalhado" ? (
+                      // Layout detalhado com subcampos
+                      CAMPOS_QUALITATIVA.map((campo) => {
+                        const subcampos = SUBCAMPOS_DETALHADO[campo.key];
+                        const temDadosDetalhados = subcampos && qualitativaDetalhada[campo.key] &&
+                          Object.values(qualitativaDetalhada[campo.key]).some(v => v !== "");
+
+                        return (
+                          <div key={campo.key} className="border border-gray-200 rounded-lg p-4">
+                            <label className="block text-sm font-bold text-gray-800 mb-2">
+                              {campo.label}
+                            </label>
+                            {temDadosDetalhados && subcampos ? (
+                              <div className="space-y-2">
+                                {subcampos.map((sub) => {
+                                  const valor = qualitativaDetalhada[campo.key]?.[sub.key] || "";
+                                  if (!valor && sub.key !== subcampos[0].key) return null; // Omitir subcampos vazios exceto o primeiro
+                                  return (
+                                    <div key={sub.key}>
+                                      <label className="block text-xs font-medium text-teal-700 mb-0.5">
+                                        {sub.label}
+                                      </label>
+                                      <textarea
+                                        value={valor}
+                                        onChange={(e) => {
+                                          setQualitativaDetalhada(prev => ({
+                                            ...prev,
+                                            [campo.key]: {
+                                              ...prev[campo.key],
+                                              [sub.key]: e.target.value,
+                                            }
+                                          }));
+                                          // Atualizar campo plano concatenando subcampos
+                                          const subVals = { ...qualitativaDetalhada[campo.key], [sub.key]: e.target.value };
+                                          const concatenado = subcampos
+                                            .map(s => {
+                                              const v = subVals[s.key] || "";
+                                              return v ? `${s.label}: ${v}` : "";
+                                            })
+                                            .filter(Boolean)
+                                            .join("\n");
+                                          handleQualitativaChange(campo.key, concatenado);
+                                        }}
+                                        rows={2}
+                                        className="w-full px-3 py-1.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-sm"
+                                      />
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              // Fallback: textarea simples se não tem dados detalhados
+                              <textarea
+                                value={qualitativa[campo.key as keyof typeof qualitativa]}
+                                onChange={(e) => handleQualitativaChange(campo.key, e.target.value)}
+                                rows={3}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                                placeholder={campo.placeholder}
+                              />
+                            )}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      // Layout enxuto - textareas simples
+                      CAMPOS_QUALITATIVA.map((campo) => (
+                        <div key={campo.key}>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            {campo.label}
+                          </label>
+                          <textarea
+                            value={qualitativa[campo.key as keyof typeof qualitativa]}
+                            onChange={(e) => handleQualitativaChange(campo.key, e.target.value)}
+                            rows={3}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                            placeholder={campo.placeholder}
+                          />
+                        </div>
+                      ))
+                    )}
                   </div>
                 )}
 

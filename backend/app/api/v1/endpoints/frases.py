@@ -103,20 +103,36 @@ def buscar_frase(
 ) -> Any:
     """Busca uma frase específica por patologia e grau"""
     chave = montar_chave_frase(patologia, grau_refluxo or "", grau_geral or "")
-    
+
     # Tenta buscar pela chave exata
     frase = db.query(FraseQualitativa).filter(
         FraseQualitativa.chave == chave,
         FraseQualitativa.ativo == 1
     ).first()
-    
-    # Se não encontrar, tenta buscar apenas pela patologia
+
+    # Tenta buscar pela chave armazenada (formato diferente)
+    if not frase:
+        frase = db.query(FraseQualitativa).filter(
+            FraseQualitativa.chave == patologia,
+            FraseQualitativa.ativo == 1
+        ).first()
+
+    # Tenta buscar por patologia + grau
+    grau = grau_refluxo or grau_geral or ""
+    if not frase and grau:
+        frase = db.query(FraseQualitativa).filter(
+            FraseQualitativa.patologia == patologia,
+            FraseQualitativa.grau == grau,
+            FraseQualitativa.ativo == 1
+        ).first()
+
+    # Último fallback: busca apenas pela patologia
     if not frase:
         frase = db.query(FraseQualitativa).filter(
             FraseQualitativa.patologia.ilike(f"%{patologia}%"),
             FraseQualitativa.ativo == 1
         ).first()
-    
+
     return frase
 
 
@@ -133,13 +149,29 @@ def aplicar_frase(
         request.grau_geral or ""
     )
     
-    # Busca a frase
+    # Busca a frase pela chave exata
     frase = db.query(FraseQualitativa).filter(
         FraseQualitativa.chave == chave,
         FraseQualitativa.ativo == 1
     ).first()
-    
-    # Se não encontrar, busca apenas pela patologia
+
+    # Se não encontrar, busca pela chave armazenada (pode ter formato diferente)
+    if not frase:
+        frase = db.query(FraseQualitativa).filter(
+            FraseQualitativa.chave == request.patologia,
+            FraseQualitativa.ativo == 1
+        ).first()
+
+    # Se não encontrar, busca por patologia + grau
+    grau = request.grau_refluxo or request.grau_geral or ""
+    if not frase and grau:
+        frase = db.query(FraseQualitativa).filter(
+            FraseQualitativa.patologia == request.patologia,
+            FraseQualitativa.grau == grau,
+            FraseQualitativa.ativo == 1
+        ).first()
+
+    # Último fallback: busca apenas pela patologia
     if not frase:
         frase = db.query(FraseQualitativa).filter(
             FraseQualitativa.patologia.ilike(f"%{request.patologia}%"),

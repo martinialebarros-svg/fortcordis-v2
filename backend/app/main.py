@@ -36,55 +36,71 @@ def inicializar_banco():
             logger.info("Tabela frases_qualitativas vazia. Executando seed...")
             seed_frases(db)
 
-            # Tentar importar frases personalizadas do JSON se disponível
-            json_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frases_personalizadas.json")
-            if os.path.exists(json_path):
-                try:
-                    import re
-                    with open(json_path, "r", encoding="utf-8") as f:
-                        dados = json.load(f)
+        # Sempre importar/atualizar frases personalizadas do JSON (upsert)
+        json_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frases_personalizadas.json")
+        if os.path.exists(json_path):
+            try:
+                import re
+                with open(json_path, "r", encoding="utf-8") as f:
+                    dados = json.load(f)
 
-                    for chave, frase_data in dados.items():
-                        match = re.match(r"(.+)\s*\(([^)]+)\)", chave)
-                        if match:
-                            patologia = match.group(1).strip()
-                            grau = match.group(2).strip()
-                        else:
-                            patologia = chave.strip()
-                            grau = "Normal"
+                created = 0
+                updated = 0
+                for chave, frase_data in dados.items():
+                    match = re.match(r"(.+)\s*\(([^)]+)\)", chave)
+                    if match:
+                        patologia = match.group(1).strip()
+                        grau = match.group(2).strip()
+                    else:
+                        patologia = chave.strip()
+                        grau = "Normal"
 
-                        existing = db.query(FraseQualitativa).filter(
-                            FraseQualitativa.chave == chave
-                        ).first()
+                    existing = db.query(FraseQualitativa).filter(
+                        FraseQualitativa.chave == chave
+                    ).first()
 
-                        if not existing:
-                            frase = FraseQualitativa(
-                                chave=chave,
-                                patologia=patologia,
-                                grau=grau,
-                                valvas=frase_data.get("valvas", ""),
-                                camaras=frase_data.get("camaras", ""),
-                                funcao=frase_data.get("funcao", ""),
-                                pericardio=frase_data.get("pericardio", ""),
-                                vasos=frase_data.get("vasos", ""),
-                                ad_vd=frase_data.get("ad_vd", ""),
-                                conclusao=frase_data.get("conclusao", ""),
-                                detalhado=frase_data.get("det", {}),
-                                layout=frase_data.get("layout", "enxuto"),
-                                ativo=1,
-                            )
-                            db.add(frase)
+                    if existing:
+                        # Atualizar frase existente com dados do JSON
+                        existing.patologia = patologia
+                        existing.grau = grau
+                        existing.valvas = frase_data.get("valvas", "")
+                        existing.camaras = frase_data.get("camaras", "")
+                        existing.funcao = frase_data.get("funcao", "")
+                        existing.pericardio = frase_data.get("pericardio", "")
+                        existing.vasos = frase_data.get("vasos", "")
+                        existing.ad_vd = frase_data.get("ad_vd", "")
+                        existing.conclusao = frase_data.get("conclusao", "")
+                        existing.detalhado = frase_data.get("det", {})
+                        existing.layout = frase_data.get("layout", "enxuto")
+                        existing.ativo = 1
+                        updated += 1
+                    else:
+                        frase = FraseQualitativa(
+                            chave=chave,
+                            patologia=patologia,
+                            grau=grau,
+                            valvas=frase_data.get("valvas", ""),
+                            camaras=frase_data.get("camaras", ""),
+                            funcao=frase_data.get("funcao", ""),
+                            pericardio=frase_data.get("pericardio", ""),
+                            vasos=frase_data.get("vasos", ""),
+                            ad_vd=frase_data.get("ad_vd", ""),
+                            conclusao=frase_data.get("conclusao", ""),
+                            detalhado=frase_data.get("det", {}),
+                            layout=frase_data.get("layout", "enxuto"),
+                            ativo=1,
+                        )
+                        db.add(frase)
+                        created += 1
 
-                    db.commit()
-                    total = db.query(FraseQualitativa).count()
-                    logger.info(f"Frases personalizadas importadas. Total: {total}")
-                except Exception as e:
-                    logger.warning(f"Erro ao importar frases personalizadas: {e}")
-                    db.rollback()
-            else:
-                logger.info(f"Seed padrão concluído. Total de frases: {db.query(FraseQualitativa).count()}")
+                db.commit()
+                total = db.query(FraseQualitativa).count()
+                logger.info(f"Frases personalizadas sincronizadas: {created} criadas, {updated} atualizadas. Total: {total}")
+            except Exception as e:
+                logger.warning(f"Erro ao importar frases personalizadas: {e}")
+                db.rollback()
         else:
-            logger.info(f"Frases já existem no banco ({count} registros). Seed ignorado.")
+            logger.info(f"Arquivo frases_personalizadas.json não encontrado. Total de frases: {db.query(FraseQualitativa).count()}")
     except Exception as e:
         logger.error(f"Erro ao verificar/seed frases: {e}")
         db.rollback()
