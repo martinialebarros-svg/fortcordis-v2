@@ -179,6 +179,15 @@ def create_pdf_styles():
         alignment=1,  # Center
         fontName='Helvetica-Bold'
     ))
+    styles.add(ParagraphStyle(
+        'TituloPrincipalLeft',
+        parent=styles['Heading1'],
+        fontSize=16,
+        textColor=COR_PRETO,
+        spaceAfter=6,
+        alignment=0,  # Left (alinhado às tabelas no cabeçalho)
+        fontName='Helvetica-Bold'
+    ))
     
     styles.add(ParagraphStyle(
         'Subtitulo',
@@ -291,43 +300,39 @@ def criar_titulo_secao(texto: str) -> Table:
     return table
 
 
+# Dimensões da logo (tamanho original no cabeçalho)
+MAX_LOGO_WIDTH = 55 * mm
+MAX_LOGO_HEIGHT = 40 * mm
+# Coluna da logo menor para o título "LAUDO ECOCARDIOGRÁFICO" ficar alinhado à esquerda com as tabelas
+LARGURA_COLUNA_LOGO =50 * mm
+
+
 def criar_cabecalho(dados: Dict[str, Any], temp_logo_path: str = None) -> List:
-    """Cria o cabeçalho do laudo com dados do paciente - formato do modelo de referência"""
+    """Cria o cabeçalho do laudo: logo + título no topo, depois dados do paciente."""
     elements = []
     styles = create_pdf_styles()
-    
-    # Se tem logomarca, cria layout com imagem à esquerda + título centralizado
+
+    # Primeira linha: logo à esquerda + título alinhado à esquerda (alinhado com as tabelas)
     if temp_logo_path and os.path.exists(temp_logo_path):
         try:
-            # Calcular dimensões preservando aspect ratio
-            MAX_LOGO_WIDTH = 35*mm
-            MAX_LOGO_HEIGHT = 20*mm
-            
             img_reader = ImageReader(temp_logo_path)
             img_width, img_height = img_reader.getSize()
             aspect = img_height / float(img_width) if img_width else 1
-            
-            # Ajustar para caber no espaço máximo mantendo proporção
             if aspect > (MAX_LOGO_HEIGHT / MAX_LOGO_WIDTH):
-                # Altura é o fator limitante
                 draw_height = MAX_LOGO_HEIGHT
                 draw_width = MAX_LOGO_HEIGHT / aspect
             else:
-                # Largura é o fator limitante
                 draw_width = MAX_LOGO_WIDTH
                 draw_height = MAX_LOGO_WIDTH * aspect
-            
             logo = Image(temp_logo_path, width=draw_width, height=draw_height)
             logo.hAlign = 'LEFT'
-            
-            titulo = Paragraph("<b>LAUDO ECOCARDIOGRÁFICO</b>", styles['TituloPrincipal'])
-            
-            # Tabela: [logo] [título] - título sem fundo, texto preto centralizado
+            titulo = Paragraph("<b>LAUDO ECOCARDIOGRÁFICO</b>", styles['TituloPrincipalLeft'])
+            largura_titulo = LARGURA_TABELAS - LARGURA_COLUNA_LOGO
             header_data = [[logo, titulo]]
-            header_table = Table(header_data, colWidths=[40*mm, 140*mm])
+            header_table = Table(header_data, colWidths=[LARGURA_COLUNA_LOGO, largura_titulo])
             header_table.setStyle(TableStyle([
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('ALIGN', (1, 0), (1, 0), 'CENTER'),
+                ('ALIGN', (1, 0), (1, 0), 'LEFT'),  # título à esquerda para alinhar com as tabelas
             ]))
             elements.append(header_table)
         except Exception as e:
@@ -335,9 +340,9 @@ def criar_cabecalho(dados: Dict[str, Any], temp_logo_path: str = None) -> List:
             elements.append(Paragraph("LAUDO ECOCARDIOGRÁFICO", styles['TituloPrincipal']))
     else:
         elements.append(Paragraph("LAUDO ECOCARDIOGRÁFICO", styles['TituloPrincipal']))
-    
+
     elements.append(Spacer(1, 2*mm))
-    
+
     # Dados do paciente em formato de linha única com pipe (|) como separador
     # Seguindo o modelo: Paciente: X | Espécie: X | Raça: X
     paciente = dados.get('paciente', {})
@@ -835,11 +840,11 @@ def gerar_pdf_laudo_eco(
             temp_assinatura_path = temp_ass.name
             temp_files.append(temp_assinatura_path)
         
-        # 1. Cabeçalho com dados do paciente e logomarca
+        # 1. Cabeçalho: logo + título, depois dados do paciente
         dados_pdf = dict(dados)
         dados_pdf["medidas"] = normalizar_medidas_para_pdf(dados.get("medidas", {}))
         elements.extend(criar_cabecalho(dados_pdf, temp_logo_path))
-        
+
         # 2. Análise Quantitativa (título com mesma largura das tabelas)
         elements.append(criar_titulo_secao("ANÁLISE QUANTITATIVA"))
         elements.append(Spacer(1, 2*mm))
