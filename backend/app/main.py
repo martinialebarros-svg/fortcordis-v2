@@ -1,9 +1,11 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.api.v1.endpoints import auth, admin, agenda, pacientes, clinicas, servicos
 from app.models import user, papel, agendamento
 from app.core.websocket import manager
+from app.db.database import SessionLocal
 
 app = FastAPI(
     redirect_slashes=False,
@@ -47,4 +49,12 @@ def root():
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "database": "connected"}
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+        db_status = "connected"
+    except Exception as e:
+        db_status = f"error: {e}"
+    finally:
+        db.close()
+    return {"status": "healthy", "database": db_status}
