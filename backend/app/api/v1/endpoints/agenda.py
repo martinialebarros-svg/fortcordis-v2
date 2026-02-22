@@ -41,10 +41,21 @@ def listar_agendamentos(
      .outerjoin(Servico, Agendamento.servico_id == Servico.id)\
      .outerjoin(Tutor, Paciente.tutor_id == Tutor.id)
 
+    # Converter strings para datetime para filtrar corretamente
     if data_inicio:
-        query = query.filter(Agendamento.inicio >= data_inicio)
+        try:
+            dt_inicio = datetime.fromisoformat(data_inicio.replace('Z', '+00:00'))
+            query = query.filter(Agendamento.inicio >= dt_inicio)
+        except:
+            # Se não conseguir converter, ignora o filtro
+            pass
     if data_fim:
-        query = query.filter(Agendamento.inicio <= data_fim)
+        try:
+            dt_fim = datetime.fromisoformat(data_fim.replace('Z', '+00:00'))
+            query = query.filter(Agendamento.inicio <= dt_fim)
+        except:
+            # Se não conseguir converter, ignora o filtro
+            pass
     if status:
         query = query.filter(Agendamento.status == status)
     if clinica_id:
@@ -116,17 +127,48 @@ def criar_agendamento(
     """Cria novo agendamento"""
     now = datetime.now()
 
-    db_agendamento = Agendamento(**agendamento.dict())
+    db_agendamento = Agendamento(**agendamento.model_dump())
     db_agendamento.criado_por_id = current_user.id
     db_agendamento.criado_por_nome = current_user.nome
     db_agendamento.criado_em = now
     db_agendamento.created_at = now
     db_agendamento.updated_at = now
+    
+    # Preencher data e hora a partir do inicio
+    if db_agendamento.inicio:
+        db_agendamento.data = db_agendamento.inicio.strftime('%Y-%m-%d')
+        db_agendamento.hora = db_agendamento.inicio.strftime('%H:%M')
 
     db.add(db_agendamento)
     db.commit()
     db.refresh(db_agendamento)
-    return db_agendamento
+    
+    # Buscar nomes para retornar no response
+    paciente = db.query(Paciente).filter(Paciente.id == db_agendamento.paciente_id).first()
+    clinica = db.query(Clinica).filter(Clinica.id == db_agendamento.clinica_id).first() if db_agendamento.clinica_id else None
+    servico = db.query(Servico).filter(Servico.id == db_agendamento.servico_id).first() if db_agendamento.servico_id else None
+    
+    # Montar response manualmente para garantir compatibilidade
+    return {
+        "id": db_agendamento.id,
+        "paciente_id": db_agendamento.paciente_id,
+        "clinica_id": db_agendamento.clinica_id,
+        "servico_id": db_agendamento.servico_id,
+        "inicio": str(db_agendamento.inicio) if db_agendamento.inicio else None,
+        "fim": str(db_agendamento.fim) if db_agendamento.fim else None,
+        "status": db_agendamento.status,
+        "observacoes": db_agendamento.observacoes,
+        "data": db_agendamento.data,
+        "hora": db_agendamento.hora,
+        "paciente": paciente.nome if paciente else "Paciente não encontrado",
+        "tutor": "",
+        "telefone": "",
+        "servico": servico.nome if servico else "",
+        "clinica": clinica.nome if clinica else "Clínica não informada",
+        "criado_por_nome": db_agendamento.criado_por_nome,
+        "confirmado_por_nome": db_agendamento.confirmado_por_nome,
+        "created_at": str(db_agendamento.created_at) if db_agendamento.created_at else None,
+    }
 
 @router.put("/{agendamento_id}", response_model=AgendamentoResponse)
 def atualizar_agendamento(
@@ -143,25 +185,65 @@ def atualizar_agendamento(
     update_data = agendamento.dict(exclude_unset=True)
     for field, value in update_data.items():
         setattr(db_agendamento, field, value)
+    
+    # Atualizar data e hora se inicio foi alterado
+    if 'inicio' in update_data and db_agendamento.inicio:
+        db_agendamento.data = db_agendamento.inicio.strftime('%Y-%m-%d')
+        db_agendamento.hora = db_agendamento.inicio.strftime('%H:%M')
 
     db_agendamento.atualizado_em = datetime.now()
     db_agendamento.updated_at = datetime.now()
 
     db.commit()
     db.refresh(db_agendamento)
-    return db_agendamento
+    
+    # Buscar nomes para retornar no response
+    paciente = db.query(Paciente).filter(Paciente.id == db_agendamento.paciente_id).first()
+    clinica = db.query(Clinica).filter(Clinica.id == db_agendamento.clinica_id).first() if db_agendamento.clinica_id else None
+    servico = db.query(Servico).filter(Servico.id == db_agendamento.servico_id).first() if db_agendamento.servico_id else None
+    
+    return {
+        "id": db_agendamento.id,
+        "paciente_id": db_agendamento.paciente_id,
+        "clinica_id": db_agendamento.clinica_id,
+        "servico_id": db_agendamento.servico_id,
+        "inicio": str(db_agendamento.inicio) if db_agendamento.inicio else None,
+        "fim": str(db_agendamento.fim) if db_agendamento.fim else None,
+        "status": db_agendamento.status,
+        "observacoes": db_agendamento.observacoes,
+        "data": db_agendamento.data,
+        "hora": db_agendamento.hora,
+        "paciente": paciente.nome if paciente else "Paciente não encontrado",
+        "tutor": "",
+        "telefone": "",
+        "servico": servico.nome if servico else "",
+        "clinica": clinica.nome if clinica else "Clínica não informada",
+        "criado_por_nome": db_agendamento.criado_por_nome,
+        "confirmado_por_nome": db_agendamento.confirmado_por_nome,
+        "created_at": str(db_agendamento.created_at) if db_agendamento.created_at else None,
+    }
 
 @router.patch("/{agendamento_id}/status")
 def atualizar_status(
     agendamento_id: int,
     status: str,
+    tipo_horario: Optional[str] = "comercial",  # 'comercial' ou 'plantao'
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Atualiza apenas o status do agendamento"""
+    from app.models.ordem_servico import OrdemServico
+    from app.models.tabela_preco import PrecoServico
+    from decimal import Decimal
+    
     db_agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
     if not db_agendamento:
         raise HTTPException(status_code=404, detail="Agendamento não encontrado")
+
+    # Validar status permitidos
+    status_permitidos = ['Agendado', 'Confirmado', 'Em atendimento', 'Realizado', 'Cancelado', 'Faltou']
+    if status not in status_permitidos:
+        raise HTTPException(status_code=400, detail=f"Status inválido. Use: {', '.join(status_permitidos)}")
 
     db_agendamento.status = status
     db_agendamento.atualizado_em = datetime.now()
@@ -172,9 +254,127 @@ def atualizar_status(
         db_agendamento.confirmado_por_nome = current_user.nome
         db_agendamento.confirmado_em = datetime.now()
 
+    os_gerada = None
+    
+    # Se status for "Realizado", gerar Ordem de Serviço automaticamente
+    if status == "Realizado":
+        # Buscar dados da clínica para determinar a região
+        clinica = db.query(Clinica).filter(Clinica.id == db_agendamento.clinica_id).first()
+        
+        # Determinar valor do serviço
+        valor_servico = Decimal("0.00")
+        
+        if clinica and db_agendamento.servico_id:
+            # Buscar serviço com os novos preços por região
+            servico = db.query(Servico).filter(Servico.id == db_agendamento.servico_id).first()
+            
+            if servico:
+                # Determinar qual tabela de preço usar baseado na clínica
+                tabela_id = clinica.tabela_preco_id if clinica.tabela_preco_id else 1
+                
+                # Mapear tabela_id para região
+                # 1 = Fortaleza, 2 = Região Metropolitana, 3 = Domiciliar
+                if tabela_id == 1:
+                    # Fortaleza
+                    if tipo_horario == 'plantao' and servico.preco_fortaleza_plantao:
+                        valor_servico = servico.preco_fortaleza_plantao
+                    elif servico.preco_fortaleza_comercial:
+                        valor_servico = servico.preco_fortaleza_comercial
+                elif tabela_id == 2:
+                    # Região Metropolitana
+                    if tipo_horario == 'plantao' and servico.preco_rm_plantao:
+                        valor_servico = servico.preco_rm_plantao
+                    elif servico.preco_rm_comercial:
+                        valor_servico = servico.preco_rm_comercial
+                elif tabela_id == 3:
+                    # Domiciliar
+                    if tipo_horario == 'plantao' and servico.preco_domiciliar_plantao:
+                        valor_servico = servico.preco_domiciliar_plantao
+                    elif servico.preco_domiciliar_comercial:
+                        valor_servico = servico.preco_domiciliar_comercial
+                else:
+                    # Fallback: tentar buscar na tabela de preços antiga
+                    preco = db.query(PrecoServico).filter(
+                        PrecoServico.tabela_preco_id == tabela_id,
+                        PrecoServico.servico_id == db_agendamento.servico_id
+                    ).first()
+                    
+                    if preco:
+                        if tipo_horario == 'plantao' and preco.preco_plantao:
+                            valor_servico = preco.preco_plantao
+                        elif preco.preco_comercial:
+                            valor_servico = preco.preco_comercial
+        
+        # Gerar número da OS (ANO + MES + SEQUENCIAL)
+        hoje = datetime.now()
+        mes_ano = hoje.strftime('%Y%m')
+        
+        # Buscar última OS do mês
+        ultima_os = db.query(OrdemServico).filter(
+            OrdemServico.numero_os.like(f"OS{mes_ano}%")
+        ).order_by(OrdemServico.id.desc()).first()
+        
+        if ultima_os:
+            # Extrair sequencial
+            try:
+                seq = int(ultima_os.numero_os[-4:]) + 1
+            except:
+                seq = 1
+        else:
+            seq = 1
+        
+        numero_os = f"OS{mes_ano}{seq:04d}"
+        
+        # Criar Ordem de Serviço
+        nova_os = OrdemServico(
+            numero_os=numero_os,
+            agendamento_id=agendamento_id,
+            paciente_id=db_agendamento.paciente_id,
+            clinica_id=db_agendamento.clinica_id,
+            servico_id=db_agendamento.servico_id,
+            data_atendimento=db_agendamento.inicio,
+            tipo_horario=tipo_horario,
+            valor_servico=valor_servico,
+            desconto=Decimal("0.00"),
+            valor_final=valor_servico,
+            status='Pendente',
+            observacoes=f"OS gerada automaticamente do agendamento {agendamento_id}",
+            criado_por_id=current_user.id,
+            criado_por_nome=current_user.nome
+        )
+        
+        db.add(nova_os)
+        db.commit()
+        db.refresh(nova_os)
+        
+        os_gerada = {
+            "id": nova_os.id,
+            "numero_os": nova_os.numero_os,
+            "valor_final": float(nova_os.valor_final)
+        }
+
     db.commit()
     db.refresh(db_agendamento)
-    return db_agendamento
+    
+    # Montar resposta
+    paciente = db.query(Paciente).filter(Paciente.id == db_agendamento.paciente_id).first()
+    clinica = db.query(Clinica).filter(Clinica.id == db_agendamento.clinica_id).first() if db_agendamento.clinica_id else None
+    servico = db.query(Servico).filter(Servico.id == db_agendamento.servico_id).first() if db_agendamento.servico_id else None
+    
+    resposta = {
+        "id": db_agendamento.id,
+        "status": db_agendamento.status,
+        "paciente": paciente.nome if paciente else "",
+        "clinica": clinica.nome if clinica else "",
+        "servico": servico.nome if servico else "",
+        "mensagem": f"Status atualizado para {status}"
+    }
+    
+    if os_gerada:
+        resposta["os_gerada"] = os_gerada
+        resposta["mensagem"] += f". OS {os_gerada['numero_os']} gerada com valor R$ {os_gerada['valor_final']:.2f}"
+    
+    return resposta
 
 @router.delete("/{agendamento_id}")
 def deletar_agendamento(

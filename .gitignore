@@ -8,6 +8,10 @@ backend/venv/
 frontend/node_modules/
 frontend/.next/
 
+# Base de dados (dados locais; não versionar)
+*.db
+backend/*.db
+
 # Outros
 *.log
 .DS_Store

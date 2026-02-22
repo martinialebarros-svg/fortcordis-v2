@@ -1,11 +1,12 @@
 /** @type {import('next').NextConfig} */
+// No servidor (stage/produção), defina API_BACKEND_URL (ex.: http://127.0.0.1:8001)
+const apiBackend = process.env.API_BACKEND_URL || 'http://localhost:8000'
 const nextConfig = {
-  allowedDevOrigins: ['216.238.116.77', 'localhost'],
   async rewrites() {
     return [
       {
         source: '/api/v1/:path*',
-        destination: 'http://localhost:8001/api/v1/:path*',
+        destination: `${apiBackend}/api/v1/:path*`,
       },
     ]
   },

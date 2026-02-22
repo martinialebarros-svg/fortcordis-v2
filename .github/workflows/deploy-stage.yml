@@ -1,0 +1,63 @@
+# Deploy para ambiente de stage (www.stage.fortcordis.com.br)
+# Dispara ao dar push na branch stage (ex.: git push origin feature/laudos-pdf-imagens:stage)
+name: Deploy to Stage (VPS)
+
+on:
+  push:
+    branches:
+      - stage
+
+jobs:
+  deploy-stage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to Stage (VPS)
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            set -e
+            STAGE_DIR="/var/www/fortcordis-stage"
+            if [ ! -d "$STAGE_DIR/.git" ]; then
+              echo "❌ $STAGE_DIR não está clonado. Na VPS rode: sudo mkdir -p $STAGE_DIR && sudo chown $USER $STAGE_DIR && git clone <url-do-repo> $STAGE_DIR"
+              exit 1
+            fi
+            cd $STAGE_DIR
+            echo "📦 Backup stage..."
+            tar -czf backup_stage_$(date +%Y%m%d_%H%M%S).tar.gz backend frontend 2>/dev/null || true
+            echo "⬇️  Atualizando código (branch stage)..."
+            git fetch origin
+            git reset --hard origin/stage
+            
+            echo "🐍 Deploy Backend (stage)..."
+            cd backend
+            python3 -m venv venv 2>/dev/null || true
+            source venv/bin/activate
+            pip install -r requirements.txt
+            
+            echo "🔧 Verificando/Criando tabelas do banco..."
+            python3 setup_database.py || echo "⚠️  Erro no setup do banco - verificar manualmente"
+            
+            cd ..
+            sudo systemctl restart fortcordis-stage-backend 2>/dev/null || echo "⚠️  Reinicie: sudo systemctl restart fortcordis-stage-backend"
+            
+            echo "⚛️  Deploy Frontend (stage)..."
+            cd frontend
+            npm install
+            npm run build
+            cd ..
+            sudo systemctl restart fortcordis-stage-frontend 2>/dev/null || echo "⚠️  Reinicie: sudo systemctl restart fortcordis-stage-frontend"
+            
+            echo "✅ Deploy stage concluído!"
+          EOF
