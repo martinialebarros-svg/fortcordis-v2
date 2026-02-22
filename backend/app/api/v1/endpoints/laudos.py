@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
@@ -158,20 +159,34 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
             tutor_id = None
             tutor_nome = paciente.get('tutor', '').strip()
             if tutor_nome:
-                # Buscar tutor existente
-                tutor = db.query(Tutor).filter(Tutor.nome == tutor_nome).first()
+                tutor_nome_key = _gerar_nome_key(tutor_nome)
+
+                # Buscar tutor existente pelo nome normalizado (evita colisão de unique key).
+                tutor = db.query(Tutor).filter(Tutor.nome_key == tutor_nome_key).first()
+                if not tutor:
+                    tutor = db.query(Tutor).filter(Tutor.nome.ilike(tutor_nome)).first()
+
                 if not tutor:
                     # Criar novo tutor
                     tutor = Tutor(
                         nome=tutor_nome,
-                        nome_key=_gerar_nome_key(tutor_nome),
+                        nome_key=tutor_nome_key,
                         telefone=paciente.get('telefone', ''),
                         ativo=1,
                         created_at=_legacy_now_str(),
                     )
                     db.add(tutor)
-                    db.commit()
-                    db.refresh(tutor)
+                    try:
+                        db.commit()
+                        db.refresh(tutor)
+                    except IntegrityError:
+                        # Outro fluxo pode ter criado o mesmo nome_key no intervalo.
+                        db.rollback()
+                        tutor = db.query(Tutor).filter(Tutor.nome_key == tutor_nome_key).first()
+                        if not tutor:
+                            tutor = db.query(Tutor).filter(Tutor.nome.ilike(tutor_nome)).first()
+                        if not tutor:
+                            raise
                     print(f"Tutor criado com ID: {tutor.id}")
                 tutor_id = tutor.id
             

@@ -1,14 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from typing import Optional
-from pydantic import BaseModel
 from datetime import datetime
 import re
 import unicodedata
+from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from app.core.security import get_current_user
 from app.db.database import get_db
 from app.models.tutor import Tutor
-from app.core.security import get_current_user
 from app.models.user import User
 
 router = APIRouter()
@@ -53,15 +55,15 @@ def listar_tutores(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Lista todos os tutores"""
+    """Lista todos os tutores."""
     query = db.query(Tutor).filter(Tutor.ativo == 1)
-    
+
     if busca:
         query = query.filter(Tutor.nome.ilike(f"%{busca}%"))
-    
+
     total = query.count()
     items = query.offset(skip).limit(limit).all()
-    
+
     return {
         "total": total,
         "items": [{"id": t.id, "nome": t.nome, "telefone": t.telefone} for t in items]
@@ -75,30 +77,49 @@ def criar_tutor(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Cria um novo tutor"""
-    # Verificar se já existe tutor com mesmo nome
-    existente = db.query(Tutor).filter(Tutor.nome.ilike(tutor.nome)).first()
+    """Cria um novo tutor."""
+    nome = tutor.nome.strip()
+    nome_key = _gerar_nome_key(nome)
+
+    # Evita colisão no índice único de nome_key.
+    existente = db.query(Tutor).filter(Tutor.nome_key == nome_key).first()
+    if not existente:
+        existente = db.query(Tutor).filter(Tutor.nome.ilike(nome)).first()
+
     if existente:
         return {
             "id": existente.id,
             "nome": existente.nome,
             "message": "Tutor já existe"
         }
-    
+
     novo_tutor = Tutor(
-        nome=tutor.nome,
-        nome_key=_gerar_nome_key(tutor.nome),
+        nome=nome,
+        nome_key=nome_key,
         telefone=tutor.telefone,
         whatsapp=tutor.whatsapp or tutor.telefone,
         email=tutor.email,
         ativo=1,
         created_at=_legacy_now_str(),
     )
-    
+
     db.add(novo_tutor)
-    db.commit()
-    db.refresh(novo_tutor)
-    
+    try:
+        db.commit()
+        db.refresh(novo_tutor)
+    except IntegrityError:
+        db.rollback()
+        existente = db.query(Tutor).filter(Tutor.nome_key == nome_key).first()
+        if not existente:
+            existente = db.query(Tutor).filter(Tutor.nome.ilike(nome)).first()
+        if existente:
+            return {
+                "id": existente.id,
+                "nome": existente.nome,
+                "message": "Tutor já existe"
+            }
+        raise HTTPException(status_code=500, detail="Erro ao criar tutor")
+
     return {
         "id": novo_tutor.id,
         "nome": novo_tutor.nome,
@@ -112,12 +133,12 @@ def obter_tutor(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Obtém detalhes de um tutor"""
+    """Obtém detalhes de um tutor."""
     tutor = db.query(Tutor).filter(Tutor.id == tutor_id).first()
-    
+
     if not tutor:
         raise HTTPException(status_code=404, detail="Tutor não encontrado")
-    
+
     return {
         "id": tutor.id,
         "nome": tutor.nome,
@@ -134,12 +155,12 @@ def atualizar_tutor(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Atualiza um tutor existente"""
+    """Atualiza um tutor existente."""
     db_tutor = db.query(Tutor).filter(Tutor.id == tutor_id).first()
-    
+
     if not db_tutor:
         raise HTTPException(status_code=404, detail="Tutor não encontrado")
-    
+
     if tutor.nome is not None:
         db_tutor.nome = tutor.nome
         db_tutor.nome_key = _gerar_nome_key(tutor.nome)
@@ -149,10 +170,10 @@ def atualizar_tutor(
         db_tutor.whatsapp = tutor.whatsapp
     if tutor.email is not None:
         db_tutor.email = tutor.email
-    
+
     db.commit()
     db.refresh(db_tutor)
-    
+
     return {
         "id": db_tutor.id,
         "nome": db_tutor.nome,
@@ -166,13 +187,13 @@ def deletar_tutor(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Remove um tutor (desativa)"""
+    """Remove um tutor (desativa)."""
     db_tutor = db.query(Tutor).filter(Tutor.id == tutor_id).first()
-    
+
     if not db_tutor:
         raise HTTPException(status_code=404, detail="Tutor não encontrado")
-    
+
     db_tutor.ativo = 0
     db.commit()
-    
+
     return {"message": "Tutor removido com sucesso"}

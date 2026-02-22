@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import Optional
 from pydantic import BaseModel
@@ -95,20 +96,34 @@ def criar_paciente(
     tutor_id = None
     if paciente.tutor:
         try:
-            tutor = db.query(Tutor).filter(Tutor.nome.ilike(paciente.tutor)).first()
+            tutor_nome = paciente.tutor.strip()
+            tutor_nome_key = _gerar_nome_key(tutor_nome)
+
+            tutor = db.query(Tutor).filter(Tutor.nome_key == tutor_nome_key).first()
+            if not tutor:
+                tutor = db.query(Tutor).filter(Tutor.nome.ilike(tutor_nome)).first()
+
             if not tutor:
                 # Criar novo tutor
                 tutor = Tutor(
-                    nome=paciente.tutor,
-                    nome_key=_gerar_nome_key(paciente.tutor),
+                    nome=tutor_nome,
+                    nome_key=tutor_nome_key,
                     email="",
                     telefone="",
                     ativo=1,
                     created_at=_legacy_now_str(),
                 )
                 db.add(tutor)
-                db.commit()
-                db.refresh(tutor)
+                try:
+                    db.commit()
+                    db.refresh(tutor)
+                except IntegrityError:
+                    db.rollback()
+                    tutor = db.query(Tutor).filter(Tutor.nome_key == tutor_nome_key).first()
+                    if not tutor:
+                        tutor = db.query(Tutor).filter(Tutor.nome.ilike(tutor_nome)).first()
+                    if not tutor:
+                        raise
             tutor_id = tutor.id
         except Exception as e:
             db.rollback()
@@ -198,19 +213,33 @@ def atualizar_paciente(
     
     # Atualizar tutor se fornecido
     if paciente.tutor:
-        tutor = db.query(Tutor).filter(Tutor.nome.ilike(paciente.tutor)).first()
+        tutor_nome = paciente.tutor.strip()
+        tutor_nome_key = _gerar_nome_key(tutor_nome)
+
+        tutor = db.query(Tutor).filter(Tutor.nome_key == tutor_nome_key).first()
+        if not tutor:
+            tutor = db.query(Tutor).filter(Tutor.nome.ilike(tutor_nome)).first()
+
         if not tutor:
             tutor = Tutor(
-                nome=paciente.tutor,
-                nome_key=_gerar_nome_key(paciente.tutor),
+                nome=tutor_nome,
+                nome_key=tutor_nome_key,
                 email="",
                 telefone="",
                 ativo=1,
                 created_at=_legacy_now_str(),
             )
             db.add(tutor)
-            db.commit()
-            db.refresh(tutor)
+            try:
+                db.commit()
+                db.refresh(tutor)
+            except IntegrityError:
+                db.rollback()
+                tutor = db.query(Tutor).filter(Tutor.nome_key == tutor_nome_key).first()
+                if not tutor:
+                    tutor = db.query(Tutor).filter(Tutor.nome.ilike(tutor_nome)).first()
+                if not tutor:
+                    raise
         db_paciente.tutor_id = tutor.id
     
     # Atualizar campos
