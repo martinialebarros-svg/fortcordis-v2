@@ -36,9 +36,21 @@ jobs:
             cd $STAGE_DIR
             echo "📦 Backup stage..."
             tar -czf backup_stage_$(date +%Y%m%d_%H%M%S).tar.gz backend frontend 2>/dev/null || true
+            
+            echo "💾 Preservando dados (frases JSON)..."
+            if [ -d "backend/data" ]; then
+              cp -r backend/data /tmp/fortcordis_data_backup
+            fi
+            
             echo "⬇️  Atualizando código (branch stage)..."
             git fetch origin
             git reset --hard origin/stage
+            
+            echo "📂 Restaurando dados preservados..."
+            if [ -d "/tmp/fortcordis_data_backup" ]; then
+              cp -r /tmp/fortcordis_data_backup/* backend/data/ 2>/dev/null || true
+              rm -rf /tmp/fortcordis_data_backup
+            fi
             
             echo "🐍 Deploy Backend (stage)..."
             cd backend

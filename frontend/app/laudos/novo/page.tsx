@@ -6,6 +6,7 @@ import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import XmlUploader from "../components/XmlUploader";
 import ImageUploader from "../components/ImageUploader";
+import FraseModal from "../components/FraseModal";
 import { Save, ArrowLeft, Heart, User, Activity, FileText, BookOpen, Settings, Image as ImageIcon, Minus, Plus } from "lucide-react";
 import { ReferenciaComparison } from "../components/ReferenciaComparison";
 
@@ -220,6 +221,7 @@ export default function NovoLaudoPage() {
   // Lista de frases (para aba Frases)
   const [frases, setFrases] = useState<FraseQualitativa[]>([]);
   const [fraseEditando, setFraseEditando] = useState<FraseQualitativa | null>(null);
+const [modalFraseOpen, setModalFraseOpen] = useState(false);
   
   // Imagens do laudo
   const [imagens, setImagens] = useState<any[]>([]);
@@ -295,6 +297,37 @@ export default function NovoLaudoPage() {
     } catch (error) {
       console.error("Erro ao carregar frases:", error);
     }
+  };
+
+  const handleEditarFrase = (frase: FraseQualitativa) => {
+    setFraseEditando(frase);
+    setModalFraseOpen(true);
+  };
+
+  const handleNovaFrase = () => {
+    setFraseEditando(null);
+    setModalFraseOpen(true);
+  };
+
+  const handleExcluirFrase = async (fraseId: number) => {
+    if (!confirm("Tem certeza que deseja excluir esta frase?")) {
+      return;
+    }
+    try {
+      await api.delete(`/frases/${fraseId}`);
+      carregarFrases();
+      setMensagemSucesso("Frase excluída com sucesso!");
+      setTimeout(() => setMensagemSucesso(null), 3000);
+    } catch (error) {
+      console.error("Erro ao excluir frase:", error);
+      alert("Erro ao excluir frase");
+    }
+  };
+
+  const handleFraseSalva = () => {
+    carregarFrases();
+    setMensagemSucesso(fraseEditando ? "Frase atualizada com sucesso!" : "Frase criada com sucesso!");
+    setTimeout(() => setMensagemSucesso(null), 3000);
   };
 
   const handleGerarTexto = async () => {
@@ -1257,7 +1290,10 @@ export default function NovoLaudoPage() {
                   <div className="space-y-4">
                     <div className="flex justify-between items-center mb-4">
                       <h3 className="font-medium text-gray-900">Gerenciamento de Frases</h3>
-                      <button className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm">
+                      <button 
+                        onClick={handleNovaFrase}
+                        className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm"
+                      >
                         + Nova Frase
                       </button>
                     </div>
@@ -1283,13 +1319,19 @@ export default function NovoLaudoPage() {
                                 <td className="px-4 py-2">{frase.patologia}</td>
                                 <td className="px-4 py-2">{frase.grau}</td>
                                 <td className="px-4 py-2 truncate max-w-xs">
-                                  {frase.conclusao.substring(0, 50)}...
+                                  {frase.conclusao?.substring(0, 50)}...
                                 </td>
                                 <td className="px-4 py-2 text-right">
-                                  <button className="text-teal-600 hover:text-teal-800 mr-2">
+                                  <button 
+                                    onClick={() => handleEditarFrase(frase)}
+                                    className="text-teal-600 hover:text-teal-800 mr-3"
+                                  >
                                     Editar
                                   </button>
-                                  <button className="text-red-600 hover:text-red-800">
+                                  <button 
+                                    onClick={() => handleExcluirFrase(frase.id)}
+                                    className="text-red-600 hover:text-red-800"
+                                  >
                                     Excluir
                                   </button>
                                 </td>
@@ -1299,6 +1341,14 @@ export default function NovoLaudoPage() {
                         </table>
                       </div>
                     )}
+
+                    {/* Modal de Frase */}
+                    <FraseModal
+                      isOpen={modalFraseOpen}
+                      onClose={() => setModalFraseOpen(false)}
+                      frase={fraseEditando}
+                      onSuccess={handleFraseSalva}
+                    />
                   </div>
                 )}
 
