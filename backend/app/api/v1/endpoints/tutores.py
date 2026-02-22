@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import Optional
 from pydantic import BaseModel
+import re
+import unicodedata
 
 from app.db.database import get_db
 from app.models.tutor import Tutor
@@ -9,6 +11,18 @@ from app.core.security import get_current_user
 from app.models.user import User
 
 router = APIRouter()
+
+
+def _gerar_nome_key(nome: Optional[str]) -> str:
+    """Gera chave normalizada para compatibilidade com schema legado."""
+    if not nome:
+        return ""
+    texto = unicodedata.normalize("NFKD", nome)
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = texto.lower().strip()
+    texto = re.sub(r"[^a-z0-9\s]", "", texto)
+    texto = re.sub(r"\s+", " ", texto)
+    return texto
 
 
 class TutorCreate(BaseModel):
@@ -68,6 +82,7 @@ def criar_tutor(
     
     novo_tutor = Tutor(
         nome=tutor.nome,
+        nome_key=_gerar_nome_key(tutor.nome),
         telefone=tutor.telefone,
         whatsapp=tutor.whatsapp or tutor.telefone,
         email=tutor.email,
@@ -121,6 +136,7 @@ def atualizar_tutor(
     
     if tutor.nome is not None:
         db_tutor.nome = tutor.nome
+        db_tutor.nome_key = _gerar_nome_key(tutor.nome)
     if tutor.telefone is not None:
         db_tutor.telefone = tutor.telefone
     if tutor.whatsapp is not None:

@@ -95,6 +95,7 @@ def criar_paciente(
                 # Criar novo tutor
                 tutor = Tutor(
                     nome=paciente.tutor,
+                    nome_key=_gerar_nome_key(paciente.tutor),
                     email="",
                     telefone="",
                     ativo=1
@@ -192,7 +193,12 @@ def atualizar_paciente(
     if paciente.tutor:
         tutor = db.query(Tutor).filter(Tutor.nome.ilike(paciente.tutor)).first()
         if not tutor:
-            tutor = Tutor(nome=paciente.tutor, email="", telefone="")
+            tutor = Tutor(
+                nome=paciente.tutor,
+                nome_key=_gerar_nome_key(paciente.tutor),
+                email="",
+                telefone=""
+            )
             db.add(tutor)
             db.commit()
             db.refresh(tutor)

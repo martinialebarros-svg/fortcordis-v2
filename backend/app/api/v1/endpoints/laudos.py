@@ -160,6 +160,7 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
                     # Criar novo tutor
                     tutor = Tutor(
                         nome=tutor_nome,
+                        nome_key=_gerar_nome_key(tutor_nome),
                         telefone=paciente.get('telefone', ''),
                         ativo=1
                     )
