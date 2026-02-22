@@ -24,14 +24,20 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
   const [comparacoes, setComparacoes] = useState<Record<string, ComparacaoMedida>>({});
 
   useEffect(() => {
+    const pesoValido = typeof peso === "number" && Number.isFinite(peso) && peso > 0;
+
     async function carregarReferencia() {
-      if (especie && peso) {
+      if (especie && pesoValido) {
         const ref = await buscarReferencia(especie, peso);
         setReferencia(ref);
+        return;
       }
+
+      setReferencia(null);
     }
+
     carregarReferencia();
-  }, [especie, peso]);
+  }, [especie, peso, buscarReferencia]);
 
   useEffect(() => {
     if (referencia) {
@@ -54,7 +60,7 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
         <AlertCircle className="w-12 h-12 mx-auto mb-3 text-gray-400" />
         <p className="text-lg font-medium mb-1">Nenhuma referência encontrada</p>
         <p className="text-sm">
-          {!especie || !peso 
+          {!especie || !(typeof peso === "number" && Number.isFinite(peso) && peso > 0)
             ? "Preencha os dados do paciente (espécie e peso) para visualizar as referências."
             : `Não há referência cadastrada para ${especie} com ${peso}kg.`}
         </p>

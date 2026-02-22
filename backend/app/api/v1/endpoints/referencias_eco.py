@@ -39,6 +39,34 @@ _MAPEAMENTO_CSV_FELINOS = {
 }
 
 
+def _normalizar_especie(especie: Optional[str]) -> Optional[str]:
+    """Normaliza texto de especie para Canina/Felina."""
+    if not especie:
+        return None
+
+    valor = especie.strip().lower()
+    if valor.startswith("fel") or "gato" in valor or "cat" in valor:
+        return "Felina"
+    if valor.startswith("can") or "cao" in valor or "cão" in valor or "dog" in valor:
+        return "Canina"
+
+    return especie.strip()
+
+
+def _aplicar_filtro_especie(query, especie: Optional[str]):
+    """Aplica filtro flexivel por especie (suporta legado canino/caninos/felino/felinos)."""
+    especie_norm = _normalizar_especie(especie)
+    if not especie_norm:
+        return query
+
+    if especie_norm == "Canina":
+        return query.filter(ReferenciaEco.especie.ilike("canin%"))
+    if especie_norm == "Felina":
+        return query.filter(ReferenciaEco.especie.ilike("felin%"))
+
+    return query.filter(ReferenciaEco.especie.ilike(especie_norm))
+
+
 def _referencia_to_dict(r: ReferenciaEco) -> dict:
     """Serializa um ReferenciaEco para dict (evita problemas de JSON com objetos SQLAlchemy)."""
     return {
@@ -87,7 +115,8 @@ def _referencia_to_dict(r: ReferenciaEco) -> dict:
 def _importar_csv_from_content(content: str, especie: str, db: Session) -> int:
     """Importa referências a partir do conteúdo CSV. Substitui as existentes da espécie."""
     mapeamento = _MAPEAMENTO_CSV_CANINOS if especie == "Canina" else _MAPEAMENTO_CSV_FELINOS
-    db.query(ReferenciaEco).filter(ReferenciaEco.especie == especie).delete()
+    query_delete = _aplicar_filtro_especie(db.query(ReferenciaEco), especie)
+    query_delete.delete(synchronize_session=False)
     count = 0
     stream = io.StringIO(content)
     reader = csv.DictReader(stream)
@@ -205,8 +234,8 @@ def listar_referencias(
     query = db.query(ReferenciaEco)
     
     if especie:
-        query = query.filter(ReferenciaEco.especie.ilike(especie))
-    if peso:
+        query = _aplicar_filtro_especie(query, especie)
+    if peso is not None:
         # Busca o peso mais próximo (dentro de uma faixa)
         query = query.filter(
             ReferenciaEco.peso_kg >= peso - 1,
@@ -267,15 +296,14 @@ def buscar_referencia_por_peso(
     current_user: User = Depends(get_current_user)
 ):
     """Busca a referência mais próxima do peso informado"""
-    ref = db.query(ReferenciaEco).filter(
-        ReferenciaEco.especie.ilike(especie)
-    ).order_by(
+    query = _aplicar_filtro_especie(db.query(ReferenciaEco), especie)
+    ref = query.order_by(
         func.abs(ReferenciaEco.peso_kg - peso_kg)
     ).first()
     
     if not ref:
         raise HTTPException(status_code=404, detail="Referência não encontrada")
-    return ref
+    return _referencia_to_dict(ref)
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)

@@ -1386,7 +1386,7 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
                     <div className="flex justify-between items-center mb-4">
                       <h3 className="font-medium text-gray-900">Tabelas de Referência</h3>
                       <a 
-                        href="/referencias"
+                        href="/referencias-eco"
                         target="_blank"
                         className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm flex items-center gap-2"
                       >
@@ -1405,7 +1405,7 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
                     
                     <ReferenciaComparison 
                       especie={paciente.especie === "Felina" ? "Felina" : "Canina"}
-                      peso={paciente.peso ? parseFloat(paciente.peso) : undefined}
+                      peso={parseNumero(paciente.peso) ?? undefined}
                       medidas={medidas}
                     />
                   </div>
