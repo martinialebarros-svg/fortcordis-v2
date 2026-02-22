@@ -542,6 +542,12 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
   const handleSalvar = async () => {
     setLoading(true);
     try {
+      const pacienteNome = (paciente.nome || "").trim();
+      if (!pacienteNome) {
+        alert("Nome do paciente é obrigatório.");
+        return;
+      }
+
       // Enviar clínica como objeto com id ou nome
       const clinicaPayload = clinicaId 
         ? { id: parseInt(clinicaId), nome: clinicaNome }
@@ -573,7 +579,8 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
       router.push("/laudos");
     } catch (error) {
       console.error("Erro ao salvar laudo:", error);
-      alert("Erro ao salvar laudo");
+      const detail = (error as any)?.response?.data?.detail;
+      alert(typeof detail === "string" && detail.trim() ? detail : "Erro ao salvar laudo");
     } finally {
       setLoading(false);
     }

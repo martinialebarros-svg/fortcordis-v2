@@ -128,6 +128,8 @@ def criar_laudo(
         db.refresh(laudo)
         
         return laudo
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"ERRO AO CRIAR LAUDO: {str(e)}")
         print(traceback.format_exc())
@@ -147,11 +149,18 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
         conteudo = laudo_data.get("conteudo", {})
         clinica = laudo_data.get("clinica", {})
         veterinario = laudo_data.get("veterinario", {})
+        paciente_id = paciente.get("id")
+        paciente_nome_input = (paciente.get("nome") or "").strip()
+        if not paciente_id and not paciente_nome_input:
+            raise HTTPException(
+                status_code=422,
+                detail="Nome do paciente e obrigatorio para salvar o laudo."
+            )
+
         
         print(f"Criando laudo eco para paciente: {paciente.get('nome')}")
         
         # Verificar se o paciente tem ID, senão criar um novo
-        paciente_id = paciente.get("id")
         if not paciente_id and paciente.get("nome"):
             print(f"Criando novo paciente: {paciente.get('nome')}")
             
@@ -190,7 +199,7 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
                     print(f"Tutor criado com ID: {tutor.id}")
                 tutor_id = tutor.id
             
-            paciente_nome = (paciente.get("nome") or "Paciente sem nome").strip()
+            paciente_nome = paciente_nome_input or "Paciente sem nome"
             paciente_nome_key = _gerar_nome_key(paciente_nome)
             paciente_especie = (paciente.get("especie") or "Canina").strip() or "Canina"
 
@@ -321,6 +330,8 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
             "paciente": paciente.get("nome") if isinstance(paciente, dict) else None,
             "tipo": "ecocardiograma"
         }
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"ERRO AO CRIAR LAUDO ECO: {str(e)}")
         print(traceback.format_exc())
