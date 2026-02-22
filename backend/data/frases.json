@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "last_updated": "2026-02-21T22:20:35.280672",
+  "last_updated": "2026-02-21T22:31:08.822427",
   "frases": [
     {
       "id": 1,
@@ -3391,6 +3391,24 @@
       "ativo": 1,
       "created_at": "2026-02-17 23:03:38",
       "updated_at": "2026-02-21T22:20:35.278038"
+    },
+    {
+      "id": 76,
+      "chave": "teste (Normal)",
+      "patologia": "teste",
+      "grau": "Normal",
+      "valvas": "",
+      "camaras": "",
+      "funcao": "",
+      "pericardio": "",
+      "vasos": "",
+      "ad_vd": "",
+      "conclusao": "",
+      "detalhado": null,
+      "layout": "detalhado",
+      "ativo": 0,
+      "created_at": "2026-02-21T22:30:52.711546",
+      "updated_at": "2026-02-21T22:31:08.822416"
     }
   ]
 }
