@@ -37,11 +37,81 @@ def _save_json(filepath: Path, data: Any):
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
+def _to_int(value: Any) -> Optional[int]:
+    """Converte valor para int quando possível."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        value = value.strip()
+        if value.isdigit():
+            return int(value)
+    return None
+
+
+def _normalize_frases_ids(frases: List[Dict[str, Any]]) -> bool:
+    """Garante que frases tenham IDs inteiros e únicos."""
+    changed = False
+    used_ids: set[int] = set()
+
+    valid_ids = []
+    for frase in frases:
+        frase_id = _to_int(frase.get("id"))
+        if frase_id is not None:
+            valid_ids.append(frase_id)
+    next_id = (max(valid_ids) + 1) if valid_ids else 1
+
+    for frase in frases:
+        original_id = frase.get("id")
+        frase_id = _to_int(original_id)
+
+        if frase_id is None or frase_id in used_ids:
+            while next_id in used_ids:
+                next_id += 1
+            frase_id = next_id
+            next_id += 1
+            changed = True
+
+        if original_id != frase_id:
+            changed = True
+
+        frase["id"] = frase_id
+        used_ids.add(frase_id)
+
+    return changed
+
+
+def _load_frases_data() -> Dict[str, Any]:
+    """Carrega frases garantindo estrutura e IDs válidos."""
+    data = _load_json(FRASES_FILE, {"frases": [], "version": "1.0"})
+    if not isinstance(data, dict):
+        data = {"frases": [], "version": "1.0"}
+
+    frases = data.get("frases", [])
+    if not isinstance(frases, list):
+        frases = []
+    data["frases"] = frases
+
+    if _normalize_frases_ids(frases):
+        data["last_updated"] = datetime.now().isoformat()
+        _save_json(FRASES_FILE, data)
+
+    return data
+
+
 def _generate_id(frases: List[Dict]) -> int:
     """Gera um novo ID baseado nos IDs existentes."""
     if not frases:
         return 1
-    return max(f.get("id", 0) for f in frases) + 1
+
+    ids = [_to_int(f.get("id")) for f in frases]
+    ids_validos = [i for i in ids if i is not None]
+    if not ids_validos:
+        return 1
+    return max(ids_validos) + 1
 
 
 # =============================================================================
@@ -57,7 +127,7 @@ def listar_frases(
     limit: int = 100
 ) -> Dict[str, Any]:
     """Lista todas as frases qualitativas com filtros opcionais."""
-    data = _load_json(FRASES_FILE, {"frases": []})
+    data = _load_frases_data()
     frases = data.get("frases", [])
     
     # Aplicar filtros
@@ -87,16 +157,17 @@ def listar_frases(
 
 def obter_frase(frase_id: int) -> Optional[Dict]:
     """Obtém uma frase específica pelo ID."""
-    data = _load_json(FRASES_FILE, {"frases": []})
+    data = _load_frases_data()
+    frase_id = _to_int(frase_id) or frase_id
     for frase in data.get("frases", []):
-        if frase.get("id") == frase_id and frase.get("ativo", 1) == 1:
+        if _to_int(frase.get("id")) == frase_id and frase.get("ativo", 1) == 1:
             return frase
     return None
 
 
 def obter_frase_por_chave(chave: str) -> Optional[Dict]:
     """Obtém uma frase específica pela chave."""
-    data = _load_json(FRASES_FILE, {"frases": []})
+    data = _load_frases_data()
     for frase in data.get("frases", []):
         if frase.get("chave") == chave and frase.get("ativo", 1) == 1:
             return frase
@@ -105,7 +176,7 @@ def obter_frase_por_chave(chave: str) -> Optional[Dict]:
 
 def criar_frase(frase_data: Dict[str, Any]) -> Dict[str, Any]:
     """Cria uma nova frase qualitativa."""
-    data = _load_json(FRASES_FILE, {"frases": [], "version": "1.0"})
+    data = _load_frases_data()
     frases = data.get("frases", [])
     
     # Verificar se já existe chave
@@ -143,11 +214,12 @@ def criar_frase(frase_data: Dict[str, Any]) -> Dict[str, Any]:
 
 def atualizar_frase(frase_id: int, frase_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Atualiza uma frase existente."""
-    data = _load_json(FRASES_FILE, {"frases": []})
+    data = _load_frases_data()
     frases = data.get("frases", [])
+    frase_id = _to_int(frase_id) or frase_id
     
     for i, frase in enumerate(frases):
-        if frase.get("id") == frase_id:
+        if _to_int(frase.get("id")) == frase_id:
             # Atualizar apenas os campos fornecidos
             for key, value in frase_data.items():
                 if value is not None and key not in ["id", "created_at"]:
@@ -166,11 +238,12 @@ def atualizar_frase(frase_id: int, frase_data: Dict[str, Any]) -> Optional[Dict[
 
 def deletar_frase(frase_id: int) -> bool:
     """Remove uma frase (soft delete - apenas marca como inativo)."""
-    data = _load_json(FRASES_FILE, {"frases": []})
+    data = _load_frases_data()
     frases = data.get("frases", [])
+    frase_id = _to_int(frase_id) or frase_id
     
     for frase in frases:
-        if frase.get("id") == frase_id:
+        if _to_int(frase.get("id")) == frase_id:
             frase["ativo"] = 0
             frase["updated_at"] = datetime.now().isoformat()
             
@@ -184,11 +257,12 @@ def deletar_frase(frase_id: int) -> bool:
 
 def restaurar_frase(frase_id: int) -> bool:
     """Restaura uma frase removida."""
-    data = _load_json(FRASES_FILE, {"frases": []})
+    data = _load_frases_data()
     frases = data.get("frases", [])
+    frase_id = _to_int(frase_id) or frase_id
     
     for frase in frases:
-        if frase.get("id") == frase_id:
+        if _to_int(frase.get("id")) == frase_id:
             frase["ativo"] = 1
             frase["updated_at"] = datetime.now().isoformat()
             
@@ -220,7 +294,7 @@ def buscar_frase_por_patologia_grau(
         return frase
     
     # Se não encontrar, buscar apenas pela patologia
-    data = _load_json(FRASES_FILE, {"frases": []})
+    data = _load_frases_data()
     for f in data.get("frases", []):
         if (patologia.lower() in f.get("patologia", "").lower() and 
             f.get("ativo", 1) == 1):
