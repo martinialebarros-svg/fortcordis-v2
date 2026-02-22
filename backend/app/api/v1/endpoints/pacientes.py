@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from pydantic import BaseModel
 from datetime import date, datetime
+import re
+import unicodedata
 
 from app.db.database import get_db
 from app.models.paciente import Paciente
@@ -11,6 +13,18 @@ from app.core.security import get_current_user
 from app.models.user import User
 
 router = APIRouter()
+
+
+def _gerar_nome_key(nome: Optional[str]) -> str:
+    """Gera chave normalizada para compatibilidade com schema legado."""
+    if not nome:
+        return ""
+    texto = unicodedata.normalize("NFKD", nome)
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = texto.lower().strip()
+    texto = re.sub(r"[^a-z0-9\s]", "", texto)
+    texto = re.sub(r"\s+", " ", texto)
+    return texto
 
 # Schemas
 class PacienteCreate(BaseModel):
@@ -98,6 +112,7 @@ def criar_paciente(
     try:
         db_paciente = Paciente(
             nome=paciente.nome,
+            nome_key=_gerar_nome_key(paciente.nome),
             tutor_id=tutor_id,
             especie=paciente.especie,
             raca=paciente.raca,
@@ -185,6 +200,7 @@ def atualizar_paciente(
     
     # Atualizar campos
     db_paciente.nome = paciente.nome
+    db_paciente.nome_key = _gerar_nome_key(paciente.nome)
     db_paciente.especie = paciente.especie
     db_paciente.raca = paciente.raca
     db_paciente.sexo = paciente.sexo
