@@ -190,28 +190,61 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
                     print(f"Tutor criado com ID: {tutor.id}")
                 tutor_id = tutor.id
             
+            paciente_nome = (paciente.get("nome") or "Paciente sem nome").strip()
+            paciente_nome_key = _gerar_nome_key(paciente_nome)
+            paciente_especie = (paciente.get("especie") or "Canina").strip() or "Canina"
+
+            # Evita colisão no índice único legado: (tutor_id, nome_key, especie).
+            paciente_query = db.query(Paciente).filter(Paciente.nome_key == paciente_nome_key)
+            if tutor_id is None:
+                paciente_query = paciente_query.filter(Paciente.tutor_id.is_(None))
+            else:
+                paciente_query = paciente_query.filter(Paciente.tutor_id == tutor_id)
+            paciente_query = paciente_query.filter(Paciente.especie.ilike(paciente_especie))
+
+            paciente_existente = paciente_query.order_by(Paciente.id.desc()).first()
+            if paciente_existente:
+                paciente_id = paciente_existente.id
+                print(f"Paciente existente reutilizado ID: {paciente_id}")
+            
             # Criar novo paciente
             observacoes = ""
             if paciente.get('idade'):
                 observacoes += f"Idade: {paciente.get('idade')}\n"
-            
-            novo_paciente = Paciente(
-                nome=paciente.get("nome", "Paciente sem nome"),
-                nome_key=_gerar_nome_key(paciente.get("nome", "")),
-                especie=paciente.get("especie", ""),
-                raca=paciente.get("raca", ""),
-                sexo=paciente.get("sexo", ""),
-                peso_kg=float(paciente.get("peso", 0)) if paciente.get("peso") else None,
-                tutor_id=tutor_id,
-                observacoes=observacoes if observacoes else None,
-                ativo=1,
-                created_at=_legacy_now_str(),
-            )
-            db.add(novo_paciente)
-            db.commit()
-            db.refresh(novo_paciente)
-            paciente_id = novo_paciente.id
-            print(f"Paciente criado com ID: {paciente_id}")
+
+            if not paciente_id:
+                novo_paciente = Paciente(
+                    nome=paciente_nome,
+                    nome_key=paciente_nome_key,
+                    especie=paciente_especie,
+                    raca=paciente.get("raca", ""),
+                    sexo=paciente.get("sexo", ""),
+                    peso_kg=float(paciente.get("peso", 0)) if paciente.get("peso") else None,
+                    tutor_id=tutor_id,
+                    observacoes=observacoes if observacoes else None,
+                    ativo=1,
+                    created_at=_legacy_now_str(),
+                )
+                db.add(novo_paciente)
+                try:
+                    db.commit()
+                    db.refresh(novo_paciente)
+                    paciente_id = novo_paciente.id
+                    print(f"Paciente criado com ID: {paciente_id}")
+                except IntegrityError:
+                    # Outro fluxo pode ter criado o mesmo paciente no intervalo.
+                    db.rollback()
+                    paciente_query = db.query(Paciente).filter(Paciente.nome_key == paciente_nome_key)
+                    if tutor_id is None:
+                        paciente_query = paciente_query.filter(Paciente.tutor_id.is_(None))
+                    else:
+                        paciente_query = paciente_query.filter(Paciente.tutor_id == tutor_id)
+                    paciente_query = paciente_query.filter(Paciente.especie.ilike(paciente_especie))
+                    paciente_existente = paciente_query.order_by(Paciente.id.desc()).first()
+                    if not paciente_existente:
+                        raise
+                    paciente_id = paciente_existente.id
+                    print(f"Paciente existente pós-colisão reutilizado ID: {paciente_id}")
         
         if not paciente_id:
             raise ValueError("Não foi possível determinar o paciente para o laudo")
