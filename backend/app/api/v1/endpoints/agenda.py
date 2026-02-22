@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -65,6 +65,24 @@ def _fill_data_hora_from_inicio(agendamento: Agendamento) -> None:
         return
     agendamento.data = inicio_dt.strftime("%Y-%m-%d")
     agendamento.hora = inicio_dt.strftime("%H:%M")
+
+
+def _apply_service_duration_if_needed(db: Session, agendamento: Agendamento) -> None:
+    inicio_dt = _coerce_datetime(agendamento.inicio)
+    if inicio_dt is None:
+        return
+
+    fim_dt = _coerce_datetime(agendamento.fim)
+    if fim_dt is not None and fim_dt > inicio_dt:
+        return
+
+    duracao_minutos = 30
+    if agendamento.servico_id:
+        servico = db.query(Servico).filter(Servico.id == agendamento.servico_id).first()
+        if servico and servico.duracao_minutos and servico.duracao_minutos > 0:
+            duracao_minutos = int(servico.duracao_minutos)
+
+    agendamento.fim = inicio_dt + timedelta(minutes=duracao_minutos)
 
 
 def _fetch_related_names(db: Session, agendamento: Agendamento) -> dict:
@@ -260,6 +278,7 @@ def criar_agendamento(
     db_agendamento.created_at = now
     db_agendamento.updated_at = now
 
+    _apply_service_duration_if_needed(db, db_agendamento)
     _fill_data_hora_from_inicio(db_agendamento)
     related = _fetch_related_names(db, db_agendamento)
     _sync_denormalized_fields(db_agendamento, related)
@@ -286,6 +305,8 @@ def atualizar_agendamento(
     for field, value in update_data.items():
         setattr(db_agendamento, field, value)
 
+    if "inicio" in update_data or "fim" in update_data or "servico_id" in update_data:
+        _apply_service_duration_if_needed(db, db_agendamento)
     if "inicio" in update_data:
         _fill_data_hora_from_inicio(db_agendamento)
 

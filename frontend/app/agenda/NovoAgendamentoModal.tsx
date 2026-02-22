@@ -163,7 +163,6 @@ export default function NovoAgendamentoModal({
 
     try {
       const inicio = new Date(`${formData.data}T${formData.hora}:00`);
-      const fim = new Date(inicio.getTime() + 30 * 60000);
       let pacienteId = formData.paciente_id ? parseInt(formData.paciente_id, 10) : NaN;
 
       if (!Number.isFinite(pacienteId)) {
@@ -189,6 +188,16 @@ export default function NovoAgendamentoModal({
           throw new Error("Nao foi possivel criar o paciente rapidamente.");
         }
       }
+
+      const servicoSelecionado = servicos.find(
+        (s) => s.id?.toString() === formData.servico_id
+      );
+      const duracaoMinutos = Number.parseInt(
+        `${servicoSelecionado?.duracao_minutos ?? ""}`,
+        10
+      );
+      const duracaoEfetiva = Number.isFinite(duracaoMinutos) && duracaoMinutos > 0 ? duracaoMinutos : 30;
+      const fim = new Date(inicio.getTime() + duracaoEfetiva * 60000);
 
       const payload = {
         paciente_id: pacienteId,
@@ -327,6 +336,17 @@ export default function NovoAgendamentoModal({
                 </option>
               ))}
             </select>
+            {formData.servico_id && (
+              <p className="mt-1 text-xs text-gray-500">
+                Duração estimada: {
+                  (() => {
+                    const servicoSelecionado = servicos.find((s) => s.id?.toString() === formData.servico_id);
+                    const duracaoMinutos = Number.parseInt(`${servicoSelecionado?.duracao_minutos ?? ""}`, 10);
+                    return Number.isFinite(duracaoMinutos) && duracaoMinutos > 0 ? `${duracaoMinutos} min` : "30 min";
+                  })()
+                }
+              </p>
+            )}
           </div>
 
           {/* Data e Hora */}
