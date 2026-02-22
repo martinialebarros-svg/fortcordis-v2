@@ -6,6 +6,7 @@ class Tutor(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     nome = Column(Text)
+    nome_key = Column(Text)
     telefone = Column(Text)
     whatsapp = Column(Text)
     email = Column(Text)
