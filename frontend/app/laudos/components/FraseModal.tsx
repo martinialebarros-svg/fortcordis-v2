@@ -16,7 +16,7 @@ interface Frase {
   vasos: string;
   ad_vd: string;
   conclusao: string;
-  layout: string;
+  layout?: string;
 }
 
 interface FraseModalProps {
