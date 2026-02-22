@@ -121,6 +121,7 @@ interface FraseQualitativa {
   vasos: string;
   ad_vd: string;
   conclusao: string;
+  layout?: string;
 }
 
 // Parâmetros ecocardiográficos
