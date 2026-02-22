@@ -4,6 +4,7 @@ import tempfile
 from io import BytesIO
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
+from xml.sax.saxutils import escape as xml_escape
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -60,6 +61,13 @@ def _to_float(valor: Any) -> Optional[float]:
         return float(valor)
     except (TypeError, ValueError):
         return None
+
+
+def _esc(valor: Any) -> str:
+    """Escapa texto para uso seguro em reportlab Paragraph."""
+    if valor is None:
+        return ""
+    return xml_escape(str(valor))
 
 
 def normalizar_medidas_para_pdf(medidas: Dict[str, Any]) -> Dict[str, Any]:
@@ -349,31 +357,42 @@ def criar_cabecalho(dados: Dict[str, Any], temp_logo_path: str = None) -> List:
     clinica = dados.get('clinica', '')
     
     # Linha 1: Paciente | Espécie | Raça
-    linha1 = f"<b>Paciente:</b> {paciente.get('nome', 'N/A')} | <b>Espécie:</b> {paciente.get('especie', 'N/A')} | <b>Raça:</b> {paciente.get('raca', 'N/A')}"
+    linha1 = (
+        f"<b>Paciente:</b> {_esc(paciente.get('nome', 'N/A'))} | "
+        f"<b>Espécie:</b> {_esc(paciente.get('especie', 'N/A'))} | "
+        f"<b>Raça:</b> {_esc(paciente.get('raca', 'N/A'))}"
+    )
     elements.append(Paragraph(linha1, styles['Normal']))
     elements.append(Spacer(1, 1*mm))
     
     # Linha 2: Sexo | Idade | Peso
     peso = paciente.get('peso', 'N/A')
     peso_str = f"{peso} kg" if peso and peso != 'N/A' else 'N/A'
-    linha2 = f"<b>Sexo:</b> {paciente.get('sexo', 'N/A')} | <b>Idade:</b> {paciente.get('idade', 'N/A')} | <b>Peso:</b> {peso_str}"
+    linha2 = (
+        f"<b>Sexo:</b> {_esc(paciente.get('sexo', 'N/A'))} | "
+        f"<b>Idade:</b> {_esc(paciente.get('idade', 'N/A'))} | "
+        f"<b>Peso:</b> {_esc(peso_str)}"
+    )
     elements.append(Paragraph(linha2, styles['Normal']))
     elements.append(Spacer(1, 1*mm))
     
     # Linha 3: Tutor | Solicitante
     solicitante = paciente.get('solicitante', '') or ''
-    linha3 = f"<b>Tutor:</b> {paciente.get('tutor', 'N/A')} | <b>Solicitante:</b> {solicitante}"
+    linha3 = (
+        f"<b>Tutor:</b> {_esc(paciente.get('tutor', 'N/A'))} | "
+        f"<b>Solicitante:</b> {_esc(solicitante)}"
+    )
     elements.append(Paragraph(linha3, styles['Normal']))
     elements.append(Spacer(1, 1*mm))
     
     # Linha 4: Clínica
     if clinica:
-        elements.append(Paragraph(f"<b>Clínica:</b> {clinica}", styles['Normal']))
+        elements.append(Paragraph(f"<b>Clínica:</b> {_esc(clinica)}", styles['Normal']))
         elements.append(Spacer(1, 1*mm))
     
     # Linha 5: Data
     data_exame = paciente.get('data_exame', datetime.now().strftime('%d/%m/%Y'))
-    elements.append(Paragraph(f"<b>Data:</b> {data_exame}", styles['Normal']))
+    elements.append(Paragraph(f"<b>Data:</b> {_esc(data_exame)}", styles['Normal']))
     elements.append(Spacer(1, 1*mm))
     
     # Linha 6: Ritmo | FC | Estado
@@ -381,7 +400,11 @@ def criar_cabecalho(dados: Dict[str, Any], temp_logo_path: str = None) -> List:
     fc = paciente.get('fc', '') or ''
     fc_str = f"{fc} bpm" if fc else "bpm"
     estado = paciente.get('estado', 'Calmo') or 'Calmo'
-    linha6 = f"<b>Ritmo:</b> {ritmo} | <b>FC:</b> {fc_str} | <b>Estado:</b> {estado}"
+    linha6 = (
+        f"<b>Ritmo:</b> {_esc(ritmo)} | "
+        f"<b>FC:</b> {_esc(fc_str)} | "
+        f"<b>Estado:</b> {_esc(estado)}"
+    )
     elements.append(Paragraph(linha6, styles['Normal']))
     elements.append(Spacer(1, 3*mm))
     
@@ -624,7 +647,7 @@ def criar_secao_ad_vd(texto: str) -> List:
     elements.append(titulo_table)
     
     # Texto do AD/VD
-    texto_data = [[Paragraph(texto.strip(), styles['Normal'])]]
+    texto_data = [[Paragraph(_esc(texto.strip()), styles['Normal'])]]
     texto_table = Table(texto_data, colWidths=[180*mm])
     texto_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), COR_BRANCO),
@@ -666,7 +689,7 @@ def criar_secao_qualitativa(qualitativa: Dict[str, str]) -> List:
         texto = qualitativa.get(chave, '').strip()
         if texto:
             # Formato com asterisco como no modelo: * Label: texto
-            elements.append(Paragraph(f"<b>* {label}:</b> {texto}", styles['QualitativaTexto']))
+            elements.append(Paragraph(f"<b>* {label}:</b> {_esc(texto)}", styles['QualitativaTexto']))
             elements.append(Spacer(1, 1*mm))
     
     return elements
@@ -688,7 +711,7 @@ def criar_secao_conclusao(conclusao: str) -> List:
     paragrafos = conclusao.strip().split('\n')
     for para in paragrafos:
         if para.strip():
-            elements.append(Paragraph(para.strip(), styles['Conclusao']))
+            elements.append(Paragraph(_esc(para.strip()), styles['Conclusao']))
     
     return elements
 
@@ -737,9 +760,9 @@ def criar_secao_assinatura(nome_veterinario: str, crmv: str = "", temp_assinatur
             print(f"Erro ao adicionar assinatura: {e}")
     
     # Nome e CRMV
-    elements.append(Paragraph(f"<b>{nome_veterinario}</b>", styles['Normal']))
+    elements.append(Paragraph(f"<b>{_esc(nome_veterinario)}</b>", styles['Normal']))
     if crmv:
-        elements.append(Paragraph(f"Médico Veterinário - CRMV: {crmv}", styles['Normal']))
+        elements.append(Paragraph(f"Médico Veterinário - CRMV: {_esc(crmv)}", styles['Normal']))
     else:
         elements.append(Paragraph("Médico Veterinário", styles['Normal']))
     
@@ -754,7 +777,7 @@ def criar_rodape(texto_rodape: str = None) -> List:
     texto = texto_rodape or "Fort Cordis Cardiologia Veterinária | Fortaleza-CE"
     
     elements.append(Spacer(1, 8*mm))
-    elements.append(Paragraph(texto, styles['Rodape']))
+    elements.append(Paragraph(_esc(texto), styles['Rodape']))
     
     return elements
 

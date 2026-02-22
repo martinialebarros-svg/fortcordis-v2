@@ -575,12 +575,21 @@ def gerar_pdf_laudo(
                     imagens_bytes.append(f.read())
         
         # Buscar configurações do sistema
-        config_sistema = db.query(Configuracao).first()
-        
-        # Buscar configurações do usuário
-        config_usuario = db.query(ConfiguracaoUsuario).filter(
-            ConfiguracaoUsuario.user_id == current_user.id
-        ).first()
+        config_sistema = None
+        config_usuario = None
+        try:
+            config_sistema = db.query(Configuracao).first()
+        except Exception as e:
+            db.rollback()
+            print(f"[WARN] Configuracao indisponivel para PDF: {e}")
+
+        try:
+            config_usuario = db.query(ConfiguracaoUsuario).filter(
+                ConfiguracaoUsuario.user_id == current_user.id
+            ).first()
+        except Exception as e:
+            db.rollback()
+            print(f"[WARN] ConfiguracaoUsuario indisponivel para PDF: {e}")
         
         # Formatar data do exame
         data_exame = laudo.data_exame or laudo.data_laudo
@@ -649,16 +658,20 @@ def gerar_pdf_laudo(
         # Buscar referência ecocardiográfica por espécie e peso (mesma lógica da aba Referências)
         referencia_eco = None
         if paciente and paciente.especie and paciente.peso_kg is not None:
-            ref = db.query(ReferenciaEco).filter(
-                ReferenciaEco.especie.ilike(paciente.especie)
-            ).order_by(
-                func.abs(ReferenciaEco.peso_kg - float(paciente.peso_kg))
-            ).first()
-            if ref:
-                referencia_eco = {
-                    col.name: getattr(ref, col.name)
-                    for col in ref.__table__.columns
-                }
+            try:
+                ref = db.query(ReferenciaEco).filter(
+                    ReferenciaEco.especie.ilike(paciente.especie)
+                ).order_by(
+                    func.abs(ReferenciaEco.peso_kg - float(paciente.peso_kg))
+                ).first()
+                if ref:
+                    referencia_eco = {
+                        col.name: getattr(ref, col.name)
+                        for col in ref.__table__.columns
+                    }
+            except Exception as e:
+                db.rollback()
+                print(f"[WARN] ReferenciaEco indisponivel para PDF: {e}")
 
         # Preparar dados para o PDF
         dados = {
