@@ -26,6 +26,11 @@ def _gerar_nome_key(nome: Optional[str]) -> str:
     texto = re.sub(r"\s+", " ", texto)
     return texto
 
+
+def _legacy_now_str() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 # Schemas
 class PacienteCreate(BaseModel):
     nome: str
@@ -98,7 +103,8 @@ def criar_paciente(
                     nome_key=_gerar_nome_key(paciente.tutor),
                     email="",
                     telefone="",
-                    ativo=1
+                    ativo=1,
+                    created_at=_legacy_now_str(),
                 )
                 db.add(tutor)
                 db.commit()
@@ -122,7 +128,8 @@ def criar_paciente(
             nascimento=paciente.data_nascimento,
             microchip=paciente.microchip,
             observacoes=paciente.observacoes,
-            ativo=1
+            ativo=1,
+            created_at=_legacy_now_str(),
         )
         
         db.add(db_paciente)
@@ -197,7 +204,9 @@ def atualizar_paciente(
                 nome=paciente.tutor,
                 nome_key=_gerar_nome_key(paciente.tutor),
                 email="",
-                telefone=""
+                telefone="",
+                ativo=1,
+                created_at=_legacy_now_str(),
             )
             db.add(tutor)
             db.commit()

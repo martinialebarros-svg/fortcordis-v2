@@ -27,6 +27,10 @@ def _gerar_nome_key(nome: Optional[str]) -> str:
     return texto
 
 
+def _legacy_now_str() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 @router.get("/laudos")
 def listar_laudos(
     paciente_id: Optional[int] = None,
@@ -162,7 +166,8 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
                         nome=tutor_nome,
                         nome_key=_gerar_nome_key(tutor_nome),
                         telefone=paciente.get('telefone', ''),
-                        ativo=1
+                        ativo=1,
+                        created_at=_legacy_now_str(),
                     )
                     db.add(tutor)
                     db.commit()
@@ -184,7 +189,8 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
                 peso_kg=float(paciente.get("peso", 0)) if paciente.get("peso") else None,
                 tutor_id=tutor_id,
                 observacoes=observacoes if observacoes else None,
-                ativo=1
+                ativo=1,
+                created_at=_legacy_now_str(),
             )
             db.add(novo_paciente)
             db.commit()
