@@ -47,18 +47,25 @@ export default function LaudosPage() {
   }, [router]);
 
   const carregarDados = async () => {
+    setLoading(true);
+
     try {
-      const [respLaudos, respExames] = await Promise.all([
-        api.get("/laudos"),
-        api.get("/exames"),
-      ]);
+      const respLaudos = await api.get("/laudos");
       setLaudos(respLaudos.data.items || []);
+    } catch (error) {
+      console.error("Erro ao carregar laudos:", error);
+      setLaudos([]);
+    }
+
+    try {
+      const respExames = await api.get("/exames");
       setExames(respExames.data.items || []);
     } catch (error) {
-      console.error("Erro ao carregar:", error);
-    } finally {
-      setLoading(false);
+      console.error("Erro ao carregar exames:", error);
+      setExames([]);
     }
+
+    setLoading(false);
   };
 
   // Filtrar laudos por busca
