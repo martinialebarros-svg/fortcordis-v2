@@ -79,6 +79,7 @@ def listar_laudos(
         resultado.append({
             "id": laudo.id,
             "paciente_id": laudo.paciente_id,
+            "agendamento_id": laudo.agendamento_id,
             "paciente_nome": paciente.nome if paciente else "Desconhecido",
             "paciente_tutor": tutor_nome or "",
             "clinica": clinica_nome or laudo.medico_solicitante or "",
@@ -301,10 +302,19 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
                 except:
                     pass
         
+        agendamento_id = laudo_data.get("agendamento_id")
+        if agendamento_id in ("", 0):
+            agendamento_id = None
+        if agendamento_id is not None:
+            try:
+                agendamento_id = int(agendamento_id)
+            except Exception:
+                agendamento_id = None
+
         # Criar o laudo
         laudo = Laudo(
             paciente_id=paciente_id,
-            agendamento_id=None,
+            agendamento_id=agendamento_id,
             veterinario_id=current_user.id,
             tipo="ecocardiograma",
             titulo=f"Laudo de Ecocardiograma - {paciente.get('nome', 'Paciente')}",
@@ -326,6 +336,7 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
         
         return {
             "id": laudo.id,
+            "agendamento_id": laudo.agendamento_id,
             "mensagem": "Laudo de ecocardiograma salvo com sucesso",
             "paciente": paciente.get("nome") if isinstance(paciente, dict) else None,
             "tipo": "ecocardiograma"

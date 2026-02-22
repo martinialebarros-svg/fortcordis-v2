@@ -7,12 +7,15 @@ import api from "@/lib/axios";
 import { 
   Calendar, Clock, User, Building, Plus, RefreshCw, X, Trash2,
   CheckCircle2, PlayCircle, CheckCircle, XCircle, AlertCircle,
-  Search, ChevronLeft, ChevronRight, Sun, Moon, FileText
+  Search, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download
 } from "lucide-react";
 import NovoAgendamentoModal from "./NovoAgendamentoModal";
 
 interface Agendamento {
   id: number;
+  paciente_id?: number | null;
+  clinica_id?: number | null;
+  servico_id?: number | null;
   paciente: string | null;
   tutor: string | null;
   clinica: string | null;
@@ -24,6 +27,12 @@ interface Agendamento {
   telefone: string | null;
   data: string;
   hora: string;
+}
+
+interface LaudoVinculado {
+  id: number;
+  status: string;
+  titulo: string;
 }
 
 type StatusType = "Agendado" | "Confirmado" | "Em atendimento" | "Realizado" | "Cancelado" | "Faltou";
@@ -99,6 +108,7 @@ export default function AgendaPage() {
   const [modalTipoHorario, setModalTipoHorario] = useState<{ id: number; status: StatusType } | null>(null);
   const [tipoHorario, setTipoHorario] = useState<"comercial" | "plantao">("comercial");
   const [osGerada, setOsGerada] = useState<{ numero_os: string; valor_final: number } | null>(null);
+  const [laudosVinculados, setLaudosVinculados] = useState<Record<number, LaudoVinculado>>({});
   const router = useRouter();
 
   const periodoConsulta = useMemo(() => {
@@ -131,7 +141,9 @@ export default function AgendaPage() {
         url += `?data_inicio=${periodoConsulta.inicio}&data_fim=${periodoConsulta.fim}`;
       }
       const response = await api.get(url);
-      setAgendamentos(response.data.items || []);
+      const items = response.data.items || [];
+      setAgendamentos(items);
+      await carregarLaudosVinculados(items);
       setErro("");
     } catch (error: any) {
       console.error("Erro ao carregar:", error);
@@ -144,6 +156,41 @@ export default function AgendaPage() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const carregarLaudosVinculados = async (items: Agendamento[]) => {
+    const idsAgendamento = new Set(items.map((item) => item.id));
+    if (idsAgendamento.size === 0) {
+      setLaudosVinculados({});
+      return;
+    }
+
+    try {
+      const respLaudos = await api.get("/laudos?limit=1000");
+      const listaLaudos = respLaudos.data?.items || [];
+
+      const mapa: Record<number, LaudoVinculado> = {};
+      for (const laudo of listaLaudos) {
+        const agendamentoId = Number(laudo?.agendamento_id);
+        if (!Number.isFinite(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
+          continue;
+        }
+
+        const anterior = mapa[agendamentoId];
+        if (!anterior || Number(laudo.id) > anterior.id) {
+          mapa[agendamentoId] = {
+            id: Number(laudo.id),
+            status: laudo.status || "",
+            titulo: laudo.titulo || `Laudo ${laudo.id}`,
+          };
+        }
+      }
+
+      setLaudosVinculados(mapa);
+    } catch (error) {
+      console.error("Erro ao carregar laudos vinculados aos agendamentos:", error);
+      setLaudosVinculados({});
     }
   };
 
@@ -206,6 +253,56 @@ export default function AgendaPage() {
       } else {
         setErro("Erro ao excluir agendamento");
       }
+    }
+  };
+
+  const abrirFluxoLaudo = (ag: Agendamento) => {
+    const laudoVinculado = laudosVinculados[ag.id];
+    if (laudoVinculado?.id) {
+      router.push(`/laudos/${laudoVinculado.id}/editar`);
+      return;
+    }
+    router.push(`/laudos/novo?agendamento_id=${ag.id}`);
+  };
+
+  const podeBaixarLaudo = (status?: string) => {
+    const statusNormalizado = (status || "").trim().toLowerCase();
+    return statusNormalizado === "finalizado" || statusNormalizado === "arquivado";
+  };
+
+  const baixarLaudoPdf = async (ag: Agendamento) => {
+    const laudoVinculado = laudosVinculados[ag.id];
+    if (!laudoVinculado?.id) return;
+
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(`/api/v1/laudos/${laudoVinculado.id}/pdf`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      if (!response.ok) {
+        throw new Error("Falha ao gerar PDF");
+      }
+
+      let filename = `laudo_agendamento_${ag.id}.pdf`;
+      const contentDisposition = response.headers.get("content-disposition");
+      const match = contentDisposition?.match(/filename="?([^";\s]+)"?/);
+      if (match?.[1]) {
+        filename = match[1];
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Erro ao baixar PDF do laudo:", error);
+      alert("Nao foi possivel baixar o laudo agora.");
     }
   };
 
@@ -524,6 +621,8 @@ export default function AgendaPage() {
               {agendamentosFiltrados.map((ag) => {
                 const StatusIcon = getStatusIcon(ag.status);
                 const proximosStatus = getProximosStatus(ag.status);
+                const laudoVinculado = laudosVinculados[ag.id];
+                const laudoPronto = podeBaixarLaudo(laudoVinculado?.status);
                 
                 return (
                   <div key={ag.id} className="p-5 hover:bg-gray-50 transition-colors">
@@ -616,6 +715,26 @@ export default function AgendaPage() {
                         >
                           Editar
                         </button>
+
+                        <button
+                          onClick={() => abrirFluxoLaudo(ag)}
+                          className="px-3 py-1.5 text-sm text-teal-700 hover:text-teal-900 hover:bg-teal-50 rounded-lg transition-colors flex items-center gap-1"
+                          title={laudoVinculado ? "Abrir laudo vinculado" : "Criar laudo para este agendamento"}
+                        >
+                          <FileText className="w-4 h-4" />
+                          Laudar
+                        </button>
+
+                        {laudoVinculado && laudoPronto && (
+                          <button
+                            onClick={() => baixarLaudoPdf(ag)}
+                            className="px-3 py-1.5 text-sm text-emerald-700 hover:text-emerald-900 hover:bg-emerald-50 rounded-lg transition-colors flex items-center gap-1"
+                            title={`Baixar ${laudoVinculado.titulo}`}
+                          >
+                            <Download className="w-4 h-4" />
+                            Baixar laudo
+                          </button>
+                        )}
 
                         {/* Excluir */}
                         <button

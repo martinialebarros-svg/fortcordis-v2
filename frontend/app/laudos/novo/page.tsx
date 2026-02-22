@@ -84,6 +84,7 @@ const parseNumero = (valor?: string): number | null => {
 const formatar2Casas = (valor: number): string => valor.toFixed(2);
 
 interface DadosPaciente {
+  id?: number;
   nome: string;
   tutor: string;
   raca: string;
@@ -170,6 +171,7 @@ export default function NovoLaudoPage() {
   
   // Dados do paciente
   const [paciente, setPaciente] = useState({
+    id: undefined as number | undefined,
     nome: "",
     tutor: "",
     raca: "",
@@ -206,6 +208,7 @@ export default function NovoLaudoPage() {
   const [clinicaNome, setClinicaNome] = useState<string>("");
   const [clinicas, setClinicas] = useState<Clinica[]>([]);
   const [veterinario, setVeterinario] = useState("");
+  const [agendamentoVinculadoId, setAgendamentoVinculadoId] = useState<number | null>(null);
   
   // Mensagem de sucesso
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
@@ -241,6 +244,22 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
   }, [router]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const agendamentoParam = params.get("agendamento_id");
+    if (!agendamentoParam) return;
+
+    const agendamentoId = Number(agendamentoParam);
+    if (!Number.isFinite(agendamentoId) || agendamentoId <= 0) return;
+
+    setAgendamentoVinculadoId(agendamentoId);
+    preencherDadosDoAgendamento(agendamentoId);
+  }, []);
+
+  useEffect(() => {
     const aorta = parseNumero(medidas["Aorta"]);
     const atrioEsquerdo = parseNumero(medidas["Atrio_esquerdo"]);
     const divedMm = parseNumero(medidas["DIVEd"]);
@@ -274,6 +293,58 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
       setClinicas(response.data.items || []);
     } catch (error) {
       console.error("Erro ao carregar clínicas:", error);
+    }
+  };
+
+  const preencherDadosDoAgendamento = async (agendamentoId: number) => {
+    try {
+      const respAgendamento = await api.get(`/agenda/${agendamentoId}`);
+      const agendamento = respAgendamento.data || {};
+
+      let dadosPaciente: any = null;
+      if (agendamento.paciente_id) {
+        try {
+          const respPaciente = await api.get(`/pacientes/${agendamento.paciente_id}`);
+          dadosPaciente = respPaciente.data;
+        } catch (error) {
+          console.warn("Nao foi possivel carregar detalhes do paciente vinculado:", error);
+        }
+      }
+
+      setPaciente((prev) => ({
+        ...prev,
+        id: agendamento.paciente_id || prev.id,
+        nome: dadosPaciente?.nome || agendamento.paciente || prev.nome,
+        tutor: dadosPaciente?.tutor || agendamento.tutor || prev.tutor,
+        raca: dadosPaciente?.raca || prev.raca,
+        especie: dadosPaciente?.especie || prev.especie || "Canina",
+        peso:
+          dadosPaciente?.peso_kg !== null && dadosPaciente?.peso_kg !== undefined
+            ? String(dadosPaciente.peso_kg)
+            : prev.peso,
+        sexo: dadosPaciente?.sexo || prev.sexo || "Macho",
+        telefone: agendamento.telefone || prev.telefone,
+        data_exame: agendamento.data || prev.data_exame || new Date().toISOString().split("T")[0],
+      }));
+
+      if (agendamento.clinica_id) {
+        setClinicaId(String(agendamento.clinica_id));
+      }
+      if (agendamento.clinica) {
+        setClinicaNome(agendamento.clinica);
+      }
+
+      if (agendamento.observacoes) {
+        setConteudo((prev) => ({
+          ...prev,
+          observacoes: prev.observacoes || agendamento.observacoes,
+        }));
+      }
+
+      setMensagemSucesso(`Agendamento #${agendamentoId} vinculado ao laudo.`);
+      setTimeout(() => setMensagemSucesso(null), 4000);
+    } catch (error) {
+      console.error("Erro ao carregar agendamento para laudo:", error);
     }
   };
 
@@ -493,6 +564,7 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
     
     if (dados.paciente) {
       const novoPaciente = {
+        id: undefined as number | undefined,
         nome: dados.paciente.nome || "",
         tutor: dados.paciente.tutor || "",
         raca: dados.paciente.raca || "",
@@ -558,6 +630,7 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
         medidas,
         qualitativa,
         conteudo,
+        agendamento_id: agendamentoVinculadoId,
         clinica: clinicaPayload,
         veterinario: { nome: veterinario },
         data_exame: paciente.data_exame,
@@ -609,6 +682,11 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Novo Laudo</h1>
               <p className="text-gray-500">Importe XML ou preencha manualmente</p>
+              {agendamentoVinculadoId && (
+                <p className="text-sm text-teal-700 font-medium mt-1">
+                  Agendamento vinculado: #{agendamentoVinculadoId}
+                </p>
+              )}
             </div>
           </div>
           <button
