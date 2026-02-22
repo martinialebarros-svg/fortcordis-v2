@@ -7,15 +7,17 @@ import api from "@/lib/axios";
 interface NovoAgendamentoModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (agendamentoCriado?: { data?: string | null }) => void | Promise<void>;
   agendamento?: any;
+  defaultDate?: string;
 }
 
 export default function NovoAgendamentoModal({ 
   isOpen, 
   onClose, 
   onSuccess,
-  agendamento 
+  agendamento,
+  defaultDate
 }: NovoAgendamentoModalProps) {
   const [loading, setLoading] = useState(false);
   const [pacientes, setPacientes] = useState<any[]>([]);
@@ -92,13 +94,13 @@ export default function NovoAgendamentoModal({
         paciente_id: "",
         clinica_id: "",
         servico_id: "",
-        data: "",
+        data: defaultDate || "",
         hora: "",
         observacoes: "",
       });
       setTutorSelecionado("");
     }
-  }, [agendamento, isEditando, isOpen, pacientes]);
+  }, [agendamento, defaultDate, isEditando, isOpen, pacientes]);
 
   // Carregar dados dos selects
   useEffect(() => {
@@ -160,19 +162,20 @@ export default function NovoAgendamentoModal({
         observacoes: formData.observacoes,
       };
 
+      let response;
       if (isEditando) {
-        await api.put(`/agenda/${agendamento.id}`, payload);
+        response = await api.put(`/agenda/${agendamento.id}`, payload);
       } else {
-        await api.post("/agenda", payload);
+        response = await api.post("/agenda", payload);
       }
 
-      onSuccess();
+      await onSuccess(response?.data);
       onClose();
       setFormData({
         paciente_id: "",
         clinica_id: "",
         servico_id: "",
-        data: "",
+        data: defaultDate || "",
         hora: "",
         observacoes: "",
       });

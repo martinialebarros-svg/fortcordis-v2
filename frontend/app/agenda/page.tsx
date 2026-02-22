@@ -30,12 +30,23 @@ type StatusType = "Agendado" | "Confirmado" | "Em atendimento" | "Realizado" | "
 
 const STATUS_LIST: StatusType[] = ["Agendado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"];
 
-const hojeLocal = () => {
-  const agora = new Date();
-  const ano = agora.getFullYear();
-  const mes = String(agora.getMonth() + 1).padStart(2, "0");
-  const dia = String(agora.getDate()).padStart(2, "0");
+const toDateInput = (date: Date) => {
+  const ano = date.getFullYear();
+  const mes = String(date.getMonth() + 1).padStart(2, "0");
+  const dia = String(date.getDate()).padStart(2, "0");
   return `${ano}-${mes}-${dia}`;
+};
+
+const parseDateInput = (value: string) => {
+  const [ano, mes, dia] = value.split("-").map(Number);
+  if (!ano || !mes || !dia) {
+    return new Date();
+  }
+  return new Date(ano, mes - 1, dia);
+};
+
+const hojeLocal = () => {
+  return toDateInput(new Date());
 };
 
 export default function AgendaPage() {
@@ -68,7 +79,7 @@ export default function AgendaPage() {
     try {
       let url = "/agenda";
       if (filtroData) {
-        url += `?data_inicio=${filtroData}T00:00:00&data_fim=${filtroData}T23:59:59`;
+        url += `?data_inicio=${filtroData}&data_fim=${filtroData}`;
       }
       const response = await api.get(url);
       setAgendamentos(response.data.items || []);
@@ -220,9 +231,18 @@ export default function AgendaPage() {
   };
 
   const navegarData = (dias: number) => {
-    const data = new Date(filtroData);
+    const data = parseDateInput(filtroData);
     data.setDate(data.getDate() + dias);
-    setFiltroData(data.toISOString().split('T')[0]);
+    setFiltroData(toDateInput(data));
+  };
+
+  const handleAgendamentoSuccess = async (agendamentoCriado?: { data?: string | null }) => {
+    const dataCriada = agendamentoCriado?.data || "";
+    if (dataCriada && dataCriada !== filtroData) {
+      setFiltroData(dataCriada);
+      return;
+    }
+    await carregarAgendamentos();
   };
 
   return (
@@ -632,7 +652,8 @@ export default function AgendaPage() {
           isOpen={modalAberto}
           agendamento={agendamentoEditando}
           onClose={() => { setModalAberto(false); setAgendamentoEditando(null); }}
-          onSuccess={carregarAgendamentos}
+          onSuccess={handleAgendamentoSuccess}
+          defaultDate={filtroData}
         />
       </div>
     </DashboardLayout>
