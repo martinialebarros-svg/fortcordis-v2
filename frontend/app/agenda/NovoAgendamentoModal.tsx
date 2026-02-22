@@ -4,6 +4,13 @@ import { useEffect, useState } from "react";
 import { X, User, Building, Calendar, Clock } from "lucide-react";
 import api from "@/lib/axios";
 
+const TABELA_PRECO_PADRAO = [
+  { id: 1, nome: "Fortaleza" },
+  { id: 2, nome: "Regiao Metropolitana" },
+  { id: 3, nome: "Domiciliar" },
+  { id: 4, nome: "Personalizado" },
+];
+
 interface NovoAgendamentoModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -25,6 +32,7 @@ export default function NovoAgendamentoModal({
   const [pacientes, setPacientes] = useState<any[]>([]);
   const [clinicas, setClinicas] = useState<any[]>([]);
   const [servicos, setServicos] = useState<any[]>([]);
+  const [tabelasPreco, setTabelasPreco] = useState<{ id: number; nome: string }[]>(TABELA_PRECO_PADRAO);
   const [tutorSelecionado, setTutorSelecionado] = useState<string>("");
   
   const [formData, setFormData] = useState({
@@ -32,6 +40,8 @@ export default function NovoAgendamentoModal({
     paciente_novo: "",
     tutor_novo: "",
     clinica_id: "",
+    clinica_nova_nome: "",
+    clinica_nova_tabela_preco_id: "1",
     servico_id: "",
     data: "",
     hora: "",
@@ -82,6 +92,8 @@ export default function NovoAgendamentoModal({
         paciente_novo: "",
         tutor_novo: "",
         clinica_id: agendamento.clinica_id?.toString() || "",
+        clinica_nova_nome: "",
+        clinica_nova_tabela_preco_id: "1",
         servico_id: agendamento.servico_id?.toString() || "",
         data: data,
         hora: hora,
@@ -101,6 +113,8 @@ export default function NovoAgendamentoModal({
         paciente_novo: "",
         tutor_novo: "",
         clinica_id: "",
+        clinica_nova_nome: "",
+        clinica_nova_tabela_preco_id: "1",
         servico_id: "",
         data: defaultDate || "",
         hora: defaultTime || "",
@@ -134,6 +148,18 @@ export default function NovoAgendamentoModal({
       }
 
       try {
+        const resTabelas = await api.get("/clinicas/tabelas-preco/opcoes");
+        const itens = resTabelas?.data?.items || [];
+        if (Array.isArray(itens) && itens.length > 0) {
+          setTabelasPreco(itens);
+        } else {
+          setTabelasPreco(TABELA_PRECO_PADRAO);
+        }
+      } catch (e) {
+        setTabelasPreco(TABELA_PRECO_PADRAO);
+      }
+
+      try {
         const resServicos = await api.get("/servicos");
         setServicos(resServicos.data.items || []);
       } catch (e) {
@@ -155,6 +181,14 @@ export default function NovoAgendamentoModal({
     // Buscar tutor do paciente selecionado
     const paciente = pacientes.find(p => p.id.toString() === pacienteId);
     setTutorSelecionado(paciente?.tutor || "");
+  };
+
+  const handleClinicaChange = (clinicaId: string) => {
+    setFormData({
+      ...formData,
+      clinica_id: clinicaId,
+      clinica_nova_nome: clinicaId ? "" : formData.clinica_nova_nome,
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -189,6 +223,30 @@ export default function NovoAgendamentoModal({
         }
       }
 
+      let clinicaId = formData.clinica_id ? parseInt(formData.clinica_id, 10) : NaN;
+      if (!Number.isFinite(clinicaId) && (formData.clinica_nova_nome || "").trim()) {
+        const respostaClinica = await api.post("/clinicas", {
+          nome: (formData.clinica_nova_nome || "").trim(),
+          cnpj: "",
+          telefone: "",
+          email: "",
+          endereco: "",
+          cidade: "",
+          estado: "",
+          cep: "",
+          observacoes: "",
+          tabela_preco_id: parseInt(formData.clinica_nova_tabela_preco_id || "1", 10),
+          preco_personalizado_km: 0,
+          preco_personalizado_base: 0,
+          observacoes_preco: "Cadastro rapido via agenda panoramica",
+        });
+
+        clinicaId = respostaClinica?.data?.id;
+        if (!clinicaId) {
+          throw new Error("Nao foi possivel criar a clinica rapidamente.");
+        }
+      }
+
       const servicoSelecionado = servicos.find(
         (s) => s.id?.toString() === formData.servico_id
       );
@@ -201,7 +259,7 @@ export default function NovoAgendamentoModal({
 
       const payload = {
         paciente_id: pacienteId,
-        clinica_id: formData.clinica_id ? parseInt(formData.clinica_id) : null,
+        clinica_id: Number.isFinite(clinicaId) ? clinicaId : null,
         servico_id: formData.servico_id ? parseInt(formData.servico_id) : null,
         inicio: toApiDateTime(inicio),
         fim: toApiDateTime(fim),
@@ -223,6 +281,8 @@ export default function NovoAgendamentoModal({
         paciente_novo: "",
         tutor_novo: "",
         clinica_id: "",
+        clinica_nova_nome: "",
+        clinica_nova_tabela_preco_id: "1",
         servico_id: "",
         data: defaultDate || "",
         hora: defaultTime || "",
@@ -279,7 +339,7 @@ export default function NovoAgendamentoModal({
               </div>
             )}
 
-            {!formData.paciente_id && !isEditando && (
+            {!formData.paciente_id && (
               <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                 <input
                   type="text"
@@ -308,7 +368,7 @@ export default function NovoAgendamentoModal({
             <select
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               value={formData.clinica_id}
-              onChange={(e) => setFormData({...formData, clinica_id: e.target.value})}
+              onChange={(e) => handleClinicaChange(e.target.value)}
             >
               <option value="">Selecione...</option>
               {clinicas.map((c) => (
@@ -317,6 +377,29 @@ export default function NovoAgendamentoModal({
                 </option>
               ))}
             </select>
+
+            {!formData.clinica_id && (
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input
+                  type="text"
+                  value={formData.clinica_nova_nome}
+                  onChange={(e) => setFormData({ ...formData, clinica_nova_nome: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Nome da clinica (cadastro rapido)"
+                />
+                <select
+                  value={formData.clinica_nova_tabela_preco_id}
+                  onChange={(e) => setFormData({ ...formData, clinica_nova_tabela_preco_id: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  {tabelasPreco.map((opcao) => (
+                    <option key={opcao.id} value={opcao.id.toString()}>
+                      {opcao.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           {/* Serviço */}
