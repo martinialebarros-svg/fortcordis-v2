@@ -18,6 +18,7 @@ from app.models import (
     ordem_servico, referencia_eco, configuracao
 )
 from app.utils.frases_seed import seed_frases
+from migrations.runner import run_migrations
 
 # Importar todos os modelos para o Base.metadata
 MODELS = [
@@ -54,6 +55,17 @@ def criar_tabelas():
         return True
     except Exception as e:
         print(f"❌ Erro ao criar tabelas: {e}")
+        return False
+
+def executar_migracoes():
+    """Executa migracoes versionadas para corrigir drift de schema."""
+    print("\n🧱 Executando migracoes versionadas...")
+    try:
+        run_migrations()
+        print("✅ Migracoes executadas com sucesso!")
+        return True
+    except Exception as e:
+        print(f"❌ Erro ao executar migracoes: {e}")
         return False
 
 def criar_tabelas_preco():
@@ -166,6 +178,11 @@ def main():
     # 1. Criar tabelas
     if not criar_tabelas():
         print("\n❌ Falha ao criar tabelas. Abortando.")
+        sys.exit(1)
+    
+    # 1.1 Executar migracoes versionadas
+    if not executar_migracoes():
+        print("\n❌ Falha ao executar migracoes. Abortando.")
         sys.exit(1)
     
     # 2. Verificar tabelas
