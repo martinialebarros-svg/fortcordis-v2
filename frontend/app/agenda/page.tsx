@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
@@ -27,6 +27,7 @@ interface Agendamento {
 }
 
 type StatusType = "Agendado" | "Confirmado" | "Em atendimento" | "Realizado" | "Cancelado" | "Faltou";
+type ModoVisualizacao = "lista" | "panoramica-dia" | "panoramica-semana";
 
 const STATUS_LIST: StatusType[] = ["Agendado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"];
 
@@ -45,6 +46,39 @@ const parseDateInput = (value: string) => {
   return new Date(ano, mes - 1, dia);
 };
 
+const toTimeInput = (date: Date) => {
+  const hora = String(date.getHours()).padStart(2, "0");
+  const minuto = String(date.getMinutes()).padStart(2, "0");
+  return `${hora}:${minuto}`;
+};
+
+const parseApiDateTime = (value?: string | null): Date | null => {
+  if (!value) return null;
+  const normalizado = value.includes("T") ? value : value.replace(" ", "T");
+  const data = new Date(normalizado);
+  return Number.isNaN(data.getTime()) ? null : data;
+};
+
+const inicioDaSemana = (value: string) => {
+  const data = parseDateInput(value);
+  const diaSemana = data.getDay();
+  const ajuste = diaSemana === 0 ? -6 : 1 - diaSemana;
+  data.setDate(data.getDate() + ajuste);
+  return data;
+};
+
+const gerarSlots = (horaInicio = 7, horaFim = 20, intervaloMinutos = 30) => {
+  const slots: string[] = [];
+  const inicioTotal = horaInicio * 60;
+  const fimTotal = horaFim * 60;
+  for (let minutos = inicioTotal; minutos <= fimTotal; minutos += intervaloMinutos) {
+    const hora = Math.floor(minutos / 60);
+    const minuto = minutos % 60;
+    slots.push(`${String(hora).padStart(2, "0")}:${String(minuto).padStart(2, "0")}`);
+  }
+  return slots;
+};
+
 const hojeLocal = () => {
   return toDateInput(new Date());
 };
@@ -53,17 +87,32 @@ export default function AgendaPage() {
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState("");
+  const [modoVisualizacao, setModoVisualizacao] = useState<ModoVisualizacao>("lista");
   const [filtroStatus, setFiltroStatus] = useState<string>("todos");
   const [filtroData, setFiltroData] = useState<string>(hojeLocal());
   const [busca, setBusca] = useState("");
   const [modalAberto, setModalAberto] = useState(false);
   const [agendamentoEditando, setAgendamentoEditando] = useState<Agendamento | null>(null);
+  const [slotSelecionado, setSlotSelecionado] = useState<{ data: string; hora: string } | null>(null);
   const [confirmando, setConfirmando] = useState<{ id: number; acao: string } | null>(null);
   const [atualizandoStatus, setAtualizandoStatus] = useState<number | null>(null);
   const [modalTipoHorario, setModalTipoHorario] = useState<{ id: number; status: StatusType } | null>(null);
   const [tipoHorario, setTipoHorario] = useState<"comercial" | "plantao">("comercial");
   const [osGerada, setOsGerada] = useState<{ numero_os: string; valor_final: number } | null>(null);
   const router = useRouter();
+
+  const periodoConsulta = useMemo(() => {
+    if (modoVisualizacao === "panoramica-semana") {
+      const inicioSemana = inicioDaSemana(filtroData);
+      const inicio = toDateInput(inicioSemana);
+      const fimSemana = new Date(inicioSemana);
+      fimSemana.setDate(fimSemana.getDate() + 6);
+      const fim = toDateInput(fimSemana);
+      return { inicio, fim };
+    }
+
+    return { inicio: filtroData, fim: filtroData };
+  }, [filtroData, modoVisualizacao]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -72,14 +121,14 @@ export default function AgendaPage() {
       return;
     }
     carregarAgendamentos();
-  }, [router, filtroData]);
+  }, [router, periodoConsulta.inicio, periodoConsulta.fim]);
 
   const carregarAgendamentos = async () => {
     setLoading(true);
     try {
       let url = "/agenda";
-      if (filtroData) {
-        url += `?data_inicio=${filtroData}&data_fim=${filtroData}`;
+      if (periodoConsulta.inicio && periodoConsulta.fim) {
+        url += `?data_inicio=${periodoConsulta.inicio}&data_fim=${periodoConsulta.fim}`;
       }
       const response = await api.get(url);
       setAgendamentos(response.data.items || []);
@@ -206,6 +255,59 @@ export default function AgendaPage() {
     return matchStatus && matchBusca;
   });
 
+  const slotsPanoramica = useMemo(() => gerarSlots(), []);
+
+  const diasPanoramica = useMemo(() => {
+    if (modoVisualizacao === "panoramica-semana") {
+      const inicioSemana = inicioDaSemana(filtroData);
+      return Array.from({ length: 7 }, (_, idx) => {
+        const data = new Date(inicioSemana);
+        data.setDate(inicioSemana.getDate() + idx);
+        return toDateInput(data);
+      });
+    }
+    return [filtroData];
+  }, [filtroData, modoVisualizacao]);
+
+  const mapaOcupacao = useMemo(() => {
+    const mapa = new Map<string, Agendamento[]>();
+
+    for (const ag of agendamentosFiltrados) {
+      const inicio = parseApiDateTime(ag.inicio);
+      if (!inicio) continue;
+
+      const fimOriginal = parseApiDateTime(ag.fim);
+      const fim = fimOriginal && fimOriginal > inicio
+        ? fimOriginal
+        : new Date(inicio.getTime() + 30 * 60000);
+
+      const cursor = new Date(inicio);
+      cursor.setSeconds(0, 0);
+      cursor.setMinutes(Math.floor(cursor.getMinutes() / 30) * 30);
+
+      while (cursor < fim) {
+        const chave = `${toDateInput(cursor)}|${toTimeInput(cursor)}`;
+        const existentes = mapa.get(chave) || [];
+        existentes.push(ag);
+        mapa.set(chave, existentes);
+        cursor.setMinutes(cursor.getMinutes() + 30);
+      }
+    }
+
+    return mapa;
+  }, [agendamentosFiltrados]);
+
+  const formatarDiaPanoramica = (data: string) => {
+    const dt = parseDateInput(data);
+    return dt.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
+  };
+
+  const abrirNovoNoHorario = (data: string, hora: string) => {
+    setAgendamentoEditando(null);
+    setSlotSelecionado({ data, hora });
+    setModalAberto(true);
+  };
+
   const stats = {
     total: agendamentos.length,
     agendado: agendamentos.filter(a => a.status === 'Agendado').length,
@@ -237,6 +339,7 @@ export default function AgendaPage() {
   };
 
   const handleAgendamentoSuccess = async (agendamentoCriado?: { data?: string | null }) => {
+    setSlotSelecionado(null);
     const dataCriada = agendamentoCriado?.data || "";
     if (dataCriada && dataCriada !== filtroData) {
       setFiltroData(dataCriada);
@@ -257,6 +360,7 @@ export default function AgendaPage() {
           <button
             onClick={() => {
               setAgendamentoEditando(null);
+              setSlotSelecionado(null);
               setModalAberto(true);
             }}
             className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -306,10 +410,30 @@ export default function AgendaPage() {
 
         <div className="bg-white p-4 rounded-lg shadow-sm border mb-6">
           <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex items-center bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setModoVisualizacao("lista")}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${modoVisualizacao === "lista" ? "bg-white text-gray-900 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+              >
+                Lista
+              </button>
+              <button
+                onClick={() => setModoVisualizacao("panoramica-dia")}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${modoVisualizacao === "panoramica-dia" ? "bg-white text-gray-900 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+              >
+                Panoramica Dia
+              </button>
+              <button
+                onClick={() => setModoVisualizacao("panoramica-semana")}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${modoVisualizacao === "panoramica-semana" ? "bg-white text-gray-900 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+              >
+                Panoramica Semana
+              </button>
+            </div>
             {/* Navegação de data */}
             <div className="flex items-center gap-2">
               <button 
-                onClick={() => navegarData(-1)}
+                onClick={() => navegarData(modoVisualizacao === "panoramica-semana" ? -7 : -1)}
                 className="p-2 hover:bg-gray-100 rounded-lg"
               >
                 <ChevronLeft className="w-5 h-5" />
@@ -321,7 +445,7 @@ export default function AgendaPage() {
                 className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
               <button 
-                onClick={() => navegarData(1)}
+                onClick={() => navegarData(modoVisualizacao === "panoramica-semana" ? 7 : 1)}
                 className="p-2 hover:bg-gray-100 rounded-lg"
               >
                 <ChevronRight className="w-5 h-5" />
@@ -380,7 +504,7 @@ export default function AgendaPage() {
           </div>
         </div>
 
-        {/* Lista de Agendamentos */}
+        {modoVisualizacao === "lista" ? (
         <div className="bg-white shadow rounded-lg overflow-hidden border">
           {agendamentosFiltrados.length === 0 ? (
             <div className="p-12 text-center">
@@ -389,7 +513,7 @@ export default function AgendaPage() {
                 {busca ? "Nenhum agendamento encontrado para a busca" : "Nenhum agendamento para esta data"}
               </p>
               <button
-                onClick={() => { setAgendamentoEditando(null); setModalAberto(true); }}
+                onClick={() => { setAgendamentoEditando(null); setSlotSelecionado(null); setModalAberto(true); }}
                 className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
               >
                 Criar Agendamento
@@ -487,7 +611,7 @@ export default function AgendaPage() {
 
                         {/* Editar */}
                         <button
-                          onClick={() => { setAgendamentoEditando(ag); setModalAberto(true); }}
+                          onClick={() => { setAgendamentoEditando(ag); setSlotSelecionado(null); setModalAberto(true); }}
                           className="px-3 py-1.5 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors"
                         >
                           Editar
@@ -509,6 +633,93 @@ export default function AgendaPage() {
             </div>
           )}
         </div>
+        ) : (
+        <div className="bg-white shadow rounded-lg overflow-hidden border">
+          <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
+            <div className="text-sm text-gray-700 font-medium">
+              {modoVisualizacao === "panoramica-semana"
+                ? `Semana de ${formatarDiaPanoramica(diasPanoramica[0])} atÃ© ${formatarDiaPanoramica(diasPanoramica[diasPanoramica.length - 1])}`
+                : `Dia ${formatarDiaPanoramica(filtroData)}`}
+            </div>
+            <div className="text-xs text-gray-500">
+              Clique em um horÃ¡rio livre para agendar
+            </div>
+          </div>
+
+          <div className="overflow-auto">
+            <div
+              className="grid min-w-[860px]"
+              style={{ gridTemplateColumns: `80px repeat(${diasPanoramica.length}, minmax(180px, 1fr))` }}
+            >
+              <div className="sticky top-0 z-20 bg-gray-100 border-b border-r px-2 py-2 text-xs font-semibold text-gray-600">
+                Hora
+              </div>
+              {diasPanoramica.map((dia) => (
+                <div
+                  key={`head-${dia}`}
+                  className="sticky top-0 z-10 bg-gray-100 border-b border-r px-3 py-2 text-sm font-semibold text-gray-700"
+                >
+                  {formatarDiaPanoramica(dia)}
+                </div>
+              ))}
+
+              {slotsPanoramica.map((slot) => (
+                <Fragment key={`row-${slot}`}>
+                  <div
+                    key={`hora-${slot}`}
+                    className="border-b border-r px-2 py-3 text-xs font-medium text-gray-500 bg-gray-50"
+                  >
+                    {slot}
+                  </div>
+                  {diasPanoramica.map((dia) => {
+                    const chave = `${dia}|${slot}`;
+                    const itens = mapaOcupacao.get(chave) || [];
+
+                    if (itens.length === 0) {
+                      return (
+                        <button
+                          key={chave}
+                          onClick={() => abrirNovoNoHorario(dia, slot)}
+                          className="border-b border-r px-2 py-2 text-left bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                        >
+                          <div className="text-xs font-semibold text-emerald-700">Livre</div>
+                          <div className="text-[11px] text-emerald-600">Clique para agendar</div>
+                        </button>
+                      );
+                    }
+
+                    const primeiro = itens[0];
+                    return (
+                      <button
+                        key={chave}
+                        onClick={() => { setAgendamentoEditando(primeiro); setSlotSelecionado(null); setModalAberto(true); }}
+                        className="border-b border-r px-2 py-2 text-left bg-red-50 hover:bg-red-100 transition-colors"
+                      >
+                        <div className="text-xs font-semibold text-red-700 truncate">
+                          {primeiro.paciente || "Paciente"}
+                        </div>
+                        <div className="text-[11px] text-red-600 truncate">
+                          {primeiro.tutor || "Tutor nÃ£o informado"}
+                        </div>
+                        {primeiro.servico && (
+                          <div className="text-[11px] text-red-500 truncate">
+                            {primeiro.servico}
+                          </div>
+                        )}
+                        {itens.length > 1 && (
+                          <div className="text-[11px] text-red-500 font-medium">
+                            +{itens.length - 1} no mesmo slot
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </Fragment>
+              ))}
+            </div>
+          </div>
+        </div>
+        )}
 
         {/* Modal de Confirmação */}
         {confirmando && (
@@ -651,9 +862,10 @@ export default function AgendaPage() {
         <NovoAgendamentoModal
           isOpen={modalAberto}
           agendamento={agendamentoEditando}
-          onClose={() => { setModalAberto(false); setAgendamentoEditando(null); }}
+          onClose={() => { setModalAberto(false); setAgendamentoEditando(null); setSlotSelecionado(null); }}
           onSuccess={handleAgendamentoSuccess}
-          defaultDate={filtroData}
+          defaultDate={slotSelecionado?.data || filtroData}
+          defaultTime={slotSelecionado?.hora}
         />
       </div>
     </DashboardLayout>

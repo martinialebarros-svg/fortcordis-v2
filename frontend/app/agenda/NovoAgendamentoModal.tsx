@@ -10,6 +10,7 @@ interface NovoAgendamentoModalProps {
   onSuccess: (agendamentoCriado?: { data?: string | null }) => void | Promise<void>;
   agendamento?: any;
   defaultDate?: string;
+  defaultTime?: string;
 }
 
 export default function NovoAgendamentoModal({ 
@@ -17,7 +18,8 @@ export default function NovoAgendamentoModal({
   onClose, 
   onSuccess,
   agendamento,
-  defaultDate
+  defaultDate,
+  defaultTime
 }: NovoAgendamentoModalProps) {
   const [loading, setLoading] = useState(false);
   const [pacientes, setPacientes] = useState<any[]>([]);
@@ -27,6 +29,8 @@ export default function NovoAgendamentoModal({
   
   const [formData, setFormData] = useState({
     paciente_id: "",
+    paciente_novo: "",
+    tutor_novo: "",
     clinica_id: "",
     servico_id: "",
     data: "",
@@ -75,6 +79,8 @@ export default function NovoAgendamentoModal({
       
       setFormData({
         paciente_id: agendamento.paciente_id?.toString() || "",
+        paciente_novo: "",
+        tutor_novo: "",
         clinica_id: agendamento.clinica_id?.toString() || "",
         servico_id: agendamento.servico_id?.toString() || "",
         data: data,
@@ -92,15 +98,17 @@ export default function NovoAgendamentoModal({
     } else {
       setFormData({
         paciente_id: "",
+        paciente_novo: "",
+        tutor_novo: "",
         clinica_id: "",
         servico_id: "",
         data: defaultDate || "",
-        hora: "",
+        hora: defaultTime || "",
         observacoes: "",
       });
       setTutorSelecionado("");
     }
-  }, [agendamento, defaultDate, isEditando, isOpen, pacientes]);
+  }, [agendamento, defaultDate, defaultTime, isEditando, isOpen, pacientes]);
 
   // Carregar dados dos selects
   useEffect(() => {
@@ -137,7 +145,12 @@ export default function NovoAgendamentoModal({
   };
 
   const handlePacienteChange = (pacienteId: string) => {
-    setFormData({...formData, paciente_id: pacienteId});
+    setFormData({
+      ...formData,
+      paciente_id: pacienteId,
+      paciente_novo: pacienteId ? "" : formData.paciente_novo,
+      tutor_novo: pacienteId ? "" : formData.tutor_novo,
+    });
     
     // Buscar tutor do paciente selecionado
     const paciente = pacientes.find(p => p.id.toString() === pacienteId);
@@ -151,9 +164,34 @@ export default function NovoAgendamentoModal({
     try {
       const inicio = new Date(`${formData.data}T${formData.hora}:00`);
       const fim = new Date(inicio.getTime() + 30 * 60000);
+      let pacienteId = formData.paciente_id ? parseInt(formData.paciente_id, 10) : NaN;
+
+      if (!Number.isFinite(pacienteId)) {
+        const nomePaciente = (formData.paciente_novo || "").trim();
+        if (!nomePaciente) {
+          throw new Error("Selecione um paciente ou informe um nome para cadastro rapido.");
+        }
+
+        const respostaPaciente = await api.post("/pacientes", {
+          nome: nomePaciente,
+          tutor: (formData.tutor_novo || "").trim() || null,
+          especie: "Canina",
+          raca: "",
+          sexo: "Macho",
+          peso_kg: null,
+          data_nascimento: null,
+          microchip: "",
+          observacoes: "Cadastro rapido via agenda panoramica",
+        });
+
+        pacienteId = respostaPaciente?.data?.id;
+        if (!pacienteId) {
+          throw new Error("Nao foi possivel criar o paciente rapidamente.");
+        }
+      }
 
       const payload = {
-        paciente_id: parseInt(formData.paciente_id),
+        paciente_id: pacienteId,
         clinica_id: formData.clinica_id ? parseInt(formData.clinica_id) : null,
         servico_id: formData.servico_id ? parseInt(formData.servico_id) : null,
         inicio: toApiDateTime(inicio),
@@ -173,10 +211,12 @@ export default function NovoAgendamentoModal({
       onClose();
       setFormData({
         paciente_id: "",
+        paciente_novo: "",
+        tutor_novo: "",
         clinica_id: "",
         servico_id: "",
         data: defaultDate || "",
-        hora: "",
+        hora: defaultTime || "",
         observacoes: "",
       });
       setTutorSelecionado("");
@@ -209,7 +249,6 @@ export default function NovoAgendamentoModal({
               Paciente *
             </label>
             <select
-              required
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               value={formData.paciente_id}
               onChange={(e) => handlePacienteChange(e.target.value)}
@@ -228,6 +267,25 @@ export default function NovoAgendamentoModal({
                 <User className="w-4 h-4 text-blue-500" />
                 <span className="font-medium">Tutor:</span>
                 <span>{tutorSelecionado}</span>
+              </div>
+            )}
+
+            {!formData.paciente_id && !isEditando && (
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input
+                  type="text"
+                  value={formData.paciente_novo}
+                  onChange={(e) => setFormData({ ...formData, paciente_novo: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Nome do paciente (cadastro rapido)"
+                />
+                <input
+                  type="text"
+                  value={formData.tutor_novo}
+                  onChange={(e) => setFormData({ ...formData, tutor_novo: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Nome do tutor (opcional)"
+                />
               </div>
             )}
           </div>
