@@ -54,7 +54,7 @@ class AgendamentoResponse(BaseModel):
     paciente_id: int
     clinica_id: Optional[int] = None
     servico_id: Optional[int] = None
-    inicio: str  # Retorna como string para evitar problemas de formato
+    inicio: Optional[str] = None  # Retorna como string para evitar problemas de formato
     fim: Optional[str] = None  # Retorna como string
     status: str
     observacoes: Optional[str] = None

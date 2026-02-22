@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, User, Building, Calendar, Clock, Phone } from "lucide-react";
-import axios from "axios";
+import { X, User, Building, Calendar, Clock } from "lucide-react";
+import api from "@/lib/axios";
 
 interface NovoAgendamentoModalProps {
   isOpen: boolean;
@@ -34,12 +34,42 @@ export default function NovoAgendamentoModal({
 
   const isEditando = !!agendamento;
 
+  const parseApiDateTime = (value?: string): Date | null => {
+    if (!value) return null;
+    const normalized = value.includes("T") ? value : value.replace(" ", "T");
+    const parsed = new Date(normalized);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const toInputDate = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const toInputTime = (date: Date): string => {
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${hours}:${minutes}`;
+  };
+
+  const toApiDateTime = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    const seconds = String(date.getSeconds()).padStart(2, "0");
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+  };
+
   // Preencher formulário quando estiver editando
   useEffect(() => {
     if (isEditando && agendamento) {
-      const inicio = new Date(agendamento.inicio);
-      const data = inicio.toISOString().split('T')[0];
-      const hora = inicio.toTimeString().slice(0, 5);
+      const inicio = parseApiDateTime(agendamento.inicio);
+      const data = inicio ? toInputDate(inicio) : "";
+      const hora = inicio ? toInputTime(inicio) : "";
       
       setFormData({
         paciente_id: agendamento.paciente_id?.toString() || "",
@@ -79,29 +109,22 @@ export default function NovoAgendamentoModal({
 
   const carregarDados = async () => {
     try {
-      const token = localStorage.getItem("token");
       try {
-        const resPacientes = await axios.get("/api/v1/pacientes/", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const resPacientes = await api.get("/pacientes");
         setPacientes(resPacientes.data.items || []);
       } catch (e) {
         setPacientes([]);
       }
       
       try {
-        const resClinicas = await axios.get("/api/v1/clinicas/", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const resClinicas = await api.get("/clinicas");
         setClinicas(resClinicas.data.items || []);
       } catch (e) {
         setClinicas([]);
       }
 
       try {
-        const resServicos = await axios.get("/api/v1/servicos/", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const resServicos = await api.get("/servicos");
         setServicos(resServicos.data.items || []);
       } catch (e) {
         setServicos([]);
@@ -124,27 +147,23 @@ export default function NovoAgendamentoModal({
     setLoading(true);
 
     try {
-      const token = localStorage.getItem("token");
-      const inicio = new Date(`${formData.data}T${formData.hora}`);
+      const inicio = new Date(`${formData.data}T${formData.hora}:00`);
+      const fim = new Date(inicio.getTime() + 30 * 60000);
 
       const payload = {
         paciente_id: parseInt(formData.paciente_id),
         clinica_id: formData.clinica_id ? parseInt(formData.clinica_id) : null,
         servico_id: formData.servico_id ? parseInt(formData.servico_id) : null,
-        inicio: inicio.toISOString(),
-        fim: new Date(inicio.getTime() + 30 * 60000).toISOString(),
+        inicio: toApiDateTime(inicio),
+        fim: toApiDateTime(fim),
         status: agendamento?.status || "Agendado",
         observacoes: formData.observacoes,
       };
 
       if (isEditando) {
-        await axios.put(`/api/v1/agenda/${agendamento.id}`, payload, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        await api.put(`/agenda/${agendamento.id}`, payload);
       } else {
-        await axios.post("/api/v1/agenda", payload, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        await api.post("/agenda", payload);
       }
 
       onSuccess();

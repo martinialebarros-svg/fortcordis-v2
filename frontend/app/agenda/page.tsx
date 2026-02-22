@@ -30,12 +30,20 @@ type StatusType = "Agendado" | "Confirmado" | "Em atendimento" | "Realizado" | "
 
 const STATUS_LIST: StatusType[] = ["Agendado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"];
 
+const hojeLocal = () => {
+  const agora = new Date();
+  const ano = agora.getFullYear();
+  const mes = String(agora.getMonth() + 1).padStart(2, "0");
+  const dia = String(agora.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+};
+
 export default function AgendaPage() {
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState("");
   const [filtroStatus, setFiltroStatus] = useState<string>("todos");
-  const [filtroData, setFiltroData] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [filtroData, setFiltroData] = useState<string>(hojeLocal());
   const [busca, setBusca] = useState("");
   const [modalAberto, setModalAberto] = useState(false);
   const [agendamentoEditando, setAgendamentoEditando] = useState<Agendamento | null>(null);
@@ -197,7 +205,12 @@ export default function AgendaPage() {
   };
 
   const formatarDataHora = (dataIso: string) => {
-    const data = new Date(dataIso);
+    if (!dataIso) return "-";
+    const normalizado = dataIso.includes("T") ? dataIso : dataIso.replace(" ", "T");
+    const data = new Date(normalizado);
+    if (Number.isNaN(data.getTime())) {
+      return dataIso;
+    }
     return data.toLocaleString('pt-BR', { 
       day: '2-digit', 
       month: '2-digit', 
