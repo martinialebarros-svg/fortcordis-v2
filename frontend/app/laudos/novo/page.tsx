@@ -179,7 +179,7 @@ export default function NovoLaudoPage() {
     idade: "",
     sexo: "Macho",
     telefone: "",
-    data_exame: new Date().toISOString().split('T')[0],
+    data_exame: "",
   });
   
   // Medidas
@@ -226,7 +226,7 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
   
   // Imagens do laudo
   const [imagens, setImagens] = useState<any[]>([]);
-  const [sessionId] = useState<string>(() => Math.random().toString(36).substring(2, 15));
+  const [sessionId, setSessionId] = useState<string>("");
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -234,6 +234,9 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
       router.push("/");
       return;
     }
+    // Inicializar valores dinâmicos no cliente para evitar hydration mismatch
+    setPaciente(prev => ({ ...prev, data_exame: prev.data_exame || new Date().toISOString().split('T')[0] }));
+    setSessionId(Math.random().toString(36).substring(2, 15));
     carregarPatologias();
     carregarFrases();
     carregarClinicas();
@@ -1291,7 +1294,8 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
                   <div className="space-y-4">
                     <div className="flex justify-between items-center mb-4">
                       <h3 className="font-medium text-gray-900">Gerenciamento de Frases</h3>
-                      <button 
+                      <button
+                        type="button"
                         onClick={handleNovaFrase}
                         className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm"
                       >
@@ -1323,13 +1327,15 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
                                   {frase.conclusao?.substring(0, 50)}...
                                 </td>
                                 <td className="px-4 py-2 text-right">
-                                  <button 
+                                  <button
+                                    type="button"
                                     onClick={() => handleEditarFrase(frase)}
                                     className="text-teal-600 hover:text-teal-800 mr-3"
                                   >
                                     Editar
                                   </button>
-                                  <button 
+                                  <button
+                                    type="button"
                                     onClick={() => handleExcluirFrase(frase.id)}
                                     className="text-red-600 hover:text-red-800"
                                   >
