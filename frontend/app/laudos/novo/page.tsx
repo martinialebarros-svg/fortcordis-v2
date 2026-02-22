@@ -18,7 +18,6 @@ interface MedidaInputProps {
   reference?: string;
   readOnly?: boolean;
 }
-
 function MedidaInput({ label, value, onChange, reference, readOnly = false }: MedidaInputProps) {
   const handleDecrement = () => {
     if (readOnly) return;
@@ -280,17 +279,42 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
   };
 
   const carregarPatologias = async () => {
+    const fallbackPatologias = [
+      "Normal",
+      "Endocardiose Mitral",
+      "Cardiomiopatia Dilatada",
+      "Estenose Aórtica",
+      "Estenose Pulmonar",
+    ];
+
     try {
       const response = await api.get("/frases/patologias");
-      if (response.data && response.data.length > 0) {
-        setPatologias(response.data);
+      const lista = Array.isArray(response.data)
+        ? Array.from(
+            new Set(
+              response.data
+                .filter((p: unknown): p is string => typeof p === "string")
+                .map((p) => p.trim())
+                .filter(Boolean)
+            )
+          )
+        : [];
+
+      if (lista.length > 0) {
+        setPatologias(lista);
+        setPatologiaSelecionada((prev) => (lista.includes(prev) ? prev : lista[0]));
       } else {
-        // Padrões caso não tenha no banco
-        setPatologias(["Normal", "Endocardiose Mitral", "Cardiomiopatia Dilatada", "Estenose Aórtica", "Estenose Pulmonar"]);
+        setPatologias(fallbackPatologias);
+        setPatologiaSelecionada((prev) =>
+          fallbackPatologias.includes(prev) ? prev : fallbackPatologias[0]
+        );
       }
     } catch (error) {
       console.error("Erro ao carregar patologias:", error);
-      setPatologias(["Normal", "Endocardiose Mitral", "Cardiomiopatia Dilatada"]);
+      setPatologias(fallbackPatologias);
+      setPatologiaSelecionada((prev) =>
+        fallbackPatologias.includes(prev) ? prev : fallbackPatologias[0]
+      );
     }
   };
 
@@ -319,7 +343,7 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
     }
     try {
       await api.delete(`/frases/${fraseId}`);
-      carregarFrases();
+      await Promise.all([carregarFrases(), carregarPatologias()]);
       setMensagemSucesso("Frase excluída com sucesso!");
       setTimeout(() => setMensagemSucesso(null), 3000);
     } catch (error) {
@@ -330,6 +354,7 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
 
   const handleFraseSalva = () => {
     carregarFrases();
+    carregarPatologias();
     setMensagemSucesso(fraseEditando ? "Frase atualizada com sucesso!" : "Frase criada com sucesso!");
     setTimeout(() => setMensagemSucesso(null), 3000);
   };
@@ -1400,3 +1425,4 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
     </DashboardLayout>
   );
 }
+

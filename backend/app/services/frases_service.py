@@ -4,7 +4,7 @@ As frases são armazenadas em arquivos versionados no Git em vez do banco de dad
 """
 import json
 import os
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Set
 from datetime import datetime
 from pathlib import Path
 
@@ -307,8 +307,34 @@ def buscar_frase_por_patologia_grau(
 # OPERAÇÕES COM PATOLOGIAS
 # =============================================================================
 
+def _listar_patologias_das_frases() -> Dict[str, Set[str]]:
+    """Monta mapa de patologias->graus a partir das frases ativas."""
+    data = _load_frases_data()
+    patologias_map: Dict[str, Set[str]] = {}
+
+    for frase in data.get("frases", []):
+        if frase.get("ativo", 1) != 1:
+            continue
+
+        patologia = (frase.get("patologia") or "").strip()
+        if not patologia:
+            continue
+
+        grau = (frase.get("grau") or "").strip()
+        patologias_map.setdefault(patologia, set())
+        if grau:
+            patologias_map[patologia].add(grau)
+
+    return patologias_map
+
+
 def listar_patologias() -> List[str]:
     """Lista todas as patologias disponíveis."""
+    patologias_map = _listar_patologias_das_frases()
+    if patologias_map:
+        return sorted(patologias_map.keys())
+
+    # Fallback legado: usa patologias.json quando não houver frases.
     data = _load_json(PATOLOGIAS_FILE, {"patologias": []})
     patologias = [p.get("nome") for p in data.get("patologias", []) if p.get("nome")]
     return sorted(patologias)
@@ -316,14 +342,25 @@ def listar_patologias() -> List[str]:
 
 def listar_graus_por_patologia(patologia: Optional[str] = None) -> List[str]:
     """Lista todos os graus disponíveis, opcionalmente filtrados por patologia."""
+    patologias_map = _listar_patologias_das_frases()
+    if patologias_map:
+        if patologia:
+            return sorted(list(patologias_map.get(patologia, set())))
+
+        graus_set: Set[str] = set()
+        for graus in patologias_map.values():
+            graus_set.update(graus)
+        return sorted(list(graus_set))
+
+    # Fallback legado: usa patologias.json quando não houver frases.
     data = _load_json(PATOLOGIAS_FILE, {"patologias": []})
-    
+
     if patologia:
         for p in data.get("patologias", []):
             if p.get("nome") == patologia:
                 return p.get("graus", [])
         return []
-    
+
     # Retorna todos os graus únicos
     graus_set = set()
     for p in data.get("patologias", []):
