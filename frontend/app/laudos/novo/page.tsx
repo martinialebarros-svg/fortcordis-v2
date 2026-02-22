@@ -1319,8 +1319,8 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
                             </tr>
                           </thead>
                           <tbody className="divide-y">
-                            {frases.map((frase) => (
-                              <tr key={frase.id} className="hover:bg-gray-50">
+                            {frases.map((frase, index) => (
+                              <tr key={frase.id ?? frase.chave ?? `frase-${index}`} className="hover:bg-gray-50">
                                 <td className="px-4 py-2">{frase.patologia}</td>
                                 <td className="px-4 py-2">{frase.grau}</td>
                                 <td className="px-4 py-2 truncate max-w-xs">
@@ -1329,14 +1329,18 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
                                 <td className="px-4 py-2 text-right">
                                   <button
                                     type="button"
-                                    onClick={() => handleEditarFrase(frase)}
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      handleEditarFrase(frase);
+                                    }}
                                     className="text-teal-600 hover:text-teal-800 mr-3"
                                   >
                                     Editar
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => handleExcluirFrase(frase.id)}
+                                    onClick={() => frase.id != null && handleExcluirFrase(frase.id)}
                                     className="text-red-600 hover:text-red-800"
                                   >
                                     Excluir

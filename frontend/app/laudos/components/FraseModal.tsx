@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X, Save } from "lucide-react";
 import api from "@/lib/axios";
 
@@ -149,12 +150,12 @@ export default function FraseModal({ isOpen, onClose, frase, onSuccess }: FraseM
 
   const isEditing = !!frase?.id;
 
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+  const modalContent = (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4" role="dialog" aria-modal="true" aria-labelledby="modal-frase-title">
       <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
-          <h2 className="text-lg font-semibold text-gray-900">
+          <h2 id="modal-frase-title" className="text-lg font-semibold text-gray-900">
             {isEditing ? "Editar Frase" : "Nova Frase"}
           </h2>
           <button
@@ -311,4 +312,6 @@ export default function FraseModal({ isOpen, onClose, frase, onSuccess }: FraseM
       </div>
     </div>
   );
+
+  return typeof document !== "undefined" ? createPortal(modalContent, document.body) : modalContent;
 }
