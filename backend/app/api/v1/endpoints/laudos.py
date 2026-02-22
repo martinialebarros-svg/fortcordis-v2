@@ -5,6 +5,7 @@ from datetime import datetime
 from io import BytesIO
 import os
 import re
+import unicodedata
 
 from app.db.database import get_db
 from app.models.laudo import Laudo, Exame
@@ -12,6 +13,18 @@ from app.models.user import User
 from app.core.security import get_current_user
 
 router = APIRouter()
+
+
+def _gerar_nome_key(nome: Optional[str]) -> str:
+    """Gera chave normalizada para compatibilidade com schema legado."""
+    if not nome:
+        return ""
+    texto = unicodedata.normalize("NFKD", nome)
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = texto.lower().strip()
+    texto = re.sub(r"[^a-z0-9\s]", "", texto)
+    texto = re.sub(r"\s+", " ", texto)
+    return texto
 
 
 @router.get("/laudos")
@@ -163,6 +176,7 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
             
             novo_paciente = Paciente(
                 nome=paciente.get("nome", "Paciente sem nome"),
+                nome_key=_gerar_nome_key(paciente.get("nome", "")),
                 especie=paciente.get("especie", ""),
                 raca=paciente.get("raca", ""),
                 sexo=paciente.get("sexo", ""),
