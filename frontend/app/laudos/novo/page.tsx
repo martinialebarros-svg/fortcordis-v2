@@ -236,7 +236,6 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
     // Inicializar valores dinâmicos no cliente para evitar hydration mismatch
     setPaciente(prev => ({ ...prev, data_exame: prev.data_exame || new Date().toISOString().split('T')[0] }));
     setSessionId(Math.random().toString(36).substring(2, 15));
-    carregarPatologias();
     carregarFrases();
     carregarClinicas();
   }, [router]);
@@ -278,52 +277,40 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
     }
   };
 
-  const carregarPatologias = async () => {
-    const fallbackPatologias = [
-      "Normal",
-      "Endocardiose Mitral",
-      "Cardiomiopatia Dilatada",
-      "Estenose Aórtica",
-      "Estenose Pulmonar",
-    ];
+  const PATOLOGIAS_FALLBACK = [
+    "Normal",
+    "Endocardiose Mitral",
+    "Cardiomiopatia Dilatada",
+    "Estenose Aortica",
+    "Estenose Pulmonar",
+  ];
 
-    try {
-      const response = await api.get("/frases/patologias");
-      const lista = Array.isArray(response.data)
-        ? Array.from(
-            new Set(
-              response.data
-                .filter((p: unknown): p is string => typeof p === "string")
-                .map((p) => p.trim())
-                .filter(Boolean)
-            )
-          )
-        : [];
+  const sincronizarPatologiasComFrases = (items: FraseQualitativa[]) => {
+    const lista = Array.from(
+      new Set(
+        items
+          .map((f) => (f.patologia || "").trim())
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b, "pt-BR"));
 
-      if (lista.length > 0) {
-        setPatologias(lista);
-        setPatologiaSelecionada((prev) => (lista.includes(prev) ? prev : lista[0]));
-      } else {
-        setPatologias(fallbackPatologias);
-        setPatologiaSelecionada((prev) =>
-          fallbackPatologias.includes(prev) ? prev : fallbackPatologias[0]
-        );
-      }
-    } catch (error) {
-      console.error("Erro ao carregar patologias:", error);
-      setPatologias(fallbackPatologias);
-      setPatologiaSelecionada((prev) =>
-        fallbackPatologias.includes(prev) ? prev : fallbackPatologias[0]
-      );
-    }
+    const patologiasAtualizadas = lista.length > 0 ? lista : PATOLOGIAS_FALLBACK;
+    setPatologias(patologiasAtualizadas);
+    setPatologiaSelecionada((prev) =>
+      patologiasAtualizadas.includes(prev) ? prev : patologiasAtualizadas[0]
+    );
   };
 
   const carregarFrases = async () => {
     try {
-      const response = await api.get("/frases?limit=100");
-      setFrases(response.data.items || []);
+      const response = await api.get("/frases?limit=1000");
+      const items = response.data.items || [];
+      setFrases(items);
+      sincronizarPatologiasComFrases(items);
     } catch (error) {
       console.error("Erro ao carregar frases:", error);
+      setFrases([]);
+      sincronizarPatologiasComFrases([]);
     }
   };
 
@@ -343,7 +330,7 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
     }
     try {
       await api.delete(`/frases/${fraseId}`);
-      await Promise.all([carregarFrases(), carregarPatologias()]);
+      await carregarFrases();
       setMensagemSucesso("Frase excluída com sucesso!");
       setTimeout(() => setMensagemSucesso(null), 3000);
     } catch (error) {
@@ -354,7 +341,6 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
 
   const handleFraseSalva = () => {
     carregarFrases();
-    carregarPatologias();
     setMensagemSucesso(fraseEditando ? "Frase atualizada com sucesso!" : "Frase criada com sucesso!");
     setTimeout(() => setMensagemSucesso(null), 3000);
   };
