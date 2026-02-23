@@ -1480,6 +1480,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                       <ImageUploader
                         onImagensChange={setImagensTemp}
                         sessionId={sessionId}
+                        imagensIniciais={imagensTemp}
                       />
                     </div>
 
