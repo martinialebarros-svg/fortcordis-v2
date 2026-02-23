@@ -148,6 +148,20 @@ interface DadosExame {
   fc: string;
 }
 
+interface FraseQualitativa {
+  id: number;
+  chave: string;
+  patologia: string;
+  grau: string;
+  valvas: string;
+  camaras: string;
+  funcao: string;
+  pericardio: string;
+  vasos: string;
+  ad_vd: string;
+  conclusao: string;
+}
+
 const CAMPOS_QUALITATIVA = [
   { key: "valvas", label: "Válvulas", placeholder: "Descreva o estado das válvulas cardíacas..." },
   { key: "camaras", label: "Câmaras", placeholder: "Descreva as cavidades cardíacas..." },
@@ -213,6 +227,13 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
 
   // Mensagem de sucesso
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
+  // Sidebar - Frases/Patologia
+  const [patologias, setPatologias] = useState<string[]>([]);
+  const [patologiaSelecionada, setPatologiaSelecionada] = useState("Normal");
+  const [graus] = useState<string[]>(["Normal", "Leve", "Moderada", "Importante", "Grave"]);
+  const [grauSelecionado, setGrauSelecionado] = useState("Normal");
+  const [layoutQualitativa, setLayoutQualitativa] = useState<"detalhado" | "enxuto">("detalhado");
+  const [aplicandoFrase, setAplicandoFrase] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -222,7 +243,79 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     }
     carregarLaudo();
     carregarClinicas();
+    carregarFrases();
   }, [router, params.id]);
+
+  const PATOLOGIAS_FALLBACK = [
+    "Normal",
+    "Endocardiose Mitral",
+    "Cardiomiopatia Dilatada",
+    "Estenose Aortica",
+    "Estenose Pulmonar",
+  ];
+
+  const sincronizarPatologiasComFrases = (items: FraseQualitativa[]) => {
+    const lista = Array.from(
+      new Set(
+        items
+          .map((f) => (f.patologia || "").trim())
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b, "pt-BR"));
+
+    const patologiasAtualizadas = lista.length > 0 ? lista : PATOLOGIAS_FALLBACK;
+    setPatologias(patologiasAtualizadas);
+    setPatologiaSelecionada((prev) =>
+      patologiasAtualizadas.includes(prev) ? prev : patologiasAtualizadas[0]
+    );
+  };
+
+  const carregarFrases = async () => {
+    try {
+      const response = await api.get("/frases?limit=1000");
+      const items = response.data.items || [];
+      sincronizarPatologiasComFrases(items);
+    } catch (error) {
+      console.error("Erro ao carregar frases:", error);
+      sincronizarPatologiasComFrases([]);
+    }
+  };
+
+  const handleGerarTexto = async () => {
+    setAplicandoFrase(true);
+    try {
+      const request = {
+        patologia: patologiaSelecionada,
+        grau_refluxo: patologiaSelecionada === "Endocardiose Mitral" ? grauSelecionado : undefined,
+        grau_geral: patologiaSelecionada !== "Endocardiose Mitral" ? grauSelecionado : undefined,
+        layout: layoutQualitativa,
+      };
+
+      const response = await api.post("/frases/aplicar", request);
+      if (response.data.success && response.data.dados) {
+        const dados = response.data.dados;
+
+        setQualitativa({
+          valvas: dados.valvas || "",
+          camaras: dados.camaras || "",
+          funcao: dados.funcao || "",
+          pericardio: dados.pericardio || "",
+          vasos: dados.vasos || "",
+          ad_vd: dados.ad_vd || "",
+        });
+        setDiagnostico(dados.conclusao || "");
+        setMensagemSucesso("Texto gerado com sucesso!");
+        setTimeout(() => setMensagemSucesso(null), 3000);
+      } else {
+        alert("Frase nao encontrada para esta patologia/grau.");
+      }
+    } catch (error) {
+      console.error("Erro ao gerar texto:", error);
+      alert("Erro ao gerar texto qualitativo.");
+    } finally {
+      setAplicandoFrase(false);
+    }
+  };
 
   useEffect(() => {
     const aorta = parseNumero(medidas["Aorta"]);
@@ -706,6 +799,92 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                 <p className="text-sm text-blue-800">
                   <strong>Dica:</strong> Arraste o arquivo XML exportado do aparelho de ecocardiograma para preencher automaticamente os dados e medidas.
                 </p>
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-lg shadow-sm border">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <Heart className="w-5 h-5 text-teal-600" />
+                Suspeita
+              </h2>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Patologia
+                  </label>
+                  <select
+                    value={patologiaSelecionada}
+                    onChange={(e) => setPatologiaSelecionada(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 text-sm"
+                  >
+                    {patologias.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Grau
+                  </label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={graus.length - 1}
+                    step={1}
+                    value={graus.indexOf(grauSelecionado)}
+                    onChange={(e) => setGrauSelecionado(graus[parseInt(e.target.value)])}
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-teal-600"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    {graus.map((g) => (
+                      <span key={g} className={grauSelecionado === g ? "font-bold text-teal-600" : ""}>
+                        {g}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Layout
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setLayoutQualitativa("detalhado")}
+                      className={`flex-1 px-3 py-2 text-sm rounded-lg border ${
+                        layoutQualitativa === "detalhado"
+                          ? "bg-teal-100 border-teal-300 text-teal-800"
+                          : "bg-white border-gray-300 text-gray-700"
+                      }`}
+                    >
+                      Detalhado
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLayoutQualitativa("enxuto")}
+                      className={`flex-1 px-3 py-2 text-sm rounded-lg border ${
+                        layoutQualitativa === "enxuto"
+                          ? "bg-teal-100 border-teal-300 text-teal-800"
+                          : "bg-white border-gray-300 text-gray-700"
+                      }`}
+                    >
+                      Enxuto
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleGerarTexto}
+                  disabled={aplicandoFrase}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50"
+                >
+                  <BookOpen className="w-4 h-4" />
+                  {aplicandoFrase ? "Gerando..." : "Gerar Texto"}
+                </button>
               </div>
             </div>
           </div>
