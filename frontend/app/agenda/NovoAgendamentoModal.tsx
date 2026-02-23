@@ -34,6 +34,7 @@ export default function NovoAgendamentoModal({
   const [servicos, setServicos] = useState<any[]>([]);
   const [tabelasPreco, setTabelasPreco] = useState<{ id: number; nome: string }[]>(TABELA_PRECO_PADRAO);
   const [tutorSelecionado, setTutorSelecionado] = useState<string>("");
+  const [erroCarregamento, setErroCarregamento] = useState<string>("");
   
   const [formData, setFormData] = useState({
     paciente_id: "",
@@ -132,41 +133,65 @@ export default function NovoAgendamentoModal({
   }, [isOpen]);
 
   const carregarDados = async () => {
-    try {
-      try {
-        const resPacientes = await api.get("/pacientes");
-        setPacientes(resPacientes.data.items || []);
-      } catch (e) {
-        setPacientes([]);
-      }
-      
-      try {
-        const resClinicas = await api.get("/clinicas");
-        setClinicas(resClinicas.data.items || []);
-      } catch (e) {
-        setClinicas([]);
-      }
+    const extrairItems = (payload: any): any[] => {
+      if (Array.isArray(payload?.items)) return payload.items;
+      if (Array.isArray(payload?.data)) return payload.data;
+      if (Array.isArray(payload)) return payload;
+      return [];
+    };
 
-      try {
-        const resTabelas = await api.get("/clinicas/tabelas-preco/opcoes");
-        const itens = resTabelas?.data?.items || [];
-        if (Array.isArray(itens) && itens.length > 0) {
-          setTabelasPreco(itens);
-        } else {
-          setTabelasPreco(TABELA_PRECO_PADRAO);
-        }
-      } catch (e) {
+    const resultados = await Promise.allSettled([
+      api.get("/pacientes?limit=1000"),
+      api.get("/clinicas?limit=1000"),
+      api.get("/clinicas/tabelas-preco/opcoes"),
+      api.get("/servicos?limit=1000"),
+    ]);
+
+    const falhas: string[] = [];
+
+    const pacientesResp = resultados[0];
+    if (pacientesResp.status === "fulfilled") {
+      setPacientes(extrairItems(pacientesResp.value?.data));
+    } else {
+      setPacientes([]);
+      falhas.push("pacientes");
+    }
+
+    const clinicasResp = resultados[1];
+    if (clinicasResp.status === "fulfilled") {
+      setClinicas(extrairItems(clinicasResp.value?.data));
+    } else {
+      setClinicas([]);
+      falhas.push("clinicas");
+    }
+
+    const tabelasResp = resultados[2];
+    if (tabelasResp.status === "fulfilled") {
+      const itens = extrairItems(tabelasResp.value?.data);
+      if (itens.length > 0) {
+        setTabelasPreco(itens);
+      } else {
         setTabelasPreco(TABELA_PRECO_PADRAO);
       }
+    } else {
+      setTabelasPreco(TABELA_PRECO_PADRAO);
+      falhas.push("tabelas de preco");
+    }
 
-      try {
-        const resServicos = await api.get("/servicos");
-        setServicos(resServicos.data.items || []);
-      } catch (e) {
-        setServicos([]);
-      }
-    } catch (error) {
-      console.error("Erro ao carregar dados:", error);
+    const servicosResp = resultados[3];
+    if (servicosResp.status === "fulfilled") {
+      setServicos(extrairItems(servicosResp.value?.data));
+    } else {
+      setServicos([]);
+      falhas.push("servicos");
+    }
+
+    if (falhas.length > 0) {
+      setErroCarregamento(
+        `Falha ao carregar ${falhas.join(", ")}. Atualize a pagina e tente novamente.`
+      );
+    } else {
+      setErroCarregamento("");
     }
   };
 
@@ -311,6 +336,12 @@ export default function NovoAgendamentoModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {erroCarregamento && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {erroCarregamento}
+            </div>
+          )}
+
           {/* Paciente */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
