@@ -9,6 +9,7 @@ python-dotenv==1.0.0
 psycopg2-binary==2.9.9  # PostgreSQL (Supabase / produção / stage)
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
 python-multipart==0.0.6
 beautifulsoup4==4.12.2
 lxml==4.9.3
