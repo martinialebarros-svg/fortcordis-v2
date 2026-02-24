@@ -6,7 +6,7 @@ import DashboardLayout from "../../../layout-dashboard";
 import api from "@/lib/axios";
 import XmlUploader from "../../components/XmlUploader";
 import ImageUploader from "../../components/ImageUploader";
-import { ArrowLeft, Save, FileText, User, Activity, Heart, BookOpen, Settings, Image as ImageIcon, Minus, Plus } from "lucide-react";
+import { ArrowLeft, Save, User, Activity, Heart, BookOpen, Settings, Image as ImageIcon, Minus, Plus } from "lucide-react";
 import { ReferenciaComparison } from "../../components/ReferenciaComparison";
 
 // Componente de input de medida com botões +/-
@@ -226,7 +226,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
   const [paciente, setPaciente] = useState<Paciente | null>(null);
 
   // Abas
-  const [aba, setAba] = useState<"paciente" | "medidas" | "qualitativa" | "imagens" | "conteudo" | "pressao" | "referencias">("paciente");
+  const [aba, setAba] = useState<"paciente" | "medidas" | "qualitativa" | "imagens" | "pressao" | "referencias">("paciente");
 
   // Form state
   const [titulo, setTitulo] = useState("");
@@ -290,8 +290,8 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
   // Sidebar - Frases/Patologia
   const [patologias, setPatologias] = useState<string[]>([]);
   const [patologiaSelecionada, setPatologiaSelecionada] = useState("Normal");
-  const [graus] = useState<string[]>(["Normal", "Leve", "Moderada", "Importante", "Grave"]);
-  const [grauSelecionado, setGrauSelecionado] = useState("Normal");
+  const [graus] = useState<string[]>(["Leve", "Moderada", "Importante"]);
+  const [grauSelecionado, setGrauSelecionado] = useState("Leve");
   const [layoutQualitativa, setLayoutQualitativa] = useState<"detalhado" | "enxuto">("detalhado");
   const [aplicandoFrase, setAplicandoFrase] = useState(false);
   const [salvandoFraseQualitativa, setSalvandoFraseQualitativa] = useState(false);
@@ -346,6 +346,16 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     }
   };
 
+  const normalizarGrauSidebar = (grau: string | null | undefined) => {
+    const valor = (grau || "").trim();
+    return graus.includes(valor) ? valor : graus[0];
+  };
+
+  const obterGrauEfetivo = () =>
+    patologiaSelecionada.trim().toLowerCase() === "normal"
+      ? "Normal"
+      : normalizarGrauSidebar(grauSelecionado);
+
   const gerarChaveFrase = (patologia: string, grau: string) => {
     if (patologia === "Normal") return "Normal (Normal)";
     return `${patologia} (${grau})`;
@@ -366,10 +376,11 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
   });
 
   const encontrarFraseAtual = () => {
+    const grauBusca = obterGrauEfetivo();
     const frasePorPatologiaEGrau = frases.find(
       (frase) =>
         (frase.patologia || "").trim().toLowerCase() === patologiaSelecionada.trim().toLowerCase() &&
-        (frase.grau || "").trim().toLowerCase() === grauSelecionado.trim().toLowerCase()
+        (frase.grau || "").trim().toLowerCase() === grauBusca.trim().toLowerCase()
     );
     if (frasePorPatologiaEGrau) return frasePorPatologiaEGrau;
     if (fraseAplicadaId) {
@@ -381,10 +392,11 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
   const handleGerarTexto = async () => {
     setAplicandoFrase(true);
     try {
+      const grauEfetivo = obterGrauEfetivo();
       const request = {
         patologia: patologiaSelecionada,
-        grau_refluxo: patologiaSelecionada === "Endocardiose Mitral" ? grauSelecionado : undefined,
-        grau_geral: patologiaSelecionada !== "Endocardiose Mitral" ? grauSelecionado : undefined,
+        grau_refluxo: patologiaSelecionada === "Endocardiose Mitral" ? grauEfetivo : undefined,
+        grau_geral: patologiaSelecionada !== "Endocardiose Mitral" ? grauEfetivo : undefined,
         layout: layoutQualitativa,
       };
 
@@ -440,7 +452,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       const response = await api.post("/frases", payload);
       await carregarFrases();
       setPatologiaSelecionada(patologia);
-      setGrauSelecionado(grau);
+      setGrauSelecionado(normalizarGrauSidebar(grau));
       setFraseAplicadaId(response.data?.id ?? null);
       setMensagemSucesso("Nova patologia salva no banco de frases.");
       setTimeout(() => setMensagemSucesso(null), 3000);
@@ -480,7 +492,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       const response = await api.put(`/frases/${fraseAtual.id}`, payload);
       await carregarFrases();
       setPatologiaSelecionada(patologia);
-      setGrauSelecionado(grau);
+      setGrauSelecionado(normalizarGrauSidebar(grau));
       setFraseAplicadaId(response.data?.id ?? fraseAtual.id);
       setMensagemSucesso("Patologia atualizada no banco de frases.");
       setTimeout(() => setMensagemSucesso(null), 3000);
@@ -1094,8 +1106,11 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                     min={0}
                     max={graus.length - 1}
                     step={1}
-                    value={graus.indexOf(grauSelecionado)}
-                    onChange={(e) => setGrauSelecionado(graus[parseInt(e.target.value)])}
+                    value={Math.max(0, graus.indexOf(grauSelecionado))}
+                    onChange={(e) => {
+                      const idx = Number.parseInt(e.target.value, 10);
+                      setGrauSelecionado(graus[idx] || graus[0]);
+                    }}
                     className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-teal-600"
                   />
                   <div className="flex justify-between text-xs text-gray-500 mt-1">
@@ -1198,17 +1213,6 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                 >
                   <ImageIcon className="w-4 h-4" />
                   Imagens
-                </button>
-                <button
-                  onClick={() => setAba("conteudo")}
-                  className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
-                    aba === "conteudo"
-                      ? "text-teal-600 border-b-2 border-teal-600"
-                      : "text-gray-600 hover:text-gray-800"
-                  }`}
-                >
-                  <FileText className="w-4 h-4" />
-                  Conteúdo
                 </button>
                 <button
                   onClick={() => setAba("pressao")}
@@ -1718,6 +1722,19 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                         />
                       </div>
                     ))}
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Conclusao
+                      </label>
+                      <textarea
+                        value={diagnostico}
+                        onChange={(e) => setDiagnostico(e.target.value)}
+                        rows={4}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                        placeholder="Conclusao diagnostica..."
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -1780,49 +1797,6 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                       <p className="text-sm text-blue-800">
                         <strong>Dica:</strong> As imagens serão inseridas automaticamente no PDF do laudo.
                       </p>
-                    </div>
-                  </div>
-                )}
-
-                {aba === "conteudo" && (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Descrição do Exame
-                      </label>
-                      <textarea
-                        value={descricao}
-                        onChange={(e) => setDescricao(e.target.value)}
-                        rows={8}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-                        placeholder="Descreva os achados do exame..."
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Conclusão
-                      </label>
-                      <textarea
-                        value={diagnostico}
-                        onChange={(e) => setDiagnostico(e.target.value)}
-                        rows={4}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-                        placeholder="Conclusão diagnóstica..."
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Observações
-                      </label>
-                      <textarea
-                        value={observacoes}
-                        onChange={(e) => setObservacoes(e.target.value)}
-                        rows={3}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-                        placeholder="Observações adicionais..."
-                      />
                     </div>
                   </div>
                 )}
