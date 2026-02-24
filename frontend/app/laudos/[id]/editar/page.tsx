@@ -83,6 +83,41 @@ const parseNumero = (valor?: string): number | null => {
 
 const formatar2Casas = (valor: number): string => valor.toFixed(2);
 
+const parseInteiroPositivo = (valor?: string): number | null => {
+  if (!valor) return null;
+  const numero = Math.round(Number(valor.toString().replace(",", ".").trim()));
+  if (!Number.isFinite(numero) || numero <= 0) return null;
+  return numero;
+};
+
+const OPCOES_MANGUITO = [
+  "Manguito 01",
+  "Manguito 02",
+  "Manguito 03",
+  "Manguito 04",
+  "Manguito 05",
+  "Manguito 06",
+  "Outro",
+];
+
+const OPCOES_MEMBRO = [
+  "Membro anterior direito",
+  "Membro anterior esquerdo",
+  "Membro posterior direito",
+  "Membro posterior esquerdo",
+  "Cauda",
+  "Outro",
+];
+
+const OPCOES_DECUBITO = [
+  "Decubito lateral direito",
+  "Decubito lateral esquerdo",
+  "Decubito esternal",
+  "Decubito dorsal",
+  "Em estacao",
+  "Outro",
+];
+
 interface Clinica {
   id: number;
   nome: string;
@@ -114,6 +149,17 @@ interface Laudo {
   clinica?: string;
   medico_solicitante?: string;
   imagens?: Imagem[];
+  pressao_arterial?: {
+    pas_1?: number | null;
+    pas_2?: number | null;
+    pas_3?: number | null;
+    pas_media?: number | null;
+    metodo?: string;
+    manguito?: string;
+    membro?: string;
+    decubito?: string;
+    obs_extra?: string;
+  } | null;
   criado_por_nome: string;
 }
 
@@ -179,7 +225,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
   const [paciente, setPaciente] = useState<Paciente | null>(null);
 
   // Abas
-  const [aba, setAba] = useState<"paciente" | "medidas" | "qualitativa" | "imagens" | "conteudo" | "referencias">("paciente");
+  const [aba, setAba] = useState<"paciente" | "medidas" | "qualitativa" | "imagens" | "conteudo" | "pressao" | "referencias">("paciente");
 
   // Form state
   const [titulo, setTitulo] = useState("");
@@ -199,6 +245,19 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     pericardio: "",
     vasos: "",
     ad_vd: "",
+  });
+
+  const [pressaoArterial, setPressaoArterial] = useState({
+    pas_1: "",
+    pas_2: "",
+    pas_3: "",
+    manguito_select: "Manguito 02",
+    manguito_outro: "",
+    membro_select: "Membro anterior esquerdo",
+    membro_outro: "",
+    decubito_select: "Decubito lateral direito",
+    decubito_outro: "",
+    obs_extra: "",
   });
 
   // Dados do paciente (editáveis)
@@ -344,6 +403,51 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       }));
     }
   }, [medidas["Aorta"], medidas["Atrio_esquerdo"], medidas["DIVEd"], pacienteForm.peso]);
+
+  const laudoEhPressao = (laudo?.tipo || "").toLowerCase() === "pressao_arterial";
+
+  const pasMediaCalculada = (() => {
+    const valores = [
+      parseInteiroPositivo(pressaoArterial.pas_1),
+      parseInteiroPositivo(pressaoArterial.pas_2),
+      parseInteiroPositivo(pressaoArterial.pas_3),
+    ].filter((valor): valor is number => valor !== null);
+    if (valores.length === 0) return null;
+    return Math.round(valores.reduce((acc, valor) => acc + valor, 0) / valores.length);
+  })();
+
+  const montarPayloadPressao = () => {
+    const manguitoFinal =
+      pressaoArterial.manguito_select === "Outro"
+        ? pressaoArterial.manguito_outro.trim()
+        : pressaoArterial.manguito_select;
+    const membroFinal =
+      pressaoArterial.membro_select === "Outro"
+        ? pressaoArterial.membro_outro.trim()
+        : pressaoArterial.membro_select;
+    const decubitoFinal =
+      pressaoArterial.decubito_select === "Outro"
+        ? pressaoArterial.decubito_outro.trim()
+        : pressaoArterial.decubito_select;
+
+    const payload = {
+      pas_1: parseInteiroPositivo(pressaoArterial.pas_1),
+      pas_2: parseInteiroPositivo(pressaoArterial.pas_2),
+      pas_3: parseInteiroPositivo(pressaoArterial.pas_3),
+      pas_media: pasMediaCalculada,
+      metodo: "Doppler",
+      manguito: manguitoFinal,
+      membro: membroFinal,
+      decubito: decubitoFinal,
+      obs_extra: pressaoArterial.obs_extra.trim(),
+    };
+
+    const temDados =
+      Boolean(payload.pas_1 || payload.pas_2 || payload.pas_3 || payload.pas_media) ||
+      Boolean(payload.manguito?.trim() || payload.membro?.trim() || payload.decubito?.trim() || payload.obs_extra);
+
+    return temDados ? payload : null;
+  };
 
   const carregarClinicas = async () => {
     try {
@@ -510,6 +614,27 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       }
       setMedicoSolicitante(laudoData.medico_solicitante || "");
 
+      const pressao = laudoData.pressao_arterial || {};
+      const manguito = String(pressao.manguito || "").trim();
+      const membro = String(pressao.membro || "").trim();
+      const decubito = String(pressao.decubito || "").trim();
+      const manguitoConhecido = OPCOES_MANGUITO.includes(manguito) ? manguito : "Outro";
+      const membroConhecido = OPCOES_MEMBRO.includes(membro) ? membro : "Outro";
+      const decubitoConhecido = OPCOES_DECUBITO.includes(decubito) ? decubito : "Outro";
+
+      setPressaoArterial({
+        pas_1: pressao.pas_1 ? String(pressao.pas_1) : "",
+        pas_2: pressao.pas_2 ? String(pressao.pas_2) : "",
+        pas_3: pressao.pas_3 ? String(pressao.pas_3) : "",
+        manguito_select: manguito ? manguitoConhecido : "Manguito 02",
+        manguito_outro: manguito && manguitoConhecido === "Outro" ? manguito : "",
+        membro_select: membro ? membroConhecido : "Membro anterior esquerdo",
+        membro_outro: membro && membroConhecido === "Outro" ? membro : "",
+        decubito_select: decubito ? decubitoConhecido : "Decubito lateral direito",
+        decubito_outro: decubito && decubitoConhecido === "Outro" ? decubito : "",
+        obs_extra: String(pressao.obs_extra || ""),
+      });
+
       // Carregar imagens (converter para data URLs)
       if (laudoData.imagens && laudoData.imagens.length > 0) {
         const token = localStorage.getItem('token');
@@ -662,29 +787,50 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
         }
       }
 
-      // 2. Montar descrição do laudo com medidas
-      let descricao = "## Medidas Ecocardiográficas\n";
-      Object.entries(medidas).forEach(([key, value]) => {
-        if (value) {
-          descricao += `- ${key}: ${value}\n`;
-        }
-      });
+      const pressaoPayload = montarPayloadPressao();
 
-      descricao += "\n## Avaliação Qualitativa\n";
-      Object.entries(qualitativa).forEach(([key, value]) => {
-        if (value) {
-          descricao += `- ${key}: ${value}\n`;
-        }
-      });
+      // 2. Montar descrição do laudo conforme tipo
+      let descricao = "";
+      if (laudoEhPressao) {
+        const pas1 = parseInteiroPositivo(pressaoArterial.pas_1) || 0;
+        const pas2 = parseInteiroPositivo(pressaoArterial.pas_2) || 0;
+        const pas3 = parseInteiroPositivo(pressaoArterial.pas_3) || 0;
+        descricao = "## Afericao de Pressao Arterial\n";
+        descricao += `- 1a afericao (PAS): ${pas1} mmHg\n`;
+        descricao += `- 2a afericao (PAS): ${pas2} mmHg\n`;
+        descricao += `- 3a afericao (PAS): ${pas3} mmHg\n`;
+        descricao += `- PAS media: ${pasMediaCalculada || 0} mmHg\n`;
+        descricao += "- Metodo: Doppler\n";
+      } else {
+        descricao = "## Medidas Ecocardiográficas\n";
+        Object.entries(medidas).forEach(([key, value]) => {
+          if (value) {
+            descricao += `- ${key}: ${value}\n`;
+          }
+        });
+
+        descricao += "\n## Avaliação Qualitativa\n";
+        Object.entries(qualitativa).forEach(([key, value]) => {
+          if (value) {
+            descricao += `- ${key}: ${value}\n`;
+          }
+        });
+      }
 
       // 3. Salvar laudo
       const payload: any = {
-        titulo: titulo || `Laudo de Ecocardiograma - ${pacienteForm.nome || 'Paciente'}`,
+        titulo:
+          titulo ||
+          (laudoEhPressao
+            ? `Laudo de Pressao Arterial - ${pacienteForm.nome || "Paciente"}`
+            : `Laudo de Ecocardiograma - ${pacienteForm.nome || "Paciente"}`),
         descricao,
         diagnostico,
         observacoes,
         status,
         data_exame: pacienteForm.data_exame,
+        tipo_laudo: laudoEhPressao ? "pressao_arterial" : "ecocardiograma",
+        pressao_arterial: pressaoPayload,
       };
 
       // Adicionar clinic_id se selecionado
@@ -948,6 +1094,17 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                 >
                   <FileText className="w-4 h-4" />
                   Conteúdo
+                </button>
+                <button
+                  onClick={() => setAba("pressao")}
+                  className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
+                    aba === "pressao"
+                      ? "text-teal-600 border-b-2 border-teal-600"
+                      : "text-gray-600 hover:text-gray-800"
+                  }`}
+                >
+                  <Heart className="w-4 h-4" />
+                  Pressão
                 </button>
                 <button
                   onClick={() => setAba("referencias")}
@@ -1531,6 +1688,167 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                         placeholder="Observações adicionais..."
                       />
+                    </div>
+                  </div>
+                )}
+
+                {aba === "pressao" && (
+                  <div className="space-y-6">
+                    <div>
+                      <h3 className="font-medium text-gray-900">Pressao Arterial</h3>
+                      <p className="text-sm text-gray-500 mt-1">
+                        Edite as afericoes e observacoes da pressao arterial vinculadas a este laudo.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">1a afericao PAS (mmHg)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={400}
+                          step={1}
+                          value={pressaoArterial.pas_1}
+                          onChange={(e) => setPressaoArterial((prev) => ({ ...prev, pas_1: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">2a afericao PAS (mmHg)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={400}
+                          step={1}
+                          value={pressaoArterial.pas_2}
+                          onChange={(e) => setPressaoArterial((prev) => ({ ...prev, pas_2: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">3a afericao PAS (mmHg)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={400}
+                          step={1}
+                          value={pressaoArterial.pas_3}
+                          onChange={(e) => setPressaoArterial((prev) => ({ ...prev, pas_3: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">PA Sistolica Media (mmHg)</label>
+                        <input
+                          type="text"
+                          readOnly
+                          value={pasMediaCalculada ?? ""}
+                          className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-700"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Metodo</label>
+                        <input
+                          type="text"
+                          readOnly
+                          value="Doppler"
+                          className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-700"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="border-t pt-4">
+                      <h4 className="font-medium text-gray-900 mb-3">Observacoes do Procedimento</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Manguito</label>
+                          <select
+                            value={pressaoArterial.manguito_select}
+                            onChange={(e) => setPressaoArterial((prev) => ({ ...prev, manguito_select: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                          >
+                            {OPCOES_MANGUITO.map((op) => (
+                              <option key={op} value={op}>{op}</option>
+                            ))}
+                          </select>
+                          {pressaoArterial.manguito_select === "Outro" && (
+                            <input
+                              type="text"
+                              value={pressaoArterial.manguito_outro}
+                              onChange={(e) => setPressaoArterial((prev) => ({ ...prev, manguito_outro: e.target.value }))}
+                              placeholder="Especifique o manguito"
+                              className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                            />
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Membro</label>
+                          <select
+                            value={pressaoArterial.membro_select}
+                            onChange={(e) => setPressaoArterial((prev) => ({ ...prev, membro_select: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                          >
+                            {OPCOES_MEMBRO.map((op) => (
+                              <option key={op} value={op}>{op}</option>
+                            ))}
+                          </select>
+                          {pressaoArterial.membro_select === "Outro" && (
+                            <input
+                              type="text"
+                              value={pressaoArterial.membro_outro}
+                              onChange={(e) => setPressaoArterial((prev) => ({ ...prev, membro_outro: e.target.value }))}
+                              placeholder="Especifique o membro"
+                              className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                            />
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Decubito</label>
+                          <select
+                            value={pressaoArterial.decubito_select}
+                            onChange={(e) => setPressaoArterial((prev) => ({ ...prev, decubito_select: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                          >
+                            {OPCOES_DECUBITO.map((op) => (
+                              <option key={op} value={op}>{op}</option>
+                            ))}
+                          </select>
+                          {pressaoArterial.decubito_select === "Outro" && (
+                            <input
+                              type="text"
+                              value={pressaoArterial.decubito_outro}
+                              onChange={(e) => setPressaoArterial((prev) => ({ ...prev, decubito_outro: e.target.value }))}
+                              placeholder="Especifique o decubito"
+                              className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                            />
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Outras observacoes (opcional)</label>
+                        <textarea
+                          value={pressaoArterial.obs_extra}
+                          onChange={(e) => setPressaoArterial((prev) => ({ ...prev, obs_extra: e.target.value }))}
+                          rows={3}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                          placeholder="Descreva detalhes adicionais da afericao..."
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-900 space-y-1">
+                      <p><strong>Valores de referencia (PAS):</strong></p>
+                      <p>Normal: 110 a 140 mmHg</p>
+                      <p>Levemente elevada: 141 a 159 mmHg</p>
+                      <p>Moderadamente elevada: 160 a 179 mmHg</p>
+                      <p>Severamente elevada: &gt;= 180 mmHg</p>
                     </div>
                   </div>
                 )}

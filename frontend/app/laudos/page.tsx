@@ -171,6 +171,14 @@ export default function LaudosPage() {
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
 
+  const getTipoLaudoLabel = (tipo: string) => {
+    const mapa: Record<string, string> = {
+      ecocardiograma: 'Ecocardiograma',
+      pressao_arterial: 'Pressão Arterial',
+    };
+    return mapa[tipo] || tipo;
+  };
+
   return (
     <DashboardLayout>
       <div className="p-6">
@@ -266,6 +274,9 @@ export default function LaudosPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
+                        <span className="px-2 py-1 rounded-full text-xs bg-indigo-100 text-indigo-800">
+                          {getTipoLaudoLabel(laudo.tipo)}
+                        </span>
                         <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(laudo.status)}`}>
                           {laudo.status}
                         </span>

@@ -49,7 +49,35 @@ def _is_ativo(valor) -> bool:
     return str(valor).strip().lower() in {"1", "true", "t", "yes", "y"}
 
 
+def _ensure_tutores_timestamp_columns(db: Session) -> None:
+    """
+    Compatibilidade com bases legadas (ex.: SQLite local) onde a tabela tutores
+    não possui created_at/updated_at.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    if "tutores" not in insp.get_table_names():
+        return
+
+    colunas = {col["name"] for col in insp.get_columns("tutores")}
+    alteracoes: list[str] = []
+
+    if "created_at" not in colunas:
+        alteracoes.append('ALTER TABLE "tutores" ADD COLUMN created_at TEXT')
+    if "updated_at" not in colunas:
+        alteracoes.append('ALTER TABLE "tutores" ADD COLUMN updated_at TEXT')
+
+    if not alteracoes:
+        return
+
+    for sql in alteracoes:
+        db.execute(text(sql))
+    db.commit()
+
+
 def _obter_ou_criar_tutor(db: Session, tutor_nome_raw: Optional[str]) -> Optional[int]:
+    _ensure_tutores_timestamp_columns(db)
+
     if not tutor_nome_raw:
         return None
 
