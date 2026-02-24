@@ -731,15 +731,8 @@ def criar_secao_pressao_arterial(pressao: Optional[Dict[str, Any]]) -> List:
     decubito = (pressao.get("decubito") or "").strip()
     obs_extra = (pressao.get("obs_extra") or "").strip()
 
-    tem_conteudo = bool(
-        valores
-        or (pas_media is not None and pas_media > 0)
-        or manguito
-        or membro
-        or decubito
-        or obs_extra
-    )
-    if not tem_conteudo:
+    tem_medicoes = bool(valores or (pas_media is not None and pas_media > 0))
+    if not tem_medicoes:
         return elements
 
     classificacao = "Sem classificacao (media indisponivel)."

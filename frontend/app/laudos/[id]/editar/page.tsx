@@ -559,9 +559,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       obs_extra: pressaoArterial.obs_extra.trim(),
     };
 
-    const temDados =
-      Boolean(payload.pas_1 || payload.pas_2 || payload.pas_3 || payload.pas_media) ||
-      Boolean(payload.manguito?.trim() || payload.membro?.trim() || payload.decubito?.trim() || payload.obs_extra);
+    const temDados = Boolean(payload.pas_1 || payload.pas_2 || payload.pas_3 || payload.pas_media);
 
     return temDados ? payload : null;
   };

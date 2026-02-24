@@ -798,11 +798,7 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
       : pressaoArterial.decubito_select;
 
   const pressaoPreenchida = Boolean(
-    pasValores.length ||
-      manguitoFinal ||
-      membroFinal ||
-      decubitoFinal ||
-      pressaoArterial.obs_extra.trim()
+    pasValores.length || (pasMediaCalculada !== null && pasMediaCalculada > 0)
   );
 
   const montarPayloadPressao = () => {

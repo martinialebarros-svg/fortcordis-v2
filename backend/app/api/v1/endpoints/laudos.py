@@ -99,6 +99,8 @@ def _normalizar_pressao_arterial(raw: Any) -> Optional[Dict[str, Any]]:
 
     medidas_validas = [v for v in (pas_1, pas_2, pas_3) if isinstance(v, int) and v > 0]
     pas_media = _to_int_or_none(raw.get("pas_media"))
+    if pas_media is not None and pas_media <= 0:
+        pas_media = None
     if pas_media is None and medidas_validas:
         pas_media = int(round(sum(medidas_validas) / len(medidas_validas)))
 
@@ -108,7 +110,9 @@ def _normalizar_pressao_arterial(raw: Any) -> Optional[Dict[str, Any]]:
     obs_extra = (raw.get("obs_extra") or "").strip()
     metodo = (raw.get("metodo") or "Doppler").strip() or "Doppler"
 
-    if not any([pas_1, pas_2, pas_3, pas_media, manguito, membro, decubito, obs_extra]):
+    # Evita anexar pressão em laudos eco quando apenas campos padrão foram enviados.
+    # Para considerar pressão válida, é obrigatório ter ao menos uma PAS/média > 0.
+    if not (medidas_validas or pas_media):
         return None
 
     return {
