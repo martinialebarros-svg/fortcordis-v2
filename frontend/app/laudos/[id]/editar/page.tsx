@@ -206,6 +206,7 @@ interface FraseQualitativa {
   vasos: string;
   ad_vd: string;
   conclusao: string;
+  layout?: string;
 }
 
 const CAMPOS_QUALITATIVA = [
@@ -293,6 +294,9 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
   const [grauSelecionado, setGrauSelecionado] = useState("Normal");
   const [layoutQualitativa, setLayoutQualitativa] = useState<"detalhado" | "enxuto">("detalhado");
   const [aplicandoFrase, setAplicandoFrase] = useState(false);
+  const [salvandoFraseQualitativa, setSalvandoFraseQualitativa] = useState(false);
+  const [fraseAplicadaId, setFraseAplicadaId] = useState<number | null>(null);
+  const [frases, setFrases] = useState<FraseQualitativa[]>([]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -333,11 +337,45 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     try {
       const response = await api.get("/frases?limit=1000");
       const items = response.data.items || [];
+      setFrases(items);
       sincronizarPatologiasComFrases(items);
     } catch (error) {
       console.error("Erro ao carregar frases:", error);
+      setFrases([]);
       sincronizarPatologiasComFrases([]);
     }
+  };
+
+  const gerarChaveFrase = (patologia: string, grau: string) => {
+    if (patologia === "Normal") return "Normal (Normal)";
+    return `${patologia} (${grau})`;
+  };
+
+  const montarPayloadFrase = (patologia: string, grau: string) => ({
+    chave: gerarChaveFrase(patologia, grau),
+    patologia,
+    grau,
+    valvas: qualitativa.valvas || "",
+    camaras: qualitativa.camaras || "",
+    funcao: qualitativa.funcao || "",
+    pericardio: qualitativa.pericardio || "",
+    vasos: qualitativa.vasos || "",
+    ad_vd: qualitativa.ad_vd || "",
+    conclusao: diagnostico || "",
+    layout: layoutQualitativa,
+  });
+
+  const encontrarFraseAtual = () => {
+    const frasePorPatologiaEGrau = frases.find(
+      (frase) =>
+        (frase.patologia || "").trim().toLowerCase() === patologiaSelecionada.trim().toLowerCase() &&
+        (frase.grau || "").trim().toLowerCase() === grauSelecionado.trim().toLowerCase()
+    );
+    if (frasePorPatologiaEGrau) return frasePorPatologiaEGrau;
+    if (fraseAplicadaId) {
+      return frases.find((frase) => frase.id === fraseAplicadaId) || null;
+    }
+    return null;
   };
 
   const handleGerarTexto = async () => {
@@ -353,6 +391,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       const response = await api.post("/frases/aplicar", request);
       if (response.data.success && response.data.dados) {
         const dados = response.data.dados;
+        setFraseAplicadaId(response.data?.frase?.id ?? null);
 
         setQualitativa({
           valvas: dados.valvas || "",
@@ -373,6 +412,84 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       alert("Erro ao gerar texto qualitativo.");
     } finally {
       setAplicandoFrase(false);
+    }
+  };
+
+  const handleSalvarComoNovaPatologia = async () => {
+    const patologiaInformada = window.prompt(
+      "Nome da nova patologia:",
+      patologiaSelecionada === "Normal" ? "" : patologiaSelecionada
+    );
+    if (patologiaInformada === null) return;
+
+    const patologia = patologiaInformada.trim();
+    if (!patologia) {
+      alert("Informe um nome de patologia.");
+      return;
+    }
+
+    const sugestaoGrau = patologia === "Normal" ? "Normal" : grauSelecionado;
+    const grauInformado = window.prompt("Grau da patologia:", sugestaoGrau);
+    if (grauInformado === null) return;
+
+    const grau = patologia === "Normal" ? "Normal" : (grauInformado.trim() || sugestaoGrau);
+    const payload = montarPayloadFrase(patologia, grau);
+
+    setSalvandoFraseQualitativa(true);
+    try {
+      const response = await api.post("/frases", payload);
+      await carregarFrases();
+      setPatologiaSelecionada(patologia);
+      setGrauSelecionado(grau);
+      setFraseAplicadaId(response.data?.id ?? null);
+      setMensagemSucesso("Nova patologia salva no banco de frases.");
+      setTimeout(() => setMensagemSucesso(null), 3000);
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || "Erro ao salvar nova patologia.";
+      console.error("Erro ao salvar nova patologia:", error);
+      alert(detail);
+    } finally {
+      setSalvandoFraseQualitativa(false);
+    }
+  };
+
+  const handleAtualizarPatologia = async () => {
+    const fraseAtual = encontrarFraseAtual();
+    if (!fraseAtual?.id) {
+      alert("Nenhuma patologia encontrada para atualizar. Gere o texto ou selecione uma patologia existente.");
+      return;
+    }
+
+    const patologia = patologiaSelecionada.trim() || fraseAtual.patologia || "Normal";
+    const grau = patologia === "Normal" ? "Normal" : (grauSelecionado.trim() || fraseAtual.grau || "Leve");
+    const payload = {
+      patologia,
+      grau,
+      valvas: qualitativa.valvas || "",
+      camaras: qualitativa.camaras || "",
+      funcao: qualitativa.funcao || "",
+      pericardio: qualitativa.pericardio || "",
+      vasos: qualitativa.vasos || "",
+      ad_vd: qualitativa.ad_vd || "",
+      conclusao: diagnostico || "",
+      layout: layoutQualitativa,
+    };
+
+    setSalvandoFraseQualitativa(true);
+    try {
+      const response = await api.put(`/frases/${fraseAtual.id}`, payload);
+      await carregarFrases();
+      setPatologiaSelecionada(patologia);
+      setGrauSelecionado(grau);
+      setFraseAplicadaId(response.data?.id ?? fraseAtual.id);
+      setMensagemSucesso("Patologia atualizada no banco de frases.");
+      setTimeout(() => setMensagemSucesso(null), 3000);
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || "Erro ao atualizar patologia.";
+      console.error("Erro ao atualizar patologia:", error);
+      alert(detail);
+    } finally {
+      setSalvandoFraseQualitativa(false);
     }
   };
 
@@ -1567,7 +1684,27 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
 
                 {aba === "qualitativa" && (
                   <div className="space-y-4">
-                    <h3 className="font-medium text-gray-900">Qualitativa Detalhada</h3>
+                    <div className="flex flex-col gap-3 mb-4 lg:flex-row lg:items-center lg:justify-between">
+                      <h3 className="font-medium text-gray-900">Qualitativa Detalhada</h3>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={handleSalvarComoNovaPatologia}
+                          disabled={aplicandoFrase || salvandoFraseQualitativa}
+                          className="px-3 py-2 text-sm rounded-lg border border-teal-300 text-teal-700 hover:bg-teal-50 disabled:opacity-50"
+                        >
+                          Salvar como nova patologia
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleAtualizarPatologia}
+                          disabled={aplicandoFrase || salvandoFraseQualitativa}
+                          className="px-3 py-2 text-sm rounded-lg border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                        >
+                          Atualizar patologia
+                        </button>
+                      </div>
+                    </div>
 
                     {CAMPOS_QUALITATIVA.map((campo) => (
                       <div key={campo.key}>
