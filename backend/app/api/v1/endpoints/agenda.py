@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -20,6 +20,8 @@ from app.schemas.agendamento import (
 from app.core.security import get_current_user
 
 router = APIRouter()
+# Horario de Brasilia (UTC-3). Evita dependencia de tzdata no Windows local.
+LOCAL_TZ = timezone(timedelta(hours=-3))
 
 
 def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
@@ -34,6 +36,14 @@ def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
         return datetime.fromisoformat(raw)
     except ValueError:
         return None
+
+
+def _to_local_naive(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(LOCAL_TZ).replace(tzinfo=None)
 
 
 def _extract_date_filter(value: Optional[str]) -> Optional[str]:
@@ -53,9 +63,10 @@ def _extract_date_filter(value: Optional[str]) -> Optional[str]:
 
 def _coerce_datetime(value) -> Optional[datetime]:
     if isinstance(value, datetime):
-        return value
+        return _to_local_naive(value)
     if isinstance(value, str):
-        return _parse_iso_datetime(value.replace(" ", "T", 1))
+        parsed = _parse_iso_datetime(value.replace(" ", "T", 1))
+        return _to_local_naive(parsed)
     return None
 
 
@@ -149,9 +160,8 @@ def _serialize_agendamento(
     clinica_nome: Optional[str] = None,
     servico_nome: Optional[str] = None,
 ) -> dict:
-    inicio = agendamento.inicio
-    fim = agendamento.fim
-    inicio_dt = _coerce_datetime(inicio)
+    inicio_dt = _coerce_datetime(agendamento.inicio)
+    fim_dt = _coerce_datetime(agendamento.fim)
 
     data = agendamento.data
     hora = agendamento.hora
@@ -166,8 +176,8 @@ def _serialize_agendamento(
         "paciente_id": agendamento.paciente_id,
         "clinica_id": agendamento.clinica_id,
         "servico_id": agendamento.servico_id,
-        "inicio": str(inicio) if inicio else None,
-        "fim": str(fim) if fim else None,
+        "inicio": inicio_dt.strftime("%Y-%m-%d %H:%M:%S") if inicio_dt else None,
+        "fim": fim_dt.strftime("%Y-%m-%d %H:%M:%S") if fim_dt else None,
         "status": agendamento.status,
         "observacoes": agendamento.observacoes,
         "data": data,
@@ -272,6 +282,8 @@ def criar_agendamento(
     now = datetime.now()
 
     db_agendamento = Agendamento(**agendamento.model_dump())
+    db_agendamento.inicio = _coerce_datetime(db_agendamento.inicio)
+    db_agendamento.fim = _coerce_datetime(db_agendamento.fim)
     db_agendamento.criado_por_id = current_user.id
     db_agendamento.criado_por_nome = current_user.nome
     db_agendamento.criado_em = now
@@ -304,6 +316,11 @@ def atualizar_agendamento(
     update_data = agendamento.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(db_agendamento, field, value)
+
+    if "inicio" in update_data:
+        db_agendamento.inicio = _coerce_datetime(db_agendamento.inicio)
+    if "fim" in update_data:
+        db_agendamento.fim = _coerce_datetime(db_agendamento.fim)
 
     if "inicio" in update_data or "fim" in update_data or "servico_id" in update_data:
         _apply_service_duration_if_needed(db, db_agendamento)
