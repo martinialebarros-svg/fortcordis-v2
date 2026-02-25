@@ -7,7 +7,7 @@ import api from "@/lib/axios";
 import { 
   Calendar, Clock, User, Building, Plus, RefreshCw, X, Trash2,
   CheckCircle2, PlayCircle, CheckCircle, XCircle, AlertCircle,
-  Search, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download
+  Search, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope
 } from "lucide-react";
 import NovoAgendamentoModal from "./NovoAgendamentoModal";
 
@@ -98,7 +98,7 @@ export default function AgendaPage() {
   const [erro, setErro] = useState("");
   const [modoVisualizacao, setModoVisualizacao] = useState<ModoVisualizacao>("lista");
   const [filtroStatus, setFiltroStatus] = useState<string>("todos");
-  const [filtroData, setFiltroData] = useState<string>(hojeLocal());
+  const [filtroData, setFiltroData] = useState<string>("");
   const [busca, setBusca] = useState("");
   const [modalAberto, setModalAberto] = useState(false);
   const [agendamentoEditando, setAgendamentoEditando] = useState<Agendamento | null>(null);
@@ -112,8 +112,10 @@ export default function AgendaPage() {
   const router = useRouter();
 
   const periodoConsulta = useMemo(() => {
+    const dataBase = filtroData || hojeLocal();
+
     if (modoVisualizacao === "panoramica-semana") {
-      const inicioSemana = inicioDaSemana(filtroData);
+      const inicioSemana = inicioDaSemana(dataBase);
       const inicio = toDateInput(inicioSemana);
       const fimSemana = new Date(inicioSemana);
       fimSemana.setDate(fimSemana.getDate() + 6);
@@ -121,7 +123,15 @@ export default function AgendaPage() {
       return { inicio, fim };
     }
 
-    return { inicio: filtroData, fim: filtroData };
+    if (modoVisualizacao === "panoramica-dia") {
+      return { inicio: dataBase, fim: dataBase };
+    }
+
+    if (filtroData) {
+      return { inicio: filtroData, fim: filtroData };
+    }
+
+    return { inicio: "", fim: "" };
   }, [filtroData, modoVisualizacao]);
 
   useEffect(() => {
@@ -265,6 +275,10 @@ export default function AgendaPage() {
     router.push(`/laudos/novo?agendamento_id=${ag.id}`);
   };
 
+  const abrirFluxoAtendimento = (ag: Agendamento) => {
+    router.push(`/atendimento?agendamento_id=${ag.id}`);
+  };
+
   const podeBaixarLaudo = (status?: string) => {
     const statusNormalizado = (status || "").trim().toLowerCase();
     return statusNormalizado === "finalizado" || statusNormalizado === "arquivado";
@@ -355,15 +369,18 @@ export default function AgendaPage() {
   const slotsPanoramica = useMemo(() => gerarSlots(), []);
 
   const diasPanoramica = useMemo(() => {
+    const dataBase = filtroData || hojeLocal();
+
     if (modoVisualizacao === "panoramica-semana") {
-      const inicioSemana = inicioDaSemana(filtroData);
+      const inicioSemana = inicioDaSemana(dataBase);
       return Array.from({ length: 7 }, (_, idx) => {
         const data = new Date(inicioSemana);
         data.setDate(inicioSemana.getDate() + idx);
         return toDateInput(data);
       });
     }
-    return [filtroData];
+
+    return [dataBase];
   }, [filtroData, modoVisualizacao]);
 
   const mapaOcupacao = useMemo(() => {
@@ -433,6 +450,17 @@ export default function AgendaPage() {
     const data = parseDateInput(filtroData);
     data.setDate(data.getDate() + dias);
     setFiltroData(toDateInput(data));
+  };
+
+  const formatarDataHoraAgendamento = (ag: Agendamento) => {
+    if (ag.data && ag.hora) {
+      const [ano, mes, dia] = String(ag.data).split("-");
+      const hora = String(ag.hora).slice(0, 5);
+      if (ano && mes && dia && hora) {
+        return `${dia}/${mes}, ${hora}`;
+      }
+    }
+    return formatarDataHora(ag.inicio);
   };
 
   const handleAgendamentoSuccess = async (agendamentoCriado?: { data?: string | null }) => {
@@ -650,7 +678,7 @@ export default function AgendaPage() {
                           </div>
                           <div className="flex items-center gap-2">
                             <Clock className="w-4 h-4 text-gray-400" />
-                            <span className="font-medium">{formatarDataHora(ag.inicio)}</span>
+                            <span className="font-medium">{formatarDataHoraAgendamento(ag)}</span>
                           </div>
                           {ag.servico && (
                             <div className="flex items-center gap-2">
@@ -717,6 +745,15 @@ export default function AgendaPage() {
                         </button>
 
                         <button
+                          onClick={() => abrirFluxoAtendimento(ag)}
+                          className="px-3 py-1.5 text-sm text-purple-700 hover:text-purple-900 hover:bg-purple-50 rounded-lg transition-colors flex items-center gap-1"
+                          title="Abrir atendimento clinico para este agendamento"
+                        >
+                          <Stethoscope className="w-4 h-4" />
+                          Atender
+                        </button>
+
+                        <button
                           onClick={() => abrirFluxoLaudo(ag)}
                           className="px-3 py-1.5 text-sm text-teal-700 hover:text-teal-900 hover:bg-teal-50 rounded-lg transition-colors flex items-center gap-1"
                           title={laudoVinculado ? "Abrir laudo vinculado" : "Criar laudo para este agendamento"}
@@ -758,7 +795,7 @@ export default function AgendaPage() {
             <div className="text-sm text-gray-700 font-medium">
               {modoVisualizacao === "panoramica-semana"
                 ? `Semana de ${formatarDiaPanoramica(diasPanoramica[0])} atÃ© ${formatarDiaPanoramica(diasPanoramica[diasPanoramica.length - 1])}`
-                : `Dia ${formatarDiaPanoramica(filtroData)}`}
+                : `Dia ${formatarDiaPanoramica(diasPanoramica[0])}`}
             </div>
             <div className="text-xs text-gray-500">
               Clique em um horÃ¡rio livre para agendar
@@ -983,7 +1020,7 @@ export default function AgendaPage() {
           agendamento={agendamentoEditando}
           onClose={() => { setModalAberto(false); setAgendamentoEditando(null); setSlotSelecionado(null); }}
           onSuccess={handleAgendamentoSuccess}
-          defaultDate={slotSelecionado?.data || filtroData}
+          defaultDate={slotSelecionado?.data || filtroData || hojeLocal()}
           defaultTime={slotSelecionado?.hora}
         />
       </div>

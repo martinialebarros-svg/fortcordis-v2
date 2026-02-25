@@ -46,6 +46,15 @@ def _to_local_naive(value: Optional[datetime]) -> Optional[datetime]:
     return value.astimezone(LOCAL_TZ).replace(tzinfo=None)
 
 
+def _to_local_aware(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        # Interpreta datetimes sem timezone como horario local de Brasilia.
+        return value.replace(tzinfo=LOCAL_TZ)
+    return value.astimezone(LOCAL_TZ)
+
+
 def _extract_date_filter(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
@@ -63,10 +72,10 @@ def _extract_date_filter(value: Optional[str]) -> Optional[str]:
 
 def _coerce_datetime(value) -> Optional[datetime]:
     if isinstance(value, datetime):
-        return _to_local_naive(value)
+        return _to_local_aware(value)
     if isinstance(value, str):
         parsed = _parse_iso_datetime(value.replace(" ", "T", 1))
-        return _to_local_naive(parsed)
+        return _to_local_aware(parsed)
     return None
 
 
