@@ -63,9 +63,66 @@ const toTimeInput = (date: Date) => {
 
 const parseApiDateTime = (value?: string | null): Date | null => {
   if (!value) return null;
+
+  const match = value
+    .trim()
+    .match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (match) {
+    const [, ano, mes, dia, hora, minuto, segundo = "0"] = match;
+    const dataLocal = new Date(
+      Number(ano),
+      Number(mes) - 1,
+      Number(dia),
+      Number(hora),
+      Number(minuto),
+      Number(segundo),
+      0
+    );
+    if (!Number.isNaN(dataLocal.getTime())) {
+      return dataLocal;
+    }
+  }
+
   const normalizado = value.includes("T") ? value : value.replace(" ", "T");
   const data = new Date(normalizado);
   return Number.isNaN(data.getTime()) ? null : data;
+};
+
+const parseAgendamentoInicioLocal = (ag: Agendamento): Date | null => {
+  if (ag.data && ag.hora) {
+    const [ano, mes, dia] = String(ag.data).split("-").map(Number);
+    const [hora, minuto] = String(ag.hora).split(":").map(Number);
+    if (
+      Number.isFinite(ano) &&
+      Number.isFinite(mes) &&
+      Number.isFinite(dia) &&
+      Number.isFinite(hora) &&
+      Number.isFinite(minuto)
+    ) {
+      const data = new Date(ano, mes - 1, dia, hora, minuto, 0, 0);
+      if (!Number.isNaN(data.getTime())) {
+        return data;
+      }
+    }
+  }
+
+  return parseApiDateTime(ag.inicio);
+};
+
+const parseAgendamentoFimLocal = (ag: Agendamento, inicioLocal: Date): Date => {
+  const rawInicio = parseApiDateTime(ag.inicio);
+  const rawFim = parseApiDateTime(ag.fim);
+
+  if (rawInicio && rawFim && rawFim > rawInicio) {
+    const duracaoMs = rawFim.getTime() - rawInicio.getTime();
+    return new Date(inicioLocal.getTime() + duracaoMs);
+  }
+
+  if (rawFim && rawFim > inicioLocal) {
+    return rawFim;
+  }
+
+  return new Date(inicioLocal.getTime() + 30 * 60000);
 };
 
 const inicioDaSemana = (value: string) => {
@@ -387,13 +444,10 @@ export default function AgendaPage() {
     const mapa = new Map<string, Agendamento[]>();
 
     for (const ag of agendamentosFiltrados) {
-      const inicio = parseApiDateTime(ag.inicio);
+      const inicio = parseAgendamentoInicioLocal(ag);
       if (!inicio) continue;
 
-      const fimOriginal = parseApiDateTime(ag.fim);
-      const fim = fimOriginal && fimOriginal > inicio
-        ? fimOriginal
-        : new Date(inicio.getTime() + 30 * 60000);
+      const fim = parseAgendamentoFimLocal(ag, inicio);
 
       const cursor = new Date(inicio);
       cursor.setSeconds(0, 0);

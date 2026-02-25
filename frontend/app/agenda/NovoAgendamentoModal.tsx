@@ -53,9 +53,50 @@ export default function NovoAgendamentoModal({
 
   const parseApiDateTime = (value?: string): Date | null => {
     if (!value) return null;
+
+    const match = value
+      .trim()
+      .match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (match) {
+      const [, ano, mes, dia, hora, minuto, segundo = "0"] = match;
+      const local = new Date(
+        Number(ano),
+        Number(mes) - 1,
+        Number(dia),
+        Number(hora),
+        Number(minuto),
+        Number(segundo),
+        0
+      );
+      if (!Number.isNaN(local.getTime())) {
+        return local;
+      }
+    }
+
     const normalized = value.includes("T") ? value : value.replace(" ", "T");
     const parsed = new Date(normalized);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const parseAgendamentoInicio = (ag: any): Date | null => {
+    if (ag?.data && ag?.hora) {
+      const [ano, mes, dia] = String(ag.data).split("-").map(Number);
+      const [hora, minuto] = String(ag.hora).split(":").map(Number);
+      if (
+        Number.isFinite(ano) &&
+        Number.isFinite(mes) &&
+        Number.isFinite(dia) &&
+        Number.isFinite(hora) &&
+        Number.isFinite(minuto)
+      ) {
+        const local = new Date(ano, mes - 1, dia, hora, minuto, 0, 0);
+        if (!Number.isNaN(local.getTime())) {
+          return local;
+        }
+      }
+    }
+
+    return parseApiDateTime(ag?.inicio);
   };
 
   const toInputDate = (date: Date): string => {
@@ -84,7 +125,7 @@ export default function NovoAgendamentoModal({
   // Preencher formulário quando estiver editando
   useEffect(() => {
     if (isEditando && agendamento) {
-      const inicio = parseApiDateTime(agendamento.inicio);
+      const inicio = parseAgendamentoInicio(agendamento);
       const data = inicio ? toInputDate(inicio) : "";
       const hora = inicio ? toInputTime(inicio) : "";
       
