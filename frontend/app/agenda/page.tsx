@@ -848,11 +848,11 @@ export default function AgendaPage() {
           <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
             <div className="text-sm text-gray-700 font-medium">
               {modoVisualizacao === "panoramica-semana"
-                ? `Semana de ${formatarDiaPanoramica(diasPanoramica[0])} atÃ© ${formatarDiaPanoramica(diasPanoramica[diasPanoramica.length - 1])}`
+                ? `Semana de ${formatarDiaPanoramica(diasPanoramica[0])} até ${formatarDiaPanoramica(diasPanoramica[diasPanoramica.length - 1])}`
                 : `Dia ${formatarDiaPanoramica(diasPanoramica[0])}`}
             </div>
             <div className="text-xs text-gray-500">
-              Clique em um horÃ¡rio livre para agendar
+              Clique em um horário livre para agendar
             </div>
           </div>
 
@@ -909,7 +909,10 @@ export default function AgendaPage() {
                           {primeiro.paciente || "Paciente"}
                         </div>
                         <div className="text-[11px] text-red-600 truncate">
-                          {primeiro.tutor || "Tutor nÃ£o informado"}
+                          Clinica: {primeiro.clinica || "Nao informada"}
+                        </div>
+                        <div className="text-[11px] text-red-600 truncate">
+                          Tutor: {primeiro.tutor || "Nao informado"}
                         </div>
                         {primeiro.servico && (
                           <div className="text-[11px] text-red-500 truncate">
