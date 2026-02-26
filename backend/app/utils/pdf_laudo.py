@@ -102,6 +102,15 @@ def normalizar_medidas_para_pdf(medidas: Dict[str, Any]) -> Dict[str, Any]:
     return medidas_norm
 
 
+def _bloco_sem_quebra(*flowables):
+    """
+    Retorna um bloco que tenta manter os elementos juntos na mesma pagina.
+    Se nao houver espaco suficiente, o bloco inicia na pagina seguinte.
+    """
+    itens = [f for f in flowables if f is not None]
+    return KeepTogether(itens)
+
+
 def formatar_referencia(ref_min: Optional[float], ref_max: Optional[float], unidade: str) -> str:
     """Formata faixa de referência incluindo unidade quando aplicável."""
     if ref_min is None or ref_max is None:
@@ -647,8 +656,6 @@ def criar_secao_ad_vd(texto: str) -> List:
         ('TOPPADDING', (0, 0), (-1, 0), 4),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
     ]))
-    elements.append(titulo_table)
-    
     # Texto do AD/VD
     texto_data = [[Paragraph(_esc(texto.strip()), styles['Normal'])]]
     texto_table = Table(texto_data, colWidths=[180*mm])
@@ -660,7 +667,8 @@ def criar_secao_ad_vd(texto: str) -> List:
         ('TOPPADDING', (0, 0), (-1, -1), 4),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
     ]))
-    elements.append(texto_table)
+
+    elements.append(_bloco_sem_quebra(titulo_table, texto_table))
     
     return elements
 
@@ -764,9 +772,7 @@ def criar_secao_pressao_arterial(pressao: Optional[Dict[str, Any]]) -> List:
     if not proc_linhas:
         proc_linhas.append("Sem observacoes de procedimento.")
 
-    elements.append(Spacer(1, 4 * mm))
-    elements.append(criar_titulo_secao("PRESSAO ARTERIAL (ANEXO)"))
-    elements.append(Spacer(1, 2 * mm))
+    bloco_secao = [Spacer(1, 4 * mm), criar_titulo_secao("PRESSAO ARTERIAL (ANEXO)"), Spacer(1, 2 * mm)]
 
     tabela = Table(
         [
@@ -790,13 +796,15 @@ def criar_secao_pressao_arterial(pressao: Optional[Dict[str, Any]]) -> List:
         ("TOPPADDING", (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
-    elements.append(tabela)
-    elements.append(Spacer(1, 2 * mm))
-    elements.append(Paragraph(f"<b>Classificacao PAS:</b> {_esc(classificacao)}", styles["Normal"]))
+    bloco_secao.append(tabela)
+    bloco_secao.append(Spacer(1, 2 * mm))
+    bloco_secao.append(Paragraph(f"<b>Classificacao PAS:</b> {_esc(classificacao)}", styles["Normal"]))
 
     if obs_extra:
-        elements.append(Spacer(1, 1 * mm))
-        elements.append(Paragraph(f"<b>Obs:</b> {_esc(obs_extra)}", styles["Normal"]))
+        bloco_secao.append(Spacer(1, 1 * mm))
+        bloco_secao.append(Paragraph(f"<b>Obs:</b> {_esc(obs_extra)}", styles["Normal"]))
+
+    elements.append(_bloco_sem_quebra(*bloco_secao))
 
     return elements
 
@@ -1063,34 +1071,88 @@ def gerar_pdf_laudo_eco(
         # =================================================================
         
         # VE - Modo M: COM Referência (diferença solicitada pelo usuário)
-        elements.append(criar_tabela_medidas("VE - Modo M", params_ve_modo_m, dados_pdf, 
-                                              mostrar_referencia=True, mostrar_interpretacao=False))
-        elements.append(Spacer(1, 3*mm))
+        elements.append(
+            _bloco_sem_quebra(
+                criar_tabela_medidas(
+                    "VE - Modo M",
+                    params_ve_modo_m,
+                    dados_pdf,
+                    mostrar_referencia=True,
+                    mostrar_interpretacao=False,
+                ),
+                Spacer(1, 3 * mm),
+            )
+        )
         
         # Átrio Esquerdo / Aorta: COM Referência, SEM Interpretação
-        elements.append(criar_tabela_medidas("Átrio esquerdo/ Aorta", params_ae_aorta, dados_pdf,
-                                              mostrar_referencia=True, mostrar_interpretacao=False))
-        elements.append(Spacer(1, 3*mm))
+        elements.append(
+            _bloco_sem_quebra(
+                criar_tabela_medidas(
+                    "Átrio esquerdo/ Aorta",
+                    params_ae_aorta,
+                    dados_pdf,
+                    mostrar_referencia=True,
+                    mostrar_interpretacao=False,
+                ),
+                Spacer(1, 3 * mm),
+            )
+        )
         
         # Artéria Pulmonar / Aorta: COM Referência, SEM Interpretação
-        elements.append(criar_tabela_medidas("Artéria pulmonar/ Aorta", params_ap_aorta, dados_pdf,
-                                              mostrar_referencia=True, mostrar_interpretacao=False))
-        elements.append(Spacer(1, 3*mm))
+        elements.append(
+            _bloco_sem_quebra(
+                criar_tabela_medidas(
+                    "Artéria pulmonar/ Aorta",
+                    params_ap_aorta,
+                    dados_pdf,
+                    mostrar_referencia=True,
+                    mostrar_interpretacao=False,
+                ),
+                Spacer(1, 3 * mm),
+            )
+        )
         
         # Doppler - Saídas: COM Referência, SEM Interpretação
-        elements.append(criar_tabela_medidas("Doppler - Saídas", params_doppler_saidas, dados_pdf,
-                                              mostrar_referencia=True, mostrar_interpretacao=False))
-        elements.append(Spacer(1, 3*mm))
+        elements.append(
+            _bloco_sem_quebra(
+                criar_tabela_medidas(
+                    "Doppler - Saídas",
+                    params_doppler_saidas,
+                    dados_pdf,
+                    mostrar_referencia=True,
+                    mostrar_interpretacao=False,
+                ),
+                Spacer(1, 3 * mm),
+            )
+        )
         
         # Diastólica: COM Referência, SEM Interpretação
-        elements.append(criar_tabela_medidas("Diastólica", params_diastolica, dados_pdf,
-                                              mostrar_referencia=True, mostrar_interpretacao=False))
-        elements.append(Spacer(1, 3*mm))
+        elements.append(
+            _bloco_sem_quebra(
+                criar_tabela_medidas(
+                    "Diastólica",
+                    params_diastolica,
+                    dados_pdf,
+                    mostrar_referencia=True,
+                    mostrar_interpretacao=False,
+                ),
+                Spacer(1, 3 * mm),
+            )
+        )
         
         # Regurgitações: COM Referência, SEM Interpretação
-        elements.append(criar_tabela_medidas("Regurgitações", params_regurgitacoes, dados_pdf,
-                                              mostrar_referencia=True, mostrar_interpretacao=False))
-        elements.append(Spacer(1, 3*mm))
+        elements.append(
+            _bloco_sem_quebra(
+                criar_tabela_medidas(
+                    "Regurgitações",
+                    params_regurgitacoes,
+                    dados_pdf,
+                    mostrar_referencia=True,
+                    mostrar_interpretacao=False,
+                ),
+                Spacer(1, 3 * mm),
+            )
+        )
         
         # 3. Análise Qualitativa e AD/VD
         qualitativa = dados_pdf.get('qualitativa', {})
@@ -1318,8 +1380,7 @@ def gerar_pdf_laudo_pressao(
             )
         )
 
-        elements.append(criar_titulo_secao("LAUDO PRESSAO ARTERIAL"))
-        elements.append(Spacer(1, 2 * mm))
+        elements.append(_bloco_sem_quebra(criar_titulo_secao("LAUDO PRESSAO ARTERIAL"), Spacer(1, 2 * mm)))
 
         afericoes_txt = "<br/>".join([
             f"1a afericao: Pressao Sistolica {pas_1} mmHg",
@@ -1353,17 +1414,21 @@ def gerar_pdf_laudo_pressao(
             ('TOPPADDING', (0, 0), (-1, -1), 5),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
         ]))
-        elements.append(box_table)
-
-        elements.append(Spacer(1, 3 * mm))
         classificacao = dados_pdf.get("conclusao") or _classificar_pas(pas_media)
-        elements.append(Paragraph(f"<b>Classificacao:</b> {_esc(classificacao)}", styles['Conclusao']))
+        bloco_pressao = [
+            box_table,
+            Spacer(1, 3 * mm),
+            Paragraph(f"<b>Classificacao:</b> {_esc(classificacao)}", styles['Conclusao']),
+        ]
 
         if obs_extra:
-            elements.append(Spacer(1, 2 * mm))
-            elements.append(Paragraph(f"<b>Outras observacoes:</b> {_esc(obs_extra)}", styles['Normal']))
+            bloco_pressao.extend([
+                Spacer(1, 2 * mm),
+                Paragraph(f"<b>Outras observacoes:</b> {_esc(obs_extra)}", styles['Normal']),
+            ])
 
-        elements.append(Spacer(1, 4 * mm))
+        bloco_pressao.append(Spacer(1, 4 * mm))
+        elements.append(_bloco_sem_quebra(*bloco_pressao))
 
         refs = [
             "<b>Valores de Referencia (PAS)</b>",
@@ -1380,7 +1445,7 @@ def gerar_pdf_laudo_pressao(
             ('TOPPADDING', (0, 0), (-1, -1), 6),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
         ]))
-        elements.append(ref_table)
+        elements.append(_bloco_sem_quebra(ref_table))
 
         elements.append(Spacer(1, 4 * mm))
         elements.append(

@@ -56,6 +56,38 @@ def _find_text_ci(soup, tag_names):
                 return txt
     return ""
 
+
+def _capitalizar_nome(texto: str) -> str:
+    """
+    Normaliza nomes para formato com iniciais maiusculas.
+    Ex:
+    - "joao da silva" -> "Joao Da Silva"
+    - "vira-lata" -> "Vira-Lata"
+    - "d'angelo" -> "D'Angelo"
+    """
+    if not texto:
+        return ""
+
+    texto = re.sub(r"\s+", " ", str(texto).strip())
+
+    def _cap_token(token: str) -> str:
+        if not token:
+            return token
+        partes_apostrofo = token.split("'")
+        partes_apostrofo = [
+            p[:1].upper() + p[1:].lower() if p else p
+            for p in partes_apostrofo
+        ]
+        return "'".join(partes_apostrofo)
+
+    palavras = []
+    for palavra in texto.split(" "):
+        partes_hifen = palavra.split("-")
+        partes_hifen = [_cap_token(parte) for parte in partes_hifen]
+        palavras.append("-".join(partes_hifen))
+
+    return " ".join(palavras)
+
 def extrair_peso_kg(soup) -> Optional[float]:
     """Tenta encontrar peso no XML (converte lb->kg se necessário)."""
     candidatos_tags = {"weight", "patientweight", "patient_weight", "bodyweight", "bw"}
@@ -261,9 +293,9 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     
     # ============== DADOS DO PACIENTE ==============
     dados["paciente"] = {
-        "nome": nome_animal.strip(),
-        "tutor": tutor.strip(),
-        "raca": raca.strip(),
+        "nome": _capitalizar_nome(nome_animal),
+        "tutor": _capitalizar_nome(tutor),
+        "raca": _capitalizar_nome(raca),
         "especie": especie or "Canina",
         "peso": peso,
         "idade": idade,
