@@ -252,9 +252,9 @@ def listar_precos_servicos_clinica(
     if not clinica:
         raise HTTPException(status_code=404, detail="Clinica nao encontrada")
 
-    servicos = db.query(Servico).filter(Servico.ativo == True).order_by(Servico.nome).all()
-    if not servicos:
-        servicos = db.query(Servico).order_by(Servico.nome).all()
+    # Para configuracao de precos negociados, exibimos todos os servicos cadastrados.
+    # Isso evita "lista vazia" quando servicos estao temporariamente inativos.
+    servicos = db.query(Servico).order_by(Servico.nome).all()
     custom_rows = []
     inspector = inspect(db.bind)
     if "precos_servicos_clinica" in inspector.get_table_names():
@@ -285,6 +285,7 @@ def listar_precos_servicos_clinica(
             {
                 "servico_id": servico.id,
                 "servico_nome": servico.nome,
+                "servico_ativo": bool(servico.ativo),
                 "preco_base_comercial": float(preco_base_comercial),
                 "preco_base_plantao": float(preco_base_plantao),
                 "preco_negociado_comercial": float(custom.preco_comercial) if custom and custom.preco_comercial is not None else None,
@@ -317,9 +318,7 @@ def salvar_precos_servicos_clinica(
             detail="Tabela de precos negociados indisponivel. Execute as migracoes pendentes."
         )
 
-    servicos_validos = {
-        row[0] for row in db.query(Servico.id).filter(Servico.ativo == True).all()
-    }
+    servicos_validos = {row[0] for row in db.query(Servico.id).all()}
     existentes = db.query(PrecoServicoClinica).filter(
         PrecoServicoClinica.clinica_id == clinica_id
     ).all()
