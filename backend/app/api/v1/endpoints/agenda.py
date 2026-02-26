@@ -18,6 +18,7 @@ from app.schemas.agendamento import (
     AgendamentoUpdate,
 )
 from app.core.security import get_current_user
+from app.services.precos_service import calcular_preco_servico
 
 router = APIRouter()
 # Horario de Brasilia (UTC-3). Evita dependencia de tzdata no Windows local.
@@ -357,7 +358,6 @@ def atualizar_status(
 ):
     """Atualiza apenas o status do agendamento"""
     from app.models.ordem_servico import OrdemServico
-    from app.models.tabela_preco import PrecoServico
     from decimal import Decimal
     
     db_agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
@@ -382,52 +382,16 @@ def atualizar_status(
     
     # Se status for "Realizado", gerar Ordem de ServiÃƒÂ§o automaticamente
     if status == "Realizado":
-        # Buscar dados da clÃƒÂ­nica para determinar a regiÃƒÂ£o
-        clinica = db.query(Clinica).filter(Clinica.id == db_agendamento.clinica_id).first()
-        
-        # Determinar valor do serviÃƒÂ§o
         valor_servico = Decimal("0.00")
-        
-        if clinica and db_agendamento.servico_id:
-            # Buscar serviÃƒÂ§o com os novos preÃƒÂ§os por regiÃƒÂ£o
-            servico = db.query(Servico).filter(Servico.id == db_agendamento.servico_id).first()
-            
-            if servico:
-                # Determinar qual tabela de preÃƒÂ§o usar baseado na clÃƒÂ­nica
-                tabela_id = clinica.tabela_preco_id if clinica.tabela_preco_id else 1
-                
-                # Mapear tabela_id para regiÃƒÂ£o
-                # 1 = Fortaleza, 2 = RegiÃƒÂ£o Metropolitana, 3 = Domiciliar
-                if tabela_id == 1:
-                    # Fortaleza
-                    if tipo_horario == 'plantao' and servico.preco_fortaleza_plantao:
-                        valor_servico = servico.preco_fortaleza_plantao
-                    elif servico.preco_fortaleza_comercial:
-                        valor_servico = servico.preco_fortaleza_comercial
-                elif tabela_id == 2:
-                    # RegiÃƒÂ£o Metropolitana
-                    if tipo_horario == 'plantao' and servico.preco_rm_plantao:
-                        valor_servico = servico.preco_rm_plantao
-                    elif servico.preco_rm_comercial:
-                        valor_servico = servico.preco_rm_comercial
-                elif tabela_id == 3:
-                    # Domiciliar
-                    if tipo_horario == 'plantao' and servico.preco_domiciliar_plantao:
-                        valor_servico = servico.preco_domiciliar_plantao
-                    elif servico.preco_domiciliar_comercial:
-                        valor_servico = servico.preco_domiciliar_comercial
-                else:
-                    # Fallback: tentar buscar na tabela de preÃƒÂ§os antiga
-                    preco = db.query(PrecoServico).filter(
-                        PrecoServico.tabela_preco_id == tabela_id,
-                        PrecoServico.servico_id == db_agendamento.servico_id
-                    ).first()
-                    
-                    if preco:
-                        if tipo_horario == 'plantao' and preco.preco_plantao:
-                            valor_servico = preco.preco_plantao
-                        elif preco.preco_comercial:
-                            valor_servico = preco.preco_comercial
+        # Buscar dados da clÃƒÂ­nica para determinar a regiÃƒÂ£o
+        if db_agendamento.clinica_id and db_agendamento.servico_id:
+            valor_servico = calcular_preco_servico(
+                db=db,
+                clinica_id=db_agendamento.clinica_id,
+                servico_id=db_agendamento.servico_id,
+                tipo_horario=tipo_horario or "comercial",
+                usar_preco_clinica=True,
+            )
         
         # Gerar nÃƒÂºmero da OS (ANO + MES + SEQUENCIAL)
         hoje = datetime.now()

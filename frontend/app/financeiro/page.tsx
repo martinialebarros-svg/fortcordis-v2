@@ -102,6 +102,7 @@ export default function FinanceiroPage() {
   const [modalReceberOS, setModalReceberOS] = useState<OrdemServico | null>(null);
   const [modalEditarOS, setModalEditarOS] = useState<OrdemServico | null>(null);
   const [formaPagamentoOS, setFormaPagamentoOS] = useState("dinheiro");
+  const [dataRecebimentoOS, setDataRecebimentoOS] = useState("");
   const [salvandoOS, setSalvandoOS] = useState(false);
   const [clinicas, setClinicas] = useState<ClinicaOption[]>([]);
   const [servicos, setServicos] = useState<ServicoOption[]>([]);
@@ -162,6 +163,12 @@ export default function FinanceiroPage() {
       hour: "2-digit",
       minute: "2-digit",
     });
+  };
+
+  const hojeLocalISO = () => {
+    const agora = new Date();
+    const local = new Date(agora.getTime() - agora.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
   };
 
   const getStatusIcon = (status: string) => {
@@ -258,6 +265,7 @@ export default function FinanceiroPage() {
   const handlePagarOS = (os: OrdemServico) => {
     setModalReceberOS(os);
     setFormaPagamentoOS("dinheiro");
+    setDataRecebimentoOS(hojeLocalISO());
   };
 
   const handleEditarOS = (os: OrdemServico) => {
@@ -275,8 +283,9 @@ export default function FinanceiroPage() {
     if (!modalReceberOS) return;
 
     try {
-      await api.patch(`/ordens-servico/${modalReceberOS.id}/receber`, null, {
-        params: { forma_pagamento: formaPagamentoOS },
+      await api.patch(`/ordens-servico/${modalReceberOS.id}/receber`, {
+        forma_pagamento: formaPagamentoOS,
+        data_recebimento: dataRecebimentoOS || null,
       });
 
       setModalReceberOS(null);
@@ -984,6 +993,18 @@ export default function FinanceiroPage() {
                     </label>
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Data do Recebimento
+                </label>
+                <input
+                  type="date"
+                  value={dataRecebimentoOS}
+                  onChange={(e) => setDataRecebimentoOS(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
               </div>
             </div>
             

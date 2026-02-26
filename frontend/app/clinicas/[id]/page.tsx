@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
-import { Save, ArrowLeft, Building2, Trash2, AlertTriangle, MapPin, DollarSign, Calculator } from "lucide-react";
+import { Save, ArrowLeft, Building2, Trash2, AlertTriangle, MapPin, DollarSign, Calculator, Percent } from "lucide-react";
 
 const ESTADOS = [
   "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA",
@@ -18,6 +18,15 @@ const TABELAS_PRECO = [
   { id: 3, nome: "Domiciliar", descricao: "Atendimento domiciliar padrão", cor: "orange" },
   { id: 4, nome: "Personalizado", descricao: "Preço negociado para cidade distante", cor: "green" },
 ];
+
+type PrecoNegociadoServico = {
+  servico_id: number;
+  servico_nome: string;
+  preco_base_comercial: number;
+  preco_base_plantao: number;
+  preco_negociado_comercial: string;
+  preco_negociado_plantao: string;
+};
 
 export default function EditarClinicaPage() {
   const router = useRouter();
@@ -44,6 +53,8 @@ export default function EditarClinicaPage() {
     preco_personalizado_base: "",
     observacoes_preco: "",
   });
+  const [precosServicos, setPrecosServicos] = useState<PrecoNegociadoServico[]>([]);
+  const [loadingPrecosServicos, setLoadingPrecosServicos] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -60,6 +71,11 @@ export default function EditarClinicaPage() {
       sugerirTabelaPreco();
     }
   }, [clinica.cidade]);
+
+  useEffect(() => {
+    if (loading) return;
+    carregarPrecosServicos();
+  }, [loading, clinicaId, clinica.tabela_preco_id]);
 
   const carregarClinica = async () => {
     try {
@@ -111,6 +127,49 @@ export default function EditarClinicaPage() {
     }
   };
 
+  const carregarPrecosServicos = async () => {
+    setLoadingPrecosServicos(true);
+    try {
+      const response = await api.get(`/clinicas/${clinicaId}/precos-servicos`);
+      const items = (response.data?.items || []).map((item: any) => ({
+        servico_id: item.servico_id,
+        servico_nome: item.servico_nome,
+        preco_base_comercial: Number(item.preco_base_comercial || 0),
+        preco_base_plantao: Number(item.preco_base_plantao || 0),
+        preco_negociado_comercial:
+          item.preco_negociado_comercial === null || item.preco_negociado_comercial === undefined
+            ? ""
+            : String(item.preco_negociado_comercial),
+        preco_negociado_plantao:
+          item.preco_negociado_plantao === null || item.preco_negociado_plantao === undefined
+            ? ""
+            : String(item.preco_negociado_plantao),
+      }));
+      setPrecosServicos(items);
+    } catch (error) {
+      console.error("Erro ao carregar precos negociados:", error);
+      setPrecosServicos([]);
+    } finally {
+      setLoadingPrecosServicos(false);
+    }
+  };
+
+  const atualizarPrecoServico = (
+    servicoId: number,
+    campo: "preco_negociado_comercial" | "preco_negociado_plantao",
+    valor: string
+  ) => {
+    setPrecosServicos((prev) =>
+      prev.map((row) => (row.servico_id === servicoId ? { ...row, [campo]: valor } : row))
+    );
+  };
+
+  const parsePrecoOpcional = (valor: string) => {
+    if (!valor || !valor.trim()) return null;
+    const parsed = parseFloat(valor.replace(",", "."));
+    return Number.isNaN(parsed) ? null : parsed;
+  };
+
   const handleSalvar = async () => {
     if (!clinica.nome.trim()) {
       alert("Digite o nome da clínica");
@@ -126,7 +185,16 @@ export default function EditarClinicaPage() {
         preco_personalizado_base: clinica.preco_personalizado_base ? parseFloat(clinica.preco_personalizado_base.replace(',', '.')) : 0,
       };
       
+      const payloadPrecosNegociados = {
+        items: precosServicos.map((row) => ({
+          servico_id: row.servico_id,
+          preco_comercial: parsePrecoOpcional(row.preco_negociado_comercial),
+          preco_plantao: parsePrecoOpcional(row.preco_negociado_plantao),
+        })),
+      };
+
       await api.put(`/clinicas/${clinicaId}`, payload);
+      await api.put(`/clinicas/${clinicaId}/precos-servicos`, payloadPrecosNegociados);
       alert("Clínica atualizada com sucesso!");
       router.push("/clinicas");
     } catch (error: any) {
@@ -148,10 +216,11 @@ export default function EditarClinicaPage() {
     }
   };
 
-  const formatarValor = (valor: string) => {
-    if (!valor) return "0,00";
-    const num = parseFloat(valor.replace(',', '.'));
-    if (isNaN(num)) return "0,00";
+  const formatarValor = (valor: string | number | null | undefined) => {
+    if (valor === null || valor === undefined || valor === "") return "0,00";
+    const valorString = typeof valor === "number" ? String(valor) : valor;
+    const num = parseFloat(valorString.replace(',', '.'));
+    if (Number.isNaN(num)) return "0,00";
     return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
@@ -443,6 +512,72 @@ export default function EditarClinicaPage() {
                     </p>
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+
+          {/* Precos negociados por servico */}
+          <div className="bg-white rounded-lg shadow-sm border p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-2 flex items-center gap-2">
+              <Percent className="w-5 h-5 text-emerald-600" />
+              Precos negociados por servico
+            </h2>
+            <p className="text-sm text-gray-500 mb-4">
+              Defina valores especiais para esta clinica. Campos em branco usam o valor padrao da tabela.
+            </p>
+
+            {loadingPrecosServicos ? (
+              <div className="py-10 text-center text-sm text-gray-500">Carregando precos por servico...</div>
+            ) : precosServicos.length === 0 ? (
+              <div className="py-10 text-center text-sm text-gray-500">Nenhum servico ativo encontrado.</div>
+            ) : (
+              <div className="overflow-x-auto border rounded-lg">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left px-4 py-3 font-medium text-gray-700">Servico</th>
+                      <th className="text-right px-4 py-3 font-medium text-gray-700">Base Comercial</th>
+                      <th className="text-right px-4 py-3 font-medium text-gray-700">Base Plantao</th>
+                      <th className="text-right px-4 py-3 font-medium text-emerald-700">Negociado Comercial</th>
+                      <th className="text-right px-4 py-3 font-medium text-emerald-700">Negociado Plantao</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {precosServicos.map((row) => (
+                      <tr key={row.servico_id} className="border-t">
+                        <td className="px-4 py-3 text-gray-900">{row.servico_nome}</td>
+                        <td className="px-4 py-3 text-right text-gray-600">R$ {formatarValor(row.preco_base_comercial)}</td>
+                        <td className="px-4 py-3 text-right text-gray-600">R$ {formatarValor(row.preco_base_plantao)}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex justify-end">
+                            <input
+                              type="text"
+                              value={row.preco_negociado_comercial}
+                              onChange={(e) =>
+                                atualizarPrecoServico(row.servico_id, "preco_negociado_comercial", e.target.value)
+                              }
+                              className="w-32 px-2 py-1 border border-emerald-200 rounded text-right focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                              placeholder="padrao"
+                            />
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex justify-end">
+                            <input
+                              type="text"
+                              value={row.preco_negociado_plantao}
+                              onChange={(e) =>
+                                atualizarPrecoServico(row.servico_id, "preco_negociado_plantao", e.target.value)
+                              }
+                              className="w-32 px-2 py-1 border border-emerald-200 rounded text-right focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                              placeholder="padrao"
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

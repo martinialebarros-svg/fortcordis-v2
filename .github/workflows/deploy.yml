@@ -42,6 +42,12 @@ jobs:
           cd backend
           source venv/bin/activate 2>/dev/null || python3 -m venv venv && source venv/bin/activate
           pip install -r requirements.txt
+          if [ -f .env ]; then
+            set -a
+            source .env
+            set +a
+          fi
+          python3 setup_database.py || echo "⚠️  setup_database.py falhou, revisar logs"
           sudo systemctl restart fortcordis-backend 2>/dev/null || echo "⚠️  Reinicie manualmente"
           cd ..
           
@@ -49,7 +55,7 @@ jobs:
           echo "⚛️  Deploy Frontend..."
           cd frontend
           npm install
-          npm run build
+          API_BACKEND_URL=http://127.0.0.1:8000 npm run build
           sudo systemctl restart fortcordis-frontend 2>/dev/null || echo "⚠️  Reinicie manualmente"
           cd ..
           

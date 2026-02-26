@@ -1,10 +1,10 @@
 """Endpoints para gerenciamento de ordens de servico."""
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -16,9 +16,9 @@ from app.models.financeiro import Transacao
 from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.servico import Servico
-from app.models.tabela_preco import PrecoServico
 from app.models.tutor import Tutor
 from app.models.user import User
+from app.services.precos_service import calcular_preco_servico
 
 router = APIRouter()
 
@@ -38,6 +38,11 @@ class OrdemServicoUpdate(BaseModel):
     observacoes: Optional[str] = None
     status: Optional[str] = None
     recalcular_preco: bool = False
+
+
+class OrdemServicoReceberInput(BaseModel):
+    forma_pagamento: str = "dinheiro"
+    data_recebimento: Optional[date] = None
 
 
 def _to_decimal(value, default: Decimal = Decimal("0.00")) -> Decimal:
@@ -84,38 +89,13 @@ def _calcular_valor_servico(
     servico_id: int,
     tipo_horario: str,
 ) -> Decimal:
-    clinica = db.query(Clinica).filter(Clinica.id == clinica_id).first()
-    if not clinica:
-        raise HTTPException(status_code=404, detail="Clinica nao encontrada")
-
-    servico = db.query(Servico).filter(Servico.id == servico_id).first()
-    if not servico:
-        raise HTTPException(status_code=404, detail="Servico nao encontrado")
-
-    tabela_id = clinica.tabela_preco_id or 1
-    valor = Decimal("0.00")
-
-    if tabela_id == 1:
-        valor = _to_decimal(
-            servico.preco_fortaleza_plantao if tipo_horario == "plantao" else servico.preco_fortaleza_comercial
-        )
-    elif tabela_id == 2:
-        valor = _to_decimal(servico.preco_rm_plantao if tipo_horario == "plantao" else servico.preco_rm_comercial)
-    elif tabela_id == 3:
-        valor = _to_decimal(
-            servico.preco_domiciliar_plantao if tipo_horario == "plantao" else servico.preco_domiciliar_comercial
-        )
-    else:
-        preco_custom = db.query(PrecoServico).filter(
-            PrecoServico.tabela_preco_id == tabela_id,
-            PrecoServico.servico_id == servico_id,
-        ).first()
-        if preco_custom:
-            valor = _to_decimal(preco_custom.preco_plantao if tipo_horario == "plantao" else preco_custom.preco_comercial)
-        else:
-            valor = _to_decimal(servico.preco)
-
-    return valor
+    return calcular_preco_servico(
+        db=db,
+        clinica_id=clinica_id,
+        servico_id=servico_id,
+        tipo_horario=tipo_horario,
+        usar_preco_clinica=True,
+    )
 
 
 def _find_os_with_names(db: Session, os_id: int):
@@ -313,7 +293,7 @@ def atualizar_ordem(
 @router.patch("/{os_id}/receber")
 def receber_ordem(
     os_id: int,
-    forma_pagamento: str = Query("dinheiro"),
+    dados: OrdemServicoReceberInput,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -343,6 +323,13 @@ def receber_ordem(
         raise HTTPException(status_code=400, detail="Ja existe recebimento ativo para esta OS.")
 
     now = datetime.now()
+    momento_recebimento = now
+    if dados.data_recebimento is not None:
+        momento_recebimento = datetime.combine(
+            dados.data_recebimento,
+            now.time().replace(microsecond=0),
+        )
+
     os_data.status = "Pago"
     os_data.updated_at = now
 
@@ -352,12 +339,15 @@ def receber_ordem(
         valor=float(os_data.valor_final or 0),
         desconto=0,
         valor_final=float(os_data.valor_final or 0),
-        forma_pagamento=forma_pagamento,
+        forma_pagamento=dados.forma_pagamento,
         status="Recebido",
         descricao=f"Recebimento OS {os_data.numero_os} - {paciente_nome or 'Paciente'}",
-        data_transacao=now,
-        data_pagamento=now,
-        observacoes=f"{marker};OS_NUMERO={os_data.numero_os};SERVICO={servico_nome or ''}",
+        data_transacao=momento_recebimento,
+        data_pagamento=momento_recebimento,
+        observacoes=(
+            f"{marker};OS_NUMERO={os_data.numero_os};SERVICO={servico_nome or ''};"
+            f"DATA_RECEBIMENTO={momento_recebimento.date().isoformat()}"
+        ),
         paciente_id=os_data.paciente_id,
         paciente_nome=paciente_nome or "",
         agendamento_id=os_data.agendamento_id,
@@ -376,6 +366,7 @@ def receber_ordem(
         "os_id": os_data.id,
         "status": os_data.status,
         "transacao_id": transacao.id,
+        "data_recebimento": momento_recebimento.isoformat(),
     }
 
 

@@ -8,8 +8,10 @@ jobs:
   sync-frases:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout code (branch stage)
         uses: actions/checkout@v4
+        with:
+          ref: stage
 
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.8.0
@@ -21,15 +23,15 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Sync frases.json to Stage
+      - name: Sync frases.json and patologias.json to Stage
         run: |
-          echo "Copiando frases.json para o stage..."
+          echo "Garantindo diretório backend/data no stage..."
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "mkdir -p /var/www/fortcordis-stage/backend/data"
+          echo "Copiando frases.json e patologias.json..."
           scp backend/data/frases.json ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/fortcordis-stage/backend/data/frases.json
-          
+          scp backend/data/patologias.json ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/fortcordis-stage/backend/data/patologias.json
           echo "Verificando arquivo no stage..."
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "cat /var/www/fortcordis-stage/backend/data/frases.json | head -20"
-          
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "head -20 /var/www/fortcordis-stage/backend/data/frases.json"
           echo "Reiniciando backend do stage..."
           ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "sudo systemctl restart fortcordis-stage-backend"
-          
           echo "✅ Frases sincronizadas com sucesso!"

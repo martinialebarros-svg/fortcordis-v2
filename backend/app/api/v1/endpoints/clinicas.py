@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel, Field
@@ -6,8 +7,11 @@ from decimal import Decimal
 
 from app.db.database import get_db
 from app.models.clinica import Clinica
+from app.models.servico import Servico
+from app.models.tabela_preco import PrecoServicoClinica
 from app.core.security import get_current_user
 from app.models.user import User
+from app.services.precos_service import calcular_preco_servico
 
 router = APIRouter()
 
@@ -55,6 +59,16 @@ class ClinicaResponse(BaseModel):
     preco_personalizado_base: float = 0
     observacoes_preco: Optional[str] = None
     ativo: bool = True
+
+
+class PrecoServicoClinicaPayload(BaseModel):
+    servico_id: int
+    preco_comercial: Optional[float] = Field(default=None, ge=0)
+    preco_plantao: Optional[float] = Field(default=None, ge=0)
+
+
+class PrecosServicosClinicaUpdate(BaseModel):
+    items: List[PrecoServicoClinicaPayload] = Field(default_factory=list)
 
 
 # Dicionário de cidades da Região Metropolitana de Fortaleza
@@ -221,6 +235,138 @@ def obter_clinica(
         "preco_personalizado_base": float(clinica.preco_personalizado_base) if clinica.preco_personalizado_base else 0,
         "observacoes_preco": clinica.observacoes_preco,
         "ativo": clinica.ativo
+    }
+
+
+@router.get("/{clinica_id}/precos-servicos")
+def listar_precos_servicos_clinica(
+    clinica_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Lista precos base e precos negociados por servico para uma clinica."""
+    clinica = db.query(Clinica).filter(
+        Clinica.id == clinica_id,
+        Clinica.ativo == True
+    ).first()
+    if not clinica:
+        raise HTTPException(status_code=404, detail="Clinica nao encontrada")
+
+    servicos = db.query(Servico).filter(Servico.ativo == True).order_by(Servico.nome).all()
+    if not servicos:
+        servicos = db.query(Servico).order_by(Servico.nome).all()
+    custom_rows = []
+    inspector = inspect(db.bind)
+    if "precos_servicos_clinica" in inspector.get_table_names():
+        custom_rows = db.query(PrecoServicoClinica).filter(
+            PrecoServicoClinica.clinica_id == clinica_id,
+            PrecoServicoClinica.ativo == 1
+        ).all()
+    custom_map = {row.servico_id: row for row in custom_rows}
+
+    items = []
+    for servico in servicos:
+        preco_base_comercial = calcular_preco_servico(
+            db=db,
+            clinica_id=clinica_id,
+            servico_id=servico.id,
+            tipo_horario="comercial",
+            usar_preco_clinica=False,
+        )
+        preco_base_plantao = calcular_preco_servico(
+            db=db,
+            clinica_id=clinica_id,
+            servico_id=servico.id,
+            tipo_horario="plantao",
+            usar_preco_clinica=False,
+        )
+        custom = custom_map.get(servico.id)
+        items.append(
+            {
+                "servico_id": servico.id,
+                "servico_nome": servico.nome,
+                "preco_base_comercial": float(preco_base_comercial),
+                "preco_base_plantao": float(preco_base_plantao),
+                "preco_negociado_comercial": float(custom.preco_comercial) if custom and custom.preco_comercial is not None else None,
+                "preco_negociado_plantao": float(custom.preco_plantao) if custom and custom.preco_plantao is not None else None,
+            }
+        )
+
+    return {"clinica_id": clinica_id, "items": items}
+
+
+@router.put("/{clinica_id}/precos-servicos")
+def salvar_precos_servicos_clinica(
+    clinica_id: int,
+    payload: PrecosServicosClinicaUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Salva precos negociados por servico para uma clinica."""
+    clinica = db.query(Clinica).filter(
+        Clinica.id == clinica_id,
+        Clinica.ativo == True
+    ).first()
+    if not clinica:
+        raise HTTPException(status_code=404, detail="Clinica nao encontrada")
+
+    inspector = inspect(db.bind)
+    if "precos_servicos_clinica" not in inspector.get_table_names():
+        raise HTTPException(
+            status_code=500,
+            detail="Tabela de precos negociados indisponivel. Execute as migracoes pendentes."
+        )
+
+    servicos_validos = {
+        row[0] for row in db.query(Servico.id).filter(Servico.ativo == True).all()
+    }
+    existentes = db.query(PrecoServicoClinica).filter(
+        PrecoServicoClinica.clinica_id == clinica_id
+    ).all()
+    existentes_map = {row.servico_id: row for row in existentes}
+
+    atualizados = 0
+    try:
+        for item in payload.items:
+            if item.servico_id not in servicos_validos:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Servico invalido para preco negociado: {item.servico_id}"
+                )
+
+            if item.preco_comercial is None and item.preco_plantao is None:
+                row_to_disable = existentes_map.get(item.servico_id)
+                if row_to_disable and row_to_disable.ativo == 1:
+                    row_to_disable.ativo = 0
+                    atualizados += 1
+                continue
+
+            row = existentes_map.get(item.servico_id)
+            if not row:
+                row = PrecoServicoClinica(
+                    clinica_id=clinica_id,
+                    servico_id=item.servico_id,
+                    ativo=1,
+                )
+                db.add(row)
+                existentes_map[item.servico_id] = row
+
+            row.preco_comercial = Decimal(str(item.preco_comercial)) if item.preco_comercial is not None else None
+            row.preco_plantao = Decimal(str(item.preco_plantao)) if item.preco_plantao is not None else None
+            row.ativo = 1
+            atualizados += 1
+
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar precos negociados: {str(e)}")
+
+    return {
+        "message": "Precos negociados atualizados com sucesso",
+        "atualizados": atualizados
     }
 
 

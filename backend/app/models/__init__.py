@@ -9,6 +9,13 @@ from app.models.laudo import Laudo, Exame
 from app.models.financeiro import Transacao, ContaPagar, ContaReceber
 from app.models.frase import FraseQualitativa, FraseQualitativaHistorico
 from app.models.imagem_laudo import ImagemLaudo, ImagemTemporaria
-from app.models.tabela_preco import TabelaPreco, PrecoServico
+from app.models.tabela_preco import TabelaPreco, PrecoServico, PrecoServicoClinica
 from app.models.ordem_servico import OrdemServico
 from app.models.referencia_eco import ReferenciaEco
+from app.models.papel_permissao import PapelPermissao
+from app.models.atendimento_clinico import (
+    AtendimentoClinico,
+    Medicamento,
+    PrescricaoClinica,
+    PrescricaoItem,
+)

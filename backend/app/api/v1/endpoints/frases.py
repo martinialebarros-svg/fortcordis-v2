@@ -1,7 +1,8 @@
 """Endpoints para gerenciamento de frases qualitativas via JSON"""
 from typing import Any, List, Optional
-from fastapi import APIRouter, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.core.security import get_current_user
 from app.services import frases_service
 from app.schemas.frase import (
     FraseQualitativaCreate,
@@ -11,7 +12,7 @@ from app.schemas.frase import (
     FraseAplicarRequest,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 def _frase_to_response(frase: dict) -> dict:

@@ -13,7 +13,6 @@ import {
   Save,
   Upload,
   X,
-  Eye,
   Trash2,
   Users,
   Shield
@@ -42,6 +41,50 @@ interface ConfiguracoesUsuario {
   tem_assinatura: boolean;
   crmv: string;
   especialidade: string;
+}
+
+interface PapelSistema {
+  id: number;
+  nome: string;
+  descricao?: string | null;
+}
+
+interface UsuarioSistema {
+  id: number;
+  nome: string;
+  email: string;
+  ativo: number;
+  papeis: string[];
+  criado_em?: string | null;
+  ultimo_acesso?: string | null;
+}
+
+interface UsuarioForm {
+  id: number | null;
+  nome: string;
+  email: string;
+  senha: string;
+  ativo: boolean;
+  papeis: string[];
+}
+
+interface ModuloPermissao {
+  codigo: string;
+  nome: string;
+}
+
+interface PermissaoPapel {
+  modulo: string;
+  visualizar: boolean;
+  editar: boolean;
+  excluir: boolean;
+}
+
+interface MatrizPermissaoPapel {
+  id: number;
+  nome: string;
+  descricao?: string | null;
+  permissoes: PermissaoPapel[];
 }
 
 export default function ConfiguracoesPage() {
@@ -81,6 +124,25 @@ export default function ConfiguracoesPage() {
   const [previewLogo, setPreviewLogo] = useState<string | null>(null);
   const [previewAssinaturaSistema, setPreviewAssinaturaSistema] = useState<string | null>(null);
   const [previewAssinaturaUsuario, setPreviewAssinaturaUsuario] = useState<string | null>(null);
+  const [usuariosSistema, setUsuariosSistema] = useState<UsuarioSistema[]>([]);
+  const [papeisSistema, setPapeisSistema] = useState<PapelSistema[]>([]);
+  const [carregandoUsuarios, setCarregandoUsuarios] = useState(false);
+  const [salvandoUsuarioSistema, setSalvandoUsuarioSistema] = useState(false);
+  const [erroUsuarios, setErroUsuarios] = useState("");
+  const [erroPermissoes, setErroPermissoes] = useState("");
+  const [carregandoPermissoes, setCarregandoPermissoes] = useState(false);
+  const [salvandoPermissoes, setSalvandoPermissoes] = useState(false);
+  const [modulosPermissoes, setModulosPermissoes] = useState<ModuloPermissao[]>([]);
+  const [matrizPermissoes, setMatrizPermissoes] = useState<MatrizPermissaoPapel[]>([]);
+  const [modoEdicaoUsuario, setModoEdicaoUsuario] = useState(false);
+  const [usuarioForm, setUsuarioForm] = useState<UsuarioForm>({
+    id: null,
+    nome: "",
+    email: "",
+    senha: "",
+    ativo: true,
+    papeis: [],
+  });
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -91,6 +153,12 @@ export default function ConfiguracoesPage() {
     carregarConfiguracoes();
   }, [router]);
 
+  useEffect(() => {
+    if (aba === "usuarios") {
+      carregarUsuariosPermissoes();
+    }
+  }, [aba]);
+
   const carregarImagem = async (url: string): Promise<string | null> => {
     try {
       const response = await api.get(url, { responseType: 'blob' });
@@ -98,6 +166,191 @@ export default function ConfiguracoesPage() {
     } catch (error) {
       console.error(`Erro ao carregar imagem ${url}:`, error);
       return null;
+    }
+  };
+
+  const formatarDataHora = (valor?: string | null) => {
+    if (!valor) return "-";
+    const data = new Date(valor);
+    if (Number.isNaN(data.getTime())) return "-";
+    return data.toLocaleString("pt-BR");
+  };
+
+  const limparFormularioUsuario = () => {
+    setUsuarioForm({
+      id: null,
+      nome: "",
+      email: "",
+      senha: "",
+      ativo: true,
+      papeis: [],
+    });
+    setModoEdicaoUsuario(false);
+  };
+
+  const carregarUsuariosPermissoes = async () => {
+    try {
+      setCarregandoUsuarios(true);
+      setCarregandoPermissoes(true);
+      setErroUsuarios("");
+      setErroPermissoes("");
+      const [respPapeis, respUsuarios, respPermissoes] = await Promise.all([
+        api.get("/admin/papeis"),
+        api.get("/admin/usuarios"),
+        api.get("/admin/permissoes"),
+      ]);
+      setPapeisSistema(Array.isArray(respPapeis.data) ? respPapeis.data : []);
+      setUsuariosSistema(Array.isArray(respUsuarios.data) ? respUsuarios.data : []);
+      const payloadPermissoes = respPermissoes?.data || {};
+      setModulosPermissoes(Array.isArray(payloadPermissoes.modulos) ? payloadPermissoes.modulos : []);
+      setMatrizPermissoes(Array.isArray(payloadPermissoes.papeis) ? payloadPermissoes.papeis : []);
+    } catch (error: any) {
+      const detalhe = error?.response?.data?.detail;
+      const mensagem = typeof detalhe === "string" ? detalhe : "Erro ao carregar usuarios e permissoes.";
+      setErroUsuarios(mensagem);
+      setErroPermissoes(mensagem);
+    } finally {
+      setCarregandoUsuarios(false);
+      setCarregandoPermissoes(false);
+    }
+  };
+
+  const alternarPermissao = (
+    papelId: number,
+    modulo: string,
+    campo: "visualizar" | "editar" | "excluir"
+  ) => {
+    setMatrizPermissoes((anterior) =>
+      anterior.map((papel) => {
+        if (papel.id !== papelId) return papel;
+        const existe = papel.permissoes.some((perm) => perm.modulo === modulo);
+        const permissoesAtualizadas = existe
+          ? papel.permissoes.map((perm) =>
+              perm.modulo === modulo ? { ...perm, [campo]: !perm[campo] } : perm
+            )
+          : [...papel.permissoes, { modulo, visualizar: false, editar: false, excluir: false, [campo]: true }];
+
+        return {
+          ...papel,
+          permissoes: permissoesAtualizadas,
+        };
+      })
+    );
+  };
+
+  const salvarPermissoes = async () => {
+    const itens = matrizPermissoes.flatMap((papel) =>
+      papel.permissoes.map((perm) => ({
+        papel_id: papel.id,
+        modulo: perm.modulo,
+        visualizar: !!perm.visualizar,
+        editar: !!perm.editar,
+        excluir: !!perm.excluir,
+      }))
+    );
+
+    if (itens.length === 0) {
+      alert("Nao ha permissoes para salvar.");
+      return;
+    }
+
+    try {
+      setSalvandoPermissoes(true);
+      await api.put("/admin/permissoes", { itens });
+      alert("Permissoes salvas com sucesso.");
+    } catch (error: any) {
+      const detalhe = error?.response?.data?.detail;
+      alert(typeof detalhe === "string" ? detalhe : "Erro ao salvar permissoes.");
+    } finally {
+      setSalvandoPermissoes(false);
+    }
+  };
+
+  const alternarPapelFormulario = (nomePapel: string) => {
+    setUsuarioForm((anterior) => {
+      const jaSelecionado = anterior.papeis.includes(nomePapel);
+      if (jaSelecionado) {
+        return {
+          ...anterior,
+          papeis: anterior.papeis.filter((papel) => papel !== nomePapel),
+        };
+      }
+      return { ...anterior, papeis: [...anterior.papeis, nomePapel] };
+    });
+  };
+
+  const editarUsuario = (usuario: UsuarioSistema) => {
+    setModoEdicaoUsuario(true);
+    setUsuarioForm({
+      id: usuario.id,
+      nome: usuario.nome,
+      email: usuario.email,
+      senha: "",
+      ativo: usuario.ativo === 1,
+      papeis: usuario.papeis || [],
+    });
+  };
+
+  const salvarUsuarioSistema = async () => {
+    const nome = usuarioForm.nome.trim();
+    const email = usuarioForm.email.trim().toLowerCase();
+    const senha = usuarioForm.senha.trim();
+
+    if (!nome || !email) {
+      alert("Informe nome e email.");
+      return;
+    }
+
+    if (!modoEdicaoUsuario && !senha) {
+      alert("Informe a senha para criar o usuario.");
+      return;
+    }
+
+    const payload: Record<string, any> = {
+      nome,
+      email,
+      ativo: usuarioForm.ativo ? 1 : 0,
+      papeis: usuarioForm.papeis,
+    };
+
+    if (senha) {
+      payload.senha = senha;
+    }
+
+    try {
+      setSalvandoUsuarioSistema(true);
+      if (modoEdicaoUsuario && usuarioForm.id) {
+        await api.put(`/admin/usuarios/${usuarioForm.id}`, payload);
+        alert("Usuario atualizado com sucesso.");
+      } else {
+        await api.post("/admin/usuarios", payload);
+        alert("Usuario criado com sucesso.");
+      }
+      limparFormularioUsuario();
+      await carregarUsuariosPermissoes();
+    } catch (error: any) {
+      const detalhe = error?.response?.data?.detail;
+      alert(typeof detalhe === "string" ? detalhe : "Erro ao salvar usuario.");
+    } finally {
+      setSalvandoUsuarioSistema(false);
+    }
+  };
+
+  const desativarUsuario = async (usuario: UsuarioSistema) => {
+    if (!confirm(`Deseja desativar o usuario ${usuario.nome}?`)) {
+      return;
+    }
+
+    try {
+      await api.delete(`/admin/usuarios/${usuario.id}`);
+      if (usuarioForm.id === usuario.id) {
+        limparFormularioUsuario();
+      }
+      await carregarUsuariosPermissoes();
+      alert("Usuario desativado.");
+    } catch (error: any) {
+      const detalhe = error?.response?.data?.detail;
+      alert(typeof detalhe === "string" ? detalhe : "Erro ao desativar usuario.");
     }
   };
 
@@ -684,12 +937,306 @@ export default function ConfiguracoesPage() {
         )}
 
         {aba === "usuarios" && (
-          <div className="bg-white rounded-lg shadow-sm border p-8 text-center">
-            <Users className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900">Gerenciamento de Usuários</h3>
-            <p className="text-gray-500 mt-2">
-              Esta funcionalidade será implementada em breve. Aqui você poderá criar usuários, atribuir permissões e gerenciar o acesso ao sistema.
-            </p>
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="xl:col-span-1 bg-white rounded-lg shadow-sm border p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                {modoEdicaoUsuario ? "Editar usuario" : "Novo usuario"}
+              </h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Defina os dados de acesso e os papeis do usuario no sistema.
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nome
+                  </label>
+                  <input
+                    type="text"
+                    value={usuarioForm.nome}
+                    onChange={(e) => setUsuarioForm((prev) => ({ ...prev, nome: e.target.value }))}
+                    placeholder="Nome completo"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    E-mail
+                  </label>
+                  <input
+                    type="email"
+                    value={usuarioForm.email}
+                    onChange={(e) => setUsuarioForm((prev) => ({ ...prev, email: e.target.value }))}
+                    placeholder="usuario@email.com"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Senha {modoEdicaoUsuario && <span className="text-gray-400">(opcional)</span>}
+                  </label>
+                  <input
+                    type="password"
+                    value={usuarioForm.senha}
+                    onChange={(e) => setUsuarioForm((prev) => ({ ...prev, senha: e.target.value }))}
+                    placeholder={modoEdicaoUsuario ? "Preencha para trocar a senha" : "Senha inicial"}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    id="usuario_ativo"
+                    type="checkbox"
+                    checked={usuarioForm.ativo}
+                    onChange={(e) => setUsuarioForm((prev) => ({ ...prev, ativo: e.target.checked }))}
+                    className="w-4 h-4 text-teal-600"
+                  />
+                  <label htmlFor="usuario_ativo" className="text-sm text-gray-700">
+                    Usuario ativo
+                  </label>
+                </div>
+
+                <div>
+                  <p className="block text-sm font-medium text-gray-700 mb-2">Papeis</p>
+                  <div className="space-y-2 max-h-36 overflow-auto pr-1">
+                    {papeisSistema.length === 0 && (
+                      <p className="text-sm text-gray-400">Nenhum papel disponivel.</p>
+                    )}
+                    {papeisSistema.map((papel) => (
+                      <label key={papel.id} className="flex items-start gap-2 text-sm text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={usuarioForm.papeis.includes(papel.nome)}
+                          onChange={() => alternarPapelFormulario(papel.nome)}
+                          className="mt-0.5 w-4 h-4 text-teal-600"
+                        />
+                        <span>
+                          <span className="font-medium">{papel.nome}</span>
+                          {papel.descricao ? (
+                            <span className="block text-xs text-gray-500">{papel.descricao}</span>
+                          ) : null}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-wrap gap-2">
+                <button
+                  onClick={salvarUsuarioSistema}
+                  disabled={salvandoUsuarioSistema}
+                  className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" />
+                  {salvandoUsuarioSistema
+                    ? "Salvando..."
+                    : modoEdicaoUsuario
+                      ? "Atualizar usuario"
+                      : "Criar usuario"}
+                </button>
+
+                <button
+                  onClick={limparFormularioUsuario}
+                  type="button"
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                >
+                  <X className="w-4 h-4" />
+                  Limpar
+                </button>
+              </div>
+            </div>
+
+            <div className="xl:col-span-2 bg-white rounded-lg shadow-sm border p-6">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Usuarios cadastrados</h3>
+                <button
+                  onClick={carregarUsuariosPermissoes}
+                  type="button"
+                  disabled={carregandoUsuarios}
+                  className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                >
+                  {carregandoUsuarios ? "Atualizando..." : "Atualizar"}
+                </button>
+              </div>
+
+              {erroUsuarios ? (
+                <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">
+                  {erroUsuarios}
+                </div>
+              ) : null}
+
+              {carregandoUsuarios ? (
+                <div className="py-8 text-center text-gray-500">Carregando usuarios...</div>
+              ) : usuariosSistema.length === 0 ? (
+                <div className="py-8 text-center text-gray-500">
+                  Nenhum usuario encontrado.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50 text-gray-600">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-medium">Nome</th>
+                        <th className="text-left px-3 py-2 font-medium">E-mail</th>
+                        <th className="text-left px-3 py-2 font-medium">Papeis</th>
+                        <th className="text-left px-3 py-2 font-medium">Status</th>
+                        <th className="text-left px-3 py-2 font-medium">Ultimo acesso</th>
+                        <th className="text-right px-3 py-2 font-medium">Acoes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {usuariosSistema.map((usuario) => (
+                        <tr key={usuario.id} className="border-t border-gray-100">
+                          <td className="px-3 py-2 text-gray-900">{usuario.nome}</td>
+                          <td className="px-3 py-2 text-gray-700">{usuario.email}</td>
+                          <td className="px-3 py-2 text-gray-700">
+                            {usuario.papeis?.length ? usuario.papeis.join(", ") : "-"}
+                          </td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                usuario.ativo === 1
+                                  ? "bg-green-100 text-green-700"
+                                  : "bg-gray-100 text-gray-600"
+                              }`}
+                            >
+                              {usuario.ativo === 1 ? "Ativo" : "Inativo"}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-gray-700">
+                            {formatarDataHora(usuario.ultimo_acesso)}
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex justify-end gap-2">
+                              <button
+                                onClick={() => editarUsuario(usuario)}
+                                className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                              >
+                                Editar
+                              </button>
+                              {usuario.ativo === 1 ? (
+                                <button
+                                  onClick={() => desativarUsuario(usuario)}
+                                  className="px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                                >
+                                  Desativar
+                                </button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="xl:col-span-3 bg-white rounded-lg shadow-sm border p-6">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Permissoes por papel</h3>
+                  <p className="text-sm text-gray-500">
+                    Marque o que cada papel pode visualizar, editar ou excluir.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={carregarUsuariosPermissoes}
+                    type="button"
+                    disabled={carregandoPermissoes}
+                    className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                  >
+                    {carregandoPermissoes ? "Atualizando..." : "Atualizar"}
+                  </button>
+                  <button
+                    onClick={salvarPermissoes}
+                    type="button"
+                    disabled={salvandoPermissoes || carregandoPermissoes}
+                    className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                  >
+                    <Save className="w-4 h-4" />
+                    {salvandoPermissoes ? "Salvando..." : "Salvar permissoes"}
+                  </button>
+                </div>
+              </div>
+
+              {erroPermissoes ? (
+                <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">
+                  {erroPermissoes}
+                </div>
+              ) : null}
+
+              {carregandoPermissoes ? (
+                <div className="py-8 text-center text-gray-500">Carregando matriz de permissoes...</div>
+              ) : matrizPermissoes.length === 0 ? (
+                <div className="py-8 text-center text-gray-500">Nenhum papel encontrado para configurar.</div>
+              ) : (
+                <div className="space-y-4">
+                  {matrizPermissoes.map((papel) => (
+                    <div key={papel.id} className="border border-gray-200 rounded-lg p-4">
+                      <div className="mb-3">
+                        <p className="text-sm font-semibold text-gray-900">{papel.nome}</p>
+                        {papel.descricao ? (
+                          <p className="text-xs text-gray-500">{papel.descricao}</p>
+                        ) : null}
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm">
+                          <thead className="bg-gray-50 text-gray-600">
+                            <tr>
+                              <th className="text-left px-3 py-2 font-medium">Modulo</th>
+                              <th className="text-center px-3 py-2 font-medium">Visualizar</th>
+                              <th className="text-center px-3 py-2 font-medium">Editar</th>
+                              <th className="text-center px-3 py-2 font-medium">Excluir</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {modulosPermissoes.map((modulo) => {
+                              const permissao = papel.permissoes.find((perm) => perm.modulo === modulo.codigo);
+                              return (
+                                <tr key={`${papel.id}-${modulo.codigo}`} className="border-t border-gray-100">
+                                  <td className="px-3 py-2 text-gray-800">{modulo.nome}</td>
+                                  <td className="px-3 py-2 text-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!permissao?.visualizar}
+                                      onChange={() => alternarPermissao(papel.id, modulo.codigo, "visualizar")}
+                                      className="w-4 h-4 text-teal-600"
+                                    />
+                                  </td>
+                                  <td className="px-3 py-2 text-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!permissao?.editar}
+                                      onChange={() => alternarPermissao(papel.id, modulo.codigo, "editar")}
+                                      className="w-4 h-4 text-teal-600"
+                                    />
+                                  </td>
+                                  <td className="px-3 py-2 text-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!permissao?.excluir}
+                                      onChange={() => alternarPermissao(papel.id, modulo.codigo, "excluir")}
+                                      className="w-4 h-4 text-teal-600"
+                                    />
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

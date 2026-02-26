@@ -301,14 +301,38 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
     if (!token) return;
 
     const params = new URLSearchParams(window.location.search);
+    const clinicaParam = params.get("clinica_id");
+    if (clinicaParam) {
+      const clinicaId = Number(clinicaParam);
+      if (Number.isFinite(clinicaId) && clinicaId > 0) {
+        setClinicaId(String(clinicaId));
+      }
+    }
+
     const agendamentoParam = params.get("agendamento_id");
-    if (!agendamentoParam) return;
+    const atendimentoParam = params.get("atendimento_id");
 
-    const agendamentoId = Number(agendamentoParam);
-    if (!Number.isFinite(agendamentoId) || agendamentoId <= 0) return;
+    if (atendimentoParam) {
+      const atendimentoId = Number(atendimentoParam);
+      if (Number.isFinite(atendimentoId) && atendimentoId > 0) {
+        preencherDadosDoAtendimento(atendimentoId);
+        return;
+      }
+    }
 
-    setAgendamentoVinculadoId(agendamentoId);
-    preencherDadosDoAgendamento(agendamentoId);
+    if (agendamentoParam) {
+      const agendamentoId = Number(agendamentoParam);
+      if (!Number.isFinite(agendamentoId) || agendamentoId <= 0) return;
+      setAgendamentoVinculadoId(agendamentoId);
+      preencherDadosDoAgendamento(agendamentoId);
+      return;
+    }
+
+    const pacienteParam = params.get("paciente_id");
+    if (!pacienteParam) return;
+    const pacienteId = Number(pacienteParam);
+    if (!Number.isFinite(pacienteId) || pacienteId <= 0) return;
+    preencherDadosDoPaciente(pacienteId);
   }, []);
 
   useEffect(() => {
@@ -345,6 +369,42 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
       setClinicas(response.data.items || []);
     } catch (error) {
       console.error("Erro ao carregar clínicas:", error);
+    }
+  };
+
+  const preencherDadosDoAtendimento = async (atendimentoId: number) => {
+    try {
+      const respAtendimento = await api.get(`/atendimentos/${atendimentoId}`);
+      const atendimento = respAtendimento.data || {};
+
+      if (atendimento.paciente_id) {
+        await preencherDadosDoPaciente(Number(atendimento.paciente_id));
+      }
+
+      if (atendimento.clinica_id) {
+        setClinicaId(String(atendimento.clinica_id));
+      }
+      if (atendimento.clinica_nome) {
+        setClinicaNome(atendimento.clinica_nome);
+      }
+
+      if (atendimento.agendamento_id) {
+        setAgendamentoVinculadoId(Number(atendimento.agendamento_id));
+      }
+
+      if (atendimento.observacoes || atendimento.dados_clinicos || atendimento.diagnostico) {
+        setConteudo((prev) => ({
+          ...prev,
+          descricao: prev.descricao || atendimento.dados_clinicos || "",
+          conclusao: prev.conclusao || atendimento.diagnostico || "",
+          observacoes: prev.observacoes || atendimento.observacoes || "",
+        }));
+      }
+
+      setMensagemSucesso(`Atendimento #${atendimentoId} vinculado ao laudo.`);
+      setTimeout(() => setMensagemSucesso(null), 4000);
+    } catch (error) {
+      console.error("Erro ao carregar atendimento para laudo:", error);
     }
   };
 
@@ -397,6 +457,33 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
       setTimeout(() => setMensagemSucesso(null), 4000);
     } catch (error) {
       console.error("Erro ao carregar agendamento para laudo:", error);
+    }
+  };
+
+  const preencherDadosDoPaciente = async (pacienteId: number) => {
+    try {
+      const respPaciente = await api.get(`/pacientes/${pacienteId}`);
+      const dadosPaciente = respPaciente.data || {};
+
+      setPaciente((prev) => ({
+        ...prev,
+        id: pacienteId,
+        nome: dadosPaciente?.nome || prev.nome,
+        tutor: dadosPaciente?.tutor || prev.tutor,
+        raca: dadosPaciente?.raca || prev.raca,
+        especie: dadosPaciente?.especie || prev.especie || "Canina",
+        peso:
+          dadosPaciente?.peso_kg !== null && dadosPaciente?.peso_kg !== undefined
+            ? String(dadosPaciente.peso_kg)
+            : prev.peso,
+        sexo: dadosPaciente?.sexo || prev.sexo || "Macho",
+        data_exame: prev.data_exame || new Date().toISOString().split("T")[0],
+      }));
+
+      setMensagemSucesso(`Paciente #${pacienteId} carregado para novo laudo.`);
+      setTimeout(() => setMensagemSucesso(null), 4000);
+    } catch (error) {
+      console.error("Erro ao carregar paciente para laudo:", error);
     }
   };
 
