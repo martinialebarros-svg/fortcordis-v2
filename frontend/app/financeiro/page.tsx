@@ -62,11 +62,11 @@ interface ServicoOption {
 
 const FORMAS_PAGAMENTO = [
   { id: "dinheiro", nome: "Dinheiro" },
-  { id: "cartao_credito", nome: "CartÃ£o de CrÃ©dito" },
-  { id: "cartao_debito", nome: "CartÃ£o de DÃ©bito" },
+  { id: "cartao_credito", nome: "Cartao de Credito" },
+  { id: "cartao_debito", nome: "Cartao de Debito" },
   { id: "pix", nome: "PIX" },
   { id: "boleto", nome: "Boleto" },
-  { id: "transferencia", nome: "TransferÃªncia" },
+  { id: "transferencia", nome: "Transferencia" },
 ];
 
 interface Resumo {
@@ -200,11 +200,11 @@ export default function FinanceiroPage() {
       medicamento: "Medicamento",
       banho_tosa: "Banho e Tosa",
       produto: "Produto",
-      salario: "SalÃ¡rio",
+      salario: "Salario",
       aluguel: "Aluguel",
       fornecedor: "Fornecedor",
       imposto: "Imposto",
-      manutencao: "ManutenÃ§Ã£o",
+      manutencao: "Manutencao",
       marketing: "Marketing",
       outros: "Outros",
     };
@@ -214,11 +214,11 @@ export default function FinanceiroPage() {
   const getFormaPagamentoNome = (forma: string) => {
     const formas: Record<string, string> = {
       dinheiro: "Dinheiro",
-      cartao_credito: "CartÃ£o CrÃ©dito",
-      cartao_debito: "CartÃ£o DÃ©bito",
+      cartao_credito: "Cartao Credito",
+      cartao_debito: "Cartao Debito",
       pix: "PIX",
       boleto: "Boleto",
-      transferencia: "TransferÃªncia",
+      transferencia: "Transferencia",
     };
     return formas[forma] || forma;
   };
@@ -234,14 +234,14 @@ export default function FinanceiroPage() {
   };
 
   const handleExcluir = async (id: number) => {
-    if (!confirm("Tem certeza que deseja excluir esta transaÃ§Ã£o?")) return;
+    if (!confirm("Tem certeza que deseja excluir esta transacao?")) return;
 
     try {
       await api.delete(`/financeiro/transacoes/${id}`);
       carregarDados();
     } catch (error) {
       console.error("Erro ao excluir:", error);
-      alert("Erro ao excluir transaÃ§Ã£o");
+      alert("Erro ao excluir transacao");
     }
   };
 
@@ -333,7 +333,7 @@ export default function FinanceiroPage() {
     
     try {
       await api.delete(`/ordens-servico/${os.id}`);
-      alert("OS excluÃ­da com sucesso!");
+      alert("OS excluida com sucesso!");
       carregarDados();
     } catch (error: any) {
       console.error("Erro ao excluir OS:", error);
@@ -341,7 +341,7 @@ export default function FinanceiroPage() {
     }
   };
 
-  // Filtrar transaÃ§Ãµes
+  // Filtrar transacoes
   const transacoesFiltradas = transacoes.filter((t) => {
     const matchTipo = filtroTipo === "todos" || t.tipo === filtroTipo;
     const matchStatus = filtroStatus === "todos" || t.status === filtroStatus;
@@ -387,12 +387,12 @@ export default function FinanceiroPage() {
               className="flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
             >
               <Plus className="w-4 h-4" />
-              Nova TransaÃ§Ã£o
+              Nova Transacao
             </button>
           </div>
         </div>
 
-        {/* PerÃ­odo */}
+        {/* Periodo */}
         <div className="flex gap-2 mb-6">
           {['dia', 'semana', 'mes', 'ano'].map((p) => (
             <button
@@ -404,7 +404,7 @@ export default function FinanceiroPage() {
                   : "bg-white text-gray-600 hover:bg-gray-100 border"
               }`}
             >
-              {p === 'mes' ? 'MÃªs' : p}
+              {p === 'mes' ? 'Mes' : p}
             </button>
           ))}
         </div>
@@ -431,7 +431,7 @@ export default function FinanceiroPage() {
           <div className="bg-white p-5 rounded-xl shadow-sm border">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">SaÃ­das</p>
+                <p className="text-sm text-gray-500">Saidas</p>
                 <p className="text-2xl font-bold text-red-600">{formatarValor(resumo.saidas)}</p>
               </div>
               <div className="w-12 h-12 bg-red-50 rounded-lg flex items-center justify-center">
@@ -486,7 +486,7 @@ export default function FinanceiroPage() {
             }`}
           >
             <Receipt className="w-4 h-4" />
-            TransaÃ§Ãµes
+            Transacoes
             <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">
               {transacoes.length}
             </span>
@@ -500,7 +500,7 @@ export default function FinanceiroPage() {
             }`}
           >
             <FileText className="w-4 h-4" />
-            Ordens de ServiÃ§o
+            Ordens de Servico
             <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full text-xs">
               {osPendentes.length} pendente
             </span>
@@ -515,14 +515,14 @@ export default function FinanceiroPage() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
               <input
                 type="text"
-                placeholder={abaAtiva === "transacoes" ? "Buscar transaÃ§Ã£o..." : "Buscar OS..."}
+                placeholder={abaAtiva === "transacoes" ? "Buscar transacao..." : "Buscar OS..."}
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
               />
             </div>
             
-            {/* Filtro Tipo (apenas para transaÃ§Ãµes) */}
+            {/* Filtro Tipo (apenas para transacoes) */}
             {abaAtiva === "transacoes" && (
               <select
                 value={filtroTipo}
@@ -531,7 +531,7 @@ export default function FinanceiroPage() {
               >
                 <option value="todos">Todos os tipos</option>
                 <option value="entrada">Entradas</option>
-                <option value="saida">SaÃ­das</option>
+                <option value="saida">Saidas</option>
               </select>
             )}
 
@@ -558,12 +558,12 @@ export default function FinanceiroPage() {
           </div>
         </div>
 
-        {/* ConteÃºdo - TransaÃ§Ãµes */}
+        {/* Conteudo - Transacoes */}
         {abaAtiva === "transacoes" && (
           <div className="bg-white rounded-xl shadow-sm border">
             <div className="p-5 border-b flex justify-between items-center">
               <h2 className="text-lg font-semibold text-gray-900">
-                TransaÃ§Ãµes 
+                Transacoes 
                 <span className="text-sm font-normal text-gray-500 ml-2">
                   ({transacoesFiltradas.length})
                 </span>
@@ -575,7 +575,7 @@ export default function FinanceiroPage() {
             ) : transacoesFiltradas.length === 0 ? (
               <div className="p-12 text-center">
                 <DollarSign className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500">Nenhuma transaÃ§Ã£o encontrada</p>
+                <p className="text-gray-500">Nenhuma transacao encontrada</p>
               </div>
             ) : (
               <div className="divide-y">
@@ -606,13 +606,13 @@ export default function FinanceiroPage() {
                           <span className="bg-gray-100 px-2 py-0.5 rounded text-xs">
                             {getCategoriaNome(t.categoria)}
                           </span>
-                          {t.paciente_nome && <span>â€¢ {t.paciente_nome}</span>}
-                          <span>â€¢ {formatarData(t.data_transacao)}</span>
-                          <span>â€¢ {getFormaPagamentoNome(t.forma_pagamento)}</span>
+                          {t.paciente_nome && <span>- {t.paciente_nome}</span>}
+                          <span>- {formatarData(t.data_transacao)}</span>
+                          <span>- {getFormaPagamentoNome(t.forma_pagamento)}</span>
                         </div>
                       </div>
 
-                      {/* Valor e AÃ§Ãµes */}
+                      {/* Valor e Acoes */}
                       <div className="flex items-center gap-4">
                         <div className="text-right">
                           <p className={`font-medium ${
@@ -627,7 +627,7 @@ export default function FinanceiroPage() {
                           )}
                         </div>
 
-                        {/* AÃ§Ãµes */}
+                        {/* Acoes */}
                         <div className="flex gap-1">
                           {t.status === 'Pendente' && (
                             <button
@@ -662,12 +662,12 @@ export default function FinanceiroPage() {
           </div>
         )}
 
-        {/* ConteÃºdo - Ordens de ServiÃ§o */}
+        {/* Conteudo - Ordens de Servico */}
         {abaAtiva === "ordens" && (
           <div className="bg-white rounded-xl shadow-sm border">
             <div className="p-5 border-b flex justify-between items-center">
               <h2 className="text-lg font-semibold text-gray-900">
-                Ordens de ServiÃ§o
+                Ordens de Servico
                 <span className="text-sm font-normal text-gray-500 ml-2">
                   ({osFiltradas.length})
                 </span>
@@ -682,7 +682,7 @@ export default function FinanceiroPage() {
             ) : osFiltradas.length === 0 ? (
               <div className="p-12 text-center">
                 <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500">Nenhuma ordem de serviÃ§o encontrada</p>
+                <p className="text-gray-500">Nenhuma ordem de servico encontrada</p>
               </div>
             ) : (
               <div className="divide-y">
@@ -699,7 +699,7 @@ export default function FinanceiroPage() {
                             {formatarDataHoraCurta(os.data_atendimento)}
                           </span>
                           <span className="text-sm font-semibold text-gray-900">
-                            • {os.clinica || "Clinica nao informada"}
+                            - {os.clinica || "Clinica nao informada"}
                           </span>
                           <span className={`px-2 py-0.5 text-xs rounded-full ${getStatusColor(os.status)}`}>
                             {getStatusIcon(os.status)}
@@ -778,7 +778,7 @@ export default function FinanceiroPage() {
           </div>
         )}
 
-        {/* Links para relatÃ³rios */}
+        {/* Links para relatorios */}
         <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
           <a 
             href="/financeiro/relatorios"
@@ -788,8 +788,8 @@ export default function FinanceiroPage() {
               <BarChart3 className="w-5 h-5 text-blue-600" />
             </div>
             <div>
-              <p className="font-medium text-gray-900">RelatÃ³rios</p>
-              <p className="text-sm text-gray-500">AnÃ¡lises detalhadas</p>
+              <p className="font-medium text-gray-900">Relatorios</p>
+              <p className="text-sm text-gray-500">Analises detalhadas</p>
             </div>
           </a>
           <a 
@@ -801,7 +801,7 @@ export default function FinanceiroPage() {
             </div>
             <div>
               <p className="font-medium text-gray-900">Dashboard</p>
-              <p className="text-sm text-gray-500">GrÃ¡ficos e mÃ©tricas</p>
+              <p className="text-sm text-gray-500">Graficos e metricas</p>
             </div>
           </a>
           <a 
@@ -819,7 +819,7 @@ export default function FinanceiroPage() {
         </div>
       </div>
 
-      {/* Modal de TransaÃ§Ã£o */}
+      {/* Modal de Transacao */}
       <TransacaoModal
         isOpen={modalAberto}
         onClose={() => setModalAberto(false)}
@@ -934,7 +934,7 @@ export default function FinanceiroPage() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg w-full max-w-md">
             <div className="p-6 border-b">
-              <h3 className="text-lg font-semibold text-gray-900">Receber Ordem de ServiÃ§o</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Receber Ordem de Servico</h3>
               <p className="text-sm text-gray-500 mt-1">
                 OS {modalReceberOS.numero_os} - {modalReceberOS.paciente}
               </p>
@@ -947,11 +947,11 @@ export default function FinanceiroPage() {
                   <span className="font-medium">{formatarValor(modalReceberOS.valor_final)}</span>
                 </div>
                 <div className="flex justify-between text-sm mt-1">
-                  <span className="text-gray-600">ClÃ­nica:</span>
+                  <span className="text-gray-600">Clinica:</span>
                   <span className="font-medium">{modalReceberOS.clinica}</span>
                 </div>
                 <div className="flex justify-between text-sm mt-1">
-                  <span className="text-gray-600">ServiÃ§o:</span>
+                  <span className="text-gray-600">Servico:</span>
                   <span className="font-medium">{modalReceberOS.servico}</span>
                 </div>
               </div>
