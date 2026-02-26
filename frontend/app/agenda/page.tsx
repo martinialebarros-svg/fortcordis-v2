@@ -188,6 +188,10 @@ export default function AgendaPage() {
       return { inicio: filtroData, fim: filtroData };
     }
 
+    if (modoVisualizacao === "lista") {
+      return { inicio: hojeLocal(), fim: "" };
+    }
+
     return { inicio: "", fim: "" };
   }, [filtroData, modoVisualizacao]);
 
@@ -413,15 +417,28 @@ export default function AgendaPage() {
     return fluxos[statusAtual] || [];
   };
 
-  const agendamentosFiltrados = agendamentos.filter(a => {
-    const matchStatus = filtroStatus === "todos" || a.status === filtroStatus;
-    const termo = busca.toLowerCase();
-    const matchBusca = !busca || 
-      (a.paciente?.toLowerCase().includes(termo)) ||
-      (a.tutor?.toLowerCase().includes(termo)) ||
-      (a.servico?.toLowerCase().includes(termo));
-    return matchStatus && matchBusca;
-  });
+  const getOrdenacaoTimestamp = (ag: Agendamento) => {
+    const inicioLocal = parseAgendamentoInicioLocal(ag);
+    if (inicioLocal) return inicioLocal.getTime();
+    return Number.MAX_SAFE_INTEGER;
+  };
+
+  const agendamentosFiltrados = [...agendamentos]
+    .filter((a) => {
+      const matchStatus = filtroStatus === "todos" || a.status === filtroStatus;
+      const termo = busca.toLowerCase();
+      const matchBusca = !busca ||
+        (a.paciente?.toLowerCase().includes(termo)) ||
+        (a.tutor?.toLowerCase().includes(termo)) ||
+        (a.clinica?.toLowerCase().includes(termo)) ||
+        (a.servico?.toLowerCase().includes(termo));
+      return matchStatus && matchBusca;
+    })
+    .sort((a, b) => {
+      const diff = getOrdenacaoTimestamp(a) - getOrdenacaoTimestamp(b);
+      if (diff !== 0) return diff;
+      return a.id - b.id;
+    });
 
   const slotsPanoramica = useMemo(() => gerarSlots(), []);
 
@@ -711,24 +728,25 @@ export default function AgendaPage() {
                     <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
                       {/* Info Principal */}
                       <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2 flex-wrap">
-                          <h3 className="text-lg font-semibold text-gray-900">
-                            {ag.paciente || "Paciente não informado"}
+                        <div className="flex items-center gap-3 mb-1 flex-wrap">
+                          <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                            <Building className="w-4 h-4 text-gray-400" />
+                            {ag.clinica || "Clinica nao informada"}
                           </h3>
                           <span className={`px-3 py-1 rounded-full text-xs font-medium border flex items-center gap-1 ${getStatusColor(ag.status)}`}>
                             <StatusIcon className="w-3 h-3" />
                             {ag.status}
                           </span>
                         </div>
-                        
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm text-gray-600">
+
+                        <div className="text-base font-semibold text-gray-900 mb-2">
+                          {ag.paciente || "Animal nao informado"}
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm text-gray-600">
                           <div className="flex items-center gap-2">
                             <User className="w-4 h-4 text-gray-400" />
-                            <span>{ag.tutor || "Tutor não informado"}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Building className="w-4 h-4 text-gray-400" />
-                            <span>{ag.clinica || "Clínica não informada"}</span>
+                            <span>{ag.tutor || "Tutor nao informado"}</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <Clock className="w-4 h-4 text-gray-400" />
@@ -740,7 +758,7 @@ export default function AgendaPage() {
                             </div>
                           )}
                         </div>
-                        
+
                         {ag.observacoes && (
                           <div className="mt-3 text-sm text-gray-500 bg-gray-50 p-2 rounded">
                             <span className="font-medium">Obs:</span> {ag.observacoes}
@@ -905,11 +923,11 @@ export default function AgendaPage() {
                         onClick={() => { setAgendamentoEditando(primeiro); setSlotSelecionado(null); setModalAberto(true); }}
                         className="border-b border-r px-2 py-2 text-left bg-red-50 hover:bg-red-100 transition-colors"
                       >
-                        <div className="text-xs font-semibold text-red-700 truncate">
-                          {primeiro.paciente || "Paciente"}
+                        <div className="text-xs font-bold text-red-800 truncate">
+                          {primeiro.clinica || "Clinica nao informada"}
                         </div>
                         <div className="text-[11px] text-red-600 truncate">
-                          Clinica: {primeiro.clinica || "Nao informada"}
+                          {primeiro.paciente || "Animal nao informado"}
                         </div>
                         <div className="text-[11px] text-red-600 truncate">
                           Tutor: {primeiro.tutor || "Nao informado"}
