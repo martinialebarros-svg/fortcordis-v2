@@ -73,17 +73,51 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
   Vmax_Pulm: { campo: "vmax_pulm", nome: "Vmax Pulmonar", categoria: "doppler" },
 };
 
+function normalizarEspecie(especie: string): string {
+  const valor = (especie || "").trim().toLowerCase();
+  if (valor.startsWith("fel") || valor.includes("gato") || valor.includes("cat")) return "Felina";
+  if (valor.startsWith("can") || valor.includes("cao") || valor.includes("dog")) return "Canina";
+  return especie || "Canina";
+}
+
 export function useReferenciaEco() {
   const [loading, setLoading] = useState(false);
 
   const buscarReferencia = useCallback(async (especie: string, peso: number): Promise<ReferenciaEco | null> => {
+    const especieNormalizada = normalizarEspecie(especie);
+    const pesoNormalizado = Number(peso);
+    if (!Number.isFinite(pesoNormalizado) || pesoNormalizado <= 0) {
+      return null;
+    }
+
     try {
       setLoading(true);
-      const response = await api.get(`/referencias-eco/buscar/${especie.toLowerCase()}/${peso}`);
+      const response = await api.get(
+        `/referencias-eco/buscar/${encodeURIComponent(especieNormalizada)}/${pesoNormalizado}`
+      );
       return response.data;
     } catch (error) {
-      console.error("Erro ao buscar referência:", error);
-      return null;
+      console.warn("Falha na busca direta de referencia; tentando fallback por listagem.", error);
+      try {
+        const response = await api.get(
+          `/referencias-eco?especie=${encodeURIComponent(especieNormalizada)}`
+        );
+        const items = Array.isArray(response.data?.items) ? (response.data.items as ReferenciaEco[]) : [];
+        if (items.length === 0) {
+          return null;
+        }
+
+        const maisProxima = items.reduce((melhor, atual) => {
+          const melhorDiff = Math.abs((melhor.peso_kg ?? pesoNormalizado) - pesoNormalizado);
+          const atualDiff = Math.abs((atual.peso_kg ?? pesoNormalizado) - pesoNormalizado);
+          return atualDiff < melhorDiff ? atual : melhor;
+        }, items[0]);
+
+        return maisProxima;
+      } catch (fallbackError) {
+        console.error("Erro ao buscar referencia:", fallbackError);
+        return null;
+      }
     } finally {
       setLoading(false);
     }
@@ -106,11 +140,29 @@ export function useReferenciaEco() {
 
       const minKey = `${mapeamento.campo}_min` as keyof ReferenciaEco;
       const maxKey = `${mapeamento.campo}_max` as keyof ReferenciaEco;
-      
-      const refMin = referencia[minKey] as number | undefined;
-      const refMax = referencia[maxKey] as number | undefined;
 
-      if (refMin === undefined || refMax === undefined) return;
+      const refMinRaw = referencia[minKey] as number | null | undefined;
+      const refMaxRaw = referencia[maxKey] as number | null | undefined;
+      const refMin = typeof refMinRaw === "number" ? refMinRaw : null;
+      const refMax = typeof refMaxRaw === "number" ? refMaxRaw : null;
+
+      const semReferenciaDefinida =
+        refMin === null ||
+        refMax === null ||
+        (refMin === 0 && refMax === 0);
+
+      if (semReferenciaDefinida) {
+        comparacoes[key] = {
+          nome: mapeamento.nome,
+          valor_medido: valor,
+          referencia_min: refMin,
+          referencia_max: refMax,
+          status: "nao_avaliado",
+          interpretacao: "Sem referencia definida",
+          categoria: mapeamento.categoria,
+        };
+        return;
+      }
 
       let status: ComparacaoMedida["status"];
       let interpretacao: string;

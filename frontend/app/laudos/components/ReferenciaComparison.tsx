@@ -24,14 +24,20 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
   const [comparacoes, setComparacoes] = useState<Record<string, ComparacaoMedida>>({});
 
   useEffect(() => {
+    const pesoValido = typeof peso === "number" && Number.isFinite(peso) && peso > 0;
+
     async function carregarReferencia() {
-      if (especie && peso) {
+      if (especie && pesoValido) {
         const ref = await buscarReferencia(especie, peso);
         setReferencia(ref);
+        return;
       }
+
+      setReferencia(null);
     }
+
     carregarReferencia();
-  }, [especie, peso]);
+  }, [especie, peso, buscarReferencia]);
 
   useEffect(() => {
     if (referencia) {
@@ -54,7 +60,7 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
         <AlertCircle className="w-12 h-12 mx-auto mb-3 text-gray-400" />
         <p className="text-lg font-medium mb-1">Nenhuma referência encontrada</p>
         <p className="text-sm">
-          {!especie || !peso 
+          {!especie || !(typeof peso === "number" && Number.isFinite(peso) && peso > 0)
             ? "Preencha os dados do paciente (espécie e peso) para visualizar as referências."
             : `Não há referência cadastrada para ${especie} com ${peso}kg.`}
         </p>
@@ -93,8 +99,10 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
         return "bg-red-50 border-red-200";
       case "diminuido":
         return "bg-blue-50 border-blue-200";
+      case "nao_avaliado":
+        return "bg-white border-gray-200";
       default:
-        return "bg-gray-50 border-gray-200";
+        return "bg-white border-gray-200";
     }
   };
 
@@ -140,6 +148,17 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
             </h4>
             <div className="space-y-2">
               {items.map((item) => (
+                (() => {
+                  const semReferenciaDefinida =
+                    item.status === "nao_avaliado" ||
+                    item.referencia_min === null ||
+                    item.referencia_max === null ||
+                    (item.referencia_min === 0 && item.referencia_max === 0);
+                  const faixaRef = semReferenciaDefinida
+                    ? "-"
+                    : `${item.referencia_min} - ${item.referencia_max}`;
+
+                  return (
                 <div
                   key={item.key}
                   className={`flex items-center justify-between p-3 rounded-lg border ${getStatusClass(
@@ -151,7 +170,7 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
                     <div>
                       <p className="font-medium text-sm">{item.nome}</p>
                       <p className="text-xs text-gray-500">
-                        Ref: {item.referencia_min} - {item.referencia_max}
+                        Ref: {faixaRef}
                       </p>
                     </div>
                   </div>
@@ -162,6 +181,8 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
                     </p>
                   </div>
                 </div>
+                  );
+                })()
               ))}
             </div>
           </div>

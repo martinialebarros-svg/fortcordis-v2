@@ -19,15 +19,29 @@ interface Imagem {
 interface ImageUploaderProps {
   onImagensChange?: (imagens: Imagem[]) => void;
   sessionId: string;
+  imagensIniciais?: Imagem[];
 }
 
-export default function ImageUploader({ onImagensChange, sessionId }: ImageUploaderProps) {
+export default function ImageUploader({
+  onImagensChange,
+  sessionId,
+  imagensIniciais = [],
+}: ImageUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
-  const [imagens, setImagens] = useState<Imagem[]>([]);
+  const [imagens, setImagens] = useState<Imagem[]>(imagensIniciais);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const gerarId = () => Math.random().toString(36).substring(2, 15);
+
+  const atualizarImagens = (novasImagens: Imagem[]) => {
+    setImagens(novasImagens);
+    onImagensChange?.(novasImagens);
+  };
+
+  useEffect(() => {
+    setImagens(imagensIniciais);
+  }, [imagensIniciais]);
 
   const fazerUploadImagem = async (imagem: Imagem): Promise<boolean> => {
     if (!imagem.file || imagem.uploaded) return true;
@@ -100,16 +114,17 @@ export default function ImageUploader({ onImagensChange, sessionId }: ImageUploa
       }
     }
 
-    const todasImagens = [...imagens, ...novasImagens];
-    setImagens(todasImagens);
-    onImagensChange?.(todasImagens);
+    let todasImagens = [...imagens, ...novasImagens];
+    atualizarImagens(todasImagens);
 
     // Fazer upload das novas imagens
     for (const imagem of novasImagens) {
       const sucesso = await fazerUploadImagem(imagem);
       if (sucesso) {
-        imagem.uploaded = true;
-        setImagens([...todasImagens]);
+        todasImagens = todasImagens.map((img) =>
+          img.id === imagem.id ? { ...img, uploaded: true } : img
+        );
+        atualizarImagens(todasImagens);
       }
     }
 
@@ -147,10 +162,10 @@ export default function ImageUploader({ onImagensChange, sessionId }: ImageUploa
       }
     }
     
-    const novasImagens = imagens.filter(img => img.id !== id);
-    novasImagens.forEach((img, idx) => img.ordem = idx);
-    setImagens(novasImagens);
-    onImagensChange?.(novasImagens);
+    const novasImagens = imagens
+      .filter(img => img.id !== id)
+      .map((img, idx) => ({ ...img, ordem: idx }));
+    atualizarImagens(novasImagens);
   };
 
   const moverImagem = (index: number, direcao: "up" | "down") => {
@@ -161,10 +176,9 @@ export default function ImageUploader({ onImagensChange, sessionId }: ImageUploa
     const newIndex = direcao === "up" ? index - 1 : index + 1;
     
     [novasImagens[index], novasImagens[newIndex]] = [novasImagens[newIndex], novasImagens[index]];
-    novasImagens.forEach((img, i) => img.ordem = i);
+    const imagensReordenadas = novasImagens.map((img, i) => ({ ...img, ordem: i }));
     
-    setImagens(novasImagens);
-    onImagensChange?.(novasImagens);
+    atualizarImagens(imagensReordenadas);
   };
 
   const formatarTamanho = (bytes: number) => {

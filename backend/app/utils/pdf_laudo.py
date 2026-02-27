@@ -4,6 +4,7 @@ import tempfile
 from io import BytesIO
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
+from xml.sax.saxutils import escape as xml_escape
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -62,6 +63,13 @@ def _to_float(valor: Any) -> Optional[float]:
         return None
 
 
+def _esc(valor: Any) -> str:
+    """Escapa texto para uso seguro em reportlab Paragraph."""
+    if valor is None:
+        return ""
+    return xml_escape(str(valor))
+
+
 def normalizar_medidas_para_pdf(medidas: Dict[str, Any]) -> Dict[str, Any]:
     """
     Normaliza medidas para garantir consistência de unidade no PDF.
@@ -94,6 +102,15 @@ def normalizar_medidas_para_pdf(medidas: Dict[str, Any]) -> Dict[str, Any]:
     return medidas_norm
 
 
+def _bloco_sem_quebra(*flowables):
+    """
+    Retorna um bloco que tenta manter os elementos juntos na mesma pagina.
+    Se nao houver espaco suficiente, o bloco inicia na pagina seguinte.
+    """
+    itens = [f for f in flowables if f is not None]
+    return KeepTogether(itens)
+
+
 def formatar_referencia(ref_min: Optional[float], ref_max: Optional[float], unidade: str) -> str:
     """Formata faixa de referência incluindo unidade quando aplicável."""
     if ref_min is None or ref_max is None:
@@ -102,6 +119,20 @@ def formatar_referencia(ref_min: Optional[float], ref_max: Optional[float], unid
         return "--"
     sufixo = f" {unidade}" if unidade else ""
     return f"{ref_min:.2f} - {ref_max:.2f}{sufixo}"
+
+
+def interpretar_parametro(valor: float, ref_min: float, ref_max: float) -> Tuple[str, colors.Color]:
+    """
+    Retorna interpretação textual e cor com base na faixa de referência.
+    """
+    if ref_min is None or ref_max is None:
+        return "", COR_PRETO
+
+    if valor < ref_min:
+        return "Abaixo", colors.HexColor("#2563eb")
+    if valor > ref_max:
+        return "Acima", colors.HexColor("#dc2626")
+    return "Normal", colors.HexColor("#15803d")
 
 
 # Mapeamento: chave da medida no laudo -> prefixo de campo na tabela referencias_eco
@@ -307,12 +338,16 @@ MAX_LOGO_HEIGHT = 40 * mm
 LARGURA_COLUNA_LOGO =50 * mm
 
 
-def criar_cabecalho(dados: Dict[str, Any], temp_logo_path: str = None) -> List:
-    """Cria o cabeçalho do laudo: logo + título no topo, depois dados do paciente."""
+def criar_cabecalho(
+    dados: Dict[str, Any],
+    temp_logo_path: str = None,
+    titulo_principal: str = "LAUDO ECOCARDIOGRAFICO",
+    mostrar_linha_ritmo: bool = True,
+) -> List:
+    """Cria o cabecalho do laudo: logo + titulo no topo, depois dados do paciente."""
     elements = []
     styles = create_pdf_styles()
 
-    # Primeira linha: logo à esquerda + título alinhado à esquerda (alinhado com as tabelas)
     if temp_logo_path and os.path.exists(temp_logo_path):
         try:
             img_reader = ImageReader(temp_logo_path)
@@ -326,76 +361,76 @@ def criar_cabecalho(dados: Dict[str, Any], temp_logo_path: str = None) -> List:
                 draw_height = MAX_LOGO_WIDTH * aspect
             logo = Image(temp_logo_path, width=draw_width, height=draw_height)
             logo.hAlign = 'LEFT'
-            titulo = Paragraph("<b>LAUDO ECOCARDIOGRÁFICO</b>", styles['TituloPrincipalLeft'])
+            titulo = Paragraph(f"<b>{_esc(titulo_principal)}</b>", styles['TituloPrincipalLeft'])
             largura_titulo = LARGURA_TABELAS - LARGURA_COLUNA_LOGO
             header_data = [[logo, titulo]]
             header_table = Table(header_data, colWidths=[LARGURA_COLUNA_LOGO, largura_titulo])
             header_table.setStyle(TableStyle([
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('ALIGN', (1, 0), (1, 0), 'LEFT'),  # título à esquerda para alinhar com as tabelas
+                ('ALIGN', (1, 0), (1, 0), 'LEFT'),
             ]))
             elements.append(header_table)
         except Exception as e:
             print(f"Erro ao adicionar logomarca: {e}")
-            elements.append(Paragraph("LAUDO ECOCARDIOGRÁFICO", styles['TituloPrincipal']))
+            elements.append(Paragraph(_esc(titulo_principal), styles['TituloPrincipal']))
     else:
-        elements.append(Paragraph("LAUDO ECOCARDIOGRÁFICO", styles['TituloPrincipal']))
+        elements.append(Paragraph(_esc(titulo_principal), styles['TituloPrincipal']))
 
     elements.append(Spacer(1, 2*mm))
 
-    # Dados do paciente em formato de linha única com pipe (|) como separador
-    # Seguindo o modelo: Paciente: X | Espécie: X | Raça: X
     paciente = dados.get('paciente', {})
     clinica = dados.get('clinica', '')
-    
-    # Linha 1: Paciente | Espécie | Raça
-    linha1 = f"<b>Paciente:</b> {paciente.get('nome', 'N/A')} | <b>Espécie:</b> {paciente.get('especie', 'N/A')} | <b>Raça:</b> {paciente.get('raca', 'N/A')}"
+
+    linha1 = (
+        f"<b>Paciente:</b> {_esc(paciente.get('nome', 'N/A'))} | "
+        f"<b>Especie:</b> {_esc(paciente.get('especie', 'N/A'))} | "
+        f"<b>Raca:</b> {_esc(paciente.get('raca', 'N/A'))}"
+    )
     elements.append(Paragraph(linha1, styles['Normal']))
     elements.append(Spacer(1, 1*mm))
-    
-    # Linha 2: Sexo | Idade | Peso
+
     peso = paciente.get('peso', 'N/A')
     peso_str = f"{peso} kg" if peso and peso != 'N/A' else 'N/A'
-    linha2 = f"<b>Sexo:</b> {paciente.get('sexo', 'N/A')} | <b>Idade:</b> {paciente.get('idade', 'N/A')} | <b>Peso:</b> {peso_str}"
+    linha2 = (
+        f"<b>Sexo:</b> {_esc(paciente.get('sexo', 'N/A'))} | "
+        f"<b>Idade:</b> {_esc(paciente.get('idade', 'N/A'))} | "
+        f"<b>Peso:</b> {_esc(peso_str)}"
+    )
     elements.append(Paragraph(linha2, styles['Normal']))
     elements.append(Spacer(1, 1*mm))
-    
-    # Linha 3: Tutor | Solicitante
+
     solicitante = paciente.get('solicitante', '') or ''
-    linha3 = f"<b>Tutor:</b> {paciente.get('tutor', 'N/A')} | <b>Solicitante:</b> {solicitante}"
+    linha3 = (
+        f"<b>Tutor:</b> {_esc(paciente.get('tutor', 'N/A'))} | "
+        f"<b>Solicitante:</b> {_esc(solicitante)}"
+    )
     elements.append(Paragraph(linha3, styles['Normal']))
     elements.append(Spacer(1, 1*mm))
-    
-    # Linha 4: Clínica
+
     if clinica:
-        elements.append(Paragraph(f"<b>Clínica:</b> {clinica}", styles['Normal']))
+        elements.append(Paragraph(f"<b>Clinica:</b> {_esc(clinica)}", styles['Normal']))
         elements.append(Spacer(1, 1*mm))
-    
-    # Linha 5: Data
+
     data_exame = paciente.get('data_exame', datetime.now().strftime('%d/%m/%Y'))
-    elements.append(Paragraph(f"<b>Data:</b> {data_exame}", styles['Normal']))
+    elements.append(Paragraph(f"<b>Data:</b> {_esc(data_exame)}", styles['Normal']))
     elements.append(Spacer(1, 1*mm))
-    
-    # Linha 6: Ritmo | FC | Estado
-    ritmo = paciente.get('ritmo', 'Sinusal') or 'Sinusal'
-    fc = paciente.get('fc', '') or ''
-    fc_str = f"{fc} bpm" if fc else "bpm"
-    estado = paciente.get('estado', 'Calmo') or 'Calmo'
-    linha6 = f"<b>Ritmo:</b> {ritmo} | <b>FC:</b> {fc_str} | <b>Estado:</b> {estado}"
-    elements.append(Paragraph(linha6, styles['Normal']))
-    elements.append(Spacer(1, 3*mm))
-    
-    return elements
 
-
-def interpretar_parametro(valor: float, ref_min: float, ref_max: float) -> Tuple[str, str]:
-    """Interpreta o valor em relação à referência"""
-    if valor < ref_min:
-        return "Reduzido", colors.HexColor('#dc2626')  # Vermelho
-    elif valor > ref_max:
-        return "Aumentado", colors.HexColor('#dc2626')  # Vermelho
+    if mostrar_linha_ritmo:
+        ritmo = paciente.get('ritmo', 'Sinusal') or 'Sinusal'
+        fc = paciente.get('fc', '') or ''
+        fc_str = f"{fc} bpm" if fc else "bpm"
+        estado = paciente.get('estado', 'Calmo') or 'Calmo'
+        linha6 = (
+            f"<b>Ritmo:</b> {_esc(ritmo)} | "
+            f"<b>FC:</b> {_esc(fc_str)} | "
+            f"<b>Estado:</b> {_esc(estado)}"
+        )
+        elements.append(Paragraph(linha6, styles['Normal']))
+        elements.append(Spacer(1, 3*mm))
     else:
-        return "Normal", colors.HexColor('#16a34a')  # Verde
+        elements.append(Spacer(1, 2*mm))
+
+    return elements
 
 
 def criar_tabela_medidas(titulo: str, parametros: List[Dict], dados: Dict[str, Any], 
@@ -621,10 +656,8 @@ def criar_secao_ad_vd(texto: str) -> List:
         ('TOPPADDING', (0, 0), (-1, 0), 4),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
     ]))
-    elements.append(titulo_table)
-    
     # Texto do AD/VD
-    texto_data = [[Paragraph(texto.strip(), styles['Normal'])]]
+    texto_data = [[Paragraph(_esc(texto.strip()), styles['Normal'])]]
     texto_table = Table(texto_data, colWidths=[180*mm])
     texto_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), COR_BRANCO),
@@ -634,7 +667,8 @@ def criar_secao_ad_vd(texto: str) -> List:
         ('TOPPADDING', (0, 0), (-1, -1), 4),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
     ]))
-    elements.append(texto_table)
+
+    elements.append(_bloco_sem_quebra(titulo_table, texto_table))
     
     return elements
 
@@ -666,9 +700,112 @@ def criar_secao_qualitativa(qualitativa: Dict[str, str]) -> List:
         texto = qualitativa.get(chave, '').strip()
         if texto:
             # Formato com asterisco como no modelo: * Label: texto
-            elements.append(Paragraph(f"<b>* {label}:</b> {texto}", styles['QualitativaTexto']))
+            elements.append(Paragraph(f"<b>* {label}:</b> {_esc(texto)}", styles['QualitativaTexto']))
             elements.append(Spacer(1, 1*mm))
     
+    return elements
+
+
+def criar_secao_pressao_arterial(pressao: Optional[Dict[str, Any]]) -> List:
+    """Cria secao de pressao arterial para laudo eco quando houver dados anexados."""
+    elements = []
+    styles = create_pdf_styles()
+
+    if not pressao:
+        return elements
+
+    def _to_int(value: Any) -> Optional[int]:
+        try:
+            if value is None or value == "":
+                return None
+            if isinstance(value, str):
+                value = value.replace(",", ".").strip()
+            return int(round(float(value)))
+        except Exception:
+            return None
+
+    pas_1 = _to_int(pressao.get("pas_1"))
+    pas_2 = _to_int(pressao.get("pas_2"))
+    pas_3 = _to_int(pressao.get("pas_3"))
+    pas_media = _to_int(pressao.get("pas_media"))
+
+    valores = [v for v in [pas_1, pas_2, pas_3] if v is not None and v > 0]
+    if pas_media is None and valores:
+        pas_media = int(round(sum(valores) / len(valores)))
+
+    metodo = (pressao.get("metodo") or "Doppler").strip() or "Doppler"
+    manguito = (pressao.get("manguito") or "").strip()
+    membro = (pressao.get("membro") or "").strip()
+    decubito = (pressao.get("decubito") or "").strip()
+    obs_extra = (pressao.get("obs_extra") or "").strip()
+
+    tem_medicoes = bool(valores or (pas_media is not None and pas_media > 0))
+    if not tem_medicoes:
+        return elements
+
+    classificacao = "Sem classificacao (media indisponivel)."
+    if pas_media is not None and pas_media > 0:
+        if pas_media <= 140:
+            classificacao = "Normal (110 a 140 mmHg)"
+        elif pas_media <= 159:
+            classificacao = "Levemente elevada (141 a 159 mmHg)"
+        elif pas_media <= 179:
+            classificacao = "Moderadamente elevada (160 a 179 mmHg)"
+        else:
+            classificacao = "Severamente elevada (>= 180 mmHg)"
+
+    afericoes_txt = "<br/>".join([
+        f"1a afericao (PAS): {pas_1 or '-'} mmHg",
+        f"2a afericao (PAS): {pas_2 or '-'} mmHg",
+        f"3a afericao (PAS): {pas_3 or '-'} mmHg",
+        f"<b>PAS media: {pas_media or '-'} mmHg</b>",
+        f"Metodo: {_esc(metodo)}",
+    ])
+
+    proc_linhas = []
+    if manguito:
+        proc_linhas.append(f"Manguito: {_esc(manguito)}")
+    if membro:
+        proc_linhas.append(f"Membro: {_esc(membro)}")
+    if decubito:
+        proc_linhas.append(f"Decubito: {_esc(decubito)}")
+    if not proc_linhas:
+        proc_linhas.append("Sem observacoes de procedimento.")
+
+    bloco_secao = [Spacer(1, 4 * mm), criar_titulo_secao("PRESSAO ARTERIAL (ANEXO)"), Spacer(1, 2 * mm)]
+
+    tabela = Table(
+        [
+            [
+                Paragraph("<b>Afericoes</b>", styles["Normal"]),
+                Paragraph("<b>Procedimento</b>", styles["Normal"]),
+            ],
+            [
+                Paragraph(afericoes_txt, styles["Normal"]),
+                Paragraph("<br/>".join(proc_linhas), styles["Normal"]),
+            ],
+        ],
+        colWidths=[90 * mm, 90 * mm],
+    )
+    tabela.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.7, colors.black),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    bloco_secao.append(tabela)
+    bloco_secao.append(Spacer(1, 2 * mm))
+    bloco_secao.append(Paragraph(f"<b>Classificacao PAS:</b> {_esc(classificacao)}", styles["Normal"]))
+
+    if obs_extra:
+        bloco_secao.append(Spacer(1, 1 * mm))
+        bloco_secao.append(Paragraph(f"<b>Obs:</b> {_esc(obs_extra)}", styles["Normal"]))
+
+    elements.append(_bloco_sem_quebra(*bloco_secao))
+
     return elements
 
 
@@ -688,7 +825,7 @@ def criar_secao_conclusao(conclusao: str) -> List:
     paragrafos = conclusao.strip().split('\n')
     for para in paragrafos:
         if para.strip():
-            elements.append(Paragraph(para.strip(), styles['Conclusao']))
+            elements.append(Paragraph(_esc(para.strip()), styles['Conclusao']))
     
     return elements
 
@@ -737,9 +874,9 @@ def criar_secao_assinatura(nome_veterinario: str, crmv: str = "", temp_assinatur
             print(f"Erro ao adicionar assinatura: {e}")
     
     # Nome e CRMV
-    elements.append(Paragraph(f"<b>{nome_veterinario}</b>", styles['Normal']))
+    elements.append(Paragraph(f"<b>{_esc(nome_veterinario)}</b>", styles['Normal']))
     if crmv:
-        elements.append(Paragraph(f"Médico Veterinário - CRMV: {crmv}", styles['Normal']))
+        elements.append(Paragraph(f"Médico Veterinário - CRMV: {_esc(crmv)}", styles['Normal']))
     else:
         elements.append(Paragraph("Médico Veterinário", styles['Normal']))
     
@@ -754,7 +891,7 @@ def criar_rodape(texto_rodape: str = None) -> List:
     texto = texto_rodape or "Fort Cordis Cardiologia Veterinária | Fortaleza-CE"
     
     elements.append(Spacer(1, 8*mm))
-    elements.append(Paragraph(texto, styles['Rodape']))
+    elements.append(Paragraph(_esc(texto), styles['Rodape']))
     
     return elements
 
@@ -934,34 +1071,88 @@ def gerar_pdf_laudo_eco(
         # =================================================================
         
         # VE - Modo M: COM Referência (diferença solicitada pelo usuário)
-        elements.append(criar_tabela_medidas("VE - Modo M", params_ve_modo_m, dados_pdf, 
-                                              mostrar_referencia=True, mostrar_interpretacao=False))
-        elements.append(Spacer(1, 3*mm))
+        elements.append(
+            _bloco_sem_quebra(
+                criar_tabela_medidas(
+                    "VE - Modo M",
+                    params_ve_modo_m,
+                    dados_pdf,
+                    mostrar_referencia=True,
+                    mostrar_interpretacao=False,
+                ),
+                Spacer(1, 3 * mm),
+            )
+        )
         
         # Átrio Esquerdo / Aorta: COM Referência, SEM Interpretação
-        elements.append(criar_tabela_medidas("Átrio esquerdo/ Aorta", params_ae_aorta, dados_pdf,
-                                              mostrar_referencia=True, mostrar_interpretacao=False))
-        elements.append(Spacer(1, 3*mm))
+        elements.append(
+            _bloco_sem_quebra(
+                criar_tabela_medidas(
+                    "Átrio esquerdo/ Aorta",
+                    params_ae_aorta,
+                    dados_pdf,
+                    mostrar_referencia=True,
+                    mostrar_interpretacao=False,
+                ),
+                Spacer(1, 3 * mm),
+            )
+        )
         
         # Artéria Pulmonar / Aorta: COM Referência, SEM Interpretação
-        elements.append(criar_tabela_medidas("Artéria pulmonar/ Aorta", params_ap_aorta, dados_pdf,
-                                              mostrar_referencia=True, mostrar_interpretacao=False))
-        elements.append(Spacer(1, 3*mm))
+        elements.append(
+            _bloco_sem_quebra(
+                criar_tabela_medidas(
+                    "Artéria pulmonar/ Aorta",
+                    params_ap_aorta,
+                    dados_pdf,
+                    mostrar_referencia=True,
+                    mostrar_interpretacao=False,
+                ),
+                Spacer(1, 3 * mm),
+            )
+        )
         
         # Doppler - Saídas: COM Referência, SEM Interpretação
-        elements.append(criar_tabela_medidas("Doppler - Saídas", params_doppler_saidas, dados_pdf,
-                                              mostrar_referencia=True, mostrar_interpretacao=False))
-        elements.append(Spacer(1, 3*mm))
+        elements.append(
+            _bloco_sem_quebra(
+                criar_tabela_medidas(
+                    "Doppler - Saídas",
+                    params_doppler_saidas,
+                    dados_pdf,
+                    mostrar_referencia=True,
+                    mostrar_interpretacao=False,
+                ),
+                Spacer(1, 3 * mm),
+            )
+        )
         
         # Diastólica: COM Referência, SEM Interpretação
-        elements.append(criar_tabela_medidas("Diastólica", params_diastolica, dados_pdf,
-                                              mostrar_referencia=True, mostrar_interpretacao=False))
-        elements.append(Spacer(1, 3*mm))
+        elements.append(
+            _bloco_sem_quebra(
+                criar_tabela_medidas(
+                    "Diastólica",
+                    params_diastolica,
+                    dados_pdf,
+                    mostrar_referencia=True,
+                    mostrar_interpretacao=False,
+                ),
+                Spacer(1, 3 * mm),
+            )
+        )
         
         # Regurgitações: COM Referência, SEM Interpretação
-        elements.append(criar_tabela_medidas("Regurgitações", params_regurgitacoes, dados_pdf,
-                                              mostrar_referencia=True, mostrar_interpretacao=False))
-        elements.append(Spacer(1, 3*mm))
+        elements.append(
+            _bloco_sem_quebra(
+                criar_tabela_medidas(
+                    "Regurgitações",
+                    params_regurgitacoes,
+                    dados_pdf,
+                    mostrar_referencia=True,
+                    mostrar_interpretacao=False,
+                ),
+                Spacer(1, 3 * mm),
+            )
+        )
         
         # 3. Análise Qualitativa e AD/VD
         qualitativa = dados_pdf.get('qualitativa', {})
@@ -972,11 +1163,14 @@ def gerar_pdf_laudo_eco(
             elements.extend(criar_secao_ad_vd(ad_vd_texto))
             elements.append(Spacer(1, 3*mm))
         
-        # Análise Qualitativa (sem AD/VD, que já foi mostrado)
+        # Analise qualitativa (sem AD/VD, que ja foi mostrado)
         if qualitativa and any(qualitativa.get(k, '').strip() for k in ['valvas', 'camaras', 'funcao', 'pericardio', 'vasos']):
             elements.extend(criar_secao_qualitativa(qualitativa))
-        
-        # 4. Conclusão
+
+        # Pressao arterial anexada ao laudo ecocardiografico (quando existir)
+        elements.extend(criar_secao_pressao_arterial(dados_pdf.get("pressao_arterial")))
+
+        # 4. Conclusao
         conclusao = dados_pdf.get('conclusao', '')
         elements.extend(criar_secao_conclusao(conclusao))
         
@@ -1096,5 +1290,200 @@ def gerar_pdf_laudo_eco(
                 print(f"Erro ao remover arquivo temporário {temp_file}: {e}")
 
 
+
+def gerar_pdf_laudo_pressao(
+    dados: Dict[str, Any],
+    logomarca_bytes: bytes = None,
+    assinatura_bytes: bytes = None,
+    nome_veterinario: str = None,
+    crmv: str = None,
+    texto_rodape: str = None,
+) -> bytes:
+    """Gera PDF para laudo de pressao arterial."""
+    temp_files = []
+
+    def _to_int(value: Any) -> Optional[int]:
+        try:
+            if value is None or value == "":
+                return None
+            if isinstance(value, str):
+                value = value.replace(",", ".").strip()
+            return int(round(float(value)))
+        except Exception:
+            return None
+
+    def _classificar_pas(pas_media: Optional[int]) -> str:
+        if pas_media is None or pas_media <= 0:
+            return "Sem classificacao (media indisponivel)."
+        if pas_media <= 140:
+            return "Normal (110 a 140 mmHg)"
+        if pas_media <= 159:
+            return "Levemente elevada (141 a 159 mmHg)"
+        if pas_media <= 179:
+            return "Moderadamente elevada (160 a 179 mmHg)"
+        return "Severamente elevada (>=180 mmHg)"
+
+    try:
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=15 * mm,
+            leftMargin=15 * mm,
+            topMargin=15 * mm,
+            bottomMargin=15 * mm,
+        )
+
+        elements = []
+        styles = create_pdf_styles()
+
+        temp_logo_path = None
+        temp_assinatura_path = None
+
+        if logomarca_bytes:
+            temp_logo = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+            temp_logo.write(logomarca_bytes)
+            temp_logo.close()
+            temp_logo_path = temp_logo.name
+            temp_files.append(temp_logo_path)
+
+        if assinatura_bytes:
+            temp_ass = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+            temp_ass.write(assinatura_bytes)
+            temp_ass.close()
+            temp_assinatura_path = temp_ass.name
+            temp_files.append(temp_assinatura_path)
+
+        dados_pdf = dict(dados or {})
+        pressao = dados_pdf.get("pressao_arterial") or {}
+
+        pas_1 = _to_int(pressao.get("pas_1")) or 0
+        pas_2 = _to_int(pressao.get("pas_2")) or 0
+        pas_3 = _to_int(pressao.get("pas_3")) or 0
+        valores = [v for v in [pas_1, pas_2, pas_3] if v > 0]
+        pas_media = _to_int(pressao.get("pas_media"))
+        if pas_media is None and valores:
+            pas_media = int(round(sum(valores) / len(valores)))
+
+        metodo = (pressao.get("metodo") or "Doppler").strip() or "Doppler"
+        manguito = (pressao.get("manguito") or "").strip()
+        membro = (pressao.get("membro") or "").strip()
+        decubito = (pressao.get("decubito") or "").strip()
+        obs_extra = (pressao.get("obs_extra") or "").strip()
+
+        elements.extend(
+            criar_cabecalho(
+                dados_pdf,
+                temp_logo_path,
+                titulo_principal="LAUDO DE PRESSAO ARTERIAL",
+                mostrar_linha_ritmo=False,
+            )
+        )
+
+        elements.append(_bloco_sem_quebra(criar_titulo_secao("LAUDO PRESSAO ARTERIAL"), Spacer(1, 2 * mm)))
+
+        afericoes_txt = "<br/>".join([
+            f"1a afericao: Pressao Sistolica {pas_1} mmHg",
+            f"2a afericao: Pressao Sistolica {pas_2} mmHg",
+            f"3a afericao: Pressao Sistolica {pas_3} mmHg",
+            f"<b>PA Sistolica Media: {pas_media or 0} mmHg</b>",
+            f"Metodo: {metodo}",
+        ])
+
+        observacoes_proc = []
+        if manguito:
+            observacoes_proc.append(f"Manguito: {manguito}")
+        if membro:
+            observacoes_proc.append(f"Membro: {membro}")
+        if decubito:
+            observacoes_proc.append(f"Decubito: {decubito}")
+        if not observacoes_proc:
+            observacoes_proc.append("Sem observacoes de procedimento.")
+
+        box_data = [
+            [Paragraph("<b>Afericao de Pressao Arterial</b>", styles['Normal']), Paragraph("<b>Observacoes do Procedimento</b>", styles['Normal'])],
+            [Paragraph(afericoes_txt, styles['Normal']), Paragraph("<br/>".join(_esc(v) for v in observacoes_proc), styles['Normal'])],
+        ]
+        box_table = Table(box_data, colWidths=[90 * mm, 90 * mm])
+        box_table.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.7, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ]))
+        classificacao = dados_pdf.get("conclusao") or _classificar_pas(pas_media)
+        bloco_pressao = [
+            box_table,
+            Spacer(1, 3 * mm),
+            Paragraph(f"<b>Classificacao:</b> {_esc(classificacao)}", styles['Conclusao']),
+        ]
+
+        if obs_extra:
+            bloco_pressao.extend([
+                Spacer(1, 2 * mm),
+                Paragraph(f"<b>Outras observacoes:</b> {_esc(obs_extra)}", styles['Normal']),
+            ])
+
+        bloco_pressao.append(Spacer(1, 4 * mm))
+        elements.append(_bloco_sem_quebra(*bloco_pressao))
+
+        refs = [
+            "<b>Valores de Referencia (PAS)</b>",
+            "Normal: 110 a 140 mmHg",
+            "Levemente elevada: 141 a 159 mmHg",
+            "Moderadamente elevada: 160 a 179 mmHg",
+            "Severamente elevada: >=180 mmHg",
+        ]
+        ref_table = Table([[Paragraph("<br/>".join(refs), styles['Normal'])]], colWidths=[180 * mm])
+        ref_table.setStyle(TableStyle([
+            ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#15803d')),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(_bloco_sem_quebra(ref_table))
+
+        elements.append(Spacer(1, 4 * mm))
+        elements.append(
+            Paragraph(
+                "<i>* Os valores de pressao arterial devem ser correlacionados com o quadro clinico e reavaliados quando necessario.</i>",
+                styles['Normal'],
+            )
+        )
+        elements.append(Spacer(1, 1 * mm))
+        elements.append(
+            Paragraph(
+                "<i>* A pressao foi aferida por metodo Doppler e pode apresentar variacao em relacao ao metodo invasivo.</i>",
+                styles['Normal'],
+            )
+        )
+
+        vet_nome = nome_veterinario or dados_pdf.get('veterinario_nome') or "Medico Veterinario"
+        vet_crmv = crmv or dados_pdf.get('veterinario_crmv') or ""
+        elements.extend(criar_secao_assinatura(vet_nome, vet_crmv, temp_assinatura_path))
+
+        rodape_texto = texto_rodape or "Fort Cordis Cardiologia Veterinaria | Fortaleza-CE"
+
+        def add_footer(canvas_obj, doc_obj):
+            footer_todas_paginas(canvas_obj, doc_obj, rodape_texto)
+
+        doc.build(elements, onFirstPage=add_footer, onLaterPages=add_footer)
+        buffer.seek(0)
+        return buffer.getvalue()
+    finally:
+        for temp_file in temp_files:
+            try:
+                if os.path.exists(temp_file):
+                    os.unlink(temp_file)
+            except Exception as e:
+                print(f"Erro ao remover arquivo temporario {temp_file}: {e}")
+
+
 # Mantém compatibilidade com código anterior
 gerar_pdf_laudo = gerar_pdf_laudo_eco
+
+

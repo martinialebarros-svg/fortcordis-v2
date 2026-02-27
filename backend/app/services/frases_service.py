@@ -1,0 +1,401 @@
+"""
+Service para gerenciamento de frases qualitativas via arquivos JSON.
+As frases são armazenadas em arquivos versionados no Git em vez do banco de dados.
+"""
+import json
+import os
+from typing import List, Optional, Dict, Any, Set
+from datetime import datetime
+from pathlib import Path
+
+# Diretório onde os arquivos JSON estão localizados
+DATA_DIR = Path(__file__).parent.parent.parent / "data"
+FRASES_FILE = DATA_DIR / "frases.json"
+PATOLOGIAS_FILE = DATA_DIR / "patologias.json"
+
+
+def _ensure_data_dir():
+    """Garante que o diretório de dados existe."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _load_json(filepath: Path, default: Any = None) -> Any:
+    """Carrega um arquivo JSON ou retorna o valor padrão se não existir."""
+    if not filepath.exists():
+        return default
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return default
+
+
+def _save_json(filepath: Path, data: Any):
+    """Salva dados em um arquivo JSON."""
+    _ensure_data_dir()
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def _to_int(value: Any) -> Optional[int]:
+    """Converte valor para int quando possível."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        value = value.strip()
+        if value.isdigit():
+            return int(value)
+    return None
+
+
+def _normalize_frases_ids(frases: List[Dict[str, Any]]) -> bool:
+    """Garante que frases tenham IDs inteiros e únicos."""
+    changed = False
+    used_ids: set[int] = set()
+
+    valid_ids = []
+    for frase in frases:
+        frase_id = _to_int(frase.get("id"))
+        if frase_id is not None:
+            valid_ids.append(frase_id)
+    next_id = (max(valid_ids) + 1) if valid_ids else 1
+
+    for frase in frases:
+        original_id = frase.get("id")
+        frase_id = _to_int(original_id)
+
+        if frase_id is None or frase_id in used_ids:
+            while next_id in used_ids:
+                next_id += 1
+            frase_id = next_id
+            next_id += 1
+            changed = True
+
+        if original_id != frase_id:
+            changed = True
+
+        frase["id"] = frase_id
+        used_ids.add(frase_id)
+
+    return changed
+
+
+def _load_frases_data() -> Dict[str, Any]:
+    """Carrega frases garantindo estrutura e IDs válidos."""
+    data = _load_json(FRASES_FILE, {"frases": [], "version": "1.0"})
+    if not isinstance(data, dict):
+        data = {"frases": [], "version": "1.0"}
+
+    frases = data.get("frases", [])
+    if not isinstance(frases, list):
+        frases = []
+    data["frases"] = frases
+
+    if _normalize_frases_ids(frases):
+        data["last_updated"] = datetime.now().isoformat()
+        _save_json(FRASES_FILE, data)
+
+    return data
+
+
+def _generate_id(frases: List[Dict]) -> int:
+    """Gera um novo ID baseado nos IDs existentes."""
+    if not frases:
+        return 1
+
+    ids = [_to_int(f.get("id")) for f in frases]
+    ids_validos = [i for i in ids if i is not None]
+    if not ids_validos:
+        return 1
+    return max(ids_validos) + 1
+
+
+# =============================================================================
+# OPERAÇÕES COM FRASES
+# =============================================================================
+
+def listar_frases(
+    patologia: Optional[str] = None,
+    grau: Optional[str] = None,
+    busca: Optional[str] = None,
+    ativo: Optional[int] = 1,
+    skip: int = 0,
+    limit: int = 100
+) -> Dict[str, Any]:
+    """Lista todas as frases qualitativas com filtros opcionais."""
+    data = _load_frases_data()
+    frases = data.get("frases", [])
+    
+    # Aplicar filtros
+    if ativo is not None:
+        frases = [f for f in frases if f.get("ativo", 1) == ativo]
+    
+    if patologia:
+        frases = [f for f in frases if patologia.lower() in f.get("patologia", "").lower()]
+    
+    if grau:
+        frases = [f for f in frases if grau.lower() in f.get("grau", "").lower()]
+    
+    if busca:
+        busca_lower = busca.lower()
+        frases = [
+            f for f in frases 
+            if (busca_lower in f.get("patologia", "").lower() or
+                busca_lower in f.get("chave", "").lower() or
+                busca_lower in f.get("conclusao", "").lower())
+        ]
+    
+    total = len(frases)
+    items = frases[skip:skip + limit]
+    
+    return {"items": items, "total": total}
+
+
+def obter_frase(frase_id: int) -> Optional[Dict]:
+    """Obtém uma frase específica pelo ID."""
+    data = _load_frases_data()
+    frase_id = _to_int(frase_id) or frase_id
+    for frase in data.get("frases", []):
+        if _to_int(frase.get("id")) == frase_id and frase.get("ativo", 1) == 1:
+            return frase
+    return None
+
+
+def obter_frase_por_chave(chave: str) -> Optional[Dict]:
+    """Obtém uma frase específica pela chave."""
+    data = _load_frases_data()
+    for frase in data.get("frases", []):
+        if frase.get("chave") == chave and frase.get("ativo", 1) == 1:
+            return frase
+    return None
+
+
+def criar_frase(frase_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Cria uma nova frase qualitativa."""
+    data = _load_frases_data()
+    frases = data.get("frases", [])
+    
+    # Verificar se já existe chave
+    chave = frase_data.get("chave")
+    if chave and any(f.get("chave") == chave for f in frases):
+        raise ValueError(f"Já existe uma frase com a chave '{chave}'")
+    
+    # Criar nova frase
+    nova_frase = {
+        "id": _generate_id(frases),
+        "chave": frase_data.get("chave", ""),
+        "patologia": frase_data.get("patologia", ""),
+        "grau": frase_data.get("grau", "Normal"),
+        "valvas": frase_data.get("valvas", ""),
+        "camaras": frase_data.get("camaras", ""),
+        "funcao": frase_data.get("funcao", ""),
+        "pericardio": frase_data.get("pericardio", ""),
+        "vasos": frase_data.get("vasos", ""),
+        "ad_vd": frase_data.get("ad_vd", ""),
+        "conclusao": frase_data.get("conclusao", ""),
+        "detalhado": frase_data.get("detalhado", {}),
+        "layout": frase_data.get("layout", "detalhado"),
+        "ativo": 1,
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat(),
+    }
+    
+    frases.append(nova_frase)
+    data["frases"] = frases
+    data["last_updated"] = datetime.now().isoformat()
+    
+    _save_json(FRASES_FILE, data)
+    return nova_frase
+
+
+def atualizar_frase(frase_id: int, frase_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Atualiza uma frase existente."""
+    data = _load_frases_data()
+    frases = data.get("frases", [])
+    frase_id = _to_int(frase_id) or frase_id
+    
+    for i, frase in enumerate(frases):
+        if _to_int(frase.get("id")) == frase_id:
+            # Atualizar apenas os campos fornecidos
+            for key, value in frase_data.items():
+                if value is not None and key not in ["id", "created_at"]:
+                    frase[key] = value
+            
+            frase["updated_at"] = datetime.now().isoformat()
+            frases[i] = frase
+            
+            data["frases"] = frases
+            data["last_updated"] = datetime.now().isoformat()
+            _save_json(FRASES_FILE, data)
+            return frase
+    
+    return None
+
+
+def deletar_frase(frase_id: int) -> bool:
+    """Remove uma frase (soft delete - apenas marca como inativo)."""
+    data = _load_frases_data()
+    frases = data.get("frases", [])
+    frase_id = _to_int(frase_id) or frase_id
+    
+    for frase in frases:
+        if _to_int(frase.get("id")) == frase_id:
+            frase["ativo"] = 0
+            frase["updated_at"] = datetime.now().isoformat()
+            
+            data["frases"] = frases
+            data["last_updated"] = datetime.now().isoformat()
+            _save_json(FRASES_FILE, data)
+            return True
+    
+    return False
+
+
+def restaurar_frase(frase_id: int) -> bool:
+    """Restaura uma frase removida."""
+    data = _load_frases_data()
+    frases = data.get("frases", [])
+    frase_id = _to_int(frase_id) or frase_id
+    
+    for frase in frases:
+        if _to_int(frase.get("id")) == frase_id:
+            frase["ativo"] = 1
+            frase["updated_at"] = datetime.now().isoformat()
+            
+            data["frases"] = frases
+            data["last_updated"] = datetime.now().isoformat()
+            _save_json(FRASES_FILE, data)
+            return True
+    
+    return False
+
+
+def buscar_frase_por_patologia_grau(
+    patologia: str,
+    grau_refluxo: Optional[str] = None,
+    grau_geral: Optional[str] = None
+) -> Optional[Dict]:
+    """Busca uma frase específica por patologia e grau."""
+    # Montar a chave esperada
+    if patologia == "Normal":
+        chave = "Normal (Normal)"
+    elif patologia == "Endocardiose Mitral":
+        chave = f"{patologia} ({grau_refluxo or 'Leve'})"
+    else:
+        chave = f"{patologia} ({grau_geral or 'Leve'})"
+    
+    # Tentar buscar pela chave exata
+    frase = obter_frase_por_chave(chave)
+    if frase:
+        return frase
+    
+    # Se não encontrar, buscar apenas pela patologia
+    data = _load_frases_data()
+    for f in data.get("frases", []):
+        if (patologia.lower() in f.get("patologia", "").lower() and 
+            f.get("ativo", 1) == 1):
+            return f
+    
+    return None
+
+
+# =============================================================================
+# OPERAÇÕES COM PATOLOGIAS
+# =============================================================================
+
+def _listar_patologias_das_frases() -> Dict[str, Set[str]]:
+    """Monta mapa de patologias->graus a partir das frases ativas."""
+    data = _load_frases_data()
+    patologias_map: Dict[str, Set[str]] = {}
+
+    for frase in data.get("frases", []):
+        if frase.get("ativo", 1) != 1:
+            continue
+
+        patologia = (frase.get("patologia") or "").strip()
+        if not patologia:
+            continue
+
+        grau = (frase.get("grau") or "").strip()
+        patologias_map.setdefault(patologia, set())
+        if grau:
+            patologias_map[patologia].add(grau)
+
+    return patologias_map
+
+
+def listar_patologias() -> List[str]:
+    """Lista todas as patologias disponíveis."""
+    patologias_map = _listar_patologias_das_frases()
+    if patologias_map:
+        return sorted(patologias_map.keys())
+
+    # Fallback legado: usa patologias.json quando não houver frases.
+    data = _load_json(PATOLOGIAS_FILE, {"patologias": []})
+    patologias = [p.get("nome") for p in data.get("patologias", []) if p.get("nome")]
+    return sorted(patologias)
+
+
+def listar_graus_por_patologia(patologia: Optional[str] = None) -> List[str]:
+    """Lista todos os graus disponíveis, opcionalmente filtrados por patologia."""
+    patologias_map = _listar_patologias_das_frases()
+    if patologias_map:
+        if patologia:
+            return sorted(list(patologias_map.get(patologia, set())))
+
+        graus_set: Set[str] = set()
+        for graus in patologias_map.values():
+            graus_set.update(graus)
+        return sorted(list(graus_set))
+
+    # Fallback legado: usa patologias.json quando não houver frases.
+    data = _load_json(PATOLOGIAS_FILE, {"patologias": []})
+
+    if patologia:
+        for p in data.get("patologias", []):
+            if p.get("nome") == patologia:
+                return p.get("graus", [])
+        return []
+
+    # Retorna todos os graus únicos
+    graus_set = set()
+    for p in data.get("patologias", []):
+        graus_set.update(p.get("graus", []))
+    return sorted(list(graus_set))
+
+
+def adicionar_patologia(nome: str, graus: List[str]) -> bool:
+    """Adiciona uma nova patologia ao arquivo."""
+    data = _load_json(PATOLOGIAS_FILE, {"patologias": [], "version": "1.0"})
+    patologias = data.get("patologias", [])
+    
+    # Verificar se já existe
+    if any(p.get("nome") == nome for p in patologias):
+        return False
+    
+    patologias.append({"nome": nome, "graus": graus})
+    data["patologias"] = patologias
+    data["last_updated"] = datetime.now().isoformat()
+    
+    _save_json(PATOLOGIAS_FILE, data)
+    return True
+
+
+def atualizar_patologia(nome: str, graus: List[str]) -> bool:
+    """Atualiza os graus de uma patologia existente."""
+    data = _load_json(PATOLOGIAS_FILE, {"patologias": []})
+    patologias = data.get("patologias", [])
+    
+    for p in patologias:
+        if p.get("nome") == nome:
+            p["graus"] = graus
+            data["patologias"] = patologias
+            data["last_updated"] = datetime.now().isoformat()
+            _save_json(PATOLOGIAS_FILE, data)
+            return True
+    
+    return False

@@ -1,31 +1,48 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, User, Building, Calendar, Clock, Phone } from "lucide-react";
-import axios from "axios";
+import { X, User, Building, Calendar, Clock } from "lucide-react";
+import api from "@/lib/axios";
+
+const TABELA_PRECO_PADRAO = [
+  { id: 1, nome: "Fortaleza" },
+  { id: 2, nome: "Regiao Metropolitana" },
+  { id: 3, nome: "Domiciliar" },
+  { id: 4, nome: "Personalizado" },
+];
 
 interface NovoAgendamentoModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (agendamentoCriado?: { data?: string | null }) => void | Promise<void>;
   agendamento?: any;
+  defaultDate?: string;
+  defaultTime?: string;
 }
 
 export default function NovoAgendamentoModal({ 
   isOpen, 
   onClose, 
   onSuccess,
-  agendamento 
+  agendamento,
+  defaultDate,
+  defaultTime
 }: NovoAgendamentoModalProps) {
   const [loading, setLoading] = useState(false);
   const [pacientes, setPacientes] = useState<any[]>([]);
   const [clinicas, setClinicas] = useState<any[]>([]);
   const [servicos, setServicos] = useState<any[]>([]);
+  const [tabelasPreco, setTabelasPreco] = useState<{ id: number; nome: string }[]>(TABELA_PRECO_PADRAO);
   const [tutorSelecionado, setTutorSelecionado] = useState<string>("");
+  const [erroCarregamento, setErroCarregamento] = useState<string>("");
   
   const [formData, setFormData] = useState({
     paciente_id: "",
+    paciente_novo: "",
+    tutor_novo: "",
     clinica_id: "",
+    clinica_nova_nome: "",
+    clinica_nova_tabela_preco_id: "1",
     servico_id: "",
     data: "",
     hora: "",
@@ -34,16 +51,91 @@ export default function NovoAgendamentoModal({
 
   const isEditando = !!agendamento;
 
+  const parseApiDateTime = (value?: string): Date | null => {
+    if (!value) return null;
+
+    const match = value
+      .trim()
+      .match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (match) {
+      const [, ano, mes, dia, hora, minuto, segundo = "0"] = match;
+      const local = new Date(
+        Number(ano),
+        Number(mes) - 1,
+        Number(dia),
+        Number(hora),
+        Number(minuto),
+        Number(segundo),
+        0
+      );
+      if (!Number.isNaN(local.getTime())) {
+        return local;
+      }
+    }
+
+    const normalized = value.includes("T") ? value : value.replace(" ", "T");
+    const parsed = new Date(normalized);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const parseAgendamentoInicio = (ag: any): Date | null => {
+    if (ag?.data && ag?.hora) {
+      const [ano, mes, dia] = String(ag.data).split("-").map(Number);
+      const [hora, minuto] = String(ag.hora).split(":").map(Number);
+      if (
+        Number.isFinite(ano) &&
+        Number.isFinite(mes) &&
+        Number.isFinite(dia) &&
+        Number.isFinite(hora) &&
+        Number.isFinite(minuto)
+      ) {
+        const local = new Date(ano, mes - 1, dia, hora, minuto, 0, 0);
+        if (!Number.isNaN(local.getTime())) {
+          return local;
+        }
+      }
+    }
+
+    return parseApiDateTime(ag?.inicio);
+  };
+
+  const toInputDate = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const toInputTime = (date: Date): string => {
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${hours}:${minutes}`;
+  };
+
+  const toApiDateTime = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    const seconds = String(date.getSeconds()).padStart(2, "0");
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+  };
+
   // Preencher formulário quando estiver editando
   useEffect(() => {
     if (isEditando && agendamento) {
-      const inicio = new Date(agendamento.inicio);
-      const data = inicio.toISOString().split('T')[0];
-      const hora = inicio.toTimeString().slice(0, 5);
+      const inicio = parseAgendamentoInicio(agendamento);
+      const data = inicio ? toInputDate(inicio) : "";
+      const hora = inicio ? toInputTime(inicio) : "";
       
       setFormData({
         paciente_id: agendamento.paciente_id?.toString() || "",
+        paciente_novo: "",
+        tutor_novo: "",
         clinica_id: agendamento.clinica_id?.toString() || "",
+        clinica_nova_nome: "",
+        clinica_nova_tabela_preco_id: "1",
         servico_id: agendamento.servico_id?.toString() || "",
         data: data,
         hora: hora,
@@ -60,15 +152,19 @@ export default function NovoAgendamentoModal({
     } else {
       setFormData({
         paciente_id: "",
+        paciente_novo: "",
+        tutor_novo: "",
         clinica_id: "",
+        clinica_nova_nome: "",
+        clinica_nova_tabela_preco_id: "1",
         servico_id: "",
-        data: "",
-        hora: "",
+        data: defaultDate || "",
+        hora: defaultTime || "",
         observacoes: "",
       });
       setTutorSelecionado("");
     }
-  }, [agendamento, isEditando, isOpen, pacientes]);
+  }, [agendamento, defaultDate, defaultTime, isEditando, isOpen, pacientes]);
 
   // Carregar dados dos selects
   useEffect(() => {
@@ -78,45 +174,87 @@ export default function NovoAgendamentoModal({
   }, [isOpen]);
 
   const carregarDados = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      try {
-        const resPacientes = await axios.get("/api/v1/pacientes/", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setPacientes(resPacientes.data.items || []);
-      } catch (e) {
-        setPacientes([]);
-      }
-      
-      try {
-        const resClinicas = await axios.get("/api/v1/clinicas/", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setClinicas(resClinicas.data.items || []);
-      } catch (e) {
-        setClinicas([]);
-      }
+    const extrairItems = (payload: any): any[] => {
+      if (Array.isArray(payload?.items)) return payload.items;
+      if (Array.isArray(payload?.data)) return payload.data;
+      if (Array.isArray(payload)) return payload;
+      return [];
+    };
 
-      try {
-        const resServicos = await axios.get("/api/v1/servicos/", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setServicos(resServicos.data.items || []);
-      } catch (e) {
-        setServicos([]);
+    const resultados = await Promise.allSettled([
+      api.get("/pacientes?limit=1000"),
+      api.get("/clinicas?limit=1000"),
+      api.get("/clinicas/tabelas-preco/opcoes"),
+      api.get("/servicos?limit=1000"),
+    ]);
+
+    const falhas: string[] = [];
+
+    const pacientesResp = resultados[0];
+    if (pacientesResp.status === "fulfilled") {
+      setPacientes(extrairItems(pacientesResp.value?.data));
+    } else {
+      setPacientes([]);
+      falhas.push("pacientes");
+    }
+
+    const clinicasResp = resultados[1];
+    if (clinicasResp.status === "fulfilled") {
+      setClinicas(extrairItems(clinicasResp.value?.data));
+    } else {
+      setClinicas([]);
+      falhas.push("clinicas");
+    }
+
+    const tabelasResp = resultados[2];
+    if (tabelasResp.status === "fulfilled") {
+      const itens = extrairItems(tabelasResp.value?.data);
+      if (itens.length > 0) {
+        setTabelasPreco(itens);
+      } else {
+        setTabelasPreco(TABELA_PRECO_PADRAO);
       }
-    } catch (error) {
-      console.error("Erro ao carregar dados:", error);
+    } else {
+      setTabelasPreco(TABELA_PRECO_PADRAO);
+      falhas.push("tabelas de preco");
+    }
+
+    const servicosResp = resultados[3];
+    if (servicosResp.status === "fulfilled") {
+      setServicos(extrairItems(servicosResp.value?.data));
+    } else {
+      setServicos([]);
+      falhas.push("servicos");
+    }
+
+    if (falhas.length > 0) {
+      setErroCarregamento(
+        `Falha ao carregar ${falhas.join(", ")}. Atualize a pagina e tente novamente.`
+      );
+    } else {
+      setErroCarregamento("");
     }
   };
 
   const handlePacienteChange = (pacienteId: string) => {
-    setFormData({...formData, paciente_id: pacienteId});
+    setFormData({
+      ...formData,
+      paciente_id: pacienteId,
+      paciente_novo: pacienteId ? "" : formData.paciente_novo,
+      tutor_novo: pacienteId ? "" : formData.tutor_novo,
+    });
     
     // Buscar tutor do paciente selecionado
     const paciente = pacientes.find(p => p.id.toString() === pacienteId);
     setTutorSelecionado(paciente?.tutor || "");
+  };
+
+  const handleClinicaChange = (clinicaId: string) => {
+    setFormData({
+      ...formData,
+      clinica_id: clinicaId,
+      clinica_nova_nome: clinicaId ? "" : formData.clinica_nova_nome,
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -124,37 +262,96 @@ export default function NovoAgendamentoModal({
     setLoading(true);
 
     try {
-      const token = localStorage.getItem("token");
-      const inicio = new Date(`${formData.data}T${formData.hora}`);
+      const inicio = new Date(`${formData.data}T${formData.hora}:00`);
+      let pacienteId = formData.paciente_id ? parseInt(formData.paciente_id, 10) : NaN;
+
+      if (!Number.isFinite(pacienteId)) {
+        const nomePaciente = (formData.paciente_novo || "").trim();
+        if (!nomePaciente) {
+          throw new Error("Selecione um paciente ou informe um nome para cadastro rapido.");
+        }
+
+        const respostaPaciente = await api.post("/pacientes", {
+          nome: nomePaciente,
+          tutor: (formData.tutor_novo || "").trim() || null,
+          especie: "Canina",
+          raca: "",
+          sexo: "Macho",
+          peso_kg: null,
+          data_nascimento: null,
+          microchip: "",
+          observacoes: "Cadastro rapido via agenda panoramica",
+        });
+
+        pacienteId = respostaPaciente?.data?.id;
+        if (!pacienteId) {
+          throw new Error("Nao foi possivel criar o paciente rapidamente.");
+        }
+      }
+
+      let clinicaId = formData.clinica_id ? parseInt(formData.clinica_id, 10) : NaN;
+      if (!Number.isFinite(clinicaId) && (formData.clinica_nova_nome || "").trim()) {
+        const respostaClinica = await api.post("/clinicas", {
+          nome: (formData.clinica_nova_nome || "").trim(),
+          cnpj: "",
+          telefone: "",
+          email: "",
+          endereco: "",
+          cidade: "",
+          estado: "",
+          cep: "",
+          observacoes: "",
+          tabela_preco_id: parseInt(formData.clinica_nova_tabela_preco_id || "1", 10),
+          preco_personalizado_km: 0,
+          preco_personalizado_base: 0,
+          observacoes_preco: "Cadastro rapido via agenda panoramica",
+        });
+
+        clinicaId = respostaClinica?.data?.id;
+        if (!clinicaId) {
+          throw new Error("Nao foi possivel criar a clinica rapidamente.");
+        }
+      }
+
+      const servicoSelecionado = servicos.find(
+        (s) => s.id?.toString() === formData.servico_id
+      );
+      const duracaoMinutos = Number.parseInt(
+        `${servicoSelecionado?.duracao_minutos ?? ""}`,
+        10
+      );
+      const duracaoEfetiva = Number.isFinite(duracaoMinutos) && duracaoMinutos > 0 ? duracaoMinutos : 30;
+      const fim = new Date(inicio.getTime() + duracaoEfetiva * 60000);
 
       const payload = {
-        paciente_id: parseInt(formData.paciente_id),
-        clinica_id: formData.clinica_id ? parseInt(formData.clinica_id) : null,
+        paciente_id: pacienteId,
+        clinica_id: Number.isFinite(clinicaId) ? clinicaId : null,
         servico_id: formData.servico_id ? parseInt(formData.servico_id) : null,
-        inicio: inicio.toISOString(),
-        fim: new Date(inicio.getTime() + 30 * 60000).toISOString(),
+        inicio: toApiDateTime(inicio),
+        fim: toApiDateTime(fim),
         status: agendamento?.status || "Agendado",
         observacoes: formData.observacoes,
       };
 
+      let response;
       if (isEditando) {
-        await axios.put(`/api/v1/agenda/${agendamento.id}`, payload, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        response = await api.put(`/agenda/${agendamento.id}`, payload);
       } else {
-        await axios.post("/api/v1/agenda", payload, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        response = await api.post("/agenda", payload);
       }
 
-      onSuccess();
+      await onSuccess(response?.data);
       onClose();
       setFormData({
         paciente_id: "",
+        paciente_novo: "",
+        tutor_novo: "",
         clinica_id: "",
+        clinica_nova_nome: "",
+        clinica_nova_tabela_preco_id: "1",
         servico_id: "",
-        data: "",
-        hora: "",
+        data: defaultDate || "",
+        hora: defaultTime || "",
         observacoes: "",
       });
       setTutorSelecionado("");
@@ -180,6 +377,12 @@ export default function NovoAgendamentoModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {erroCarregamento && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {erroCarregamento}
+            </div>
+          )}
+
           {/* Paciente */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -187,7 +390,6 @@ export default function NovoAgendamentoModal({
               Paciente *
             </label>
             <select
-              required
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               value={formData.paciente_id}
               onChange={(e) => handlePacienteChange(e.target.value)}
@@ -208,6 +410,25 @@ export default function NovoAgendamentoModal({
                 <span>{tutorSelecionado}</span>
               </div>
             )}
+
+            {!formData.paciente_id && (
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input
+                  type="text"
+                  value={formData.paciente_novo}
+                  onChange={(e) => setFormData({ ...formData, paciente_novo: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Nome do paciente (cadastro rapido)"
+                />
+                <input
+                  type="text"
+                  value={formData.tutor_novo}
+                  onChange={(e) => setFormData({ ...formData, tutor_novo: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Nome do tutor (opcional)"
+                />
+              </div>
+            )}
           </div>
 
           {/* Clínica */}
@@ -219,7 +440,7 @@ export default function NovoAgendamentoModal({
             <select
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               value={formData.clinica_id}
-              onChange={(e) => setFormData({...formData, clinica_id: e.target.value})}
+              onChange={(e) => handleClinicaChange(e.target.value)}
             >
               <option value="">Selecione...</option>
               {clinicas.map((c) => (
@@ -228,6 +449,29 @@ export default function NovoAgendamentoModal({
                 </option>
               ))}
             </select>
+
+            {!formData.clinica_id && (
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input
+                  type="text"
+                  value={formData.clinica_nova_nome}
+                  onChange={(e) => setFormData({ ...formData, clinica_nova_nome: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Nome da clinica (cadastro rapido)"
+                />
+                <select
+                  value={formData.clinica_nova_tabela_preco_id}
+                  onChange={(e) => setFormData({ ...formData, clinica_nova_tabela_preco_id: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  {tabelasPreco.map((opcao) => (
+                    <option key={opcao.id} value={opcao.id.toString()}>
+                      {opcao.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           {/* Serviço */}
@@ -247,6 +491,17 @@ export default function NovoAgendamentoModal({
                 </option>
               ))}
             </select>
+            {formData.servico_id && (
+              <p className="mt-1 text-xs text-gray-500">
+                Duração estimada: {
+                  (() => {
+                    const servicoSelecionado = servicos.find((s) => s.id?.toString() === formData.servico_id);
+                    const duracaoMinutos = Number.parseInt(`${servicoSelecionado?.duracao_minutos ?? ""}`, 10);
+                    return Number.isFinite(duracaoMinutos) && duracaoMinutos > 0 ? `${duracaoMinutos} min` : "30 min";
+                  })()
+                }
+              </p>
+            )}
           </div>
 
           {/* Data e Hora */}

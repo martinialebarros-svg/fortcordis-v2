@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from decimal import Decimal
+from datetime import datetime
 
 from app.db.database import get_db
 from app.models.servico import Servico
@@ -90,6 +91,7 @@ def criar_servico(
     """Cria um novo servico com preços por região"""
     try:
         precos = servico.precos
+        now = datetime.now()
         
         db_servico = Servico(
             nome=servico.nome,
@@ -105,6 +107,8 @@ def criar_servico(
             # Preços Domiciliar
             preco_domiciliar_comercial=Decimal(str(precos.domiciliar_comercial)) if precos.domiciliar_comercial else Decimal("0.00"),
             preco_domiciliar_plantao=Decimal(str(precos.domiciliar_plantao)) if precos.domiciliar_plantao else Decimal("0.00"),
+            created_at=now,
+            updated_at=now,
         )
         
         db.add(db_servico)
@@ -199,7 +203,9 @@ def atualizar_servico(
                 db_servico.preco_domiciliar_comercial = Decimal(str(precos.domiciliar_comercial))
             if precos.domiciliar_plantao is not None:
                 db_servico.preco_domiciliar_plantao = Decimal(str(precos.domiciliar_plantao))
-        
+
+        db_servico.updated_at = datetime.now()
+
         db.commit()
         db.refresh(db_servico)
         

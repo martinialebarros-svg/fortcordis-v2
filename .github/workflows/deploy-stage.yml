@@ -36,15 +36,32 @@ jobs:
             cd $STAGE_DIR
             echo "📦 Backup stage..."
             tar -czf backup_stage_$(date +%Y%m%d_%H%M%S).tar.gz backend frontend 2>/dev/null || true
+            
+            echo "💾 Preservando dados (frases JSON)..."
+            if [ -d "backend/data" ]; then
+              cp -r backend/data /tmp/fortcordis_data_backup
+            fi
+            
             echo "⬇️  Atualizando código (branch stage)..."
             git fetch origin
             git reset --hard origin/stage
+            
+            echo "📂 Restaurando dados preservados..."
+            if [ -d "/tmp/fortcordis_data_backup" ]; then
+              cp -r /tmp/fortcordis_data_backup/* backend/data/ 2>/dev/null || true
+              rm -rf /tmp/fortcordis_data_backup
+            fi
             
             echo "🐍 Deploy Backend (stage)..."
             cd backend
             python3 -m venv venv 2>/dev/null || true
             source venv/bin/activate
             pip install -r requirements.txt
+            if [ -f .env ]; then
+              set -a
+              source .env
+              set +a
+            fi
             
             echo "🔧 Verificando/Criando tabelas do banco..."
             python3 setup_database.py || echo "⚠️  Erro no setup do banco - verificar manualmente"
@@ -55,7 +72,7 @@ jobs:
             echo "⚛️  Deploy Frontend (stage)..."
             cd frontend
             npm install
-            npm run build
+            API_BACKEND_URL=http://127.0.0.1:8001 npm run build
             cd ..
             sudo systemctl restart fortcordis-stage-frontend 2>/dev/null || echo "⚠️  Reinicie: sudo systemctl restart fortcordis-stage-frontend"
             

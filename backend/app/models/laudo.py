@@ -48,10 +48,12 @@ class Exame(Base):
     
     # Relacionamentos
     laudo_id = Column(Integer, nullable=True)
+    atendimento_id = Column(Integer, nullable=True)
     paciente_id = Column(Integer, nullable=False)
     
     # Tipo de exame
     tipo_exame = Column(String, nullable=False)  # Sangue, Urina, Raio-X, Ultrassom, etc
+    prioridade = Column(String, default='Rotina')  # Rotina, Urgente, Emergencial
     
     # Resultados
     resultado = Column(Text)

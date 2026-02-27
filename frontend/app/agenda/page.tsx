@@ -1,18 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import { 
   Calendar, Clock, User, Building, Plus, RefreshCw, X, Trash2,
   CheckCircle2, PlayCircle, CheckCircle, XCircle, AlertCircle,
-  Search, ChevronLeft, ChevronRight, Sun, Moon, FileText
+  Search, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope
 } from "lucide-react";
 import NovoAgendamentoModal from "./NovoAgendamentoModal";
 
 interface Agendamento {
   id: number;
+  paciente_id?: number | null;
+  clinica_id?: number | null;
+  servico_id?: number | null;
   paciente: string | null;
   tutor: string | null;
   clinica: string | null;
@@ -26,25 +29,171 @@ interface Agendamento {
   hora: string;
 }
 
+interface LaudoVinculado {
+  id: number;
+  status: string;
+  titulo: string;
+}
+
 type StatusType = "Agendado" | "Confirmado" | "Em atendimento" | "Realizado" | "Cancelado" | "Faltou";
+type ModoVisualizacao = "lista" | "panoramica-dia" | "panoramica-semana";
 
 const STATUS_LIST: StatusType[] = ["Agendado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"];
+
+const toDateInput = (date: Date) => {
+  const ano = date.getFullYear();
+  const mes = String(date.getMonth() + 1).padStart(2, "0");
+  const dia = String(date.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+};
+
+const parseDateInput = (value: string) => {
+  const [ano, mes, dia] = value.split("-").map(Number);
+  if (!ano || !mes || !dia) {
+    return new Date();
+  }
+  return new Date(ano, mes - 1, dia);
+};
+
+const toTimeInput = (date: Date) => {
+  const hora = String(date.getHours()).padStart(2, "0");
+  const minuto = String(date.getMinutes()).padStart(2, "0");
+  return `${hora}:${minuto}`;
+};
+
+const parseApiDateTime = (value?: string | null): Date | null => {
+  if (!value) return null;
+
+  const match = value
+    .trim()
+    .match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (match) {
+    const [, ano, mes, dia, hora, minuto, segundo = "0"] = match;
+    const dataLocal = new Date(
+      Number(ano),
+      Number(mes) - 1,
+      Number(dia),
+      Number(hora),
+      Number(minuto),
+      Number(segundo),
+      0
+    );
+    if (!Number.isNaN(dataLocal.getTime())) {
+      return dataLocal;
+    }
+  }
+
+  const normalizado = value.includes("T") ? value : value.replace(" ", "T");
+  const data = new Date(normalizado);
+  return Number.isNaN(data.getTime()) ? null : data;
+};
+
+const parseAgendamentoInicioLocal = (ag: Agendamento): Date | null => {
+  if (ag.data && ag.hora) {
+    const [ano, mes, dia] = String(ag.data).split("-").map(Number);
+    const [hora, minuto] = String(ag.hora).split(":").map(Number);
+    if (
+      Number.isFinite(ano) &&
+      Number.isFinite(mes) &&
+      Number.isFinite(dia) &&
+      Number.isFinite(hora) &&
+      Number.isFinite(minuto)
+    ) {
+      const data = new Date(ano, mes - 1, dia, hora, minuto, 0, 0);
+      if (!Number.isNaN(data.getTime())) {
+        return data;
+      }
+    }
+  }
+
+  return parseApiDateTime(ag.inicio);
+};
+
+const parseAgendamentoFimLocal = (ag: Agendamento, inicioLocal: Date): Date => {
+  const rawInicio = parseApiDateTime(ag.inicio);
+  const rawFim = parseApiDateTime(ag.fim);
+
+  if (rawInicio && rawFim && rawFim > rawInicio) {
+    const duracaoMs = rawFim.getTime() - rawInicio.getTime();
+    return new Date(inicioLocal.getTime() + duracaoMs);
+  }
+
+  if (rawFim && rawFim > inicioLocal) {
+    return rawFim;
+  }
+
+  return new Date(inicioLocal.getTime() + 30 * 60000);
+};
+
+const inicioDaSemana = (value: string) => {
+  const data = parseDateInput(value);
+  const diaSemana = data.getDay();
+  const ajuste = diaSemana === 0 ? -6 : 1 - diaSemana;
+  data.setDate(data.getDate() + ajuste);
+  return data;
+};
+
+const gerarSlots = (horaInicio = 7, horaFim = 20, intervaloMinutos = 30) => {
+  const slots: string[] = [];
+  const inicioTotal = horaInicio * 60;
+  const fimTotal = horaFim * 60;
+  for (let minutos = inicioTotal; minutos <= fimTotal; minutos += intervaloMinutos) {
+    const hora = Math.floor(minutos / 60);
+    const minuto = minutos % 60;
+    slots.push(`${String(hora).padStart(2, "0")}:${String(minuto).padStart(2, "0")}`);
+  }
+  return slots;
+};
+
+const hojeLocal = () => {
+  return toDateInput(new Date());
+};
 
 export default function AgendaPage() {
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState("");
+  const [modoVisualizacao, setModoVisualizacao] = useState<ModoVisualizacao>("lista");
   const [filtroStatus, setFiltroStatus] = useState<string>("todos");
-  const [filtroData, setFiltroData] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [filtroData, setFiltroData] = useState<string>("");
   const [busca, setBusca] = useState("");
   const [modalAberto, setModalAberto] = useState(false);
   const [agendamentoEditando, setAgendamentoEditando] = useState<Agendamento | null>(null);
+  const [slotSelecionado, setSlotSelecionado] = useState<{ data: string; hora: string } | null>(null);
   const [confirmando, setConfirmando] = useState<{ id: number; acao: string } | null>(null);
   const [atualizandoStatus, setAtualizandoStatus] = useState<number | null>(null);
   const [modalTipoHorario, setModalTipoHorario] = useState<{ id: number; status: StatusType } | null>(null);
   const [tipoHorario, setTipoHorario] = useState<"comercial" | "plantao">("comercial");
   const [osGerada, setOsGerada] = useState<{ numero_os: string; valor_final: number } | null>(null);
+  const [laudosVinculados, setLaudosVinculados] = useState<Record<number, LaudoVinculado>>({});
   const router = useRouter();
+
+  const periodoConsulta = useMemo(() => {
+    const dataBase = filtroData || hojeLocal();
+
+    if (modoVisualizacao === "panoramica-semana") {
+      const inicioSemana = inicioDaSemana(dataBase);
+      const inicio = toDateInput(inicioSemana);
+      const fimSemana = new Date(inicioSemana);
+      fimSemana.setDate(fimSemana.getDate() + 6);
+      const fim = toDateInput(fimSemana);
+      return { inicio, fim };
+    }
+
+    if (modoVisualizacao === "panoramica-dia") {
+      return { inicio: dataBase, fim: dataBase };
+    }
+
+    if (filtroData) {
+      return { inicio: filtroData, fim: filtroData };
+    }
+
+    if (modoVisualizacao === "lista") {
+      return { inicio: hojeLocal(), fim: "" };
+    }
+
+    return { inicio: "", fim: "" };
+  }, [filtroData, modoVisualizacao]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -53,17 +202,19 @@ export default function AgendaPage() {
       return;
     }
     carregarAgendamentos();
-  }, [router, filtroData]);
+  }, [router, periodoConsulta.inicio, periodoConsulta.fim]);
 
   const carregarAgendamentos = async () => {
     setLoading(true);
     try {
       let url = "/agenda";
-      if (filtroData) {
-        url += `?data_inicio=${filtroData}T00:00:00&data_fim=${filtroData}T23:59:59`;
+      if (periodoConsulta.inicio && periodoConsulta.fim) {
+        url += `?data_inicio=${periodoConsulta.inicio}&data_fim=${periodoConsulta.fim}`;
       }
       const response = await api.get(url);
-      setAgendamentos(response.data.items || []);
+      const items = response.data.items || [];
+      setAgendamentos(items);
+      await carregarLaudosVinculados(items);
       setErro("");
     } catch (error: any) {
       console.error("Erro ao carregar:", error);
@@ -76,6 +227,41 @@ export default function AgendaPage() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const carregarLaudosVinculados = async (items: Agendamento[]) => {
+    const idsAgendamento = new Set(items.map((item) => item.id));
+    if (idsAgendamento.size === 0) {
+      setLaudosVinculados({});
+      return;
+    }
+
+    try {
+      const respLaudos = await api.get("/laudos?limit=1000");
+      const listaLaudos = respLaudos.data?.items || [];
+
+      const mapa: Record<number, LaudoVinculado> = {};
+      for (const laudo of listaLaudos) {
+        const agendamentoId = Number(laudo?.agendamento_id);
+        if (!Number.isFinite(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
+          continue;
+        }
+
+        const anterior = mapa[agendamentoId];
+        if (!anterior || Number(laudo.id) > anterior.id) {
+          mapa[agendamentoId] = {
+            id: Number(laudo.id),
+            status: laudo.status || "",
+            titulo: laudo.titulo || `Laudo ${laudo.id}`,
+          };
+        }
+      }
+
+      setLaudosVinculados(mapa);
+    } catch (error) {
+      console.error("Erro ao carregar laudos vinculados aos agendamentos:", error);
+      setLaudosVinculados({});
     }
   };
 
@@ -141,6 +327,60 @@ export default function AgendaPage() {
     }
   };
 
+  const abrirFluxoLaudo = (ag: Agendamento) => {
+    const laudoVinculado = laudosVinculados[ag.id];
+    if (laudoVinculado?.id) {
+      router.push(`/laudos/${laudoVinculado.id}/editar`);
+      return;
+    }
+    router.push(`/laudos/novo?agendamento_id=${ag.id}`);
+  };
+
+  const abrirFluxoAtendimento = (ag: Agendamento) => {
+    router.push(`/atendimento?agendamento_id=${ag.id}`);
+  };
+
+  const podeBaixarLaudo = (status?: string) => {
+    const statusNormalizado = (status || "").trim().toLowerCase();
+    return statusNormalizado === "finalizado" || statusNormalizado === "arquivado";
+  };
+
+  const baixarLaudoPdf = async (ag: Agendamento) => {
+    const laudoVinculado = laudosVinculados[ag.id];
+    if (!laudoVinculado?.id) return;
+
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(`/api/v1/laudos/${laudoVinculado.id}/pdf`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      if (!response.ok) {
+        throw new Error("Falha ao gerar PDF");
+      }
+
+      let filename = `laudo_agendamento_${ag.id}.pdf`;
+      const contentDisposition = response.headers.get("content-disposition");
+      const match = contentDisposition?.match(/filename="?([^";\s]+)"?/);
+      if (match?.[1]) {
+        filename = match[1];
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Erro ao baixar PDF do laudo:", error);
+      alert("Nao foi possivel baixar o laudo agora.");
+    }
+  };
+
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       'Agendado': 'bg-blue-100 text-blue-800 border-blue-200',
@@ -177,15 +417,81 @@ export default function AgendaPage() {
     return fluxos[statusAtual] || [];
   };
 
-  const agendamentosFiltrados = agendamentos.filter(a => {
-    const matchStatus = filtroStatus === "todos" || a.status === filtroStatus;
-    const termo = busca.toLowerCase();
-    const matchBusca = !busca || 
-      (a.paciente?.toLowerCase().includes(termo)) ||
-      (a.tutor?.toLowerCase().includes(termo)) ||
-      (a.servico?.toLowerCase().includes(termo));
-    return matchStatus && matchBusca;
-  });
+  const getOrdenacaoTimestamp = (ag: Agendamento) => {
+    const inicioLocal = parseAgendamentoInicioLocal(ag);
+    if (inicioLocal) return inicioLocal.getTime();
+    return Number.MAX_SAFE_INTEGER;
+  };
+
+  const agendamentosFiltrados = [...agendamentos]
+    .filter((a) => {
+      const matchStatus = filtroStatus === "todos" || a.status === filtroStatus;
+      const termo = busca.toLowerCase();
+      const matchBusca = !busca ||
+        (a.paciente?.toLowerCase().includes(termo)) ||
+        (a.tutor?.toLowerCase().includes(termo)) ||
+        (a.clinica?.toLowerCase().includes(termo)) ||
+        (a.servico?.toLowerCase().includes(termo));
+      return matchStatus && matchBusca;
+    })
+    .sort((a, b) => {
+      const diff = getOrdenacaoTimestamp(a) - getOrdenacaoTimestamp(b);
+      if (diff !== 0) return diff;
+      return a.id - b.id;
+    });
+
+  const slotsPanoramica = useMemo(() => gerarSlots(), []);
+
+  const diasPanoramica = useMemo(() => {
+    const dataBase = filtroData || hojeLocal();
+
+    if (modoVisualizacao === "panoramica-semana") {
+      const inicioSemana = inicioDaSemana(dataBase);
+      return Array.from({ length: 7 }, (_, idx) => {
+        const data = new Date(inicioSemana);
+        data.setDate(inicioSemana.getDate() + idx);
+        return toDateInput(data);
+      });
+    }
+
+    return [dataBase];
+  }, [filtroData, modoVisualizacao]);
+
+  const mapaOcupacao = useMemo(() => {
+    const mapa = new Map<string, Agendamento[]>();
+
+    for (const ag of agendamentosFiltrados) {
+      const inicio = parseAgendamentoInicioLocal(ag);
+      if (!inicio) continue;
+
+      const fim = parseAgendamentoFimLocal(ag, inicio);
+
+      const cursor = new Date(inicio);
+      cursor.setSeconds(0, 0);
+      cursor.setMinutes(Math.floor(cursor.getMinutes() / 30) * 30);
+
+      while (cursor < fim) {
+        const chave = `${toDateInput(cursor)}|${toTimeInput(cursor)}`;
+        const existentes = mapa.get(chave) || [];
+        existentes.push(ag);
+        mapa.set(chave, existentes);
+        cursor.setMinutes(cursor.getMinutes() + 30);
+      }
+    }
+
+    return mapa;
+  }, [agendamentosFiltrados]);
+
+  const formatarDiaPanoramica = (data: string) => {
+    const dt = parseDateInput(data);
+    return dt.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
+  };
+
+  const abrirNovoNoHorario = (data: string, hora: string) => {
+    setAgendamentoEditando(null);
+    setSlotSelecionado({ data, hora });
+    setModalAberto(true);
+  };
 
   const stats = {
     total: agendamentos.length,
@@ -197,7 +503,12 @@ export default function AgendaPage() {
   };
 
   const formatarDataHora = (dataIso: string) => {
-    const data = new Date(dataIso);
+    if (!dataIso) return "-";
+    const normalizado = dataIso.includes("T") ? dataIso : dataIso.replace(" ", "T");
+    const data = new Date(normalizado);
+    if (Number.isNaN(data.getTime())) {
+      return dataIso;
+    }
     return data.toLocaleString('pt-BR', { 
       day: '2-digit', 
       month: '2-digit', 
@@ -207,9 +518,30 @@ export default function AgendaPage() {
   };
 
   const navegarData = (dias: number) => {
-    const data = new Date(filtroData);
+    const data = parseDateInput(filtroData);
     data.setDate(data.getDate() + dias);
-    setFiltroData(data.toISOString().split('T')[0]);
+    setFiltroData(toDateInput(data));
+  };
+
+  const formatarDataHoraAgendamento = (ag: Agendamento) => {
+    if (ag.data && ag.hora) {
+      const [ano, mes, dia] = String(ag.data).split("-");
+      const hora = String(ag.hora).slice(0, 5);
+      if (ano && mes && dia && hora) {
+        return `${dia}/${mes}, ${hora}`;
+      }
+    }
+    return formatarDataHora(ag.inicio);
+  };
+
+  const handleAgendamentoSuccess = async (agendamentoCriado?: { data?: string | null }) => {
+    setSlotSelecionado(null);
+    const dataCriada = agendamentoCriado?.data || "";
+    if (dataCriada && dataCriada !== filtroData) {
+      setFiltroData(dataCriada);
+      return;
+    }
+    await carregarAgendamentos();
   };
 
   return (
@@ -224,6 +556,7 @@ export default function AgendaPage() {
           <button
             onClick={() => {
               setAgendamentoEditando(null);
+              setSlotSelecionado(null);
               setModalAberto(true);
             }}
             className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -273,10 +606,30 @@ export default function AgendaPage() {
 
         <div className="bg-white p-4 rounded-lg shadow-sm border mb-6">
           <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex items-center bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setModoVisualizacao("lista")}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${modoVisualizacao === "lista" ? "bg-white text-gray-900 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+              >
+                Lista
+              </button>
+              <button
+                onClick={() => setModoVisualizacao("panoramica-dia")}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${modoVisualizacao === "panoramica-dia" ? "bg-white text-gray-900 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+              >
+                Panoramica Dia
+              </button>
+              <button
+                onClick={() => setModoVisualizacao("panoramica-semana")}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${modoVisualizacao === "panoramica-semana" ? "bg-white text-gray-900 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+              >
+                Panoramica Semana
+              </button>
+            </div>
             {/* Navegação de data */}
             <div className="flex items-center gap-2">
               <button 
-                onClick={() => navegarData(-1)}
+                onClick={() => navegarData(modoVisualizacao === "panoramica-semana" ? -7 : -1)}
                 className="p-2 hover:bg-gray-100 rounded-lg"
               >
                 <ChevronLeft className="w-5 h-5" />
@@ -288,7 +641,7 @@ export default function AgendaPage() {
                 className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
               <button 
-                onClick={() => navegarData(1)}
+                onClick={() => navegarData(modoVisualizacao === "panoramica-semana" ? 7 : 1)}
                 className="p-2 hover:bg-gray-100 rounded-lg"
               >
                 <ChevronRight className="w-5 h-5" />
@@ -347,7 +700,7 @@ export default function AgendaPage() {
           </div>
         </div>
 
-        {/* Lista de Agendamentos */}
+        {modoVisualizacao === "lista" ? (
         <div className="bg-white shadow rounded-lg overflow-hidden border">
           {agendamentosFiltrados.length === 0 ? (
             <div className="p-12 text-center">
@@ -356,7 +709,7 @@ export default function AgendaPage() {
                 {busca ? "Nenhum agendamento encontrado para a busca" : "Nenhum agendamento para esta data"}
               </p>
               <button
-                onClick={() => { setAgendamentoEditando(null); setModalAberto(true); }}
+                onClick={() => { setAgendamentoEditando(null); setSlotSelecionado(null); setModalAberto(true); }}
                 className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
               >
                 Criar Agendamento
@@ -367,34 +720,37 @@ export default function AgendaPage() {
               {agendamentosFiltrados.map((ag) => {
                 const StatusIcon = getStatusIcon(ag.status);
                 const proximosStatus = getProximosStatus(ag.status);
+                const laudoVinculado = laudosVinculados[ag.id];
+                const laudoPronto = podeBaixarLaudo(laudoVinculado?.status);
                 
                 return (
                   <div key={ag.id} className="p-5 hover:bg-gray-50 transition-colors">
                     <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
                       {/* Info Principal */}
                       <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2 flex-wrap">
-                          <h3 className="text-lg font-semibold text-gray-900">
-                            {ag.paciente || "Paciente não informado"}
+                        <div className="flex items-center gap-3 mb-1 flex-wrap">
+                          <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                            <Building className="w-4 h-4 text-gray-400" />
+                            {ag.clinica || "Clinica nao informada"}
                           </h3>
                           <span className={`px-3 py-1 rounded-full text-xs font-medium border flex items-center gap-1 ${getStatusColor(ag.status)}`}>
                             <StatusIcon className="w-3 h-3" />
                             {ag.status}
                           </span>
                         </div>
-                        
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm text-gray-600">
+
+                        <div className="text-base font-semibold text-gray-900 mb-2">
+                          {ag.paciente || "Animal nao informado"}
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm text-gray-600">
                           <div className="flex items-center gap-2">
                             <User className="w-4 h-4 text-gray-400" />
-                            <span>{ag.tutor || "Tutor não informado"}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Building className="w-4 h-4 text-gray-400" />
-                            <span>{ag.clinica || "Clínica não informada"}</span>
+                            <span>{ag.tutor || "Tutor nao informado"}</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <Clock className="w-4 h-4 text-gray-400" />
-                            <span className="font-medium">{formatarDataHora(ag.inicio)}</span>
+                            <span className="font-medium">{formatarDataHoraAgendamento(ag)}</span>
                           </div>
                           {ag.servico && (
                             <div className="flex items-center gap-2">
@@ -402,7 +758,7 @@ export default function AgendaPage() {
                             </div>
                           )}
                         </div>
-                        
+
                         {ag.observacoes && (
                           <div className="mt-3 text-sm text-gray-500 bg-gray-50 p-2 rounded">
                             <span className="font-medium">Obs:</span> {ag.observacoes}
@@ -454,11 +810,40 @@ export default function AgendaPage() {
 
                         {/* Editar */}
                         <button
-                          onClick={() => { setAgendamentoEditando(ag); setModalAberto(true); }}
+                          onClick={() => { setAgendamentoEditando(ag); setSlotSelecionado(null); setModalAberto(true); }}
                           className="px-3 py-1.5 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors"
                         >
                           Editar
                         </button>
+
+                        <button
+                          onClick={() => abrirFluxoAtendimento(ag)}
+                          className="px-3 py-1.5 text-sm text-purple-700 hover:text-purple-900 hover:bg-purple-50 rounded-lg transition-colors flex items-center gap-1"
+                          title="Abrir atendimento clinico para este agendamento"
+                        >
+                          <Stethoscope className="w-4 h-4" />
+                          Atender
+                        </button>
+
+                        <button
+                          onClick={() => abrirFluxoLaudo(ag)}
+                          className="px-3 py-1.5 text-sm text-teal-700 hover:text-teal-900 hover:bg-teal-50 rounded-lg transition-colors flex items-center gap-1"
+                          title={laudoVinculado ? "Abrir laudo vinculado" : "Criar laudo para este agendamento"}
+                        >
+                          <FileText className="w-4 h-4" />
+                          Laudar
+                        </button>
+
+                        {laudoVinculado && laudoPronto && (
+                          <button
+                            onClick={() => baixarLaudoPdf(ag)}
+                            className="px-3 py-1.5 text-sm text-emerald-700 hover:text-emerald-900 hover:bg-emerald-50 rounded-lg transition-colors flex items-center gap-1"
+                            title={`Baixar ${laudoVinculado.titulo}`}
+                          >
+                            <Download className="w-4 h-4" />
+                            Baixar laudo
+                          </button>
+                        )}
 
                         {/* Excluir */}
                         <button
@@ -476,6 +861,96 @@ export default function AgendaPage() {
             </div>
           )}
         </div>
+        ) : (
+        <div className="bg-white shadow rounded-lg overflow-hidden border">
+          <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
+            <div className="text-sm text-gray-700 font-medium">
+              {modoVisualizacao === "panoramica-semana"
+                ? `Semana de ${formatarDiaPanoramica(diasPanoramica[0])} até ${formatarDiaPanoramica(diasPanoramica[diasPanoramica.length - 1])}`
+                : `Dia ${formatarDiaPanoramica(diasPanoramica[0])}`}
+            </div>
+            <div className="text-xs text-gray-500">
+              Clique em um horário livre para agendar
+            </div>
+          </div>
+
+          <div className="overflow-auto">
+            <div
+              className="grid min-w-[860px]"
+              style={{ gridTemplateColumns: `80px repeat(${diasPanoramica.length}, minmax(180px, 1fr))` }}
+            >
+              <div className="sticky top-0 z-20 bg-gray-100 border-b border-r px-2 py-2 text-xs font-semibold text-gray-600">
+                Hora
+              </div>
+              {diasPanoramica.map((dia) => (
+                <div
+                  key={`head-${dia}`}
+                  className="sticky top-0 z-10 bg-gray-100 border-b border-r px-3 py-2 text-sm font-semibold text-gray-700"
+                >
+                  {formatarDiaPanoramica(dia)}
+                </div>
+              ))}
+
+              {slotsPanoramica.map((slot) => (
+                <Fragment key={`row-${slot}`}>
+                  <div
+                    key={`hora-${slot}`}
+                    className="border-b border-r px-2 py-3 text-xs font-medium text-gray-500 bg-gray-50"
+                  >
+                    {slot}
+                  </div>
+                  {diasPanoramica.map((dia) => {
+                    const chave = `${dia}|${slot}`;
+                    const itens = mapaOcupacao.get(chave) || [];
+
+                    if (itens.length === 0) {
+                      return (
+                        <button
+                          key={chave}
+                          onClick={() => abrirNovoNoHorario(dia, slot)}
+                          className="border-b border-r px-2 py-2 text-left bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                        >
+                          <div className="text-xs font-semibold text-emerald-700">Livre</div>
+                          <div className="text-[11px] text-emerald-600">Clique para agendar</div>
+                        </button>
+                      );
+                    }
+
+                    const primeiro = itens[0];
+                    return (
+                      <button
+                        key={chave}
+                        onClick={() => { setAgendamentoEditando(primeiro); setSlotSelecionado(null); setModalAberto(true); }}
+                        className="border-b border-r px-2 py-2 text-left bg-red-50 hover:bg-red-100 transition-colors"
+                      >
+                        <div className="text-xs font-bold text-red-800 truncate">
+                          {primeiro.clinica || "Clinica nao informada"}
+                        </div>
+                        <div className="text-[11px] text-red-600 truncate">
+                          {primeiro.paciente || "Animal nao informado"}
+                        </div>
+                        <div className="text-[11px] text-red-600 truncate">
+                          Tutor: {primeiro.tutor || "Nao informado"}
+                        </div>
+                        {primeiro.servico && (
+                          <div className="text-[11px] text-red-500 truncate">
+                            {primeiro.servico}
+                          </div>
+                        )}
+                        {itens.length > 1 && (
+                          <div className="text-[11px] text-red-500 font-medium">
+                            +{itens.length - 1} no mesmo slot
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </Fragment>
+              ))}
+            </div>
+          </div>
+        </div>
+        )}
 
         {/* Modal de Confirmação */}
         {confirmando && (
@@ -618,8 +1093,10 @@ export default function AgendaPage() {
         <NovoAgendamentoModal
           isOpen={modalAberto}
           agendamento={agendamentoEditando}
-          onClose={() => { setModalAberto(false); setAgendamentoEditando(null); }}
-          onSuccess={carregarAgendamentos}
+          onClose={() => { setModalAberto(false); setAgendamentoEditando(null); setSlotSelecionado(null); }}
+          onSuccess={handleAgendamentoSuccess}
+          defaultDate={slotSelecionado?.data || filtroData || hojeLocal()}
+          defaultTime={slotSelecionado?.hora}
         />
       </div>
     </DashboardLayout>
