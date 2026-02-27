@@ -140,11 +140,29 @@ export function useReferenciaEco() {
 
       const minKey = `${mapeamento.campo}_min` as keyof ReferenciaEco;
       const maxKey = `${mapeamento.campo}_max` as keyof ReferenciaEco;
-      
-      const refMin = referencia[minKey] as number | undefined;
-      const refMax = referencia[maxKey] as number | undefined;
 
-      if (refMin === undefined || refMax === undefined) return;
+      const refMinRaw = referencia[minKey] as number | null | undefined;
+      const refMaxRaw = referencia[maxKey] as number | null | undefined;
+      const refMin = typeof refMinRaw === "number" ? refMinRaw : null;
+      const refMax = typeof refMaxRaw === "number" ? refMaxRaw : null;
+
+      const semReferenciaDefinida =
+        refMin === null ||
+        refMax === null ||
+        (refMin === 0 && refMax === 0);
+
+      if (semReferenciaDefinida) {
+        comparacoes[key] = {
+          nome: mapeamento.nome,
+          valor_medido: valor,
+          referencia_min: refMin,
+          referencia_max: refMax,
+          status: "nao_avaliado",
+          interpretacao: "Sem referencia definida",
+          categoria: mapeamento.categoria,
+        };
+        return;
+      }
 
       let status: ComparacaoMedida["status"];
       let interpretacao: string;
