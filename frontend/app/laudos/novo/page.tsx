@@ -316,6 +316,7 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
   // Imagens do laudo
   const [imagens, setImagens] = useState<any[]>([]);
   const [sessionId, setSessionId] = useState<string>("");
+  const isInitialMount = useRef(true);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
