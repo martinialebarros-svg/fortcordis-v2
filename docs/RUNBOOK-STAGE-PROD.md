@@ -2,6 +2,34 @@
 
 Este runbook descreve o processo seguro para promover codigo de `stage` para `prod` com downtime minimo.
 
+## Fluxo recomendado (automatizado)
+
+### 1) Local: promover stage -> main sem tocar no runtime local
+
+```bash
+cd <repo>
+bash scripts/promote_stage_to_main.sh
+```
+
+### 2) VPS Stage: deploy padronizado
+
+```bash
+cd /var/www/fortcordis-v2
+bash scripts/deploy_stage_vps.sh
+```
+
+### 3) VPS Prod: deploy padronizado
+
+```bash
+cd /var/www/fortcordis-v2
+bash scripts/deploy_prod_vps.sh
+```
+
+Notas:
+- O script de prod evita `git stash pop` e faz `git reset --hard origin/main`.
+- O script de prod cria backup de `backend/data/frases.json` e restaura apos atualizar codigo.
+- O script valida backend health (`/health`) e frontend (`.next/BUILD_ID` + HTTP local/publico).
+
 ## 0) Padrao de ambientes
 
 - Stage:
@@ -78,14 +106,14 @@ pg_dump "$DATABASE_URL" > ~/fortcordis-prod-$(date +%F-%H%M).sql
 ```bash
 cd /var/www/fortcordis-v2
 git fetch origin
-git checkout stage
-git pull --ff-only origin stage
+git checkout main
+git pull --ff-only origin main
 ```
 
 Se houver mensagem de branch divergente:
 
 ```bash
-git pull --rebase origin stage
+git pull --rebase origin main
 ```
 
 ### 3.2 Backend: deps + setup/migracoes
