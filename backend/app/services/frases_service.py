@@ -340,17 +340,42 @@ def listar_patologias() -> List[str]:
     return sorted(patologias)
 
 
+GRAUS_SIDEBAR_ORDEM = ["Leve", "Moderada", "Importante"]
+_GRAUS_CANONICOS = {
+    "leve": "Leve",
+    "moderada": "Moderada",
+    "moderado": "Moderada",  # legado
+    "importante": "Importante",
+}
+
+
+def _normalizar_graus_sidebar(graus: List[str], patologia: Optional[str] = None) -> List[str]:
+    """Normaliza graus para a régua do laudo (sem Normal/Grave e com ordem fixa)."""
+    if (patologia or "").strip().lower() == "normal":
+        return ["Normal"]
+
+    graus_validos = set()
+    for grau in graus or []:
+        chave = (grau or "").strip().lower()
+        canonico = _GRAUS_CANONICOS.get(chave)
+        if canonico:
+            graus_validos.add(canonico)
+
+    ordenados = [grau for grau in GRAUS_SIDEBAR_ORDEM if grau in graus_validos]
+    return ordenados or GRAUS_SIDEBAR_ORDEM.copy()
+
+
 def listar_graus_por_patologia(patologia: Optional[str] = None) -> List[str]:
     """Lista todos os graus disponíveis, opcionalmente filtrados por patologia."""
     patologias_map = _listar_patologias_das_frases()
     if patologias_map:
         if patologia:
-            return sorted(list(patologias_map.get(patologia, set())))
+            return _normalizar_graus_sidebar(list(patologias_map.get(patologia, set())), patologia)
 
         graus_set: Set[str] = set()
         for graus in patologias_map.values():
             graus_set.update(graus)
-        return sorted(list(graus_set))
+        return _normalizar_graus_sidebar(list(graus_set))
 
     # Fallback legado: usa patologias.json quando não houver frases.
     data = _load_json(PATOLOGIAS_FILE, {"patologias": []})
@@ -358,14 +383,14 @@ def listar_graus_por_patologia(patologia: Optional[str] = None) -> List[str]:
     if patologia:
         for p in data.get("patologias", []):
             if p.get("nome") == patologia:
-                return p.get("graus", [])
-        return []
+                return _normalizar_graus_sidebar(p.get("graus", []), patologia)
+        return _normalizar_graus_sidebar([], patologia)
 
     # Retorna todos os graus únicos
     graus_set = set()
     for p in data.get("patologias", []):
         graus_set.update(p.get("graus", []))
-    return sorted(list(graus_set))
+    return _normalizar_graus_sidebar(list(graus_set))
 
 
 def adicionar_patologia(nome: str, graus: List[str]) -> bool:
