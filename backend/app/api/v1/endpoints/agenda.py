@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
@@ -356,18 +357,43 @@ def atualizar_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Atualiza apenas o status do agendamento"""
-    from app.models.ordem_servico import OrdemServico
+    """Atualiza apenas o status do agendamento."""
     from decimal import Decimal
-    
+    from app.models.ordem_servico import OrdemServico
+
+    def _gerar_numero_os() -> str:
+        mes_ano = datetime.now().strftime("%Y%m")
+        ultima_os = (
+            db.query(OrdemServico)
+            .filter(OrdemServico.numero_os.like(f"OS{mes_ano}%"))
+            .order_by(OrdemServico.id.desc())
+            .first()
+        )
+
+        seq = 1
+        if ultima_os and ultima_os.numero_os:
+            sufixo = "".join(ch for ch in str(ultima_os.numero_os)[-4:] if ch.isdigit())
+            if len(sufixo) == 4:
+                seq = int(sufixo) + 1
+
+        while (
+            db.query(OrdemServico)
+            .filter(OrdemServico.numero_os == f"OS{mes_ano}{seq:04d}")
+            .first()
+        ):
+            seq += 1
+
+        return f"OS{mes_ano}{seq:04d}"
+
     db_agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
     if not db_agendamento:
         raise HTTPException(status_code=404, detail="Agendamento nao encontrado")
 
-    # Validar status permitidos
-    status_permitidos = ['Agendado', 'Confirmado', 'Em atendimento', 'Realizado', 'Cancelado', 'Faltou']
+    status_permitidos = ["Agendado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"]
     if status not in status_permitidos:
         raise HTTPException(status_code=400, detail=f"Status invalido. Use: {', '.join(status_permitidos)}")
+
+    status_anterior = db_agendamento.status
 
     db_agendamento.status = status
     db_agendamento.atualizado_em = datetime.now()
@@ -379,91 +405,203 @@ def atualizar_status(
         db_agendamento.confirmado_em = datetime.now()
 
     os_gerada = None
-    
-    # Se status for "Realizado", gerar Ordem de ServiÃƒÂ§o automaticamente
-    if status == "Realizado":
-        valor_servico = Decimal("0.00")
-        # Buscar dados da clÃƒÂ­nica para determinar a regiÃƒÂ£o
-        if db_agendamento.clinica_id and db_agendamento.servico_id:
-            valor_servico = calcular_preco_servico(
-                db=db,
-                clinica_id=db_agendamento.clinica_id,
-                servico_id=db_agendamento.servico_id,
-                tipo_horario=tipo_horario or "comercial",
-                usar_preco_clinica=True,
-            )
-        
-        # Gerar nÃƒÂºmero da OS (ANO + MES + SEQUENCIAL)
-        hoje = datetime.now()
-        mes_ano = hoje.strftime('%Y%m')
-        
-        # Buscar ÃƒÂºltima OS do mÃƒÂªs
-        ultima_os = db.query(OrdemServico).filter(
-            OrdemServico.numero_os.like(f"OS{mes_ano}%")
-        ).order_by(OrdemServico.id.desc()).first()
-        
-        if ultima_os:
-            # Extrair sequencial
-            try:
-                seq = int(ultima_os.numero_os[-4:]) + 1
-            except:
-                seq = 1
-        else:
-            seq = 1
-        
-        numero_os = f"OS{mes_ano}{seq:04d}"
-        
-        # Criar Ordem de ServiÃƒÂ§o
-        nova_os = OrdemServico(
-            numero_os=numero_os,
-            agendamento_id=agendamento_id,
-            paciente_id=db_agendamento.paciente_id,
-            clinica_id=db_agendamento.clinica_id,
-            servico_id=db_agendamento.servico_id,
-            data_atendimento=db_agendamento.inicio,
-            tipo_horario=tipo_horario,
-            valor_servico=valor_servico,
-            desconto=Decimal("0.00"),
-            valor_final=valor_servico,
-            status='Pendente',
-            observacoes=f"OS gerada automaticamente do agendamento {agendamento_id}",
-            criado_por_id=current_user.id,
-            criado_por_nome=current_user.nome
-        )
-        
-        db.add(nova_os)
-        db.commit()
-        db.refresh(nova_os)
-        
-        os_gerada = {
-            "id": nova_os.id,
-            "numero_os": nova_os.numero_os,
-            "valor_final": float(nova_os.valor_final)
-        }
+    os_reutilizada = False
+    mensagens_adicionais: list[str] = []
 
-    db.commit()
-    db.refresh(db_agendamento)
-    
-    # Montar resposta
+    try:
+        db.commit()
+        db.refresh(db_agendamento)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Erro ao atualizar status no banco de dados.")
+
+    if status_anterior == "Realizado" and status == "Em atendimento":
+        from app.models.financeiro import Transacao
+
+        try:
+            ordens_vinculadas = (
+                db.query(OrdemServico)
+                .filter(
+                    OrdemServico.agendamento_id == agendamento_id,
+                    OrdemServico.status != "Cancelado",
+                )
+                .order_by(OrdemServico.id.desc())
+                .all()
+            )
+
+            os_removidas: list[str] = []
+            transacoes_canceladas = 0
+            momento_desfazer = datetime.now()
+
+            for os_data in ordens_vinculadas:
+                marker = f"OS_ID={os_data.id};TIPO=RECEBIMENTO_OS"
+                transacoes = (
+                    db.query(Transacao)
+                    .filter(
+                        Transacao.tipo == "entrada",
+                        Transacao.status.in_(["Recebido", "Pago"]),
+                        Transacao.observacoes.like(f"%{marker}%"),
+                    )
+                    .all()
+                )
+
+                if not transacoes and os_data.numero_os:
+                    transacoes = (
+                        db.query(Transacao)
+                        .filter(
+                            Transacao.tipo == "entrada",
+                            Transacao.status.in_(["Recebido", "Pago"]),
+                            Transacao.descricao.like(f"%{os_data.numero_os}%"),
+                        )
+                        .all()
+                    )
+
+                for transacao in transacoes:
+                    transacao.status = "Cancelado"
+                    transacao.data_pagamento = None
+                    transacao.updated_at = momento_desfazer
+                    observacao_base = (transacao.observacoes or "").strip()
+                    observacao_auto = (
+                        f"Cancelada automaticamente ao desfazer realizado do agendamento {agendamento_id}"
+                    )
+                    transacao.observacoes = (
+                        f"{observacao_base} | {observacao_auto}" if observacao_base else observacao_auto
+                    )
+                    transacoes_canceladas += 1
+
+                os_removidas.append(os_data.numero_os or f"ID {os_data.id}")
+                db.delete(os_data)
+
+            db.commit()
+            mensagens_adicionais.append("Marcacao de realizado desfeita.")
+            if os_removidas:
+                mensagens_adicionais.append(
+                    f"OS removida(s) automaticamente: {', '.join(os_removidas)}."
+                )
+            if transacoes_canceladas:
+                mensagens_adicionais.append(
+                    f"Transacao(oes) de recebimento cancelada(s): {transacoes_canceladas}."
+                )
+        except SQLAlchemyError:
+            db.rollback()
+            try:
+                agendamento_restaurado = (
+                    db.query(Agendamento)
+                    .filter(Agendamento.id == agendamento_id)
+                    .first()
+                )
+                if agendamento_restaurado:
+                    agendamento_restaurado.status = "Realizado"
+                    agendamento_restaurado.atualizado_em = datetime.now()
+                    agendamento_restaurado.updated_at = datetime.now()
+                    db.commit()
+            except SQLAlchemyError:
+                db.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Nao foi possivel desfazer a ordem de servico automaticamente. "
+                    "O status foi restaurado para Realizado."
+                ),
+            )
+
+    # Se status for "Realizado", tenta gerar Ordem de Servico automaticamente.
+    if status == "Realizado":
+        try:
+            os_existente = (
+                db.query(OrdemServico)
+                .filter(
+                    OrdemServico.agendamento_id == agendamento_id,
+                    OrdemServico.status != "Cancelado",
+                )
+                .order_by(OrdemServico.id.desc())
+                .first()
+            )
+
+            if os_existente:
+                os_gerada = {
+                    "id": os_existente.id,
+                    "numero_os": os_existente.numero_os,
+                    "valor_final": float(os_existente.valor_final or 0),
+                }
+                os_reutilizada = True
+            elif not (db_agendamento.paciente_id and db_agendamento.clinica_id and db_agendamento.servico_id):
+                mensagens_adicionais.append(
+                    "Status atualizado, mas OS nao foi gerada por falta de paciente, clinica ou servico."
+                )
+            else:
+                valor_servico = Decimal("0.00")
+                pode_gerar_os = True
+                try:
+                    valor_servico = calcular_preco_servico(
+                        db=db,
+                        clinica_id=db_agendamento.clinica_id,
+                        servico_id=db_agendamento.servico_id,
+                        tipo_horario=tipo_horario or "comercial",
+                        usar_preco_clinica=True,
+                    )
+                except HTTPException as exc:
+                    if exc.status_code in (404, 422):
+                        mensagens_adicionais.append(
+                            f"Status atualizado, mas OS nao foi gerada ({exc.detail})."
+                        )
+                        pode_gerar_os = False
+                    else:
+                        raise
+
+                if pode_gerar_os:
+                    nova_os = OrdemServico(
+                        numero_os=_gerar_numero_os(),
+                        agendamento_id=agendamento_id,
+                        paciente_id=db_agendamento.paciente_id,
+                        clinica_id=db_agendamento.clinica_id,
+                        servico_id=db_agendamento.servico_id,
+                        data_atendimento=db_agendamento.inicio,
+                        tipo_horario=tipo_horario or "comercial",
+                        valor_servico=valor_servico,
+                        desconto=Decimal("0.00"),
+                        valor_final=valor_servico,
+                        status="Pendente",
+                        observacoes=f"OS gerada automaticamente do agendamento {agendamento_id}",
+                        criado_por_id=current_user.id,
+                        criado_por_nome=current_user.nome,
+                    )
+                    db.add(nova_os)
+                    db.commit()
+                    db.refresh(nova_os)
+
+                    os_gerada = {
+                        "id": nova_os.id,
+                        "numero_os": nova_os.numero_os,
+                        "valor_final": float(nova_os.valor_final),
+                    }
+        except SQLAlchemyError:
+            db.rollback()
+            mensagens_adicionais.append("Status atualizado, mas houve erro ao processar a OS.")
+
     paciente = db.query(Paciente).filter(Paciente.id == db_agendamento.paciente_id).first()
     clinica = db.query(Clinica).filter(Clinica.id == db_agendamento.clinica_id).first() if db_agendamento.clinica_id else None
     servico = db.query(Servico).filter(Servico.id == db_agendamento.servico_id).first() if db_agendamento.servico_id else None
-    
+
     resposta = {
         "id": db_agendamento.id,
         "status": db_agendamento.status,
         "paciente": paciente.nome if paciente else "",
         "clinica": clinica.nome if clinica else "",
         "servico": servico.nome if servico else "",
-        "mensagem": f"Status atualizado para {status}"
+        "mensagem": f"Status atualizado para {status}",
     }
-    
+
     if os_gerada:
         resposta["os_gerada"] = os_gerada
-        resposta["mensagem"] += f". OS {os_gerada['numero_os']} gerada com valor R$ {os_gerada['valor_final']:.2f}"
-    
-    return resposta
+        if os_reutilizada:
+            resposta["mensagem"] += f". OS {os_gerada['numero_os']} ja vinculada"
+        else:
+            resposta["mensagem"] += f". OS {os_gerada['numero_os']} gerada com valor R$ {os_gerada['valor_final']:.2f}"
+    if mensagens_adicionais:
+        resposta["mensagem"] += ". " + " ".join(mensagens_adicionais)
 
+    return resposta
 @router.delete("/{agendamento_id}")
 def deletar_agendamento(
     agendamento_id: int,

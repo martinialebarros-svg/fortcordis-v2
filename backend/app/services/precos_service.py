@@ -4,6 +4,7 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 
 from fastapi import HTTPException
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.models.clinica import Clinica
@@ -22,6 +23,15 @@ def to_decimal(value, default: Decimal = Decimal("0.00")) -> Decimal:
 
 def _normalize_tipo_horario(tipo_horario: str) -> str:
     return "plantao" if str(tipo_horario or "").lower() == "plantao" else "comercial"
+
+
+def _is_missing_table_error(exc: Exception) -> bool:
+    text = str(getattr(exc, "orig", exc)).lower()
+    return (
+        "no such table" in text
+        or "does not exist" in text
+        or "undefined table" in text
+    )
 
 
 def _preco_tabela_padrao(
@@ -79,11 +89,16 @@ def calcular_preco_servico(
     horario = _normalize_tipo_horario(tipo_horario)
 
     if usar_preco_clinica:
-        preco_clinica = db.query(PrecoServicoClinica).filter(
-            PrecoServicoClinica.clinica_id == clinica_id,
-            PrecoServicoClinica.servico_id == servico_id,
-            PrecoServicoClinica.ativo == 1,
-        ).first()
+        try:
+            preco_clinica = db.query(PrecoServicoClinica).filter(
+                PrecoServicoClinica.clinica_id == clinica_id,
+                PrecoServicoClinica.servico_id == servico_id,
+                PrecoServicoClinica.ativo == 1,
+            ).first()
+        except (OperationalError, ProgrammingError) as exc:
+            if not _is_missing_table_error(exc):
+                raise
+            preco_clinica = None
         if preco_clinica:
             field = preco_clinica.preco_plantao if horario == "plantao" else preco_clinica.preco_comercial
             if field is not None:
