@@ -27,8 +27,25 @@ jobs:
       - name: Deploy to Stage (VPS)
         run: |
           ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
-            set -e
+            set -euo pipefail
             STAGE_DIR="/var/www/fortcordis-stage"
+            restart_service() {
+              svc="$1"
+              echo "Restarting ${svc}..."
+              if sudo -n systemctl restart "$svc" 2>/dev/null; then
+                :
+              else
+                pid="$(systemctl show "$svc" -p MainPID --value 2>/dev/null || true)"
+                if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+                  kill -TERM "$pid" || true
+                  sleep 3
+                fi
+              fi
+              if ! systemctl is-active --quiet "$svc"; then
+                echo "Service ${svc} is not active after deploy."
+                exit 1
+              fi
+            }
             if [ ! -d "$STAGE_DIR/.git" ]; then
               echo "❌ $STAGE_DIR não está clonado. Na VPS rode: sudo mkdir -p $STAGE_DIR && sudo chown $USER $STAGE_DIR && git clone <url-do-repo> $STAGE_DIR"
               exit 1
@@ -67,14 +84,14 @@ jobs:
             python3 setup_database.py || echo "⚠️  Erro no setup do banco - verificar manualmente"
             
             cd ..
-            sudo systemctl restart fortcordis-stage-backend 2>/dev/null || echo "⚠️  Reinicie: sudo systemctl restart fortcordis-stage-backend"
+            restart_service fortcordis-stage-backend
             
             echo "⚛️  Deploy Frontend (stage)..."
             cd frontend
             npm install
             API_BACKEND_URL=http://127.0.0.1:8001 npm run build
             cd ..
-            sudo systemctl restart fortcordis-stage-frontend 2>/dev/null || echo "⚠️  Reinicie: sudo systemctl restart fortcordis-stage-frontend"
+            restart_service fortcordis-stage-frontend
             
             echo "✅ Deploy stage concluído!"
           EOF

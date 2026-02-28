@@ -7,7 +7,7 @@ import api from "@/lib/axios";
 import { 
   Calendar, Clock, User, Building, Plus, RefreshCw, X, Trash2,
   CheckCircle2, PlayCircle, CheckCircle, XCircle, AlertCircle,
-  Search, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope
+  Search, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2
 } from "lucide-react";
 import NovoAgendamentoModal from "./NovoAgendamentoModal";
 
@@ -410,7 +410,7 @@ export default function AgendaPage() {
       'Agendado': ['Confirmado', 'Cancelado', 'Faltou'],
       'Confirmado': ['Em atendimento', 'Cancelado', 'Faltou'],
       'Em atendimento': ['Realizado', 'Cancelado'],
-      'Realizado': [],
+      'Realizado': ['Em atendimento'],
       'Cancelado': ['Agendado'],
       'Faltou': ['Agendado'],
     };
@@ -770,6 +770,7 @@ export default function AgendaPage() {
                       <div className="flex flex-wrap gap-2 lg:justify-end">
                         {/* Botões de mudança de status */}
                         {proximosStatus.map((novoStatus) => {
+                          const desfazerRealizado = ag.status === 'Realizado' && novoStatus === 'Em atendimento';
                           const icons: Record<string, any> = {
                             'Confirmado': CheckCircle2,
                             'Em atendimento': PlayCircle,
@@ -778,7 +779,7 @@ export default function AgendaPage() {
                             'Faltou': AlertCircle,
                             'Agendado': Calendar,
                           };
-                          const Icon = icons[novoStatus] || CheckCircle2;
+                          const Icon = desfazerRealizado ? Undo2 : (icons[novoStatus] || CheckCircle2);
                           const colors: Record<string, string> = {
                             'Confirmado': 'bg-green-50 text-green-700 hover:bg-green-100 border-green-200',
                             'Em atendimento': 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100 border-yellow-200',
@@ -787,20 +788,24 @@ export default function AgendaPage() {
                             'Faltou': 'bg-orange-50 text-orange-700 hover:bg-orange-100 border-orange-200',
                             'Agendado': 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200',
                           };
+                          const actionLabel = desfazerRealizado ? "Desfazer realizado" : novoStatus;
+                          const actionColor = desfazerRealizado
+                            ? 'bg-sky-50 text-sky-700 hover:bg-sky-100 border-sky-200'
+                            : colors[novoStatus];
                           
                           return (
                             <button
                               key={novoStatus}
                               onClick={() => atualizarStatus(ag.id, novoStatus)}
                               disabled={atualizandoStatus === ag.id}
-                              className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors flex items-center gap-1.5 ${colors[novoStatus]}`}
+                              className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors flex items-center gap-1.5 ${actionColor}`}
                             >
                               {atualizandoStatus === ag.id ? (
                                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                               ) : (
                                 <Icon className="w-3.5 h-3.5" />
                               )}
-                              {novoStatus}
+                              {actionLabel}
                             </button>
                           );
                         })}
