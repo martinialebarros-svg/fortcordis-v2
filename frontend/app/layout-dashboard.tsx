@@ -43,6 +43,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const [user, setUser] = useState<any>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [nomeClinica, setNomeClinica] = useState("FortCordis");
   const [nomeClinicaDraft, setNomeClinicaDraft] = useState("FortCordis");
@@ -51,6 +52,14 @@ export default function DashboardLayout({
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const router = useRouter();
   const pathname = usePathname();
+
+  const redirecionarParaLogin = () => {
+    if (typeof window !== "undefined") {
+      window.location.replace("/");
+      return;
+    }
+    router.replace("/");
+  };
 
   const atualizarLogoUrl = (novaUrl: string | null) => {
     setLogoUrl((anterior) => {
@@ -108,16 +117,40 @@ export default function DashboardLayout({
   };
 
   useEffect(() => {
-    const userData = localStorage.getItem("user");
-    const token = localStorage.getItem("token");
-    
-    if (!userData || !token) {
-      router.push("/");
-      return;
+    try {
+      const userData = localStorage.getItem("user");
+      const token = localStorage.getItem("token");
+
+      if (!userData || !token) {
+        localStorage.removeItem("user");
+        localStorage.removeItem("token");
+        redirecionarParaLogin();
+        return;
+      }
+
+      let parsedUser: any = null;
+      try {
+        parsedUser = JSON.parse(userData);
+      } catch (parseError) {
+        console.error("Valor invalido em localStorage.user:", parseError);
+        localStorage.removeItem("user");
+        localStorage.removeItem("token");
+        redirecionarParaLogin();
+        return;
+      }
+
+      if (!parsedUser || typeof parsedUser !== "object") {
+        localStorage.removeItem("user");
+        localStorage.removeItem("token");
+        redirecionarParaLogin();
+        return;
+      }
+
+      setUser(parsedUser);
+      carregarBranding();
+    } finally {
+      setAuthChecked(true);
     }
-    
-    setUser(JSON.parse(userData));
-    carregarBranding();
   }, [router]);
 
   useEffect(() => {
@@ -134,10 +167,18 @@ export default function DashboardLayout({
     router.push("/");
   };
 
-  if (!user) {
+  if (!authChecked) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-gray-500">Carregando...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-gray-500">Redirecionando para login...</div>
       </div>
     );
   }
@@ -173,7 +214,7 @@ export default function DashboardLayout({
         <aside
           className={`${
             sidebarOpen ? "translate-x-0" : "-translate-x-full"
-          } lg:translate-x-0 fixed lg:static inset-y-0 left-0 z-50 w-64 bg-white border-r transition-transform duration-200 ease-in-out`}
+          } lg:translate-x-0 fixed lg:static inset-y-0 left-0 z-[60] w-64 bg-white border-r transition-transform duration-200 ease-in-out`}
         >
           <div className="h-full flex flex-col">
             {/* Logo */}

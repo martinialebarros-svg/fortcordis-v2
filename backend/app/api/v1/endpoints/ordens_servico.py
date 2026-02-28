@@ -2,16 +2,26 @@
 
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Optional
+from html import escape
+from io import BytesIO
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
+from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
 from app.db.database import get_db
 from app.models.clinica import Clinica
+from app.models.configuracao import Configuracao
 from app.models.financeiro import Transacao
 from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
@@ -116,10 +126,267 @@ def _find_os_with_names(db: Session, os_id: int):
     )
 
 
+def _formatar_moeda_brl(valor: Any) -> str:
+    try:
+        numero = float(valor or 0)
+    except (TypeError, ValueError):
+        numero = 0.0
+    inteiro, casas = f"{numero:,.2f}".split(".")
+    return f"R$ {inteiro.replace(',', '.')},{casas}"
+
+
+def _formatar_data_ddmmaa(valor: Any) -> str:
+    if not valor:
+        return "-"
+    if isinstance(valor, datetime):
+        return valor.strftime("%d/%m/%Y")
+    texto = str(valor).strip()
+    if not texto:
+        return "-"
+    if texto.endswith("Z"):
+        texto = texto[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(texto).strftime("%d/%m/%Y")
+    except ValueError:
+        return texto
+
+
+def _texto_pdf(valor: Any, fallback: str = "-") -> str:
+    texto = str(valor or "").strip()
+    if not texto:
+        texto = fallback
+    return escape(texto)
+
+
+def _desenhar_rodape_relatorio(canvas, doc, texto_rodape: str):
+    canvas.saveState()
+    canvas.setStrokeColor(colors.HexColor("#D1D5DB"))
+    canvas.setLineWidth(0.5)
+    canvas.line(doc.leftMargin, 12 * mm, A4[0] - doc.rightMargin, 12 * mm)
+    canvas.setFont("Helvetica", 8)
+    canvas.setFillColor(colors.HexColor("#6B7280"))
+    canvas.drawString(doc.leftMargin, 8 * mm, (texto_rodape or "")[:120])
+    canvas.drawRightString(A4[0] - doc.rightMargin, 8 * mm, f"Pagina {canvas.getPageNumber()}")
+    canvas.restoreState()
+
+
+def _gerar_pdf_cobranca_pendencias(
+    itens: List[Dict[str, Any]],
+    nome_empresa: str,
+    contato_empresa: str,
+    texto_rodape: str,
+    filtros_texto: str,
+    mensagem_cobranca: Optional[str] = None,
+    logomarca_dados: Optional[bytes] = None,
+) -> bytes:
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=14 * mm,
+        rightMargin=14 * mm,
+        topMargin=14 * mm,
+        bottomMargin=18 * mm,
+        title="Relatorio de Cobranca - Valores Pendentes",
+    )
+
+    styles = getSampleStyleSheet()
+    style_titulo = ParagraphStyle(
+        "RelatorioTitulo",
+        parent=styles["Heading1"],
+        fontName="Helvetica-Bold",
+        fontSize=15,
+        textColor=colors.HexColor("#0F172A"),
+        spaceAfter=3,
+    )
+    style_normal = ParagraphStyle(
+        "RelatorioNormal",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=9.5,
+        leading=13,
+        textColor=colors.HexColor("#111827"),
+    )
+    style_secao = ParagraphStyle(
+        "RelatorioSecao",
+        parent=styles["Heading3"],
+        fontName="Helvetica-Bold",
+        fontSize=11,
+        textColor=colors.HexColor("#1F2937"),
+        spaceAfter=2,
+        spaceBefore=6,
+    )
+
+    story: List[Any] = []
+
+    logo = None
+    if logomarca_dados:
+        try:
+            logo_reader = ImageReader(BytesIO(logomarca_dados))
+            largura, altura = logo_reader.getSize()
+            max_largura = 34 * mm
+            max_altura = 24 * mm
+            escala = min(max_largura / largura, max_altura / altura)
+            logo = Image(BytesIO(logomarca_dados), width=largura * escala, height=altura * escala)
+            logo.hAlign = "LEFT"
+        except Exception:
+            logo = None
+
+    emissao = datetime.now().strftime("%d/%m/%Y %H:%M")
+    texto_cabecalho = [
+        "Relatorio de Cobranca - Valores Pendentes",
+        _texto_pdf(nome_empresa, "Fort Cordis"),
+        f"Emissao: {emissao}",
+    ]
+    if contato_empresa:
+        texto_cabecalho.append(_texto_pdf(contato_empresa, ""))
+    if filtros_texto:
+        texto_cabecalho.append(f"Filtros: {_texto_pdf(filtros_texto, '-')} ")
+
+    cabecalho_info = [
+        Paragraph(texto_cabecalho[0], style_titulo),
+        Paragraph("<br/>".join(texto_cabecalho[1:]), style_normal),
+    ]
+    if logo:
+        tabela_cabecalho = Table(
+            [[logo, cabecalho_info]],
+            colWidths=[38 * mm, doc.width - (38 * mm)],
+        )
+        tabela_cabecalho.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]
+            )
+        )
+        story.append(tabela_cabecalho)
+    else:
+        story.extend(cabecalho_info)
+
+    story.append(Spacer(1, 4 * mm))
+    story.append(Paragraph("Mensagem", style_secao))
+    mensagem_pdf = (
+        str(mensagem_cobranca or "").strip()
+        or "Prezados parceiros, segue o demonstrativo atualizado das ordens de servico em aberto para conferencia e programacao de pagamento."
+    )
+    story.append(
+        Paragraph(
+            _texto_pdf(mensagem_pdf, "-").replace("\n", "<br/>"),
+            style_normal,
+        )
+    )
+
+    grupos: Dict[str, Dict[str, Any]] = {}
+    for item in itens:
+        chave = item["chave"]
+        grupo = grupos.get(chave)
+        if not grupo:
+            grupo = {
+                "clinica_nome": item["clinica_nome"],
+                "clinica_telefone": item["clinica_telefone"],
+                "ordens": [],
+                "total": 0.0,
+            }
+            grupos[chave] = grupo
+
+        grupo["ordens"].append(item)
+        grupo["total"] += float(item["valor_final"] or 0)
+
+    total_geral = 0.0
+    for grupo in grupos.values():
+        story.append(Spacer(1, 3 * mm))
+        story.append(Paragraph(f"Clinica: {_texto_pdf(grupo['clinica_nome'], 'Nao informada')}", style_secao))
+        story.append(
+            Paragraph(
+                f"Telefone: {_texto_pdf(grupo['clinica_telefone'], 'nao informado')}",
+                style_normal,
+            )
+        )
+
+        linhas_tabela = [["OS", "Data", "Paciente", "Tutor", "Servico", "Valor"]]
+        for ordem in grupo["ordens"]:
+            linhas_tabela.append(
+                [
+                    str(ordem["numero_os"] or "-"),
+                    _formatar_data_ddmmaa(ordem["data_atendimento"]),
+                    str(ordem["paciente"] or "-"),
+                    str(ordem["tutor"] or "-"),
+                    str(ordem["servico"] or "-"),
+                    _formatar_moeda_brl(ordem["valor_final"]),
+                ]
+            )
+
+        linhas_tabela.append(["", "", "", "", "Subtotal", _formatar_moeda_brl(grupo["total"])])
+        tabela = Table(
+            linhas_tabela,
+            colWidths=[22 * mm, 22 * mm, 36 * mm, 30 * mm, 48 * mm, 24 * mm],
+            repeatRows=1,
+        )
+
+        subtotal_row = len(linhas_tabela) - 1
+        tabela.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E8EEF8")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (0, 1), (-1, -2), "Helvetica"),
+                    ("FONTNAME", (0, subtotal_row), (-1, subtotal_row), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8.8),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
+                    ("ALIGN", (-1, 1), (-1, -1), "RIGHT"),
+                    ("ALIGN", (0, 0), (0, -1), "CENTER"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ("BACKGROUND", (0, subtotal_row), (-1, subtotal_row), colors.HexColor("#F3F4F6")),
+                ]
+            )
+        )
+        story.append(Spacer(1, 1.5 * mm))
+        story.append(tabela)
+        total_geral += grupo["total"]
+
+    story.append(Spacer(1, 5 * mm))
+    story.append(
+        Paragraph(
+            f"<b>Total pendente geral:</b> {_formatar_moeda_brl(total_geral)}",
+            style_normal,
+        )
+    )
+    story.append(Spacer(1, 2 * mm))
+    story.append(
+        Paragraph(
+            "Agradecemos a parceria e permanecemos a disposicao para qualquer duvida.",
+            style_normal,
+        )
+    )
+    story.append(Paragraph("Atenciosamente,", style_normal))
+    story.append(Paragraph(f"<b>{_texto_pdf(nome_empresa, 'Fort Cordis')}</b>", style_normal))
+
+    rodape_final = texto_rodape.strip() if texto_rodape else nome_empresa
+    doc.build(
+        story,
+        onFirstPage=lambda c, d: _desenhar_rodape_relatorio(c, d, rodape_final),
+        onLaterPages=lambda c, d: _desenhar_rodape_relatorio(c, d, rodape_final),
+    )
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+    return pdf_bytes
+
+
 @router.get("")
 def listar_ordens(
     status: Optional[str] = None,
     clinica_id: Optional[int] = None,
+    servico_id: Optional[int] = None,
+    tipo_horario: Optional[str] = Query(None, pattern="^(comercial|plantao)$"),
     data_inicio: Optional[str] = None,
     data_fim: Optional[str] = None,
     skip: int = 0,
@@ -146,6 +413,10 @@ def listar_ordens(
         query = query.filter(OrdemServico.status == status)
     if clinica_id:
         query = query.filter(OrdemServico.clinica_id == clinica_id)
+    if servico_id:
+        query = query.filter(OrdemServico.servico_id == servico_id)
+    if tipo_horario:
+        query = query.filter(OrdemServico.tipo_horario == tipo_horario)
     if data_inicio:
         query = query.filter(func.date(OrdemServico.data_atendimento) >= data_inicio)
     if data_fim:
@@ -171,6 +442,157 @@ def listar_ordens(
     ]
 
     return {"total": total, "items": items}
+
+
+@router.get("/relatorios/pendencias/pdf")
+def gerar_relatorio_pendencias_pdf(
+    status: Optional[str] = Query("Pendente"),
+    clinica_id: Optional[int] = None,
+    clinica_nome: Optional[str] = None,
+    servico_id: Optional[int] = None,
+    tipo_horario: Optional[str] = Query(None, pattern="^(comercial|plantao)$"),
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    busca: Optional[str] = None,
+    mensagem: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Gera PDF profissional de cobranca das ordens de servico pendentes."""
+    query = (
+        db.query(
+            OrdemServico,
+            Paciente.nome.label("paciente_nome"),
+            Tutor.nome.label("tutor_nome"),
+            Clinica.nome.label("clinica_nome"),
+            Clinica.telefone.label("clinica_telefone"),
+            Servico.nome.label("servico_nome"),
+        )
+        .outerjoin(Paciente, OrdemServico.paciente_id == Paciente.id)
+        .outerjoin(Tutor, Paciente.tutor_id == Tutor.id)
+        .outerjoin(Clinica, OrdemServico.clinica_id == Clinica.id)
+        .outerjoin(Servico, OrdemServico.servico_id == Servico.id)
+    )
+
+    if status and status != "todos":
+        query = query.filter(OrdemServico.status == status)
+    if clinica_id:
+        query = query.filter(OrdemServico.clinica_id == clinica_id)
+    elif clinica_nome:
+        nome_limpo = clinica_nome.strip().lower()
+        if nome_limpo == "clinica nao informada":
+            query = query.filter(OrdemServico.clinica_id.is_(None))
+        else:
+            query = query.filter(func.lower(Clinica.nome) == nome_limpo)
+    if servico_id:
+        query = query.filter(OrdemServico.servico_id == servico_id)
+    if tipo_horario:
+        query = query.filter(OrdemServico.tipo_horario == tipo_horario)
+    if data_inicio:
+        query = query.filter(func.date(OrdemServico.data_atendimento) >= data_inicio)
+    if data_fim:
+        query = query.filter(func.date(OrdemServico.data_atendimento) <= data_fim)
+    if busca:
+        termo = f"%{busca.strip()}%"
+        query = query.filter(
+            or_(
+                OrdemServico.numero_os.ilike(termo),
+                Paciente.nome.ilike(termo),
+                Tutor.nome.ilike(termo),
+                Clinica.nome.ilike(termo),
+                Servico.nome.ilike(termo),
+            )
+        )
+
+    resultados = query.order_by(Clinica.nome.asc(), OrdemServico.data_atendimento.asc(), OrdemServico.id.asc()).all()
+    if not resultados:
+        raise HTTPException(
+            status_code=404,
+            detail="Nao ha ordens para gerar relatorio com os filtros selecionados.",
+        )
+
+    itens_relatorio: List[Dict[str, Any]] = []
+    for os_data, paciente_nome, tutor_nome, clinica_nome, clinica_telefone, servico_nome in resultados:
+        nome_clinica = (clinica_nome or "Clinica nao informada").strip()
+        chave = f"id:{os_data.clinica_id}" if os_data.clinica_id else f"nome:{nome_clinica.lower()}"
+        itens_relatorio.append(
+            {
+                "chave": chave,
+                "numero_os": os_data.numero_os or "",
+                "paciente": paciente_nome or "",
+                "tutor": tutor_nome or "",
+                "clinica_nome": nome_clinica,
+                "clinica_telefone": (clinica_telefone or "").strip(),
+                "servico": servico_nome or "",
+                "data_atendimento": os_data.data_atendimento,
+                "valor_final": float(os_data.valor_final or 0),
+            }
+        )
+
+    configuracao = db.query(Configuracao).first()
+    nome_empresa = (
+        (configuracao.nome_empresa or "").strip()
+        if configuracao and configuracao.nome_empresa
+        else "Fort Cordis Cardiologia Veterinaria"
+    )
+
+    contato_partes: List[str] = []
+    if configuracao:
+        if configuracao.telefone:
+            contato_partes.append(str(configuracao.telefone).strip())
+        if configuracao.email:
+            contato_partes.append(str(configuracao.email).strip())
+        cidade_estado = " ".join(
+            [parte for parte in [configuracao.cidade or "", configuracao.estado or ""] if parte]
+        ).strip()
+        if cidade_estado:
+            contato_partes.append(cidade_estado)
+    contato_empresa = " | ".join([p for p in contato_partes if p])
+
+    filtros_aplicados: List[str] = []
+    if status and status != "todos":
+        filtros_aplicados.append(f"status={status}")
+    if clinica_id:
+        clinica_ref = db.query(Clinica).filter(Clinica.id == clinica_id).first()
+        filtros_aplicados.append(f"clinica={clinica_ref.nome if clinica_ref else clinica_id}")
+    elif clinica_nome:
+        filtros_aplicados.append(f"clinica={clinica_nome}")
+    if servico_id:
+        servico_ref = db.query(Servico).filter(Servico.id == servico_id).first()
+        filtros_aplicados.append(f"servico={servico_ref.nome if servico_ref else servico_id}")
+    if tipo_horario:
+        filtros_aplicados.append(f"tipo_horario={tipo_horario}")
+    if data_inicio:
+        filtros_aplicados.append(f"de={data_inicio}")
+    if data_fim:
+        filtros_aplicados.append(f"ate={data_fim}")
+    if busca:
+        filtros_aplicados.append(f"busca={busca}")
+    filtros_texto = ", ".join(filtros_aplicados) if filtros_aplicados else "sem filtros especificos"
+
+    logomarca = None
+    texto_rodape = ""
+    if configuracao:
+        if configuracao.mostrar_logomarca and configuracao.logomarca_dados:
+            logomarca = configuracao.logomarca_dados
+        texto_rodape = (configuracao.texto_rodape_laudo or "").strip()
+
+    pdf_bytes = _gerar_pdf_cobranca_pendencias(
+        itens=itens_relatorio,
+        nome_empresa=nome_empresa,
+        contato_empresa=contato_empresa,
+        texto_rodape=texto_rodape,
+        filtros_texto=filtros_texto,
+        mensagem_cobranca=mensagem,
+        logomarca_dados=logomarca,
+    )
+
+    filename = f"relatorio_cobranca_pendencias_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{os_id}")
