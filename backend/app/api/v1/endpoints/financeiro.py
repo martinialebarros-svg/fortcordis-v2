@@ -26,6 +26,7 @@ router = APIRouter()
 def listar_transacoes(
     tipo: Optional[str] = Query(None, pattern="^(entrada|saida)$"),
     categoria: Optional[str] = None,
+    forma_pagamento: Optional[str] = None,
     status: Optional[str] = None,
     data_inicio: Optional[str] = None,
     data_fim: Optional[str] = None,
@@ -42,6 +43,8 @@ def listar_transacoes(
         query = query.filter(Transacao.tipo == tipo)
     if categoria:
         query = query.filter(Transacao.categoria == categoria)
+    if forma_pagamento:
+        query = query.filter(Transacao.forma_pagamento == forma_pagamento)
     if status:
         query = query.filter(Transacao.status == status)
     if paciente_id:
