@@ -16,6 +16,7 @@ import {
   Paperclip,
   Pill,
   Plus,
+  Printer,
   RefreshCw,
   Save,
   Search,
@@ -25,6 +26,7 @@ import {
   TrendingUp,
   User,
   Wind,
+  Download,
 } from "lucide-react";
 
 // === TIPOS ===
@@ -603,6 +605,182 @@ export default function AtendimentoPage() {
     }
   };
 
+  const escHtml = (value: any) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
+  const abrirJanelaImpressao = (titulo: string, conteudoHtml: string) => {
+    const printWindow = window.open("", "_blank", "width=1024,height=768");
+    if (!printWindow) {
+      setErro("Nao foi possivel abrir a janela de impressao. Verifique o bloqueador de pop-up.");
+      return;
+    }
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>${escHtml(titulo)}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
+            h1 { margin: 0 0 12px; font-size: 22px; }
+            h2 { margin: 20px 0 8px; font-size: 16px; }
+            .meta { margin-bottom: 12px; font-size: 13px; color: #374151; }
+            .meta p { margin: 3px 0; }
+            table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+            th, td { border: 1px solid #d1d5db; padding: 8px; font-size: 12px; vertical-align: top; }
+            th { background: #f3f4f6; text-align: left; }
+            .obs { white-space: pre-wrap; font-size: 12px; margin-top: 8px; }
+            .footer { margin-top: 30px; font-size: 12px; color: #6b7280; }
+            @media print {
+              body { margin: 10mm; }
+            }
+          </style>
+        </head>
+        <body>
+          ${conteudoHtml}
+          <script>
+            window.onload = function() {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+  };
+
+  const obterPacienteNome = () => pacientes.find((p) => String(p.id) === form.paciente_id)?.nome || "Nao informado";
+  const obterClinicaNome = () => clinicas.find((c) => String(c.id) === form.clinica_id)?.nome || "Nao informada";
+
+  const imprimirPrescricao = () => {
+    const itens = form.prescricao_itens.filter((item) => item.medicamento_id || (item.medicamento_nome || "").trim());
+    if (!itens.length && !form.prescricao_orientacoes.trim()) {
+      setErro("Preencha a prescricao para imprimir.");
+      return;
+    }
+
+    const rows = itens
+      .map((item, idx) => `
+        <tr>
+          <td>${idx + 1}. ${escHtml(item.medicamento_nome || "-")}</td>
+          <td>${escHtml(item.dose || "-")}</td>
+          <td>${escHtml(item.frequencia || "-")}</td>
+          <td>${escHtml(item.duracao || "-")}</td>
+          <td>${escHtml(item.via || "-")}</td>
+          <td>${escHtml(item.instrucoes || "-")}</td>
+        </tr>
+      `)
+      .join("");
+
+    abrirJanelaImpressao(
+      "Receita Veterinaria",
+      `
+      <h1>Receita Veterinaria</h1>
+      <div class="meta">
+        <p><b>Paciente:</b> ${escHtml(obterPacienteNome())}</p>
+        <p><b>Clinica:</b> ${escHtml(obterClinicaNome())}</p>
+        <p><b>Data:</b> ${escHtml(formatDate(form.data_atendimento))}</p>
+        <p><b>Atendimento:</b> ${escHtml(selecionado ? `#${selecionado}` : "Nao salvo")}</p>
+      </div>
+      <h2>Medicamentos</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Medicamento</th>
+            <th>Dose</th>
+            <th>Frequencia</th>
+            <th>Duracao</th>
+            <th>Via</th>
+            <th>Instrucoes</th>
+          </tr>
+        </thead>
+        <tbody>${rows || `<tr><td colspan="6">Sem itens de medicacao.</td></tr>`}</tbody>
+      </table>
+      <h2>Orientacoes gerais</h2>
+      <div class="obs">${escHtml(form.prescricao_orientacoes || "-")}</div>
+      ${form.prescricao_retorno_dias ? `<p><b>Retorno sugerido:</b> ${escHtml(form.prescricao_retorno_dias)} dia(s)</p>` : ""}
+      <div class="footer">Documento emitido pelo modulo de atendimento.</div>
+    `,
+    );
+  };
+
+  const imprimirSolicitacaoExames = () => {
+    const exames = form.exames.filter((item) => (item.tipo_exame || "").trim());
+    if (!exames.length) {
+      setErro("Adicione pelo menos um exame para imprimir a solicitacao.");
+      return;
+    }
+
+    const rows = exames
+      .map((exame, idx) => `
+        <tr>
+          <td>${idx + 1}. ${escHtml(exame.tipo_exame || "-")}</td>
+          <td>${escHtml(exame.prioridade || "-")}</td>
+          <td>${escHtml(exame.status || "-")}</td>
+          <td>${escHtml(exame.valor ? `R$ ${Number(exame.valor).toFixed(2)}` : "-")}</td>
+          <td>${escHtml(exame.observacoes || "-")}</td>
+        </tr>
+      `)
+      .join("");
+
+    abrirJanelaImpressao(
+      "Solicitacao de Exames",
+      `
+      <h1>Solicitacao de Exames</h1>
+      <div class="meta">
+        <p><b>Paciente:</b> ${escHtml(obterPacienteNome())}</p>
+        <p><b>Clinica:</b> ${escHtml(obterClinicaNome())}</p>
+        <p><b>Data:</b> ${escHtml(formatDate(form.data_atendimento))}</p>
+        <p><b>Atendimento:</b> ${escHtml(selecionado ? `#${selecionado}` : "Nao salvo")}</p>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Exame</th>
+            <th>Prioridade</th>
+            <th>Status</th>
+            <th>Valor</th>
+            <th>Observacoes</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="footer">Documento emitido pelo modulo de atendimento.</div>
+    `,
+    );
+  };
+
+  const baixarPdfAtendimento = async (tipo: "prescricao" | "exames") => {
+    if (!selecionado) {
+      setErro("Salve o atendimento antes de gerar PDF.");
+      return;
+    }
+
+    try {
+      const response = await api.get(`/atendimentos/${selecionado}/${tipo}/pdf`, { responseType: "blob" });
+      const blob = new Blob([response.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const disposition = response.headers?.["content-disposition"] as string | undefined;
+      const match = disposition?.match(/filename=\"?([^\";]+)\"?/i);
+      const fallback = tipo === "prescricao" ? `receita_atendimento_${selecionado}.pdf` : `solicitacao_exames_atendimento_${selecionado}.pdf`;
+      link.href = url;
+      link.download = match?.[1] || fallback;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setSucesso(tipo === "prescricao" ? "PDF da receita gerado com sucesso." : "PDF da solicitacao de exames gerado com sucesso.");
+    } catch {
+      setErro(tipo === "prescricao" ? "Erro ao gerar PDF da receita." : "Erro ao gerar PDF da solicitacao de exames.");
+    }
+  };
+
   if (loading) {
     return <DashboardLayout><div className="p-6 text-gray-600">Carregando modulo de atendimento...</div></DashboardLayout>;
   }
@@ -859,7 +1037,13 @@ export default function AtendimentoPage() {
 
             {tabActive === "prescricao" && (
               <div className="bg-white border rounded-lg p-4 space-y-3">
-                <h2 className="font-semibold text-gray-900 flex items-center gap-2"><Pill className="w-4 h-4 text-teal-600" />Receituario</h2>
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                  <h2 className="font-semibold text-gray-900 flex items-center gap-2"><Pill className="w-4 h-4 text-teal-600" />Receituario</h2>
+                  <div className="flex items-center gap-2">
+                    <button onClick={imprimirPrescricao} className="text-sm px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center gap-1"><Printer className="w-4 h-4" />Imprimir</button>
+                    <button onClick={() => baixarPdfAtendimento("prescricao")} disabled={!selecionado} className="text-sm px-3 py-1.5 rounded-lg bg-teal-100 hover:bg-teal-200 text-teal-700 disabled:opacity-50 flex items-center gap-1"><Download className="w-4 h-4" />Gerar PDF</button>
+                  </div>
+                </div>
                 <textarea value={form.prescricao_orientacoes} onChange={(e) => setField("prescricao_orientacoes", e.target.value)} placeholder="Orientacoes gerais" rows={2} className="w-full px-3 py-2 border rounded-lg text-sm" />
                 <input type="number" value={form.prescricao_retorno_dias} onChange={(e) => setField("prescricao_retorno_dias", e.target.value)} placeholder="Retorno em dias" className="w-full md:w-56 px-3 py-2 border rounded-lg text-sm" />
                 <div className="flex items-center justify-between mt-4">
@@ -887,7 +1071,14 @@ export default function AtendimentoPage() {
 
             {tabActive === "exames" && (
               <div className="bg-white border rounded-lg p-4 space-y-3">
-                <div className="flex items-center justify-between"><h2 className="font-semibold text-gray-900 flex items-center gap-2"><FileText className="w-4 h-4 text-blue-600" />Solicitacao de exames</h2><button onClick={() => setField("exames", [...form.exames, emptyExam()])} className="text-sm px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center gap-1"><Plus className="w-4 h-4" />Exame</button></div>
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                  <h2 className="font-semibold text-gray-900 flex items-center gap-2"><FileText className="w-4 h-4 text-blue-600" />Solicitacao de exames</h2>
+                  <div className="flex items-center gap-2">
+                    <button onClick={imprimirSolicitacaoExames} className="text-sm px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center gap-1"><Printer className="w-4 h-4" />Imprimir</button>
+                    <button onClick={() => baixarPdfAtendimento("exames")} disabled={!selecionado} className="text-sm px-3 py-1.5 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-700 disabled:opacity-50 flex items-center gap-1"><Download className="w-4 h-4" />Gerar PDF</button>
+                    <button onClick={() => setField("exames", [...form.exames, emptyExam()])} className="text-sm px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center gap-1"><Plus className="w-4 h-4" />Exame</button>
+                  </div>
+                </div>
                 {form.exames.map((exame, idx) => (
                   <div key={`${idx}-${exame.id || "novo"}`} className="border rounded-lg p-3 grid grid-cols-1 md:grid-cols-6 gap-2">
                     <input value={exame.tipo_exame} onChange={(e) => setField("exames", form.exames.map((x, i) => i === idx ? { ...x, tipo_exame: e.target.value } : x))} placeholder="Tipo" className="md:col-span-2 px-3 py-2 border rounded-lg text-sm" />

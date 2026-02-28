@@ -1,8 +1,16 @@
 from datetime import datetime, timedelta
+from io import BytesIO
+import re
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -201,6 +209,252 @@ def _to_iso(value: Any) -> Optional[str]:
         except Exception:
             return str(value)
     return str(value)
+
+
+def _formatar_data_hora(value: Any) -> str:
+    if not value:
+        return "-"
+    if isinstance(value, datetime):
+        return value.strftime("%d/%m/%Y %H:%M")
+    try:
+        parsed = _parse_datetime(str(value))
+        if parsed:
+            return parsed.strftime("%d/%m/%Y %H:%M")
+    except Exception:
+        pass
+    return str(value)
+
+
+def _nome_arquivo_limpo(raw: str, fallback: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", (raw or "").strip()).strip("_")
+    return cleaned or fallback
+
+
+def _montar_story_cabecalho_atendimento(
+    atendimento: AtendimentoClinico,
+    paciente: Optional[Paciente],
+    tutor: Optional[Tutor],
+    clinica: Optional[Clinica],
+    titulo: str,
+) -> list:
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "AtendimentoPdfTitle",
+        parent=styles["Heading1"],
+        fontName="Helvetica-Bold",
+        fontSize=16,
+        spaceAfter=8,
+    )
+    normal = ParagraphStyle(
+        "AtendimentoPdfNormal",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=10,
+        leading=13,
+    )
+
+    story: list = []
+    story.append(Paragraph(titulo, title_style))
+    story.append(Paragraph(f"<b>Atendimento:</b> #{atendimento.id}", normal))
+    story.append(Paragraph(f"<b>Data:</b> {_formatar_data_hora(atendimento.data_atendimento)}", normal))
+    story.append(Paragraph(f"<b>Status:</b> {atendimento.status or '-'}", normal))
+    story.append(Paragraph(f"<b>Paciente:</b> {(paciente.nome if paciente else '-')}", normal))
+    story.append(Paragraph(f"<b>Tutor:</b> {(tutor.nome if tutor else '-')}", normal))
+    story.append(Paragraph(f"<b>Clinica:</b> {(clinica.nome if clinica else '-')}", normal))
+    story.append(Paragraph(f"<b>Veterinario:</b> {atendimento.criado_por_nome or '-'}", normal))
+    story.append(Spacer(1, 4 * mm))
+    return story
+
+
+def _gerar_pdf_prescricao_bytes(
+    atendimento: AtendimentoClinico,
+    paciente: Optional[Paciente],
+    tutor: Optional[Tutor],
+    clinica: Optional[Clinica],
+    prescricao: PrescricaoClinica,
+    itens: List[PrescricaoItem],
+) -> bytes:
+    styles = getSampleStyleSheet()
+    normal = ParagraphStyle(
+        "AtendimentoPdfBody",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=10,
+        leading=13,
+    )
+    heading = ParagraphStyle(
+        "AtendimentoPdfHeading",
+        parent=styles["Heading3"],
+        fontName="Helvetica-Bold",
+        fontSize=12,
+        spaceAfter=5,
+    )
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=15 * mm,
+        rightMargin=15 * mm,
+        topMargin=12 * mm,
+        bottomMargin=12 * mm,
+        title=f"Receita - Atendimento {atendimento.id}",
+    )
+
+    story = _montar_story_cabecalho_atendimento(
+        atendimento,
+        paciente,
+        tutor,
+        clinica,
+        "Receita Veterinaria",
+    )
+
+    data = [[
+        "Medicamento",
+        "Dose",
+        "Frequencia",
+        "Duracao",
+        "Via",
+        "Instrucoes",
+    ]]
+    for idx, item in enumerate(itens, start=1):
+        data.append([
+            f"{idx}. {item.medicamento_nome or '-'}",
+            item.dose or "-",
+            item.frequencia or "-",
+            item.duracao or "-",
+            item.via or "-",
+            item.instrucoes or "-",
+        ])
+
+    table = Table(
+        data,
+        colWidths=[52 * mm, 20 * mm, 24 * mm, 19 * mm, 17 * mm, 48 * mm],
+        repeatRows=1,
+    )
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5e7eb")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111827")),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(table)
+    story.append(Spacer(1, 5 * mm))
+
+    story.append(Paragraph("Orientacoes Gerais", heading))
+    story.append(Paragraph((prescricao.orientacoes_gerais or "-").replace("\n", "<br/>"), normal))
+    if prescricao.retorno_dias:
+        story.append(Spacer(1, 3 * mm))
+        story.append(Paragraph(f"<b>Retorno sugerido:</b> {prescricao.retorno_dias} dia(s)", normal))
+
+    doc.build(story)
+    pdf = buffer.getvalue()
+    buffer.close()
+    return pdf
+
+
+def _gerar_pdf_exames_bytes(
+    atendimento: AtendimentoClinico,
+    paciente: Optional[Paciente],
+    tutor: Optional[Tutor],
+    clinica: Optional[Clinica],
+    exames: List[Exame],
+) -> bytes:
+    styles = getSampleStyleSheet()
+    normal = ParagraphStyle(
+        "AtendimentoPdfBodyExames",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=10,
+        leading=13,
+    )
+    heading = ParagraphStyle(
+        "AtendimentoPdfHeadingExames",
+        parent=styles["Heading3"],
+        fontName="Helvetica-Bold",
+        fontSize=12,
+        spaceAfter=5,
+    )
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=15 * mm,
+        rightMargin=15 * mm,
+        topMargin=12 * mm,
+        bottomMargin=12 * mm,
+        title=f"Solicitacao de exames - Atendimento {atendimento.id}",
+    )
+
+    story = _montar_story_cabecalho_atendimento(
+        atendimento,
+        paciente,
+        tutor,
+        clinica,
+        "Solicitacao de Exames",
+    )
+
+    data = [[
+        "Exame",
+        "Prioridade",
+        "Status",
+        "Data solicitacao",
+        "Valor",
+        "Observacoes",
+    ]]
+    for idx, exame in enumerate(exames, start=1):
+        valor = "-"
+        if exame.valor not in (None, ""):
+            try:
+                valor = f"R$ {float(exame.valor):.2f}"
+            except Exception:
+                valor = str(exame.valor)
+
+        data.append([
+            f"{idx}. {exame.tipo_exame or '-'}",
+            exame.prioridade or "-",
+            exame.status or "-",
+            _formatar_data_hora(exame.data_solicitacao),
+            valor,
+            exame.observacoes or "-",
+        ])
+
+    table = Table(
+        data,
+        colWidths=[50 * mm, 24 * mm, 20 * mm, 25 * mm, 18 * mm, 43 * mm],
+        repeatRows=1,
+    )
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#dbeafe")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111827")),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(table)
+    story.append(Spacer(1, 5 * mm))
+
+    story.append(Paragraph("Observacoes clinicas", heading))
+    story.append(Paragraph((atendimento.observacoes or "-").replace("\n", "<br/>"), normal))
+
+    doc.build(story)
+    pdf = buffer.getvalue()
+    buffer.close()
+    return pdf
 
 
 def _resolver_tutor_paciente(db: Session, paciente_id: int) -> Optional[int]:
@@ -627,6 +881,93 @@ def obter_atendimento(
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
     return _montar_detalhe_atendimento(db, atendimento)
+
+
+@router.get("/{atendimento_id}/prescricao/pdf")
+def gerar_pdf_prescricao(
+    atendimento_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    if not atendimento:
+        raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+
+    paciente = db.query(Paciente).filter(Paciente.id == atendimento.paciente_id).first()
+    tutor = db.query(Tutor).filter(Tutor.id == atendimento.tutor_id).first() if atendimento.tutor_id else None
+    clinica = db.query(Clinica).filter(Clinica.id == atendimento.clinica_id).first() if atendimento.clinica_id else None
+    prescricao = (
+        db.query(PrescricaoClinica)
+        .filter(PrescricaoClinica.atendimento_id == atendimento.id)
+        .first()
+    )
+    if not prescricao:
+        raise HTTPException(status_code=404, detail="Prescricao nao encontrada para este atendimento.")
+
+    itens = (
+        db.query(PrescricaoItem)
+        .filter(PrescricaoItem.prescricao_id == prescricao.id)
+        .order_by(PrescricaoItem.ordem.asc(), PrescricaoItem.id.asc())
+        .all()
+    )
+    if not itens:
+        raise HTTPException(status_code=404, detail="Prescricao sem itens para gerar PDF.")
+
+    pdf_bytes = _gerar_pdf_prescricao_bytes(
+        atendimento,
+        paciente,
+        tutor,
+        clinica,
+        prescricao,
+        itens,
+    )
+    paciente_nome = _nome_arquivo_limpo(paciente.nome if paciente else "", f"paciente_{atendimento.paciente_id}")
+    filename = f"receita_atendimento_{atendimento.id}_{paciente_nome}.pdf"
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{atendimento_id}/exames/pdf")
+def gerar_pdf_solicitacao_exames(
+    atendimento_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    if not atendimento:
+        raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+
+    paciente = db.query(Paciente).filter(Paciente.id == atendimento.paciente_id).first()
+    tutor = db.query(Tutor).filter(Tutor.id == atendimento.tutor_id).first() if atendimento.tutor_id else None
+    clinica = db.query(Clinica).filter(Clinica.id == atendimento.clinica_id).first() if atendimento.clinica_id else None
+    exames = (
+        db.query(Exame)
+        .filter(Exame.atendimento_id == atendimento.id)
+        .order_by(Exame.id.asc())
+        .all()
+    )
+    if not exames:
+        raise HTTPException(status_code=404, detail="Nao ha exames para este atendimento.")
+
+    pdf_bytes = _gerar_pdf_exames_bytes(
+        atendimento,
+        paciente,
+        tutor,
+        clinica,
+        exames,
+    )
+    paciente_nome = _nome_arquivo_limpo(paciente.nome if paciente else "", f"paciente_{atendimento.paciente_id}")
+    filename = f"solicitacao_exames_atendimento_{atendimento.id}_{paciente_nome}.pdf"
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
