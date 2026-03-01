@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import { getRacaOptions } from "@/lib/racas";
 import XmlUploader from "../components/XmlUploader";
 import ImageUploader from "../components/ImageUploader";
 import FraseModal from "../components/FraseModal";
@@ -253,6 +254,7 @@ export default function NovoLaudoPage() {
     telefone: "",
     data_exame: "",
   });
+  const opcoesRaca = getRacaOptions(paciente.especie, paciente.raca);
   
   // Medidas
   const [medidas, setMedidas] = useState<Record<string, string>>({});
@@ -1318,7 +1320,7 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
                         </label>
                         <select
                           value={paciente.especie}
-                          onChange={(e) => setPaciente({...paciente, especie: e.target.value})}
+                          onChange={(e) => setPaciente({...paciente, especie: e.target.value, raca: ""})}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                         >
                           <option value="Canina">Canina</option>
@@ -1332,12 +1334,18 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Raça
                         </label>
-                        <input
-                          type="text"
+                        <select
                           value={paciente.raca}
                           onChange={(e) => setPaciente({...paciente, raca: e.target.value})}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-                        />
+                        >
+                          <option value="">Selecione...</option>
+                          {opcoesRaca.map((raca) => (
+                            <option key={raca} value={raca}>
+                              {raca}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                       
                       <div>

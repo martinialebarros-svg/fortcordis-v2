@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../../layout-dashboard";
 import api from "@/lib/axios";
+import { getRacaOptions } from "@/lib/racas";
 import XmlUploader from "../../components/XmlUploader";
 import ImageUploader from "../../components/ImageUploader";
 import { ArrowLeft, Save, User, Activity, Heart, BookOpen, Settings, Image as ImageIcon, Minus, Plus } from "lucide-react";
@@ -273,6 +274,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     telefone: "",
     data_exame: new Date().toISOString().split('T')[0],
   });
+  const opcoesRaca = getRacaOptions(pacienteForm.especie, pacienteForm.raca);
 
   // Clínica
   const [clinicaId, setClinicaId] = useState<string>("");
@@ -1275,7 +1277,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                         </label>
                         <select
                           value={pacienteForm.especie}
-                          onChange={(e) => setPacienteForm({...pacienteForm, especie: e.target.value})}
+                          onChange={(e) => setPacienteForm({...pacienteForm, especie: e.target.value, raca: ""})}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                         >
                           <option value="Canina">Canina</option>
@@ -1289,12 +1291,18 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Raça
                         </label>
-                        <input
-                          type="text"
+                        <select
                           value={pacienteForm.raca}
                           onChange={(e) => setPacienteForm({...pacienteForm, raca: e.target.value})}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-                        />
+                        >
+                          <option value="">Selecione...</option>
+                          {opcoesRaca.map((raca) => (
+                            <option key={raca} value={raca}>
+                              {raca}
+                            </option>
+                          ))}
+                        </select>
                       </div>
 
                       <div>
