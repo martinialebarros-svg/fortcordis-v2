@@ -3,6 +3,12 @@
 import { useEffect, useState } from "react";
 import { X, User, Building, Calendar, Clock } from "lucide-react";
 import api from "@/lib/axios";
+import {
+  AgendaExcecaoConfig,
+  AgendaFeriadoConfig,
+  AgendaSemanalConfig,
+  validarHorarioAgendamento,
+} from "@/lib/agenda-config";
 
 const TABELA_PRECO_PADRAO = [
   { id: 1, nome: "Fortaleza" },
@@ -18,6 +24,9 @@ interface NovoAgendamentoModalProps {
   agendamento?: any;
   defaultDate?: string;
   defaultTime?: string;
+  agendaSemanal: AgendaSemanalConfig;
+  agendaFeriados: AgendaFeriadoConfig[];
+  agendaExcecoes: AgendaExcecaoConfig[];
 }
 
 export default function NovoAgendamentoModal({ 
@@ -26,7 +35,10 @@ export default function NovoAgendamentoModal({
   onSuccess,
   agendamento,
   defaultDate,
-  defaultTime
+  defaultTime,
+  agendaSemanal,
+  agendaFeriados,
+  agendaExcecoes,
 }: NovoAgendamentoModalProps) {
   const [loading, setLoading] = useState(false);
   const [pacientes, setPacientes] = useState<any[]>([]);
@@ -263,6 +275,31 @@ export default function NovoAgendamentoModal({
 
     try {
       const inicio = new Date(`${formData.data}T${formData.hora}:00`);
+      if (Number.isNaN(inicio.getTime())) {
+        throw new Error("Data ou hora invalida.");
+      }
+
+      const servicoSelecionado = servicos.find(
+        (s) => s.id?.toString() === formData.servico_id
+      );
+      const duracaoMinutos = Number.parseInt(
+        `${servicoSelecionado?.duracao_minutos ?? ""}`,
+        10
+      );
+      const duracaoEfetiva = Number.isFinite(duracaoMinutos) && duracaoMinutos > 0 ? duracaoMinutos : 30;
+      const fim = new Date(inicio.getTime() + duracaoEfetiva * 60000);
+
+      const validacaoHorario = validarHorarioAgendamento(
+        inicio,
+        fim,
+        agendaSemanal,
+        agendaFeriados,
+        agendaExcecoes
+      );
+      if (!validacaoHorario.valido) {
+        throw new Error(validacaoHorario.motivo);
+      }
+
       let pacienteId = formData.paciente_id ? parseInt(formData.paciente_id, 10) : NaN;
 
       if (!Number.isFinite(pacienteId)) {
@@ -312,16 +349,6 @@ export default function NovoAgendamentoModal({
           throw new Error("Nao foi possivel criar a clinica rapidamente.");
         }
       }
-
-      const servicoSelecionado = servicos.find(
-        (s) => s.id?.toString() === formData.servico_id
-      );
-      const duracaoMinutos = Number.parseInt(
-        `${servicoSelecionado?.duracao_minutos ?? ""}`,
-        10
-      );
-      const duracaoEfetiva = Number.isFinite(duracaoMinutos) && duracaoMinutos > 0 ? duracaoMinutos : 30;
-      const fim = new Date(inicio.getTime() + duracaoEfetiva * 60000);
 
       const payload = {
         paciente_id: pacienteId,

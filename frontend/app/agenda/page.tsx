@@ -4,6 +4,18 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import {
+  AgendaExcecaoConfig,
+  AgendaFeriadoConfig,
+  AgendaSemanalConfig,
+  DEFAULT_AGENDA_SEMANAL,
+  horarioParaMinutos,
+  normalizarAgendaExcecoes,
+  normalizarAgendaFeriados,
+  normalizarAgendaSemanal,
+  obterJornadaDia,
+  slotDentroDaJornada,
+} from "@/lib/agenda-config";
 import { 
   Calendar, Clock, User, Building, Plus, RefreshCw, X, Trash2,
   CheckCircle2, PlayCircle, CheckCircle, XCircle, AlertCircle,
@@ -156,11 +168,12 @@ const inicioDaSemana = (value: string) => {
   return data;
 };
 
-const gerarSlots = (horaInicio = 7, horaFim = 20, intervaloMinutos = 30) => {
+const gerarSlots = (inicioMinutos = 7 * 60, fimMinutos = 20 * 60, intervaloMinutos = 30) => {
   const slots: string[] = [];
-  const inicioTotal = horaInicio * 60;
-  const fimTotal = horaFim * 60;
-  for (let minutos = inicioTotal; minutos <= fimTotal; minutos += intervaloMinutos) {
+  if (!Number.isFinite(inicioMinutos) || !Number.isFinite(fimMinutos) || fimMinutos <= inicioMinutos) {
+    return slots;
+  }
+  for (let minutos = inicioMinutos; minutos < fimMinutos; minutos += intervaloMinutos) {
     const hora = Math.floor(minutos / 60);
     const minuto = minutos % 60;
     slots.push(`${String(hora).padStart(2, "0")}:${String(minuto).padStart(2, "0")}`);
@@ -191,6 +204,11 @@ export default function AgendaPage() {
   const [laudosVinculados, setLaudosVinculados] = useState<Record<number, LaudoVinculado>>({});
   const [osPagasVinculadas, setOsPagasVinculadas] = useState<Record<number, OrdemServicoPagamento>>({});
   const [clinicasEndereco, setClinicasEndereco] = useState<Record<number, ClinicaEndereco>>({});
+  const [agendaSemanal, setAgendaSemanal] = useState<AgendaSemanalConfig>(() =>
+    normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL)
+  );
+  const [agendaFeriados, setAgendaFeriados] = useState<AgendaFeriadoConfig[]>([]);
+  const [agendaExcecoes, setAgendaExcecoes] = useState<AgendaExcecaoConfig[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [resumoFinanceiro, setResumoFinanceiro] = useState<ResumoFinanceiroAgenda | null>(null);
   const [carregandoResumoFinanceiro, setCarregandoResumoFinanceiro] = useState(false);
@@ -258,6 +276,20 @@ export default function AgendaPage() {
     }
   };
 
+  const carregarConfiguracaoAgenda = async () => {
+    try {
+      const response = await api.get("/configuracoes");
+      setAgendaSemanal(normalizarAgendaSemanal(response.data?.agenda_semanal));
+      setAgendaFeriados(normalizarAgendaFeriados(response.data?.agenda_feriados));
+      setAgendaExcecoes(normalizarAgendaExcecoes(response.data?.agenda_excecoes));
+    } catch (error) {
+      console.error("Erro ao carregar configuracao da agenda:", error);
+      setAgendaSemanal(normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL));
+      setAgendaFeriados([]);
+      setAgendaExcecoes([]);
+    }
+  };
+
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
@@ -267,6 +299,12 @@ export default function AgendaPage() {
     setIsAdmin(usuarioEhAdmin());
     carregarAgendamentos();
   }, [router, periodoConsulta.inicio, periodoConsulta.fim]);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    carregarConfiguracaoAgenda();
+  }, [router]);
 
   useEffect(() => {
     if (modoVisualizacao !== "lista") {
@@ -677,8 +715,6 @@ export default function AgendaPage() {
       return a.id - b.id;
     });
 
-  const slotsPanoramica = useMemo(() => gerarSlots(), []);
-
   const diasPanoramica = useMemo(() => {
     const dataBase = filtroData || hojeLocal();
 
@@ -693,6 +729,37 @@ export default function AgendaPage() {
 
     return [dataBase];
   }, [filtroData, modoVisualizacao]);
+
+  const jornadaPanoramicaPorDia = useMemo(() => {
+    const mapa = new Map<string, ReturnType<typeof obterJornadaDia>>();
+    for (const dia of diasPanoramica) {
+      mapa.set(dia, obterJornadaDia(dia, agendaSemanal, agendaFeriados, agendaExcecoes));
+    }
+    return mapa;
+  }, [diasPanoramica, agendaSemanal, agendaFeriados, agendaExcecoes]);
+
+  const slotsPanoramica = useMemo(() => {
+    let inicioMin = Number.POSITIVE_INFINITY;
+    let fimMin = 0;
+
+    for (const dia of diasPanoramica) {
+      const jornada = jornadaPanoramicaPorDia.get(dia);
+      if (!jornada || jornada.fechado) continue;
+      const minDiaInicio = horarioParaMinutos(jornada.inicio);
+      const minDiaFim = horarioParaMinutos(jornada.fim);
+      if (minDiaInicio === null || minDiaFim === null) continue;
+      inicioMin = Math.min(inicioMin, minDiaInicio);
+      fimMin = Math.max(fimMin, minDiaFim);
+    }
+
+    if (!Number.isFinite(inicioMin) || fimMin <= inicioMin) {
+      const fallbackInicio = horarioParaMinutos(DEFAULT_AGENDA_SEMANAL["1"].inicio) ?? 8 * 60;
+      const fallbackFim = horarioParaMinutos(DEFAULT_AGENDA_SEMANAL["1"].fim) ?? 14 * 60;
+      return gerarSlots(fallbackInicio, fallbackFim, 30);
+    }
+
+    return gerarSlots(inicioMin, fimMin, 30);
+  }, [diasPanoramica, jornadaPanoramicaPorDia]);
 
   const mapaOcupacao = useMemo(() => {
     const mapa = new Map<string, Agendamento[]>();
@@ -728,6 +795,12 @@ export default function AgendaPage() {
   };
 
   const abrirNovoNoHorario = (data: string, hora: string) => {
+    const jornada = jornadaPanoramicaPorDia.get(data);
+    if (!jornada || !slotDentroDaJornada(hora, jornada)) {
+      setErro(jornada?.motivo || "Agenda fechada para este horario.");
+      return;
+    }
+    setErro("");
     setAgendamentoEditando(null);
     setSlotSelecionado({ data, hora });
     setModalAberto(true);
@@ -1221,7 +1294,12 @@ export default function AgendaPage() {
                   key={`head-${dia}`}
                   className="sticky top-0 z-10 bg-gray-100 border-b border-r px-3 py-2 text-sm font-semibold text-gray-700"
                 >
-                  {formatarDiaPanoramica(dia)}
+                  <div>{formatarDiaPanoramica(dia)}</div>
+                  {jornadaPanoramicaPorDia.get(dia)?.fechado && (
+                    <div className="mt-1 inline-flex items-center rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-700">
+                      Fechado
+                    </div>
+                  )}
                 </div>
               ))}
 
@@ -1236,6 +1314,20 @@ export default function AgendaPage() {
                   {diasPanoramica.map((dia) => {
                     const chave = `${dia}|${slot}`;
                     const itens = mapaOcupacao.get(chave) || [];
+                    const jornadaDia = jornadaPanoramicaPorDia.get(dia);
+                    const slotDisponivel = jornadaDia ? slotDentroDaJornada(slot, jornadaDia) : false;
+
+                    if (itens.length === 0 && !slotDisponivel) {
+                      return (
+                        <div
+                          key={chave}
+                          className="border-b border-r px-2 py-2 text-left bg-gray-100 text-gray-400"
+                          title={jornadaDia?.motivo || "Agenda fechada"}
+                        >
+                          <div className="text-xs font-semibold">Fechado</div>
+                        </div>
+                      );
+                    }
 
                     if (itens.length === 0) {
                       return (
@@ -1431,6 +1523,9 @@ export default function AgendaPage() {
           onSuccess={handleAgendamentoSuccess}
           defaultDate={slotSelecionado?.data || filtroData || hojeLocal()}
           defaultTime={slotSelecionado?.hora}
+          agendaSemanal={agendaSemanal}
+          agendaFeriados={agendaFeriados}
+          agendaExcecoes={agendaExcecoes}
         />
       </div>
     </DashboardLayout>

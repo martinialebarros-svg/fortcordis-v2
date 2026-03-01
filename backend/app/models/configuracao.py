@@ -38,6 +38,9 @@ class Configuracao(Base):
     horario_comercial_inicio = Column(String(5), default="08:00")
     horario_comercial_fim = Column(String(5), default="18:00")
     dias_trabalho = Column(String(50), default="1,2,3,4,5")  # 1=Seg, 7=Dom
+    agenda_semanal = Column(Text)
+    agenda_feriados = Column(Text)
+    agenda_excecoes = Column(Text)
     
     # Auditoria
     created_at = Column(DateTime(timezone=True), server_default=func.now())
