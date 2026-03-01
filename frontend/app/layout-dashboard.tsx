@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import api from "@/lib/axios";
@@ -50,8 +50,58 @@ export default function DashboardLayout({
   const [editandoNomeClinica, setEditandoNomeClinica] = useState(false);
   const [salvandoNomeClinica, setSalvandoNomeClinica] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const faviconOriginalRef = useRef<string>("/favicon.ico");
   const router = useRouter();
   const pathname = usePathname();
+
+  const blobParaDataUrl = (blob: Blob) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const resultado = typeof reader.result === "string" ? reader.result : "";
+        if (!resultado) {
+          reject(new Error("Falha ao converter imagem para data URL"));
+          return;
+        }
+        resolve(resultado);
+      };
+      reader.onerror = () => reject(reader.error || new Error("Erro ao ler imagem"));
+      reader.readAsDataURL(blob);
+    });
+
+  const aplicarFavicon = (href: string, type = "image/png") => {
+    if (typeof document === "undefined") return;
+
+    const linksExistentes = Array.from(
+      document.head.querySelectorAll('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]')
+    ) as HTMLLinkElement[];
+
+    if (linksExistentes.length === 0) {
+      const link = document.createElement("link");
+      link.setAttribute("data-fortcordis-favicon", "true");
+      link.setAttribute("rel", "icon");
+      link.type = type;
+      link.href = href;
+      document.head.appendChild(link);
+      return;
+    }
+
+    linksExistentes.forEach((link) => {
+      link.setAttribute("data-fortcordis-favicon", "true");
+      link.type = type;
+      link.href = href;
+    });
+  };
+
+  const capturarFaviconOriginal = () => {
+    if (typeof document === "undefined") return;
+    const primeiroIcone = document.head.querySelector(
+      'link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]'
+    ) as HTMLLinkElement | null;
+    if (primeiroIcone?.href) {
+      faviconOriginalRef.current = primeiroIcone.href;
+    }
+  };
 
   const redirecionarParaLogin = () => {
     if (typeof window !== "undefined") {
@@ -63,7 +113,7 @@ export default function DashboardLayout({
 
   const atualizarLogoUrl = (novaUrl: string | null) => {
     setLogoUrl((anterior) => {
-      if (anterior) {
+      if (anterior && anterior.startsWith("blob:")) {
         URL.revokeObjectURL(anterior);
       }
       return novaUrl;
@@ -85,7 +135,8 @@ export default function DashboardLayout({
         const respLogo = await api.get("/configuracoes/logomarca", {
           responseType: "blob",
         });
-        atualizarLogoUrl(URL.createObjectURL(respLogo.data));
+        const dataUrl = await blobParaDataUrl(respLogo.data);
+        atualizarLogoUrl(dataUrl);
         return;
       }
 
@@ -152,6 +203,18 @@ export default function DashboardLayout({
       setAuthChecked(true);
     }
   }, [router]);
+
+  useEffect(() => {
+    capturarFaviconOriginal();
+  }, []);
+
+  useEffect(() => {
+    aplicarFavicon(logoUrl || "/favicon.ico");
+
+    return () => {
+      aplicarFavicon(faviconOriginalRef.current || "/favicon.ico");
+    };
+  }, [logoUrl]);
 
   useEffect(() => {
     return () => {
