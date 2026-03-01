@@ -10,6 +10,7 @@ from app.db.database import get_db
 from app.models.agendamento import Agendamento
 from app.models.paciente import Paciente
 from app.models.clinica import Clinica
+from app.models.configuracao import Configuracao
 from app.models.servico import Servico
 from app.models.ordem_servico import OrdemServico
 from app.models.user import User
@@ -19,6 +20,12 @@ from app.schemas.agendamento import (
     AgendamentoLista,
     AgendamentoResponse,
     AgendamentoUpdate,
+)
+from app.core.agenda_config import (
+    carregar_agenda_excecoes,
+    carregar_agenda_feriados,
+    carregar_agenda_semanal,
+    validar_horario_agenda,
 )
 from app.core.security import get_current_user
 from app.services.precos_service import calcular_preco_servico
@@ -107,6 +114,44 @@ def _apply_service_duration_if_needed(db: Session, agendamento: Agendamento) -> 
             duracao_minutos = int(servico.duracao_minutos)
 
     agendamento.fim = inicio_dt + timedelta(minutes=duracao_minutos)
+
+
+def _obter_regras_agenda(db: Session) -> tuple[dict, list, list]:
+    config = db.query(Configuracao).first()
+    if not config:
+        return carregar_agenda_semanal(None), carregar_agenda_feriados(None), carregar_agenda_excecoes(None)
+
+    return (
+        carregar_agenda_semanal(getattr(config, "agenda_semanal", None)),
+        carregar_agenda_feriados(getattr(config, "agenda_feriados", None)),
+        carregar_agenda_excecoes(getattr(config, "agenda_excecoes", None)),
+    )
+
+
+def _validar_agendamento_no_funcionamento(db: Session, agendamento: Agendamento) -> None:
+    inicio_dt = _coerce_datetime(agendamento.inicio)
+    if inicio_dt is None:
+        raise HTTPException(status_code=422, detail="Horario de inicio invalido.")
+
+    fim_dt = _coerce_datetime(agendamento.fim)
+    if fim_dt is None:
+        fim_dt = inicio_dt + timedelta(minutes=30)
+
+    inicio_local = _to_local_naive(inicio_dt)
+    fim_local = _to_local_naive(fim_dt)
+    if inicio_local is None or fim_local is None:
+        raise HTTPException(status_code=422, detail="Nao foi possivel validar o horario informado.")
+
+    agenda_semanal, agenda_feriados, agenda_excecoes = _obter_regras_agenda(db)
+    valido, mensagem = validar_horario_agenda(
+        inicio_local=inicio_local,
+        fim_local=fim_local,
+        agenda_semanal=agenda_semanal,
+        agenda_feriados=agenda_feriados,
+        agenda_excecoes=agenda_excecoes,
+    )
+    if not valido:
+        raise HTTPException(status_code=422, detail=mensagem)
 
 
 def _fetch_related_names(db: Session, agendamento: Agendamento) -> dict:
@@ -398,6 +443,7 @@ def criar_agendamento(
     db_agendamento.updated_at = now
 
     _apply_service_duration_if_needed(db, db_agendamento)
+    _validar_agendamento_no_funcionamento(db, db_agendamento)
     _fill_data_hora_from_inicio(db_agendamento)
     related = _fetch_related_names(db, db_agendamento)
     _sync_denormalized_fields(db_agendamento, related)
@@ -420,6 +466,10 @@ def atualizar_agendamento(
     if not db_agendamento:
         raise HTTPException(status_code=404, detail="Agendamento não encontrado")
 
+    inicio_original = _coerce_datetime(db_agendamento.inicio)
+    fim_original = _coerce_datetime(db_agendamento.fim)
+    servico_original = db_agendamento.servico_id
+
     update_data = agendamento.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(db_agendamento, field, value)
@@ -429,8 +479,24 @@ def atualizar_agendamento(
     if "fim" in update_data:
         db_agendamento.fim = _coerce_datetime(db_agendamento.fim)
 
-    if "inicio" in update_data or "fim" in update_data or "servico_id" in update_data:
+    campos_horario = "inicio" in update_data or "fim" in update_data or "servico_id" in update_data
+    if campos_horario:
         _apply_service_duration_if_needed(db, db_agendamento)
+
+        inicio_atual = _coerce_datetime(db_agendamento.inicio)
+        fim_atual = _coerce_datetime(db_agendamento.fim)
+        servico_atual = db_agendamento.servico_id
+
+        alterou_horario = False
+        if "inicio" in update_data:
+            alterou_horario = alterou_horario or (_to_local_naive(inicio_original) != _to_local_naive(inicio_atual))
+        if "fim" in update_data:
+            alterou_horario = alterou_horario or (_to_local_naive(fim_original) != _to_local_naive(fim_atual))
+        if "servico_id" in update_data:
+            alterou_horario = alterou_horario or (servico_original != servico_atual)
+
+        if alterou_horario:
+            _validar_agendamento_no_funcionamento(db, db_agendamento)
     if "inicio" in update_data:
         _fill_data_hora_from_inicio(db_agendamento)
 

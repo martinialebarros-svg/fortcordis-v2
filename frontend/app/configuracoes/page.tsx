@@ -5,6 +5,16 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import {
+  AgendaExcecaoConfig,
+  AgendaFeriadoConfig,
+  AgendaSemanalConfig,
+  DEFAULT_AGENDA_SEMANAL,
+  DIAS_SEMANA_LABELS,
+  normalizarAgendaExcecoes,
+  normalizarAgendaFeriados,
+  normalizarAgendaSemanal,
+} from "@/lib/agenda-config";
+import {
   Settings,
   Building2,
   UserCircle,
@@ -31,6 +41,9 @@ interface ConfiguracoesSistema {
   texto_rodape_laudo: string;
   mostrar_logomarca: boolean;
   mostrar_assinatura: boolean;
+  agenda_semanal: AgendaSemanalConfig;
+  agenda_feriados: AgendaFeriadoConfig[];
+  agenda_excecoes: AgendaExcecaoConfig[];
 }
 
 interface ConfiguracoesUsuario {
@@ -107,6 +120,9 @@ export default function ConfiguracoesPage() {
     texto_rodape_laudo: "Fort Cordis Cardiologia Veterinária | Fortaleza-CE",
     mostrar_logomarca: true,
     mostrar_assinatura: true,
+    agenda_semanal: normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL),
+    agenda_feriados: [],
+    agenda_excecoes: [],
   });
 
   // Configurações do usuário
@@ -135,6 +151,14 @@ export default function ConfiguracoesPage() {
   const [modulosPermissoes, setModulosPermissoes] = useState<ModuloPermissao[]>([]);
   const [matrizPermissoes, setMatrizPermissoes] = useState<MatrizPermissaoPapel[]>([]);
   const [modoEdicaoUsuario, setModoEdicaoUsuario] = useState(false);
+  const [novoFeriadoData, setNovoFeriadoData] = useState("");
+  const [novoFeriadoTipo, setNovoFeriadoTipo] = useState<"local" | "nacional">("local");
+  const [novoFeriadoDescricao, setNovoFeriadoDescricao] = useState("");
+  const [novaExcecaoData, setNovaExcecaoData] = useState("");
+  const [novaExcecaoAtiva, setNovaExcecaoAtiva] = useState(true);
+  const [novaExcecaoInicio, setNovaExcecaoInicio] = useState("08:00");
+  const [novaExcecaoFim, setNovaExcecaoFim] = useState("18:00");
+  const [novaExcecaoMotivo, setNovaExcecaoMotivo] = useState("");
   const [usuarioForm, setUsuarioForm] = useState<UsuarioForm>({
     id: null,
     nome: "",
@@ -361,7 +385,13 @@ export default function ConfiguracoesPage() {
       // Carregar configurações da empresa
       const respEmpresa = await api.get("/configuracoes");
       if (respEmpresa.data) {
-        setConfigEmpresa((prev) => ({ ...prev, ...respEmpresa.data }));
+        setConfigEmpresa((prev) => ({
+          ...prev,
+          ...respEmpresa.data,
+          agenda_semanal: normalizarAgendaSemanal(respEmpresa.data?.agenda_semanal),
+          agenda_feriados: normalizarAgendaFeriados(respEmpresa.data?.agenda_feriados),
+          agenda_excecoes: normalizarAgendaExcecoes(respEmpresa.data?.agenda_excecoes),
+        }));
         
         // Carregar preview da logomarca se existir
         if (respEmpresa.data.tem_logomarca) {
@@ -397,13 +427,106 @@ export default function ConfiguracoesPage() {
   const salvarConfigEmpresa = async () => {
     try {
       setSalvando(true);
-      await api.put("/configuracoes", configEmpresa);
+      const payload = {
+        ...configEmpresa,
+        agenda_semanal: normalizarAgendaSemanal(configEmpresa.agenda_semanal),
+        agenda_feriados: normalizarAgendaFeriados(configEmpresa.agenda_feriados),
+        agenda_excecoes: normalizarAgendaExcecoes(configEmpresa.agenda_excecoes),
+      };
+      await api.put("/configuracoes", payload);
+      setConfigEmpresa((prev) => ({
+        ...prev,
+        agenda_semanal: payload.agenda_semanal,
+        agenda_feriados: payload.agenda_feriados,
+        agenda_excecoes: payload.agenda_excecoes,
+      }));
       alert("Configurações da empresa salvas com sucesso!");
     } catch (error) {
       alert("Erro ao salvar configurações da empresa.");
     } finally {
       setSalvando(false);
     }
+  };
+
+  const atualizarJornadaDia = (
+    dia: keyof AgendaSemanalConfig,
+    campo: "ativo" | "inicio" | "fim",
+    valor: boolean | string
+  ) => {
+    setConfigEmpresa((prev) => {
+      const agendaAtual = normalizarAgendaSemanal(prev.agenda_semanal);
+      const diaAtual = agendaAtual[dia];
+      return {
+        ...prev,
+        agenda_semanal: {
+          ...agendaAtual,
+          [dia]: {
+            ...diaAtual,
+            [campo]: valor,
+          },
+        },
+      };
+    });
+  };
+
+  const adicionarFeriado = () => {
+    if (!novoFeriadoData) {
+      alert("Selecione a data do feriado.");
+      return;
+    }
+
+    const novoItem: AgendaFeriadoConfig = {
+      data: novoFeriadoData,
+      tipo: novoFeriadoTipo,
+      descricao: novoFeriadoDescricao.trim(),
+    };
+
+    setConfigEmpresa((prev) => ({
+      ...prev,
+      agenda_feriados: normalizarAgendaFeriados([...prev.agenda_feriados, novoItem]),
+    }));
+    setNovoFeriadoData("");
+    setNovoFeriadoDescricao("");
+    setNovoFeriadoTipo("local");
+  };
+
+  const removerFeriado = (data: string) => {
+    setConfigEmpresa((prev) => ({
+      ...prev,
+      agenda_feriados: prev.agenda_feriados.filter((item) => item.data !== data),
+    }));
+  };
+
+  const adicionarExcecao = () => {
+    if (!novaExcecaoData) {
+      alert("Selecione a data da excecao.");
+      return;
+    }
+
+    const novaExcecao: AgendaExcecaoConfig = {
+      data: novaExcecaoData,
+      ativo: novaExcecaoAtiva,
+      inicio: novaExcecaoInicio,
+      fim: novaExcecaoFim,
+      motivo: novaExcecaoMotivo.trim(),
+    };
+
+    setConfigEmpresa((prev) => ({
+      ...prev,
+      agenda_excecoes: normalizarAgendaExcecoes([...prev.agenda_excecoes, novaExcecao]),
+    }));
+    setNovaExcecaoData("");
+    setNovaExcecaoAtiva(true);
+    setNovaExcecaoInicio("08:00");
+    setNovaExcecaoFim("18:00");
+    setNovaExcecaoMotivo("");
+  };
+
+  const removerExcecao = (data: string) => {
+    setConfigEmpresa((prev) => ({
+      ...prev,
+      agenda_excecoes: prev.agenda_excecoes.filter((item) => item.data !== data),
+    }));
   };
 
   const salvarConfigUsuario = async () => {
@@ -522,6 +645,8 @@ export default function ConfiguracoesPage() {
       alert("Erro ao remover assinatura.");
     }
   };
+
+  const agendaSemanalAtual = normalizarAgendaSemanal(configEmpresa.agenda_semanal);
 
   if (loading) {
     return (
@@ -685,6 +810,230 @@ export default function ConfiguracoesPage() {
                 >
                   <Save className="w-4 h-4" />
                   {salvando ? "Salvando..." : "Salvar Dados da Empresa"}
+                </button>
+              </div>
+            </div>
+
+            {/* Jornada da Agenda */}
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <h2 className="text-lg font-semibold mb-2">Funcionamento da Agenda</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                Defina abertura/fechamento por dia da semana e os feriados (local ou nacional) em que a agenda fica fechada.
+              </p>
+
+              <div className="overflow-x-auto mb-6">
+                <table className="min-w-full text-sm border border-gray-200 rounded-lg">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium">Dia</th>
+                      <th className="text-left px-3 py-2 font-medium">Aberta</th>
+                      <th className="text-left px-3 py-2 font-medium">Abre</th>
+                      <th className="text-left px-3 py-2 font-medium">Fecha</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {DIAS_SEMANA_LABELS.map((dia) => {
+                      const cfg = agendaSemanalAtual[dia.id];
+                      return (
+                        <tr key={dia.id} className="border-t border-gray-100">
+                          <td className="px-3 py-2 text-gray-800">{dia.nome}</td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={cfg.ativo}
+                              onChange={(e) => atualizarJornadaDia(dia.id, "ativo", e.target.checked)}
+                              className="w-4 h-4 text-teal-600"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="time"
+                              value={cfg.inicio}
+                              disabled={!cfg.ativo}
+                              onChange={(e) => atualizarJornadaDia(dia.id, "inicio", e.target.value)}
+                              className="px-3 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100 disabled:text-gray-400"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="time"
+                              value={cfg.fim}
+                              disabled={!cfg.ativo}
+                              onChange={(e) => atualizarJornadaDia(dia.id, "fim", e.target.value)}
+                              className="px-3 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100 disabled:text-gray-400"
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="border border-gray-200 rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-gray-800 mb-3">Feriados com agenda fechada</h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+                  <input
+                    type="date"
+                    value={novoFeriadoData}
+                    onChange={(e) => setNovoFeriadoData(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg"
+                  />
+                  <select
+                    value={novoFeriadoTipo}
+                    onChange={(e) => setNovoFeriadoTipo((e.target.value === "nacional" ? "nacional" : "local"))}
+                    className="px-3 py-2 border border-gray-300 rounded-lg"
+                  >
+                    <option value="local">Local</option>
+                    <option value="nacional">Nacional</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={novoFeriadoDescricao}
+                    onChange={(e) => setNovoFeriadoDescricao(e.target.value)}
+                    placeholder="Descricao (opcional)"
+                    className="px-3 py-2 border border-gray-300 rounded-lg md:col-span-2"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={adicionarFeriado}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Adicionar feriado
+                </button>
+
+                <div className="mt-4 space-y-2">
+                  {configEmpresa.agenda_feriados.length === 0 ? (
+                    <p className="text-sm text-gray-500">Nenhum feriado cadastrado.</p>
+                  ) : (
+                    configEmpresa.agenda_feriados.map((feriado) => (
+                      <div
+                        key={feriado.data}
+                        className="flex items-center justify-between gap-3 px-3 py-2 border border-gray-200 rounded-lg"
+                      >
+                        <div className="text-sm text-gray-700">
+                          <span className="font-medium">{new Date(`${feriado.data}T00:00:00`).toLocaleDateString("pt-BR")}</span>
+                          <span className="mx-2 text-gray-400">|</span>
+                          <span className="uppercase text-xs font-semibold text-orange-700">
+                            {feriado.tipo || "local"}
+                          </span>
+                          {(feriado.descricao || "").trim() ? (
+                            <span className="ml-2 text-gray-600">- {feriado.descricao}</span>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removerFeriado(feriado.data)}
+                          className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="border border-gray-200 rounded-lg p-4 mt-4">
+                <h3 className="text-sm font-semibold text-gray-800 mb-3">Excecoes por data (horario especial)</h3>
+                <p className="text-xs text-gray-500 mb-3">
+                  Use para ampliar ou reduzir horario em um dia especifico. Exemplo: amanha das 08:00 as 18:00.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-3">
+                  <input
+                    type="date"
+                    value={novaExcecaoData}
+                    onChange={(e) => setNovaExcecaoData(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg"
+                  />
+                  <label className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={novaExcecaoAtiva}
+                      onChange={(e) => setNovaExcecaoAtiva(e.target.checked)}
+                      className="w-4 h-4 text-teal-600"
+                    />
+                    Agenda aberta
+                  </label>
+                  <input
+                    type="time"
+                    value={novaExcecaoInicio}
+                    disabled={!novaExcecaoAtiva}
+                    onChange={(e) => setNovaExcecaoInicio(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100 disabled:text-gray-400"
+                  />
+                  <input
+                    type="time"
+                    value={novaExcecaoFim}
+                    disabled={!novaExcecaoAtiva}
+                    onChange={(e) => setNovaExcecaoFim(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100 disabled:text-gray-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={adicionarExcecao}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  >
+                    Adicionar excecao
+                  </button>
+                </div>
+
+                <input
+                  type="text"
+                  value={novaExcecaoMotivo}
+                  onChange={(e) => setNovaExcecaoMotivo(e.target.value)}
+                  placeholder="Motivo (opcional)"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-4"
+                />
+
+                <div className="space-y-2">
+                  {configEmpresa.agenda_excecoes.length === 0 ? (
+                    <p className="text-sm text-gray-500">Nenhuma excecao cadastrada.</p>
+                  ) : (
+                    configEmpresa.agenda_excecoes.map((excecao) => (
+                      <div
+                        key={excecao.data}
+                        className="flex items-center justify-between gap-3 px-3 py-2 border border-gray-200 rounded-lg"
+                      >
+                        <div className="text-sm text-gray-700">
+                          <span className="font-medium">{new Date(`${excecao.data}T00:00:00`).toLocaleDateString("pt-BR")}</span>
+                          <span className="mx-2 text-gray-400">|</span>
+                          {excecao.ativo ? (
+                            <span className="text-emerald-700 font-medium">
+                              Aberta {excecao.inicio} as {excecao.fim}
+                            </span>
+                          ) : (
+                            <span className="text-red-700 font-medium">Fechada</span>
+                          )}
+                          {(excecao.motivo || "").trim() ? (
+                            <span className="ml-2 text-gray-600">- {excecao.motivo}</span>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removerExcecao(excecao.data)}
+                          className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <button
+                  onClick={salvarConfigEmpresa}
+                  disabled={salvando}
+                  className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" />
+                  {salvando ? "Salvando..." : "Salvar funcionamento da agenda"}
                 </button>
               </div>
             </div>
