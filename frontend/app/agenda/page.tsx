@@ -35,6 +35,11 @@ interface LaudoVinculado {
   titulo: string;
 }
 
+interface OrdemServicoPagamento {
+  os_id: number;
+  numero_os: string;
+}
+
 type StatusType = "Agendado" | "Confirmado" | "Em atendimento" | "Realizado" | "Cancelado" | "Faltou";
 type ModoVisualizacao = "lista" | "panoramica-dia" | "panoramica-semana";
 
@@ -166,6 +171,7 @@ export default function AgendaPage() {
   const [tipoHorario, setTipoHorario] = useState<"comercial" | "plantao">("comercial");
   const [osGerada, setOsGerada] = useState<{ numero_os: string; valor_final: number } | null>(null);
   const [laudosVinculados, setLaudosVinculados] = useState<Record<number, LaudoVinculado>>({});
+  const [osPagasVinculadas, setOsPagasVinculadas] = useState<Record<number, OrdemServicoPagamento>>({});
   const router = useRouter();
 
   const periodoConsulta = useMemo(() => {
@@ -214,7 +220,10 @@ export default function AgendaPage() {
       const response = await api.get(url);
       const items = response.data.items || [];
       setAgendamentos(items);
-      await carregarLaudosVinculados(items);
+      await Promise.all([
+        carregarLaudosVinculados(items),
+        carregarOsPagasVinculadas(items),
+      ]);
       setErro("");
     } catch (error: any) {
       console.error("Erro ao carregar:", error);
@@ -262,6 +271,59 @@ export default function AgendaPage() {
     } catch (error) {
       console.error("Erro ao carregar laudos vinculados aos agendamentos:", error);
       setLaudosVinculados({});
+    }
+  };
+
+  const carregarOsPagasVinculadas = async (items: Agendamento[]) => {
+    const idsAgendamento = new Set(items.map((item) => item.id));
+    if (idsAgendamento.size === 0) {
+      setOsPagasVinculadas({});
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams();
+      params.append("status", "Pago");
+      params.append("limit", "2000");
+
+      if (periodoConsulta.inicio && periodoConsulta.fim) {
+        params.append("data_inicio", periodoConsulta.inicio);
+        params.append("data_fim", periodoConsulta.fim);
+      }
+
+      const respOs = await api.get(`/ordens-servico?${params.toString()}`);
+      const listaOs = respOs.data?.items || [];
+
+      const mapa: Record<number, OrdemServicoPagamento> = {};
+      for (const os of listaOs) {
+        const agendamentoId = Number(os?.agendamento_id);
+        if (!Number.isFinite(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
+          continue;
+        }
+
+        const statusOs = String(os?.status || "").trim().toLowerCase();
+        if (statusOs !== "pago") {
+          continue;
+        }
+
+        const osId = Number(os?.id);
+        if (!Number.isFinite(osId)) {
+          continue;
+        }
+
+        const anterior = mapa[agendamentoId];
+        if (!anterior || osId > anterior.os_id) {
+          mapa[agendamentoId] = {
+            os_id: osId,
+            numero_os: String(os?.numero_os || ""),
+          };
+        }
+      }
+
+      setOsPagasVinculadas(mapa);
+    } catch (error) {
+      console.error("Erro ao carregar status de pagamento das OS:", error);
+      setOsPagasVinculadas({});
     }
   };
 
@@ -461,6 +523,9 @@ export default function AgendaPage() {
     const mapa = new Map<string, Agendamento[]>();
 
     for (const ag of agendamentosFiltrados) {
+      // Cancelado não deve ocupar slot na panorâmica.
+      if ((ag.status || "").trim().toLowerCase() === "cancelado") continue;
+
       const inicio = parseAgendamentoInicioLocal(ag);
       if (!inicio) continue;
 
@@ -722,6 +787,7 @@ export default function AgendaPage() {
                 const proximosStatus = getProximosStatus(ag.status);
                 const laudoVinculado = laudosVinculados[ag.id];
                 const laudoPronto = podeBaixarLaudo(laudoVinculado?.status);
+                const osPaga = osPagasVinculadas[ag.id];
                 
                 return (
                   <div key={ag.id} className="p-5 hover:bg-gray-50 transition-colors">
@@ -737,6 +803,15 @@ export default function AgendaPage() {
                             <StatusIcon className="w-3 h-3" />
                             {ag.status}
                           </span>
+                          {osPaga && (
+                            <span
+                              className="px-3 py-1 rounded-full text-xs font-medium border flex items-center gap-1 bg-emerald-50 text-emerald-700 border-emerald-200"
+                              title={osPaga.numero_os ? `OS ${osPaga.numero_os} ja recebida no financeiro` : "OS recebida no financeiro"}
+                            >
+                              <CheckCircle2 className="w-3 h-3" />
+                              Pago
+                            </span>
+                          )}
                         </div>
 
                         <div className="text-base font-semibold text-gray-900 mb-2">
