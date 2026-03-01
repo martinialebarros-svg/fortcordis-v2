@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import { getRacaOptions } from "@/lib/racas";
 import { Save, ArrowLeft, Dog, Trash2, AlertTriangle } from "lucide-react";
 
 export default function EditarPacientePage() {
@@ -25,6 +26,7 @@ export default function EditarPacientePage() {
     microchip: "",
     observacoes: "",
   });
+  const opcoesRaca = getRacaOptions(paciente.especie, paciente.raca);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -159,7 +161,7 @@ export default function EditarPacientePage() {
               </label>
               <select
                 value={paciente.especie}
-                onChange={(e) => setPaciente({...paciente, especie: e.target.value})}
+                onChange={(e) => setPaciente({...paciente, especie: e.target.value, raca: ""})}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 <option value="Canina">Canina</option>
@@ -173,13 +175,18 @@ export default function EditarPacientePage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Raça
               </label>
-              <input
-                type="text"
+              <select
                 value={paciente.raca}
                 onChange={(e) => setPaciente({...paciente, raca: e.target.value})}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                placeholder="Ex: SRD"
-              />
+              >
+                <option value="">Selecione...</option>
+                {opcoesRaca.map((raca) => (
+                  <option key={raca} value={raca}>
+                    {raca}
+                  </option>
+                ))}
+              </select>
             </div>
             
             <div>
