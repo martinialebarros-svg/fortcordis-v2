@@ -40,6 +40,15 @@ interface OrdemServicoPagamento {
   numero_os: string;
 }
 
+interface ClinicaEndereco {
+  id: number;
+  nome?: string | null;
+  endereco?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
+  cep?: string | null;
+}
+
 type StatusType = "Agendado" | "Confirmado" | "Em atendimento" | "Realizado" | "Cancelado" | "Faltou";
 type ModoVisualizacao = "lista" | "panoramica-dia" | "panoramica-semana";
 
@@ -172,6 +181,7 @@ export default function AgendaPage() {
   const [osGerada, setOsGerada] = useState<{ numero_os: string; valor_final: number } | null>(null);
   const [laudosVinculados, setLaudosVinculados] = useState<Record<number, LaudoVinculado>>({});
   const [osPagasVinculadas, setOsPagasVinculadas] = useState<Record<number, OrdemServicoPagamento>>({});
+  const [clinicasEndereco, setClinicasEndereco] = useState<Record<number, ClinicaEndereco>>({});
   const router = useRouter();
 
   const periodoConsulta = useMemo(() => {
@@ -223,6 +233,7 @@ export default function AgendaPage() {
       await Promise.all([
         carregarLaudosVinculados(items),
         carregarOsPagasVinculadas(items),
+        carregarClinicasComEndereco(items),
       ]);
       setErro("");
     } catch (error: any) {
@@ -325,6 +336,90 @@ export default function AgendaPage() {
       console.error("Erro ao carregar status de pagamento das OS:", error);
       setOsPagasVinculadas({});
     }
+  };
+
+  const carregarClinicasComEndereco = async (items: Agendamento[]) => {
+    const idsClinica = Array.from(
+      new Set(
+        items
+          .map((item) => Number(item.clinica_id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      )
+    );
+
+    if (idsClinica.length === 0) {
+      setClinicasEndereco({});
+      return;
+    }
+
+    try {
+      const respClinicas = await api.get("/clinicas?limit=1000");
+      const listaClinicas = respClinicas.data?.items || [];
+
+      const mapa: Record<number, ClinicaEndereco> = {};
+      for (const clinica of listaClinicas) {
+        const clinicaId = Number(clinica?.id);
+        if (!Number.isFinite(clinicaId) || !idsClinica.includes(clinicaId)) {
+          continue;
+        }
+
+        mapa[clinicaId] = {
+          id: clinicaId,
+          nome: clinica?.nome || null,
+          endereco: clinica?.endereco || null,
+          cidade: clinica?.cidade || null,
+          estado: clinica?.estado || null,
+          cep: clinica?.cep || null,
+        };
+      }
+
+      setClinicasEndereco(mapa);
+    } catch (error) {
+      console.error("Erro ao carregar enderecos das clinicas:", error);
+      setClinicasEndereco({});
+    }
+  };
+
+  const montarEnderecoClinica = (clinica: ClinicaEndereco | null | undefined): string => {
+    if (!clinica) return "";
+
+    const partes = [
+      String(clinica.endereco || "").trim(),
+      String(clinica.cidade || "").trim(),
+      String(clinica.estado || "").trim(),
+      String(clinica.cep || "").trim(),
+    ].filter((parte) => Boolean(parte));
+
+    return partes.join(", ");
+  };
+
+  const abrirWazeParaClinica = (enderecoClinica: string, nomeClinica?: string | null) => {
+    const destino = String(enderecoClinica || "").trim();
+    if (!destino) {
+      alert(`A clinica ${nomeClinica || ""} nao possui endereco cadastrado.`);
+      return;
+    }
+
+    const query = encodeURIComponent(destino);
+    const appUrl = `waze://?q=${query}&navigate=yes`;
+    const webUrl = `https://waze.com/ul?q=${query}&navigate=yes`;
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+
+    if (isMobile) {
+      const startedAt = Date.now();
+      window.location.href = appUrl;
+
+      window.setTimeout(() => {
+        const elapsed = Date.now() - startedAt;
+        const appProvavelmenteAberto = document.visibilityState === "hidden";
+        if (!appProvavelmenteAberto && elapsed < 2200) {
+          window.location.href = webUrl;
+        }
+      }, 1200);
+      return;
+    }
+
+    window.open(webUrl, "_blank", "noopener,noreferrer");
   };
 
   const atualizarStatus = async (id: number, novoStatus: StatusType, tipoHorarioParam?: "comercial" | "plantao") => {
@@ -788,6 +883,9 @@ export default function AgendaPage() {
                 const laudoVinculado = laudosVinculados[ag.id];
                 const laudoPronto = podeBaixarLaudo(laudoVinculado?.status);
                 const osPaga = osPagasVinculadas[ag.id];
+                const clinicaComEndereco = ag.clinica_id ? clinicasEndereco[ag.clinica_id] : undefined;
+                const enderecoClinica = montarEnderecoClinica(clinicaComEndereco);
+                const podeAbrirWaze = Boolean(enderecoClinica);
                 
                 return (
                   <div key={ag.id} className="p-5 hover:bg-gray-50 transition-colors">
@@ -903,6 +1001,29 @@ export default function AgendaPage() {
                         >
                           <Stethoscope className="w-4 h-4" />
                           Atender
+                        </button>
+
+                        <button
+                          onClick={() => abrirWazeParaClinica(enderecoClinica, ag.clinica)}
+                          disabled={!podeAbrirWaze}
+                          className={`px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center gap-1 ${
+                            podeAbrirWaze
+                              ? "text-sky-700 hover:text-sky-900 hover:bg-sky-50"
+                              : "text-gray-400 bg-gray-50 cursor-not-allowed"
+                          }`}
+                          title={
+                            podeAbrirWaze
+                              ? `Abrir Waze para ${ag.clinica || "clinica"}`
+                              : "Clinica sem endereco cadastrado"
+                          }
+                        >
+                          <img
+                            src="/icons/waze.svg"
+                            alt="Waze"
+                            className="h-[19.4px] w-[19.4px] rounded-sm object-contain"
+                            loading="lazy"
+                          />
+                          Waze
                         </button>
 
                         <button
