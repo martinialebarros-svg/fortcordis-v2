@@ -29,11 +29,15 @@ export default function LoginPage() {
       });
 
       localStorage.setItem("token", response.data.access_token);
-      localStorage.setItem("user", JSON.stringify({
-        id: response.data.user_id,
-        nome: response.data.nome,
-        email: response.data.email,
-      }));
+      localStorage.setItem(
+        "user",
+        JSON.stringify({
+          id: response.data.user_id,
+          nome: response.data.nome,
+          email: response.data.email,
+          papeis: Array.isArray(response.data.papeis) ? response.data.papeis : [],
+        })
+      );
 
       router.push("/dashboard");
     } catch (err: any) {
@@ -48,21 +52,21 @@ export default function LoginPage() {
       <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-xl shadow-lg">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-gray-900">FortCordis</h1>
-          <p className="mt-2 text-gray-600">Sistema de Gestão Veterinária</p>
+          <p className="mt-2 text-gray-600">Sistema de Gestao Veterinaria</p>
         </div>
 
         <form className="mt-8 space-y-6" onSubmit={handleLogin}>
-          {error && (
-            <div className="bg-red-50 text-red-500 p-3 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
+          {error && <div className="bg-red-50 text-red-500 p-3 rounded-lg text-sm">{error}</div>}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">Email</label>
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+              Email
+            </label>
             <div className="mt-1 relative">
               <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
               <input
+                id="email"
+                name="email"
                 type="email"
                 required
                 className="pl-10 w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -74,14 +78,18 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">Senha</label>
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+              Senha
+            </label>
             <div className="mt-1 relative">
               <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
               <input
+                id="password"
+                name="password"
                 type="password"
                 required
                 className="pl-10 w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="••••••••"
+                placeholder="********"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />

@@ -7,7 +7,7 @@ import api from "@/lib/axios";
 import { 
   Calendar, Clock, User, Building, Plus, RefreshCw, X, Trash2,
   CheckCircle2, PlayCircle, CheckCircle, XCircle, AlertCircle,
-  Search, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2
+  Search, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2, DollarSign
 } from "lucide-react";
 import NovoAgendamentoModal from "./NovoAgendamentoModal";
 
@@ -47,6 +47,15 @@ interface ClinicaEndereco {
   cidade?: string | null;
   estado?: string | null;
   cep?: string | null;
+}
+
+interface ResumoFinanceiroAgenda {
+  data_inicio: string;
+  data_fim: string;
+  qtd_realizados: number;
+  qtd_agendados: number;
+  valor_realizado: number;
+  valor_agendado: number;
 }
 
 type StatusType = "Agendado" | "Confirmado" | "Em atendimento" | "Realizado" | "Cancelado" | "Faltou";
@@ -182,6 +191,9 @@ export default function AgendaPage() {
   const [laudosVinculados, setLaudosVinculados] = useState<Record<number, LaudoVinculado>>({});
   const [osPagasVinculadas, setOsPagasVinculadas] = useState<Record<number, OrdemServicoPagamento>>({});
   const [clinicasEndereco, setClinicasEndereco] = useState<Record<number, ClinicaEndereco>>({});
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [resumoFinanceiro, setResumoFinanceiro] = useState<ResumoFinanceiroAgenda | null>(null);
+  const [carregandoResumoFinanceiro, setCarregandoResumoFinanceiro] = useState(false);
   const router = useRouter();
 
   const periodoConsulta = useMemo(() => {
@@ -211,14 +223,59 @@ export default function AgendaPage() {
     return { inicio: "", fim: "" };
   }, [filtroData, modoVisualizacao]);
 
+  const usuarioEhAdmin = () => {
+    if (typeof window === "undefined") return false;
+    const userData = localStorage.getItem("user");
+    const token = localStorage.getItem("token");
+
+    try {
+      if (userData) {
+        const user = JSON.parse(userData);
+        const papeisUser: unknown[] = Array.isArray(user?.papeis) ? user.papeis : [];
+        if (papeisUser.some((papel: unknown) => String(papel || "").trim().toLowerCase() === "admin")) {
+          return true;
+        }
+      }
+
+      if (token) {
+        const partes = token.split(".");
+        if (partes.length >= 2) {
+          const base64Url = partes[1];
+          const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+          const normalizado = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+          const payloadStr = atob(normalizado);
+          const payload = JSON.parse(payloadStr);
+          const papeisToken: unknown[] = Array.isArray(payload?.papeis) ? payload.papeis : [];
+          if (papeisToken.some((papel: unknown) => String(papel || "").trim().toLowerCase() === "admin")) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
       router.push("/");
       return;
     }
+    setIsAdmin(usuarioEhAdmin());
     carregarAgendamentos();
   }, [router, periodoConsulta.inicio, periodoConsulta.fim]);
+
+  useEffect(() => {
+    if (modoVisualizacao !== "lista") {
+      setResumoFinanceiro(null);
+      setCarregandoResumoFinanceiro(false);
+      return;
+    }
+    carregarResumoFinanceiro();
+  }, [isAdmin, modoVisualizacao, filtroData]);
 
   const carregarAgendamentos = async () => {
     setLoading(true);
@@ -235,6 +292,7 @@ export default function AgendaPage() {
         carregarOsPagasVinculadas(items),
         carregarClinicasComEndereco(items),
       ]);
+      await carregarResumoFinanceiro();
       setErro("");
     } catch (error: any) {
       console.error("Erro ao carregar:", error);
@@ -377,6 +435,28 @@ export default function AgendaPage() {
     } catch (error) {
       console.error("Erro ao carregar enderecos das clinicas:", error);
       setClinicasEndereco({});
+    }
+  };
+
+  const carregarResumoFinanceiro = async () => {
+    if (!isAdmin || modoVisualizacao !== "lista") {
+      setResumoFinanceiro(null);
+      return;
+    }
+
+    const dataReferencia = filtroData || hojeLocal();
+    setCarregandoResumoFinanceiro(true);
+
+    try {
+      const respResumo = await api.get(`/agenda/resumo-financeiro?data=${dataReferencia}`);
+      setResumoFinanceiro(respResumo.data || null);
+    } catch (error: any) {
+      if (error?.response?.status !== 403) {
+        console.error("Erro ao carregar resumo financeiro da agenda:", error);
+      }
+      setResumoFinanceiro(null);
+    } finally {
+      setCarregandoResumoFinanceiro(false);
     }
   };
 
@@ -677,6 +757,14 @@ export default function AgendaPage() {
     });
   };
 
+  const formatarMoedaBRL = (valor: number) => {
+    return Number(valor || 0).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+      minimumFractionDigits: 2,
+    });
+  };
+
   const navegarData = (dias: number) => {
     const data = parseDateInput(filtroData);
     data.setDate(data.getDate() + dias);
@@ -703,6 +791,9 @@ export default function AgendaPage() {
     }
     await carregarAgendamentos();
   };
+
+  const dataResumoFinanceiro = filtroData || hojeLocal();
+  const dataResumoFinanceiroLabel = parseDateInput(dataResumoFinanceiro).toLocaleDateString("pt-BR");
 
   return (
     <DashboardLayout>
@@ -753,6 +844,48 @@ export default function AgendaPage() {
             <div className="text-xs text-gray-500">Cancelados</div>
           </div>
         </div>
+
+        {isAdmin && modoVisualizacao === "lista" && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div className="bg-white p-4 rounded-lg border shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Realizado no dia</p>
+                  <p className="text-2xl font-bold text-emerald-600">
+                    {carregandoResumoFinanceiro
+                      ? "Carregando..."
+                      : formatarMoedaBRL(resumoFinanceiro?.valor_realizado || 0)}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {resumoFinanceiro?.qtd_realizados || 0} atendimento(s) realizado(s) em {dataResumoFinanceiroLabel}
+                  </p>
+                </div>
+                <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-lg border shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Previsao do agendado</p>
+                  <p className="text-2xl font-bold text-blue-600">
+                    {carregandoResumoFinanceiro
+                      ? "Carregando..."
+                      : formatarMoedaBRL(resumoFinanceiro?.valor_agendado || 0)}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {resumoFinanceiro?.qtd_agendados || 0} atendimento(s) agendado(s) em {dataResumoFinanceiroLabel}
+                  </p>
+                </div>
+                <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Filtros */}
         {erro && (

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -10,6 +11,7 @@ from app.models.agendamento import Agendamento
 from app.models.paciente import Paciente
 from app.models.clinica import Clinica
 from app.models.servico import Servico
+from app.models.ordem_servico import OrdemServico
 from app.models.user import User
 from app.models.tutor import Tutor
 from app.schemas.agendamento import (
@@ -258,6 +260,100 @@ def listar_agendamentos(
     ]
 
     return {"total": total, "items": items}
+
+
+def _calcular_previsao_agendamento(db: Session, agendamento: Agendamento) -> Decimal:
+    if not agendamento.clinica_id or not agendamento.servico_id:
+        return Decimal("0.00")
+
+    try:
+        return calcular_preco_servico(
+            db=db,
+            clinica_id=agendamento.clinica_id,
+            servico_id=agendamento.servico_id,
+            tipo_horario="comercial",
+            usar_preco_clinica=True,
+        )
+    except HTTPException:
+        return Decimal("0.00")
+
+
+@router.get("/resumo-financeiro")
+def resumo_financeiro_agenda(
+    data: Optional[str] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Resumo financeiro da agenda para admin (realizado x agendado)."""
+    if not current_user.tem_papel("admin"):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem acessar este resumo.")
+
+    if data:
+        inicio = _extract_date_filter(data)
+        fim = inicio
+    else:
+        inicio = _extract_date_filter(data_inicio)
+        fim = _extract_date_filter(data_fim)
+
+    if not inicio:
+        hoje = datetime.now(LOCAL_TZ).date().isoformat()
+        inicio = hoje
+    if not fim:
+        fim = inicio
+
+    agendamentos = (
+        db.query(Agendamento)
+        .filter(Agendamento.data >= inicio, Agendamento.data <= fim)
+        .all()
+    )
+
+    ids_agendamento = [ag.id for ag in agendamentos]
+    mapa_os: dict[int, OrdemServico] = {}
+    if ids_agendamento:
+        ordens = (
+            db.query(OrdemServico)
+            .filter(
+                OrdemServico.agendamento_id.in_(ids_agendamento),
+                OrdemServico.status != "Cancelado",
+            )
+            .order_by(OrdemServico.id.desc())
+            .all()
+        )
+        for os_data in ordens:
+            if os_data.agendamento_id not in mapa_os:
+                mapa_os[os_data.agendamento_id] = os_data
+
+    valor_realizado = Decimal("0.00")
+    valor_agendado = Decimal("0.00")
+    qtd_realizados = 0
+    qtd_agendados = 0
+
+    for ag in agendamentos:
+        os_vinculada = mapa_os.get(ag.id)
+        valor_base = (
+            Decimal(str(os_vinculada.valor_final))
+            if os_vinculada and os_vinculada.valor_final is not None
+            else _calcular_previsao_agendamento(db, ag)
+        )
+
+        if ag.status == "Realizado":
+            qtd_realizados += 1
+            valor_realizado += valor_base
+        elif ag.status in ("Agendado", "Confirmado", "Em atendimento"):
+            qtd_agendados += 1
+            valor_agendado += valor_base
+
+    return {
+        "data_inicio": inicio,
+        "data_fim": fim,
+        "qtd_realizados": qtd_realizados,
+        "qtd_agendados": qtd_agendados,
+        "valor_realizado": float(valor_realizado),
+        "valor_agendado": float(valor_agendado),
+    }
+
 
 @router.get("/hoje", response_model=AgendamentoLista)
 def agendamentos_hoje(

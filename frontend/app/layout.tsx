@@ -9,7 +9,10 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "FortCordis",
-  description: "Sistema de gestão para clínicas veterinárias",
+  description: "Sistema de gestao para clinicas veterinarias",
+  other: {
+    google: "notranslate",
+  },
 };
 
 export default function RootLayout({
@@ -18,8 +21,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR" suppressHydrationWarning>
-      <body className={`${inter.variable} font-sans antialiased`} suppressHydrationWarning>
+    <html lang="pt-BR" translate="no" className="notranslate" suppressHydrationWarning>
+      <body
+        className={`${inter.variable} font-sans antialiased notranslate`}
+        translate="no"
+        suppressHydrationWarning
+      >
         {children}
       </body>
     </html>

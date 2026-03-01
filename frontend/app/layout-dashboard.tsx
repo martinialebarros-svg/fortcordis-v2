@@ -45,6 +45,7 @@ export default function DashboardLayout({
   const [user, setUser] = useState<any>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [nomeClinica, setNomeClinica] = useState("FortCordis");
   const [nomeClinicaDraft, setNomeClinicaDraft] = useState("FortCordis");
   const [editandoNomeClinica, setEditandoNomeClinica] = useState(false);
@@ -207,6 +208,43 @@ export default function DashboardLayout({
   useEffect(() => {
     capturarFaviconOriginal();
   }, []);
+
+  useEffect(() => {
+    // Fallback para evitar tela presa em "Carregando..." caso algum efeito falhe em dev/HMR.
+    const timeout = window.setTimeout(() => setAuthChecked(true), 1200);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const syncViewport = () => {
+      const isMobile = window.innerWidth < 1024;
+      setIsMobileViewport(isMobile);
+      if (!isMobile) {
+        setSidebarOpen(false);
+      }
+    };
+
+    syncViewport();
+    window.addEventListener("resize", syncViewport);
+    return () => window.removeEventListener("resize", syncViewport);
+  }, []);
+
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSidebarOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [sidebarOpen]);
 
   useEffect(() => {
     aplicarFavicon(logoUrl || "/favicon.ico");
@@ -399,16 +437,15 @@ export default function DashboardLayout({
           </div>
         </aside>
 
-        {/* Overlay mobile */}
-        {sidebarOpen && (
-          <div
-            className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-40"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
-
         {/* Main content */}
-        <main className="flex-1 min-w-0">
+        <main
+          className="flex-1 min-w-0"
+          onClick={() => {
+            if (sidebarOpen && isMobileViewport) {
+              setSidebarOpen(false);
+            }
+          }}
+        >
           {children}
         </main>
       </div>
