@@ -94,12 +94,83 @@ const RACAS_POR_ESPECIE: Record<string, string[]> = {
 };
 
 const DEFAULT_RACAS = ["SRD"];
+const STORAGE_KEY = "fortcordis:racas-custom-por-especie";
 
-export function getRacaOptions(especie?: string, racaAtual?: string): string[] {
-  const base = RACAS_POR_ESPECIE[especie || ""] || DEFAULT_RACAS;
-  const atual = (racaAtual || "").trim();
-  if (atual && !base.includes(atual)) {
-    return [atual, ...base];
+function pushUniqueCaseInsensitive(list: string[], value: string) {
+  const normalized = value.toLowerCase();
+  if (!list.some((item) => item.toLowerCase() === normalized)) {
+    list.push(value);
   }
-  return base;
+}
+
+export function getRacaOptions(especie?: string, racaAtual?: string, racasExtras: string[] = []): string[] {
+  const base = RACAS_POR_ESPECIE[especie || ""] || DEFAULT_RACAS;
+  const opcoes = [...base];
+
+  for (const extra of racasExtras) {
+    const raca = (extra || "").trim();
+    if (!raca) continue;
+    pushUniqueCaseInsensitive(opcoes, raca);
+  }
+
+  const atual = (racaAtual || "").trim();
+  if (atual) {
+    pushUniqueCaseInsensitive(opcoes, atual);
+  }
+
+  return opcoes;
+}
+
+export function addRacaCustomPorEspecie(
+  mapaAtual: Record<string, string[]>,
+  especie: string,
+  novaRaca: string,
+): Record<string, string[]> {
+  const especieAtual = (especie || "").trim();
+  const raca = (novaRaca || "").trim();
+  if (!especieAtual || !raca) return mapaAtual;
+
+  const listaAtual = mapaAtual[especieAtual] || [];
+  if (listaAtual.some((item) => item.toLowerCase() === raca.toLowerCase())) {
+    return mapaAtual;
+  }
+
+  return {
+    ...mapaAtual,
+    [especieAtual]: [...listaAtual, raca],
+  };
+}
+
+export function loadRacasCustomPorEspecie(): Record<string, string[]> {
+  if (typeof window === "undefined") return {};
+
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+
+    const resultado: Record<string, string[]> = {};
+    for (const [especie, racas] of Object.entries(parsed)) {
+      if (!Array.isArray(racas)) continue;
+      resultado[especie] = racas
+        .map((item) => String(item || "").trim())
+        .filter(Boolean);
+    }
+
+    return resultado;
+  } catch {
+    return {};
+  }
+}
+
+export function saveRacasCustomPorEspecie(mapaAtual: Record<string, string[]>) {
+  if (typeof window === "undefined") return;
+
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(mapaAtual));
+  } catch {
+    // Ignora falhas de armazenamento (quota/permissão)
+  }
 }

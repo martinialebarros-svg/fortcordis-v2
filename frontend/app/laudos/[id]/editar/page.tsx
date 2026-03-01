@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../../layout-dashboard";
 import api from "@/lib/axios";
-import { getRacaOptions } from "@/lib/racas";
+import {
+  addRacaCustomPorEspecie,
+  getRacaOptions,
+  loadRacasCustomPorEspecie,
+  saveRacasCustomPorEspecie,
+} from "@/lib/racas";
 import XmlUploader from "../../components/XmlUploader";
 import ImageUploader from "../../components/ImageUploader";
 import { ArrowLeft, Save, User, Activity, Heart, BookOpen, Settings, Image as ImageIcon, Minus, Plus } from "lucide-react";
@@ -274,7 +279,26 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     telefone: "",
     data_exame: new Date().toISOString().split('T')[0],
   });
-  const opcoesRaca = getRacaOptions(pacienteForm.especie, pacienteForm.raca);
+  const [novaRaca, setNovaRaca] = useState("");
+  const [racasCustomPorEspecie, setRacasCustomPorEspecie] = useState<Record<string, string[]>>({});
+  const [racasLoaded, setRacasLoaded] = useState(false);
+  const opcoesRaca = getRacaOptions(
+    pacienteForm.especie,
+    pacienteForm.raca,
+    racasCustomPorEspecie[pacienteForm.especie] || [],
+  );
+
+  const handleAdicionarRaca = () => {
+    const racaDigitada = novaRaca.trim();
+    if (!racaDigitada) return;
+
+    const racaExistente =
+      opcoesRaca.find((item) => item.toLowerCase() === racaDigitada.toLowerCase()) || racaDigitada;
+
+    setRacasCustomPorEspecie((prev) => addRacaCustomPorEspecie(prev, pacienteForm.especie, racaDigitada));
+    setPacienteForm((prev) => ({ ...prev, raca: racaExistente }));
+    setNovaRaca("");
+  };
 
   // Clínica
   const [clinicaId, setClinicaId] = useState<string>("");
@@ -299,6 +323,16 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
   const [salvandoFraseQualitativa, setSalvandoFraseQualitativa] = useState(false);
   const [fraseAplicadaId, setFraseAplicadaId] = useState<number | null>(null);
   const [frases, setFrases] = useState<FraseQualitativa[]>([]);
+
+  useEffect(() => {
+    setRacasCustomPorEspecie(loadRacasCustomPorEspecie());
+    setRacasLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!racasLoaded) return;
+    saveRacasCustomPorEspecie(racasCustomPorEspecie);
+  }, [racasLoaded, racasCustomPorEspecie]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -1277,7 +1311,10 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                         </label>
                         <select
                           value={pacienteForm.especie}
-                          onChange={(e) => setPacienteForm({...pacienteForm, especie: e.target.value, raca: ""})}
+                          onChange={(e) => {
+                            setPacienteForm({ ...pacienteForm, especie: e.target.value, raca: "" });
+                            setNovaRaca("");
+                          }}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                         >
                           <option value="Canina">Canina</option>
@@ -1303,6 +1340,29 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                             </option>
                           ))}
                         </select>
+                        <div className="mt-2 flex gap-2">
+                          <input
+                            type="text"
+                            value={novaRaca}
+                            onChange={(e) => setNovaRaca(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleAdicionarRaca();
+                              }
+                            }}
+                            placeholder="Adicionar nova raça"
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleAdicionarRaca}
+                            disabled={!novaRaca.trim()}
+                            className="px-3 py-2 rounded-lg border border-teal-200 text-teal-700 hover:bg-teal-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Adicionar
+                          </button>
+                        </div>
                       </div>
 
                       <div>

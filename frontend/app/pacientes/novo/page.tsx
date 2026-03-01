@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
-import { getRacaOptions } from "@/lib/racas";
+import {
+  addRacaCustomPorEspecie,
+  getRacaOptions,
+  loadRacasCustomPorEspecie,
+  saveRacasCustomPorEspecie,
+} from "@/lib/racas";
 import { Save, ArrowLeft, Dog } from "lucide-react";
 
 export default function NovoPacientePage() {
@@ -21,7 +26,36 @@ export default function NovoPacientePage() {
     microchip: "",
     observacoes: "",
   });
-  const opcoesRaca = getRacaOptions(paciente.especie, paciente.raca);
+  const [novaRaca, setNovaRaca] = useState("");
+  const [racasCustomPorEspecie, setRacasCustomPorEspecie] = useState<Record<string, string[]>>({});
+  const [racasLoaded, setRacasLoaded] = useState(false);
+  const opcoesRaca = getRacaOptions(
+    paciente.especie,
+    paciente.raca,
+    racasCustomPorEspecie[paciente.especie] || [],
+  );
+
+  const handleAdicionarRaca = () => {
+    const racaDigitada = novaRaca.trim();
+    if (!racaDigitada) return;
+
+    const racaExistente =
+      opcoesRaca.find((item) => item.toLowerCase() === racaDigitada.toLowerCase()) || racaDigitada;
+
+    setRacasCustomPorEspecie((prev) => addRacaCustomPorEspecie(prev, paciente.especie, racaDigitada));
+    setPaciente((prev) => ({ ...prev, raca: racaExistente }));
+    setNovaRaca("");
+  };
+
+  useEffect(() => {
+    setRacasCustomPorEspecie(loadRacasCustomPorEspecie());
+    setRacasLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!racasLoaded) return;
+    saveRacasCustomPorEspecie(racasCustomPorEspecie);
+  }, [racasLoaded, racasCustomPorEspecie]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -100,7 +134,10 @@ export default function NovoPacientePage() {
               </label>
               <select
                 value={paciente.especie}
-                onChange={(e) => setPaciente({...paciente, especie: e.target.value, raca: ""})}
+                onChange={(e) => {
+                  setPaciente({ ...paciente, especie: e.target.value, raca: "" });
+                  setNovaRaca("");
+                }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 <option value="Canina">Canina</option>
@@ -126,6 +163,29 @@ export default function NovoPacientePage() {
                   </option>
                 ))}
               </select>
+              <div className="mt-2 flex gap-2">
+                <input
+                  type="text"
+                  value={novaRaca}
+                  onChange={(e) => setNovaRaca(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleAdicionarRaca();
+                    }
+                  }}
+                  placeholder="Adicionar nova raça"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={handleAdicionarRaca}
+                  disabled={!novaRaca.trim()}
+                  className="px-3 py-2 rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Adicionar
+                </button>
+              </div>
             </div>
             
             <div>

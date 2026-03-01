@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
-import { getRacaOptions } from "@/lib/racas";
+import {
+  addRacaCustomPorEspecie,
+  getRacaOptions,
+  loadRacasCustomPorEspecie,
+  saveRacasCustomPorEspecie,
+} from "@/lib/racas";
 import XmlUploader from "../components/XmlUploader";
 import ImageUploader from "../components/ImageUploader";
 import FraseModal from "../components/FraseModal";
@@ -219,7 +224,26 @@ export default function NovoLaudoPage() {
     telefone: "",
     data_exame: "",
   });
-  const opcoesRaca = getRacaOptions(paciente.especie, paciente.raca);
+  const [novaRaca, setNovaRaca] = useState("");
+  const [racasCustomPorEspecie, setRacasCustomPorEspecie] = useState<Record<string, string[]>>({});
+  const [racasLoaded, setRacasLoaded] = useState(false);
+  const opcoesRaca = getRacaOptions(
+    paciente.especie,
+    paciente.raca,
+    racasCustomPorEspecie[paciente.especie] || [],
+  );
+
+  const handleAdicionarRaca = () => {
+    const racaDigitada = novaRaca.trim();
+    if (!racaDigitada) return;
+
+    const racaExistente =
+      opcoesRaca.find((item) => item.toLowerCase() === racaDigitada.toLowerCase()) || racaDigitada;
+
+    setRacasCustomPorEspecie((prev) => addRacaCustomPorEspecie(prev, paciente.especie, racaDigitada));
+    setPaciente((prev) => ({ ...prev, raca: racaExistente }));
+    setNovaRaca("");
+  };
   
   // Medidas
   const [medidas, setMedidas] = useState<Record<string, string>>({});
@@ -283,6 +307,16 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
   // Imagens do laudo
   const [imagens, setImagens] = useState<any[]>([]);
   const [sessionId, setSessionId] = useState<string>("");
+
+  useEffect(() => {
+    setRacasCustomPorEspecie(loadRacasCustomPorEspecie());
+    setRacasLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!racasLoaded) return;
+    saveRacasCustomPorEspecie(racasCustomPorEspecie);
+  }, [racasLoaded, racasCustomPorEspecie]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -1248,7 +1282,10 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
                         </label>
                         <select
                           value={paciente.especie}
-                          onChange={(e) => setPaciente({...paciente, especie: e.target.value, raca: ""})}
+                          onChange={(e) => {
+                            setPaciente({ ...paciente, especie: e.target.value, raca: "" });
+                            setNovaRaca("");
+                          }}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                         >
                           <option value="Canina">Canina</option>
@@ -1274,6 +1311,29 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
                             </option>
                           ))}
                         </select>
+                        <div className="mt-2 flex gap-2">
+                          <input
+                            type="text"
+                            value={novaRaca}
+                            onChange={(e) => setNovaRaca(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleAdicionarRaca();
+                              }
+                            }}
+                            placeholder="Adicionar nova raça"
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleAdicionarRaca}
+                            disabled={!novaRaca.trim()}
+                            className="px-3 py-2 rounded-lg border border-teal-200 text-teal-700 hover:bg-teal-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Adicionar
+                          </button>
+                        </div>
                       </div>
                       
                       <div>
