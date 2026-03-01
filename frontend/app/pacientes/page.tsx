@@ -18,6 +18,7 @@ interface Paciente {
 
 export default function PacientesPage() {
   const [pacientes, setPacientes] = useState<Paciente[]>([]);
+  const [totalPacientes, setTotalPacientes] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busca, setBusca] = useState("");
   const router = useRouter();
@@ -33,8 +34,9 @@ export default function PacientesPage() {
 
   const carregarPacientes = async () => {
     try {
-      const response = await api.get("/pacientes");
+      const response = await api.get("/pacientes?limit=1000");
       setPacientes(response.data.items || []);
+      setTotalPacientes(Number(response.data.total || 0));
     } catch (error) {
       console.error("Erro ao carregar pacientes:", error);
     } finally {
@@ -78,7 +80,7 @@ export default function PacientesPage() {
               <Users className="w-6 h-6 text-blue-600" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-gray-900">{pacientes.length}</p>
+              <p className="text-2xl font-bold text-gray-900">{totalPacientes}</p>
               <p className="text-sm text-gray-500">Total de pacientes</p>
             </div>
           </div>
