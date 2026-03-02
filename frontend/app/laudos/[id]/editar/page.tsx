@@ -544,12 +544,26 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
   useEffect(() => {
     const aorta = parseNumero(medidas["Aorta"]);
     const atrioEsquerdo = parseNumero(medidas["Atrio_esquerdo"]);
+    const aoNivelAp = parseNumero(medidas["Ao_nivel_AP"]);
+    const arteriaPulmonar = parseNumero(medidas["AP"]);
+    const eDoppler = parseNumero(medidas["e_doppler"]);
+    const aDoppler = parseNumero(medidas["a_doppler"]);
     const divedMm = parseNumero(medidas["DIVEd"]);
     const peso = parseNumero(pacienteForm.peso);
 
     const aeAoCalculado =
       aorta !== null && aorta > 0 && atrioEsquerdo !== null && atrioEsquerdo > 0
         ? formatar2Casas(atrioEsquerdo / aorta)
+        : "";
+
+    const apAoCalculado =
+      aoNivelAp !== null && aoNivelAp > 0 && arteriaPulmonar !== null && arteriaPulmonar > 0
+        ? formatar2Casas(arteriaPulmonar / aoNivelAp)
+        : "";
+
+    const eSobreaCalculado =
+      eDoppler !== null && eDoppler > 0 && aDoppler !== null && aDoppler > 0
+        ? formatar2Casas(eDoppler / aDoppler)
         : "";
 
     const divedNormalizadoCalculado =
@@ -559,15 +573,28 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
 
     if (
       medidas["AE_Ao"] !== aeAoCalculado ||
+      medidas["AP_Ao"] !== apAoCalculado ||
+      medidas["doppler_tecidual_relacao"] !== eSobreaCalculado ||
       medidas["DIVEd_normalizado"] !== divedNormalizadoCalculado
     ) {
       setMedidas((prev) => ({
         ...prev,
         AE_Ao: aeAoCalculado,
+        AP_Ao: apAoCalculado,
+        doppler_tecidual_relacao: eSobreaCalculado,
         DIVEd_normalizado: divedNormalizadoCalculado,
       }));
     }
-  }, [medidas["Aorta"], medidas["Atrio_esquerdo"], medidas["DIVEd"], pacienteForm.peso]);
+  }, [
+    medidas["Aorta"],
+    medidas["Atrio_esquerdo"],
+    medidas["Ao_nivel_AP"],
+    medidas["AP"],
+    medidas["e_doppler"],
+    medidas["a_doppler"],
+    medidas["DIVEd"],
+    pacienteForm.peso,
+  ]);
 
   const laudoEhPressao = (laudo?.tipo || "").toLowerCase() === "pressao_arterial";
 
@@ -645,7 +672,16 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       "IVRT": "TRIV",
       "TDI_e": "e_doppler",
       "TDI_a": "a_doppler",
+      "TDI e": "e_doppler",
+      "TDI a": "a_doppler",
+      "Aprime": "a_doppler",
+      "Aprime_Velocity": "a_doppler",
+      "a_prime": "a_doppler",
       "EEp": "E_E_linha",
+      "PA": "AP",
+      "PA_Ao": "AP_Ao",
+      "PA/Ao": "AP_Ao",
+      "Ao_AP": "Ao_nivel_AP",
       "Vmax_Ao": "Vmax_aorta",
       "Grad_Ao": "Grad_aorta",
       "Vmax_Pulm": "Vmax_pulmonar",

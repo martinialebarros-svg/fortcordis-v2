@@ -148,10 +148,12 @@ def buscar_parametro_por_name(soup, possible_names: list, tipo_valor: str = "ave
                     unit = (unit_node.get_text() or "").strip().lower()
 
                 # Verificar se é medida de comprimento
+                is_ratio = "/" in name_l or "ratio" in name_l
                 is_comprimento = any(termo in name_l for termo in [
                     "div", "siv", "plv", "lvid", "lvpw", "ivs", "ao",
                     "ap", "tapse", "mapse", "root", "diam", "atri"
                 ]) or bool(re.search(r"(^|[\s/_\.-])(la|ae)([\s/_\.-]|$)", name_l))
+                is_comprimento = is_comprimento and not is_ratio
 
                 # Converter cm para mm (multiplicar por 10) APENAS para medidas de comprimento
                 if unit == "cm" and is_comprimento:
@@ -194,6 +196,16 @@ def buscar_parametro_flexivel(soup, nomes_possiveis: list, debug: bool = False) 
                     return val
     
     return None
+
+
+def _vmax_from_maxpg(maxpg: Optional[float]) -> Optional[float]:
+    """
+    Converte gradiente maximo (mmHg) para velocidade maxima (m/s)
+    usando a equacao simplificada de Bernoulli: deltaP = 4 * v^2.
+    """
+    if maxpg is None or maxpg <= 0:
+        return None
+    return (maxpg / 4.0) ** 0.5
 
 def debug_listar_parametros(soup):
     """Lista todos os parâmetros encontrados no XML para debug."""
@@ -359,7 +371,10 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     if val: medidas["Aorta"] = val
     
     # Ao (nível AP) - mesma medida mas pode ter nome diferente
-    val = buscar_parametro_flexivel(soup, ["Ao", "Aorta", "AO"])
+    val = buscar_parametro_flexivel(
+        soup,
+        ["Ao", "Aorta", "AO", "Ao AP", "Ao nivel AP", "Ao no nivel AP", "2D/Ao AP"],
+    )
     if val: medidas["Ao_nivel_AP"] = val
     
     # LA (Left Atrium / AE) -> Átrio esquerdo
@@ -373,11 +388,40 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     if val: medidas["AE_Ao"] = val
     
     # AP (Artéria pulmonar)
-    val = buscar_parametro_flexivel(soup, ["PA", "Pulmonary Artery", "Artéria Pulmonar", "AP"])
+    val = buscar_parametro_flexivel(
+        soup,
+        [
+            "PA",
+            "AP",
+            "PA Diam",
+            "AP Diam",
+            "PA Diameter",
+            "Pulmonary Artery",
+            "Pulmonary Artery Diam",
+            "Main PA",
+            "MPA",
+            "Arteria Pulmonar",
+            "2D/PA",
+            "2D/AP",
+        ],
+    )
     if val: medidas["AP"] = val
     
     # AP/Ao
-    val = buscar_parametro_flexivel(soup, ["PA/Ao", "AP/Ao", "Pulmonary Artery/Aorta"])
+    val = buscar_parametro_flexivel(
+        soup,
+        [
+            "PA/Ao",
+            "AP/Ao",
+            "PA/AO",
+            "AP/AO",
+            "PA_Ao",
+            "AP_Ao",
+            "2D/PA/Ao",
+            "2D/AP/Ao",
+            "Pulmonary Artery/Aorta",
+        ],
+    )
     if val: medidas["AP_Ao"] = val
     
     # --- Medidas M-Mode (MM) e 2D ---
@@ -483,11 +527,17 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     if val: medidas["MV_Slope"] = val
     
     # E' (E prime) -> e' Doppler tecidual
-    val = buscar_parametro_flexivel(soup, ["MV Eprime Velocity", "E'", "Eprime Velocity", "Eprime", "e'"])
+    val = buscar_parametro_flexivel(
+        soup,
+        ["MV Eprime Velocity", "E'", "Eprime Velocity", "Eprime", "e'", "TDI e", "TDI_e", "MV e'"],
+    )
     if val: medidas["e_doppler"] = val
     
     # a' -> a' Doppler tecidual
-    val = buscar_parametro_flexivel(soup, ["a´", "a'", "Aprime Velocity", "a'"])
+    val = buscar_parametro_flexivel(
+        soup,
+        ["a'", "a`", "Aprime Velocity", "Aprime", "TDI a", "TDI_a", "MV a'"],
+    )
     if val: medidas["a_doppler"] = val
     
     # E/E' -> E/E'
@@ -516,22 +566,62 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     val = buscar_parametro_flexivel(soup, ["RVOT maxPG", "maxPG VSVD", "RVOT max PG", "Pulmonic maxPG", "Gradiente pulmonar"])
     if val: medidas["Grad_pulmonar"] = val
     
-    # --- Medidas de regurgitação (Continuous Wave) ---
-    # MR (Mitral Regurgitation) -> IM (insuficiência mitral) Vmax
-    val = buscar_parametro_flexivel(soup, ["MR maxPG", "Mitral Regurg maxPG", "MR max PG", "IM Vmax"])
-    if val: medidas["IM_Vmax"] = val
+    # --- Medidas de regurgitacao (Continuous Wave) ---
+    # Preferir Vmax real. Se nao existir, usar maxPG convertido para Vmax.
+    mr_vmax = buscar_parametro_flexivel(
+        soup,
+        ["MR Vmax", "Mitral Regurg Vmax", "MR Vmax P", "Vmax RM", "IM Vmax"],
+    )
+    if mr_vmax is None:
+        mr_maxpg = buscar_parametro_flexivel(
+            soup,
+            ["MR maxPG", "Mitral Regurg maxPG", "MR max PG", "maxPG RM", "Gradiente RM"],
+        )
+        mr_vmax = _vmax_from_maxpg(mr_maxpg)
+    if mr_vmax is not None:
+        medidas["IM_Vmax"] = mr_vmax
     
-    # TR (Tricuspid Regurgitation) -> IT (insuficiência tricúspide) Vmax
-    val = buscar_parametro_flexivel(soup, ["TR maxPG", "Tricuspid Regurg maxPG", "TR max PG", "IT Vmax"])
-    if val: medidas["IT_Vmax"] = val
+    # TR (Tricuspid Regurgitation) -> IT (insuficiencia tricuspide) Vmax
+    tr_vmax = buscar_parametro_flexivel(
+        soup,
+        ["TR Vmax", "Tricuspid Regurg Vmax", "TR Vmax P", "Vmax IT", "IT Vmax"],
+    )
+    if tr_vmax is None:
+        tr_maxpg = buscar_parametro_flexivel(
+            soup,
+            ["TR maxPG", "Tricuspid Regurg maxPG", "TR max PG", "maxPG IT", "Gradiente IT"],
+        )
+        tr_vmax = _vmax_from_maxpg(tr_maxpg)
+    if tr_vmax is not None:
+        medidas["IT_Vmax"] = tr_vmax
     
-    # AR (Aortic Regurgitation) -> IA (insuficiência aórtica) Vmax
-    val = buscar_parametro_flexivel(soup, ["AR maxPG", "Aortic Regurg maxPG", "AR max PG", "IA Vmax"])
-    if val: medidas["IA_Vmax"] = val
+    # AR (Aortic Regurgitation) -> IA (insuficiencia aortica) Vmax
+    ar_vmax = buscar_parametro_flexivel(
+        soup,
+        ["AR Vmax", "Aortic Regurg Vmax", "AR Vmax P", "Vmax IA", "IA Vmax"],
+    )
+    if ar_vmax is None:
+        ar_maxpg = buscar_parametro_flexivel(
+            soup,
+            ["AR maxPG", "Aortic Regurg maxPG", "AR max PG", "maxPG IA", "Gradiente IA"],
+        )
+        ar_vmax = _vmax_from_maxpg(ar_maxpg)
+    if ar_vmax is not None:
+        medidas["IA_Vmax"] = ar_vmax
     
-    # PR (Pulmonic Regurgitation) -> IP (insuficiência pulmonar) Vmax
-    val = buscar_parametro_flexivel(soup, ["PR maxPG", "Pulmonic Regurg maxPG", "PR max PG", "IP Vmax"])
-    if val: medidas["IP_Vmax"] = val
+    # PR (Pulmonic Regurgitation) -> IP (insuficiencia pulmonar) Vmax
+    pr_vmax = buscar_parametro_flexivel(
+        soup,
+        ["PR Vmax", "Pulmonic Regurg Vmax", "PR Vmax P", "Vmax IP", "IP Vmax"],
+    )
+    if pr_vmax is None:
+        pr_maxpg = buscar_parametro_flexivel(
+            soup,
+            ["PR maxPG", "Pulmonic Regurg maxPG", "PR max PG", "maxPG IP", "Gradiente IP"],
+        )
+        pr_vmax = _vmax_from_maxpg(pr_maxpg)
+    if pr_vmax is not None:
+        medidas["IP_Vmax"] = pr_vmax
     
     # TDI_e_a ratio -> Doppler tecidual (Relação e'/a')
     if "e_doppler" in medidas and "a_doppler" in medidas and medidas["a_doppler"] > 0:
