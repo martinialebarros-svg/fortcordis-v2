@@ -554,35 +554,41 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     const aeAoCalculado =
       aorta !== null && aorta > 0 && atrioEsquerdo !== null && atrioEsquerdo > 0
         ? formatar2Casas(atrioEsquerdo / aorta)
-        : "";
+        : null;
 
     const apAoCalculado =
       aoNivelAp !== null && aoNivelAp > 0 && arteriaPulmonar !== null && arteriaPulmonar > 0
         ? formatar2Casas(arteriaPulmonar / aoNivelAp)
-        : "";
+        : null;
 
     const eSobreaCalculado =
       eDoppler !== null && eDoppler > 0 && aDoppler !== null && aDoppler > 0
         ? formatar2Casas(eDoppler / aDoppler)
-        : "";
+        : null;
 
     const divedNormalizadoCalculado =
       divedMm !== null && divedMm > 0 && peso !== null && peso > 0
         ? formatar2Casas((divedMm / 10) / Math.pow(peso, 0.234))
-        : "";
+        : null;
 
-    if (
-      medidas["AE_Ao"] !== aeAoCalculado ||
-      medidas["AP_Ao"] !== apAoCalculado ||
-      medidas["doppler_tecidual_relacao"] !== eSobreaCalculado ||
-      medidas["DIVEd_normalizado"] !== divedNormalizadoCalculado
-    ) {
+    const atualizacoes: Record<string, string> = {};
+    if (aeAoCalculado !== null && medidas["AE_Ao"] !== aeAoCalculado) {
+      atualizacoes.AE_Ao = aeAoCalculado;
+    }
+    if (apAoCalculado !== null && medidas["AP_Ao"] !== apAoCalculado) {
+      atualizacoes.AP_Ao = apAoCalculado;
+    }
+    if (eSobreaCalculado !== null && medidas["doppler_tecidual_relacao"] !== eSobreaCalculado) {
+      atualizacoes.doppler_tecidual_relacao = eSobreaCalculado;
+    }
+    if (divedNormalizadoCalculado !== null && medidas["DIVEd_normalizado"] !== divedNormalizadoCalculado) {
+      atualizacoes.DIVEd_normalizado = divedNormalizadoCalculado;
+    }
+
+    if (Object.keys(atualizacoes).length > 0) {
       setMedidas((prev) => ({
         ...prev,
-        AE_Ao: aeAoCalculado,
-        AP_Ao: apAoCalculado,
-        doppler_tecidual_relacao: eSobreaCalculado,
-        DIVEd_normalizado: divedNormalizadoCalculado,
+        ...atualizacoes,
       }));
     }
   }, [

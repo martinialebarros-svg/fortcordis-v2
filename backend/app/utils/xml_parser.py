@@ -43,6 +43,25 @@ def _parse_num(texto: str) -> Optional[float]:
     except (ValueError, TypeError):
         return None
 
+
+def _normalize_param_name(value: str) -> str:
+    """Normaliza nomes de parâmetros para comparação robusta."""
+    txt = str(value or "").strip().lower()
+    txt = txt.replace("´", "'").replace("`", "'").replace("’", "'").replace("‘", "'")
+    txt = (
+        txt.replace("á", "a").replace("à", "a").replace("â", "a").replace("ã", "a")
+        .replace("é", "e").replace("ê", "e")
+        .replace("í", "i")
+        .replace("ó", "o").replace("ô", "o").replace("õ", "o")
+        .replace("ú", "u")
+        .replace("ç", "c")
+    )
+    # Algumas exportações trazem apostrofos quebrados como '?' (ex.: a? para a')
+    txt = re.sub(r"^a[^0-9a-z]$", "a'", txt)
+    txt = re.sub(r"^e[^0-9a-z]$", "e'", txt)
+    txt = re.sub(r"\s+", " ", txt)
+    return txt
+
 def _find_text_ci(soup, tag_names):
     """Retorna o texto do primeiro tag encontrado (case-insensitive)."""
     for nm in tag_names:
@@ -129,14 +148,20 @@ def extrair_peso_kg(soup) -> Optional[float]:
     return None
 
 def buscar_parametro_por_name(soup, possible_names: list, tipo_valor: str = "aver") -> Optional[float]:
-    """Busca um parâmetro pelo atributo NAME dentro de tags <parameter>."""
-    name_lower = [n.lower() for n in possible_names]
+    """Busca parâmetro por NAME e também por <measpar><name>."""
+    name_lower = [_normalize_param_name(n) for n in possible_names]
 
     for p in soup.find_all("parameter"):
         name_attr = p.get("NAME") or p.get("Name") or p.get("name") or ""
-        name_l = str(name_attr).strip().lower()
+        name_l = _normalize_param_name(name_attr)
 
-        if name_l in name_lower:
+        meas_name_node = p.find("name")
+        meas_name = (meas_name_node.get_text() or "").strip() if meas_name_node else ""
+        meas_name_l = _normalize_param_name(meas_name)
+
+        if name_l in name_lower or meas_name_l in name_lower:
+            matched_name_l = meas_name_l if meas_name_l in name_lower else name_l
+
             if tipo_valor == "aver":
                 node_val = p.find("aver") or p.find("val") or p.find("value")
             else:
@@ -145,25 +170,20 @@ def buscar_parametro_por_name(soup, possible_names: list, tipo_valor: str = "ave
             txt = (node_val.get_text() if node_val else p.get_text() or "").strip()
             val = _parse_num(txt)
             if val is not None:
-                # Verificar a unidade da medida
                 unit = ""
                 unit_node = p.find("unit")
                 if unit_node:
                     unit = (unit_node.get_text() or "").strip().lower()
 
-                # Verificar se é medida de comprimento (não converter volumes, velocidades, tempos etc.)
-                # Inclui detecção por tokens para casos como "LA" e "AE" isolados.
-                is_ratio = "/" in name_l or "ratio" in name_l
-                is_comprimento = any(termo in name_l for termo in [
+                is_ratio = "/" in matched_name_l or "ratio" in matched_name_l
+                is_comprimento = any(termo in matched_name_l for termo in [
                     "div", "siv", "plv", "lvid", "lvpw", "ivs", "ao",
                     "ap", "tapse", "mapse", "root", "diam", "atri"
-                ]) or bool(re.search(r"(^|[\s/_\.-])(la|ae)([\s/_\.-]|$)", name_l))
+                ]) or bool(re.search(r"(^|[\s/_\.-])(la|ae)([\s/_\.-]|$)", matched_name_l))
                 is_comprimento = is_comprimento and not is_ratio
 
-                # Converter cm para mm (multiplicar por 10) APENAS para medidas de comprimento
                 if unit == "cm" and is_comprimento:
                     val = val * 10
-                # Se não tiver unidade, valor for < 10 E for medida de comprimento, assumir cm e converter
                 elif not unit and val < 10 and is_comprimento and val > 0.5:
                     val = val * 10
 
@@ -191,8 +211,13 @@ def debug_listar_parametros(soup):
         txt = (node_val.get_text() if node_val else p.get_text() or "").strip()
         unit_node = p.find("unit")
         unit = (unit_node.get_text() or "").strip() if unit_node else ""
+        meas_name_node = p.find("name")
+        meas_name = (meas_name_node.get_text() or "").strip() if meas_name_node else ""
         if name_attr:
-            print(f"  NAME='{name_attr}' VALUE='{txt}' UNIT='{unit}'")
+            if meas_name:
+                print(f"  NAME='{name_attr}' MEAS_NAME='{meas_name}' VALUE='{txt}' UNIT='{unit}'")
+            else:
+                print(f"  NAME='{name_attr}' VALUE='{txt}' UNIT='{unit}'")
             count += 1
     print(f"[XML_PARSER DEBUG] === FIM DOS PARÂMETROS ({count} encontrados) ===")
 
