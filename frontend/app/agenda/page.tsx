@@ -339,6 +339,15 @@ export default function AgendaPage() {
       const response = await api.get(url);
       const items = response.data.items || [];
       setAgendamentos(items);
+      if (response.data?.agenda_semanal) {
+        setAgendaSemanal(normalizarAgendaSemanal(response.data.agenda_semanal));
+      }
+      if (response.data?.agenda_feriados) {
+        setAgendaFeriados(normalizarAgendaFeriados(response.data.agenda_feriados));
+      }
+      if (response.data?.agenda_excecoes) {
+        setAgendaExcecoes(normalizarAgendaExcecoes(response.data.agenda_excecoes));
+      }
       await Promise.all([
         carregarLaudosVinculados(items),
         carregarOsPagasVinculadas(items),

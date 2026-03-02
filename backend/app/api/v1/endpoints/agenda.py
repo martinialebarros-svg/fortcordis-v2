@@ -304,7 +304,15 @@ def listar_agendamentos(
         for ag, paciente_nome, clinica_nome, servico_nome, tutor_nome, tutor_telefone in results
     ]
 
-    return {"total": total, "items": items}
+    agenda_semanal, agenda_feriados, agenda_excecoes = _obter_regras_agenda(db)
+
+    return {
+        "total": total,
+        "items": items,
+        "agenda_semanal": agenda_semanal,
+        "agenda_feriados": agenda_feriados,
+        "agenda_excecoes": agenda_excecoes,
+    }
 
 
 def _calcular_previsao_agendamento(db: Session, agendamento: Agendamento) -> Decimal:
