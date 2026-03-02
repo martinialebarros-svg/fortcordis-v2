@@ -45,20 +45,36 @@ def _parse_num(texto: str) -> Optional[float]:
 
 
 def _normalize_param_name(value: str) -> str:
-    """Normaliza nomes de parâmetros para comparação robusta."""
+    """Normaliza nomes de parametros para comparacao robusta."""
     txt = str(value or "").strip().lower()
-    txt = txt.replace("´", "'").replace("`", "'").replace("’", "'").replace("‘", "'")
     txt = (
-        txt.replace("á", "a").replace("à", "a").replace("â", "a").replace("ã", "a")
-        .replace("é", "e").replace("ê", "e")
-        .replace("í", "i")
-        .replace("ó", "o").replace("ô", "o").replace("õ", "o")
-        .replace("ú", "u")
-        .replace("ç", "c")
+        txt
+        .replace("\u00b4", "'")
+        .replace("\u2019", "'")
+        .replace("\u2018", "'")
+        .replace("\u00c2\u00b4", "'")
+        .replace("`", "'")
+        .replace("\u00e2\u20ac\u2122", "'")
+        .replace("\u00e2\u20ac\u02dc", "'")
     )
-    # Algumas exportações trazem apostrofos quebrados como '?' (ex.: a? para a')
-    txt = re.sub(r"^a[^0-9a-z]$", "a'", txt)
-    txt = re.sub(r"^e[^0-9a-z]$", "e'", txt)
+    txt = (
+        txt
+        .replace("\u00e1", "a").replace("\u00e0", "a").replace("\u00e2", "a").replace("\u00e3", "a")
+        .replace("\u00e9", "e").replace("\u00ea", "e")
+        .replace("\u00ed", "i")
+        .replace("\u00f3", "o").replace("\u00f4", "o").replace("\u00f5", "o")
+        .replace("\u00fa", "u")
+        .replace("\u00e7", "c")
+        .replace("\u00c3\u00a1", "a").replace("\u00c3\u00a0", "a").replace("\u00c3\u00a2", "a").replace("\u00c3\u00a3", "a")
+        .replace("\u00c3\u00a9", "e").replace("\u00c3\u00aa", "e")
+        .replace("\u00c3\u00ad", "i")
+        .replace("\u00c3\u00b3", "o").replace("\u00c3\u00b4", "o").replace("\u00c3\u00b5", "o")
+        .replace("\u00c3\u00ba", "u")
+        .replace("\u00c3\u00a7", "c")
+    )
+    # Algumas exportacoes trazem apostrofos quebrados como '?' (ex.: a? para a')
+    txt = re.sub(r"^a[^0-9a-z]+$", "a'", txt)
+    txt = re.sub(r"^e[^0-9a-z]+$", "e'", txt)
     txt = re.sub(r"\s+", " ", txt)
     return txt
 
@@ -148,49 +164,64 @@ def extrair_peso_kg(soup) -> Optional[float]:
     return None
 
 def buscar_parametro_por_name(soup, possible_names: list, tipo_valor: str = "aver") -> Optional[float]:
-    """Busca parâmetro por NAME e também por <measpar><name>."""
+    """Busca parametro por NAME e tambem por <measpar><name>."""
     name_lower = [_normalize_param_name(n) for n in possible_names]
+
+    def _extrair_valor_e_unidade(container) -> tuple[Optional[float], str]:
+        if tipo_valor == "aver":
+            node_val = container.find("aver") or container.find("val") or container.find("value")
+        else:
+            node_val = container.find(tipo_valor) or container.find("aver") or container.find("val") or container.find("value")
+        txt = (node_val.get_text() if node_val else container.get_text() or "").strip()
+        val = _parse_num(txt)
+        unit = ""
+        unit_node = container.find("unit")
+        if unit_node:
+            unit = (unit_node.get_text() or "").strip().lower()
+        return val, unit
+
+    def _normalizar_unidade_comprimento(val: float, unit: str, matched_name_l: str) -> float:
+        is_ratio = "/" in matched_name_l or "ratio" in matched_name_l
+        is_comprimento = any(termo in matched_name_l for termo in [
+            "div", "siv", "plv", "lvid", "lvpw", "ivs", "ao",
+            "ap", "tapse", "mapse", "root", "diam", "atri"
+        ]) or bool(re.search(r"(^|[\s/_\.-])(la|ae)([\s/_\.-]|$)", matched_name_l))
+        is_comprimento = is_comprimento and not is_ratio
+
+        if unit == "cm" and is_comprimento:
+            return val * 10
+        if not unit and val < 10 and is_comprimento and val > 0.5:
+            return val * 10
+        return val
 
     for p in soup.find_all("parameter"):
         name_attr = p.get("NAME") or p.get("Name") or p.get("name") or ""
         name_l = _normalize_param_name(name_attr)
 
-        meas_name_node = p.find("name")
+        for measpar in p.find_all("measpar"):
+            meas_name_node = measpar.find("name")
+            meas_name = (meas_name_node.get_text() or "").strip() if meas_name_node else ""
+            meas_name_l = _normalize_param_name(meas_name)
+            if meas_name_l in name_lower:
+                val, unit = _extrair_valor_e_unidade(measpar)
+                if val is not None:
+                    return _normalizar_unidade_comprimento(val, unit, meas_name_l)
+
+        if name_l in name_lower:
+            val, unit = _extrair_valor_e_unidade(p)
+            if val is not None:
+                return _normalizar_unidade_comprimento(val, unit, name_l)
+
+    for measpar in soup.find_all("measpar"):
+        meas_name_node = measpar.find("name")
         meas_name = (meas_name_node.get_text() or "").strip() if meas_name_node else ""
         meas_name_l = _normalize_param_name(meas_name)
-
-        if name_l in name_lower or meas_name_l in name_lower:
-            matched_name_l = meas_name_l if meas_name_l in name_lower else name_l
-
-            if tipo_valor == "aver":
-                node_val = p.find("aver") or p.find("val") or p.find("value")
-            else:
-                node_val = p.find(tipo_valor) or p.find("aver") or p.find("val") or p.find("value")
-
-            txt = (node_val.get_text() if node_val else p.get_text() or "").strip()
-            val = _parse_num(txt)
+        if meas_name_l in name_lower:
+            val, unit = _extrair_valor_e_unidade(measpar)
             if val is not None:
-                unit = ""
-                unit_node = p.find("unit")
-                if unit_node:
-                    unit = (unit_node.get_text() or "").strip().lower()
-
-                is_ratio = "/" in matched_name_l or "ratio" in matched_name_l
-                is_comprimento = any(termo in matched_name_l for termo in [
-                    "div", "siv", "plv", "lvid", "lvpw", "ivs", "ao",
-                    "ap", "tapse", "mapse", "root", "diam", "atri"
-                ]) or bool(re.search(r"(^|[\s/_\.-])(la|ae)([\s/_\.-]|$)", matched_name_l))
-                is_comprimento = is_comprimento and not is_ratio
-
-                if unit == "cm" and is_comprimento:
-                    val = val * 10
-                elif not unit and val < 10 and is_comprimento and val > 0.5:
-                    val = val * 10
-
-                return val
+                return _normalizar_unidade_comprimento(val, unit, meas_name_l)
 
     return None
-
 
 def _vmax_from_maxpg(maxpg: Optional[float]) -> Optional[float]:
     """
