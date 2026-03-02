@@ -45,6 +45,41 @@ def _parse_num(texto: str) -> Optional[float]:
     except (ValueError, TypeError):
         return None
 
+
+def _normalize_param_name(value: str) -> str:
+    """Normaliza nomes de parametros para comparacao robusta."""
+    txt = str(value or "").strip().lower()
+    txt = (
+        txt
+        .replace("\u00b4", "'")
+        .replace("\u2019", "'")
+        .replace("\u2018", "'")
+        .replace("\u00c2\u00b4", "'")
+        .replace("`", "'")
+        .replace("\u00e2\u20ac\u2122", "'")
+        .replace("\u00e2\u20ac\u02dc", "'")
+    )
+    txt = (
+        txt
+        .replace("\u00e1", "a").replace("\u00e0", "a").replace("\u00e2", "a").replace("\u00e3", "a")
+        .replace("\u00e9", "e").replace("\u00ea", "e")
+        .replace("\u00ed", "i")
+        .replace("\u00f3", "o").replace("\u00f4", "o").replace("\u00f5", "o")
+        .replace("\u00fa", "u")
+        .replace("\u00e7", "c")
+        .replace("\u00c3\u00a1", "a").replace("\u00c3\u00a0", "a").replace("\u00c3\u00a2", "a").replace("\u00c3\u00a3", "a")
+        .replace("\u00c3\u00a9", "e").replace("\u00c3\u00aa", "e")
+        .replace("\u00c3\u00ad", "i")
+        .replace("\u00c3\u00b3", "o").replace("\u00c3\u00b4", "o").replace("\u00c3\u00b5", "o")
+        .replace("\u00c3\u00ba", "u")
+        .replace("\u00c3\u00a7", "c")
+    )
+    # Algumas exportacoes trazem apostrofos quebrados como '?' (ex.: a? para a')
+    txt = re.sub(r"^a[^0-9a-z]+$", "a'", txt)
+    txt = re.sub(r"^e[^0-9a-z]+$", "e'", txt)
+    txt = re.sub(r"\s+", " ", txt)
+    return txt
+
 def _find_text_ci(soup, tag_names):
     """Retorna o texto do primeiro tag encontrado (case-insensitive)."""
     for nm in tag_names:
@@ -125,75 +160,111 @@ def extrair_peso_kg(soup) -> Optional[float]:
     return None
 
 def buscar_parametro_por_name(soup, possible_names: list, tipo_valor: str = "aver") -> Optional[float]:
-    """Busca um parâmetro pelo atributo NAME dentro de tags <parameter>."""
-    name_lower = [n.lower() for n in possible_names]
+    """Busca parametro por NAME e tambem por <measpar><name>."""
+    name_lower = [_normalize_param_name(n) for n in possible_names]
+
+    def _extrair_valor_e_unidade(container) -> tuple[Optional[float], str]:
+        if tipo_valor == "aver":
+            node_val = container.find("aver") or container.find("val") or container.find("value")
+        else:
+            node_val = container.find(tipo_valor) or container.find("aver") or container.find("val") or container.find("value")
+        txt = (node_val.get_text() if node_val else container.get_text() or "").strip()
+        val = _parse_num(txt)
+        unit = ""
+        unit_node = container.find("unit")
+        if unit_node:
+            unit = (unit_node.get_text() or "").strip().lower()
+        return val, unit
+
+    def _normalizar_unidade_comprimento(val: float, unit: str, matched_name_l: str) -> float:
+        is_ratio = "/" in matched_name_l or "ratio" in matched_name_l
+        is_comprimento = any(termo in matched_name_l for termo in [
+            "div", "siv", "plv", "lvid", "lvpw", "ivs", "ao",
+            "ap", "tapse", "mapse", "root", "diam", "atri"
+        ]) or bool(re.search(r"(^|[\s/_\.-])(la|ae)([\s/_\.-]|$)", matched_name_l))
+        is_comprimento = is_comprimento and not is_ratio
+
+        if unit == "cm" and is_comprimento:
+            return val * 10
+        if not unit and val < 10 and is_comprimento and val > 0.5:
+            return val * 10
+        return val
 
     for p in soup.find_all("parameter"):
         name_attr = p.get("NAME") or p.get("Name") or p.get("name") or ""
-        name_l = str(name_attr).strip().lower()
+        name_l = _normalize_param_name(name_attr)
+
+        for measpar in p.find_all("measpar"):
+            meas_name_node = measpar.find("name")
+            meas_name = (meas_name_node.get_text() or "").strip() if meas_name_node else ""
+            meas_name_l = _normalize_param_name(meas_name)
+            if meas_name_l in name_lower:
+                val, unit = _extrair_valor_e_unidade(measpar)
+                if val is not None:
+                    return _normalizar_unidade_comprimento(val, unit, meas_name_l)
 
         if name_l in name_lower:
-            if tipo_valor == "aver":
-                node_val = p.find("aver") or p.find("val") or p.find("value")
-            else:
-                node_val = p.find(tipo_valor) or p.find("aver") or p.find("val") or p.find("value")
-
-            txt = (node_val.get_text() if node_val else p.get_text() or "").strip()
-            val = _parse_num(txt)
+            val, unit = _extrair_valor_e_unidade(p)
             if val is not None:
-                # Verificar a unidade da medida
-                unit = ""
-                unit_node = p.find("unit")
-                if unit_node:
-                    unit = (unit_node.get_text() or "").strip().lower()
+                return _normalizar_unidade_comprimento(val, unit, name_l)
 
-                # Verificar se é medida de comprimento
-                is_comprimento = any(termo in name_l for termo in [
-                    "div", "siv", "plv", "lvid", "lvpw", "ivs", "ao",
-                    "ap", "tapse", "mapse", "root", "diam", "atri"
-                ]) or bool(re.search(r"(^|[\s/_\.-])(la|ae)([\s/_\.-]|$)", name_l))
-
-                # Converter cm para mm (multiplicar por 10) APENAS para medidas de comprimento
-                if unit == "cm" and is_comprimento:
-                    val = val * 10
-                # Se não tiver unidade, valor for < 10 E for medida de comprimento, assumir cm e converter
-                elif not unit and val < 10 and is_comprimento and val > 0.5:
-                    val = val * 10
-
-                return val
+    for measpar in soup.find_all("measpar"):
+        meas_name_node = measpar.find("name")
+        meas_name = (meas_name_node.get_text() or "").strip() if meas_name_node else ""
+        meas_name_l = _normalize_param_name(meas_name)
+        if meas_name_l in name_lower:
+            val, unit = _extrair_valor_e_unidade(measpar)
+            if val is not None:
+                return _normalizar_unidade_comprimento(val, unit, meas_name_l)
 
     return None
 
 def buscar_parametro_flexivel(soup, nomes_possiveis: list, debug: bool = False) -> Optional[float]:
     """
-    Busca um parâmetro de forma flexível, tentando várias variações de nome.
-    Também busca em tags <measurement> e <value> alternativos.
+    Busca um parÃ¢metro de forma flexÃ­vel, tentando vÃ¡rias variaÃ§Ãµes de nome.
+    TambÃ©m busca em tags <measurement> e <value> alternativos.
     """
-    # Primeiro tenta a busca padrão
+    # Primeiro tenta a busca padrÃ£o
     val = buscar_parametro_por_name(soup, nomes_possiveis)
     if val is not None:
         return val
     
-    # Se não encontrou, tenta buscar por padrões no texto
+    nomes_norm = [_normalize_param_name(n) for n in nomes_possiveis]
+
+    # Se nÃ£o encontrou, tenta buscar por padrÃµes no texto
     for p in soup.find_all("parameter"):
         name_attr = p.get("NAME") or p.get("Name") or p.get("name") or ""
-        name_l = str(name_attr).strip().lower()
+        name_l = _normalize_param_name(name_attr)
+        meas_name_node = p.find("name")
+        meas_name = (meas_name_node.get_text() or "").strip() if meas_name_node else ""
+        meas_name_l = _normalize_param_name(meas_name)
+        candidatos_nome = [x for x in [name_l, meas_name_l] if x]
         
-        # Verifica se algum dos nomes possíveis está contido no nome do parâmetro
-        for nome_busca in nomes_possiveis:
-            nome_busca_l = nome_busca.lower()
+        # Verifica se algum dos nomes possÃ­veis estÃ¡ contido no nome do parÃ¢metro
+        for nome_busca_l in nomes_norm:
             # Remove prefixos comuns para comparar
             nome_limpo = re.sub(r'^(2d/|mm/|mm_|2d_)', '', nome_busca_l)
-            if nome_limpo in name_l or name_l in nome_busca_l:
-                node_val = p.find("aver") or p.find("val") or p.find("value")
-                txt = (node_val.get_text() if node_val else p.get_text() or "").strip()
-                val = _parse_num(txt)
-                if val is not None:
-                    if debug:
-                        print(f"[XML_PARSER] Encontrado '{name_attr}' = {val}")
-                    return val
+            for nome_param in candidatos_nome:
+                if nome_limpo in nome_param or nome_param in nome_busca_l:
+                    node_val = p.find("aver") or p.find("val") or p.find("value")
+                    txt = (node_val.get_text() if node_val else p.get_text() or "").strip()
+                    val = _parse_num(txt)
+                    if val is not None:
+                        if debug:
+                            origem = meas_name if meas_name else name_attr
+                            print(f"[XML_PARSER] Encontrado '{origem}' = {val}")
+                        return val
     
     return None
+
+def _vmax_from_maxpg(maxpg: Optional[float]) -> Optional[float]:
+    """
+    Converte gradiente maximo (mmHg) para velocidade maxima (m/s)
+    usando a equacao simplificada de Bernoulli: deltaP = 4 * v^2.
+    """
+    if maxpg is None or maxpg <= 0:
+        return None
+    return (maxpg / 4.0) ** 0.5
 
 def debug_listar_parametros(soup):
     """Lista todos os parâmetros encontrados no XML para debug."""
@@ -359,7 +430,10 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     if val: medidas["Aorta"] = val
     
     # Ao (nível AP) - mesma medida mas pode ter nome diferente
-    val = buscar_parametro_flexivel(soup, ["Ao", "Aorta", "AO"])
+    val = buscar_parametro_flexivel(
+        soup,
+        ["Ao", "Aorta", "AO", "Ao AP", "Ao nivel AP", "Ao no nivel AP", "2D/Ao AP"],
+    )
     if val: medidas["Ao_nivel_AP"] = val
     
     # LA (Left Atrium / AE) -> Átrio esquerdo
@@ -373,11 +447,40 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     if val: medidas["AE_Ao"] = val
     
     # AP (Artéria pulmonar)
-    val = buscar_parametro_flexivel(soup, ["PA", "Pulmonary Artery", "Artéria Pulmonar", "AP"])
+    val = buscar_parametro_flexivel(
+        soup,
+        [
+            "PA",
+            "AP",
+            "PA Diam",
+            "AP Diam",
+            "PA Diameter",
+            "Pulmonary Artery",
+            "Pulmonary Artery Diam",
+            "Main PA",
+            "MPA",
+            "Arteria Pulmonar",
+            "2D/PA",
+            "2D/AP",
+        ],
+    )
     if val: medidas["AP"] = val
     
     # AP/Ao
-    val = buscar_parametro_flexivel(soup, ["PA/Ao", "AP/Ao", "Pulmonary Artery/Aorta"])
+    val = buscar_parametro_flexivel(
+        soup,
+        [
+            "PA/Ao",
+            "AP/Ao",
+            "PA/AO",
+            "AP/AO",
+            "PA_Ao",
+            "AP_Ao",
+            "2D/PA/Ao",
+            "2D/AP/Ao",
+            "Pulmonary Artery/Aorta",
+        ],
+    )
     if val: medidas["AP_Ao"] = val
     
     # --- Medidas M-Mode (MM) e 2D ---
@@ -483,11 +586,17 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     if val: medidas["MV_Slope"] = val
     
     # E' (E prime) -> e' Doppler tecidual
-    val = buscar_parametro_flexivel(soup, ["MV Eprime Velocity", "E'", "Eprime Velocity", "Eprime", "e'"])
+    val = buscar_parametro_flexivel(
+        soup,
+        ["MV Eprime Velocity", "E'", "Eprime Velocity", "Eprime", "e'", "TDI e", "TDI_e", "MV e'"],
+    )
     if val: medidas["e_doppler"] = val
     
     # a' -> a' Doppler tecidual
-    val = buscar_parametro_flexivel(soup, ["a´", "a'", "Aprime Velocity", "a'"])
+    val = buscar_parametro_flexivel(
+        soup,
+        ["a'", "a`", "Aprime Velocity", "Aprime", "TDI a", "TDI_a", "MV a'"],
+    )
     if val: medidas["a_doppler"] = val
     
     # E/E' -> E/E'
@@ -516,22 +625,62 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     val = buscar_parametro_flexivel(soup, ["RVOT maxPG", "maxPG VSVD", "RVOT max PG", "Pulmonic maxPG", "Gradiente pulmonar"])
     if val: medidas["Grad_pulmonar"] = val
     
-    # --- Medidas de regurgitação (Continuous Wave) ---
-    # MR (Mitral Regurgitation) -> IM (insuficiência mitral) Vmax
-    val = buscar_parametro_flexivel(soup, ["MR maxPG", "Mitral Regurg maxPG", "MR max PG", "IM Vmax"])
-    if val: medidas["IM_Vmax"] = val
+    # --- Medidas de regurgitacao (Continuous Wave) ---
+    # Preferir Vmax real. Se nao existir, usar maxPG convertido para Vmax.
+    mr_vmax = buscar_parametro_flexivel(
+        soup,
+        ["MR Vmax", "Mitral Regurg Vmax", "MR Vmax P", "Vmax RM", "IM Vmax"],
+    )
+    if mr_vmax is None:
+        mr_maxpg = buscar_parametro_flexivel(
+            soup,
+            ["MR maxPG", "Mitral Regurg maxPG", "MR max PG", "maxPG RM", "Gradiente RM"],
+        )
+        mr_vmax = _vmax_from_maxpg(mr_maxpg)
+    if mr_vmax is not None:
+        medidas["IM_Vmax"] = mr_vmax
     
-    # TR (Tricuspid Regurgitation) -> IT (insuficiência tricúspide) Vmax
-    val = buscar_parametro_flexivel(soup, ["TR maxPG", "Tricuspid Regurg maxPG", "TR max PG", "IT Vmax"])
-    if val: medidas["IT_Vmax"] = val
+    # TR (Tricuspid Regurgitation) -> IT (insuficiencia tricuspide) Vmax
+    tr_vmax = buscar_parametro_flexivel(
+        soup,
+        ["TR Vmax", "Tricuspid Regurg Vmax", "TR Vmax P", "Vmax IT", "IT Vmax"],
+    )
+    if tr_vmax is None:
+        tr_maxpg = buscar_parametro_flexivel(
+            soup,
+            ["TR maxPG", "Tricuspid Regurg maxPG", "TR max PG", "maxPG IT", "Gradiente IT"],
+        )
+        tr_vmax = _vmax_from_maxpg(tr_maxpg)
+    if tr_vmax is not None:
+        medidas["IT_Vmax"] = tr_vmax
     
-    # AR (Aortic Regurgitation) -> IA (insuficiência aórtica) Vmax
-    val = buscar_parametro_flexivel(soup, ["AR maxPG", "Aortic Regurg maxPG", "AR max PG", "IA Vmax"])
-    if val: medidas["IA_Vmax"] = val
+    # AR (Aortic Regurgitation) -> IA (insuficiencia aortica) Vmax
+    ar_vmax = buscar_parametro_flexivel(
+        soup,
+        ["AR Vmax", "Aortic Regurg Vmax", "AR Vmax P", "Vmax IA", "IA Vmax"],
+    )
+    if ar_vmax is None:
+        ar_maxpg = buscar_parametro_flexivel(
+            soup,
+            ["AR maxPG", "Aortic Regurg maxPG", "AR max PG", "maxPG IA", "Gradiente IA"],
+        )
+        ar_vmax = _vmax_from_maxpg(ar_maxpg)
+    if ar_vmax is not None:
+        medidas["IA_Vmax"] = ar_vmax
     
-    # PR (Pulmonic Regurgitation) -> IP (insuficiência pulmonar) Vmax
-    val = buscar_parametro_flexivel(soup, ["PR maxPG", "Pulmonic Regurg maxPG", "PR max PG", "IP Vmax"])
-    if val: medidas["IP_Vmax"] = val
+    # PR (Pulmonic Regurgitation) -> IP (insuficiencia pulmonar) Vmax
+    pr_vmax = buscar_parametro_flexivel(
+        soup,
+        ["PR Vmax", "Pulmonic Regurg Vmax", "PR Vmax P", "Vmax IP", "IP Vmax"],
+    )
+    if pr_vmax is None:
+        pr_maxpg = buscar_parametro_flexivel(
+            soup,
+            ["PR maxPG", "Pulmonic Regurg maxPG", "PR max PG", "maxPG IP", "Gradiente IP"],
+        )
+        pr_vmax = _vmax_from_maxpg(pr_maxpg)
+    if pr_vmax is not None:
+        medidas["IP_Vmax"] = pr_vmax
     
     # TDI_e_a ratio -> Doppler tecidual (Relação e'/a')
     if "e_doppler" in medidas and "a_doppler" in medidas and medidas["a_doppler"] > 0:

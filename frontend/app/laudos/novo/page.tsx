@@ -355,6 +355,16 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
   }, [racasLoaded, racasCustomPorEspecie]);
 
   useEffect(() => {
+    setRacasCustomPorEspecie(loadRacasCustomPorEspecie());
+    setRacasLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!racasLoaded) return;
+    saveRacasCustomPorEspecie(racasCustomPorEspecie);
+  }, [racasLoaded, racasCustomPorEspecie]);
+
+  useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
       router.push("/");
@@ -410,30 +420,63 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
   useEffect(() => {
     const aorta = parseNumero(medidas["Aorta"]);
     const atrioEsquerdo = parseNumero(medidas["Atrio_esquerdo"]);
+    const aoNivelAp = parseNumero(medidas["Ao_nivel_AP"]);
+    const arteriaPulmonar = parseNumero(medidas["AP"]);
+    const eDoppler = parseNumero(medidas["e_doppler"]);
+    const aDoppler = parseNumero(medidas["a_doppler"]);
     const divedMm = parseNumero(medidas["DIVEd"]);
     const peso = parseNumero(paciente.peso);
 
     const aeAoCalculado =
       aorta !== null && aorta > 0 && atrioEsquerdo !== null && atrioEsquerdo > 0
         ? formatar2Casas(atrioEsquerdo / aorta)
-        : "";
+        : null;
+
+    const apAoCalculado =
+      aoNivelAp !== null && aoNivelAp > 0 && arteriaPulmonar !== null && arteriaPulmonar > 0
+        ? formatar2Casas(arteriaPulmonar / aoNivelAp)
+        : null;
+
+    const eSobreaCalculado =
+      eDoppler !== null && eDoppler > 0 && aDoppler !== null && aDoppler > 0
+        ? formatar2Casas(eDoppler / aDoppler)
+        : null;
 
     const divedNormalizadoCalculado =
       divedMm !== null && divedMm > 0 && peso !== null && peso > 0
         ? formatar2Casas((divedMm / 10) / Math.pow(peso, 0.234))
-        : "";
+        : null;
 
-    if (
-      medidas["AE_Ao"] !== aeAoCalculado ||
-      medidas["DIVEd_normalizado"] !== divedNormalizadoCalculado
-    ) {
+    const atualizacoes: Record<string, string> = {};
+    if (aeAoCalculado !== null && medidas["AE_Ao"] !== aeAoCalculado) {
+      atualizacoes.AE_Ao = aeAoCalculado;
+    }
+    if (apAoCalculado !== null && medidas["AP_Ao"] !== apAoCalculado) {
+      atualizacoes.AP_Ao = apAoCalculado;
+    }
+    if (eSobreaCalculado !== null && medidas["doppler_tecidual_relacao"] !== eSobreaCalculado) {
+      atualizacoes.doppler_tecidual_relacao = eSobreaCalculado;
+    }
+    if (divedNormalizadoCalculado !== null && medidas["DIVEd_normalizado"] !== divedNormalizadoCalculado) {
+      atualizacoes.DIVEd_normalizado = divedNormalizadoCalculado;
+    }
+
+    if (Object.keys(atualizacoes).length > 0) {
       setMedidas((prev) => ({
         ...prev,
-        AE_Ao: aeAoCalculado,
-        DIVEd_normalizado: divedNormalizadoCalculado,
+        ...atualizacoes,
       }));
     }
-  }, [medidas["Aorta"], medidas["Atrio_esquerdo"], medidas["DIVEd"], paciente.peso]);
+  }, [
+    medidas["Aorta"],
+    medidas["Atrio_esquerdo"],
+    medidas["Ao_nivel_AP"],
+    medidas["AP"],
+    medidas["e_doppler"],
+    medidas["a_doppler"],
+    medidas["DIVEd"],
+    paciente.peso,
+  ]);
 
   // Fix 4: Carregar graus dinamicamente quando a patologia muda
   useEffect(() => {
@@ -864,7 +907,16 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
       "IVRT": "TRIV",
       "TDI_e": "e_doppler",
       "TDI_a": "a_doppler",
+      "TDI e": "e_doppler",
+      "TDI a": "a_doppler",
+      "Aprime": "a_doppler",
+      "Aprime_Velocity": "a_doppler",
+      "a_prime": "a_doppler",
       "EEp": "E_E_linha",
+      "PA": "AP",
+      "PA_Ao": "AP_Ao",
+      "PA/Ao": "AP_Ao",
+      "Ao_AP": "Ao_nivel_AP",
       "Vmax_Ao": "Vmax_aorta",
       "Grad_Ao": "Grad_aorta",
       "Vmax_Pulm": "Vmax_pulmonar",
