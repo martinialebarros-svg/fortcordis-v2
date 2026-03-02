@@ -400,6 +400,28 @@ def resumo_financeiro_agenda(
     }
 
 
+@router.get("/configuracao")
+def obter_configuracao_agenda(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Retorna regras de funcionamento da agenda para qualquer usuario com acesso ao modulo Agenda.
+    Evita depender de permissao do modulo Configuracoes apenas para ler horario de funcionamento.
+    """
+    config = db.query(Configuracao).first()
+    agenda_semanal, agenda_feriados, agenda_excecoes = _obter_regras_agenda(db)
+
+    return {
+        "horario_comercial_inicio": getattr(config, "horario_comercial_inicio", "08:00") if config else "08:00",
+        "horario_comercial_fim": getattr(config, "horario_comercial_fim", "18:00") if config else "18:00",
+        "dias_trabalho": getattr(config, "dias_trabalho", "1,2,3,4,5") if config else "1,2,3,4,5",
+        "agenda_semanal": agenda_semanal,
+        "agenda_feriados": agenda_feriados,
+        "agenda_excecoes": agenda_excecoes,
+    }
+
+
 @router.get("/hoje", response_model=AgendamentoLista)
 def agendamentos_hoje(
     db: Session = Depends(get_db),
