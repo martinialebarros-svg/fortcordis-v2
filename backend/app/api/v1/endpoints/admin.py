@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Set, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import func, or_
+from sqlalchemy import func, inspect, or_
 from sqlalchemy.orm import Session
 
 from app.core.security import require_papel
@@ -411,6 +411,9 @@ def listar_auditoria(
     db: Session = Depends(get_db),
 ):
     _ = current_user
+    if "auditoria_eventos" not in inspect(db.bind).get_table_names():
+        return {"total": 0, "items": [], "modulos": [], "acoes": []}
+
     query = db.query(AuditoriaEvento)
 
     if modulo:
