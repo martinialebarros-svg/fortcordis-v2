@@ -15,7 +15,7 @@ from app.db.database import engine, Base, SessionLocal
 from app.models import (
     user, papel, agendamento, paciente, tutor, clinica, servico,
     laudo, financeiro, frase, imagem_laudo, tabela_preco, 
-    ordem_servico, referencia_eco, configuracao
+    ordem_servico, referencia_eco, configuracao, auditoria_evento
 )
 from app.utils.frases_seed import seed_frases
 from migrations.runner import run_migrations
@@ -44,6 +44,7 @@ MODELS = [
     referencia_eco.ReferenciaEco,
     configuracao.Configuracao,
     configuracao.ConfiguracaoUsuario,
+    auditoria_evento.AuditoriaEvento,
 ]
 
 def criar_tabelas():
@@ -127,6 +128,7 @@ def verificar_tabelas():
         "imagens_laudo", "imagens_temporarias",
         "tabelas_preco", "precos_servicos", "ordens_servico",
         "referencias_eco", "configuracoes", "configuracoes_usuario"
+        , "auditoria_eventos"
     ]
     
     todas_ok = True

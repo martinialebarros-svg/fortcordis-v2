@@ -1,13 +1,16 @@
+import json
+from datetime import datetime
 from typing import Dict, List, Optional, Set, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.core.security import require_papel
 from app.db.database import get_db
+from app.models.auditoria_evento import AuditoriaEvento
 from app.models.papel import Papel
 from app.models.papel_permissao import PapelPermissao
 from app.models.user import User
@@ -392,3 +395,90 @@ def desativar_usuario(
     usuario.ativo = 0
     db.commit()
     return {"message": "Usuario desativado com sucesso.", "id": usuario_id, "ativo": 0}
+
+
+@router.get("/auditoria")
+def listar_auditoria(
+    modulo: Optional[str] = None,
+    acao: Optional[str] = None,
+    entidade: Optional[str] = None,
+    busca: Optional[str] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100,
+    current_user: User = Depends(require_papel("admin")),
+    db: Session = Depends(get_db),
+):
+    _ = current_user
+    query = db.query(AuditoriaEvento)
+
+    if modulo:
+        query = query.filter(AuditoriaEvento.modulo == modulo.strip())
+    if acao:
+        query = query.filter(AuditoriaEvento.acao == acao.strip())
+    if entidade:
+        query = query.filter(AuditoriaEvento.entidade == entidade.strip())
+
+    if busca:
+        termo = f"%{busca.strip()}%"
+        query = query.filter(
+            or_(
+                AuditoriaEvento.usuario_nome.ilike(termo),
+                AuditoriaEvento.usuario_email.ilike(termo),
+                AuditoriaEvento.descricao.ilike(termo),
+                AuditoriaEvento.entidade_id.ilike(termo),
+            )
+        )
+
+    if data_inicio:
+        query = query.filter(func.date(AuditoriaEvento.created_at) >= data_inicio)
+    if data_fim:
+        query = query.filter(func.date(AuditoriaEvento.created_at) <= data_fim)
+
+    total = query.count()
+    rows = (
+        query.order_by(AuditoriaEvento.created_at.desc(), AuditoriaEvento.id.desc())
+        .offset(skip)
+        .limit(max(1, min(limit, 500)))
+        .all()
+    )
+
+    modulos = [row[0] for row in db.query(AuditoriaEvento.modulo).distinct().order_by(AuditoriaEvento.modulo.asc()).all()]
+    acoes = [row[0] for row in db.query(AuditoriaEvento.acao).distinct().order_by(AuditoriaEvento.acao.asc()).all()]
+
+    def _parse_detalhes(raw: Optional[str]) -> dict:
+        if not raw:
+            return {}
+        try:
+            value = json.loads(raw)
+            return value if isinstance(value, dict) else {"raw": value}
+        except Exception:
+            return {"raw": raw}
+
+    items = [
+        {
+            "id": row.id,
+            "created_at": row.created_at.isoformat() if isinstance(row.created_at, datetime) else str(row.created_at),
+            "usuario_id": row.usuario_id,
+            "usuario_nome": row.usuario_nome,
+            "usuario_email": row.usuario_email,
+            "modulo": row.modulo,
+            "entidade": row.entidade,
+            "entidade_id": row.entidade_id,
+            "acao": row.acao,
+            "descricao": row.descricao,
+            "detalhes": _parse_detalhes(row.detalhes_json),
+            "ip_origem": row.ip_origem,
+            "rota": row.rota,
+            "metodo": row.metodo,
+        }
+        for row in rows
+    ]
+
+    return {
+        "total": total,
+        "items": items,
+        "modulos": modulos,
+        "acoes": acoes,
+    }

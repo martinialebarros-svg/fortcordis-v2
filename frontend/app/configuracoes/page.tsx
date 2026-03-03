@@ -100,6 +100,23 @@ interface MatrizPermissaoPapel {
   permissoes: PermissaoPapel[];
 }
 
+interface AuditoriaEventoItem {
+  id: number;
+  created_at?: string | null;
+  usuario_id?: number | null;
+  usuario_nome?: string | null;
+  usuario_email?: string | null;
+  modulo: string;
+  entidade: string;
+  entidade_id?: string | null;
+  acao: string;
+  descricao?: string | null;
+  detalhes?: Record<string, any>;
+  ip_origem?: string | null;
+  rota?: string | null;
+  metodo?: string | null;
+}
+
 export default function ConfiguracoesPage() {
   const router = useRouter();
   const [aba, setAba] = useState<"empresa" | "usuario" | "usuarios">("empresa");
@@ -151,6 +168,17 @@ export default function ConfiguracoesPage() {
   const [somenteLeituraAgenda, setSomenteLeituraAgenda] = useState(false);
   const [modulosPermissoes, setModulosPermissoes] = useState<ModuloPermissao[]>([]);
   const [matrizPermissoes, setMatrizPermissoes] = useState<MatrizPermissaoPapel[]>([]);
+  const [auditoriaItens, setAuditoriaItens] = useState<AuditoriaEventoItem[]>([]);
+  const [auditoriaTotal, setAuditoriaTotal] = useState(0);
+  const [auditoriaModulos, setAuditoriaModulos] = useState<string[]>([]);
+  const [auditoriaAcoes, setAuditoriaAcoes] = useState<string[]>([]);
+  const [carregandoAuditoria, setCarregandoAuditoria] = useState(false);
+  const [erroAuditoria, setErroAuditoria] = useState("");
+  const [filtroAuditoriaModulo, setFiltroAuditoriaModulo] = useState("todos");
+  const [filtroAuditoriaAcao, setFiltroAuditoriaAcao] = useState("todos");
+  const [filtroAuditoriaBusca, setFiltroAuditoriaBusca] = useState("");
+  const [filtroAuditoriaDataInicio, setFiltroAuditoriaDataInicio] = useState("");
+  const [filtroAuditoriaDataFim, setFiltroAuditoriaDataFim] = useState("");
   const [modoEdicaoUsuario, setModoEdicaoUsuario] = useState(false);
   const [novoFeriadoData, setNovoFeriadoData] = useState("");
   const [novoFeriadoTipo, setNovoFeriadoTipo] = useState<"local" | "nacional">("local");
@@ -181,6 +209,7 @@ export default function ConfiguracoesPage() {
   useEffect(() => {
     if (aba === "usuarios") {
       carregarUsuariosPermissoes();
+      carregarAuditoria();
     }
   }, [aba]);
 
@@ -352,7 +381,7 @@ export default function ConfiguracoesPage() {
         alert("Usuario criado com sucesso.");
       }
       limparFormularioUsuario();
-      await carregarUsuariosPermissoes();
+      await Promise.all([carregarUsuariosPermissoes(), carregarAuditoria()]);
     } catch (error: any) {
       const detalhe = error?.response?.data?.detail;
       alert(typeof detalhe === "string" ? detalhe : "Erro ao salvar usuario.");
@@ -371,7 +400,7 @@ export default function ConfiguracoesPage() {
       if (usuarioForm.id === usuario.id) {
         limparFormularioUsuario();
       }
-      await carregarUsuariosPermissoes();
+      await Promise.all([carregarUsuariosPermissoes(), carregarAuditoria()]);
       alert("Usuario desativado.");
     } catch (error: any) {
       const detalhe = error?.response?.data?.detail;
@@ -445,6 +474,31 @@ export default function ConfiguracoesPage() {
       console.error("Erro ao carregar configuracoes:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const carregarAuditoria = async () => {
+    try {
+      setCarregandoAuditoria(true);
+      setErroAuditoria("");
+      const params: Record<string, any> = { limit: 200 };
+      if (filtroAuditoriaModulo !== "todos") params.modulo = filtroAuditoriaModulo;
+      if (filtroAuditoriaAcao !== "todos") params.acao = filtroAuditoriaAcao;
+      if (filtroAuditoriaBusca.trim()) params.busca = filtroAuditoriaBusca.trim();
+      if (filtroAuditoriaDataInicio) params.data_inicio = filtroAuditoriaDataInicio;
+      if (filtroAuditoriaDataFim) params.data_fim = filtroAuditoriaDataFim;
+
+      const resp = await api.get("/admin/auditoria", { params });
+      const payload = resp?.data || {};
+      setAuditoriaItens(Array.isArray(payload.items) ? payload.items : []);
+      setAuditoriaTotal(Number(payload.total || 0));
+      setAuditoriaModulos(Array.isArray(payload.modulos) ? payload.modulos : []);
+      setAuditoriaAcoes(Array.isArray(payload.acoes) ? payload.acoes : []);
+    } catch (error: any) {
+      const detalhe = error?.response?.data?.detail;
+      setErroAuditoria(typeof detalhe === "string" ? detalhe : "Erro ao carregar auditoria.");
+    } finally {
+      setCarregandoAuditoria(false);
     }
   };
 
@@ -1623,6 +1677,159 @@ export default function ConfiguracoesPage() {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+
+            <div className="xl:col-span-3 bg-white rounded-lg shadow-sm border p-6">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Auditoria de acoes</h3>
+                  <p className="text-sm text-gray-500">
+                    Registros de quem cadastrou, alterou status, recebeu, cancelou ou excluiu.
+                  </p>
+                </div>
+                <button
+                  onClick={carregarAuditoria}
+                  type="button"
+                  disabled={carregandoAuditoria}
+                  className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                >
+                  {carregandoAuditoria ? "Atualizando..." : "Atualizar log"}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-4">
+                <select
+                  value={filtroAuditoriaModulo}
+                  onChange={(e) => setFiltroAuditoriaModulo(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg"
+                >
+                  <option value="todos">Todos modulos</option>
+                  {auditoriaModulos.map((modulo) => (
+                    <option key={modulo} value={modulo}>
+                      {modulo}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={filtroAuditoriaAcao}
+                  onChange={(e) => setFiltroAuditoriaAcao(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg"
+                >
+                  <option value="todos">Todas acoes</option>
+                  {auditoriaAcoes.map((acao) => (
+                    <option key={acao} value={acao}>
+                      {acao}
+                    </option>
+                  ))}
+                </select>
+
+                <input
+                  type="date"
+                  value={filtroAuditoriaDataInicio}
+                  onChange={(e) => setFiltroAuditoriaDataInicio(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg"
+                />
+
+                <input
+                  type="date"
+                  value={filtroAuditoriaDataFim}
+                  onChange={(e) => setFiltroAuditoriaDataFim(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg"
+                />
+
+                <input
+                  type="text"
+                  value={filtroAuditoriaBusca}
+                  onChange={(e) => setFiltroAuditoriaBusca(e.target.value)}
+                  placeholder="Buscar usuario, email ou descricao"
+                  className="px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+
+              <div className="mb-4 flex gap-2">
+                <button
+                  onClick={carregarAuditoria}
+                  type="button"
+                  disabled={carregandoAuditoria}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Filtrar
+                </button>
+                <button
+                  onClick={() => {
+                    setFiltroAuditoriaModulo("todos");
+                    setFiltroAuditoriaAcao("todos");
+                    setFiltroAuditoriaDataInicio("");
+                    setFiltroAuditoriaDataFim("");
+                    setFiltroAuditoriaBusca("");
+                  }}
+                  type="button"
+                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                >
+                  Limpar filtros
+                </button>
+                <div className="ml-auto text-sm text-gray-500 self-center">
+                  {auditoriaTotal} registro(s)
+                </div>
+              </div>
+
+              {erroAuditoria ? (
+                <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">
+                  {erroAuditoria}
+                </div>
+              ) : null}
+
+              {carregandoAuditoria ? (
+                <div className="py-8 text-center text-gray-500">Carregando auditoria...</div>
+              ) : auditoriaItens.length === 0 ? (
+                <div className="py-8 text-center text-gray-500">Nenhum registro encontrado.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50 text-gray-600">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-medium">Data/Hora</th>
+                        <th className="text-left px-3 py-2 font-medium">Usuario</th>
+                        <th className="text-left px-3 py-2 font-medium">Acao</th>
+                        <th className="text-left px-3 py-2 font-medium">Modulo</th>
+                        <th className="text-left px-3 py-2 font-medium">Descricao</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditoriaItens.map((item) => (
+                        <tr key={item.id} className="border-t border-gray-100">
+                          <td className="px-3 py-2 text-gray-700">{formatarDataHora(item.created_at)}</td>
+                          <td className="px-3 py-2 text-gray-700">
+                            <div className="font-medium text-gray-900">{item.usuario_nome || "-"}</div>
+                            <div className="text-xs text-gray-500">{item.usuario_email || "-"}</div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
+                              {item.acao}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-gray-700">
+                            <div>{item.modulo}</div>
+                            <div className="text-xs text-gray-500">
+                              {item.entidade}
+                              {item.entidade_id ? ` #${item.entidade_id}` : ""}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-gray-700">
+                            <div>{item.descricao || "-"}</div>
+                            {item.rota ? (
+                              <div className="text-xs text-gray-500">
+                                {item.metodo || "-"} {item.rota}
+                              </div>
+                            ) : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>

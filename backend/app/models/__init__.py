@@ -19,3 +19,4 @@ from app.models.atendimento_clinico import (
     PrescricaoClinica,
     PrescricaoItem,
 )
+from app.models.auditoria_evento import AuditoriaEvento
