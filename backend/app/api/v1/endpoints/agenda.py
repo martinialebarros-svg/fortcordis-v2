@@ -210,6 +210,41 @@ def _sync_denormalized_fields(agendamento: Agendamento, related: dict) -> None:
         agendamento.servico = servico_nome
 
 
+def _contexto_agendamento_auditoria(agendamento: Agendamento, related: Optional[dict] = None) -> dict[str, str]:
+    rel = related or {}
+
+    data = str(agendamento.data or "").strip()
+    hora = str(agendamento.hora or "").strip()
+    if not data or not hora:
+        inicio = _to_local_naive(_coerce_datetime(agendamento.inicio))
+        if inicio is not None:
+            if not data:
+                data = inicio.strftime("%Y-%m-%d")
+            if not hora:
+                hora = inicio.strftime("%H:%M")
+
+    paciente = (str(rel.get("paciente_nome") or agendamento.paciente or "").strip() or "Nao informado")
+    tutor = (str(rel.get("tutor_nome") or agendamento.tutor or "").strip() or "Nao informado")
+    clinica = (str(rel.get("clinica_nome") or agendamento.clinica or "").strip() or "Nao informada")
+
+    return {
+        "data": data or "-",
+        "hora": hora or "-",
+        "clinica": clinica,
+        "animal": paciente,
+        "tutor": tutor,
+    }
+
+
+def _descricao_contexto_agendamento(contexto: dict[str, str]) -> str:
+    return (
+        f"{contexto.get('data', '-')} {contexto.get('hora', '-')}"
+        f" | Clinica: {contexto.get('clinica', 'Nao informada')}"
+        f" | Animal: {contexto.get('animal', 'Nao informado')}"
+        f" | Tutor: {contexto.get('tutor', 'Nao informado')}"
+    )
+
+
 def _serialize_agendamento(
     agendamento: Agendamento,
     *,
@@ -483,6 +518,7 @@ def criar_agendamento(
     db.add(db_agendamento)
     db.commit()
     db.refresh(db_agendamento)
+    contexto = _contexto_agendamento_auditoria(db_agendamento, related)
 
     registrar_auditoria(
         current_user=current_user,
@@ -490,12 +526,13 @@ def criar_agendamento(
         entidade="agendamento",
         entidade_id=db_agendamento.id,
         acao="AGENDAMENTO_CRIADO",
-        descricao=f"Agendamento criado para {db_agendamento.data} {db_agendamento.hora}",
+        descricao=f"Agendamento criado - {_descricao_contexto_agendamento(contexto)}",
         detalhes={
             "paciente_id": db_agendamento.paciente_id,
             "clinica_id": db_agendamento.clinica_id,
             "servico_id": db_agendamento.servico_id,
             "status": db_agendamento.status,
+            "contexto_agendamento": contexto,
         },
         request=request,
     )
@@ -566,6 +603,7 @@ def atualizar_agendamento(
 
     db.commit()
     db.refresh(db_agendamento)
+    contexto = _contexto_agendamento_auditoria(db_agendamento, related)
 
     registrar_auditoria(
         current_user=current_user,
@@ -573,7 +611,7 @@ def atualizar_agendamento(
         entidade="agendamento",
         entidade_id=db_agendamento.id,
         acao="AGENDAMENTO_ATUALIZADO",
-        descricao="Agendamento atualizado",
+        descricao=f"Agendamento atualizado - {_descricao_contexto_agendamento(contexto)}",
         detalhes={
             "antes": dados_anteriores,
             "campos_alterados": list(update_data.keys()),
@@ -585,6 +623,7 @@ def atualizar_agendamento(
                 "clinica_id": db_agendamento.clinica_id,
                 "servico_id": db_agendamento.servico_id,
             },
+            "contexto_agendamento": contexto,
         },
         request=request,
     )
@@ -822,16 +861,15 @@ def atualizar_status(
             db.rollback()
             mensagens_adicionais.append("Status atualizado, mas houve erro ao processar a OS.")
 
-    paciente = db.query(Paciente).filter(Paciente.id == db_agendamento.paciente_id).first()
-    clinica = db.query(Clinica).filter(Clinica.id == db_agendamento.clinica_id).first() if db_agendamento.clinica_id else None
-    servico = db.query(Servico).filter(Servico.id == db_agendamento.servico_id).first() if db_agendamento.servico_id else None
+    related_status = _fetch_related_names(db, db_agendamento)
+    contexto_status = _contexto_agendamento_auditoria(db_agendamento, related_status)
 
     resposta = {
         "id": db_agendamento.id,
         "status": db_agendamento.status,
-        "paciente": paciente.nome if paciente else "",
-        "clinica": clinica.nome if clinica else "",
-        "servico": servico.nome if servico else "",
+        "paciente": related_status.get("paciente_nome") or "",
+        "clinica": related_status.get("clinica_nome") or "",
+        "servico": related_status.get("servico_nome") or "",
         "mensagem": f"Status atualizado para {status}",
     }
 
@@ -857,13 +895,17 @@ def atualizar_status(
         entidade="agendamento",
         entidade_id=db_agendamento.id,
         acao=acao_log,
-        descricao=f"Status do agendamento alterado de {status_anterior} para {status}",
+        descricao=(
+            f"Status do agendamento alterado de {status_anterior} para {status}"
+            f" - {_descricao_contexto_agendamento(contexto_status)}"
+        ),
         detalhes={
             "status_anterior": status_anterior,
             "status_novo": status,
             "tipo_horario": tipo_horario,
             "os_gerada": os_gerada,
             "mensagens_adicionais": mensagens_adicionais,
+            "contexto_agendamento": contexto_status,
         },
         request=request,
     )
@@ -889,6 +931,9 @@ def deletar_agendamento(
     if not db_agendamento:
         raise HTTPException(status_code=404, detail="Agendamento nao encontrado")
 
+    related_delete = _fetch_related_names(db, db_agendamento)
+    contexto_delete = _contexto_agendamento_auditoria(db_agendamento, related_delete)
+
     snapshot = {
         "paciente_id": db_agendamento.paciente_id,
         "clinica_id": db_agendamento.clinica_id,
@@ -896,6 +941,7 @@ def deletar_agendamento(
         "status": db_agendamento.status,
         "data": db_agendamento.data,
         "hora": db_agendamento.hora,
+        "contexto_agendamento": contexto_delete,
     }
 
     db.delete(db_agendamento)
@@ -907,7 +953,7 @@ def deletar_agendamento(
         entidade="agendamento",
         entidade_id=agendamento_id,
         acao="AGENDAMENTO_EXCLUIDO",
-        descricao="Agendamento excluido",
+        descricao=f"Agendamento excluido - {_descricao_contexto_agendamento(contexto_delete)}",
         detalhes=snapshot,
         request=request,
     )
