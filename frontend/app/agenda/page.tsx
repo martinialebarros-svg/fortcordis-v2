@@ -278,11 +278,25 @@ export default function AgendaPage() {
 
   const carregarConfiguracaoAgenda = async () => {
     try {
-      const response = await api.get("/configuracoes");
+      // Usa endpoint do modulo agenda para nao depender da permissao de "configuracoes".
+      const response = await api.get("/agenda/configuracao");
       setAgendaSemanal(normalizarAgendaSemanal(response.data?.agenda_semanal));
       setAgendaFeriados(normalizarAgendaFeriados(response.data?.agenda_feriados));
       setAgendaExcecoes(normalizarAgendaExcecoes(response.data?.agenda_excecoes));
-    } catch (error) {
+    } catch (error: any) {
+      try {
+        // Compatibilidade com backend legado sem /agenda/configuracao.
+        if (error?.response?.status === 404) {
+          const fallback = await api.get("/configuracoes");
+          setAgendaSemanal(normalizarAgendaSemanal(fallback.data?.agenda_semanal));
+          setAgendaFeriados(normalizarAgendaFeriados(fallback.data?.agenda_feriados));
+          setAgendaExcecoes(normalizarAgendaExcecoes(fallback.data?.agenda_excecoes));
+          return;
+        }
+      } catch (fallbackError) {
+        console.error("Erro no fallback de configuracao da agenda:", fallbackError);
+      }
+
       console.error("Erro ao carregar configuracao da agenda:", error);
       setAgendaSemanal(normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL));
       setAgendaFeriados([]);
@@ -325,6 +339,15 @@ export default function AgendaPage() {
       const response = await api.get(url);
       const items = response.data.items || [];
       setAgendamentos(items);
+      if (response.data?.agenda_semanal) {
+        setAgendaSemanal(normalizarAgendaSemanal(response.data.agenda_semanal));
+      }
+      if (response.data?.agenda_feriados) {
+        setAgendaFeriados(normalizarAgendaFeriados(response.data.agenda_feriados));
+      }
+      if (response.data?.agenda_excecoes) {
+        setAgendaExcecoes(normalizarAgendaExcecoes(response.data.agenda_excecoes));
+      }
       await Promise.all([
         carregarLaudosVinculados(items),
         carregarOsPagasVinculadas(items),

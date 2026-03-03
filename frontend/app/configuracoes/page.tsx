@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -106,9 +106,9 @@ export default function ConfiguracoesPage() {
   const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState(false);
 
-  // Configurações da empresa
+  // ConfiguraÃ§Ãµes da empresa
   const [configEmpresa, setConfigEmpresa] = useState<ConfiguracoesSistema>({
-    nome_empresa: "Fort Cordis Cardiologia Veterinária",
+    nome_empresa: "Fort Cordis Cardiologia VeterinÃ¡ria",
     endereco: "",
     telefone: "",
     email: "",
@@ -117,7 +117,7 @@ export default function ConfiguracoesPage() {
     website: "",
     tem_logomarca: false,
     tem_assinatura: false,
-    texto_rodape_laudo: "Fort Cordis Cardiologia Veterinária | Fortaleza-CE",
+    texto_rodape_laudo: "Fort Cordis Cardiologia VeterinÃ¡ria | Fortaleza-CE",
     mostrar_logomarca: true,
     mostrar_assinatura: true,
     agenda_semanal: normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL),
@@ -125,7 +125,7 @@ export default function ConfiguracoesPage() {
     agenda_excecoes: [],
   });
 
-  // Configurações do usuário
+  // ConfiguraÃ§Ãµes do usuÃ¡rio
   const [configUsuario, setConfigUsuario] = useState<ConfiguracoesUsuario>({
     tema: "light",
     idioma: "pt-BR",
@@ -148,6 +148,7 @@ export default function ConfiguracoesPage() {
   const [erroPermissoes, setErroPermissoes] = useState("");
   const [carregandoPermissoes, setCarregandoPermissoes] = useState(false);
   const [salvandoPermissoes, setSalvandoPermissoes] = useState(false);
+  const [somenteLeituraAgenda, setSomenteLeituraAgenda] = useState(false);
   const [modulosPermissoes, setModulosPermissoes] = useState<ModuloPermissao[]>([]);
   const [matrizPermissoes, setMatrizPermissoes] = useState<MatrizPermissaoPapel[]>([]);
   const [modoEdicaoUsuario, setModoEdicaoUsuario] = useState(false);
@@ -381,44 +382,67 @@ export default function ConfiguracoesPage() {
   const carregarConfiguracoes = async () => {
     try {
       setLoading(true);
-      
-      // Carregar configurações da empresa
-      const respEmpresa = await api.get("/configuracoes");
-      if (respEmpresa.data) {
-        setConfigEmpresa((prev) => ({
-          ...prev,
-          ...respEmpresa.data,
-          agenda_semanal: normalizarAgendaSemanal(respEmpresa.data?.agenda_semanal),
-          agenda_feriados: normalizarAgendaFeriados(respEmpresa.data?.agenda_feriados),
-          agenda_excecoes: normalizarAgendaExcecoes(respEmpresa.data?.agenda_excecoes),
-        }));
-        
-        // Carregar preview da logomarca se existir
-        if (respEmpresa.data.tem_logomarca) {
-          const logoUrl = await carregarImagem("/configuracoes/logomarca");
-          if (logoUrl) setPreviewLogo(logoUrl);
+
+      try {
+        // Carrega configuracoes completas da empresa (quando permitido).
+        const respEmpresa = await api.get("/configuracoes");
+        if (respEmpresa.data) {
+          setConfigEmpresa((prev) => ({
+            ...prev,
+            ...respEmpresa.data,
+            agenda_semanal: normalizarAgendaSemanal(respEmpresa.data?.agenda_semanal),
+            agenda_feriados: normalizarAgendaFeriados(respEmpresa.data?.agenda_feriados),
+            agenda_excecoes: normalizarAgendaExcecoes(respEmpresa.data?.agenda_excecoes),
+          }));
+
+          // Carregar preview da logomarca se existir
+          if (respEmpresa.data.tem_logomarca) {
+            const logoUrl = await carregarImagem("/configuracoes/logomarca");
+            if (logoUrl) setPreviewLogo(logoUrl);
+          }
+
+          // Carregar preview da assinatura do sistema se existir
+          if (respEmpresa.data.tem_assinatura) {
+            const assUrl = await carregarImagem("/configuracoes/assinatura");
+            if (assUrl) setPreviewAssinaturaSistema(assUrl);
+          }
         }
-        
-        // Carregar preview da assinatura do sistema se existir
-        if (respEmpresa.data.tem_assinatura) {
-          const assUrl = await carregarImagem("/configuracoes/assinatura");
-          if (assUrl) setPreviewAssinaturaSistema(assUrl);
+        setSomenteLeituraAgenda(false);
+      } catch (errorEmpresa: any) {
+        if (errorEmpresa?.response?.status === 403) {
+          // Sem permissao de Configuracoes: exibe agenda em modo leitura.
+          setSomenteLeituraAgenda(true);
+        } else {
+          console.error("Erro ao carregar configuracoes da empresa:", errorEmpresa);
         }
       }
-      
-      // Carregar configurações do usuário
+
+      try {
+        // Fonte unica do funcionamento da agenda (mesma regra da tela Agenda).
+        const respAgenda = await api.get("/agenda/configuracao");
+        setConfigEmpresa((prev) => ({
+          ...prev,
+          agenda_semanal: normalizarAgendaSemanal(respAgenda.data?.agenda_semanal),
+          agenda_feriados: normalizarAgendaFeriados(respAgenda.data?.agenda_feriados),
+          agenda_excecoes: normalizarAgendaExcecoes(respAgenda.data?.agenda_excecoes),
+        }));
+      } catch (errorAgenda) {
+        console.error("Erro ao carregar funcionamento da agenda:", errorAgenda);
+      }
+
+      // Carregar configuracoes do usuario
       const respUsuario = await api.get("/configuracoes/usuario");
       if (respUsuario.data) {
         setConfigUsuario((prev) => ({ ...prev, ...respUsuario.data }));
-        
-        // Carregar preview da assinatura do usuário se existir
+
+        // Carregar preview da assinatura do usuario se existir
         if (respUsuario.data.tem_assinatura) {
           const assUrl = await carregarImagem("/configuracoes/usuario/assinatura");
           if (assUrl) setPreviewAssinaturaUsuario(assUrl);
         }
       }
     } catch (error) {
-      console.error("Erro ao carregar configurações:", error);
+      console.error("Erro ao carregar configuracoes:", error);
     } finally {
       setLoading(false);
     }
@@ -440,9 +464,9 @@ export default function ConfiguracoesPage() {
         agenda_feriados: payload.agenda_feriados,
         agenda_excecoes: payload.agenda_excecoes,
       }));
-      alert("Configurações da empresa salvas com sucesso!");
+      alert("ConfiguraÃ§Ãµes da empresa salvas com sucesso!");
     } catch (error) {
-      alert("Erro ao salvar configurações da empresa.");
+      alert("Erro ao salvar configuraÃ§Ãµes da empresa.");
     } finally {
       setSalvando(false);
     }
@@ -533,9 +557,9 @@ export default function ConfiguracoesPage() {
     try {
       setSalvando(true);
       await api.put("/configuracoes/usuario", configUsuario);
-      alert("Configurações pessoais salvas com sucesso!");
+      alert("ConfiguraÃ§Ãµes pessoais salvas com sucesso!");
     } catch (error) {
-      alert("Erro ao salvar configurações pessoais.");
+      alert("Erro ao salvar configuraÃ§Ãµes pessoais.");
     } finally {
       setSalvando(false);
     }
@@ -546,7 +570,7 @@ export default function ConfiguracoesPage() {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      alert("Arquivo muito grande. Máximo: 5MB");
+      alert("Arquivo muito grande. MÃ¡ximo: 5MB");
       return;
     }
 
@@ -573,7 +597,7 @@ export default function ConfiguracoesPage() {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      alert("Arquivo muito grande. Máximo: 5MB");
+      alert("Arquivo muito grande. MÃ¡ximo: 5MB");
       return;
     }
 
@@ -599,7 +623,7 @@ export default function ConfiguracoesPage() {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      alert("Arquivo muito grande. Máximo: 5MB");
+      alert("Arquivo muito grande. MÃ¡ximo: 5MB");
       return;
     }
 
@@ -651,7 +675,7 @@ export default function ConfiguracoesPage() {
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="p-6 text-center">Carregando configurações...</div>
+        <div className="p-6 text-center">Carregando configuraÃ§Ãµes...</div>
       </DashboardLayout>
     );
   }
@@ -663,9 +687,9 @@ export default function ConfiguracoesPage() {
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <Settings className="w-6 h-6" />
-            Configurações
+            ConfiguraÃ§Ãµes
           </h1>
-          <p className="text-gray-500">Gerencie as configurações do sistema e sua conta</p>
+          <p className="text-gray-500">Gerencie as configuraÃ§Ãµes do sistema e sua conta</p>
         </div>
 
         {/* Tabs */}
@@ -701,11 +725,11 @@ export default function ConfiguracoesPage() {
             }`}
           >
             <Users className="w-4 h-4" />
-            Usuários
+            UsuÃ¡rios
           </button>
         </div>
 
-        {/* Conteúdo */}
+        {/* ConteÃºdo */}
         {aba === "empresa" && (
           <div className="space-y-6">
             {/* Dados da Empresa */}
@@ -766,7 +790,7 @@ export default function ConfiguracoesPage() {
                 
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Endereço
+                    EndereÃ§o
                   </label>
                   <input
                     type="text"
@@ -817,6 +841,11 @@ export default function ConfiguracoesPage() {
             {/* Jornada da Agenda */}
             <div className="bg-white rounded-lg shadow-sm border p-6">
               <h2 className="text-lg font-semibold mb-2">Funcionamento da Agenda</h2>
+              {somenteLeituraAgenda && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-3">
+                  Visualizacao em modo leitura para este perfil. Edicao disponivel apenas com permissao em Configuracoes.
+                </p>
+              )}
               <p className="text-sm text-gray-500 mb-4">
                 Defina abertura/fechamento por dia da semana e os feriados (local ou nacional) em que a agenda fica fechada.
               </p>
@@ -841,6 +870,7 @@ export default function ConfiguracoesPage() {
                             <input
                               type="checkbox"
                               checked={cfg.ativo}
+                              disabled={somenteLeituraAgenda}
                               onChange={(e) => atualizarJornadaDia(dia.id, "ativo", e.target.checked)}
                               className="w-4 h-4 text-teal-600"
                             />
@@ -849,7 +879,7 @@ export default function ConfiguracoesPage() {
                             <input
                               type="time"
                               value={cfg.inicio}
-                              disabled={!cfg.ativo}
+                              disabled={somenteLeituraAgenda || !cfg.ativo}
                               onChange={(e) => atualizarJornadaDia(dia.id, "inicio", e.target.value)}
                               className="px-3 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100 disabled:text-gray-400"
                             />
@@ -858,7 +888,7 @@ export default function ConfiguracoesPage() {
                             <input
                               type="time"
                               value={cfg.fim}
-                              disabled={!cfg.ativo}
+                              disabled={somenteLeituraAgenda || !cfg.ativo}
                               onChange={(e) => atualizarJornadaDia(dia.id, "fim", e.target.value)}
                               className="px-3 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100 disabled:text-gray-400"
                             />
@@ -877,11 +907,13 @@ export default function ConfiguracoesPage() {
                   <input
                     type="date"
                     value={novoFeriadoData}
+                    disabled={somenteLeituraAgenda}
                     onChange={(e) => setNovoFeriadoData(e.target.value)}
                     className="px-3 py-2 border border-gray-300 rounded-lg"
                   />
                   <select
                     value={novoFeriadoTipo}
+                    disabled={somenteLeituraAgenda}
                     onChange={(e) => setNovoFeriadoTipo((e.target.value === "nacional" ? "nacional" : "local"))}
                     className="px-3 py-2 border border-gray-300 rounded-lg"
                   >
@@ -891,6 +923,7 @@ export default function ConfiguracoesPage() {
                   <input
                     type="text"
                     value={novoFeriadoDescricao}
+                    disabled={somenteLeituraAgenda}
                     onChange={(e) => setNovoFeriadoDescricao(e.target.value)}
                     placeholder="Descricao (opcional)"
                     className="px-3 py-2 border border-gray-300 rounded-lg md:col-span-2"
@@ -900,6 +933,7 @@ export default function ConfiguracoesPage() {
                 <button
                   type="button"
                   onClick={adicionarFeriado}
+                  disabled={somenteLeituraAgenda}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                 >
                   Adicionar feriado
@@ -926,6 +960,7 @@ export default function ConfiguracoesPage() {
                         </div>
                         <button
                           type="button"
+                          disabled={somenteLeituraAgenda}
                           onClick={() => removerFeriado(feriado.data)}
                           className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
                         >
@@ -947,6 +982,7 @@ export default function ConfiguracoesPage() {
                   <input
                     type="date"
                     value={novaExcecaoData}
+                    disabled={somenteLeituraAgenda}
                     onChange={(e) => setNovaExcecaoData(e.target.value)}
                     className="px-3 py-2 border border-gray-300 rounded-lg"
                   />
@@ -954,6 +990,7 @@ export default function ConfiguracoesPage() {
                     <input
                       type="checkbox"
                       checked={novaExcecaoAtiva}
+                      disabled={somenteLeituraAgenda}
                       onChange={(e) => setNovaExcecaoAtiva(e.target.checked)}
                       className="w-4 h-4 text-teal-600"
                     />
@@ -962,20 +999,21 @@ export default function ConfiguracoesPage() {
                   <input
                     type="time"
                     value={novaExcecaoInicio}
-                    disabled={!novaExcecaoAtiva}
+                    disabled={somenteLeituraAgenda || !novaExcecaoAtiva}
                     onChange={(e) => setNovaExcecaoInicio(e.target.value)}
                     className="px-3 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100 disabled:text-gray-400"
                   />
                   <input
                     type="time"
                     value={novaExcecaoFim}
-                    disabled={!novaExcecaoAtiva}
+                    disabled={somenteLeituraAgenda || !novaExcecaoAtiva}
                     onChange={(e) => setNovaExcecaoFim(e.target.value)}
                     className="px-3 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100 disabled:text-gray-400"
                   />
                   <button
                     type="button"
                     onClick={adicionarExcecao}
+                    disabled={somenteLeituraAgenda}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                   >
                     Adicionar excecao
@@ -985,6 +1023,7 @@ export default function ConfiguracoesPage() {
                 <input
                   type="text"
                   value={novaExcecaoMotivo}
+                  disabled={somenteLeituraAgenda}
                   onChange={(e) => setNovaExcecaoMotivo(e.target.value)}
                   placeholder="Motivo (opcional)"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-4"
@@ -1015,6 +1054,7 @@ export default function ConfiguracoesPage() {
                         </div>
                         <button
                           type="button"
+                          disabled={somenteLeituraAgenda}
                           onClick={() => removerExcecao(excecao.data)}
                           className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
                         >
@@ -1029,7 +1069,7 @@ export default function ConfiguracoesPage() {
               <div className="mt-4">
                 <button
                   onClick={salvarConfigEmpresa}
-                  disabled={salvando}
+                  disabled={salvando || somenteLeituraAgenda}
                   className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
                 >
                   <Save className="w-4 h-4" />
@@ -1096,7 +1136,7 @@ export default function ConfiguracoesPage() {
             <div className="bg-white rounded-lg shadow-sm border p-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Signature className="w-5 h-5 text-teal-600" />
-                Assinatura Padrão do Sistema
+                Assinatura PadrÃ£o do Sistema
               </h2>
               
               <div className="flex items-center gap-6">
@@ -1133,7 +1173,7 @@ export default function ConfiguracoesPage() {
               </div>
               
               <p className="mt-3 text-sm text-gray-500">
-                Esta assinatura será usada como padrão quando o usuário não tiver assinatura própria.
+                Esta assinatura serÃ¡ usada como padrÃ£o quando o usuÃ¡rio nÃ£o tiver assinatura prÃ³pria.
               </p>
               
               <div className="mt-4 flex items-center gap-2">
@@ -1150,9 +1190,9 @@ export default function ConfiguracoesPage() {
               </div>
             </div>
 
-            {/* Texto do Rodapé */}
+            {/* Texto do RodapÃ© */}
             <div className="bg-white rounded-lg shadow-sm border p-6">
-              <h2 className="text-lg font-semibold mb-4">Texto do Rodapé do Laudo</h2>
+              <h2 className="text-lg font-semibold mb-4">Texto do RodapÃ© do Laudo</h2>
               <textarea
                 value={configEmpresa.texto_rodape_laudo}
                 onChange={(e) => setConfigEmpresa({ ...configEmpresa, texto_rodape_laudo: e.target.value })}
@@ -1185,7 +1225,7 @@ export default function ConfiguracoesPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                   />
                   <p className="mt-1 text-xs text-gray-500">
-                    Será exibido nos laudos emitidos por você
+                    SerÃ¡ exibido nos laudos emitidos por vocÃª
                   </p>
                 </div>
                 
@@ -1197,7 +1237,7 @@ export default function ConfiguracoesPage() {
                     type="text"
                     value={configUsuario.especialidade}
                     onChange={(e) => setConfigUsuario({ ...configUsuario, especialidade: e.target.value })}
-                    placeholder="Ex: Cardiologia Veterinária"
+                    placeholder="Ex: Cardiologia VeterinÃ¡ria"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                   />
                 </div>
@@ -1235,13 +1275,13 @@ export default function ConfiguracoesPage() {
               </div>
               
               <p className="mt-3 text-sm text-gray-500">
-                Esta assinatura será usada nos laudos emitidos por você. Se não houver assinatura pessoal, será usada a assinatura padrão do sistema.
+                Esta assinatura serÃ¡ usada nos laudos emitidos por vocÃª. Se nÃ£o houver assinatura pessoal, serÃ¡ usada a assinatura padrÃ£o do sistema.
               </p>
             </div>
 
-            {/* Preferências */}
+            {/* PreferÃªncias */}
             <div className="bg-white rounded-lg shadow-sm border p-6">
-              <h2 className="text-lg font-semibold mb-4">Preferências</h2>
+              <h2 className="text-lg font-semibold mb-4">PreferÃªncias</h2>
               
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
@@ -1253,7 +1293,7 @@ export default function ConfiguracoesPage() {
                     className="w-4 h-4 text-teal-600"
                   />
                   <label htmlFor="notif_email" className="text-sm text-gray-700">
-                    Receber notificações por e-mail
+                    Receber notificaÃ§Ãµes por e-mail
                   </label>
                 </div>
                 
@@ -1266,7 +1306,7 @@ export default function ConfiguracoesPage() {
                     className="w-4 h-4 text-teal-600"
                   />
                   <label htmlFor="notif_push" className="text-sm text-gray-700">
-                    Receber notificações push
+                    Receber notificaÃ§Ãµes push
                   </label>
                 </div>
               </div>
@@ -1278,7 +1318,7 @@ export default function ConfiguracoesPage() {
                   className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
                 >
                   <Save className="w-4 h-4" />
-                  {salvando ? "Salvando..." : "Salvar Configurações"}
+                  {salvando ? "Salvando..." : "Salvar ConfiguraÃ§Ãµes"}
                 </button>
               </div>
             </div>
@@ -1592,3 +1632,4 @@ export default function ConfiguracoesPage() {
     </DashboardLayout>
   );
 }
+

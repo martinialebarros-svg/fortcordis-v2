@@ -75,3 +75,6 @@ class AgendamentoResponse(BaseModel):
 class AgendamentoLista(BaseModel):
     total: int
     items: List[AgendamentoResponse]
+    agenda_semanal: Optional[dict] = None
+    agenda_feriados: Optional[list] = None
+    agenda_excecoes: Optional[list] = None
