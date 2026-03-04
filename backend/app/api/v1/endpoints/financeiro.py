@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, extract
 from typing import List, Optional
@@ -8,6 +8,7 @@ from app.db.database import get_db
 from app.models.financeiro import Transacao, ContaPagar, ContaReceber, CategoriaTransacao
 from app.models.user import User
 from app.core.security import get_current_user
+from app.services.auditoria_service import registrar_auditoria
 from app.schemas.financeiro import (
     TransacaoCreate, TransacaoUpdate, TransacaoResponse, TransacaoLista,
     ContaPagarCreate, ContaPagarUpdate, ContaPagarResponse, ContaPagarLista,
@@ -141,6 +142,7 @@ def atualizar_transacao(
 @router.delete("/transacoes/{transacao_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deletar_transacao(
     transacao_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -149,8 +151,43 @@ def deletar_transacao(
     if not transacao:
         raise HTTPException(status_code=404, detail="Transação não encontrada")
     
+    data_transacao_str = (
+        transacao.data_transacao.strftime("%d/%m/%Y")
+        if transacao.data_transacao
+        else "-"
+    )
+    valor_referencia = transacao.valor_final if transacao.valor_final is not None else transacao.valor
+    valor_float = float(valor_referencia or 0)
+    valor_formatado = f"R$ {valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
     db.delete(transacao)
     db.commit()
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="financeiro",
+        entidade="transacao",
+        entidade_id=transacao_id,
+        acao="TRANSACAO_EXCLUIDA",
+        descricao=(
+            f"Transacao excluida: {transacao.tipo} | {transacao.categoria} | "
+            f"{valor_formatado} | {data_transacao_str} | status {transacao.status}"
+        ),
+        detalhes={
+            "transacao_id": transacao_id,
+            "tipo": transacao.tipo,
+            "categoria": transacao.categoria,
+            "descricao": transacao.descricao,
+            "paciente_nome": transacao.paciente_nome,
+            "status": transacao.status,
+            "data_transacao": transacao.data_transacao.isoformat() if transacao.data_transacao else None,
+            "valor": float(transacao.valor or 0),
+            "desconto": float(transacao.desconto or 0),
+            "valor_final": float(transacao.valor_final or 0),
+        },
+        request=request,
+    )
+
     return None
 
 

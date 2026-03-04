@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -459,10 +459,17 @@ def listar_auditoria(
         except Exception:
             return {"raw": raw}
 
+    def _format_created_at(value: Optional[datetime]) -> Optional[str]:
+        if not isinstance(value, datetime):
+            return str(value) if value is not None else None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc).isoformat()
+        return value.astimezone(timezone.utc).isoformat()
+
     items = [
         {
             "id": row.id,
-            "created_at": row.created_at.isoformat() if isinstance(row.created_at, datetime) else str(row.created_at),
+            "created_at": _format_created_at(row.created_at),
             "usuario_id": row.usuario_id,
             "usuario_nome": row.usuario_nome,
             "usuario_email": row.usuario_email,
