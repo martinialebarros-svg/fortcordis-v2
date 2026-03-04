@@ -34,6 +34,7 @@ from app.services.auditoria_service import registrar_auditoria
 router = APIRouter()
 # Horario de Brasilia (UTC-3). Evita dependencia de tzdata no Windows local.
 LOCAL_TZ = timezone(timedelta(hours=-3))
+AGENDA_STATUS_PERMITIDOS = ["Agendado", "Reservado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"]
 
 
 def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
@@ -245,6 +246,45 @@ def _descricao_contexto_agendamento(contexto: dict[str, str]) -> str:
     )
 
 
+def _validar_paciente_tutor_para_status(
+    db: Session,
+    agendamento: Agendamento,
+    *,
+    status_destino: Optional[str] = None,
+    related: Optional[dict] = None,
+) -> None:
+    status_alvo = (status_destino or agendamento.status or "").strip() or "Agendado"
+    if status_alvo == "Reservado":
+        return
+
+    rel = related or _fetch_related_names(db, agendamento)
+    paciente_id_valido = bool(agendamento.paciente_id)
+    paciente_nome = str(rel.get("paciente_nome") or agendamento.paciente or "").strip()
+    tutor_nome = str(rel.get("tutor_nome") or agendamento.tutor or "").strip()
+
+    if not paciente_id_valido or not paciente_nome:
+        raise HTTPException(
+            status_code=422,
+            detail="Para este status, o campo paciente deve estar preenchido.",
+        )
+
+    if not tutor_nome:
+        raise HTTPException(
+            status_code=422,
+            detail="Para este status, o campo tutor deve estar preenchido.",
+        )
+
+
+def _normalizar_status_agendamento(status_value: Optional[str], fallback: str = "Agendado") -> str:
+    status_norm = (status_value or fallback or "Agendado").strip() or "Agendado"
+    if status_norm not in AGENDA_STATUS_PERMITIDOS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Status invalido. Use: {', '.join(AGENDA_STATUS_PERMITIDOS)}",
+        )
+    return status_norm
+
+
 def _serialize_agendamento(
     agendamento: Agendamento,
     *,
@@ -430,7 +470,7 @@ def resumo_financeiro_agenda(
         if ag.status == "Realizado":
             qtd_realizados += 1
             valor_realizado += valor_base
-        elif ag.status in ("Agendado", "Confirmado", "Em atendimento"):
+        elif ag.status in ("Agendado", "Reservado", "Confirmado", "Em atendimento"):
             qtd_agendados += 1
             valor_agendado += valor_base
 
@@ -501,6 +541,10 @@ def criar_agendamento(
     now = datetime.now()
 
     db_agendamento = Agendamento(**agendamento.model_dump())
+    db_agendamento.status = _normalizar_status_agendamento(db_agendamento.status)
+    if db_agendamento.status == "Reservado" and not db_agendamento.paciente_id:
+        # Compatibilidade com bancos legados onde paciente_id ainda esta NOT NULL.
+        db_agendamento.paciente_id = 0
     db_agendamento.inicio = _coerce_datetime(db_agendamento.inicio)
     db_agendamento.fim = _coerce_datetime(db_agendamento.fim)
     db_agendamento.criado_por_id = current_user.id
@@ -514,6 +558,12 @@ def criar_agendamento(
     _fill_data_hora_from_inicio(db_agendamento)
     related = _fetch_related_names(db, db_agendamento)
     _sync_denormalized_fields(db_agendamento, related)
+    _validar_paciente_tutor_para_status(
+        db,
+        db_agendamento,
+        status_destino=db_agendamento.status,
+        related=related,
+    )
 
     db.add(db_agendamento)
     db.commit()
@@ -564,6 +614,7 @@ def atualizar_agendamento(
     inicio_original = _coerce_datetime(db_agendamento.inicio)
     fim_original = _coerce_datetime(db_agendamento.fim)
     servico_original = db_agendamento.servico_id
+    status_anterior = str(db_agendamento.status or "").strip() or "Agendado"
 
     update_data = agendamento.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -573,6 +624,13 @@ def atualizar_agendamento(
         db_agendamento.inicio = _coerce_datetime(db_agendamento.inicio)
     if "fim" in update_data:
         db_agendamento.fim = _coerce_datetime(db_agendamento.fim)
+    if "status" in update_data:
+        db_agendamento.status = _normalizar_status_agendamento(db_agendamento.status, fallback=status_anterior)
+    else:
+        db_agendamento.status = status_anterior
+    if db_agendamento.status == "Reservado" and not db_agendamento.paciente_id:
+        # Compatibilidade com bancos legados onde paciente_id ainda esta NOT NULL.
+        db_agendamento.paciente_id = 0
 
     campos_horario = "inicio" in update_data or "fim" in update_data or "servico_id" in update_data
     if campos_horario:
@@ -597,6 +655,13 @@ def atualizar_agendamento(
 
     related = _fetch_related_names(db, db_agendamento)
     _sync_denormalized_fields(db_agendamento, related)
+    if status_anterior == "Reservado" or "status" in update_data or "paciente_id" in update_data:
+        _validar_paciente_tutor_para_status(
+            db,
+            db_agendamento,
+            status_destino=db_agendamento.status,
+            related=related,
+        )
 
     db_agendamento.atualizado_em = datetime.now()
     db_agendamento.updated_at = datetime.now()
@@ -671,17 +736,22 @@ def atualizar_status(
     if not db_agendamento:
         raise HTTPException(status_code=404, detail="Agendamento nao encontrado")
 
-    status_permitidos = ["Agendado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"]
-    if status not in status_permitidos:
-        raise HTTPException(status_code=400, detail=f"Status invalido. Use: {', '.join(status_permitidos)}")
+    status_normalizado = _normalizar_status_agendamento(status)
+    related_validacao = _fetch_related_names(db, db_agendamento)
+    _validar_paciente_tutor_para_status(
+        db,
+        db_agendamento,
+        status_destino=status_normalizado,
+        related=related_validacao,
+    )
 
     status_anterior = db_agendamento.status
 
-    db_agendamento.status = status
+    db_agendamento.status = status_normalizado
     db_agendamento.atualizado_em = datetime.now()
     db_agendamento.updated_at = datetime.now()
 
-    if status == "Confirmado":
+    if status_normalizado == "Confirmado":
         db_agendamento.confirmado_por_id = current_user.id
         db_agendamento.confirmado_por_nome = current_user.nome
         db_agendamento.confirmado_em = datetime.now()
@@ -697,7 +767,7 @@ def atualizar_status(
         db.rollback()
         raise HTTPException(status_code=500, detail="Erro ao atualizar status no banco de dados.")
 
-    if status_anterior == "Realizado" and status == "Em atendimento":
+    if status_anterior == "Realizado" and status_normalizado == "Em atendimento":
         from app.models.financeiro import Transacao
 
         try:
@@ -788,7 +858,7 @@ def atualizar_status(
             )
 
     # Se status for "Realizado", tenta gerar Ordem de Servico automaticamente.
-    if status == "Realizado":
+    if status_normalizado == "Realizado":
         try:
             os_existente = (
                 db.query(OrdemServico)
@@ -870,7 +940,7 @@ def atualizar_status(
         "paciente": related_status.get("paciente_nome") or "",
         "clinica": related_status.get("clinica_nome") or "",
         "servico": related_status.get("servico_nome") or "",
-        "mensagem": f"Status atualizado para {status}",
+        "mensagem": f"Status atualizado para {status_normalizado}",
     }
 
     if os_gerada:
@@ -882,9 +952,9 @@ def atualizar_status(
     if mensagens_adicionais:
         resposta["mensagem"] += ". " + " ".join(mensagens_adicionais)
 
-    if status == "Cancelado":
+    if status_normalizado == "Cancelado":
         acao_log = "AGENDAMENTO_CANCELADO"
-    elif status_anterior == "Realizado" and status == "Em atendimento":
+    elif status_anterior == "Realizado" and status_normalizado == "Em atendimento":
         acao_log = "AGENDAMENTO_REALIZADO_DESFEITO"
     else:
         acao_log = "AGENDAMENTO_STATUS_ALTERADO"
@@ -896,12 +966,12 @@ def atualizar_status(
         entidade_id=db_agendamento.id,
         acao=acao_log,
         descricao=(
-            f"Status do agendamento alterado de {status_anterior} para {status}"
+            f"Status do agendamento alterado de {status_anterior} para {status_normalizado}"
             f" - {_descricao_contexto_agendamento(contexto_status)}"
         ),
         detalhes={
             "status_anterior": status_anterior,
-            "status_novo": status,
+            "status_novo": status_normalizado,
             "tipo_horario": tipo_horario,
             "os_gerada": os_gerada,
             "mensagens_adicionais": mensagens_adicionais,

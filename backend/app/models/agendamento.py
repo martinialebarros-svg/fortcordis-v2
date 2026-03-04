@@ -6,7 +6,7 @@ class Agendamento(Base):
     __tablename__ = "agendamentos"
     
     id = Column(Integer, primary_key=True, index=True)
-    paciente_id = Column(Integer, nullable=False)
+    paciente_id = Column(Integer, nullable=True)
     clinica_id = Column(Integer, nullable=True)
     servico_id = Column(Integer, nullable=True)
     

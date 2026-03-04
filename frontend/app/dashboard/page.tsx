@@ -72,7 +72,7 @@ export default function DashboardPage() {
       ]);
 
       const confirmados = agendamentos.filter((a: any) => a.status === 'Confirmado').length;
-      const pendentes = agendamentos.filter((a: any) => a.status === 'Agendado').length;
+      const pendentes = agendamentos.filter((a: any) => a.status === 'Agendado' || a.status === 'Reservado').length;
 
       setStats({
         totalAgendamentos: agendamentos.length,
@@ -110,6 +110,7 @@ export default function DashboardPage() {
       case 'Confirmado': return <CheckCircle2 className="w-5 h-5 text-green-500" />;
       case 'Cancelado': return <XCircle className="w-5 h-5 text-red-500" />;
       case 'Agendado': return <Clock className="w-5 h-5 text-blue-500" />;
+      case 'Reservado': return <Clock className="w-5 h-5 text-amber-500" />;
       default: return <AlertCircle className="w-5 h-5 text-gray-500" />;
     }
   };
@@ -119,6 +120,7 @@ export default function DashboardPage() {
       case 'Confirmado': return 'bg-green-50 text-green-700 border-green-200';
       case 'Cancelado': return 'bg-red-50 text-red-700 border-red-200';
       case 'Agendado': return 'bg-blue-50 text-blue-700 border-blue-200';
+      case 'Reservado': return 'bg-amber-50 text-amber-700 border-amber-200';
       default: return 'bg-gray-50 text-gray-700 border-gray-200';
     }
   };

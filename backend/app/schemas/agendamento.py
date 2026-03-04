@@ -21,7 +21,7 @@ def parse_datetime(value):
     return value
 
 class AgendamentoBase(BaseModel):
-    paciente_id: int
+    paciente_id: Optional[int] = None
     clinica_id: Optional[int] = None
     servico_id: Optional[int] = None
     inicio: datetime
@@ -51,7 +51,7 @@ class AgendamentoUpdate(BaseModel):
 
 class AgendamentoResponse(BaseModel):
     id: int
-    paciente_id: int
+    paciente_id: Optional[int] = None
     clinica_id: Optional[int] = None
     servico_id: Optional[int] = None
     inicio: Optional[str] = None  # Retorna como string para evitar problemas de formato
