@@ -444,7 +444,7 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
 
     const divedNormalizadoCalculado =
       divedMm !== null && divedMm > 0 && peso !== null && peso > 0
-        ? formatar2Casas((divedMm / 10) / Math.pow(peso, 0.234))
+        ? formatar2Casas((divedMm / 10) / Math.pow(peso, 0.294))
         : null;
 
     const atualizacoes: Record<string, string> = {};
@@ -1568,11 +1568,11 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
                           onChange={(v) => handleMedidaChange("DIVEd", v)}
                         />
                         <MedidaInput 
-                          label="DIVEd normalizado (DIVEd [cm] / peso^0,234)"
+                          label="DIVEd normalizado (DIVEd [cm] / peso^0,294)"
                           value={medidas["DIVEd_normalizado"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd_normalizado", v)}
                           readOnly
-                          reference="Ref.: 1.27-1.85"
+                          reference="Ref.: 1.27-1.73"
                         />
                         <MedidaInput 
                           label="SIVd (mm - Septo interventricular em diástole)"
