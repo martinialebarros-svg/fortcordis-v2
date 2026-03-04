@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -29,6 +29,7 @@ from app.core.agenda_config import (
 )
 from app.core.security import get_current_user
 from app.services.precos_service import calcular_preco_servico
+from app.services.auditoria_service import registrar_auditoria
 
 router = APIRouter()
 # Horario de Brasilia (UTC-3). Evita dependencia de tzdata no Windows local.
@@ -207,6 +208,41 @@ def _sync_denormalized_fields(agendamento: Agendamento, related: dict) -> None:
         agendamento.clinica = clinica_nome
     if servico_nome:
         agendamento.servico = servico_nome
+
+
+def _contexto_agendamento_auditoria(agendamento: Agendamento, related: Optional[dict] = None) -> dict[str, str]:
+    rel = related or {}
+
+    data = str(agendamento.data or "").strip()
+    hora = str(agendamento.hora or "").strip()
+    if not data or not hora:
+        inicio = _to_local_naive(_coerce_datetime(agendamento.inicio))
+        if inicio is not None:
+            if not data:
+                data = inicio.strftime("%Y-%m-%d")
+            if not hora:
+                hora = inicio.strftime("%H:%M")
+
+    paciente = (str(rel.get("paciente_nome") or agendamento.paciente or "").strip() or "Nao informado")
+    tutor = (str(rel.get("tutor_nome") or agendamento.tutor or "").strip() or "Nao informado")
+    clinica = (str(rel.get("clinica_nome") or agendamento.clinica or "").strip() or "Nao informada")
+
+    return {
+        "data": data or "-",
+        "hora": hora or "-",
+        "clinica": clinica,
+        "animal": paciente,
+        "tutor": tutor,
+    }
+
+
+def _descricao_contexto_agendamento(contexto: dict[str, str]) -> str:
+    return (
+        f"{contexto.get('data', '-')} {contexto.get('hora', '-')}"
+        f" | Clinica: {contexto.get('clinica', 'Nao informada')}"
+        f" | Animal: {contexto.get('animal', 'Nao informado')}"
+        f" | Tutor: {contexto.get('tutor', 'Nao informado')}"
+    )
 
 
 def _serialize_agendamento(
@@ -457,6 +493,7 @@ def obter_agendamento(
 @router.post("", response_model=AgendamentoResponse, status_code=status.HTTP_201_CREATED)
 def criar_agendamento(
     agendamento: AgendamentoCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -481,6 +518,24 @@ def criar_agendamento(
     db.add(db_agendamento)
     db.commit()
     db.refresh(db_agendamento)
+    contexto = _contexto_agendamento_auditoria(db_agendamento, related)
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="agenda",
+        entidade="agendamento",
+        entidade_id=db_agendamento.id,
+        acao="AGENDAMENTO_CRIADO",
+        descricao=f"Agendamento criado - {_descricao_contexto_agendamento(contexto)}",
+        detalhes={
+            "paciente_id": db_agendamento.paciente_id,
+            "clinica_id": db_agendamento.clinica_id,
+            "servico_id": db_agendamento.servico_id,
+            "status": db_agendamento.status,
+            "contexto_agendamento": contexto,
+        },
+        request=request,
+    )
 
     return _serialize_agendamento(db_agendamento, **related)
 
@@ -488,13 +543,23 @@ def criar_agendamento(
 def atualizar_agendamento(
     agendamento_id: int,
     agendamento: AgendamentoUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Atualiza agendamento"""
     db_agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
     if not db_agendamento:
-        raise HTTPException(status_code=404, detail="Agendamento não encontrado")
+        raise HTTPException(status_code=404, detail="Agendamento nao encontrado")
+
+    dados_anteriores = {
+        "inicio": str(db_agendamento.inicio) if db_agendamento.inicio else None,
+        "fim": str(db_agendamento.fim) if db_agendamento.fim else None,
+        "status": db_agendamento.status,
+        "paciente_id": db_agendamento.paciente_id,
+        "clinica_id": db_agendamento.clinica_id,
+        "servico_id": db_agendamento.servico_id,
+    }
 
     inicio_original = _coerce_datetime(db_agendamento.inicio)
     fim_original = _coerce_datetime(db_agendamento.fim)
@@ -538,12 +603,37 @@ def atualizar_agendamento(
 
     db.commit()
     db.refresh(db_agendamento)
+    contexto = _contexto_agendamento_auditoria(db_agendamento, related)
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="agenda",
+        entidade="agendamento",
+        entidade_id=db_agendamento.id,
+        acao="AGENDAMENTO_ATUALIZADO",
+        descricao=f"Agendamento atualizado - {_descricao_contexto_agendamento(contexto)}",
+        detalhes={
+            "antes": dados_anteriores,
+            "campos_alterados": list(update_data.keys()),
+            "depois": {
+                "inicio": str(db_agendamento.inicio) if db_agendamento.inicio else None,
+                "fim": str(db_agendamento.fim) if db_agendamento.fim else None,
+                "status": db_agendamento.status,
+                "paciente_id": db_agendamento.paciente_id,
+                "clinica_id": db_agendamento.clinica_id,
+                "servico_id": db_agendamento.servico_id,
+            },
+            "contexto_agendamento": contexto,
+        },
+        request=request,
+    )
 
     return _serialize_agendamento(db_agendamento, **related)
 
 @router.patch("/{agendamento_id}/status")
 def atualizar_status(
     agendamento_id: int,
+    request: Request,
     status: str,
     tipo_horario: Optional[str] = "comercial",  # 'comercial' ou 'plantao'
     db: Session = Depends(get_db),
@@ -771,16 +861,15 @@ def atualizar_status(
             db.rollback()
             mensagens_adicionais.append("Status atualizado, mas houve erro ao processar a OS.")
 
-    paciente = db.query(Paciente).filter(Paciente.id == db_agendamento.paciente_id).first()
-    clinica = db.query(Clinica).filter(Clinica.id == db_agendamento.clinica_id).first() if db_agendamento.clinica_id else None
-    servico = db.query(Servico).filter(Servico.id == db_agendamento.servico_id).first() if db_agendamento.servico_id else None
+    related_status = _fetch_related_names(db, db_agendamento)
+    contexto_status = _contexto_agendamento_auditoria(db_agendamento, related_status)
 
     resposta = {
         "id": db_agendamento.id,
         "status": db_agendamento.status,
-        "paciente": paciente.nome if paciente else "",
-        "clinica": clinica.nome if clinica else "",
-        "servico": servico.nome if servico else "",
+        "paciente": related_status.get("paciente_nome") or "",
+        "clinica": related_status.get("clinica_nome") or "",
+        "servico": related_status.get("servico_nome") or "",
         "mensagem": f"Status atualizado para {status}",
     }
 
@@ -793,14 +882,43 @@ def atualizar_status(
     if mensagens_adicionais:
         resposta["mensagem"] += ". " + " ".join(mensagens_adicionais)
 
+    if status == "Cancelado":
+        acao_log = "AGENDAMENTO_CANCELADO"
+    elif status_anterior == "Realizado" and status == "Em atendimento":
+        acao_log = "AGENDAMENTO_REALIZADO_DESFEITO"
+    else:
+        acao_log = "AGENDAMENTO_STATUS_ALTERADO"
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="agenda",
+        entidade="agendamento",
+        entidade_id=db_agendamento.id,
+        acao=acao_log,
+        descricao=(
+            f"Status do agendamento alterado de {status_anterior} para {status}"
+            f" - {_descricao_contexto_agendamento(contexto_status)}"
+        ),
+        detalhes={
+            "status_anterior": status_anterior,
+            "status_novo": status,
+            "tipo_horario": tipo_horario,
+            "os_gerada": os_gerada,
+            "mensagens_adicionais": mensagens_adicionais,
+            "contexto_agendamento": contexto_status,
+        },
+        request=request,
+    )
+
     return resposta
 @router.delete("/{agendamento_id}")
 def deletar_agendamento(
     agendamento_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Deleta agendamento (sÃƒÂ³ admin)"""
+    """Deleta agendamento (sÃƒÆ’Ã‚Â³ admin)"""
     from sqlalchemy import text
     papel = db.execute(
         text("SELECT p.nome FROM papeis p JOIN usuario_papel up ON p.id = up.papel_id WHERE up.usuario_id = :uid"),
@@ -813,6 +931,32 @@ def deletar_agendamento(
     if not db_agendamento:
         raise HTTPException(status_code=404, detail="Agendamento nao encontrado")
 
+    related_delete = _fetch_related_names(db, db_agendamento)
+    contexto_delete = _contexto_agendamento_auditoria(db_agendamento, related_delete)
+
+    snapshot = {
+        "paciente_id": db_agendamento.paciente_id,
+        "clinica_id": db_agendamento.clinica_id,
+        "servico_id": db_agendamento.servico_id,
+        "status": db_agendamento.status,
+        "data": db_agendamento.data,
+        "hora": db_agendamento.hora,
+        "contexto_agendamento": contexto_delete,
+    }
+
     db.delete(db_agendamento)
     db.commit()
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="agenda",
+        entidade="agendamento",
+        entidade_id=agendamento_id,
+        acao="AGENDAMENTO_EXCLUIDO",
+        descricao=f"Agendamento excluido - {_descricao_contexto_agendamento(contexto_delete)}",
+        detalhes=snapshot,
+        request=request,
+    )
+
     return {"message": "Agendamento deletado com sucesso"}
+

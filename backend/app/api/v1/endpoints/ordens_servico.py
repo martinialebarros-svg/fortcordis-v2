@@ -6,7 +6,7 @@ from html import escape
 from io import BytesIO
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from reportlab.lib import colors
@@ -28,6 +28,7 @@ from app.models.paciente import Paciente
 from app.models.servico import Servico
 from app.models.tutor import Tutor
 from app.models.user import User
+from app.services.auditoria_service import registrar_auditoria
 from app.services.precos_service import calcular_preco_servico
 
 router = APIRouter()
@@ -620,6 +621,7 @@ def obter_ordem(
 def atualizar_ordem(
     os_id: int,
     dados: OrdemServicoUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -627,6 +629,9 @@ def atualizar_ordem(
     os_data = db.query(OrdemServico).filter(OrdemServico.id == os_id).first()
     if not os_data:
         raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada")
+
+    status_anterior = os_data.status
+    valor_anterior = float(os_data.valor_final or 0)
 
     if dados.status is not None and dados.status not in OS_STATUSES:
         raise HTTPException(status_code=400, detail="Status invalido para ordem de servico")
@@ -709,6 +714,28 @@ def atualizar_ordem(
         servico_nome=servico_nome,
     )
     payload["mensagem"] = "Ordem de servico atualizada com sucesso"
+
+    acao_log = "ORDEM_SERVICO_ATUALIZADA"
+    if status_anterior != os_updated.status and os_updated.status == "Cancelado":
+        acao_log = "ORDEM_SERVICO_CANCELADA"
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="ordens_servico",
+        entidade="ordem_servico",
+        entidade_id=os_updated.id,
+        acao=acao_log,
+        descricao=f"OS {os_updated.numero_os or os_updated.id} atualizada",
+        detalhes={
+            "status_anterior": status_anterior,
+            "status_novo": os_updated.status,
+            "valor_final_anterior": valor_anterior,
+            "valor_final_novo": float(os_updated.valor_final or 0),
+            "campos_alterados": [k for k, v in dados.model_dump(exclude_unset=True).items() if v is not None],
+        },
+        request=request,
+    )
+
     return payload
 
 
@@ -716,6 +743,7 @@ def atualizar_ordem(
 def receber_ordem(
     os_id: int,
     dados: OrdemServicoReceberInput,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -783,6 +811,23 @@ def receber_ordem(
     db.commit()
     db.refresh(transacao)
 
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="ordens_servico",
+        entidade="ordem_servico",
+        entidade_id=os_data.id,
+        acao="ORDEM_SERVICO_RECEBIDA",
+        descricao=f"OS {os_data.numero_os or os_data.id} marcada como paga",
+        detalhes={
+            "numero_os": os_data.numero_os,
+            "forma_pagamento": dados.forma_pagamento,
+            "data_recebimento": momento_recebimento.isoformat(),
+            "valor_final": float(os_data.valor_final or 0),
+            "transacao_id": transacao.id,
+        },
+        request=request,
+    )
+
     return {
         "mensagem": "Ordem de servico recebida com sucesso.",
         "os_id": os_data.id,
@@ -795,6 +840,7 @@ def receber_ordem(
 @router.patch("/{os_id}/desfazer-recebimento")
 def desfazer_recebimento_ordem(
     os_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -843,6 +889,21 @@ def desfazer_recebimento_ordem(
 
     db.commit()
 
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="ordens_servico",
+        entidade="ordem_servico",
+        entidade_id=os_data.id,
+        acao="ORDEM_SERVICO_RECEBIMENTO_DESFEITO",
+        descricao=f"Recebimento desfeito da OS {os_data.numero_os or os_data.id}",
+        detalhes={
+            "numero_os": os_data.numero_os,
+            "transacao_cancelada_id": transacao_id,
+            "status_novo": os_data.status,
+        },
+        request=request,
+    )
+
     return {
         "mensagem": "Recebimento desfeito com sucesso.",
         "os_id": os_data.id,
@@ -854,6 +915,7 @@ def desfazer_recebimento_ordem(
 @router.delete("/{os_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deletar_ordem(
     os_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -862,8 +924,29 @@ def deletar_ordem(
     if not os_data:
         raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada")
 
+    snapshot = {
+        "numero_os": os_data.numero_os,
+        "status": os_data.status,
+        "valor_final": float(os_data.valor_final or 0),
+        "paciente_id": os_data.paciente_id,
+        "clinica_id": os_data.clinica_id,
+        "servico_id": os_data.servico_id,
+    }
+
     db.delete(os_data)
     db.commit()
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="ordens_servico",
+        entidade="ordem_servico",
+        entidade_id=os_id,
+        acao="ORDEM_SERVICO_EXCLUIDA",
+        descricao=f"OS {snapshot.get('numero_os') or os_id} excluida",
+        detalhes=snapshot,
+        request=request,
+    )
+
     return None
 
 
