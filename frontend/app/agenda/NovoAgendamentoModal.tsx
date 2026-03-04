@@ -58,10 +58,15 @@ export default function NovoAgendamentoModal({
     servico_id: "",
     data: "",
     hora: "",
+    marcar_como_reserva: false,
     observacoes: "",
   });
 
   const isEditando = !!agendamento;
+  const statusFormulario = isEditando
+    ? (agendamento?.status || "Agendado")
+    : (formData.marcar_como_reserva ? "Reservado" : "Agendado");
+  const permiteSemPacienteTutor = statusFormulario === "Reservado";
 
   const parseApiDateTime = (value?: string): Date | null => {
     if (!value) return null;
@@ -142,7 +147,9 @@ export default function NovoAgendamentoModal({
       const hora = inicio ? toInputTime(inicio) : "";
       
       setFormData({
-        paciente_id: agendamento.paciente_id?.toString() || "",
+        paciente_id: agendamento.paciente_id && agendamento.paciente_id > 0
+          ? agendamento.paciente_id.toString()
+          : "",
         paciente_novo: "",
         tutor_novo: "",
         clinica_id: agendamento.clinica_id?.toString() || "",
@@ -151,11 +158,12 @@ export default function NovoAgendamentoModal({
         servico_id: agendamento.servico_id?.toString() || "",
         data: data,
         hora: hora,
+        marcar_como_reserva: agendamento.status === "Reservado",
         observacoes: agendamento.observacoes || "",
       });
       
       // Buscar tutor do paciente selecionado
-      if (agendamento.paciente_id) {
+      if (agendamento.paciente_id && agendamento.paciente_id > 0) {
         const paciente = pacientes.find(p => p.id === agendamento.paciente_id);
         if (paciente?.tutor) {
           setTutorSelecionado(paciente.tutor);
@@ -172,6 +180,7 @@ export default function NovoAgendamentoModal({
         servico_id: "",
         data: defaultDate || "",
         hora: defaultTime || "",
+        marcar_como_reserva: false,
         observacoes: "",
       });
       setTutorSelecionado("");
@@ -300,29 +309,34 @@ export default function NovoAgendamentoModal({
         throw new Error(validacaoHorario.motivo);
       }
 
+      const nomePacienteCadastroRapido = (formData.paciente_novo || "").trim();
+      const nomeTutorCadastroRapido = (formData.tutor_novo || "").trim();
       let pacienteId = formData.paciente_id ? parseInt(formData.paciente_id, 10) : NaN;
 
       if (!Number.isFinite(pacienteId)) {
-        const nomePaciente = (formData.paciente_novo || "").trim();
-        if (!nomePaciente) {
+        if (nomePacienteCadastroRapido) {
+          if (!nomeTutorCadastroRapido && !permiteSemPacienteTutor) {
+            throw new Error("Para este status, informe o nome do tutor.");
+          }
+
+          const respostaPaciente = await api.post("/pacientes", {
+            nome: nomePacienteCadastroRapido,
+            tutor: nomeTutorCadastroRapido || null,
+            especie: "Canina",
+            raca: "",
+            sexo: "Macho",
+            peso_kg: null,
+            data_nascimento: null,
+            microchip: "",
+            observacoes: "Cadastro rapido via agenda panoramica",
+          });
+
+          pacienteId = respostaPaciente?.data?.id;
+          if (!pacienteId) {
+            throw new Error("Nao foi possivel criar o paciente rapidamente.");
+          }
+        } else if (!permiteSemPacienteTutor) {
           throw new Error("Selecione um paciente ou informe um nome para cadastro rapido.");
-        }
-
-        const respostaPaciente = await api.post("/pacientes", {
-          nome: nomePaciente,
-          tutor: (formData.tutor_novo || "").trim() || null,
-          especie: "Canina",
-          raca: "",
-          sexo: "Macho",
-          peso_kg: null,
-          data_nascimento: null,
-          microchip: "",
-          observacoes: "Cadastro rapido via agenda panoramica",
-        });
-
-        pacienteId = respostaPaciente?.data?.id;
-        if (!pacienteId) {
-          throw new Error("Nao foi possivel criar o paciente rapidamente.");
         }
       }
 
@@ -351,12 +365,12 @@ export default function NovoAgendamentoModal({
       }
 
       const payload = {
-        paciente_id: pacienteId,
+        paciente_id: Number.isFinite(pacienteId) ? pacienteId : null,
         clinica_id: Number.isFinite(clinicaId) ? clinicaId : null,
-        servico_id: formData.servico_id ? parseInt(formData.servico_id) : null,
+        servico_id: formData.servico_id ? parseInt(formData.servico_id, 10) : null,
         inicio: toApiDateTime(inicio),
         fim: toApiDateTime(fim),
-        status: agendamento?.status || "Agendado",
+        status: statusFormulario,
         observacoes: formData.observacoes,
       };
 
@@ -379,6 +393,7 @@ export default function NovoAgendamentoModal({
         servico_id: "",
         data: defaultDate || "",
         hora: defaultTime || "",
+        marcar_como_reserva: false,
         observacoes: "",
       });
       setTutorSelecionado("");
@@ -414,7 +429,7 @@ export default function NovoAgendamentoModal({
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               <User className="w-4 h-4 inline mr-1" />
-              Paciente *
+              {permiteSemPacienteTutor ? "Paciente (opcional para reserva)" : "Paciente *"}
             </label>
             <select
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
@@ -452,7 +467,7 @@ export default function NovoAgendamentoModal({
                   value={formData.tutor_novo}
                   onChange={(e) => setFormData({ ...formData, tutor_novo: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="Nome do tutor (opcional)"
+                  placeholder={permiteSemPacienteTutor ? "Nome do tutor (opcional)" : "Nome do tutor"}
                 />
               </div>
             )}
@@ -560,6 +575,20 @@ export default function NovoAgendamentoModal({
               />
             </div>
           </div>
+
+          {!isEditando && (
+            <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <input
+                type="checkbox"
+                checked={formData.marcar_como_reserva}
+                onChange={(e) => setFormData({ ...formData, marcar_como_reserva: e.target.checked })}
+                className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+              />
+              <span>
+                Marcar como <strong>reserva de horário</strong> (bloqueia o slot como pendente de confirmação).
+              </span>
+            </label>
+          )}
 
           {/* Observações */}
           <div>

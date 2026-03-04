@@ -70,10 +70,10 @@ interface ResumoFinanceiroAgenda {
   valor_agendado: number;
 }
 
-type StatusType = "Agendado" | "Confirmado" | "Em atendimento" | "Realizado" | "Cancelado" | "Faltou";
+type StatusType = "Agendado" | "Reservado" | "Confirmado" | "Em atendimento" | "Realizado" | "Cancelado" | "Faltou";
 type ModoVisualizacao = "lista" | "panoramica-dia" | "panoramica-semana";
 
-const STATUS_LIST: StatusType[] = ["Agendado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"];
+const STATUS_LIST: StatusType[] = ["Agendado", "Reservado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"];
 
 const toDateInput = (date: Date) => {
   const ano = date.getFullYear();
@@ -682,6 +682,7 @@ export default function AgendaPage() {
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       'Agendado': 'bg-blue-100 text-blue-800 border-blue-200',
+      'Reservado': 'bg-amber-100 text-amber-800 border-amber-200',
       'Confirmado': 'bg-green-100 text-green-800 border-green-200',
       'Em atendimento': 'bg-yellow-100 text-yellow-800 border-yellow-200',
       'Realizado': 'bg-emerald-100 text-emerald-800 border-emerald-200',
@@ -694,6 +695,7 @@ export default function AgendaPage() {
   const getStatusIcon = (status: string) => {
     const icons: Record<string, any> = {
       'Agendado': Calendar,
+      'Reservado': Clock,
       'Confirmado': CheckCircle2,
       'Em atendimento': PlayCircle,
       'Realizado': CheckCircle,
@@ -705,7 +707,8 @@ export default function AgendaPage() {
 
   const getProximosStatus = (statusAtual: string): StatusType[] => {
     const fluxos: Record<string, StatusType[]> = {
-      'Agendado': ['Confirmado', 'Cancelado', 'Faltou'],
+      'Agendado': ['Reservado', 'Confirmado', 'Cancelado', 'Faltou'],
+      'Reservado': ['Confirmado', 'Agendado', 'Cancelado'],
       'Confirmado': ['Em atendimento', 'Cancelado', 'Faltou'],
       'Em atendimento': ['Realizado', 'Cancelado'],
       'Realizado': ['Em atendimento'],
@@ -832,6 +835,7 @@ export default function AgendaPage() {
   const stats = {
     total: agendamentos.length,
     agendado: agendamentos.filter(a => a.status === 'Agendado').length,
+    reservado: agendamentos.filter(a => a.status === 'Reservado').length,
     confirmado: agendamentos.filter(a => a.status === 'Confirmado').length,
     emAtendimento: agendamentos.filter(a => a.status === 'Em atendimento').length,
     realizado: agendamentos.filter(a => a.status === 'Realizado').length,
@@ -914,7 +918,7 @@ export default function AgendaPage() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-7 gap-3 mb-6">
           <div className="bg-white p-3 rounded-lg shadow-sm border">
             <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
             <div className="text-xs text-gray-500">Total</div>
@@ -922,6 +926,10 @@ export default function AgendaPage() {
           <div className="bg-white p-3 rounded-lg shadow-sm border">
             <div className="text-2xl font-bold text-blue-600">{stats.agendado}</div>
             <div className="text-xs text-gray-500">Agendados</div>
+          </div>
+          <div className="bg-white p-3 rounded-lg shadow-sm border">
+            <div className="text-2xl font-bold text-amber-600">{stats.reservado}</div>
+            <div className="text-xs text-gray-500">Reservados</div>
           </div>
           <div className="bg-white p-3 rounded-lg shadow-sm border">
             <div className="text-2xl font-bold text-green-600">{stats.confirmado}</div>
@@ -1180,6 +1188,7 @@ export default function AgendaPage() {
                             'Cancelado': XCircle,
                             'Faltou': AlertCircle,
                             'Agendado': Calendar,
+                            'Reservado': Clock,
                           };
                           const Icon = desfazerRealizado ? Undo2 : (icons[novoStatus] || CheckCircle2);
                           const colors: Record<string, string> = {
@@ -1189,6 +1198,7 @@ export default function AgendaPage() {
                             'Cancelado': 'bg-red-50 text-red-700 hover:bg-red-100 border-red-200',
                             'Faltou': 'bg-orange-50 text-orange-700 hover:bg-orange-100 border-orange-200',
                             'Agendado': 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200',
+                            'Reservado': 'bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200',
                           };
                           const actionLabel = desfazerRealizado ? "Desfazer realizado" : novoStatus;
                           const actionColor = desfazerRealizado
@@ -1366,28 +1376,48 @@ export default function AgendaPage() {
                     }
 
                     const primeiro = itens[0];
+                    const statusPrimeiro = String(primeiro.status || "");
+                    const slotReservado = statusPrimeiro === "Reservado";
+                    const slotClasses = slotReservado
+                      ? {
+                          container: "border-b border-r px-2 py-2 text-left bg-amber-50 hover:bg-amber-100 transition-colors",
+                          titulo: "text-xs font-bold text-amber-800 truncate",
+                          texto: "text-[11px] text-amber-700 truncate",
+                          extra: "text-[11px] text-amber-600",
+                          badge: "inline-flex items-center rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800",
+                        }
+                      : {
+                          container: "border-b border-r px-2 py-2 text-left bg-red-50 hover:bg-red-100 transition-colors",
+                          titulo: "text-xs font-bold text-red-800 truncate",
+                          texto: "text-[11px] text-red-600 truncate",
+                          extra: "text-[11px] text-red-500",
+                          badge: "inline-flex items-center rounded-full border border-red-200 bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-800",
+                        };
                     return (
                       <button
                         key={chave}
                         onClick={() => { setAgendamentoEditando(primeiro); setSlotSelecionado(null); setModalAberto(true); }}
-                        className="border-b border-r px-2 py-2 text-left bg-red-50 hover:bg-red-100 transition-colors"
+                        className={slotClasses.container}
                       >
-                        <div className="text-xs font-bold text-red-800 truncate">
+                        <div className={slotClasses.titulo}>
                           {primeiro.clinica || "Clinica nao informada"}
                         </div>
-                        <div className="text-[11px] text-red-600 truncate">
+                        <div className="mt-1 mb-1">
+                          <span className={slotClasses.badge}>{statusPrimeiro || "Agendado"}</span>
+                        </div>
+                        <div className={slotClasses.texto}>
                           {primeiro.paciente || "Animal nao informado"}
                         </div>
-                        <div className="text-[11px] text-red-600 truncate">
+                        <div className={slotClasses.texto}>
                           Tutor: {primeiro.tutor || "Nao informado"}
                         </div>
                         {primeiro.servico && (
-                          <div className="text-[11px] text-red-500 truncate">
+                          <div className={`${slotClasses.extra} truncate`}>
                             {primeiro.servico}
                           </div>
                         )}
                         {itens.length > 1 && (
-                          <div className="text-[11px] text-red-500 font-medium">
+                          <div className={`${slotClasses.extra} font-medium`}>
                             +{itens.length - 1} no mesmo slot
                           </div>
                         )}
