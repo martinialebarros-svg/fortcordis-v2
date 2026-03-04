@@ -181,8 +181,6 @@ def aplicar_referencia_eco(parametros: List[Dict], referencia_eco: Optional[Dict
     params_atualizados: List[Dict] = []
     for param in parametros:
         atualizado = dict(param)
-        atualizado["ref_min"] = None
-        atualizado["ref_max"] = None
 
         prefixo = MAPEAMENTO_REFERENCIA_ECO.get(str(param.get("chave", "")))
         if prefixo:
@@ -994,7 +992,7 @@ def gerar_pdf_laudo_eco(
         # Conforme solicitado: COM Referência, SEM Interpretação
         params_ve_modo_m = [
             {'chave': 'DIVEd', 'label': 'DIVEd (Diâmetro interno do VE em diástole)', 'unidade': 'mm', 'ref_min': 16.0, 'ref_max': 24.0},
-            {'chave': 'DIVEd_normalizado', 'label': 'DIVEd normalizado (DIVEd / peso^0,294)', 'unidade': '', 'ref_min': 1.27, 'ref_max': 1.85},
+            {'chave': 'DIVEd_normalizado', 'label': 'DIVEd normalizado (DIVEd / peso^0,294)', 'unidade': '', 'ref_min': 1.27, 'ref_max': 1.73},
             {'chave': 'SIVd', 'label': 'SIVd (Septo interventricular em diástole)', 'unidade': 'mm', 'ref_min': 3.5, 'ref_max': 5.5},
             {'chave': 'PLVEd', 'label': 'PLVEd (Parede livre do VE em diástole)', 'unidade': 'mm', 'ref_min': 3.5, 'ref_max': 5.5},
             {'chave': 'DIVES', 'label': 'DIVEs (Diâmetro interno do VE em sístole)', 'unidade': 'mm', 'ref_min': 9.0, 'ref_max': 16.0},
