@@ -1,4 +1,4 @@
-name: Recover Frases Prod Manual
+ï»¿name: Recover Frases Prod Manual
 
 on:
   workflow_dispatch:
@@ -20,157 +20,18 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
+      - name: Copy recovery script to VPS
+        run: |
+          scp scripts/recover_frases_prod.py ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/recover_frases_prod.py
+
       - name: Recover frases on production VPS
         run: |
           ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
             set -euo pipefail
             APP_DIR="/var/www/fortcordis-v2"
             cd "$APP_DIR"
-
-            python3 - <<'PY'
-import glob
-import json
-import os
-import tarfile
-from datetime import datetime
-from pathlib import Path
-
-app_dir = Path('/var/www/fortcordis-v2')
-runtime_frases_path = app_dir / 'backend' / 'data' / 'frases.json'
-runtime_frases_path.parent.mkdir(parents=True, exist_ok=True)
-
-backup_files = sorted(glob.glob(str(app_dir / 'backup_*.tar.gz')), key=os.path.getmtime, reverse=True)
-if not backup_files:
-    raise SystemExit('Nenhum backup_*.tar.gz encontrado em /var/www/fortcordis-v2')
-
-def read_frases_from_tar(tar_path: str):
-    try:
-        with tarfile.open(tar_path, 'r:gz') as tar:
-            member = None
-            for candidate in ['backend/data/frases.json', './backend/data/frases.json']:
-                try:
-                    member = tar.getmember(candidate)
-                    break
-                except KeyError:
-                    continue
-            if member is None:
-                for m in tar.getmembers():
-                    if m.name.endswith('backend/data/frases.json'):
-                        member = m
-                        break
-            if member is None:
-                return None
-            extracted = tar.extractfile(member)
-            if extracted is None:
-                return None
-            data = json.loads(extracted.read().decode('utf-8'))
-            frases = data.get('frases', []) if isinstance(data, dict) else []
-            if not isinstance(frases, list):
-                frases = []
-            active = [f for f in frases if f.get('ativo', 1) == 1]
-            return {
-                'path': tar_path,
-                'name': os.path.basename(tar_path),
-                'data': data,
-                'total': len(frases),
-                'active': len(active),
-            }
-    except Exception:
-        return None
-
-candidates = []
-for p in backup_files:
-    info = read_frases_from_tar(p)
-    if info:
-        candidates.append(info)
-
-if not candidates:
-    raise SystemExit('Backups encontrados, mas nenhum com frases.json válido')
-
-print('=== BACKUPS CANDIDATOS (top 10) ===')
-for item in candidates[:10]:
-    mtime = datetime.fromtimestamp(os.path.getmtime(item['path'])).isoformat()
-    print(f"- {item['name']} | active={item['active']} total={item['total']} | mtime={mtime}")
-
-selected = sorted(
-    candidates,
-    key=lambda c: (c['active'], c['total'], os.path.getmtime(c['path'])),
-    reverse=True,
-)[0]
-
-print('=== BACKUP SELECIONADO ===')
-print(f"{selected['name']} | active={selected['active']} total={selected['total']}")
-
-current_data = {'frases': [], 'version': '1.0'}
-if runtime_frases_path.exists():
-    try:
-        current_data = json.loads(runtime_frases_path.read_text(encoding='utf-8'))
-        if not isinstance(current_data, dict):
-            current_data = {'frases': [], 'version': '1.0'}
-    except Exception:
-        current_data = {'frases': [], 'version': '1.0'}
-
-current_frases = current_data.get('frases', [])
-if not isinstance(current_frases, list):
-    current_frases = []
-
-backup_data = selected['data'] if isinstance(selected.get('data'), dict) else {'frases': []}
-backup_frases = backup_data.get('frases', [])
-if not isinstance(backup_frases, list):
-    backup_frases = []
-
-print('=== CONTAGEM ATUAL VS BACKUP ===')
-print(f"Atual: active={sum(1 for f in current_frases if f.get('ativo', 1) == 1)} total={len(current_frases)}")
-print(f"Backup: active={sum(1 for f in backup_frases if f.get('ativo', 1) == 1)} total={len(backup_frases)}")
-
-index = {}
-merged = []
-
-def key_of(frase):
-    chave = str(frase.get('chave') or '').strip().lower()
-    if chave:
-        return ('chave', chave)
-    pat = str(frase.get('patologia') or '').strip().lower()
-    grau = str(frase.get('grau') or '').strip().lower()
-    concl = str(frase.get('conclusao') or '').strip().lower()
-    return ('pgc', pat, grau, concl)
-
-for f in current_frases:
-    k = key_of(f)
-    index[k] = f
-    merged.append(f)
-
-added = 0
-for f in backup_frases:
-    k = key_of(f)
-    if k in index:
-        continue
-    merged.append(f)
-    index[k] = f
-    added += 1
-
-next_id = 1
-for f in merged:
-    f['id'] = next_id
-    next_id += 1
-
-result = dict(current_data)
-result['frases'] = merged
-result['last_updated'] = datetime.now().isoformat()
-
-stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-backup_current = app_dir / 'backend' / 'data' / f'frases.before_recovery.{stamp}.json'
-if runtime_frases_path.exists():
-    backup_current.write_text(runtime_frases_path.read_text(encoding='utf-8'), encoding='utf-8')
-
-runtime_frases_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
-
-print('=== RECUPERACAO APLICADA ===')
-print(f'Backup do arquivo atual: {backup_current}')
-print(f'Frases adicionadas do backup: {added}')
-print(f"Total final: {len(merged)} | active={sum(1 for f in merged if f.get('ativo', 1) == 1)}")
-PY
-
+            python3 /tmp/recover_frases_prod.py "$APP_DIR"
+            rm -f /tmp/recover_frases_prod.py
             sudo systemctl restart fortcordis-backend
             echo "Backend reiniciado com sucesso"
           EOF
