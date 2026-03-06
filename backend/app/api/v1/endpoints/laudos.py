@@ -181,17 +181,6 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
     from app.models.paciente import Paciente
     from app.models.tutor import Tutor
 
-    paciente_id = paciente.get("id")
-    if paciente_id not in (None, ""):
-        try:
-            return int(paciente_id)
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=422, detail="ID do paciente inválido.")
-
-    paciente_nome_input = (paciente.get("nome") or "").strip()
-    if not paciente_nome_input:
-        raise HTTPException(status_code=422, detail="Nome do paciente e obrigatorio para salvar o laudo.")
-
     tutor_id = None
     tutor_nome = (paciente.get("tutor") or "").strip()
     if tutor_nome:
@@ -221,6 +210,66 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
                     raise
         tutor_id = tutor.id
 
+    def _atualizar_paciente_existente_sem_limpar_campos(db_paciente: Any) -> None:
+        houve_alteracao = False
+
+        nome_payload = (paciente.get("nome") or "").strip()
+        if nome_payload and nome_payload != (db_paciente.nome or ""):
+            db_paciente.nome = nome_payload
+            db_paciente.nome_key = _gerar_nome_key(nome_payload)
+            houve_alteracao = True
+
+        especie_payload = (paciente.get("especie") or "").strip()
+        if especie_payload and especie_payload != (db_paciente.especie or ""):
+            db_paciente.especie = especie_payload
+            houve_alteracao = True
+
+        raca_payload = (paciente.get("raca") or "").strip()
+        if raca_payload and raca_payload != (db_paciente.raca or ""):
+            db_paciente.raca = raca_payload
+            houve_alteracao = True
+
+        sexo_payload = (paciente.get("sexo") or "").strip()
+        if sexo_payload and sexo_payload != (db_paciente.sexo or ""):
+            db_paciente.sexo = sexo_payload
+            houve_alteracao = True
+
+        peso_payload = _to_float_or_none(paciente.get("peso"))
+        if peso_payload is not None:
+            peso_atual = _to_float_or_none(db_paciente.peso_kg)
+            if peso_atual is None or abs(peso_atual - peso_payload) > 0.000001:
+                db_paciente.peso_kg = peso_payload
+                houve_alteracao = True
+
+        if tutor_id is not None and tutor_id != db_paciente.tutor_id:
+            db_paciente.tutor_id = tutor_id
+            houve_alteracao = True
+
+        if db_paciente.ativo != 1:
+            db_paciente.ativo = 1
+            houve_alteracao = True
+
+        if houve_alteracao:
+            db_paciente.updated_at = _legacy_now_str()
+
+    paciente_id = paciente.get("id")
+    if paciente_id not in (None, ""):
+        try:
+            paciente_id = int(paciente_id)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="ID do paciente invalido.")
+
+        paciente_existente = db.query(Paciente).filter(Paciente.id == paciente_id).first()
+        if not paciente_existente:
+            raise HTTPException(status_code=404, detail="Paciente informado nao encontrado.")
+
+        _atualizar_paciente_existente_sem_limpar_campos(paciente_existente)
+        return paciente_existente.id
+
+    paciente_nome_input = (paciente.get("nome") or "").strip()
+    if not paciente_nome_input:
+        raise HTTPException(status_code=422, detail="Nome do paciente e obrigatorio para salvar o laudo.")
+
     paciente_nome = paciente_nome_input or "Paciente sem nome"
     paciente_nome_key = _gerar_nome_key(paciente_nome)
     paciente_especie = (paciente.get("especie") or "Canina").strip() or "Canina"
@@ -234,6 +283,7 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
 
     paciente_existente = paciente_query.order_by(Paciente.id.desc()).first()
     if paciente_existente:
+        _atualizar_paciente_existente_sem_limpar_campos(paciente_existente)
         return paciente_existente.id
 
     observacoes = ""

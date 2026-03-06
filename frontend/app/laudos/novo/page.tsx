@@ -985,21 +985,21 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
     console.log("Medidas brutas do XML:", dados.medidas);
     
     if (dados.paciente) {
-      const novoPaciente = {
-        id: undefined as number | undefined,
-        nome: dados.paciente.nome || "",
-        tutor: dados.paciente.tutor || "",
-        raca: dados.paciente.raca || "",
-        especie: dados.paciente.especie || "Canina",
-        peso: dados.paciente.peso || "",
-        idade: dados.paciente.idade || "",
-        sexo: dados.paciente.sexo || "Macho",
-        telefone: dados.paciente.telefone || "",
-        data_exame: dados.paciente.data_exame 
-          ? dados.paciente.data_exame.substring(0, 10) 
-          : new Date().toISOString().split('T')[0],
-      };
-      setPaciente(novoPaciente);
+      setPaciente((anterior) => ({
+        ...anterior,
+        id: dados.paciente.id ?? anterior.id,
+        nome: dados.paciente.nome || anterior.nome || "",
+        tutor: dados.paciente.tutor || anterior.tutor || "",
+        raca: dados.paciente.raca || anterior.raca || "",
+        especie: dados.paciente.especie || anterior.especie || "Canina",
+        peso: dados.paciente.peso || anterior.peso || "",
+        idade: dados.paciente.idade || anterior.idade || "",
+        sexo: dados.paciente.sexo || anterior.sexo || "Macho",
+        telefone: dados.paciente.telefone || anterior.telefone || "",
+        data_exame: dados.paciente.data_exame
+          ? dados.paciente.data_exame.substring(0, 10)
+          : anterior.data_exame || new Date().toISOString().split('T')[0],
+      }));
     }
     
     if (dados.medidas) {
