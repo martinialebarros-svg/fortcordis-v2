@@ -1,24 +1,7 @@
-name: Recover Frases Prod
+name: Recover Frases Prod Manual
 
 on:
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "true = apenas analisar backups; false = aplicar recuperação"
-        required: true
-        default: "true"
-      backup_name:
-        description: "Nome exato do backup (opcional). Ex: backup_20260305_010203.tar.gz"
-        required: false
-        default: ""
-      strategy:
-        description: "Estrategia quando backup_name estiver vazio"
-        required: true
-        default: "max_active"
-        type: choice
-        options:
-          - max_active
-          - latest
 
 jobs:
   recover:
@@ -38,51 +21,33 @@ jobs:
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
       - name: Recover frases on production VPS
-        env:
-          DRY_RUN: ${{ inputs.dry_run }}
-          BACKUP_NAME: ${{ inputs.backup_name }}
-          STRATEGY: ${{ inputs.strategy }}
         run: |
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "DRY_RUN='${DRY_RUN}' BACKUP_NAME='${BACKUP_NAME}' STRATEGY='${STRATEGY}' bash -s" << 'EOF'
-          set -euo pipefail
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            set -euo pipefail
+            APP_DIR="/var/www/fortcordis-v2"
+            cd "$APP_DIR"
 
-          APP_DIR="/var/www/fortcordis-v2"
-          cd "$APP_DIR"
-
-          BACKUP_NAME="${BACKUP_NAME:-}"
-          STRATEGY="${STRATEGY:-max_active}"
-          DRY_RUN="${DRY_RUN:-true}"
-
-          export APP_DIR BACKUP_NAME STRATEGY DRY_RUN
-
-          python3 - <<'PY'
+            python3 - <<'PY'
 import glob
-import io
 import json
 import os
 import tarfile
 from datetime import datetime
 from pathlib import Path
 
-app_dir = Path(os.environ.get("APP_DIR", "/var/www/fortcordis-v2"))
-backup_name = (os.environ.get("BACKUP_NAME") or "").strip()
-strategy = (os.environ.get("STRATEGY") or "max_active").strip()
-dry_run = (os.environ.get("DRY_RUN") or "true").strip().lower() == "true"
+app_dir = Path('/var/www/fortcordis-v2')
+runtime_frases_path = app_dir / 'backend' / 'data' / 'frases.json'
+runtime_frases_path.parent.mkdir(parents=True, exist_ok=True)
 
-backup_files = sorted(
-    glob.glob(str(app_dir / "backup_*.tar.gz")),
-    key=os.path.getmtime,
-    reverse=True,
-)
-
+backup_files = sorted(glob.glob(str(app_dir / 'backup_*.tar.gz')), key=os.path.getmtime, reverse=True)
 if not backup_files:
-    raise SystemExit("Nenhum backup_*.tar.gz encontrado em /var/www/fortcordis-v2")
+    raise SystemExit('Nenhum backup_*.tar.gz encontrado em /var/www/fortcordis-v2')
 
 def read_frases_from_tar(tar_path: str):
     try:
-        with tarfile.open(tar_path, "r:gz") as tar:
+        with tarfile.open(tar_path, 'r:gz') as tar:
             member = None
-            for candidate in ["backend/data/frases.json", "./backend/data/frases.json"]:
+            for candidate in ['backend/data/frases.json', './backend/data/frases.json']:
                 try:
                     member = tar.getmember(candidate)
                     break
@@ -90,7 +55,7 @@ def read_frases_from_tar(tar_path: str):
                     continue
             if member is None:
                 for m in tar.getmembers():
-                    if m.name.endswith("backend/data/frases.json"):
+                    if m.name.endswith('backend/data/frases.json'):
                         member = m
                         break
             if member is None:
@@ -98,95 +63,77 @@ def read_frases_from_tar(tar_path: str):
             extracted = tar.extractfile(member)
             if extracted is None:
                 return None
-            raw = extracted.read()
-            data = json.loads(raw.decode("utf-8"))
-            frases = data.get("frases", []) if isinstance(data, dict) else []
+            data = json.loads(extracted.read().decode('utf-8'))
+            frases = data.get('frases', []) if isinstance(data, dict) else []
             if not isinstance(frases, list):
                 frases = []
-            active = [f for f in frases if f.get("ativo", 1) == 1]
+            active = [f for f in frases if f.get('ativo', 1) == 1]
             return {
-                "path": tar_path,
-                "name": os.path.basename(tar_path),
-                "total": len(frases),
-                "active": len(active),
-                "data": data,
+                'path': tar_path,
+                'name': os.path.basename(tar_path),
+                'data': data,
+                'total': len(frases),
+                'active': len(active),
             }
     except Exception:
         return None
 
 candidates = []
-for path in backup_files:
-    info = read_frases_from_tar(path)
-    if info is not None:
+for p in backup_files:
+    info = read_frases_from_tar(p)
+    if info:
         candidates.append(info)
 
 if not candidates:
-    raise SystemExit("Backups encontrados, mas nenhum contém backend/data/frases.json válido")
+    raise SystemExit('Backups encontrados, mas nenhum com frases.json válido')
 
-print("=== CANDIDATOS DE BACKUP (top 10) ===")
+print('=== BACKUPS CANDIDATOS (top 10) ===')
 for item in candidates[:10]:
-    mtime = datetime.fromtimestamp(os.path.getmtime(item["path"])).isoformat()
+    mtime = datetime.fromtimestamp(os.path.getmtime(item['path'])).isoformat()
     print(f"- {item['name']} | active={item['active']} total={item['total']} | mtime={mtime}")
 
-selected = None
-if backup_name:
-    selected = next((c for c in candidates if c["name"] == backup_name), None)
-    if selected is None:
-        raise SystemExit(f"backup_name não encontrado: {backup_name}")
-else:
-    if strategy == "latest":
-        selected = candidates[0]
-    else:
-        selected = sorted(
-            candidates,
-            key=lambda c: (c["active"], c["total"], os.path.getmtime(c["path"])),
-            reverse=True,
-        )[0]
+selected = sorted(
+    candidates,
+    key=lambda c: (c['active'], c['total'], os.path.getmtime(c['path'])),
+    reverse=True,
+)[0]
 
-print("=== BACKUP SELECIONADO ===")
+print('=== BACKUP SELECIONADO ===')
 print(f"{selected['name']} | active={selected['active']} total={selected['total']}")
 
-runtime_frases_path = app_dir / "backend" / "data" / "frases.json"
-runtime_frases_path.parent.mkdir(parents=True, exist_ok=True)
-
-current_data = {"frases": [], "version": "1.0"}
+current_data = {'frases': [], 'version': '1.0'}
 if runtime_frases_path.exists():
     try:
-        current_data = json.loads(runtime_frases_path.read_text(encoding="utf-8"))
+        current_data = json.loads(runtime_frases_path.read_text(encoding='utf-8'))
         if not isinstance(current_data, dict):
-            current_data = {"frases": [], "version": "1.0"}
+            current_data = {'frases': [], 'version': '1.0'}
     except Exception:
-        current_data = {"frases": [], "version": "1.0"}
+        current_data = {'frases': [], 'version': '1.0'}
 
-current_frases = current_data.get("frases", [])
+current_frases = current_data.get('frases', [])
 if not isinstance(current_frases, list):
     current_frases = []
 
-backup_data = selected["data"] if isinstance(selected.get("data"), dict) else {"frases": []}
-backup_frases = backup_data.get("frases", [])
+backup_data = selected['data'] if isinstance(selected.get('data'), dict) else {'frases': []}
+backup_frases = backup_data.get('frases', [])
 if not isinstance(backup_frases, list):
     backup_frases = []
 
-print("=== CONTAGEM ATUAL VS BACKUP ===")
+print('=== CONTAGEM ATUAL VS BACKUP ===')
 print(f"Atual: active={sum(1 for f in current_frases if f.get('ativo', 1) == 1)} total={len(current_frases)}")
 print(f"Backup: active={sum(1 for f in backup_frases if f.get('ativo', 1) == 1)} total={len(backup_frases)}")
 
-if dry_run:
-    print("DRY RUN: nenhuma alteração foi aplicada.")
-    raise SystemExit(0)
-
-# Merge seguro: mantém atuais e adiciona faltantes do backup por chave lógica
 index = {}
 merged = []
 
 def key_of(frase):
-    chave = str(frase.get("chave") or "").strip().lower()
+    chave = str(frase.get('chave') or '').strip().lower()
     if chave:
-        return ("chave", chave)
-    pat = str(frase.get("patologia") or "").strip().lower()
-    grau = str(frase.get("grau") or "").strip().lower()
-    concl = str(frase.get("conclusao") or "").strip().lower()
-    return ("pgc", pat, grau, concl)
+        return ('chave', chave)
+    pat = str(frase.get('patologia') or '').strip().lower()
+    grau = str(frase.get('grau') or '').strip().lower()
+    concl = str(frase.get('conclusao') or '').strip().lower()
+    return ('pgc', pat, grau, concl)
 
 for f in current_frases:
     k = key_of(f)
@@ -202,30 +149,28 @@ for f in backup_frases:
     index[k] = f
     added += 1
 
-# Reindex IDs para evitar conflito
 next_id = 1
 for f in merged:
-    f["id"] = next_id
+    f['id'] = next_id
     next_id += 1
 
 result = dict(current_data)
-result["frases"] = merged
-result["last_updated"] = datetime.now().isoformat()
+result['frases'] = merged
+result['last_updated'] = datetime.now().isoformat()
 
-stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-runtime_backup = app_dir / "backend" / "data" / f"frases.before_recovery.{stamp}.json"
+stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+backup_current = app_dir / 'backend' / 'data' / f'frases.before_recovery.{stamp}.json'
 if runtime_frases_path.exists():
-    runtime_backup.write_text(runtime_frases_path.read_text(encoding="utf-8"), encoding="utf-8")
+    backup_current.write_text(runtime_frases_path.read_text(encoding='utf-8'), encoding='utf-8')
 
-runtime_frases_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+runtime_frases_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
 
-print("=== RECUPERAÇÃO APLICADA ===")
-print(f"Arquivo atual salvo: {runtime_frases_path}")
-print(f"Backup do arquivo antigo: {runtime_backup}")
-print(f"Frases adicionadas do backup: {added}")
+print('=== RECUPERACAO APLICADA ===')
+print(f'Backup do arquivo atual: {backup_current}')
+print(f'Frases adicionadas do backup: {added}')
 print(f"Total final: {len(merged)} | active={sum(1 for f in merged if f.get('ativo', 1) == 1)}")
 PY
 
-          sudo systemctl restart fortcordis-backend
-          echo "Backend reiniciado com sucesso"
+            sudo systemctl restart fortcordis-backend
+            echo "Backend reiniciado com sucesso"
           EOF
