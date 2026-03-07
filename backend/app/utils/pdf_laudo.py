@@ -1210,12 +1210,13 @@ def gerar_pdf_laudo_eco(
         if qualitativa and any(qualitativa.get(k, '').strip() for k in ['valvas', 'camaras', 'funcao', 'pericardio', 'vasos']):
             elements.extend(criar_secao_qualitativa(qualitativa))
 
-        # Pressao arterial anexada ao laudo ecocardiografico (quando existir)
-        elements.extend(criar_secao_pressao_arterial(dados_pdf.get("pressao_arterial")))
-
         # 4. Conclusao
         conclusao = dados_pdf.get('conclusao', '')
         elements.extend(criar_secao_conclusao(conclusao))
+
+        # Pressao arterial anexada ao laudo ecocardiografico (quando existir)
+        # Deve aparecer apos a conclusao no PDF.
+        elements.extend(criar_secao_pressao_arterial(dados_pdf.get("pressao_arterial")))
         
         # 5. Assinatura
         vet_nome = nome_veterinario or dados_pdf.get('veterinario_nome') or "Médico Veterinário"
