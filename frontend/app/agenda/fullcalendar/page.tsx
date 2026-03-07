@@ -98,11 +98,6 @@ interface AcaoStatus {
   precisaTipoHorario?: boolean;
 }
 
-interface ServicoAgenda {
-  id: number;
-  duracao_minutos?: number | null;
-}
-
 interface ClinicaEndereco {
   id: number;
   nome?: string | null;
@@ -212,17 +207,6 @@ const toApiDateTime = (date: Date): string => {
   const minutes = String(date.getMinutes()).padStart(2, "0");
   const seconds = String(date.getSeconds()).padStart(2, "0");
   return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
-};
-
-const calcularMdc = (a: number, b: number): number => {
-  let x = Math.abs(a);
-  let y = Math.abs(b);
-  while (y !== 0) {
-    const resto = x % y;
-    x = y;
-    y = resto;
-  }
-  return x || 1;
 };
 
 const minutosParaDuracao = (minutos: number): string => {
@@ -346,7 +330,7 @@ export default function AgendaFullCalendarPage() {
   const [excluindoAgendamentoId, setExcluindoAgendamentoId] = useState<number | null>(null);
   const [salvandoMovimentacao, setSalvandoMovimentacao] = useState(false);
   const [salvandoAgendaDia, setSalvandoAgendaDia] = useState(false);
-  const [duracaoSlotMinutos, setDuracaoSlotMinutos] = useState(30);
+  const duracaoSlotMinutos = 30;
   const [erro, setErro] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("todos");
   const [mensagemStatus, setMensagemStatus] = useState("");
@@ -651,29 +635,6 @@ export default function AgendaFullCalendarPage() {
     }
   }, []);
 
-  const carregarDuracaoSlots = useCallback(async () => {
-    try {
-      const response = await api.get("/servicos?limit=1000");
-      const itens: ServicoAgenda[] = Array.isArray(response.data?.items) ? response.data.items : [];
-      const duracoes = itens
-        .map((servico) => Number(servico?.duracao_minutos || 0))
-        .filter((valor) => Number.isFinite(valor) && valor > 0)
-        .map((valor) => Math.round(valor));
-
-      if (duracoes.length === 0) {
-        setDuracaoSlotMinutos(30);
-        return;
-      }
-
-      const base = duracoes.reduce((acumulado, atual) => calcularMdc(acumulado, atual));
-      const normalizado = Math.max(5, base);
-      setDuracaoSlotMinutos(normalizado);
-    } catch (error) {
-      console.error("Erro ao carregar duracao de servicos para slots:", error);
-      setDuracaoSlotMinutos(30);
-    }
-  }, []);
-
   const agendarRefreshRealtime = useCallback(
     (payload?: { action?: string; agendamento_id?: number }) => {
       if (payload?.action) {
@@ -765,8 +726,7 @@ export default function AgendaFullCalendarPage() {
       return;
     }
     carregarConfiguracaoAgenda();
-    carregarDuracaoSlots();
-  }, [authChecked, carregarConfiguracaoAgenda, carregarDuracaoSlots]);
+  }, [authChecked, carregarConfiguracaoAgenda]);
 
   useEffect(() => {
     if (!selecionado) return;
@@ -1746,7 +1706,7 @@ export default function AgendaFullCalendarPage() {
             <p className="mt-2 text-2xl font-bold text-gray-900">{eventos.length}</p>
             <p className="text-xs text-gray-500">eventos no filtro atual</p>
             <p className="mt-1 text-xs text-gray-500">
-              Grade de slots: {duracaoSlotMinutos} min (baseada na duracao cadastrada dos servicos)
+              Grade de slots: {duracaoSlotMinutos} min (fixa)
             </p>
           </div>
 
