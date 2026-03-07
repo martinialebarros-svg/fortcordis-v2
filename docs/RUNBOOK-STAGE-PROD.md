@@ -2,6 +2,12 @@
 
 Este runbook descreve o processo seguro para promover codigo de `stage` para `prod` com downtime minimo.
 
+## Acesso à VPS (produção / main)
+
+- **Prod (main):** `ssh martiniano@216.238.116.77`
+- Diretório prod: `/var/www/fortcordis-v2`
+- Stage (se na mesma VPS): `/var/www/fortcordis-stage`
+
 ## Fluxo recomendado (automatizado)
 
 ### 1) Local: promover stage -> main sem tocar no runtime local

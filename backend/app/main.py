@@ -1,9 +1,11 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 
 from app.api.v1.endpoints import auth, admin, agenda, pacientes, clinicas, servicos, laudos, financeiro, xml_import, frases, imagens, tabelas_preco, ordens_servico, configuracoes, tutores, referencias_eco, atendimento
 from app.models import user, papel, agendamento
 from app.core.websocket import manager
+from app.db.database import engine
 
 app = FastAPI(
     redirect_slashes=False,
@@ -12,6 +14,39 @@ app = FastAPI(
     version="2.0.0",
 
 )
+
+
+def _ensure_financeiro_schema_compat() -> None:
+    """Garante colunas novas de financeiro em bancos locais sem migração aplicada."""
+    required_columns = {
+        "transacoes": {"clinica_id": "INTEGER"},
+        "contas_pagar": {"clinica_id": "INTEGER"},
+        "contas_receber": {"clinica_id": "INTEGER"},
+    }
+
+    try:
+        with engine.begin() as conn:
+            for table_name, columns in required_columns.items():
+                inspector = inspect(conn)
+                if table_name not in inspector.get_table_names():
+                    continue
+
+                existing = {column["name"] for column in inspector.get_columns(table_name)}
+                for column_name, column_type in columns.items():
+                    if column_name in existing:
+                        continue
+                    conn.execute(
+                        text(
+                            f'ALTER TABLE "{table_name}" '
+                            f'ADD COLUMN "{column_name}" {column_type}'
+                        )
+                    )
+                    print(
+                        f"[schema-compat] Coluna adicionada: "
+                        f"{table_name}.{column_name} ({column_type})"
+                    )
+    except Exception as exc:
+        print(f"[schema-compat] Falha ao validar schema financeiro: {exc}")
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,6 +75,11 @@ app.include_router(configuracoes.router, prefix="/api/v1", tags=["configuracoes"
 app.include_router(tutores.router, prefix="/api/v1/tutores", tags=["tutores"])
 app.include_router(referencias_eco.router, prefix="/api/v1/referencias-eco", tags=["referencias_eco"])
 app.include_router(atendimento.router, prefix="/api/v1/atendimentos", tags=["atendimento"])
+
+
+@app.on_event("startup")
+def startup_schema_compatibility():
+    _ensure_financeiro_schema_compat()
 
 # WebSocket endpoint
 @app.websocket("/ws/{client_id}")

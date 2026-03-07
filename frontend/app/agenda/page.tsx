@@ -1,9 +1,11 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { montarToastAgendaRealtime } from "@/lib/agenda-realtime-toast";
+import { useAgendaRealtime, type AgendaRealtimePayload } from "@/lib/useAgendaRealtime";
 import {
   AgendaExcecaoConfig,
   AgendaFeriadoConfig,
@@ -68,6 +70,12 @@ interface ResumoFinanceiroAgenda {
   qtd_agendados: number;
   valor_realizado: number;
   valor_agendado: number;
+}
+
+interface ToastRealtimeData {
+  texto: string;
+  classe: string;
+  agendamentoId?: number;
 }
 
 type StatusType = "Agendado" | "Reservado" | "Confirmado" | "Em atendimento" | "Realizado" | "Cancelado" | "Faltou";
@@ -212,6 +220,11 @@ export default function AgendaPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [resumoFinanceiro, setResumoFinanceiro] = useState<ResumoFinanceiroAgenda | null>(null);
   const [carregandoResumoFinanceiro, setCarregandoResumoFinanceiro] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [mensagemRealtime, setMensagemRealtime] = useState("");
+  const [toastRealtime, setToastRealtime] = useState<ToastRealtimeData | null>(null);
+  const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastRealtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
 
   const periodoConsulta = useMemo(() => {
@@ -311,6 +324,7 @@ export default function AgendaPage() {
       return;
     }
     setIsAdmin(usuarioEhAdmin());
+    setAuthChecked(true);
     carregarAgendamentos();
   }, [router, periodoConsulta.inicio, periodoConsulta.fim]);
 
@@ -328,6 +342,19 @@ export default function AgendaPage() {
     }
     carregarResumoFinanceiro();
   }, [isAdmin, modoVisualizacao, filtroData]);
+
+  useEffect(() => {
+    return () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+        realtimeRefreshTimeoutRef.current = null;
+      }
+      if (toastRealtimeTimeoutRef.current) {
+        clearTimeout(toastRealtimeTimeoutRef.current);
+        toastRealtimeTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const carregarAgendamentos = async () => {
     setLoading(true);
@@ -368,6 +395,85 @@ export default function AgendaPage() {
       setLoading(false);
     }
   };
+
+  const agendarRefreshRealtime = useCallback(
+    (payload?: { action?: string; agendamento_id?: number }) => {
+      if (payload?.action) {
+        const sufixoId =
+          typeof payload.agendamento_id === "number" && Number.isFinite(payload.agendamento_id)
+            ? ` #${payload.agendamento_id}`
+            : "";
+        setMensagemRealtime(`Atualizacao em tempo real: ${payload.action}${sufixoId}.`);
+      }
+
+      if (realtimeRefreshTimeoutRef.current) {
+        return;
+      }
+
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        realtimeRefreshTimeoutRef.current = null;
+        void carregarAgendamentos();
+      }, 700);
+    },
+    [carregarAgendamentos]
+  );
+
+  const mostrarToastRealtime = useCallback((payload?: AgendaRealtimePayload) => {
+    const toast = montarToastAgendaRealtime(payload);
+    if (!toast) {
+      return;
+    }
+
+    const agendamentoId =
+      typeof payload?.agendamento_id === "number" && Number.isFinite(payload.agendamento_id)
+        ? payload.agendamento_id
+        : undefined;
+
+    setToastRealtime({
+      ...toast,
+      agendamentoId,
+    });
+    if (toastRealtimeTimeoutRef.current) {
+      clearTimeout(toastRealtimeTimeoutRef.current);
+    }
+    toastRealtimeTimeoutRef.current = setTimeout(() => {
+      setToastRealtime(null);
+      toastRealtimeTimeoutRef.current = null;
+    }, 4000);
+  }, []);
+
+  const { conectado: realtimeConectado, ultimoEvento: realtimeUltimoEvento } = useAgendaRealtime(
+    authChecked,
+    (payload) => {
+      agendarRefreshRealtime({
+        action: payload.action,
+        agendamento_id:
+          typeof payload.agendamento_id === "number" ? payload.agendamento_id : undefined,
+      });
+      mostrarToastRealtime(payload);
+    }
+  );
+
+  const abrirAgendamentoDoToast = useCallback(
+    async (agendamentoId: number) => {
+      try {
+        let agendamento = agendamentos.find((item) => item.id === agendamentoId) || null;
+        if (!agendamento) {
+          const response = await api.get(`/agenda/${agendamentoId}`);
+          agendamento = response.data as Agendamento;
+        }
+
+        setAgendamentoEditando(agendamento);
+        setSlotSelecionado(null);
+        setModalAberto(true);
+        setToastRealtime(null);
+      } catch (error) {
+        console.error("Erro ao abrir agendamento pelo toast em tempo real:", error);
+        setErro("Nao foi possivel abrir o agendamento do toast.");
+      }
+    },
+    [agendamentos]
+  );
 
   const carregarLaudosVinculados = async (items: Agendamento[]) => {
     const idsAgendamento = new Set(items.map((item) => item.id));
@@ -898,6 +1004,23 @@ export default function AgendaPage() {
   return (
     <DashboardLayout>
       <div className="p-6">
+        {toastRealtime && (
+          <div className="fixed right-4 top-4 z-[70]">
+            <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-xs shadow-lg ${toastRealtime.classe}`}>
+              <span className="font-medium">{toastRealtime.texto}</span>
+              {typeof toastRealtime.agendamentoId === "number" && (
+                <button
+                  type="button"
+                  onClick={() => abrirAgendamentoDoToast(toastRealtime.agendamentoId as number)}
+                  className="rounded-md border border-current/30 px-2 py-1 text-[11px] font-semibold hover:bg-white/40 transition-colors"
+                >
+                  Abrir
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
           <div>
@@ -915,6 +1038,18 @@ export default function AgendaPage() {
             <Plus className="w-4 h-4" />
             Novo Agendamento
           </button>
+        </div>
+
+        <div
+          className={`mb-4 rounded-lg border px-4 py-2 text-xs ${
+            realtimeConectado
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-amber-200 bg-amber-50 text-amber-800"
+          }`}
+        >
+          Tempo real: {realtimeConectado ? "conectado" : "reconectando..."}
+          {realtimeUltimoEvento ? ` | Ultimo evento: ${realtimeUltimoEvento}` : ""}
+          {mensagemRealtime ? ` | ${mensagemRealtime}` : ""}
         </div>
 
         {/* Stats Cards */}

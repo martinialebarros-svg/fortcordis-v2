@@ -801,6 +801,7 @@ def receber_ordem(
         paciente_id=os_data.paciente_id,
         paciente_nome=paciente_nome or "",
         agendamento_id=os_data.agendamento_id,
+        clinica_id=os_data.clinica_id,
         criado_por_id=current_user.id,
         criado_por_nome=current_user.nome,
         created_at=now,

@@ -1,8 +1,13 @@
+import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from queue import Empty
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
+from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -27,6 +32,7 @@ from app.core.agenda_config import (
     carregar_agenda_semanal,
     validar_horario_agenda,
 )
+from app.core.agenda_realtime import agenda_realtime_manager
 from app.core.security import get_current_user
 from app.services.precos_service import calcular_preco_servico
 from app.services.auditoria_service import registrar_auditoria
@@ -35,6 +41,60 @@ router = APIRouter()
 # Horario de Brasilia (UTC-3). Evita dependencia de tzdata no Windows local.
 LOCAL_TZ = timezone(timedelta(hours=-3))
 AGENDA_STATUS_PERMITIDOS = ["Agendado", "Reservado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"]
+
+
+def _notificar_agenda_update(action: str, agendamento_id: int, data: Optional[dict] = None) -> None:
+    try:
+        agenda_realtime_manager.publish(action=action, agendamento_id=agendamento_id, data=data)
+    except Exception as exc:
+        print(f"[agenda-realtime] Falha ao publicar evento: {exc}")
+
+
+def _texto_realtime(value: Optional[object]) -> str:
+    return str(value or "").strip()
+
+
+def _montar_payload_realtime(
+    *,
+    agendamento: Optional[Agendamento] = None,
+    related: Optional[dict] = None,
+    usuario: Optional[User] = None,
+    base: Optional[dict] = None,
+) -> dict:
+    payload = dict(base or {})
+
+    if agendamento is not None:
+        payload.setdefault("status", agendamento.status)
+        payload.setdefault("data", agendamento.data)
+        payload.setdefault("hora", agendamento.hora)
+        payload.setdefault("paciente_id", agendamento.paciente_id)
+        payload.setdefault("clinica_id", agendamento.clinica_id)
+        payload.setdefault("servico_id", agendamento.servico_id)
+
+    rel = related or {}
+    paciente_nome = _texto_realtime(rel.get("paciente_nome")) or _texto_realtime(getattr(agendamento, "paciente", None))
+    clinica_nome = _texto_realtime(rel.get("clinica_nome")) or _texto_realtime(getattr(agendamento, "clinica", None))
+    servico_nome = _texto_realtime(rel.get("servico_nome")) or _texto_realtime(getattr(agendamento, "servico", None))
+
+    if paciente_nome:
+        payload["paciente_nome"] = paciente_nome
+        payload.setdefault("paciente", paciente_nome)
+    if clinica_nome:
+        payload["clinica_nome"] = clinica_nome
+        payload.setdefault("clinica", clinica_nome)
+    if servico_nome:
+        payload["servico_nome"] = servico_nome
+        payload.setdefault("servico", servico_nome)
+
+    if usuario is not None:
+        nome_usuario = _texto_realtime(usuario.nome)
+        if nome_usuario:
+            payload["usuario_nome"] = nome_usuario
+            payload.setdefault("usuario", nome_usuario)
+        if getattr(usuario, "id", None) is not None:
+            payload["usuario_id"] = usuario.id
+
+    return payload
 
 
 def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
@@ -154,6 +214,72 @@ def _validar_agendamento_no_funcionamento(db: Session, agendamento: Agendamento)
     )
     if not valido:
         raise HTTPException(status_code=422, detail=mensagem)
+
+
+def _validar_slot_disponivel(
+    db: Session,
+    agendamento: Agendamento,
+    *,
+    agendamento_id_excluir: Optional[int] = None,
+) -> None:
+    status_atual = (str(agendamento.status or "").strip() or "Agendado")
+    if status_atual == "Cancelado":
+        return
+
+    inicio_dt = _coerce_datetime(agendamento.inicio)
+    if inicio_dt is None:
+        raise HTTPException(status_code=422, detail="Horario de inicio invalido para validar disponibilidade.")
+
+    fim_dt = _coerce_datetime(agendamento.fim)
+    if fim_dt is None or fim_dt <= inicio_dt:
+        fim_dt = inicio_dt + timedelta(minutes=30)
+
+    inicio_local = _to_local_naive(inicio_dt)
+    fim_local = _to_local_naive(fim_dt)
+    if inicio_local is None or fim_local is None:
+        raise HTTPException(status_code=422, detail="Nao foi possivel validar disponibilidade do horario informado.")
+
+    if fim_local <= inicio_local:
+        raise HTTPException(status_code=422, detail="Horario final invalido para validar disponibilidade.")
+
+    data_referencia = inicio_local.date().isoformat()
+
+    query = (
+        db.query(Agendamento)
+        .filter(Agendamento.status != "Cancelado")
+        .filter(func.date(Agendamento.inicio) == data_referencia)
+    )
+    if agendamento_id_excluir is not None:
+        query = query.filter(Agendamento.id != agendamento_id_excluir)
+
+    for existente in query.all():
+        inicio_existente_dt = _coerce_datetime(existente.inicio)
+        if inicio_existente_dt is None:
+            continue
+
+        fim_existente_dt = _coerce_datetime(existente.fim)
+        if fim_existente_dt is None or fim_existente_dt <= inicio_existente_dt:
+            fim_existente_dt = inicio_existente_dt + timedelta(minutes=30)
+
+        inicio_existente_local = _to_local_naive(inicio_existente_dt)
+        fim_existente_local = _to_local_naive(fim_existente_dt)
+        if inicio_existente_local is None or fim_existente_local is None:
+            continue
+
+        sobrepoe = inicio_local < fim_existente_local and fim_local > inicio_existente_local
+        if not sobrepoe:
+            continue
+
+        horario_inicio = inicio_existente_local.strftime("%H:%M")
+        horario_fim = fim_existente_local.strftime("%H:%M")
+        paciente_existente = (str(existente.paciente or "").strip() or "paciente nao informado")
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Horario indisponivel: ja existe atendimento neste slot "
+                f"({horario_inicio} as {horario_fim}, {paciente_existente})."
+            ),
+        )
 
 
 def _fetch_related_names(db: Session, agendamento: Agendamento) -> dict:
@@ -517,6 +643,48 @@ def agendamentos_hoje(
     items = [_serialize_agendamento(agendamento) for agendamento in agendamentos]
     return {"total": len(items), "items": items}
 
+
+@router.get("/stream")
+async def stream_agenda(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """Canal SSE para atualizacao em tempo real da agenda."""
+    subscriber = agenda_realtime_manager.subscribe()
+
+    async def event_generator():
+        connected_payload = {
+            "type": "connected",
+            "module": "agenda",
+            "user_id": current_user.id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        yield f"event: connected\ndata: {json.dumps(connected_payload, ensure_ascii=False)}\n\n"
+
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+
+                try:
+                    payload = await asyncio.to_thread(subscriber.get, True, 15)
+                    yield f"event: agenda_update\ndata: {payload}\n\n"
+                except Empty:
+                    # keep-alive
+                    yield "event: ping\ndata: {}\n\n"
+        finally:
+            agenda_realtime_manager.unsubscribe(subscriber)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
 @router.get("/{agendamento_id}", response_model=AgendamentoResponse)
 def obter_agendamento(
     agendamento_id: int,
@@ -555,6 +723,7 @@ def criar_agendamento(
 
     _apply_service_duration_if_needed(db, db_agendamento)
     _validar_agendamento_no_funcionamento(db, db_agendamento)
+    _validar_slot_disponivel(db, db_agendamento)
     _fill_data_hora_from_inicio(db_agendamento)
     related = _fetch_related_names(db, db_agendamento)
     _sync_denormalized_fields(db_agendamento, related)
@@ -585,6 +754,16 @@ def criar_agendamento(
             "contexto_agendamento": contexto,
         },
         request=request,
+    )
+
+    _notificar_agenda_update(
+        action="created",
+        agendamento_id=db_agendamento.id,
+        data=_montar_payload_realtime(
+            agendamento=db_agendamento,
+            related=related,
+            usuario=current_user,
+        ),
     )
 
     return _serialize_agendamento(db_agendamento, **related)
@@ -633,6 +812,7 @@ def atualizar_agendamento(
         db_agendamento.paciente_id = 0
 
     campos_horario = "inicio" in update_data or "fim" in update_data or "servico_id" in update_data
+    reativando_cancelado = status_anterior == "Cancelado" and db_agendamento.status != "Cancelado"
     if campos_horario:
         _apply_service_duration_if_needed(db, db_agendamento)
 
@@ -648,8 +828,13 @@ def atualizar_agendamento(
         if "servico_id" in update_data:
             alterou_horario = alterou_horario or (servico_original != servico_atual)
 
-        if alterou_horario:
+        if alterou_horario or reativando_cancelado:
             _validar_agendamento_no_funcionamento(db, db_agendamento)
+            _validar_slot_disponivel(db, db_agendamento, agendamento_id_excluir=agendamento_id)
+    elif reativando_cancelado:
+        _apply_service_duration_if_needed(db, db_agendamento)
+        _validar_agendamento_no_funcionamento(db, db_agendamento)
+        _validar_slot_disponivel(db, db_agendamento, agendamento_id_excluir=agendamento_id)
     if "inicio" in update_data:
         _fill_data_hora_from_inicio(db_agendamento)
 
@@ -691,6 +876,16 @@ def atualizar_agendamento(
             "contexto_agendamento": contexto,
         },
         request=request,
+    )
+
+    _notificar_agenda_update(
+        action="updated",
+        agendamento_id=db_agendamento.id,
+        data=_montar_payload_realtime(
+            agendamento=db_agendamento,
+            related=related,
+            usuario=current_user,
+        ),
     )
 
     return _serialize_agendamento(db_agendamento, **related)
@@ -748,6 +943,10 @@ def atualizar_status(
     status_anterior = db_agendamento.status
 
     db_agendamento.status = status_normalizado
+    if status_anterior == "Cancelado" and status_normalizado != "Cancelado":
+        _apply_service_duration_if_needed(db, db_agendamento)
+        _validar_agendamento_no_funcionamento(db, db_agendamento)
+        _validar_slot_disponivel(db, db_agendamento, agendamento_id_excluir=agendamento_id)
     db_agendamento.atualizado_em = datetime.now()
     db_agendamento.updated_at = datetime.now()
 
@@ -980,6 +1179,20 @@ def atualizar_status(
         request=request,
     )
 
+    _notificar_agenda_update(
+        action="status_changed",
+        agendamento_id=db_agendamento.id,
+        data=_montar_payload_realtime(
+            agendamento=db_agendamento,
+            related=related_status,
+            usuario=current_user,
+            base={
+                "status_anterior": status_anterior,
+                "status_novo": db_agendamento.status,
+            },
+        ),
+    )
+
     return resposta
 @router.delete("/{agendamento_id}")
 def deletar_agendamento(
@@ -1013,6 +1226,16 @@ def deletar_agendamento(
         "hora": db_agendamento.hora,
         "contexto_agendamento": contexto_delete,
     }
+    realtime_delete_payload = _montar_payload_realtime(
+        agendamento=db_agendamento,
+        related=related_delete,
+        usuario=current_user,
+        base={
+            "status": snapshot.get("status"),
+            "data": snapshot.get("data"),
+            "hora": snapshot.get("hora"),
+        },
+    )
 
     db.delete(db_agendamento)
     db.commit()
@@ -1026,6 +1249,12 @@ def deletar_agendamento(
         descricao=f"Agendamento excluido - {_descricao_contexto_agendamento(contexto_delete)}",
         detalhes=snapshot,
         request=request,
+    )
+
+    _notificar_agenda_update(
+        action="deleted",
+        agendamento_id=agendamento_id,
+        data=realtime_delete_payload,
     )
 
     return {"message": "Agendamento deletado com sucesso"}
