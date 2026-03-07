@@ -16,7 +16,6 @@ app = FastAPI(
     title="FortCordis API",
     description="API do sistema FortCordis",
     version="2.0.0",
-    lifespan=lifespan,
 )
 
 
