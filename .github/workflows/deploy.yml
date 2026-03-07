@@ -74,16 +74,17 @@ jobs:
             nohup ./venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 > ../backend_manual.out 2>&1 &
           fi
 
-          sleep 3
-          if ! curl -fsS http://127.0.0.1:8000/health >/dev/null; then
-            echo "Backend local health check failed, tentando fallback uvicorn manual..."
-            pkill -f "uvicorn app.main:app --host 0.0.0.0 --port 8000" || true
-            nohup ./venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 > ../backend_manual.out 2>&1 &
-            sleep 3
-          fi
+          BACKEND_OK=0
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
+              BACKEND_OK=1
+              break
+            fi
+            sleep 2
+          done
 
-          if ! curl -fsS http://127.0.0.1:8000/health >/dev/null; then
-            echo "Backend ainda indisponivel apos fallback"
+          if [ "$BACKEND_OK" -ne 1 ]; then
+            echo "Backend local health check failed"
             ss -lntp | egrep ':8000|:3000' || true
             ps -ef | egrep 'uvicorn|fortcordis-backend' | grep -v grep || true
             sudo -n systemctl status fortcordis-backend --no-pager -l || true
@@ -105,15 +106,27 @@ jobs:
           elif sudo -n systemctl restart fortcordis-frontend >/dev/null 2>&1; then
             echo "Frontend restart via sudo -n"
           else
-            echo "Frontend restart sem permissao; mantendo processo atual"
+            echo "Frontend restart via systemctl indisponivel; iniciando next start manual"
+            pkill -f "next-server" || true
+            nohup npm run start > ../frontend_manual.out 2>&1 &
           fi
 
-          if ! curl -fsSI http://127.0.0.1:3000 >/dev/null; then
+          FRONTEND_OK=0
+          for i in $(seq 1 25); do
+            if curl -fsSI http://127.0.0.1:3000 >/dev/null; then
+              FRONTEND_OK=1
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$FRONTEND_OK" -ne 1 ]; then
             echo "Frontend local health check failed"
             ss -lntp | egrep ':3000|:8000' || true
             ps -ef | egrep 'next|fortcordis-frontend' | grep -v grep || true
             sudo -n systemctl status fortcordis-frontend --no-pager -l || true
             sudo -n journalctl -u fortcordis-frontend -n 200 --no-pager || true
+            tail -n 200 ../frontend_manual.out || true
             exit 1
           fi
 
