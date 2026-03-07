@@ -69,6 +69,16 @@ jobs:
           fi
           python3 setup_database.py || echo "setup_database.py failed, check logs"
           sudo systemctl restart fortcordis-backend 2>/dev/null || echo "Restart backend manually"
+
+          echo "Backend status after restart..."
+          sudo systemctl is-active fortcordis-backend || true
+          if ! curl -fsS http://127.0.0.1:8000/health >/dev/null; then
+            echo "Backend local health check failed"
+            sudo systemctl status fortcordis-backend --no-pager -l || true
+            sudo journalctl -u fortcordis-backend -n 200 --no-pager || true
+            exit 1
+          fi
+          curl -sS -i http://127.0.0.1:8000/health || true
           cd ..
 
           # Frontend deploy
@@ -77,6 +87,14 @@ jobs:
           npm install
           API_BACKEND_URL=http://127.0.0.1:8000 npm run build
           sudo systemctl restart fortcordis-frontend 2>/dev/null || echo "Restart frontend manually"
+
+          if ! curl -fsSI http://127.0.0.1:3000 >/dev/null; then
+            echo "Frontend local health check failed"
+            sudo systemctl status fortcordis-frontend --no-pager -l || true
+            sudo journalctl -u fortcordis-frontend -n 200 --no-pager || true
+            exit 1
+          fi
+          curl -sS -I http://127.0.0.1:3000 || true
           cd ..
 
           echo "Deploy finished"
