@@ -1,38 +1,27 @@
-"""add_clinica_id_to_financeiro_tables
+"""Add clinica_id to financeiro tables when missing."""
+from __future__ import annotations
 
-Revision ID: 20260304_07_financeiro_centro_custos
-Revises: 20260304_06_agendamentos_reservado_paciente_opcional
-Create Date: 2026-03-04 10:00:00.000000
+from sqlalchemy import inspect, text
+from sqlalchemy.engine import Connection
 
-"""
-from alembic import op
-import sqlalchemy as sa
-
-
-# revision identifiers, used by Alembic.
-revision = '20260304_07_financeiro_centro_custos'
-down_revision = '20260304_06_agendamentos_reservado_paciente_opcional'
-branch_labels = None
-depends_on = None
+VERSION = "20260304_07"
+DESCRIPTION = "Adiciona clinica_id em transacoes/contas_pagar/contas_receber"
 
 
-def upgrade() -> None:
-    # Adicionar clinica_id na tabela transacoes
-    op.add_column('transacoes', sa.Column('clinica_id', sa.Integer(), nullable=True))
+def _adicionar_coluna_clinica_id(connection: Connection, table_name: str, dialect: str) -> None:
+    inspector = inspect(connection)
+    if table_name not in inspector.get_table_names():
+        return
 
-    # Adicionar clinica_id na tabela contas_pagar
-    op.add_column('contas_pagar', sa.Column('clinica_id', sa.Integer(), nullable=True))
+    colunas = {column["name"] for column in inspector.get_columns(table_name)}
+    if "clinica_id" in colunas:
+        return
 
-    # Adicionar clinica_id na tabela contas_receber
-    op.add_column('contas_receber', sa.Column('clinica_id', sa.Integer(), nullable=True))
+    # A instrucao funciona para PostgreSQL e SQLite neste caso.
+    connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN clinica_id INTEGER"))
 
 
-def downgrade() -> None:
-    # Remover clinica_id da tabela transacoes
-    op.drop_column('transacoes', 'clinica_id')
-
-    # Remover clinica_id da tabela contas_pagar
-    op.drop_column('contas_pagar', 'clinica_id')
-
-    # Remover clinica_id da tabela contas_receber
-    op.drop_column('contas_receber', 'clinica_id')
+def upgrade(connection: Connection, dialect: str) -> None:
+    _adicionar_coluna_clinica_id(connection, "transacoes", dialect)
+    _adicionar_coluna_clinica_id(connection, "contas_pagar", dialect)
+    _adicionar_coluna_clinica_id(connection, "contas_receber", dialect)
