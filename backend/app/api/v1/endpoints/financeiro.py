@@ -32,6 +32,7 @@ def listar_transacoes(
     data_inicio: Optional[str] = None,
     data_fim: Optional[str] = None,
     paciente_id: Optional[int] = None,
+    clinica_id: Optional[int] = Query(None, description="Filtrar por clínica (centro de custo)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
@@ -39,7 +40,7 @@ def listar_transacoes(
 ):
     """Lista transações financeiras com filtros avançados"""
     query = db.query(Transacao)
-    
+
     if tipo:
         query = query.filter(Transacao.tipo == tipo)
     if categoria:
@@ -50,6 +51,8 @@ def listar_transacoes(
         query = query.filter(Transacao.status == status)
     if paciente_id:
         query = query.filter(Transacao.paciente_id == paciente_id)
+    if clinica_id:
+        query = query.filter(Transacao.clinica_id == clinica_id)
     if data_inicio:
         query = query.filter(Transacao.data_transacao >= data_inicio)
     if data_fim:
@@ -98,6 +101,7 @@ def criar_transacao(
         agendamento_id=transacao_data.agendamento_id,
         parcelas=transacao_data.parcelas,
         parcela_atual=transacao_data.parcela_atual,
+        clinica_id=transacao_data.clinica_id,
         criado_por_id=current_user.id,
         criado_por_nome=current_user.nome,
         created_at=datetime.now(),
@@ -273,6 +277,7 @@ def listar_contas_pagar(
     status: Optional[str] = Query(None, pattern="^(Pendente|Pago|Atrasado)$"),
     data_inicio: Optional[str] = None,
     data_fim: Optional[str] = None,
+    clinica_id: Optional[int] = Query(None, description="Filtrar por clínica (centro de custo)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
@@ -280,13 +285,15 @@ def listar_contas_pagar(
 ):
     """Lista contas a pagar com filtros"""
     query = db.query(ContaPagar)
-    
+
     if status:
         query = query.filter(ContaPagar.status == status)
     if data_inicio:
         query = query.filter(ContaPagar.data_vencimento >= data_inicio)
     if data_fim:
         query = query.filter(ContaPagar.data_vencimento <= data_fim)
+    if clinica_id:
+        query = query.filter(ContaPagar.clinica_id == clinica_id)
     
     total = query.count()
     items = query.order_by(ContaPagar.data_vencimento).offset(skip).limit(limit).all()
@@ -321,6 +328,7 @@ def criar_conta_pagar(
         valor=conta_data.valor,
         data_vencimento=conta_data.data_vencimento,
         observacoes=conta_data.observacoes,
+        clinica_id=conta_data.clinica_id,
         status="Pendente",
         criado_por_id=current_user.id,
         created_at=datetime.now()
@@ -413,6 +421,7 @@ def listar_contas_receber(
     status: Optional[str] = Query(None, pattern="^(Pendente|Recebido|Atrasado)$"),
     data_inicio: Optional[str] = None,
     data_fim: Optional[str] = None,
+    clinica_id: Optional[int] = Query(None, description="Filtrar por clínica (centro de custo)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
@@ -420,13 +429,15 @@ def listar_contas_receber(
 ):
     """Lista contas a receber com filtros"""
     query = db.query(ContaReceber)
-    
+
     if status:
         query = query.filter(ContaReceber.status == status)
     if data_inicio:
         query = query.filter(ContaReceber.data_vencimento >= data_inicio)
     if data_fim:
         query = query.filter(ContaReceber.data_vencimento <= data_fim)
+    if clinica_id:
+        query = query.filter(ContaReceber.clinica_id == clinica_id)
     
     total = query.count()
     items = query.order_by(ContaReceber.data_vencimento).offset(skip).limit(limit).all()
@@ -463,6 +474,7 @@ def criar_conta_receber(
         observacoes=conta_data.observacoes,
         paciente_id=conta_data.paciente_id,
         agendamento_id=conta_data.agendamento_id,
+        clinica_id=conta_data.clinica_id,
         status="Pendente",
         criado_por_id=current_user.id,
         created_at=datetime.now()

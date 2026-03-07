@@ -57,6 +57,9 @@ class Transacao(Base):
     paciente_id = Column(Integer)
     paciente_nome = Column(String)
     agendamento_id = Column(Integer)
+
+    # Centro de custos (Feature Flag: feature_centro_custos)
+    clinica_id = Column(Integer, nullable=True)
     
     # Descrição
     descricao = Column(Text)
@@ -104,6 +107,9 @@ class ContaPagar(Base):
     created_at = Column(DateTime(timezone=True), default=func.now())
     criado_por_id = Column(Integer)
 
+    # Centro de custos (Feature Flag: feature_centro_custos)
+    clinica_id = Column(Integer, nullable=True)
+
 class ContaReceber(Base):
     __tablename__ = "contas_receber"
     
@@ -125,10 +131,13 @@ class ContaReceber(Base):
     # Relacionamentos
     paciente_id = Column(Integer)
     agendamento_id = Column(Integer)
-    
+
     # Observações
     observacoes = Column(Text)
-    
+
     # Auditoria
     created_at = Column(DateTime(timezone=True), default=func.now())
     criado_por_id = Column(Integer)
+
+    # Centro de custos (Feature Flag: feature_centro_custos)
+    clinica_id = Column(Integer, nullable=True)

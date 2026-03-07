@@ -17,15 +17,18 @@ class TransacaoBase(BaseModel):
     data_transacao: datetime = Field(default_factory=datetime.now, description="Data da transação")
     data_vencimento: Optional[datetime] = Field(default=None, description="Data de vencimento")
     observacoes: Optional[str] = Field(default=None, description="Observações adicionais")
-    
+
     # Relacionamentos opcionais
     paciente_id: Optional[int] = Field(default=None, description="ID do paciente")
     paciente_nome: Optional[str] = Field(default=None, description="Nome do paciente")
     agendamento_id: Optional[int] = Field(default=None, description="ID do agendamento")
-    
+
     # Parcelas
     parcelas: int = Field(default=1, ge=1, description="Número de parcelas")
     parcela_atual: int = Field(default=1, ge=1, description="Parcela atual")
+
+    # Centro de custos (Feature Flag: feature_centro_custos)
+    clinica_id: Optional[int] = Field(default=None, description="ID da clínica (centro de custo)")
 
 
 class TransacaoCreate(TransacaoBase):
@@ -49,6 +52,7 @@ class TransacaoUpdate(BaseModel):
     agendamento_id: Optional[int] = None
     parcelas: Optional[int] = Field(default=None, ge=1)
     parcela_atual: Optional[int] = Field(default=None, ge=1)
+    clinica_id: Optional[int] = Field(default=None, description="ID da clínica (centro de custo)")
 
 
 class TransacaoResponse(BaseModel):
@@ -70,6 +74,7 @@ class TransacaoResponse(BaseModel):
     agendamento_id: Optional[int]
     parcelas: int
     parcela_atual: int
+    clinica_id: Optional[int]
     criado_por_id: Optional[int]
     criado_por_nome: Optional[str]
     created_at: Optional[datetime]
@@ -93,6 +98,7 @@ class ContaPagarBase(BaseModel):
     valor: float = Field(..., gt=0)
     data_vencimento: datetime = Field(..., description="Data de vencimento")
     observacoes: Optional[str] = None
+    clinica_id: Optional[int] = Field(default=None, description="ID da clínica (centro de custo)")
 
 
 class ContaPagarCreate(ContaPagarBase):
@@ -108,6 +114,7 @@ class ContaPagarUpdate(BaseModel):
     data_pagamento: Optional[datetime] = None
     status: Optional[str] = None
     observacoes: Optional[str] = None
+    clinica_id: Optional[int] = Field(default=None, description="ID da clínica (centro de custo)")
 
 
 class ContaPagarResponse(BaseModel):
@@ -120,6 +127,7 @@ class ContaPagarResponse(BaseModel):
     data_pagamento: Optional[datetime]
     status: str
     observacoes: Optional[str]
+    clinica_id: Optional[int]
     criado_por_id: Optional[int]
     created_at: Optional[datetime]
 
@@ -143,6 +151,7 @@ class ContaReceberBase(BaseModel):
     observacoes: Optional[str] = None
     paciente_id: Optional[int] = None
     agendamento_id: Optional[int] = None
+    clinica_id: Optional[int] = Field(default=None, description="ID da clínica (centro de custo)")
 
 
 class ContaReceberCreate(ContaReceberBase):
@@ -160,6 +169,7 @@ class ContaReceberUpdate(BaseModel):
     observacoes: Optional[str] = None
     paciente_id: Optional[int] = None
     agendamento_id: Optional[int] = None
+    clinica_id: Optional[int] = Field(default=None, description="ID da clínica (centro de custo)")
 
 
 class ContaReceberResponse(BaseModel):
@@ -174,6 +184,7 @@ class ContaReceberResponse(BaseModel):
     observacoes: Optional[str]
     paciente_id: Optional[int]
     agendamento_id: Optional[int]
+    clinica_id: Optional[int]
     criado_por_id: Optional[int]
     created_at: Optional[datetime]
 

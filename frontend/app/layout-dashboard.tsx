@@ -6,6 +6,7 @@ import Link from "next/link";
 import api from "@/lib/axios";
 import {
   Calendar,
+  CalendarDays,
   Users,
   Building2,
   Stethoscope,
@@ -27,6 +28,7 @@ import {
 const menuItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/agenda", label: "Agenda", icon: Calendar },
+  { href: "/agenda/fullcalendar", label: "Agenda FullCalendar", icon: CalendarDays },
   { href: "/pacientes", label: "Pacientes", icon: Users },
   { href: "/clinicas", label: "Clínicas", icon: Building2 },
   { href: "/servicos", label: "Serviços", icon: Stethoscope },
