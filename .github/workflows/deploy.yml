@@ -76,12 +76,22 @@ jobs:
 
           sleep 3
           if ! curl -fsS http://127.0.0.1:8000/health >/dev/null; then
-            echo "Backend local health check failed"
+            echo "Backend local health check failed, tentando fallback uvicorn manual..."
+            pkill -f "uvicorn app.main:app --host 0.0.0.0 --port 8000" || true
+            nohup ./venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 > ../backend_manual.out 2>&1 &
+            sleep 3
+          fi
+
+          if ! curl -fsS http://127.0.0.1:8000/health >/dev/null; then
+            echo "Backend ainda indisponivel apos fallback"
             ss -lntp | egrep ':8000|:3000' || true
             ps -ef | egrep 'uvicorn|fortcordis-backend' | grep -v grep || true
+            sudo -n systemctl status fortcordis-backend --no-pager -l || true
+            sudo -n journalctl -u fortcordis-backend -n 200 --no-pager || true
             tail -n 200 ../backend_manual.out || true
             exit 1
           fi
+
           curl -sS -i http://127.0.0.1:8000/health || true
           cd ..
 
@@ -102,8 +112,11 @@ jobs:
             echo "Frontend local health check failed"
             ss -lntp | egrep ':3000|:8000' || true
             ps -ef | egrep 'next|fortcordis-frontend' | grep -v grep || true
+            sudo -n systemctl status fortcordis-frontend --no-pager -l || true
+            sudo -n journalctl -u fortcordis-frontend -n 200 --no-pager || true
             exit 1
           fi
+
           curl -sS -I http://127.0.0.1:3000 || true
           cd ..
 
