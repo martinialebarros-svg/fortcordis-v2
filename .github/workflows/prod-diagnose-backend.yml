@@ -1,0 +1,49 @@
+name: Prod Diagnose Backend
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Diagnose backend on VPS
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            set -euo pipefail
+            cd /var/www/fortcordis-v2
+
+            echo "=== HEAD ==="
+            git rev-parse --short HEAD || true
+            git log --oneline -n 3 || true
+
+            echo "=== Service status: backend ==="
+            sudo systemctl status fortcordis-backend --no-pager -l || true
+
+            echo "=== Last backend logs ==="
+            sudo journalctl -u fortcordis-backend -n 200 --no-pager || true
+
+            echo "=== Ports 8000/3000 ==="
+            ss -lntp | egrep ':8000|:3000' || true
+
+            echo "=== Local backend health ==="
+            curl -sS -i http://127.0.0.1:8000/health || true
+
+            echo "=== Import check ==="
+            cd backend
+            source venv/bin/activate
+            python3 - <<'PY'
+from app.main import app
+print('IMPORT_OK', app.title)
+PY
+          EOF
