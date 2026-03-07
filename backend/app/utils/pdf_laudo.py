@@ -1,5 +1,6 @@
 """Geração de PDF de laudos ecocardiográficos"""
 import os
+import re
 import tempfile
 from io import BytesIO
 from datetime import datetime
@@ -63,6 +64,27 @@ def _to_float(valor: Any) -> Optional[float]:
         return None
 
 
+def _to_float_peso(valor: Any) -> Optional[float]:
+    """Converte peso para float (aceita sufixo kg e virgula)."""
+    if valor is None or valor == "":
+        return None
+    if isinstance(valor, (int, float)):
+        try:
+            return float(valor)
+        except (TypeError, ValueError):
+            return None
+
+    texto = str(valor).strip().lower().replace(",", ".")
+    texto = texto.replace("kgs", "").replace("kg", "").strip()
+    match = re.search(r"-?\d+(?:\.\d+)?", texto)
+    if not match:
+        return None
+    try:
+        return float(match.group(0))
+    except (TypeError, ValueError):
+        return None
+
+
 def _esc(valor: Any) -> str:
     """Escapa texto para uso seguro em reportlab Paragraph."""
     if valor is None:
@@ -100,6 +122,28 @@ def normalizar_medidas_para_pdf(medidas: Dict[str, Any]) -> Dict[str, Any]:
                 medidas_norm[chave] = round(valor * 10, 2)
 
     return medidas_norm
+
+
+def recalcular_dived_normalizado_para_pdf(dados_pdf: Dict[str, Any]) -> None:
+    """
+    Recalcula DIVEd normalizado no PDF:
+    DIVEd normalizado = (DIVEd em cm) / (peso^0,294).
+    """
+    medidas = dados_pdf.get("medidas")
+    if not isinstance(medidas, dict):
+        return
+
+    paciente = dados_pdf.get("paciente")
+    paciente_dict = paciente if isinstance(paciente, dict) else {}
+
+    dived_mm = _to_float(medidas.get("DIVEd"))
+    peso_kg = _to_float_peso(paciente_dict.get("peso"))
+
+    if dived_mm is None or dived_mm <= 0 or peso_kg is None or peso_kg <= 0:
+        return
+
+    dived_cm = dived_mm / 10.0
+    medidas["DIVEd_normalizado"] = round(dived_cm / (peso_kg ** 0.294), 2)
 
 
 def _bloco_sem_quebra(*flowables):
@@ -978,6 +1022,7 @@ def gerar_pdf_laudo_eco(
         # 1. Cabeçalho: logo + título, depois dados do paciente
         dados_pdf = dict(dados)
         dados_pdf["medidas"] = normalizar_medidas_para_pdf(dados.get("medidas", {}))
+        recalcular_dived_normalizado_para_pdf(dados_pdf)
         elements.extend(criar_cabecalho(dados_pdf, temp_logo_path))
 
         # 2. Análise Quantitativa (título com mesma largura das tabelas)
@@ -992,7 +1037,7 @@ def gerar_pdf_laudo_eco(
         # Conforme solicitado: COM Referência, SEM Interpretação
         params_ve_modo_m = [
             {'chave': 'DIVEd', 'label': 'DIVEd (Diâmetro interno do VE em diástole)', 'unidade': 'mm', 'ref_min': 16.0, 'ref_max': 24.0},
-            {'chave': 'DIVEd_normalizado', 'label': 'DIVEd normalizado (DIVEd / peso^0,294)', 'unidade': '', 'ref_min': 1.27, 'ref_max': 1.73},
+            {'chave': 'DIVEd_normalizado', 'label': 'DIVEd normalizado (DIVEd [cm] / peso^0,294)', 'unidade': '', 'ref_min': 1.27, 'ref_max': 1.73},
             {'chave': 'SIVd', 'label': 'SIVd (Septo interventricular em diástole)', 'unidade': 'mm', 'ref_min': 3.5, 'ref_max': 5.5},
             {'chave': 'PLVEd', 'label': 'PLVEd (Parede livre do VE em diástole)', 'unidade': 'mm', 'ref_min': 3.5, 'ref_max': 5.5},
             {'chave': 'DIVES', 'label': 'DIVEs (Diâmetro interno do VE em sístole)', 'unidade': 'mm', 'ref_min': 9.0, 'ref_max': 16.0},
