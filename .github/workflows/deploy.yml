@@ -31,11 +31,9 @@ jobs:
           set -euo pipefail
           cd /var/www/fortcordis-v2
 
-          # Backup before deploy
           echo "Creating backup..."
           tar -czf backup_$(date +%Y%m%d_%H%M%S).tar.gz backend frontend 2>/dev/null || true
 
-          # Preserve runtime files that must survive git reset
           echo "Preserving runtime files (frases/db)..."
           RUNTIME_BACKUP_DIR="/tmp/fortcordis_runtime_backup"
           rm -rf "$RUNTIME_BACKUP_DIR"
@@ -44,12 +42,10 @@ jobs:
           [ -f backend/data/patologias.json ] && cp backend/data/patologias.json "$RUNTIME_BACKUP_DIR/backend/data/patologias.json" || true
           [ -f backend/fortcordis.db ] && cp backend/fortcordis.db "$RUNTIME_BACKUP_DIR/backend/fortcordis.db" || true
 
-          # Pull latest code
           echo "Updating code..."
           git fetch origin
           git reset --hard origin/main
 
-          # Restore runtime files after update
           echo "Restoring runtime files (frases/db)..."
           mkdir -p backend/data
           [ -f "$RUNTIME_BACKUP_DIR/backend/data/frases.json" ] && cp "$RUNTIME_BACKUP_DIR/backend/data/frases.json" backend/data/frases.json || true
@@ -57,7 +53,6 @@ jobs:
           [ -f "$RUNTIME_BACKUP_DIR/backend/fortcordis.db" ] && cp "$RUNTIME_BACKUP_DIR/backend/fortcordis.db" backend/fortcordis.db || true
           rm -rf "$RUNTIME_BACKUP_DIR" || true
 
-          # Backend deploy
           echo "Deploy backend..."
           cd backend
           source venv/bin/activate 2>/dev/null || python3 -m venv venv && source venv/bin/activate
@@ -68,30 +63,45 @@ jobs:
             set +a
           fi
           python3 setup_database.py || echo "setup_database.py failed, check logs"
-          sudo systemctl restart fortcordis-backend 2>/dev/null || echo "Restart backend manually"
 
-          echo "Backend status after restart..."
-          sudo systemctl is-active fortcordis-backend || true
+          if systemctl restart fortcordis-backend >/dev/null 2>&1; then
+            echo "Backend restart via systemctl"
+          elif sudo -n systemctl restart fortcordis-backend >/dev/null 2>&1; then
+            echo "Backend restart via sudo -n"
+          else
+            echo "Backend restart via systemctl indisponivel; iniciando uvicorn manual"
+            pkill -f "uvicorn app.main:app --host 0.0.0.0 --port 8000" || true
+            nohup ./venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 > ../backend_manual.out 2>&1 &
+          fi
+
+          sleep 3
           if ! curl -fsS http://127.0.0.1:8000/health >/dev/null; then
             echo "Backend local health check failed"
-            sudo systemctl status fortcordis-backend --no-pager -l || true
-            sudo journalctl -u fortcordis-backend -n 200 --no-pager || true
+            ss -lntp | egrep ':8000|:3000' || true
+            ps -ef | egrep 'uvicorn|fortcordis-backend' | grep -v grep || true
+            tail -n 200 ../backend_manual.out || true
             exit 1
           fi
           curl -sS -i http://127.0.0.1:8000/health || true
           cd ..
 
-          # Frontend deploy
           echo "Deploy frontend..."
           cd frontend
           npm install
           API_BACKEND_URL=http://127.0.0.1:8000 npm run build
-          sudo systemctl restart fortcordis-frontend 2>/dev/null || echo "Restart frontend manually"
+
+          if systemctl restart fortcordis-frontend >/dev/null 2>&1; then
+            echo "Frontend restart via systemctl"
+          elif sudo -n systemctl restart fortcordis-frontend >/dev/null 2>&1; then
+            echo "Frontend restart via sudo -n"
+          else
+            echo "Frontend restart sem permissao; mantendo processo atual"
+          fi
 
           if ! curl -fsSI http://127.0.0.1:3000 >/dev/null; then
             echo "Frontend local health check failed"
-            sudo systemctl status fortcordis-frontend --no-pager -l || true
-            sudo journalctl -u fortcordis-frontend -n 200 --no-pager || true
+            ss -lntp | egrep ':3000|:8000' || true
+            ps -ef | egrep 'next|fortcordis-frontend' | grep -v grep || true
             exit 1
           fi
           curl -sS -I http://127.0.0.1:3000 || true
