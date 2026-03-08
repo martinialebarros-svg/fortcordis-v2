@@ -444,7 +444,7 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
 
     const divedNormalizadoCalculado =
       divedMm !== null && divedMm > 0 && peso !== null && peso > 0
-        ? formatar2Casas((divedMm / 10) / Math.pow(peso, 0.294))
+        ? formatar2Casas((divedMm / 10.0) / Math.pow(peso, 0.294))
         : null;
 
     const atualizacoes: Record<string, string> = {};
