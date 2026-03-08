@@ -592,7 +592,12 @@ export default function AgendaFullCalendarPage() {
   const carregarAgendamentos = useCallback(async (periodo: IntervaloConsulta) => {
     setLoading(true);
     try {
-      const response = await api.get(`/agenda?data_inicio=${periodo.inicio}&data_fim=${periodo.fim}`);
+      const params = new URLSearchParams();
+      params.append("data_inicio", periodo.inicio);
+      params.append("data_fim", periodo.fim);
+      // Evita truncamento (backend default = 100), que escondia dias no FullCalendar.
+      params.append("limit", "5000");
+      const response = await api.get(`/agenda?${params.toString()}`);
       const items = Array.isArray(response.data?.items) ? response.data.items : [];
       setAgendamentos(items);
       await Promise.all([
