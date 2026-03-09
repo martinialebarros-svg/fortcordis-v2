@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, User, Building, Calendar, Clock } from "lucide-react";
+import { X, User, Building, Calendar, Clock, Sparkles } from "lucide-react";
 import api from "@/lib/axios";
 import {
   AgendaExcecaoConfig,
@@ -29,6 +29,49 @@ interface NovoAgendamentoModalProps {
   agendaExcecoes: AgendaExcecaoConfig[];
 }
 
+interface SugestaoHorarioVizinho {
+  agendamento_id: number;
+  clinica_id: number;
+  clinica: string;
+  inicio?: string;
+  fim?: string;
+  duracao_deslocamento_min: number;
+  folga_min: number | null;
+  margem_min: number | null;
+  fonte: string;
+}
+
+interface SugestaoHorarioItem {
+  inicio: string;
+  fim: string;
+  score: number;
+  risco: number;
+  tempo_deslocamento_total_min: number;
+  ociosidade_min: number;
+  anterior: SugestaoHorarioVizinho | null;
+  proximo: SugestaoHorarioVizinho | null;
+}
+
+interface SugestoesHorarioResponse {
+  ok: boolean;
+  data: string;
+  clinica_id: number;
+  duracao_minutos: number;
+  perfil_deslocamento: string;
+  intervalo_minutos?: number;
+  motivo?: string;
+  total_encontrados: number;
+  items: SugestaoHorarioItem[];
+}
+
+interface ConflitoDeslocamentoDetail {
+  codigo?: string;
+  mensagem?: string;
+  duracao_min?: number;
+  folga_min?: number;
+  confirmavel?: boolean;
+}
+
 export default function NovoAgendamentoModal({ 
   isOpen, 
   onClose, 
@@ -47,6 +90,10 @@ export default function NovoAgendamentoModal({
   const [tabelasPreco, setTabelasPreco] = useState<{ id: number; nome: string }[]>(TABELA_PRECO_PADRAO);
   const [tutorSelecionado, setTutorSelecionado] = useState<string>("");
   const [erroCarregamento, setErroCarregamento] = useState<string>("");
+  const [carregandoSugestoes, setCarregandoSugestoes] = useState(false);
+  const [sugestoesHorario, setSugestoesHorario] = useState<SugestaoHorarioItem[]>([]);
+  const [erroSugestoes, setErroSugestoes] = useState<string>("");
+  const [mensagemSugestoes, setMensagemSugestoes] = useState<string>("");
   
   const [formData, setFormData] = useState({
     paciente_id: "",
@@ -278,6 +325,99 @@ export default function NovoAgendamentoModal({
     });
   };
 
+  const obterDuracaoServicoSelecionado = (): number => {
+    const servicoSelecionado = servicos.find((s) => s.id?.toString() === formData.servico_id);
+    const duracaoMinutos = Number.parseInt(
+      `${servicoSelecionado?.duracao_minutos ?? ""}`,
+      10
+    );
+    return Number.isFinite(duracaoMinutos) && duracaoMinutos > 0 ? duracaoMinutos : 30;
+  };
+
+  const aplicarSugestaoHorario = (item: SugestaoHorarioItem) => {
+    const [data, hora] = String(item.inicio || "").split(" ");
+    if (!data || !hora) {
+      setErroSugestoes("Nao foi possivel aplicar o horario sugerido.");
+      return;
+    }
+
+    setFormData((prev) => ({ ...prev, data, hora }));
+    setMensagemSugestoes(`Horario sugerido aplicado: ${hora}.`);
+    setErroSugestoes("");
+  };
+
+  const extrairHoraDataHora = (value: string): string => {
+    const [, hora] = String(value || "").split(" ");
+    return hora || value;
+  };
+
+  const buscarSugestoesHorario = async () => {
+    setMensagemSugestoes("");
+    setErroSugestoes("");
+    setSugestoesHorario([]);
+
+    const clinicaId = Number.parseInt(formData.clinica_id || "", 10);
+    if (!Number.isFinite(clinicaId)) {
+      setErroSugestoes("Selecione uma clinica cadastrada para sugerir horarios.");
+      return;
+    }
+
+    if (!formData.data) {
+      setErroSugestoes("Informe a data antes de buscar sugestoes.");
+      return;
+    }
+
+    try {
+      setCarregandoSugestoes(true);
+      const payload = {
+        data: formData.data,
+        clinica_id: clinicaId,
+        servico_id: formData.servico_id ? parseInt(formData.servico_id, 10) : null,
+        duracao_minutos: obterDuracaoServicoSelecionado(),
+        intervalo_minutos: 30,
+        limite: 8,
+        perfil_deslocamento: "comercial",
+        ignorar_agendamento_id: isEditando ? agendamento?.id : null,
+      };
+
+      const response = await api.post<SugestoesHorarioResponse>("/agenda/sugestoes-horario", payload);
+      const items = Array.isArray(response?.data?.items) ? response.data.items : [];
+      setSugestoesHorario(items);
+      if (items.length === 0) {
+        setMensagemSugestoes(response?.data?.motivo || "Nenhum horario operacional encontrado para essa data.");
+      }
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail;
+      setErroSugestoes(typeof detail === "string" ? detail : "Falha ao buscar sugestoes de horario.");
+    } finally {
+      setCarregandoSugestoes(false);
+    }
+  };
+
+  const extrairMensagemErro = (detail: any, fallback = "Falha inesperada."): string => {
+    if (typeof detail === "string" && detail.trim()) return detail;
+    if (detail && typeof detail === "object") {
+      if (typeof detail.mensagem === "string" && detail.mensagem.trim()) return detail.mensagem;
+      if (typeof detail.message === "string" && detail.message.trim()) return detail.message;
+      if (typeof detail.detail === "string" && detail.detail.trim()) return detail.detail;
+    }
+    return fallback;
+  };
+
+  const extrairConflitoDeslocamento = (error: any): ConflitoDeslocamentoDetail | null => {
+    if (error?.response?.status !== 409) return null;
+    const detail = error?.response?.data?.detail;
+    if (detail && typeof detail === "object" && detail.codigo === "CONFLITO_DESLOCAMENTO") {
+      return detail as ConflitoDeslocamentoDetail;
+    }
+
+    const detailStr = String(detail || "");
+    if (detailStr.toLowerCase().includes("deslocamento")) {
+      return { mensagem: detailStr, confirmavel: true };
+    }
+    return null;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -288,14 +428,7 @@ export default function NovoAgendamentoModal({
         throw new Error("Data ou hora invalida.");
       }
 
-      const servicoSelecionado = servicos.find(
-        (s) => s.id?.toString() === formData.servico_id
-      );
-      const duracaoMinutos = Number.parseInt(
-        `${servicoSelecionado?.duracao_minutos ?? ""}`,
-        10
-      );
-      const duracaoEfetiva = Number.isFinite(duracaoMinutos) && duracaoMinutos > 0 ? duracaoMinutos : 30;
+      const duracaoEfetiva = obterDuracaoServicoSelecionado();
       const fim = new Date(inicio.getTime() + duracaoEfetiva * 60000);
 
       const validacaoHorario = validarHorarioAgendamento(
@@ -364,7 +497,7 @@ export default function NovoAgendamentoModal({
         }
       }
 
-      const payload = {
+      const payloadBase = {
         paciente_id: Number.isFinite(pacienteId) ? pacienteId : null,
         clinica_id: Number.isFinite(clinicaId) ? clinicaId : null,
         servico_id: formData.servico_id ? parseInt(formData.servico_id, 10) : null,
@@ -374,11 +507,36 @@ export default function NovoAgendamentoModal({
         observacoes: formData.observacoes,
       };
 
+      const enviarAgendamento = async (confirmarConflitoDeslocamento: boolean) => {
+        const payload = confirmarConflitoDeslocamento
+          ? { ...payloadBase, confirmar_conflito_deslocamento: true }
+          : payloadBase;
+
+        if (isEditando) {
+          return api.put(`/agenda/${agendamento.id}`, payload);
+        }
+        return api.post("/agenda", payload);
+      };
+
       let response;
-      if (isEditando) {
-        response = await api.put(`/agenda/${agendamento.id}`, payload);
-      } else {
-        response = await api.post("/agenda", payload);
+      try {
+        response = await enviarAgendamento(false);
+      } catch (error: any) {
+        const conflito = extrairConflitoDeslocamento(error);
+        if (!conflito?.confirmavel) {
+          throw error;
+        }
+
+        const mensagemConflito = extrairMensagemErro(
+          conflito,
+          "Existe um conflito operacional de deslocamento para este horario."
+        );
+        const confirmou = window.confirm(`${mensagemConflito}\n\nDeseja confirmar este agendamento?`);
+        if (!confirmou) {
+          return;
+        }
+
+        response = await enviarAgendamento(true);
       }
 
       await onSuccess(response?.data);
@@ -397,8 +555,13 @@ export default function NovoAgendamentoModal({
         observacoes: "",
       });
       setTutorSelecionado("");
+      setSugestoesHorario([]);
+      setErroSugestoes("");
+      setMensagemSugestoes("");
     } catch (error: any) {
-      alert(`Erro ao ${isEditando ? 'editar' : 'criar'} agendamento: ` + (error.response?.data?.detail || error.message));
+      const detail = error?.response?.data?.detail ?? error?.message;
+      const detailStr = extrairMensagemErro(detail);
+      alert(`Erro ao ${isEditando ? "editar" : "criar"} agendamento: ${detailStr}`);
     } finally {
       setLoading(false);
     }
@@ -574,6 +737,59 @@ export default function NovoAgendamentoModal({
                 onChange={(e) => setFormData({...formData, hora: e.target.value})}
               />
             </div>
+          </div>
+
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-3">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div className="text-sm font-medium text-blue-900 flex items-center gap-2">
+                <Sparkles className="h-4 w-4" />
+                Sugerir horarios operacionais
+              </div>
+              <button
+                type="button"
+                onClick={buscarSugestoesHorario}
+                disabled={carregandoSugestoes}
+                className="px-3 py-1.5 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60"
+              >
+                {carregandoSugestoes ? "Buscando..." : "Sugerir horarios"}
+              </button>
+            </div>
+
+            <p className="text-xs text-blue-800">
+              Considera conflitos de agenda e tempo de deslocamento entre clinicas.
+            </p>
+
+            {erroSugestoes && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700">
+                {erroSugestoes}
+              </div>
+            )}
+
+            {mensagemSugestoes && !erroSugestoes && (
+              <div className="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs text-blue-700">
+                {mensagemSugestoes}
+              </div>
+            )}
+
+            {sugestoesHorario.length > 0 && (
+              <div className="space-y-2">
+                {sugestoesHorario.map((item, idx) => (
+                  <button
+                    key={`${item.inicio}-${idx}`}
+                    type="button"
+                    onClick={() => aplicarSugestaoHorario(item)}
+                    className="w-full rounded-md border border-blue-200 bg-white px-3 py-2 text-left hover:border-blue-400"
+                  >
+                    <div className="text-sm font-medium text-gray-900">
+                      {extrairHoraDataHora(item.inicio)} - {extrairHoraDataHora(item.fim)}
+                    </div>
+                    <div className="text-xs text-gray-600">
+                      Deslocamento total: {item.tempo_deslocamento_total_min} min | Risco: {item.risco}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {!isEditando && (

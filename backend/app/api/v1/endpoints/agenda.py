@@ -1,12 +1,14 @@
 import asyncio
 import json
-from datetime import datetime, timedelta, timezone
+import math
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from queue import Empty
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -27,13 +29,17 @@ from app.schemas.agendamento import (
     AgendamentoUpdate,
 )
 from app.core.agenda_config import (
+    DEFAULT_AGENDA_SEMANAL,
     carregar_agenda_excecoes,
     carregar_agenda_feriados,
     carregar_agenda_semanal,
+    obter_excecao_data,
+    obter_feriado,
     validar_horario_agenda,
 )
 from app.core.agenda_realtime import agenda_realtime_manager
 from app.core.security import get_current_user
+from app.services.logistica_service import normalizar_perfil, obter_duracao_deslocamento
 from app.services.precos_service import calcular_preco_servico
 from app.services.auditoria_service import registrar_auditoria
 
@@ -41,6 +47,297 @@ router = APIRouter()
 # Horario de Brasilia (UTC-3). Evita dependencia de tzdata no Windows local.
 LOCAL_TZ = timezone(timedelta(hours=-3))
 AGENDA_STATUS_PERMITIDOS = ["Agendado", "Reservado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"]
+MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN = 10
+
+
+class SugestaoHorarioPayload(BaseModel):
+    data: str = Field(..., description="Data no formato YYYY-MM-DD")
+    clinica_id: int = Field(..., ge=1)
+    servico_id: Optional[int] = Field(default=None, ge=1)
+    duracao_minutos: Optional[int] = Field(default=None, ge=5, le=720)
+    intervalo_minutos: int = Field(default=15, ge=5, le=120)
+    limite: int = Field(default=8, ge=1, le=50)
+    perfil_deslocamento: str = Field(default="comercial")
+    ignorar_agendamento_id: Optional[int] = Field(default=None, ge=1)
+
+
+def _parse_hora_hhmm(value: Optional[str], fallback: str) -> str:
+    raw = str(value or "").strip()
+    if len(raw) != 5 or raw[2] != ":":
+        return fallback
+
+    hh = raw[:2]
+    mm = raw[3:]
+    if not (hh.isdigit() and mm.isdigit()):
+        return fallback
+
+    hora = int(hh)
+    minuto = int(mm)
+    if hora < 0 or hora > 23 or minuto < 0 or minuto > 59:
+        return fallback
+    return f"{hora:02d}:{minuto:02d}"
+
+
+def _hora_para_minutos(value: str) -> int:
+    hh, mm = value.split(":")
+    return int(hh) * 60 + int(mm)
+
+
+def _combine_date_hhmm(data_ref: date, hora_hhmm: str) -> datetime:
+    hh, mm = hora_hhmm.split(":")
+    return datetime(
+        data_ref.year,
+        data_ref.month,
+        data_ref.day,
+        int(hh),
+        int(mm),
+        0,
+        0,
+    )
+
+
+def _minutos_entre(inicio: datetime, fim: datetime) -> int:
+    return int((fim - inicio).total_seconds() // 60)
+
+
+def _nome_clinica_por_id(db: Session, clinica_id: Optional[int]) -> str:
+    if not clinica_id:
+        return "Clinica nao informada"
+    clinica = db.query(Clinica).filter(Clinica.id == int(clinica_id)).first()
+    if clinica and clinica.nome:
+        return str(clinica.nome).strip()
+    return f"Clinica #{int(clinica_id)}"
+
+
+def _clinica_tem_localizacao_confiavel(clinica: Optional[Clinica]) -> bool:
+    if not clinica:
+        return False
+    if clinica.latitude is None or clinica.longitude is None:
+        return False
+    try:
+        lat = float(clinica.latitude)
+        lng = float(clinica.longitude)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(lat) or not math.isfinite(lng):
+        return False
+    if lat < -90.0 or lat > 90.0 or lng < -180.0 or lng > 180.0:
+        return False
+    if abs(lat) < 0.000001 and abs(lng) < 0.000001:
+        return False
+    return True
+
+
+def _obter_janela_funcionamento_data(
+    db: Session,
+    data_iso: str,
+) -> tuple[Optional[datetime], Optional[datetime], Optional[str]]:
+    try:
+        data_ref = datetime.strptime(data_iso, "%Y-%m-%d").date()
+    except ValueError:
+        return None, None, "Data invalida. Use o formato YYYY-MM-DD."
+
+    agenda_semanal, agenda_feriados, agenda_excecoes = _obter_regras_agenda(db)
+
+    excecao = obter_excecao_data(data_ref, agenda_excecoes)
+    if excecao is not None:
+        if not bool(excecao.get("ativo", False)):
+            motivo = str(excecao.get("motivo") or "").strip()
+            detalhe = f" ({motivo})" if motivo else ""
+            return None, None, f"Agenda fechada por excecao de data{detalhe}."
+        hora_inicio = _parse_hora_hhmm(str(excecao.get("inicio") or ""), "08:00")
+        hora_fim = _parse_hora_hhmm(str(excecao.get("fim") or ""), "18:00")
+    else:
+        feriado = obter_feriado(data_ref, agenda_feriados)
+        if feriado:
+            descricao = str(feriado.get("descricao") or "").strip()
+            detalhe = f" ({descricao})" if descricao else ""
+            return None, None, f"Agenda fechada em feriado{detalhe}."
+
+        dia_key = str(data_ref.isoweekday())
+        dia_cfg = agenda_semanal.get(dia_key) or DEFAULT_AGENDA_SEMANAL[dia_key]
+        if not bool(dia_cfg.get("ativo", False)):
+            return None, None, "Agenda fechada para este dia."
+        fallback_dia = DEFAULT_AGENDA_SEMANAL.get(dia_key, {"inicio": "08:00", "fim": "14:00"})
+        hora_inicio = _parse_hora_hhmm(str(dia_cfg.get("inicio") or ""), str(fallback_dia["inicio"]))
+        hora_fim = _parse_hora_hhmm(str(dia_cfg.get("fim") or ""), str(fallback_dia["fim"]))
+
+    if _hora_para_minutos(hora_inicio) >= _hora_para_minutos(hora_fim):
+        return None, None, "Configuracao de agenda invalida para esta data."
+
+    inicio = _combine_date_hhmm(data_ref, hora_inicio)
+    fim = _combine_date_hhmm(data_ref, hora_fim)
+    return inicio, fim, None
+
+
+def _listar_agendamentos_ativos_do_dia(
+    db: Session,
+    data_iso: str,
+    *,
+    agendamento_id_excluir: Optional[int] = None,
+) -> list[dict]:
+    query = (
+        db.query(Agendamento)
+        .filter(Agendamento.status != "Cancelado")
+        .filter(func.date(Agendamento.inicio) == data_iso)
+    )
+    if agendamento_id_excluir is not None:
+        query = query.filter(Agendamento.id != agendamento_id_excluir)
+
+    registros: list[dict] = []
+    for item in query.order_by(Agendamento.inicio.asc(), Agendamento.id.asc()).all():
+        inicio_dt = _to_local_naive(_coerce_datetime(item.inicio))
+        if inicio_dt is None:
+            continue
+
+        fim_dt = _to_local_naive(_coerce_datetime(item.fim))
+        if fim_dt is None or fim_dt <= inicio_dt:
+            fim_dt = inicio_dt + timedelta(minutes=30)
+
+        registros.append(
+            {
+                "id": item.id,
+                "inicio": inicio_dt,
+                "fim": fim_dt,
+                "clinica_id": item.clinica_id,
+                "clinica_nome": (str(item.clinica or "").strip() or None),
+                "status": item.status,
+            }
+        )
+
+    return registros
+
+
+def _obter_vizinhos_horario(
+    agendamentos_dia: list[dict],
+    inicio: datetime,
+    fim: datetime,
+) -> tuple[Optional[dict], Optional[dict]]:
+    anterior = None
+    proximo = None
+
+    for item in agendamentos_dia:
+        if item["fim"] <= inicio:
+            anterior = item
+            continue
+        if item["inicio"] >= fim:
+            proximo = item
+            break
+    return anterior, proximo
+
+
+def _validar_deslocamento_agendamento(
+    db: Session,
+    agendamento: Agendamento,
+    *,
+    agendamento_id_excluir: Optional[int] = None,
+    perfil_deslocamento: str = "comercial",
+    permitir_confirmacao: bool = False,
+) -> None:
+    status_atual = (str(agendamento.status or "").strip() or "Agendado")
+    if status_atual == "Cancelado":
+        return
+
+    if not agendamento.clinica_id:
+        return
+
+    inicio_dt = _to_local_naive(_coerce_datetime(agendamento.inicio))
+    if inicio_dt is None:
+        raise HTTPException(status_code=422, detail="Horario de inicio invalido para validar deslocamento.")
+
+    fim_dt = _to_local_naive(_coerce_datetime(agendamento.fim))
+    if fim_dt is None or fim_dt <= inicio_dt:
+        fim_dt = inicio_dt + timedelta(minutes=30)
+
+    data_iso = inicio_dt.date().isoformat()
+    agendamentos_dia = _listar_agendamentos_ativos_do_dia(
+        db,
+        data_iso,
+        agendamento_id_excluir=agendamento_id_excluir,
+    )
+    anterior, proximo = _obter_vizinhos_horario(agendamentos_dia, inicio_dt, fim_dt)
+    perfil_norm = normalizar_perfil(perfil_deslocamento)
+    clinica_atual = _nome_clinica_por_id(db, agendamento.clinica_id)
+    cache_clinicas: dict[int, Optional[Clinica]] = {}
+
+    def _get_clinica(clinica_id: Optional[int]) -> Optional[Clinica]:
+        cid = int(clinica_id or 0)
+        if cid <= 0:
+            return None
+        if cid not in cache_clinicas:
+            cache_clinicas[cid] = db.query(Clinica).filter(Clinica.id == cid).first()
+        return cache_clinicas[cid]
+
+    clinica_atual_obj = _get_clinica(agendamento.clinica_id)
+    if not _clinica_tem_localizacao_confiavel(clinica_atual_obj):
+        # Fase de implantacao: sem geolocalizacao validada, nao bloquear agendamento por deslocamento.
+        return
+
+    if anterior and anterior.get("clinica_id"):
+        clinica_anterior_obj = _get_clinica(anterior.get("clinica_id"))
+        if _clinica_tem_localizacao_confiavel(clinica_anterior_obj):
+            duracao_prev, fonte_prev = obter_duracao_deslocamento(
+                db,
+                origem_clinica_id=anterior.get("clinica_id"),
+                destino_clinica_id=agendamento.clinica_id,
+                perfil=perfil_norm,
+                permitir_estimativa_fallback=False,
+            )
+            folga_prev = _minutos_entre(anterior["fim"], inicio_dt)
+            if duracao_prev > 0 and folga_prev < duracao_prev:
+                clinica_anterior = anterior.get("clinica_nome") or _nome_clinica_por_id(db, anterior.get("clinica_id"))
+                if not permitir_confirmacao:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "codigo": "CONFLITO_DESLOCAMENTO",
+                            "mensagem": (
+                                f"O tempo de deslocamento entre {clinica_anterior} e {clinica_atual} "
+                                f"e de aproximadamente {duracao_prev} minutos. "
+                                f"Disponivel: {max(0, folga_prev)} minutos. "
+                                "Deseja confirmar este agendamento?"
+                            ),
+                            "origem_clinica": clinica_anterior,
+                            "destino_clinica": clinica_atual,
+                            "duracao_min": int(duracao_prev),
+                            "folga_min": max(0, int(folga_prev)),
+                            "fonte": fonte_prev,
+                            "confirmavel": True,
+                        },
+                    )
+
+    if proximo and proximo.get("clinica_id"):
+        clinica_proxima_obj = _get_clinica(proximo.get("clinica_id"))
+        if _clinica_tem_localizacao_confiavel(clinica_proxima_obj):
+            duracao_next, fonte_next = obter_duracao_deslocamento(
+                db,
+                origem_clinica_id=agendamento.clinica_id,
+                destino_clinica_id=proximo.get("clinica_id"),
+                perfil=perfil_norm,
+                permitir_estimativa_fallback=False,
+            )
+            folga_next = _minutos_entre(fim_dt, proximo["inicio"])
+            if duracao_next > 0 and folga_next < duracao_next:
+                clinica_proxima = proximo.get("clinica_nome") or _nome_clinica_por_id(db, proximo.get("clinica_id"))
+                if not permitir_confirmacao:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "codigo": "CONFLITO_DESLOCAMENTO",
+                            "mensagem": (
+                                f"O tempo de deslocamento entre {clinica_atual} e {clinica_proxima} "
+                                f"e de aproximadamente {duracao_next} minutos. "
+                                f"Disponivel: {max(0, folga_next)} minutos. "
+                                "Deseja confirmar este agendamento?"
+                            ),
+                            "origem_clinica": clinica_atual,
+                            "destino_clinica": clinica_proxima,
+                            "duracao_min": int(duracao_next),
+                            "folga_min": max(0, int(folga_next)),
+                            "fonte": fonte_next,
+                            "confirmavel": True,
+                        },
+                    )
 
 
 def _notificar_agenda_update(action: str, agendamento_id: int, data: Optional[dict] = None) -> None:
@@ -685,6 +982,175 @@ async def stream_agenda(
         },
     )
 
+
+@router.post("/sugestoes-horario")
+def sugerir_horarios_agenda(
+    payload: SugestaoHorarioPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Sugere horarios operacionais considerando conflito de agenda e deslocamento entre clinicas."""
+    data_iso = _extract_date_filter(payload.data)
+    if not data_iso:
+        raise HTTPException(status_code=422, detail="Data invalida. Use o formato YYYY-MM-DD.")
+
+    clinica_base = db.query(Clinica).filter(Clinica.id == payload.clinica_id).first()
+    if not clinica_base:
+        raise HTTPException(status_code=404, detail="Clinica nao encontrada.")
+
+    duracao_minutos = int(payload.duracao_minutos or 0)
+    if duracao_minutos <= 0:
+        if payload.servico_id:
+            servico = db.query(Servico).filter(Servico.id == payload.servico_id).first()
+            if not servico:
+                raise HTTPException(status_code=404, detail="Servico nao encontrado.")
+            duracao_minutos = int(servico.duracao_minutos or 30)
+        else:
+            duracao_minutos = 30
+    duracao_minutos = max(5, duracao_minutos)
+
+    janela_inicio, janela_fim, motivo_fechado = _obter_janela_funcionamento_data(db, data_iso)
+    if janela_inicio is None or janela_fim is None:
+        return {
+            "ok": True,
+            "data": data_iso,
+            "clinica_id": payload.clinica_id,
+            "duracao_minutos": duracao_minutos,
+            "perfil_deslocamento": normalizar_perfil(payload.perfil_deslocamento),
+            "motivo": motivo_fechado or "Sem janela valida para sugerir horarios.",
+            "total_encontrados": 0,
+            "items": [],
+        }
+
+    agendamentos_dia = _listar_agendamentos_ativos_do_dia(
+        db,
+        data_iso,
+        agendamento_id_excluir=payload.ignorar_agendamento_id,
+    )
+    perfil_norm = normalizar_perfil(payload.perfil_deslocamento)
+    intervalo_minutos = max(5, int(payload.intervalo_minutos))
+
+    sugestoes: list[dict] = []
+    inicio_candidato = janela_inicio
+    while inicio_candidato < janela_fim:
+        fim_candidato = inicio_candidato + timedelta(minutes=duracao_minutos)
+        if fim_candidato > janela_fim:
+            break
+
+        conflita = any(
+            inicio_candidato < item["fim"] and fim_candidato > item["inicio"]
+            for item in agendamentos_dia
+        )
+        if conflita:
+            inicio_candidato += timedelta(minutes=intervalo_minutos)
+            continue
+
+        anterior, proximo = _obter_vizinhos_horario(agendamentos_dia, inicio_candidato, fim_candidato)
+
+        tempo_prev = 0
+        tempo_next = 0
+        folga_prev = None
+        folga_next = None
+        fonte_prev = "indefinido"
+        fonte_next = "indefinido"
+
+        if anterior and anterior.get("clinica_id"):
+            tempo_prev, fonte_prev = obter_duracao_deslocamento(
+                db,
+                origem_clinica_id=anterior.get("clinica_id"),
+                destino_clinica_id=payload.clinica_id,
+                perfil=perfil_norm,
+            )
+            folga_prev = _minutos_entre(anterior["fim"], inicio_candidato)
+            if folga_prev < tempo_prev:
+                inicio_candidato += timedelta(minutes=intervalo_minutos)
+                continue
+
+        if proximo and proximo.get("clinica_id"):
+            tempo_next, fonte_next = obter_duracao_deslocamento(
+                db,
+                origem_clinica_id=payload.clinica_id,
+                destino_clinica_id=proximo.get("clinica_id"),
+                perfil=perfil_norm,
+            )
+            folga_next = _minutos_entre(fim_candidato, proximo["inicio"])
+            if folga_next < tempo_next:
+                inicio_candidato += timedelta(minutes=intervalo_minutos)
+                continue
+
+        margem_prev = (folga_prev - tempo_prev) if folga_prev is not None else None
+        margem_next = (folga_next - tempo_next) if folga_next is not None else None
+        ociosidade_min = max(0, margem_prev or 0) + max(0, margem_next or 0)
+        risco = 0
+        if margem_prev is not None and margem_prev < MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN:
+            risco += 1
+        if margem_next is not None and margem_next < MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN:
+            risco += 1
+
+        tempo_deslocamento_total = tempo_prev + tempo_next
+        score = round((tempo_deslocamento_total * 1.0) + (ociosidade_min * 0.2) + (risco * 20.0), 2)
+
+        sugestoes.append(
+            {
+                "inicio": inicio_candidato.strftime("%Y-%m-%d %H:%M"),
+                "fim": fim_candidato.strftime("%Y-%m-%d %H:%M"),
+                "score": score,
+                "risco": risco,
+                "tempo_deslocamento_total_min": tempo_deslocamento_total,
+                "ociosidade_min": ociosidade_min,
+                "anterior": (
+                    {
+                        "agendamento_id": anterior.get("id"),
+                        "clinica_id": anterior.get("clinica_id"),
+                        "clinica": anterior.get("clinica_nome") or _nome_clinica_por_id(db, anterior.get("clinica_id")),
+                        "fim": anterior["fim"].strftime("%Y-%m-%d %H:%M"),
+                        "duracao_deslocamento_min": tempo_prev,
+                        "folga_min": folga_prev,
+                        "margem_min": margem_prev,
+                        "fonte": fonte_prev,
+                    }
+                    if anterior
+                    else None
+                ),
+                "proximo": (
+                    {
+                        "agendamento_id": proximo.get("id"),
+                        "clinica_id": proximo.get("clinica_id"),
+                        "clinica": proximo.get("clinica_nome") or _nome_clinica_por_id(db, proximo.get("clinica_id")),
+                        "inicio": proximo["inicio"].strftime("%Y-%m-%d %H:%M"),
+                        "duracao_deslocamento_min": tempo_next,
+                        "folga_min": folga_next,
+                        "margem_min": margem_next,
+                        "fonte": fonte_next,
+                    }
+                    if proximo
+                    else None
+                ),
+            }
+        )
+
+        inicio_candidato += timedelta(minutes=intervalo_minutos)
+
+    sugestoes.sort(key=lambda item: (item["score"], item["risco"], item["inicio"]))
+    limite = max(1, min(50, int(payload.limite)))
+    top_items = sugestoes[:limite]
+
+    return {
+        "ok": True,
+        "data": data_iso,
+        "clinica_id": payload.clinica_id,
+        "duracao_minutos": duracao_minutos,
+        "perfil_deslocamento": perfil_norm,
+        "intervalo_minutos": intervalo_minutos,
+        "janela": {
+            "inicio": janela_inicio.strftime("%Y-%m-%d %H:%M"),
+            "fim": janela_fim.strftime("%Y-%m-%d %H:%M"),
+        },
+        "total_encontrados": len(sugestoes),
+        "items": top_items,
+    }
+
+
 @router.get("/{agendamento_id}", response_model=AgendamentoResponse)
 def obter_agendamento(
     agendamento_id: int,
@@ -707,8 +1173,11 @@ def criar_agendamento(
 ):
     """Cria novo agendamento"""
     now = datetime.now()
+    confirmar_conflito_deslocamento = bool(agendamento.confirmar_conflito_deslocamento)
 
-    db_agendamento = Agendamento(**agendamento.model_dump())
+    db_agendamento = Agendamento(
+        **agendamento.model_dump(exclude={"confirmar_conflito_deslocamento"})
+    )
     db_agendamento.status = _normalizar_status_agendamento(db_agendamento.status)
     if db_agendamento.status == "Reservado" and not db_agendamento.paciente_id:
         # Compatibilidade com bancos legados onde paciente_id ainda esta NOT NULL.
@@ -724,6 +1193,11 @@ def criar_agendamento(
     _apply_service_duration_if_needed(db, db_agendamento)
     _validar_agendamento_no_funcionamento(db, db_agendamento)
     _validar_slot_disponivel(db, db_agendamento)
+    _validar_deslocamento_agendamento(
+        db,
+        db_agendamento,
+        permitir_confirmacao=confirmar_conflito_deslocamento,
+    )
     _fill_data_hora_from_inicio(db_agendamento)
     related = _fetch_related_names(db, db_agendamento)
     _sync_denormalized_fields(db_agendamento, related)
@@ -793,9 +1267,11 @@ def atualizar_agendamento(
     inicio_original = _coerce_datetime(db_agendamento.inicio)
     fim_original = _coerce_datetime(db_agendamento.fim)
     servico_original = db_agendamento.servico_id
+    clinica_original = db_agendamento.clinica_id
     status_anterior = str(db_agendamento.status or "").strip() or "Agendado"
 
     update_data = agendamento.model_dump(exclude_unset=True)
+    confirmar_conflito_deslocamento = bool(update_data.pop("confirmar_conflito_deslocamento", False))
     for field, value in update_data.items():
         setattr(db_agendamento, field, value)
 
@@ -811,7 +1287,7 @@ def atualizar_agendamento(
         # Compatibilidade com bancos legados onde paciente_id ainda esta NOT NULL.
         db_agendamento.paciente_id = 0
 
-    campos_horario = "inicio" in update_data or "fim" in update_data or "servico_id" in update_data
+    campos_horario = "inicio" in update_data or "fim" in update_data or "servico_id" in update_data or "clinica_id" in update_data
     reativando_cancelado = status_anterior == "Cancelado" and db_agendamento.status != "Cancelado"
     if campos_horario:
         _apply_service_duration_if_needed(db, db_agendamento)
@@ -819,6 +1295,7 @@ def atualizar_agendamento(
         inicio_atual = _coerce_datetime(db_agendamento.inicio)
         fim_atual = _coerce_datetime(db_agendamento.fim)
         servico_atual = db_agendamento.servico_id
+        clinica_atual = db_agendamento.clinica_id
 
         alterou_horario = False
         if "inicio" in update_data:
@@ -827,14 +1304,28 @@ def atualizar_agendamento(
             alterou_horario = alterou_horario or (_to_local_naive(fim_original) != _to_local_naive(fim_atual))
         if "servico_id" in update_data:
             alterou_horario = alterou_horario or (servico_original != servico_atual)
+        if "clinica_id" in update_data:
+            alterou_horario = alterou_horario or (clinica_original != clinica_atual)
 
         if alterou_horario or reativando_cancelado:
             _validar_agendamento_no_funcionamento(db, db_agendamento)
             _validar_slot_disponivel(db, db_agendamento, agendamento_id_excluir=agendamento_id)
+            _validar_deslocamento_agendamento(
+                db,
+                db_agendamento,
+                agendamento_id_excluir=agendamento_id,
+                permitir_confirmacao=confirmar_conflito_deslocamento,
+            )
     elif reativando_cancelado:
         _apply_service_duration_if_needed(db, db_agendamento)
         _validar_agendamento_no_funcionamento(db, db_agendamento)
         _validar_slot_disponivel(db, db_agendamento, agendamento_id_excluir=agendamento_id)
+        _validar_deslocamento_agendamento(
+            db,
+            db_agendamento,
+            agendamento_id_excluir=agendamento_id,
+            permitir_confirmacao=confirmar_conflito_deslocamento,
+        )
     if "inicio" in update_data:
         _fill_data_hora_from_inicio(db_agendamento)
 
@@ -947,6 +1438,7 @@ def atualizar_status(
         _apply_service_duration_if_needed(db, db_agendamento)
         _validar_agendamento_no_funcionamento(db, db_agendamento)
         _validar_slot_disponivel(db, db_agendamento, agendamento_id_excluir=agendamento_id)
+        _validar_deslocamento_agendamento(db, db_agendamento, agendamento_id_excluir=agendamento_id)
     db_agendamento.atualizado_em = datetime.now()
     db_agendamento.updated_at = datetime.now()
 

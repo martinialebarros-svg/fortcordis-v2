@@ -2,7 +2,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 
-from app.api.v1.endpoints import auth, admin, agenda, pacientes, clinicas, servicos, laudos, financeiro, xml_import, frases, imagens, tabelas_preco, ordens_servico, configuracoes, tutores, referencias_eco, atendimento
+from app.api.v1.endpoints import auth, admin, agenda, pacientes, clinicas, servicos, laudos, financeiro, xml_import, frases, imagens, tabelas_preco, ordens_servico, configuracoes, tutores, referencias_eco, atendimento, logistica
 from app.models import user, papel, agendamento
 from app.core.websocket import manager
 from app.db.database import engine
@@ -17,7 +17,7 @@ app = FastAPI(
 
 
 def _ensure_financeiro_schema_compat() -> None:
-    """Garante colunas novas de financeiro em bancos locais sem migração aplicada."""
+    """Garante colunas novas de financeiro em bancos locais sem migracao aplicada."""
     required_columns = {
         "transacoes": {"clinica_id": "INTEGER"},
         "contas_pagar": {"clinica_id": "INTEGER"},
@@ -48,6 +48,7 @@ def _ensure_financeiro_schema_compat() -> None:
     except Exception as exc:
         print(f"[schema-compat] Falha ao validar schema financeiro: {exc}")
 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -75,11 +76,13 @@ app.include_router(configuracoes.router, prefix="/api/v1", tags=["configuracoes"
 app.include_router(tutores.router, prefix="/api/v1/tutores", tags=["tutores"])
 app.include_router(referencias_eco.router, prefix="/api/v1/referencias-eco", tags=["referencias_eco"])
 app.include_router(atendimento.router, prefix="/api/v1/atendimentos", tags=["atendimento"])
+app.include_router(logistica.router, prefix="/api/v1/logistica", tags=["logistica"])
 
 
 @app.on_event("startup")
 def startup_schema_compatibility():
     _ensure_financeiro_schema_compat()
+
 
 # WebSocket endpoint
 @app.websocket("/ws/{client_id}")
