@@ -281,7 +281,7 @@ def _validar_deslocamento_agendamento(
                 origem_clinica_id=anterior.get("clinica_id"),
                 destino_clinica_id=agendamento.clinica_id,
                 perfil=perfil_norm,
-                permitir_estimativa_fallback=False,
+                permitir_estimativa_fallback=True,
             )
             folga_prev = _minutos_entre(anterior["fim"], inicio_dt)
             if duracao_prev > 0 and folga_prev < duracao_prev:
@@ -314,7 +314,7 @@ def _validar_deslocamento_agendamento(
                 origem_clinica_id=agendamento.clinica_id,
                 destino_clinica_id=proximo.get("clinica_id"),
                 perfil=perfil_norm,
-                permitir_estimativa_fallback=False,
+                permitir_estimativa_fallback=True,
             )
             folga_next = _minutos_entre(fim_dt, proximo["inicio"])
             if duracao_next > 0 and folga_next < duracao_next:
