@@ -1,6 +1,7 @@
 import asyncio
 import json
 import math
+import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from queue import Empty
@@ -401,6 +402,19 @@ def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
     raw = value.strip()
     if raw.endswith("Z"):
         raw = raw[:-1] + "+00:00"
+
+    # Compatibilidade com bancos legados que armazenam offset como +00/-03 (sem minutos).
+    if len(raw) > 10:
+        sufixo = raw[10:]
+        if not re.search(r"[+-]\d{2}:\d{2}$", sufixo):
+            match_hhmm = re.search(r"([+-]\d{2})(\d{2})$", sufixo)
+            if match_hhmm:
+                sufixo = sufixo[: match_hhmm.start()] + f"{match_hhmm.group(1)}:{match_hhmm.group(2)}"
+            else:
+                match_hh = re.search(r"([+-]\d{2})$", sufixo)
+                if match_hh:
+                    sufixo = sufixo[: match_hh.start()] + f"{match_hh.group(1)}:00"
+            raw = raw[:10] + sufixo
 
     try:
         return datetime.fromisoformat(raw)
