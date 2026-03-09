@@ -42,8 +42,38 @@ jobs:
               fi
               if ! systemctl is-active --quiet "$svc"; then
                 echo "Service ${svc} is not active after deploy."
+                return 1
+              fi
+              return 0
+            }
+
+            start_backend_manual_fallback() {
+              echo "Starting backend manually on port 8001 (fallback)..."
+              cd "$STAGE_DIR/backend"
+
+              listener_pid="$(lsof -tiTCP:8001 -sTCP:LISTEN 2>/dev/null || true)"
+              if [ -n "$listener_pid" ]; then
+                kill "$listener_pid" || true
+                sleep 2
+              fi
+
+              if [ -f .env ]; then
+                set -a
+                source .env
+                set +a
+              fi
+
+              nohup venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001 \
+                >/tmp/fortcordis-stage-backend-manual.out \
+                2>/tmp/fortcordis-stage-backend-manual.err < /dev/null &
+
+              sleep 3
+              if ! curl -fsS http://127.0.0.1:8001/docs >/dev/null; then
+                echo "Backend fallback failed to start."
+                tail -n 80 /tmp/fortcordis-stage-backend-manual.err || true
                 exit 1
               fi
+              echo "Backend fallback is up."
             }
 
             if [ ! -d "$STAGE_DIR/.git" ]; then
@@ -85,14 +115,19 @@ jobs:
             python3 setup_database.py
 
             cd ..
-            restart_service fortcordis-stage-backend
+            if ! restart_service fortcordis-stage-backend; then
+              start_backend_manual_fallback
+            fi
 
             echo "Deploying frontend..."
             cd frontend
             npm install
             API_BACKEND_URL=http://127.0.0.1:8001 npm run build
             cd ..
-            restart_service fortcordis-stage-frontend
+            if ! restart_service fortcordis-stage-frontend; then
+              echo "Service fortcordis-stage-frontend is not active after deploy."
+              exit 1
+            fi
 
             echo "Stage deploy finished."
           EOF
