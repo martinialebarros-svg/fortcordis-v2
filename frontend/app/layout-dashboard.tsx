@@ -20,6 +20,7 @@ import {
   DollarSign,
   Settings,
   BookOpen,
+  MapPin,
   Pencil,
   Check,
   Loader2
@@ -35,6 +36,7 @@ const menuItems = [
   { href: "/laudos", label: "Laudos", icon: FileText },
   { href: "/atendimento", label: "Atendimento", icon: ClipboardPlus },
   { href: "/referencias-eco", label: "Referências Eco", icon: BookOpen },
+  { href: "/logistica", label: "Logistica", icon: MapPin },
   { href: "/financeiro", label: "Financeiro", icon: DollarSign },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];

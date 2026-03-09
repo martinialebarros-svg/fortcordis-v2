@@ -139,6 +139,16 @@ interface MovimentacaoPendente {
   revert: () => void;
 }
 
+interface ConflitoDeslocamentoDetail {
+  codigo?: string;
+  mensagem?: string;
+  origem_clinica?: string;
+  destino_clinica?: string;
+  duracao_min?: number;
+  folga_min?: number;
+  confirmavel?: boolean;
+}
+
 const FORMAS_PAGAMENTO = [
   { id: "dinheiro", nome: "Dinheiro" },
   { id: "cartao_credito", nome: "Cartao de credito" },
@@ -311,6 +321,49 @@ const formatarDataHora = (ag: Agendamento) => {
   const horaInicio = inicio.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   const horaFim = fim.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   return `${data} ${horaInicio} - ${horaFim}`;
+};
+
+const extrairMensagemErroApi = (detail: unknown, fallback: string): string => {
+  if (typeof detail === "string" && detail.trim()) {
+    return detail;
+  }
+  if (detail && typeof detail === "object") {
+    const payload = detail as Record<string, unknown>;
+    const mensagem = payload.mensagem;
+    if (typeof mensagem === "string" && mensagem.trim()) {
+      return mensagem;
+    }
+    const message = payload.message;
+    if (typeof message === "string" && message.trim()) {
+      return message;
+    }
+    const nestedDetail = payload.detail;
+    if (typeof nestedDetail === "string" && nestedDetail.trim()) {
+      return nestedDetail;
+    }
+  }
+  return fallback;
+};
+
+const extrairConflitoDeslocamento = (error: any): ConflitoDeslocamentoDetail | null => {
+  if (error?.response?.status !== 409) {
+    return null;
+  }
+
+  const detail = error?.response?.data?.detail;
+  if (detail && typeof detail === "object") {
+    const payload = detail as Record<string, unknown>;
+    if (payload.codigo === "CONFLITO_DESLOCAMENTO") {
+      return payload as ConflitoDeslocamentoDetail;
+    }
+  }
+
+  const texto = String(detail || "");
+  if (texto.toLowerCase().includes("deslocamento")) {
+    return { mensagem: texto, confirmavel: true };
+  }
+
+  return null;
 };
 
 export default function AgendaFullCalendarPage() {
@@ -944,7 +997,12 @@ export default function AgendaFullCalendarPage() {
       if (error?.response?.status === 403) {
         setErro("Sem permissao para alterar abertura/fechamento da agenda.");
       } else {
-        setErro(error?.response?.data?.detail || "Nao foi possivel atualizar a agenda desta data.");
+        setErro(
+          extrairMensagemErroApi(
+            error?.response?.data?.detail,
+            "Nao foi possivel atualizar a agenda desta data."
+          )
+        );
       }
     } finally {
       setSalvandoAgendaDia(false);
@@ -972,7 +1030,12 @@ export default function AgendaFullCalendarPage() {
         }
       } catch (error: any) {
         console.error("Erro ao atualizar status via FullCalendar:", error);
-        setErro(error?.response?.data?.detail || "Nao foi possivel atualizar o status deste agendamento.");
+        setErro(
+          extrairMensagemErroApi(
+            error?.response?.data?.detail,
+            "Nao foi possivel atualizar o status deste agendamento."
+          )
+        );
       } finally {
         setAtualizandoStatusId(null);
       }
@@ -1052,7 +1115,12 @@ export default function AgendaFullCalendarPage() {
       }
     } catch (error: any) {
       console.error("Erro ao receber pagamento da OS:", error);
-      setErro(error?.response?.data?.detail || "Nao foi possivel registrar o recebimento desta OS.");
+      setErro(
+        extrairMensagemErroApi(
+          error?.response?.data?.detail,
+          "Nao foi possivel registrar o recebimento desta OS."
+        )
+      );
     } finally {
       setRecebendoPagamentoId(null);
     }
@@ -1077,7 +1145,9 @@ export default function AgendaFullCalendarPage() {
       if (error?.response?.status === 403) {
         setErro("Apenas administradores podem excluir agendamentos.");
       } else {
-        setErro(error?.response?.data?.detail || "Nao foi possivel excluir este agendamento.");
+        setErro(
+          extrairMensagemErroApi(error?.response?.data?.detail, "Nao foi possivel excluir este agendamento.")
+        );
       }
     } finally {
       setExcluindoAgendamentoId(null);
@@ -1145,7 +1215,7 @@ export default function AgendaFullCalendarPage() {
         setSalvandoMovimentacao(true);
         setErro("");
 
-        await api.put(`/agenda/${id}`, {
+        const payloadBase = {
           paciente_id: agendamento.paciente_id ?? null,
           clinica_id: agendamento.clinica_id ?? null,
           servico_id: agendamento.servico_id ?? null,
@@ -1153,16 +1223,50 @@ export default function AgendaFullCalendarPage() {
           fim: toApiDateTime(fim),
           status: agendamento.status || "Agendado",
           observacoes: agendamento.observacoes || "",
-        });
+        };
+
+        const enviarAtualizacao = async (confirmarConflitoDeslocamento: boolean) => {
+          const payload = confirmarConflitoDeslocamento
+            ? { ...payloadBase, confirmar_conflito_deslocamento: true }
+            : payloadBase;
+          await api.put(`/agenda/${id}`, payload);
+        };
+
+        try {
+          await enviarAtualizacao(false);
+        } catch (error: any) {
+          const conflito = extrairConflitoDeslocamento(error);
+          if (!conflito?.confirmavel) {
+            throw error;
+          }
+
+          const mensagemConflito = extrairMensagemErroApi(
+            conflito,
+            "Existe um conflito operacional de deslocamento para este horario."
+          );
+          const confirmou = window.confirm(`${mensagemConflito}\n\nDeseja confirmar este agendamento?`);
+          if (!confirmou) {
+            revert();
+            setMensagemStatus("Alteracao cancelada pelo usuario.");
+            return;
+          }
+
+          await enviarAtualizacao(true);
+        }
 
         if (intervalo) {
           await carregarAgendamentos(intervalo);
         }
         setDataControleAgenda(toDateInput(inicio));
-      } catch (error) {
+      } catch (error: any) {
         console.error("Erro ao mover/redimensionar agendamento:", error);
         revert();
-        setErro("Nao foi possivel salvar a alteracao do horario. A mudanca foi desfeita.");
+        setErro(
+          extrairMensagemErroApi(
+            error?.response?.data?.detail,
+            "Nao foi possivel salvar a alteracao do horario. A mudanca foi desfeita."
+          )
+        );
       } finally {
         setSalvandoMovimentacao(false);
       }
@@ -1302,7 +1406,7 @@ export default function AgendaFullCalendarPage() {
       }
 
       if (origem === "movimentacao") {
-        await api.put(`/agenda/${id}`, {
+        const payloadBase = {
           paciente_id: agendamento.paciente_id ?? null,
           clinica_id: agendamento.clinica_id ?? null,
           servico_id: agendamento.servico_id ?? null,
@@ -1310,7 +1414,40 @@ export default function AgendaFullCalendarPage() {
           fim: toApiDateTime(fimNovo),
           status: agendamento.status || "Agendado",
           observacoes: agendamento.observacoes || "",
-        });
+        };
+
+        const enviarAtualizacaoMovimentacao = async (confirmarConflitoDeslocamento: boolean) => {
+          const payload = confirmarConflitoDeslocamento
+            ? { ...payloadBase, confirmar_conflito_deslocamento: true }
+            : payloadBase;
+          await api.put(`/agenda/${id}`, payload);
+        };
+
+        try {
+          await enviarAtualizacaoMovimentacao(false);
+        } catch (error: any) {
+          const conflito = extrairConflitoDeslocamento(error);
+          if (!conflito?.confirmavel) {
+            throw error;
+          }
+
+          const mensagemConflito = extrairMensagemErroApi(
+            conflito,
+            "Existe um conflito operacional de deslocamento para este horario."
+          );
+          const confirmou = window.confirm(`${mensagemConflito}\n\nDeseja confirmar este agendamento?`);
+          if (!confirmou) {
+            if (origem === "movimentacao") {
+              revert();
+            }
+            setMensagemStatus("Alteracao recorrente cancelada pelo usuario.");
+            setModalRecorrenciaAberto(false);
+            setMovimentacaoPendente(null);
+            return;
+          }
+
+          await enviarAtualizacaoMovimentacao(true);
+        }
       }
 
       const duracaoMs = Math.max(5 * 60000, fimNovo.getTime() - inicioNovo.getTime());
@@ -1346,6 +1483,7 @@ export default function AgendaFullCalendarPage() {
             fim: toApiDateTime(fimRecorrente),
             status: agendamento.status || "Agendado",
             observacoes: agendamento.observacoes || "",
+            confirmar_conflito_deslocamento: true,
           });
           ocupacoesLocais.push({ inicio: inicioRecorrente, fim: fimRecorrente });
           criados += 1;
@@ -1373,7 +1511,12 @@ export default function AgendaFullCalendarPage() {
       if (origem === "movimentacao") {
         revert();
       }
-      setErro(error?.response?.data?.detail || "Nao foi possivel aplicar a alteracao recorrente.");
+      setErro(
+        extrairMensagemErroApi(
+          error?.response?.data?.detail,
+          "Nao foi possivel aplicar a alteracao recorrente."
+        )
+      );
       setModalRecorrenciaAberto(false);
       setMovimentacaoPendente(null);
     } finally {

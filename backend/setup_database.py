@@ -15,7 +15,8 @@ from app.db.database import engine, Base, SessionLocal
 from app.models import (
     user, papel, agendamento, paciente, tutor, clinica, servico,
     laudo, financeiro, frase, imagem_laudo, tabela_preco, 
-    ordem_servico, referencia_eco, configuracao, auditoria_evento
+    ordem_servico, referencia_eco, configuracao, auditoria_evento,
+    clinica_deslocamento, cep_bairro_override
 )
 from app.utils.frases_seed import seed_frases
 from migrations.runner import run_migrations
@@ -45,6 +46,8 @@ MODELS = [
     configuracao.Configuracao,
     configuracao.ConfiguracaoUsuario,
     auditoria_evento.AuditoriaEvento,
+    clinica_deslocamento.ClinicaDeslocamento,
+    cep_bairro_override.CepBairroOverride,
 ]
 
 def criar_tabelas():
@@ -128,7 +131,7 @@ def verificar_tabelas():
         "imagens_laudo", "imagens_temporarias",
         "tabelas_preco", "precos_servicos", "ordens_servico",
         "referencias_eco", "configuracoes", "configuracoes_usuario"
-        , "auditoria_eventos"
+        , "auditoria_eventos", "clinica_deslocamentos", "cep_bairro_overrides"
     ]
     
     todas_ok = True

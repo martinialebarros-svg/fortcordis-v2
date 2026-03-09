@@ -693,7 +693,12 @@ export default function AgendaPage() {
       }
     } catch (error: any) {
       console.error("Erro ao atualizar status:", error);
-      setErro("Erro ao atualizar status: " + (error.response?.data?.detail || error.message));
+      const detail = error?.response?.data?.detail;
+      const detailTexto =
+        typeof detail === "string"
+          ? detail
+          : (typeof detail?.mensagem === "string" ? detail.mensagem : error.message);
+      setErro("Erro ao atualizar status: " + detailTexto);
     } finally {
       setAtualizandoStatus(null);
     }

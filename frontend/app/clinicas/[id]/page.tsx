@@ -5,6 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import { Save, ArrowLeft, Building2, Trash2, AlertTriangle, MapPin, DollarSign, Calculator, Percent } from "lucide-react";
+import ManualPinModal from "../components/ManualPinModal";
 
 const ESTADOS = [
   "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA",
@@ -35,6 +36,12 @@ export default function EditarClinicaPage() {
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [loadingCep, setLoadingCep] = useState(false);
+  const [loadingGeocode, setLoadingGeocode] = useState(false);
+  const [localizacaoConfirmada, setLocalizacaoConfirmada] = useState(false);
+  const [bairroEditadoManual, setBairroEditadoManual] = useState(false);
+  const [statusEndereco, setStatusEndereco] = useState("");
+  const [showManualPinModal, setShowManualPinModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [tabelaSugerida, setTabelaSugerida] = useState<number | null>(null);
   
@@ -44,9 +51,17 @@ export default function EditarClinicaPage() {
     telefone: "",
     email: "",
     endereco: "",
+    numero: "",
+    complemento: "",
+    bairro: "",
     cidade: "",
     estado: "CE",
     cep: "",
+    regiao_operacional: "",
+    latitude: null as number | null,
+    longitude: null as number | null,
+    place_id: "",
+    endereco_normalizado: "",
     observacoes: "",
     tabela_preco_id: 1,
     preco_personalizado_km: "",
@@ -67,15 +82,158 @@ export default function EditarClinicaPage() {
 
   // Sugerir tabela de preço quando a cidade mudar
   useEffect(() => {
-    if (clinica.cidade && clinica.tabela_preco_id === 1) {
+    if (clinica.cidade) {
       sugerirTabelaPreco();
     }
-  }, [clinica.cidade]);
+  }, [clinica.cidade, clinica.estado]);
 
   useEffect(() => {
     if (loading) return;
     carregarPrecosServicos();
   }, [loading, clinicaId, clinica.tabela_preco_id]);
+
+  const normalizarCep = (valor: string) => valor.replace(/\D/g, "").slice(0, 8);
+  const formatarCepVisual = (valor: string) => {
+    const cep = normalizarCep(valor);
+    if (cep.length <= 5) return cep;
+    return `${cep.slice(0, 5)}-${cep.slice(5)}`;
+  };
+
+  const limparGeocodeCache = (mensagem?: string) => {
+    setClinica((prev) => ({
+      ...prev,
+      latitude: null,
+      longitude: null,
+      place_id: "",
+      endereco_normalizado: "",
+    }));
+    setLocalizacaoConfirmada(false);
+    if (mensagem) {
+      setStatusEndereco(mensagem);
+    }
+  };
+
+  const abrirMapaConfirmacao = () => {
+    if (clinica.latitude === null || clinica.longitude === null) {
+      alert("Nao ha latitude/longitude para confirmar.");
+      return;
+    }
+    const params = new URLSearchParams({
+      api: "1",
+      query: `${clinica.latitude},${clinica.longitude}`,
+    });
+    if (clinica.place_id) {
+      params.set("query_place_id", clinica.place_id);
+    }
+    window.open(`https://www.google.com/maps/search/?${params.toString()}`, "_blank", "noopener,noreferrer");
+    setLocalizacaoConfirmada(true);
+    setStatusEndereco("Localizacao confirmada no mapa.");
+  };
+
+  const aplicarPinManual = ({ lat, lng }: { lat: number; lng: number }) => {
+    setClinica((prev) => ({
+      ...prev,
+      latitude: lat,
+      longitude: lng,
+      place_id: "",
+      endereco_normalizado:
+        prev.endereco_normalizado ||
+        [prev.endereco, prev.numero, prev.bairro, prev.cidade, prev.estado]
+          .filter((p) => String(p || "").trim())
+          .join(", "),
+    }));
+    setLocalizacaoConfirmada(true);
+    setStatusEndereco("Pin manual aplicado com sucesso.");
+    setShowManualPinModal(false);
+  };
+
+  const consultarCep = async () => {
+    const cep = normalizarCep(clinica.cep);
+    if (cep.length !== 8) return;
+    try {
+      setLoadingCep(true);
+      const response = await api.get(`/clinicas/cep/${cep}`);
+      const item = response?.data?.item || {};
+      setClinica((prev) => ({
+        ...prev,
+        cep: formatarCepVisual(item.cep || cep),
+        endereco: item.logradouro || prev.endereco,
+        complemento: prev.complemento || item.complemento || "",
+        bairro: item.bairro || prev.bairro,
+        cidade: item.cidade || prev.cidade,
+        estado: item.estado || prev.estado,
+        latitude: null,
+        longitude: null,
+        place_id: "",
+        endereco_normalizado: "",
+      }));
+      setLocalizacaoConfirmada(false);
+      setBairroEditadoManual(false);
+      setStatusEndereco(
+        item?.bairro_origem === "aprendizado"
+          ? "CEP preenchido com bairro aprendido."
+          : "CEP preenchido pelo ViaCEP."
+      );
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || "Falha ao consultar CEP.";
+      setStatusEndereco(String(detail));
+    } finally {
+      setLoadingCep(false);
+    }
+  };
+
+  const geocodificarEndereco = async () => {
+    if (!clinica.endereco.trim() || !clinica.numero.trim()) {
+      setStatusEndereco("Preencha endereco e numero para geocodificar.");
+      return;
+    }
+    if (!clinica.cidade.trim() || !clinica.estado.trim()) return;
+
+    try {
+      setLoadingGeocode(true);
+      const response = await api.post("/clinicas/geocode-endereco", {
+        endereco: clinica.endereco,
+        numero: clinica.numero,
+        complemento: clinica.complemento,
+        bairro: clinica.bairro,
+        cidade: clinica.cidade,
+        estado: clinica.estado,
+        cep: clinica.cep,
+      });
+      const item = response?.data?.item || {};
+      setClinica((prev) => ({
+        ...prev,
+        bairro: item.bairro || prev.bairro,
+        cidade: item.cidade || prev.cidade,
+        estado: item.estado || prev.estado,
+        cep: item.cep ? formatarCepVisual(item.cep) : prev.cep,
+        regiao_operacional: item.regiao_operacional || prev.regiao_operacional,
+        latitude: Number.isFinite(Number(item.latitude)) ? Number(item.latitude) : prev.latitude,
+        longitude: Number.isFinite(Number(item.longitude)) ? Number(item.longitude) : prev.longitude,
+        place_id: item.place_id || prev.place_id,
+        endereco_normalizado: item.endereco_normalizado || prev.endereco_normalizado,
+      }));
+      setLocalizacaoConfirmada(false);
+      setStatusEndereco("Geocoding concluido. Confirme a localizacao no mapa.");
+      if (item?.bairro_origem !== "aprendizado") {
+        setBairroEditadoManual(false);
+      }
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || "Falha no geocoding.";
+      setStatusEndereco(String(detail));
+    } finally {
+      setLoadingGeocode(false);
+    }
+  };
+
+  const geocodificarNoBlur = async () => {
+    if (!clinica.endereco.trim()) return;
+    if (!clinica.numero.trim()) {
+      setStatusEndereco("Informe o numero para concluir o geocoding.");
+      return;
+    }
+    await geocodificarEndereco();
+  };
 
   const carregarClinica = async () => {
     try {
@@ -88,15 +246,27 @@ export default function EditarClinicaPage() {
         telefone: data.telefone || "",
         email: data.email || "",
         endereco: data.endereco || "",
+        numero: data.numero || "",
+        complemento: data.complemento || "",
+        bairro: data.bairro || "",
         cidade: data.cidade || "",
         estado: data.estado || "CE",
-        cep: data.cep || "",
+        cep: formatarCepVisual(data.cep || ""),
+        regiao_operacional: data.regiao_operacional || "",
+        latitude: Number.isFinite(Number(data.latitude)) ? Number(data.latitude) : null,
+        longitude: Number.isFinite(Number(data.longitude)) ? Number(data.longitude) : null,
+        place_id: data.place_id || "",
+        endereco_normalizado: data.endereco_normalizado || "",
         observacoes: data.observacoes || "",
         tabela_preco_id: data.tabela_preco_id || 1,
         preco_personalizado_km: data.preco_personalizado_km?.toString() || "",
         preco_personalizado_base: data.preco_personalizado_base?.toString() || "",
         observacoes_preco: data.observacoes_preco || "",
       });
+
+      if (data.latitude !== null && data.longitude !== null) {
+        setLocalizacaoConfirmada(true);
+      }
       
       setTabelaSugerida(data.tabela_preco_id || null);
     } catch (error) {
@@ -112,14 +282,19 @@ export default function EditarClinicaPage() {
     if (!clinica.cidade) return;
     
     try {
-      const response = await api.post(`/clinicas/sugerir-tabela-preco?cidade=${encodeURIComponent(clinica.cidade)}`);
+      const response = await api.post(
+        `/clinicas/sugerir-tabela-preco?cidade=${encodeURIComponent(clinica.cidade)}&estado=${encodeURIComponent(clinica.estado || "")}`
+      );
       const sugestao = response.data;
       
       if (sugestao.tabela_sugerida) {
         setTabelaSugerida(sugestao.tabela_sugerida.id);
-        // Se a cidade não for reconhecida, sugerir tabela 3 (Domiciliar)
+        if (sugestao.regiao_operacional) {
+          setClinica((prev) => ({ ...prev, regiao_operacional: sugestao.regiao_operacional }));
+        }
+        // Se a cidade nao for reconhecida, sugerir tabela 3 (Domiciliar)
         if (!sugestao.cidade_reconhecida && clinica.tabela_preco_id === 1) {
-          setClinica(prev => ({ ...prev, tabela_preco_id: 3 }));
+          setClinica((prev) => ({ ...prev, tabela_preco_id: 3 }));
         }
       }
     } catch (error) {
@@ -172,7 +347,12 @@ export default function EditarClinicaPage() {
 
   const handleSalvar = async () => {
     if (!clinica.nome.trim()) {
-      alert("Digite o nome da clínica");
+      alert("Digite o nome da clinica");
+      return;
+    }
+
+    if (clinica.latitude !== null && clinica.longitude !== null && !localizacaoConfirmada) {
+      alert("Confirme a localizacao no mapa antes de salvar.");
       return;
     }
 
@@ -180,11 +360,17 @@ export default function EditarClinicaPage() {
     try {
       const payload = {
         ...clinica,
+        cep: normalizarCep(clinica.cep),
+        bairro_manual: bairroEditadoManual,
         tabela_preco_id: parseInt(clinica.tabela_preco_id.toString()),
-        preco_personalizado_km: clinica.preco_personalizado_km ? parseFloat(clinica.preco_personalizado_km.replace(',', '.')) : 0,
-        preco_personalizado_base: clinica.preco_personalizado_base ? parseFloat(clinica.preco_personalizado_base.replace(',', '.')) : 0,
+        preco_personalizado_km: clinica.preco_personalizado_km
+          ? parseFloat(clinica.preco_personalizado_km.replace(",", "."))
+          : 0,
+        preco_personalizado_base: clinica.preco_personalizado_base
+          ? parseFloat(clinica.preco_personalizado_base.replace(",", "."))
+          : 0,
       };
-      
+
       const payloadPrecosNegociados = {
         items: precosServicos.map((row) => ({
           servico_id: row.servico_id,
@@ -195,7 +381,7 @@ export default function EditarClinicaPage() {
 
       await api.put(`/clinicas/${clinicaId}`, payload);
       await api.put(`/clinicas/${clinicaId}/precos-servicos`, payloadPrecosNegociados);
-      alert("Clínica atualizada com sucesso!");
+      alert("Clinica atualizada com sucesso!");
       router.push("/clinicas");
     } catch (error: any) {
       console.error("Erro ao salvar clinica:", error);
@@ -204,7 +390,6 @@ export default function EditarClinicaPage() {
       setSaving(false);
     }
   };
-
   const handleExcluir = async () => {
     try {
       await api.delete(`/clinicas/${clinicaId}`);
@@ -323,19 +508,34 @@ export default function EditarClinicaPage() {
                 />
               </div>
               
-              <div className="md:col-span-2">
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Endereço
+                  CEP
                 </label>
-                <input
-                  type="text"
-                  value={clinica.endereco}
-                  onChange={(e) => setClinica({...clinica, endereco: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  placeholder="Rua, número, complemento"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={clinica.cep}
+                    onChange={(e) => {
+                      const valor = formatarCepVisual(e.target.value);
+                      setClinica({ ...clinica, cep: valor });
+                      limparGeocodeCache();
+                    }}
+                    onBlur={consultarCep}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    placeholder="00000-000"
+                  />
+                  <button
+                    type="button"
+                    onClick={consultarCep}
+                    disabled={loadingCep}
+                    className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {loadingCep ? "..." : "Buscar"}
+                  </button>
+                </div>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   <MapPin className="w-4 h-4 inline mr-1" />
@@ -344,12 +544,84 @@ export default function EditarClinicaPage() {
                 <input
                   type="text"
                   value={clinica.cidade}
-                  onChange={(e) => setClinica({...clinica, cidade: e.target.value})}
+                  onChange={(e) => {
+                    setClinica({ ...clinica, cidade: e.target.value });
+                    limparGeocodeCache("Cidade alterada. Rode o geocoding novamente.");
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   placeholder="Cidade"
                 />
               </div>
-              
+
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Endereco
+                </label>
+                <input
+                  type="text"
+                  value={clinica.endereco}
+                  onChange={(e) => {
+                    setClinica({ ...clinica, endereco: e.target.value });
+                    limparGeocodeCache();
+                  }}
+                  onBlur={geocodificarNoBlur}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  placeholder="Rua / Avenida"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Numero
+                  </label>
+                  <input
+                    type="text"
+                    value={clinica.numero}
+                    onChange={(e) => {
+                      setClinica({ ...clinica, numero: e.target.value });
+                      limparGeocodeCache();
+                    }}
+                    onBlur={geocodificarNoBlur}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    placeholder="123"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Complemento
+                  </label>
+                  <input
+                    type="text"
+                    value={clinica.complemento}
+                    onChange={(e) => {
+                      setClinica({ ...clinica, complemento: e.target.value });
+                      limparGeocodeCache();
+                    }}
+                    onBlur={geocodificarNoBlur}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    placeholder="Sala, bloco, etc."
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Bairro
+                </label>
+                <input
+                  type="text"
+                  value={clinica.bairro}
+                  onChange={(e) => {
+                    setClinica({ ...clinica, bairro: e.target.value });
+                    setBairroEditadoManual(true);
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  placeholder="Bairro"
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -357,27 +629,75 @@ export default function EditarClinicaPage() {
                   </label>
                   <select
                     value={clinica.estado}
-                    onChange={(e) => setClinica({...clinica, estado: e.target.value})}
+                    onChange={(e) => {
+                      setClinica({ ...clinica, estado: e.target.value });
+                      limparGeocodeCache("UF alterada. Rode o geocoding novamente.");
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   >
-                    {ESTADOS.map(uf => (
-                      <option key={uf} value={uf}>{uf}</option>
+                    {ESTADOS.map((uf) => (
+                      <option key={uf} value={uf}>
+                        {uf}
+                      </option>
                     ))}
                   </select>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    CEP
+                    Regiao operacional
                   </label>
                   <input
                     type="text"
-                    value={clinica.cep}
-                    onChange={(e) => setClinica({...clinica, cep: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="00000-000"
+                    value={clinica.regiao_operacional}
+                    readOnly
+                    className="w-full px-3 py-2 border border-gray-200 bg-gray-50 rounded-lg text-gray-700"
+                    placeholder="Calculada automaticamente"
                   />
                 </div>
+              </div>
+
+              <div className="md:col-span-2 rounded-lg border border-indigo-100 bg-indigo-50 p-3">
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={geocodificarEndereco}
+                    disabled={loadingGeocode}
+                    className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    {loadingGeocode ? "Geocodificando..." : "Geocodificar endereco"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowManualPinModal(true)}
+                    className="px-3 py-2 border border-indigo-300 text-indigo-700 rounded-lg hover:bg-indigo-100"
+                  >
+                    Ajustar pin manual
+                  </button>
+                  {clinica.latitude !== null && clinica.longitude !== null && (
+                    <button
+                      type="button"
+                      onClick={abrirMapaConfirmacao}
+                      className="px-3 py-2 border border-indigo-300 text-indigo-700 rounded-lg hover:bg-indigo-100"
+                    >
+                      Confirmar localizacao no mapa
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-indigo-900">
+                  {statusEndereco || "Fluxo: CEP -> endereco completo -> geocoding -> confirmar no mapa."}
+                </p>
+                {clinica.endereco_normalizado && (
+                  <p className="text-xs text-indigo-800 mt-1">
+                    Endereco padronizado: {clinica.endereco_normalizado}
+                  </p>
+                )}
+                {(clinica.latitude !== null || clinica.longitude !== null) && (
+                  <p className="text-xs text-indigo-800 mt-1">
+                    Lat/Lng: {clinica.latitude ?? "-"}, {clinica.longitude ?? "-"}{" "}
+                    {localizacaoConfirmada ? "(confirmado)" : "(pendente confirmacao)"}
+                  </p>
+                )}
               </div>
               
               <div className="md:col-span-2">
@@ -617,6 +937,15 @@ export default function EditarClinicaPage() {
             </button>
           </div>
         </div>
+
+        <ManualPinModal
+          isOpen={showManualPinModal}
+          initialLat={clinica.latitude}
+          initialLng={clinica.longitude}
+          onClose={() => setShowManualPinModal(false)}
+          onConfirm={aplicarPinManual}
+        />
+
 
         {/* Modal de Confirmação de Exclusão */}
         {showDeleteModal && (

@@ -4,14 +4,24 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from decimal import Decimal
+from datetime import datetime
 
 from app.db.database import get_db
 from app.models.clinica import Clinica
+from app.models.cep_bairro_override import CepBairroOverride
 from app.models.servico import Servico
 from app.models.tabela_preco import PrecoServicoClinica
 from app.core.security import get_current_user
+from app.core.config import settings
 from app.models.user import User
 from app.services.precos_service import calcular_preco_servico
+from app.services.geocoding_service import (
+    GeocodingError,
+    buscar_cep_viacep,
+    geocodificar_endereco_google,
+    montar_endereco_completo,
+    normalizar_cep,
+)
 
 router = APIRouter()
 
@@ -23,9 +33,18 @@ class ClinicaBase(BaseModel):
     telefone: Optional[str] = ""
     email: Optional[str] = ""
     endereco: Optional[str] = ""
+    numero: Optional[str] = ""
+    complemento: Optional[str] = ""
+    bairro: Optional[str] = ""
     cidade: Optional[str] = ""
     estado: Optional[str] = ""
     cep: Optional[str] = ""
+    regiao_operacional: Optional[str] = ""
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    place_id: Optional[str] = ""
+    endereco_normalizado: Optional[str] = ""
+    bairro_manual: bool = False
     observacoes: Optional[str] = ""
 
 
@@ -50,9 +69,17 @@ class ClinicaResponse(BaseModel):
     telefone: Optional[str] = None
     email: Optional[str] = None
     endereco: Optional[str] = None
+    numero: Optional[str] = None
+    complemento: Optional[str] = None
+    bairro: Optional[str] = None
     cidade: Optional[str] = None
     estado: Optional[str] = None
     cep: Optional[str] = None
+    regiao_operacional: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    place_id: Optional[str] = None
+    endereco_normalizado: Optional[str] = None
     observacoes: Optional[str] = None
     tabela_preco_id: int = 1
     preco_personalizado_km: float = 0
@@ -69,6 +96,16 @@ class PrecoServicoClinicaPayload(BaseModel):
 
 class PrecosServicosClinicaUpdate(BaseModel):
     items: List[PrecoServicoClinicaPayload] = Field(default_factory=list)
+
+
+class GeocodeEnderecoPayload(BaseModel):
+    endereco: Optional[str] = ""
+    numero: Optional[str] = ""
+    complemento: Optional[str] = ""
+    bairro: Optional[str] = ""
+    cidade: Optional[str] = ""
+    estado: Optional[str] = ""
+    cep: Optional[str] = ""
 
 
 # Dicionário de cidades da Região Metropolitana de Fortaleza
@@ -103,6 +140,84 @@ def determinar_tabela_preco(cidade: str) -> int:
         return 3  # Domiciliar para cidades distantes
 
 
+def classificar_regiao_operacional(cidade: Optional[str], estado: Optional[str]) -> str:
+    cidade_norm = str(cidade or "").strip().lower()
+    estado_norm = str(estado or "").strip().lower()
+    if not cidade_norm:
+        return "indefinida"
+    if cidade_norm == "fortaleza" and (not estado_norm or estado_norm == "ce"):
+        return "fortaleza"
+    if cidade_norm in CIDADES_RM_FORTALEZA and (not estado_norm or estado_norm == "ce"):
+        return "regiao_metropolitana"
+    return "domiciliar"
+
+
+def _upsert_bairro_aprendizado(
+    db: Session,
+    *,
+    cep: Optional[str],
+    bairro: Optional[str],
+    cidade: Optional[str],
+    estado: Optional[str],
+) -> None:
+    cep_norm = normalizar_cep(cep)
+    bairro_limpo = str(bairro or "").strip()
+    if len(cep_norm) != 8 or not bairro_limpo:
+        return
+
+    row = db.query(CepBairroOverride).filter(CepBairroOverride.cep == cep_norm).first()
+    if not row:
+        row = CepBairroOverride(
+            cep=cep_norm,
+            bairro=bairro_limpo,
+            cidade=str(cidade or "").strip() or None,
+            estado=str(estado or "").strip().upper() or None,
+            updated_at=datetime.utcnow(),
+        )
+        db.add(row)
+        return
+
+    row.bairro = bairro_limpo
+    row.cidade = str(cidade or "").strip() or None
+    row.estado = str(estado or "").strip().upper() or None
+    row.updated_at = datetime.utcnow()
+
+
+def _buscar_bairro_aprendizado(db: Session, cep: Optional[str]) -> Optional[CepBairroOverride]:
+    cep_norm = normalizar_cep(cep)
+    if len(cep_norm) != 8:
+        return None
+    return db.query(CepBairroOverride).filter(CepBairroOverride.cep == cep_norm).first()
+
+
+def _serialize_clinica(clinica: Clinica) -> dict:
+    return {
+        "id": clinica.id,
+        "nome": clinica.nome,
+        "cnpj": clinica.cnpj,
+        "telefone": clinica.telefone,
+        "email": clinica.email,
+        "endereco": clinica.endereco,
+        "numero": clinica.numero,
+        "complemento": clinica.complemento,
+        "bairro": clinica.bairro,
+        "cidade": clinica.cidade,
+        "estado": clinica.estado,
+        "cep": clinica.cep,
+        "regiao_operacional": clinica.regiao_operacional,
+        "latitude": float(clinica.latitude) if clinica.latitude is not None else None,
+        "longitude": float(clinica.longitude) if clinica.longitude is not None else None,
+        "place_id": clinica.place_id,
+        "endereco_normalizado": clinica.endereco_normalizado,
+        "observacoes": clinica.observacoes,
+        "tabela_preco_id": clinica.tabela_preco_id or 1,
+        "preco_personalizado_km": float(clinica.preco_personalizado_km) if clinica.preco_personalizado_km else 0,
+        "preco_personalizado_base": float(clinica.preco_personalizado_base) if clinica.preco_personalizado_base else 0,
+        "observacoes_preco": clinica.observacoes_preco,
+        "ativo": clinica.ativo,
+    }
+
+
 @router.get("")
 def listar_clinicas(
     skip: int = 0,
@@ -116,24 +231,102 @@ def listar_clinicas(
     total = query.count()
     items = query.order_by(Clinica.nome).offset(skip).limit(limit).all()
     
-    clinicas = []
-    for c in items:
-        clinica_dict = {
-            "id": c.id,
-            "nome": c.nome,
-            "cnpj": c.cnpj,
-            "telefone": c.telefone,
-            "email": c.email,
-            "endereco": c.endereco,
-            "cidade": c.cidade,
-            "estado": c.estado,
-            "cep": c.cep,
-            "tabela_preco_id": c.tabela_preco_id or 1,
-            "ativo": c.ativo
-        }
-        clinicas.append(clinica_dict)
-    
+    clinicas = [_serialize_clinica(c) for c in items]
     return {"total": total, "items": clinicas}
+
+
+@router.get("/cep/{cep}")
+def consultar_cep(
+    cep: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Consulta CEP no ViaCEP e aplica bairro aprendido (se existir)."""
+    try:
+        dados = buscar_cep_viacep(cep)
+    except GeocodingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    bairro_origem = "viacep"
+    aprendizado = _buscar_bairro_aprendizado(db, dados.get("cep"))
+    if aprendizado:
+        bairro_aprendido = str(aprendizado.bairro or "").strip()
+        if bairro_aprendido:
+            dados["bairro"] = bairro_aprendido
+            if not dados.get("cidade"):
+                dados["cidade"] = str(aprendizado.cidade or "").strip()
+            if not dados.get("estado"):
+                dados["estado"] = str(aprendizado.estado or "").strip().upper()
+            bairro_origem = "aprendizado"
+
+    return {
+        "ok": True,
+        "item": {
+            "cep": dados.get("cep"),
+            "logradouro": dados.get("logradouro"),
+            "complemento": dados.get("complemento"),
+            "bairro": dados.get("bairro"),
+            "cidade": dados.get("cidade"),
+            "estado": dados.get("estado"),
+            "ibge": dados.get("ibge"),
+            "bairro_origem": bairro_origem,
+        },
+    }
+
+
+@router.post("/geocode-endereco")
+def geocode_endereco(
+    payload: GeocodeEnderecoPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Geocodifica endereco completo no Google e retorna dados normalizados."""
+    endereco_completo = montar_endereco_completo(
+        endereco=payload.endereco,
+        numero=payload.numero,
+        complemento=payload.complemento,
+        bairro=payload.bairro,
+        cidade=payload.cidade,
+        estado=payload.estado,
+        cep=payload.cep,
+    )
+    if not str(endereco_completo or "").strip():
+        raise HTTPException(status_code=422, detail="Endereco incompleto para geocoding.")
+
+    try:
+        geo = geocodificar_endereco_google(endereco_completo, settings.GOOGLE_MAPS_API_KEY)
+    except GeocodingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    cep_final = geo.cep or normalizar_cep(payload.cep)
+    bairro_final = geo.bairro or str(payload.bairro or "").strip()
+    cidade_final = geo.cidade or str(payload.cidade or "").strip()
+    estado_final = (geo.estado or str(payload.estado or "")).strip().upper()
+    regiao = classificar_regiao_operacional(cidade_final, estado_final)
+
+    aprendizado = _buscar_bairro_aprendizado(db, cep_final)
+    bairro_origem = "google"
+    if aprendizado:
+        bairro_aprendido = str(aprendizado.bairro or "").strip()
+        if bairro_aprendido:
+            bairro_final = bairro_aprendido
+            bairro_origem = "aprendizado"
+
+    return {
+        "ok": True,
+        "item": {
+            "latitude": geo.latitude,
+            "longitude": geo.longitude,
+            "endereco_normalizado": geo.endereco_normalizado,
+            "place_id": geo.place_id,
+            "bairro": bairro_final,
+            "cidade": cidade_final,
+            "estado": estado_final,
+            "cep": cep_final,
+            "regiao_operacional": regiao,
+            "bairro_origem": bairro_origem,
+        },
+    }
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -142,34 +335,43 @@ def criar_clinica(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Cria uma nova clinica com suporte a preços personalizados"""
-    # Verificar se ja existe clinica com mesmo nome
+    """Cria uma nova clinica com suporte a precos personalizados"""
     existing = db.query(Clinica).filter(
         Clinica.nome.ilike(clinica.nome),
         Clinica.ativo == True
     ).first()
-    
+
     if existing:
         raise HTTPException(
             status_code=400,
             detail=f"Ja existe uma clinica com o nome '{clinica.nome}'"
         )
-    
+
     try:
-        # Determinar tabela de preço automaticamente se não informada
+        regiao_operacional = classificar_regiao_operacional(clinica.cidade, clinica.estado)
+
         tabela_id = clinica.tabela_preco_id
-        if tabela_id == 1 and clinica.cidade:  # Se foi deixado como default (Fortaleza)
+        if tabela_id == 1 and clinica.cidade:
             tabela_id = determinar_tabela_preco(clinica.cidade)
-        
+
         db_clinica = Clinica(
             nome=clinica.nome,
             cnpj=clinica.cnpj,
             telefone=clinica.telefone,
             email=clinica.email,
             endereco=clinica.endereco,
+            numero=clinica.numero,
+            complemento=clinica.complemento,
+            bairro=clinica.bairro,
             cidade=clinica.cidade,
             estado=clinica.estado,
-            cep=clinica.cep,
+            cep=normalizar_cep(clinica.cep),
+            regiao_operacional=regiao_operacional,
+            latitude=clinica.latitude,
+            longitude=clinica.longitude,
+            place_id=clinica.place_id,
+            endereco_normalizado=clinica.endereco_normalizado,
+            geocode_at=datetime.utcnow() if clinica.latitude is not None and clinica.longitude is not None else None,
             observacoes=clinica.observacoes,
             tabela_preco_id=tabela_id,
             preco_personalizado_km=Decimal(str(clinica.preco_personalizado_km)) if clinica.preco_personalizado_km else Decimal("0.00"),
@@ -177,28 +379,20 @@ def criar_clinica(
             observacoes_preco=clinica.observacoes_preco,
             ativo=True
         )
-        
+
         db.add(db_clinica)
+        if clinica.bairro_manual:
+            _upsert_bairro_aprendizado(
+                db,
+                cep=clinica.cep,
+                bairro=clinica.bairro,
+                cidade=clinica.cidade,
+                estado=clinica.estado,
+            )
         db.commit()
         db.refresh(db_clinica)
-        
-        return {
-            "id": db_clinica.id,
-            "nome": db_clinica.nome,
-            "cnpj": db_clinica.cnpj,
-            "telefone": db_clinica.telefone,
-            "email": db_clinica.email,
-            "endereco": db_clinica.endereco,
-            "cidade": db_clinica.cidade,
-            "estado": db_clinica.estado,
-            "cep": db_clinica.cep,
-            "observacoes": db_clinica.observacoes,
-            "tabela_preco_id": db_clinica.tabela_preco_id,
-            "preco_personalizado_km": float(db_clinica.preco_personalizado_km) if db_clinica.preco_personalizado_km else 0,
-            "preco_personalizado_base": float(db_clinica.preco_personalizado_base) if db_clinica.preco_personalizado_base else 0,
-            "observacoes_preco": db_clinica.observacoes_preco,
-            "ativo": db_clinica.ativo
-        }
+
+        return _serialize_clinica(db_clinica)
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Erro ao criar clinica: {str(e)}")
@@ -219,23 +413,7 @@ def obter_clinica(
     if not clinica:
         raise HTTPException(status_code=404, detail="Clinica nao encontrada")
     
-    return {
-        "id": clinica.id,
-        "nome": clinica.nome,
-        "cnpj": clinica.cnpj,
-        "telefone": clinica.telefone,
-        "email": clinica.email,
-        "endereco": clinica.endereco,
-        "cidade": clinica.cidade,
-        "estado": clinica.estado,
-        "cep": clinica.cep,
-        "observacoes": clinica.observacoes,
-        "tabela_preco_id": clinica.tabela_preco_id or 1,
-        "preco_personalizado_km": float(clinica.preco_personalizado_km) if clinica.preco_personalizado_km else 0,
-        "preco_personalizado_base": float(clinica.preco_personalizado_base) if clinica.preco_personalizado_base else 0,
-        "observacoes_preco": clinica.observacoes_preco,
-        "ativo": clinica.ativo
-    }
+    return _serialize_clinica(clinica)
 
 
 @router.get("/{clinica_id}/precos-servicos")
@@ -381,12 +559,11 @@ def atualizar_clinica(
         Clinica.id == clinica_id,
         Clinica.ativo == True
     ).first()
-    
+
     if not db_clinica:
         raise HTTPException(status_code=404, detail="Clinica nao encontrada")
-    
+
     try:
-        # Atualizar campos básicos
         if clinica.nome is not None:
             db_clinica.nome = clinica.nome
         if clinica.cnpj is not None:
@@ -397,47 +574,63 @@ def atualizar_clinica(
             db_clinica.email = clinica.email
         if clinica.endereco is not None:
             db_clinica.endereco = clinica.endereco
+        if clinica.numero is not None:
+            db_clinica.numero = clinica.numero
+        if clinica.complemento is not None:
+            db_clinica.complemento = clinica.complemento
+        if clinica.bairro is not None:
+            db_clinica.bairro = clinica.bairro
         if clinica.cidade is not None:
             db_clinica.cidade = clinica.cidade
         if clinica.estado is not None:
             db_clinica.estado = clinica.estado
         if clinica.cep is not None:
-            db_clinica.cep = clinica.cep
+            db_clinica.cep = normalizar_cep(clinica.cep)
+        if clinica.latitude is not None:
+            db_clinica.latitude = clinica.latitude
+        if clinica.longitude is not None:
+            db_clinica.longitude = clinica.longitude
+        if clinica.place_id is not None:
+            db_clinica.place_id = clinica.place_id
+        if clinica.endereco_normalizado is not None:
+            db_clinica.endereco_normalizado = clinica.endereco_normalizado
+        if clinica.latitude is not None and clinica.longitude is not None:
+            db_clinica.geocode_at = datetime.utcnow()
         if clinica.observacoes is not None:
             db_clinica.observacoes = clinica.observacoes
-        
-        # Atualizar tabela de preço
+
+        db_clinica.regiao_operacional = classificar_regiao_operacional(
+            db_clinica.cidade,
+            db_clinica.estado,
+        )
+
         if clinica.tabela_preco_id is not None:
             db_clinica.tabela_preco_id = clinica.tabela_preco_id
-        
-        # Atualizar preços personalizados
+        elif clinica.cidade is not None and (db_clinica.tabela_preco_id or 1) == 1:
+            db_clinica.tabela_preco_id = determinar_tabela_preco(db_clinica.cidade)
+
         if clinica.preco_personalizado_km is not None:
             db_clinica.preco_personalizado_km = Decimal(str(clinica.preco_personalizado_km))
         if clinica.preco_personalizado_base is not None:
             db_clinica.preco_personalizado_base = Decimal(str(clinica.preco_personalizado_base))
         if clinica.observacoes_preco is not None:
             db_clinica.observacoes_preco = clinica.observacoes_preco
-        
+
+        if clinica.bairro_manual:
+            _upsert_bairro_aprendizado(
+                db,
+                cep=db_clinica.cep,
+                bairro=db_clinica.bairro,
+                cidade=db_clinica.cidade,
+                estado=db_clinica.estado,
+            )
+
         db.commit()
         db.refresh(db_clinica)
-        
-        return {
-            "id": db_clinica.id,
-            "nome": db_clinica.nome,
-            "cnpj": db_clinica.cnpj,
-            "telefone": db_clinica.telefone,
-            "email": db_clinica.email,
-            "endereco": db_clinica.endereco,
-            "cidade": db_clinica.cidade,
-            "estado": db_clinica.estado,
-            "cep": db_clinica.cep,
-            "observacoes": db_clinica.observacoes,
-            "tabela_preco_id": db_clinica.tabela_preco_id or 1,
-            "preco_personalizado_km": float(db_clinica.preco_personalizado_km) if db_clinica.preco_personalizado_km else 0,
-            "preco_personalizado_base": float(db_clinica.preco_personalizado_base) if db_clinica.preco_personalizado_base else 0,
-            "observacoes_preco": db_clinica.observacoes_preco,
-            "message": "Clinica atualizada com sucesso"
-        }
+
+        payload = _serialize_clinica(db_clinica)
+        payload["message"] = "Clinica atualizada com sucesso"
+        return payload
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Erro ao atualizar clinica: {str(e)}")
@@ -483,19 +676,23 @@ def listar_opcoes_tabela_preco(
 @router.post("/sugerir-tabela-preco")
 def sugerir_tabela_preco(
     cidade: str,
+    estado: str = "",
     current_user: User = Depends(get_current_user)
 ):
-    """Sugere a tabela de preço baseada na cidade informada"""
+    """Sugere a tabela de preco baseada na cidade informada"""
     tabela_id = determinar_tabela_preco(cidade)
-    
+    regiao = classificar_regiao_operacional(cidade, estado)
+
     tabelas = {
         1: {"id": 1, "nome": "Fortaleza", "descricao": "Capital"},
-        2: {"id": 2, "nome": "Região Metropolitana", "descricao": "Cidades próximas"},
-        3: {"id": 3, "nome": "Domiciliar", "descricao": "Cidade distante"}
+        2: {"id": 2, "nome": "Regiao Metropolitana", "descricao": "Cidades proximas"},
+        3: {"id": 3, "nome": "Domiciliar", "descricao": "Cidade distante"},
     }
-    
+
     return {
         "cidade": cidade,
+        "estado": estado,
+        "regiao_operacional": regiao,
         "tabela_sugerida": tabelas.get(tabela_id),
-        "cidade_reconhecida": cidade.lower().strip() in ["fortaleza"] + CIDADES_RM_FORTALEZA
+        "cidade_reconhecida": cidade.lower().strip() in ["fortaleza"] + CIDADES_RM_FORTALEZA,
     }

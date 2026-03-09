@@ -20,3 +20,5 @@ from app.models.atendimento_clinico import (
     PrescricaoItem,
 )
 from app.models.auditoria_evento import AuditoriaEvento
+from app.models.clinica_deslocamento import ClinicaDeslocamento
+from app.models.cep_bairro_override import CepBairroOverride
