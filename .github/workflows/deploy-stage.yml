@@ -74,6 +74,7 @@ jobs:
                 exit 1
               fi
               echo "Backend fallback is up."
+              cd "$STAGE_DIR"
             }
 
             if [ ! -d "$STAGE_DIR/.git" ]; then
