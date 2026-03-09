@@ -1,5 +1,3 @@
-# Deploy para ambiente de stage (www.stage.fortcordis.com.br)
-# Dispara ao dar push na branch stage (ex.: git push origin feature/laudos-pdf-imagens:stage)
 name: Deploy to Stage (VPS)
 
 on:
@@ -29,6 +27,7 @@ jobs:
           ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
             set -euo pipefail
             STAGE_DIR="/var/www/fortcordis-stage"
+
             restart_service() {
               svc="$1"
               echo "Restarting ${svc}..."
@@ -46,30 +45,32 @@ jobs:
                 exit 1
               fi
             }
+
             if [ ! -d "$STAGE_DIR/.git" ]; then
-              echo "❌ $STAGE_DIR não está clonado. Na VPS rode: sudo mkdir -p $STAGE_DIR && sudo chown $USER $STAGE_DIR && git clone <url-do-repo> $STAGE_DIR"
+              echo "ERROR: $STAGE_DIR is not a git checkout"
               exit 1
             fi
-            cd $STAGE_DIR
-            echo "📦 Backup stage..."
+
+            cd "$STAGE_DIR"
+            echo "Backing up stage files..."
             tar -czf backup_stage_$(date +%Y%m%d_%H%M%S).tar.gz backend frontend 2>/dev/null || true
-            
-            echo "💾 Preservando dados (frases JSON)..."
+
+            echo "Preserving backend/data..."
             if [ -d "backend/data" ]; then
               cp -r backend/data /tmp/fortcordis_data_backup
             fi
-            
-            echo "⬇️  Atualizando código (branch stage)..."
+
+            echo "Updating code from origin/stage..."
             git fetch origin
             git reset --hard origin/stage
-            
-            echo "📂 Restaurando dados preservados..."
+
+            echo "Restoring backend/data..."
             if [ -d "/tmp/fortcordis_data_backup" ]; then
               cp -r /tmp/fortcordis_data_backup/* backend/data/ 2>/dev/null || true
               rm -rf /tmp/fortcordis_data_backup
             fi
-            
-            echo "🐍 Deploy Backend (stage)..."
+
+            echo "Deploying backend..."
             cd backend
             python3 -m venv venv 2>/dev/null || true
             source venv/bin/activate
@@ -79,19 +80,19 @@ jobs:
               source .env
               set +a
             fi
-            
-            echo "🔧 Verificando/Criando tabelas do banco..."
-            python3 setup_database.py || echo "⚠️  Erro no setup do banco - verificar manualmente"
-            
+
+            echo "Running setup_database.py..."
+            python3 setup_database.py
+
             cd ..
             restart_service fortcordis-stage-backend
-            
-            echo "⚛️  Deploy Frontend (stage)..."
+
+            echo "Deploying frontend..."
             cd frontend
             npm install
             API_BACKEND_URL=http://127.0.0.1:8001 npm run build
             cd ..
             restart_service fortcordis-stage-frontend
-            
-            echo "✅ Deploy stage concluído!"
+
+            echo "Stage deploy finished."
           EOF

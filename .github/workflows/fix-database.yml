@@ -1,14 +1,12 @@
-# Workflow para corrigir o banco de dados na VPS
-# Pode ser executado manualmente quando houver problemas
 name: Fix Database (Manual)
 
 on:
-  workflow_dispatch:  # Só executa manualmente pelo GitHub
+  workflow_dispatch:
     inputs:
       environment:
-        description: 'Ambiente (stage ou production)'
+        description: "Environment (stage or production)"
         required: true
-        default: 'stage'
+        default: stage
         type: choice
         options:
           - stage
@@ -20,6 +18,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.environment == 'stage' && 'stage' || 'main' }}
 
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.8.0
@@ -36,46 +36,55 @@ jobs:
           if [ "${{ inputs.environment }}" == "stage" ]; then
             PROJECT_DIR="/var/www/fortcordis-stage"
             SERVICE_NAME="fortcordis-stage-backend"
+            BRANCH="stage"
           else
             PROJECT_DIR="/var/www/fortcordis-v2"
             SERVICE_NAME="fortcordis-backend"
+            BRANCH="main"
           fi
-          
+
           ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << EOF
-            set -e
-            echo "🔧 Corrigindo banco de dados no ambiente: ${{ inputs.environment }}"
+            set -euo pipefail
+            echo "Fixing database on: ${{ inputs.environment }}"
             cd $PROJECT_DIR
-            
-            echo "📦 Atualizando código..."
+
+            echo "Updating code..."
             git fetch origin
-            git reset --hard origin/${{ inputs.environment }}
-            
-            echo "🔍 Executando diagnóstico..."
+            git reset --hard origin/$BRANCH
+
+            echo "Running diagnostics..."
             cd backend
             source venv/bin/activate
+            if [ -f .env ]; then
+              set -a
+              source .env
+              set +a
+            fi
             python3 diagnostico_vps.py || true
-            
-            echo "📊 Criando tabelas e seeds..."
+
+            echo "Running setup and migrations..."
             python3 setup_database.py
-            
-            echo "🔄 Reiniciando serviço..."
+
+            echo "Restarting backend service..."
             sudo systemctl restart $SERVICE_NAME
-            
-            echo "✅ Correção concluída!"
-            echo ""
-            echo "📋 Verificando status:"
+
+            echo "Checking service status..."
             sleep 2
-            sudo systemctl is-active $SERVICE_NAME && echo "✅ Serviço ativo" || echo "❌ Serviço inativo"
+            sudo systemctl is-active $SERVICE_NAME
           EOF
 
-      - name: Health Check
+      - name: API Probe
         run: |
-          sleep 5
           if [ "${{ inputs.environment }}" == "stage" ]; then
-            URL="https://stage.fortcordis.com.br/health"
+            URL="https://stage.fortcordis.com.br/api/v1/auth/login"
           else
-            URL="https://fortcordis.com.br/health"
+            URL="https://fortcordis.com.br/api/v1/auth/login"
           fi
-          
-          echo "🧪 Testando health check: $URL"
-          curl -s $URL || echo "⚠️ Health check falhou - verifique manualmente"
+
+          echo "Probing API endpoint: $URL"
+          code=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
+          echo "HTTP status: $code"
+          if [ "$code" != "405" ] && [ "$code" != "200" ] && [ "$code" != "401" ]; then
+            echo "Unexpected status code from API probe"
+            exit 1
+          fi

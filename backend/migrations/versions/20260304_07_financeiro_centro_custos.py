@@ -1,38 +1,34 @@
-"""add_clinica_id_to_financeiro_tables
+"""Adds clinica_id columns to financeiro tables in an idempotent way."""
+from __future__ import annotations
 
-Revision ID: 20260304_07_financeiro_centro_custos
-Revises: 20260304_06_agendamentos_reservado_paciente_opcional
-Create Date: 2026-03-04 10:00:00.000000
+from sqlalchemy import inspect, text
+from sqlalchemy.engine import Connection
 
-"""
-from alembic import op
-import sqlalchemy as sa
-
-
-# revision identifiers, used by Alembic.
-revision = '20260304_07_financeiro_centro_custos'
-down_revision = '20260304_06_agendamentos_reservado_paciente_opcional'
-branch_labels = None
-depends_on = None
+VERSION = "20260304_07"
+DESCRIPTION = "Adds clinica_id to transacoes, contas_pagar and contas_receber"
 
 
-def upgrade() -> None:
-    # Adicionar clinica_id na tabela transacoes
-    op.add_column('transacoes', sa.Column('clinica_id', sa.Integer(), nullable=True))
-
-    # Adicionar clinica_id na tabela contas_pagar
-    op.add_column('contas_pagar', sa.Column('clinica_id', sa.Integer(), nullable=True))
-
-    # Adicionar clinica_id na tabela contas_receber
-    op.add_column('contas_receber', sa.Column('clinica_id', sa.Integer(), nullable=True))
+def _table_exists(connection: Connection, table_name: str) -> bool:
+    return table_name in inspect(connection).get_table_names()
 
 
-def downgrade() -> None:
-    # Remover clinica_id da tabela transacoes
-    op.drop_column('transacoes', 'clinica_id')
+def _column_names(connection: Connection, table_name: str) -> set[str]:
+    return {column["name"] for column in inspect(connection).get_columns(table_name)}
 
-    # Remover clinica_id da tabela contas_pagar
-    op.drop_column('contas_pagar', 'clinica_id')
 
-    # Remover clinica_id da tabela contas_receber
-    op.drop_column('contas_receber', 'clinica_id')
+def _ensure_column(connection: Connection, table_name: str, column_name: str) -> None:
+    if not _table_exists(connection, table_name):
+        return
+
+    columns = _column_names(connection, table_name)
+    if column_name in columns:
+        return
+
+    connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} INTEGER"))
+
+
+def upgrade(connection: Connection, dialect: str) -> None:
+    _ = dialect  # kept for runner signature compatibility
+    _ensure_column(connection, "transacoes", "clinica_id")
+    _ensure_column(connection, "contas_pagar", "clinica_id")
+    _ensure_column(connection, "contas_receber", "clinica_id")
