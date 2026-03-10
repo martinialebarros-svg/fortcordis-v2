@@ -31,16 +31,17 @@ jobs:
             restart_service() {
               svc="$1"
               echo "Restarting ${svc}..."
-              if sudo -n systemctl restart "$svc" 2>/dev/null; then
+              if sudo -n /bin/systemctl restart "$svc" 2>/dev/null; then
                 :
               else
-                pid="$(systemctl show "$svc" -p MainPID --value 2>/dev/null || true)"
+                echo "Passwordless sudo unavailable for ${svc}; attempting process fallback."
+                pid="$(/bin/systemctl show "$svc" -p MainPID --value 2>/dev/null || true)"
                 if [ -n "$pid" ] && [ "$pid" != "0" ]; then
                   kill -TERM "$pid" || true
                   sleep 3
                 fi
               fi
-              if ! systemctl is-active --quiet "$svc"; then
+              if ! /bin/systemctl is-active --quiet "$svc"; then
                 echo "Service ${svc} is not active after deploy."
                 return 1
               fi
