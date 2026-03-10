@@ -51,11 +51,8 @@ jobs:
               echo "Starting backend manually on port 8001 (fallback)..."
               cd "$STAGE_DIR/backend"
 
-              listener_pid="$(lsof -tiTCP:8001 -sTCP:LISTEN 2>/dev/null || true)"
-              if [ -n "$listener_pid" ]; then
-                kill "$listener_pid" || true
-                sleep 2
-              fi
+              pkill -f "uvicorn app.main:app --host 0.0.0.0 --port 8001" || true
+              sleep 2
 
               if [ -f .env ]; then
                 set -a
@@ -67,14 +64,18 @@ jobs:
                 >/tmp/fortcordis-stage-backend-manual.out \
                 2>/tmp/fortcordis-stage-backend-manual.err < /dev/null &
 
-              sleep 3
-              if ! curl -fsS http://127.0.0.1:8001/docs >/dev/null; then
-                echo "Backend fallback failed to start."
-                tail -n 80 /tmp/fortcordis-stage-backend-manual.err || true
-                exit 1
-              fi
-              echo "Backend fallback is up."
-              cd "$STAGE_DIR"
+              for attempt in $(seq 1 30); do
+                if curl -fsS http://127.0.0.1:8001/health >/dev/null; then
+                  echo "Backend fallback is up."
+                  cd "$STAGE_DIR"
+                  return 0
+                fi
+                sleep 1
+              done
+
+              echo "Backend fallback failed to start after waiting for startup."
+              tail -n 80 /tmp/fortcordis-stage-backend-manual.err || true
+              exit 1
             }
 
             if [ ! -d "$STAGE_DIR/.git" ]; then
