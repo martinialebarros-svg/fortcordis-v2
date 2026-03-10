@@ -72,6 +72,27 @@ interface ConflitoDeslocamentoDetail {
   confirmavel?: boolean;
 }
 
+const rotularFonteDeslocamento = (fonte?: string | null): string => {
+  const valor = String(fonte || "").trim().toLowerCase();
+  if (!valor) return "Fonte nao informada";
+  if (valor.startsWith("google_")) return "Google Maps";
+  if (valor.startsWith("heuristica")) return "Heuristica local";
+  if (valor === "mesma_clinica") return "Mesma clinica";
+  if (valor === "clinica_indefinida") return "Clinica indefinida";
+  if (valor === "sem_matriz") return "Sem matriz";
+  return valor.replaceAll("_", " ");
+};
+
+const resumirDeslocamentoSugestao = (item: SugestaoHorarioItem): string => {
+  const fontes = [item.anterior?.fonte, item.proximo?.fonte].filter(Boolean) as string[];
+  if (fontes.length === 0) {
+    return "Sem agendamentos vizinhos na data para aplicar deslocamento neste horario.";
+  }
+
+  const fontesUnicas = Array.from(new Set(fontes.map((fonte) => rotularFonteDeslocamento(fonte))));
+  return `Fonte do deslocamento: ${fontesUnicas.join(" + ")}.`;
+};
+
 export default function NovoAgendamentoModal({ 
   isOpen, 
   onClose, 
@@ -385,6 +406,8 @@ export default function NovoAgendamentoModal({
       setSugestoesHorario(items);
       if (items.length === 0) {
         setMensagemSugestoes(response?.data?.motivo || "Nenhum horario operacional encontrado para essa data.");
+      } else if (items.every((item) => !item.anterior && !item.proximo)) {
+        setMensagemSugestoes("Nao ha agendamentos vizinhos nesta data; por isso o deslocamento pode aparecer como 0 min.");
       }
     } catch (error: any) {
       const detail = error?.response?.data?.detail;
@@ -785,6 +808,9 @@ export default function NovoAgendamentoModal({
                     </div>
                     <div className="text-xs text-gray-600">
                       Deslocamento total: {item.tempo_deslocamento_total_min} min | Risco: {item.risco}
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500">
+                      {resumirDeslocamentoSugestao(item)}
                     </div>
                   </button>
                 ))}
