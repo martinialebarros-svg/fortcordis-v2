@@ -23,6 +23,8 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         pwd_bytes = plain_password.encode("utf-8")[:72]
         plain_truncated = pwd_bytes.decode("utf-8", errors="ignore")
         return pwd_context.verify(plain_truncated, hashed_password)
+    if not settings.ALLOW_LEGACY_PLAIN_PASSWORDS:
+        return False
     return plain_password == hashed_password
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):

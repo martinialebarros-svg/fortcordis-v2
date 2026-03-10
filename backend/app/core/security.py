@@ -84,7 +84,7 @@ def _user_has_matrix_permission(db: Session, user: User, module: str, action: st
         # Compatibilidade temporária para ambientes sem a migração aplicada.
         db.rollback()
         if _is_missing_permission_table_error(exc):
-            return True
+            return bool(settings.ALLOW_PERMISSION_MATRIX_FALLBACK)
         raise
 
     if not registros:

@@ -11,7 +11,7 @@ from importlib import util
 from pathlib import Path
 from typing import Callable, List, Set
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection
 
 from app.db.database import engine
@@ -71,6 +71,10 @@ def _discover_migrations() -> List[Migration]:
     return migrations
 
 
+def list_migrations() -> List[Migration]:
+    return _discover_migrations()
+
+
 def _ensure_schema_migrations_table(connection: Connection) -> None:
     connection.execute(
         text(
@@ -90,6 +94,37 @@ def _get_applied_versions() -> Set[str]:
         _ensure_schema_migrations_table(connection)
         rows = connection.execute(text("SELECT version FROM schema_migrations")).fetchall()
         return {str(row[0]) for row in rows}
+
+
+def get_migration_status() -> dict:
+    migrations = _discover_migrations()
+    ordered_versions = [migration.version for migration in migrations]
+    descriptions = {migration.version: migration.description for migration in migrations}
+
+    applied_versions: Set[str] = set()
+    tracking_table_exists = False
+    with engine.connect() as connection:
+        inspector = inspect(connection)
+        tracking_table_exists = "schema_migrations" in inspector.get_table_names()
+        if tracking_table_exists:
+            rows = connection.execute(text("SELECT version FROM schema_migrations")).fetchall()
+            applied_versions = {str(row[0]) for row in rows}
+
+    ordered_applied = [version for version in ordered_versions if version in applied_versions]
+    pending_versions = [version for version in ordered_versions if version not in applied_versions]
+    unknown_applied_versions = sorted(applied_versions.difference(ordered_versions))
+
+    return {
+        "tracking_table_exists": tracking_table_exists,
+        "discovered_count": len(ordered_versions),
+        "applied_count": len(ordered_applied),
+        "current_version": ordered_applied[-1] if ordered_applied else None,
+        "latest_version": ordered_versions[-1] if ordered_versions else None,
+        "pending_versions": pending_versions,
+        "pending_count": len(pending_versions),
+        "unknown_applied_versions": unknown_applied_versions,
+        "descriptions": descriptions,
+    }
 
 
 def run_migrations() -> int:
