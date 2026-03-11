@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
-import { FileText, Plus, Search, FileCheck, Clock, User, Calendar, Download, Eye, Pencil, Trash2, Edit } from "lucide-react";
+import { getLaudoEditPath, getLaudoViewPath, getTipoLaudoLabel } from "@/lib/laudos";
+import { FileText, Plus, Search, FileCheck, Clock, User, Calendar, Download, Eye, Trash2, Edit } from "lucide-react";
 
 interface Laudo {
   id: number;
@@ -171,14 +172,6 @@ export default function LaudosPage() {
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
 
-  const getTipoLaudoLabel = (tipo: string) => {
-    const mapa: Record<string, string> = {
-      ecocardiograma: 'Ecocardiograma',
-      pressao_arterial: 'Pressão Arterial',
-    };
-    return mapa[tipo] || tipo;
-  };
-
   return (
     <DashboardLayout>
       <div className="p-6">
@@ -281,14 +274,14 @@ export default function LaudosPage() {
                           {laudo.status}
                         </span>
                         <button
-                          onClick={() => router.push(`/laudos/${laudo.id}`)}
+                          onClick={() => router.push(getLaudoViewPath(laudo.id, laudo.tipo))}
                           className="p-2 text-gray-600 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
                           title="Visualizar"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => router.push(`/laudos/${laudo.id}/editar`)}
+                          onClick={() => router.push(getLaudoEditPath(laudo.id, laudo.tipo))}
                           className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                           title="Editar"
                         >

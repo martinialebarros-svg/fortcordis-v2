@@ -13,7 +13,9 @@ interface Imagem {
   tamanho: number;
   file?: File;
   serverId?: number;
+  tempId?: number;
   uploaded: boolean;
+  persisted?: boolean;
 }
 
 interface ImageUploaderProps {
@@ -43,8 +45,10 @@ export default function ImageUploader({
     setImagens(imagensIniciais);
   }, [imagensIniciais]);
 
-  const fazerUploadImagem = async (imagem: Imagem): Promise<boolean> => {
-    if (!imagem.file || imagem.uploaded) return true;
+  const fazerUploadImagem = async (
+    imagem: Imagem
+  ): Promise<{ success: boolean; tempId?: number }> => {
+    if (!imagem.file || imagem.uploaded) return { success: true, tempId: imagem.tempId };
     
     try {
       const formData = new FormData();
@@ -60,12 +64,15 @@ export default function ImageUploader({
       });
       
       if (response.data && response.data.success) {
-        return true;
+        return {
+          success: true,
+          tempId: response.data.imagem_id,
+        };
       }
-      return false;
+      return { success: false };
     } catch (err) {
       console.error("Erro ao fazer upload:", err);
-      return false;
+      return { success: false };
     }
   };
 
@@ -119,10 +126,12 @@ export default function ImageUploader({
 
     // Fazer upload das novas imagens
     for (const imagem of novasImagens) {
-      const sucesso = await fazerUploadImagem(imagem);
-      if (sucesso) {
+      const resultado = await fazerUploadImagem(imagem);
+      if (resultado.success) {
         todasImagens = todasImagens.map((img) =>
-          img.id === imagem.id ? { ...img, uploaded: true } : img
+          img.id === imagem.id
+            ? { ...img, uploaded: true, tempId: resultado.tempId }
+            : img
         );
         atualizarImagens(todasImagens);
       }
@@ -154,9 +163,15 @@ export default function ImageUploader({
 
   const removerImagem = async (id: string) => {
     const imagem = imagens.find(img => img.id === id);
-    if (imagem?.uploaded && sessionId) {
+    if (imagem?.persisted && imagem.serverId) {
       try {
-        await api.delete(`/imagens/temp/${id}?session_id=${sessionId}`);
+        await api.delete(`/imagens/${imagem.serverId}`);
+      } catch (e) {
+        console.error("Erro ao remover imagem do laudo:", e);
+      }
+    } else if (imagem?.uploaded && imagem.tempId && sessionId) {
+      try {
+        await api.delete(`/imagens/temp/${imagem.tempId}?session_id=${sessionId}`);
       } catch (e) {
         console.error("Erro ao remover imagem do servidor:", e);
       }
@@ -268,11 +283,16 @@ export default function ImageUploader({
                   </div>
 
                   {/* Status de upload */}
-                  {!imagem.uploaded && (
-                    <div className="absolute top-2 right-2 bg-yellow-500 text-white text-xs px-2 py-1 rounded">
-                      Enviando...
-                    </div>
-                  )}
+                    {!imagem.uploaded && (
+                      <div className="absolute top-2 right-2 bg-yellow-500 text-white text-xs px-2 py-1 rounded">
+                        Enviando...
+                      </div>
+                    )}
+                    {imagem.persisted && (
+                      <div className="absolute top-2 right-2 bg-emerald-600 text-white text-xs px-2 py-1 rounded">
+                        Salva
+                      </div>
+                    )}
                   
                   {/* Overlay com controles */}
                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">

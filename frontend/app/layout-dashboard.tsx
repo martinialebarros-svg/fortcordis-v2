@@ -34,6 +34,7 @@ const menuItems = [
   { href: "/clinicas", label: "Clínicas", icon: Building2 },
   { href: "/servicos", label: "Serviços", icon: Stethoscope },
   { href: "/laudos", label: "Laudos", icon: FileText },
+  { href: "/ultrassonografia-abdominal", label: "US Abdominal", icon: FileText },
   { href: "/atendimento", label: "Atendimento", icon: ClipboardPlus },
   { href: "/referencias-eco", label: "Referências Eco", icon: BookOpen },
   { href: "/logistica", label: "Logistica", icon: MapPin },

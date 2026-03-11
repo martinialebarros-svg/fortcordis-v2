@@ -3,7 +3,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
 
-from app.api.v1.endpoints import auth, admin, agenda, pacientes, clinicas, servicos, laudos, financeiro, xml_import, frases, imagens, tabelas_preco, ordens_servico, configuracoes, tutores, referencias_eco, atendimento, logistica
+from app.api.v1.endpoints import (
+    admin,
+    agenda,
+    atendimento,
+    auth,
+    clinicas,
+    configuracoes,
+    financeiro,
+    frases,
+    frases_ultrassom_abdominal,
+    imagens,
+    laudos,
+    logistica,
+    ordens_servico,
+    pacientes,
+    referencias_eco,
+    servicos,
+    tabelas_preco,
+    tutores,
+    xml_import,
+)
 from app.core.runtime_checks import build_runtime_report, validate_startup_or_raise
 from app.core.websocket import manager
 from app.db.database import engine
@@ -70,6 +90,11 @@ app.include_router(laudos.router, prefix="/api/v1", tags=["laudos"])
 app.include_router(financeiro.router, prefix="/api/v1/financeiro", tags=["financeiro"])
 app.include_router(xml_import.router, prefix="/api/v1/xml", tags=["xml_import"])
 app.include_router(frases.router, prefix="/api/v1/frases", tags=["frases"])
+app.include_router(
+    frases_ultrassom_abdominal.router,
+    prefix="/api/v1/frases-ultrassom-abdominal",
+    tags=["frases_ultrassom_abdominal"],
+)
 app.include_router(imagens.router, prefix="/api/v1/imagens", tags=["imagens"])
 app.include_router(tabelas_preco.router, prefix="/api/v1/tabelas-preco", tags=["tabelas_preco"])
 app.include_router(ordens_servico.router, prefix="/api/v1/ordens-servico", tags=["ordens_servico"])

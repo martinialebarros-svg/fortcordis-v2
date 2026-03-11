@@ -17,6 +17,30 @@ from app.core.security import get_current_user
 router = APIRouter()
 
 
+_ANEXOS_UNSET = object()
+
+ULTRASSOM_ORGAOS_ABDOMINAIS = [
+    ("figado", "Figado"),
+    ("vesicula_biliar", "Vesicula biliar"),
+    ("estomago", "Estomago"),
+    ("alcas_intestinais", "Alcas intestinais"),
+    ("duodeno", "Duodeno"),
+    ("colon", "Colon"),
+    ("juncao_ileo_ceco_colica", "Juncao ileo-ceco-colica"),
+    ("baco", "Baco"),
+    ("rins", "Rins"),
+    ("bexiga", "Bexiga"),
+    ("pancreas", "Pancreas"),
+    ("adrenais", "Adrenais"),
+    ("prostata", "Prostata"),
+    ("testiculos", "Testiculos"),
+    ("utero", "Utero"),
+    ("ovarios", "Ovários"),
+]
+
+ULTRASSOM_ORGAOS_LABELS = {key: label for key, label in ULTRASSOM_ORGAOS_ABDOMINAIS}
+
+
 def _gerar_nome_key(nome: Optional[str]) -> str:
     """Gera chave normalizada para compatibilidade com schema legado."""
     if not nome:
@@ -128,7 +152,18 @@ def _normalizar_pressao_arterial(raw: Any) -> Optional[Dict[str, Any]]:
     }
 
 
-def _serializar_anexos(anexos_raw: Any, pressao_arterial: Optional[Dict[str, Any]]) -> Optional[str]:
+def _normalizar_sexo_paciente(sexo: Any) -> str:
+    texto = unicodedata.normalize("NFKD", str(sexo or ""))
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = texto.strip().lower()
+    if texto.startswith("f"):
+        return "Femea"
+    if texto.startswith("m"):
+        return "Macho"
+    return ""
+
+
+def _carregar_anexos_dict(anexos_raw: Any) -> Dict[str, Any]:
     anexos_data: Dict[str, Any] = {}
     if isinstance(anexos_raw, dict):
         anexos_data = dict(anexos_raw)
@@ -139,11 +174,74 @@ def _serializar_anexos(anexos_raw: Any, pressao_arterial: Optional[Dict[str, Any
                 anexos_data = parsed
         except json.JSONDecodeError:
             anexos_data = {}
+    return anexos_data
 
-    if pressao_arterial:
-        anexos_data["pressao_arterial"] = pressao_arterial
-    else:
-        anexos_data.pop("pressao_arterial", None)
+
+def _normalizar_ultrassonografia_abdominal(raw: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+
+    qualitativa_raw = raw.get("qualitativa")
+    if not isinstance(qualitativa_raw, dict):
+        qualitativa_raw = raw
+
+    qualitativa: Dict[str, str] = {}
+    for key, _label in ULTRASSOM_ORGAOS_ABDOMINAIS:
+        texto = str(qualitativa_raw.get(key) or "").strip()
+        if texto:
+            qualitativa[key] = texto
+
+    observacoes_gerais = str(raw.get("observacoes_gerais") or raw.get("observacoes") or "").strip()
+    sexo_paciente = _normalizar_sexo_paciente(raw.get("sexo_paciente") or raw.get("sexo"))
+
+    if not qualitativa and not observacoes_gerais and not sexo_paciente:
+        return None
+
+    return {
+        "versao": 1,
+        "sexo_paciente": sexo_paciente,
+        "qualitativa": qualitativa,
+        "observacoes_gerais": observacoes_gerais,
+    }
+
+
+def _montar_descricao_ultrassonografia_abdominal(data: Optional[Dict[str, Any]]) -> str:
+    if not data:
+        return ""
+
+    qualitativa = data.get("qualitativa") or {}
+    observacoes_gerais = str(data.get("observacoes_gerais") or "").strip()
+
+    linhas = ["## Ultrassonografia Abdominal"]
+    for key, label in ULTRASSOM_ORGAOS_ABDOMINAIS:
+        texto = str(qualitativa.get(key) or "").strip()
+        if texto:
+            linhas.append(f"- {label}: {texto}")
+
+    if observacoes_gerais:
+        linhas.extend(["", "## Observacoes Gerais", observacoes_gerais])
+
+    return "\n".join(linhas).strip()
+
+
+def _serializar_anexos(
+    anexos_raw: Any,
+    pressao_arterial: Any = _ANEXOS_UNSET,
+    ultrassonografia_abdominal: Any = _ANEXOS_UNSET,
+) -> Optional[str]:
+    anexos_data = _carregar_anexos_dict(anexos_raw)
+
+    if pressao_arterial is not _ANEXOS_UNSET:
+        if pressao_arterial:
+            anexos_data["pressao_arterial"] = pressao_arterial
+        else:
+            anexos_data.pop("pressao_arterial", None)
+
+    if ultrassonografia_abdominal is not _ANEXOS_UNSET:
+        if ultrassonografia_abdominal:
+            anexos_data["ultrassonografia_abdominal"] = ultrassonografia_abdominal
+        else:
+            anexos_data.pop("ultrassonografia_abdominal", None)
 
     if not anexos_data:
         return None
@@ -163,6 +261,49 @@ def _extrair_pressao_arterial_de_anexos(anexos_raw: Any) -> Optional[Dict[str, A
         except json.JSONDecodeError:
             return None
     return None
+
+
+def _extrair_ultrassonografia_abdominal_de_anexos(anexos_raw: Any) -> Optional[Dict[str, Any]]:
+    if not anexos_raw:
+        return None
+    if isinstance(anexos_raw, dict):
+        return _normalizar_ultrassonografia_abdominal(anexos_raw.get("ultrassonografia_abdominal"))
+    if isinstance(anexos_raw, str):
+        try:
+            parsed = json.loads(anexos_raw)
+            if isinstance(parsed, dict):
+                return _normalizar_ultrassonografia_abdominal(parsed.get("ultrassonografia_abdominal"))
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _extrair_ultrassonografia_abdominal_do_descricao(descricao_raw: Any) -> Optional[Dict[str, Any]]:
+    descricao = str(descricao_raw or "").strip()
+    if not descricao:
+        return None
+
+    qualitativa: Dict[str, str] = {}
+    for key, label in ULTRASSOM_ORGAOS_ABDOMINAIS:
+        pattern = rf"-\s*{re.escape(label)}:\s*(.+?)(?=\n-|\n##|\Z)"
+        match = re.search(pattern, descricao, re.DOTALL | re.IGNORECASE)
+        if match:
+            qualitativa[key] = match.group(1).strip()
+
+    observacoes_gerais = ""
+    observacoes_match = re.search(r"## Observacoes Gerais\s*(.+)$", descricao, re.DOTALL | re.IGNORECASE)
+    if observacoes_match:
+        observacoes_gerais = observacoes_match.group(1).strip()
+
+    if not qualitativa and not observacoes_gerais:
+        return None
+
+    return {
+        "versao": 1,
+        "sexo_paciente": "",
+        "qualitativa": qualitativa,
+        "observacoes_gerais": observacoes_gerais,
+    }
 
 
 def _classificar_pressao_media(pas_media: Optional[int]) -> str:
@@ -413,6 +554,8 @@ def criar_laudo(
             tipo_laudo = (laudo_data.get("tipo_laudo") or laudo_data.get("tipo") or "").strip().lower()
             if tipo_laudo == "pressao_arterial":
                 return criar_laudo_pressao_arterial(laudo_data, db, current_user)
+            if tipo_laudo == "ultrassonografia_abdominal":
+                return criar_laudo_ultrassonografia_abdominal(laudo_data, db, current_user)
             return criar_laudo_ecocardiograma(laudo_data, db, current_user)
         
         # Laudo padrão
@@ -617,6 +760,212 @@ def criar_laudo_pressao_arterial(laudo_data: dict, db: Session, current_user: Us
         raise HTTPException(status_code=500, detail=f"Erro ao criar laudo: {str(e)}")
 
 
+def criar_laudo_ultrassonografia_abdominal(laudo_data: dict, db: Session, current_user: User):
+    """Cria laudo de ultrassonografia abdominal."""
+    import traceback
+
+    try:
+        paciente = laudo_data.get("paciente", {}) or {}
+        qualitativa = laudo_data.get("qualitativa", {}) or {}
+        conteudo = laudo_data.get("conteudo", {}) or {}
+        clinica = laudo_data.get("clinica", {})
+        veterinario = laudo_data.get("veterinario", {})
+
+        paciente_id = _resolver_ou_criar_paciente(paciente, db)
+
+        ultrassom_raw = laudo_data.get("ultrassonografia_abdominal")
+        if not isinstance(ultrassom_raw, dict):
+            ultrassom_raw = {
+                "qualitativa": qualitativa,
+                "observacoes_gerais": conteudo.get("observacoes"),
+                "sexo_paciente": paciente.get("sexo"),
+            }
+        else:
+            ultrassom_raw = {
+                **ultrassom_raw,
+                "qualitativa": ultrassom_raw.get("qualitativa") or qualitativa,
+                "observacoes_gerais": ultrassom_raw.get("observacoes_gerais")
+                or ultrassom_raw.get("observacoes")
+                or conteudo.get("observacoes"),
+                "sexo_paciente": ultrassom_raw.get("sexo_paciente")
+                or ultrassom_raw.get("sexo")
+                or paciente.get("sexo"),
+            }
+
+        ultrassonografia_abdominal = _normalizar_ultrassonografia_abdominal(ultrassom_raw) or {
+            "versao": 1,
+            "sexo_paciente": _normalizar_sexo_paciente(paciente.get("sexo")),
+            "qualitativa": {},
+            "observacoes_gerais": str(conteudo.get("observacoes") or "").strip(),
+        }
+
+        descricao = _montar_descricao_ultrassonografia_abdominal(ultrassonografia_abdominal)
+        diagnostico = str(conteudo.get("conclusao") or "").strip()
+        observacoes = str(
+            ultrassonografia_abdominal.get("observacoes_gerais")
+            or conteudo.get("observacoes")
+            or ""
+        ).strip()
+        clinic_id = _extrair_clinic_id(clinica)
+        data_exame = _parse_data_exame(
+            paciente.get("data_exame") or paciente.get("data") or laudo_data.get("data_exame")
+        )
+        anexos_json = _serializar_anexos(
+            laudo_data.get("anexos"),
+            ultrassonografia_abdominal=ultrassonografia_abdominal,
+        )
+
+        agendamento_id = laudo_data.get("agendamento_id")
+        if agendamento_id in ("", 0):
+            agendamento_id = None
+        if agendamento_id is not None:
+            try:
+                agendamento_id = int(agendamento_id)
+            except Exception:
+                agendamento_id = None
+
+        laudo = Laudo(
+            paciente_id=paciente_id,
+            agendamento_id=agendamento_id,
+            veterinario_id=current_user.id,
+            tipo="ultrassonografia_abdominal",
+            titulo=f"Laudo de Ultrassonografia Abdominal - {paciente.get('nome', 'Paciente')}",
+            descricao=descricao,
+            diagnostico=diagnostico,
+            observacoes=observacoes,
+            anexos=anexos_json,
+            status=laudo_data.get("status", "Finalizado"),
+            clinic_id=clinic_id,
+            data_exame=data_exame,
+            medico_solicitante=veterinario.get("nome") if isinstance(veterinario, dict) else None,
+            criado_por_id=current_user.id,
+            criado_por_nome=current_user.nome,
+        )
+
+        db.add(laudo)
+        db.commit()
+        db.refresh(laudo)
+
+        return {
+            "id": laudo.id,
+            "agendamento_id": laudo.agendamento_id,
+            "mensagem": "Laudo de ultrassonografia abdominal salvo com sucesso",
+            "paciente": paciente.get("nome") if isinstance(paciente, dict) else None,
+            "tipo": "ultrassonografia_abdominal",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"ERRO AO CRIAR LAUDO ULTRASSOM: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Erro ao criar laudo: {str(e)}")
+
+
+def atualizar_laudo_ultrassonografia_abdominal(
+    laudo: Laudo,
+    laudo_data: dict,
+    db: Session,
+    current_user: User,
+):
+    """Atualiza laudo estruturado de ultrassonografia abdominal."""
+    paciente = laudo_data.get("paciente", {}) or {}
+    qualitativa = laudo_data.get("qualitativa", {}) or {}
+    conteudo = laudo_data.get("conteudo", {}) or {}
+    clinica = laudo_data.get("clinica", {})
+    veterinario = laudo_data.get("veterinario", {})
+
+    if paciente:
+        laudo.paciente_id = _resolver_ou_criar_paciente(paciente, db)
+
+    ultrassom_raw = laudo_data.get("ultrassonografia_abdominal")
+    if not isinstance(ultrassom_raw, dict):
+        ultrassom_raw = {
+            "qualitativa": qualitativa,
+            "observacoes_gerais": conteudo.get("observacoes"),
+            "sexo_paciente": paciente.get("sexo"),
+        }
+    else:
+        ultrassom_raw = {
+            **ultrassom_raw,
+            "qualitativa": ultrassom_raw.get("qualitativa") or qualitativa,
+            "observacoes_gerais": ultrassom_raw.get("observacoes_gerais")
+            or ultrassom_raw.get("observacoes")
+            or conteudo.get("observacoes"),
+            "sexo_paciente": ultrassom_raw.get("sexo_paciente")
+            or ultrassom_raw.get("sexo")
+            or paciente.get("sexo"),
+        }
+
+    ultrassonografia_abdominal = _normalizar_ultrassonografia_abdominal(ultrassom_raw) or {
+        "versao": 1,
+        "sexo_paciente": _normalizar_sexo_paciente(paciente.get("sexo")),
+        "qualitativa": {},
+        "observacoes_gerais": str(conteudo.get("observacoes") or "").strip(),
+    }
+
+    agendamento_id = laudo_data.get("agendamento_id", laudo.agendamento_id)
+    if agendamento_id in ("", 0):
+        agendamento_id = None
+    if agendamento_id is not None:
+        try:
+            agendamento_id = int(agendamento_id)
+        except Exception:
+            agendamento_id = None
+
+    clinic_id = _extrair_clinic_id(clinica)
+    if clinic_id is None and "clinic_id" in laudo_data:
+        clinic_id = laudo_data.get("clinic_id")
+        if clinic_id not in ("", None):
+            try:
+                clinic_id = int(clinic_id)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=422, detail="clinic_id invalido.")
+        else:
+            clinic_id = None
+
+    data_exame = _parse_data_exame(
+        paciente.get("data_exame") or paciente.get("data") or laudo_data.get("data_exame")
+    )
+
+    laudo.agendamento_id = agendamento_id
+    laudo.tipo = "ultrassonografia_abdominal"
+    laudo.titulo = laudo_data.get("titulo") or f"Laudo de Ultrassonografia Abdominal - {paciente.get('nome', 'Paciente')}"
+    laudo.descricao = _montar_descricao_ultrassonografia_abdominal(ultrassonografia_abdominal)
+    laudo.diagnostico = str(conteudo.get("conclusao") or laudo_data.get("diagnostico") or "").strip()
+    laudo.observacoes = str(
+        ultrassonografia_abdominal.get("observacoes_gerais")
+        or conteudo.get("observacoes")
+        or laudo_data.get("observacoes")
+        or ""
+    ).strip()
+    laudo.status = laudo_data.get("status", laudo.status)
+    if clinic_id is not None or "clinic_id" in laudo_data or isinstance(clinica, dict):
+        laudo.clinic_id = clinic_id
+    if data_exame is not None or "data_exame" in laudo_data or paciente.get("data_exame"):
+        laudo.data_exame = data_exame
+    if isinstance(veterinario, dict) and veterinario.get("nome"):
+        laudo.medico_solicitante = veterinario.get("nome")
+    elif "medico_solicitante" in laudo_data:
+        laudo.medico_solicitante = laudo_data.get("medico_solicitante")
+
+    laudo.anexos = _serializar_anexos(
+        laudo.anexos,
+        ultrassonografia_abdominal=ultrassonografia_abdominal,
+    )
+    laudo.updated_at = datetime.now()
+
+    db.commit()
+    db.refresh(laudo)
+
+    return {
+        "id": laudo.id,
+        "agendamento_id": laudo.agendamento_id,
+        "mensagem": "Laudo de ultrassonografia abdominal atualizado com sucesso",
+        "paciente_id": laudo.paciente_id,
+        "tipo": laudo.tipo,
+    }
+
+
 @router.get("/laudos/{laudo_id}")
 def obter_laudo(
     laudo_id: int,
@@ -695,6 +1044,11 @@ def obter_laudo(
         })
 
     pressao_arterial = _extrair_pressao_arterial_de_anexos(laudo.anexos)
+    ultrassonografia_abdominal = _extrair_ultrassonografia_abdominal_de_anexos(laudo.anexos)
+    if not ultrassonografia_abdominal and (laudo.tipo or "").lower() == "ultrassonografia_abdominal":
+        ultrassonografia_abdominal = _extrair_ultrassonografia_abdominal_do_descricao(laudo.descricao)
+    if ultrassonografia_abdominal and not ultrassonografia_abdominal.get("sexo_paciente") and paciente:
+        ultrassonografia_abdominal["sexo_paciente"] = _normalizar_sexo_paciente(paciente.sexo)
     
     return {
         "id": laudo.id,
@@ -724,6 +1078,7 @@ def obter_laudo(
         "updated_at": laudo.updated_at.isoformat() if laudo.updated_at else None,
         "data_laudo": laudo.data_laudo.isoformat() if laudo.data_laudo else None,
         "pressao_arterial": pressao_arterial,
+        "ultrassonografia_abdominal": ultrassonografia_abdominal,
         "imagens": imagens_list,
     }
 
@@ -739,6 +1094,11 @@ def atualizar_laudo(
     laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
     if not laudo:
         raise HTTPException(status_code=404, detail="Laudo nao encontrado")
+
+    tipo_estruturado = (laudo_data.get("tipo_laudo") or laudo_data.get("tipo") or laudo.tipo or "").strip().lower()
+    if "paciente" in laudo_data and isinstance(laudo_data["paciente"], dict):
+        if tipo_estruturado == "ultrassonografia_abdominal":
+            return atualizar_laudo_ultrassonografia_abdominal(laudo, laudo_data, db, current_user)
 
     if "data_exame" in laudo_data:
         parsed = _parse_data_exame(laudo_data.get("data_exame"))
@@ -767,6 +1127,24 @@ def atualizar_laudo(
     if "pressao_arterial" in laudo_data:
         pressao_arterial = _normalizar_pressao_arterial(laudo_data.pop("pressao_arterial"))
         laudo.anexos = _serializar_anexos(laudo.anexos, pressao_arterial)
+
+    if "ultrassonografia_abdominal" in laudo_data:
+        ultrassonografia_abdominal = _normalizar_ultrassonografia_abdominal(
+            laudo_data.pop("ultrassonografia_abdominal")
+        )
+        laudo.anexos = _serializar_anexos(
+            laudo.anexos,
+            ultrassonografia_abdominal=ultrassonografia_abdominal,
+        )
+        if ultrassonografia_abdominal:
+            laudo_data.setdefault(
+                "descricao",
+                _montar_descricao_ultrassonografia_abdominal(ultrassonografia_abdominal),
+            )
+            laudo_data.setdefault(
+                "observacoes",
+                ultrassonografia_abdominal.get("observacoes_gerais") or "",
+            )
 
     for field, value in laudo_data.items():
         if hasattr(laudo, field):
@@ -812,7 +1190,11 @@ def gerar_pdf_laudo(
 ):
     """Gera PDF de laudo ecocardiografico ou de pressao arterial."""
     from fastapi.responses import StreamingResponse
-    from app.utils.pdf_laudo import gerar_pdf_laudo_eco, gerar_pdf_laudo_pressao
+    from app.utils.pdf_laudo import (
+        gerar_pdf_laudo_eco,
+        gerar_pdf_laudo_pressao,
+        gerar_pdf_laudo_ultrassom_abdominal,
+    )
     from app.models.paciente import Paciente
     from app.models.tutor import Tutor
     from app.models.clinica import Clinica
@@ -933,7 +1315,9 @@ def gerar_pdf_laudo(
         clinica_nome_arq = sanitizar(clinica_nome, "SemClinica")
         filename_base = f"{data_nome}__{pet_nome}__{tutor_nome_arq}__{clinica_nome_arq}"
 
-        if (laudo.tipo or "").lower() == "pressao_arterial":
+        tipo_laudo = (laudo.tipo or "").lower()
+
+        if tipo_laudo == "pressao_arterial":
             pressao_arterial = _extrair_pressao_arterial_de_anexos(laudo.anexos) or {}
             classificacao = laudo.diagnostico or _classificar_pressao_media(pressao_arterial.get("pas_media"))
 
@@ -956,6 +1340,37 @@ def gerar_pdf_laudo(
                 texto_rodape=texto_rodape,
             )
             filename = f"{filename_base}__PA.pdf"
+        elif tipo_laudo == "ultrassonografia_abdominal":
+            ultrassonografia_abdominal = _extrair_ultrassonografia_abdominal_de_anexos(laudo.anexos)
+            if not ultrassonografia_abdominal:
+                ultrassonografia_abdominal = _extrair_ultrassonografia_abdominal_do_descricao(laudo.descricao)
+            if not ultrassonografia_abdominal:
+                ultrassonografia_abdominal = {
+                    "versao": 1,
+                    "sexo_paciente": _normalizar_sexo_paciente(paciente.sexo if paciente else ""),
+                    "qualitativa": {},
+                    "observacoes_gerais": laudo.observacoes or "",
+                }
+
+            dados_ultrassom = {
+                "paciente": dados_paciente,
+                "clinica": clinica_nome,
+                "ultrassonografia_abdominal": ultrassonografia_abdominal,
+                "observacoes": laudo.observacoes or "",
+                "imagens": imagens_bytes,
+                "veterinario_nome": current_user.nome,
+                "veterinario_crmv": config_usuario.crmv if config_usuario else "",
+            }
+
+            pdf_bytes = gerar_pdf_laudo_ultrassom_abdominal(
+                dados_ultrassom,
+                logomarca_bytes=logomarca,
+                assinatura_bytes=assinatura,
+                nome_veterinario=current_user.nome,
+                crmv=config_usuario.crmv if config_usuario else "",
+                texto_rodape=texto_rodape,
+            )
+            filename = f"{filename_base}__US_abdominal.pdf"
         else:
             medidas = {}
             qualitativa = {}
