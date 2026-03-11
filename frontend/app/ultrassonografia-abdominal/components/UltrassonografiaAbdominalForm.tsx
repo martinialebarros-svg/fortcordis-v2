@@ -44,6 +44,12 @@ interface Clinica {
   nome: string;
 }
 
+interface PacienteBuscaItem {
+  id: number;
+  nome: string;
+  tutor: string;
+}
+
 interface ImagemForm {
   id: string;
   nome: string;
@@ -68,6 +74,17 @@ const ABAS: Array<{ id: AbaAtiva; label: string }> = [
 ];
 
 const SEXOS_FRASE = ["Todos", "Macho", "Femea"];
+const PACIENTE_INICIAL: PacienteForm = {
+  nome: "",
+  tutor: "",
+  telefone: "",
+  especie: "Canina",
+  raca: "",
+  sexo: "Macho",
+  peso: "",
+  idade: "",
+  data_exame: "",
+};
 
 function criarQualitativaInicial() {
   return ORGAOS_ULTRASSOM_ABDOMINAL.reduce<Record<string, string>>((acc, orgao) => {
@@ -82,6 +99,10 @@ function gerarSessionId() {
 
 function obterTituloLaudo(nomePaciente: string) {
   return `Laudo de Ultrassonografia Abdominal - ${nomePaciente || "Paciente"}`;
+}
+
+function obterDataAtualIso() {
+  return new Date().toISOString().split("T")[0];
 }
 
 async function blobParaDataUrl(blob: Blob): Promise<string> {
@@ -139,17 +160,11 @@ export default function UltrassonografiaAbdominalForm({
   const [clinicaNome, setClinicaNome] = useState("");
   const [veterinario, setVeterinario] = useState("");
   const [agendamentoId, setAgendamentoId] = useState<number | null>(null);
-  const [paciente, setPaciente] = useState<PacienteForm>({
-    nome: "",
-    tutor: "",
-    telefone: "",
-    especie: "Canina",
-    raca: "",
-    sexo: "Macho",
-    peso: "",
-    idade: "",
-    data_exame: "",
-  });
+  const [paciente, setPaciente] = useState<PacienteForm>(PACIENTE_INICIAL);
+  const [buscaPaciente, setBuscaPaciente] = useState("");
+  const [sugestoesPacientes, setSugestoesPacientes] = useState<PacienteBuscaItem[]>([]);
+  const [buscandoPacientes, setBuscandoPacientes] = useState(false);
+  const [carregandoPaciente, setCarregandoPaciente] = useState(false);
   const [qualitativa, setQualitativa] = useState<Record<string, string>>(criarQualitativaInicial);
   const [observacoesGerais, setObservacoesGerais] = useState("");
   const [imagens, setImagens] = useState<ImagemForm[]>([]);
@@ -170,20 +185,12 @@ export default function UltrassonografiaAbdominalForm({
     setSessionId(gerarSessionId());
     setPaciente((prev) => ({
       ...prev,
-      data_exame: prev.data_exame || new Date().toISOString().split("T")[0],
+      data_exame: prev.data_exame || obterDataAtualIso(),
     }));
 
     const clinicaParam = searchParams.get("clinica_id");
     if (clinicaParam) {
       setClinicaId(clinicaParam);
-    }
-
-    const agendamentoParam = searchParams.get("agendamento_id");
-    if (agendamentoParam) {
-      const value = Number(agendamentoParam);
-      if (Number.isFinite(value) && value > 0) {
-        setAgendamentoId(value);
-      }
     }
   }, [searchParams]);
 
@@ -199,6 +206,29 @@ export default function UltrassonografiaAbdominalForm({
   }, [mode, laudoId]);
 
   useEffect(() => {
+    if (mode !== "create") {
+      return;
+    }
+
+    const agendamentoParam = searchParams.get("agendamento_id");
+    if (agendamentoParam) {
+      const value = Number(agendamentoParam);
+      if (Number.isFinite(value) && value > 0) {
+        void preencherDadosDoAgendamento(value);
+        return;
+      }
+    }
+
+    const pacienteParam = searchParams.get("paciente_id");
+    if (pacienteParam) {
+      const value = Number(pacienteParam);
+      if (Number.isFinite(value) && value > 0) {
+        void preencherDadosDoPaciente(value);
+      }
+    }
+  }, [mode, searchParams]);
+
+  useEffect(() => {
     const sexo = normalizarSexoPaciente(paciente.sexo);
     setQualitativa((prev) => {
       const next = { ...prev };
@@ -212,6 +242,43 @@ export default function UltrassonografiaAbdominalForm({
       return next;
     });
   }, [paciente.sexo]);
+
+  useEffect(() => {
+    const termo = buscaPaciente.trim();
+    if (termo.length < 2) {
+      setSugestoesPacientes([]);
+      setBuscandoPacientes(false);
+      return;
+    }
+
+    let ativo = true;
+    const timeout = window.setTimeout(async () => {
+      try {
+        setBuscandoPacientes(true);
+        const response = await api.get("/pacientes", {
+          params: { search: termo, limit: 8 },
+        });
+        if (!ativo) {
+          return;
+        }
+        setSugestoesPacientes(Array.isArray(response.data?.items) ? response.data.items : []);
+      } catch (error) {
+        if (ativo) {
+          console.error("Erro ao buscar pacientes cadastrados:", error);
+          setSugestoesPacientes([]);
+        }
+      } finally {
+        if (ativo) {
+          setBuscandoPacientes(false);
+        }
+      }
+    }, 300);
+
+    return () => {
+      ativo = false;
+      window.clearTimeout(timeout);
+    };
+  }, [buscaPaciente]);
 
   const carregarClinicas = async () => {
     try {
@@ -269,6 +336,100 @@ export default function UltrassonografiaAbdominalForm({
     );
 
     setImagens(previews.filter(Boolean) as ImagemForm[]);
+  };
+
+  const preencherDadosDoPaciente = async (
+    pacienteId: number,
+    extras?: { telefone?: string; dataExame?: string }
+  ) => {
+    try {
+      setCarregandoPaciente(true);
+      const [respPaciente, respTutor] = await Promise.allSettled([
+        api.get(`/pacientes/${pacienteId}`),
+        api.get(`/pacientes/${pacienteId}/tutor`),
+      ]);
+
+      const dadosPaciente =
+        respPaciente.status === "fulfilled" && respPaciente.value?.data
+          ? respPaciente.value.data
+          : {};
+      const dadosTutor =
+        respTutor.status === "fulfilled" && respTutor.value?.data ? respTutor.value.data : {};
+
+      setPaciente((prev) => ({
+        ...prev,
+        id: pacienteId,
+        nome: dadosPaciente?.nome || prev.nome,
+        tutor: dadosPaciente?.tutor || prev.tutor,
+        telefone: dadosTutor?.telefone || extras?.telefone || prev.telefone,
+        especie: dadosPaciente?.especie || prev.especie || "Canina",
+        raca: dadosPaciente?.raca || prev.raca,
+        sexo: dadosPaciente?.sexo || prev.sexo || "Macho",
+        peso:
+          dadosPaciente?.peso_kg !== null && dadosPaciente?.peso_kg !== undefined
+            ? String(dadosPaciente.peso_kg)
+            : prev.peso,
+        data_exame: extras?.dataExame || prev.data_exame || obterDataAtualIso(),
+      }));
+      setBuscaPaciente("");
+      setSugestoesPacientes([]);
+    } catch (error) {
+      console.error("Erro ao carregar paciente cadastrado:", error);
+      alert("Nao foi possivel carregar os dados do paciente.");
+    } finally {
+      setCarregandoPaciente(false);
+    }
+  };
+
+  const preencherDadosDoAgendamento = async (id: number) => {
+    try {
+      setCarregandoPaciente(true);
+      const response = await api.get(`/agenda/${id}`);
+      const agendamento = response.data || {};
+      const dataExame = agendamento.data || obterDataAtualIso();
+
+      setAgendamentoId(id);
+      setPaciente((prev) => ({
+        ...prev,
+        nome: agendamento.paciente || prev.nome,
+        tutor: agendamento.tutor || prev.tutor,
+        telefone: agendamento.telefone || prev.telefone,
+        data_exame: dataExame,
+      }));
+
+      if (agendamento.clinica_id) {
+        setClinicaId(String(agendamento.clinica_id));
+      }
+      if (agendamento.clinica) {
+        setClinicaNome(agendamento.clinica);
+      }
+
+      const pacienteId = Number(agendamento.paciente_id);
+      if (Number.isFinite(pacienteId) && pacienteId > 0) {
+        await preencherDadosDoPaciente(pacienteId, {
+          telefone: agendamento.telefone || "",
+          dataExame,
+        });
+      }
+    } catch (error) {
+      console.error("Erro ao carregar agendamento para ultrassonografia:", error);
+    } finally {
+      setCarregandoPaciente(false);
+    }
+  };
+
+  const limparPacienteSelecionado = () => {
+    setBuscaPaciente("");
+    setSugestoesPacientes([]);
+    setPaciente((prev) => ({
+      ...prev,
+      id: undefined,
+      nome: "",
+      tutor: "",
+      raca: "",
+      peso: "",
+      idade: "",
+    }));
   };
 
   const carregarLaudo = async (id: string) => {
@@ -553,9 +714,91 @@ export default function UltrassonografiaAbdominalForm({
 
       {aba === "cliente" && (
         <div className="bg-white rounded-xl border shadow-sm p-6">
-          <p className="mb-4 text-sm text-amber-700">
-            Para paciente novo, o tutor precisa ser informado antes de salvar o laudo.
-          </p>
+          <div className="mb-6 space-y-4">
+            <p className="text-sm text-amber-700">
+              Para paciente novo, o tutor precisa ser informado antes de salvar o laudo.
+            </p>
+
+            <div className="rounded-xl border border-teal-100 bg-teal-50/70 p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Buscar paciente cadastrado
+                  </label>
+                  <input
+                    value={buscaPaciente}
+                    onChange={(e) => setBuscaPaciente(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500"
+                    placeholder="Digite nome do paciente ou tutor"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Ao selecionar um paciente, os dados cadastrais sao preenchidos automaticamente.
+                  </p>
+                </div>
+
+                {paciente.id && (
+                  <button
+                    type="button"
+                    onClick={limparPacienteSelecionado}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    Usar paciente novo
+                  </button>
+                )}
+              </div>
+
+              {carregandoPaciente && (
+                <div className="mt-3 inline-flex items-center gap-2 text-sm text-teal-700">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Carregando dados do paciente...
+                </div>
+              )}
+
+              {!carregandoPaciente && paciente.id && (
+                <div className="mt-3 rounded-lg border border-teal-200 bg-white px-3 py-2 text-sm text-teal-800">
+                  Paciente cadastrado selecionado: <strong>#{paciente.id}</strong> {paciente.nome}
+                  {paciente.tutor ? ` (${paciente.tutor})` : ""}
+                </div>
+              )}
+
+              {buscandoPacientes && (
+                <div className="mt-3 inline-flex items-center gap-2 text-sm text-gray-600">
+                  <Loader2 className="h-4 w-4 animate-spin text-teal-600" />
+                  Buscando pacientes...
+                </div>
+              )}
+
+              {!buscandoPacientes && buscaPaciente.trim().length >= 2 && sugestoesPacientes.length > 0 && (
+                <div className="mt-3 overflow-hidden rounded-lg border bg-white shadow-sm">
+                  {sugestoesPacientes.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => preencherDadosDoPaciente(item.id)}
+                      className="flex w-full items-start justify-between gap-3 border-b px-4 py-3 text-left last:border-b-0 hover:bg-teal-50"
+                    >
+                      <div>
+                        <p className="font-medium text-gray-900">{item.nome}</p>
+                        <p className="text-sm text-gray-500">
+                          Tutor: {item.tutor || "Nao informado"}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">
+                        #{item.id}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {!buscandoPacientes && buscaPaciente.trim().length >= 2 && sugestoesPacientes.length === 0 && (
+                <div className="mt-3 text-sm text-gray-500">
+                  Nenhum paciente encontrado. Voce pode seguir com cadastro manual abaixo.
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {campoTexto("Paciente *", paciente.nome, (value) => setPaciente((prev) => ({ ...prev, nome: value })), "Nome do paciente")}
             {campoTexto("Tutor *", paciente.tutor, (value) => setPaciente((prev) => ({ ...prev, tutor: value })), "Nome do tutor")}

@@ -19,13 +19,18 @@ import type {
   EventDropArg,
   EventInput,
 } from "@fullcalendar/core";
-import { CalendarDays, Download, FileText, RefreshCw, Stethoscope, Trash2, Wallet } from "lucide-react";
+import { CalendarDays, ChevronDown, Download, FileText, RefreshCw, Stethoscope, Trash2, Wallet } from "lucide-react";
 
 import DashboardLayout from "../../layout-dashboard";
 import NovoAgendamentoModal from "../NovoAgendamentoModal";
 import api from "@/lib/axios";
 import { montarToastAgendaRealtime } from "@/lib/agenda-realtime-toast";
 import { useAgendaRealtime, type AgendaRealtimePayload } from "@/lib/useAgendaRealtime";
+import {
+  getLaudoEditPath,
+  TIPO_LAUDO_ECOCARDIOGRAMA,
+  TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
+} from "@/lib/laudos";
 import {
   AgendaExcecaoConfig,
   AgendaFeriadoConfig,
@@ -98,6 +103,11 @@ interface AcaoStatus {
   precisaTipoHorario?: boolean;
 }
 
+interface ServicoAgenda {
+  id: number;
+  duracao_minutos?: number | null;
+}
+
 interface ClinicaEndereco {
   id: number;
   nome?: string | null;
@@ -119,7 +129,10 @@ interface LaudoVinculado {
   id: number;
   status: string;
   titulo: string;
+  tipo: string;
 }
+
+type LaudosVinculadosPorAgendamento = Record<number, Record<string, LaudoVinculado>>;
 
 interface ToastRealtimeData {
   texto: string;
@@ -217,6 +230,17 @@ const toApiDateTime = (date: Date): string => {
   const minutes = String(date.getMinutes()).padStart(2, "0");
   const seconds = String(date.getSeconds()).padStart(2, "0");
   return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+};
+
+const calcularMdc = (a: number, b: number): number => {
+  let x = Math.abs(a);
+  let y = Math.abs(b);
+  while (y !== 0) {
+    const resto = x % y;
+    x = y;
+    y = resto;
+  }
+  return x || 1;
 };
 
 const minutosParaDuracao = (minutos: number): string => {
@@ -374,7 +398,7 @@ export default function AgendaFullCalendarPage() {
   const [ordensServicoPorAgendamento, setOrdensServicoPorAgendamento] = useState<Record<number, OrdemServicoResumo>>(
     {}
   );
-  const [laudosVinculados, setLaudosVinculados] = useState<Record<number, LaudoVinculado>>({});
+  const [laudosVinculados, setLaudosVinculados] = useState<LaudosVinculadosPorAgendamento>({});
   const [loading, setLoading] = useState(false);
   const [atualizandoStatusId, setAtualizandoStatusId] = useState<number | null>(null);
   const [recebendoPagamentoId, setRecebendoPagamentoId] = useState<number | null>(null);
@@ -383,7 +407,7 @@ export default function AgendaFullCalendarPage() {
   const [excluindoAgendamentoId, setExcluindoAgendamentoId] = useState<number | null>(null);
   const [salvandoMovimentacao, setSalvandoMovimentacao] = useState(false);
   const [salvandoAgendaDia, setSalvandoAgendaDia] = useState(false);
-  const duracaoSlotMinutos = 30;
+  const [duracaoSlotMinutos, setDuracaoSlotMinutos] = useState(30);
   const [erro, setErro] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("todos");
   const [mensagemStatus, setMensagemStatus] = useState("");
@@ -419,7 +443,11 @@ export default function AgendaFullCalendarPage() {
   }, [ordensServicoPorAgendamento, selecionado]);
   const laudoSelecionado = useMemo(() => {
     if (!selecionado) return null;
-    return laudosVinculados[selecionado.id] || null;
+    const laudosDoAgendamento = Object.values(laudosVinculados[selecionado.id] || {});
+    return laudosDoAgendamento.reduce<LaudoVinculado | null>(
+      (maisRecente, atual) => (!maisRecente || atual.id > maisRecente.id ? atual : maisRecente),
+      null
+    );
   }, [laudosVinculados, selecionado]);
   const jornadaDataControle = useMemo(
     () => obterJornadaDia(dataControleAgenda, agendaSemanal, agendaFeriados, agendaExcecoes),
@@ -613,24 +641,30 @@ export default function AgendaFullCalendarPage() {
       const response = await api.get("/laudos?limit=1000");
       const listaLaudos = Array.isArray(response.data?.items) ? response.data.items : [];
 
-      const mapa: Record<number, LaudoVinculado> = {};
+      const mapa: LaudosVinculadosPorAgendamento = {};
       for (const laudo of listaLaudos) {
         const agendamentoId = Number(laudo?.agendamento_id);
         if (!Number.isFinite(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
           continue;
         }
 
+        const tipo = String(laudo?.tipo || "");
         const laudoId = Number(laudo?.id);
-        if (!Number.isFinite(laudoId)) {
+        if (!tipo || !Number.isFinite(laudoId)) {
           continue;
         }
 
-        const anterior = mapa[agendamentoId];
+        const laudosDoAgendamento = mapa[agendamentoId] || {};
+        const anterior = laudosDoAgendamento[tipo];
         if (!anterior || laudoId > anterior.id) {
           mapa[agendamentoId] = {
-            id: laudoId,
-            status: String(laudo?.status || ""),
-            titulo: String(laudo?.titulo || `Laudo ${laudoId}`),
+            ...laudosDoAgendamento,
+            [tipo]: {
+              id: laudoId,
+              status: String(laudo?.status || ""),
+              titulo: String(laudo?.titulo || `Laudo ${laudoId}`),
+              tipo,
+            },
           };
         }
       }
@@ -642,15 +676,15 @@ export default function AgendaFullCalendarPage() {
     }
   }, []);
 
+  const obterLaudoVinculado = useCallback(
+    (agendamentoId: number, tipo: string) => laudosVinculados[agendamentoId]?.[tipo],
+    [laudosVinculados]
+  );
+
   const carregarAgendamentos = useCallback(async (periodo: IntervaloConsulta) => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      params.append("data_inicio", periodo.inicio);
-      params.append("data_fim", periodo.fim);
-      // Evita truncamento (backend default = 100), que escondia dias no FullCalendar.
-      params.append("limit", "5000");
-      const response = await api.get(`/agenda?${params.toString()}`);
+      const response = await api.get(`/agenda?data_inicio=${periodo.inicio}&data_fim=${periodo.fim}`);
       const items = Array.isArray(response.data?.items) ? response.data.items : [];
       setAgendamentos(items);
       await Promise.all([
@@ -690,6 +724,29 @@ export default function AgendaFullCalendarPage() {
       setAgendaSemanal(normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL));
       setAgendaFeriados([]);
       setAgendaExcecoes([]);
+    }
+  }, []);
+
+  const carregarDuracaoSlots = useCallback(async () => {
+    try {
+      const response = await api.get("/servicos?limit=1000");
+      const itens: ServicoAgenda[] = Array.isArray(response.data?.items) ? response.data.items : [];
+      const duracoes = itens
+        .map((servico) => Number(servico?.duracao_minutos || 0))
+        .filter((valor) => Number.isFinite(valor) && valor > 0)
+        .map((valor) => Math.round(valor));
+
+      if (duracoes.length === 0) {
+        setDuracaoSlotMinutos(30);
+        return;
+      }
+
+      const base = duracoes.reduce((acumulado, atual) => calcularMdc(acumulado, atual));
+      const normalizado = Math.max(5, base);
+      setDuracaoSlotMinutos(normalizado);
+    } catch (error) {
+      console.error("Erro ao carregar duracao de servicos para slots:", error);
+      setDuracaoSlotMinutos(30);
     }
   }, []);
 
@@ -784,7 +841,8 @@ export default function AgendaFullCalendarPage() {
       return;
     }
     carregarConfiguracaoAgenda();
-  }, [authChecked, carregarConfiguracaoAgenda]);
+    carregarDuracaoSlots();
+  }, [authChecked, carregarConfiguracaoAgenda, carregarDuracaoSlots]);
 
   useEffect(() => {
     if (!selecionado) return;
@@ -879,15 +937,21 @@ export default function AgendaFullCalendarPage() {
     router.push(`/atendimento?agendamento_id=${selecionado.id}`);
   }, [router, selecionado]);
 
-  const laudarSelecionado = useCallback(() => {
+  const getRotaNovoLaudo = useCallback((tipo: string, agendamentoId: number) => {
+    const basePath =
+      tipo === TIPO_LAUDO_ULTRASSOM_ABDOMINAL ? "/ultrassonografia-abdominal/novo" : "/laudos/novo";
+    return `${basePath}?agendamento_id=${agendamentoId}`;
+  }, []);
+
+  const laudarSelecionado = useCallback((tipo: string) => {
     if (!selecionado) return;
-    const laudoVinculado = laudosVinculados[selecionado.id];
+    const laudoVinculado = obterLaudoVinculado(selecionado.id, tipo);
     if (laudoVinculado?.id) {
-      router.push(`/laudos/${laudoVinculado.id}/editar`);
+      router.push(getLaudoEditPath(laudoVinculado.id, tipo));
       return;
     }
-    router.push(`/laudos/novo?agendamento_id=${selecionado.id}`);
-  }, [laudosVinculados, router, selecionado]);
+    router.push(getRotaNovoLaudo(tipo, selecionado.id));
+  }, [getRotaNovoLaudo, obterLaudoVinculado, router, selecionado]);
 
   const podeBaixarLaudo = useCallback((status?: string) => {
     const statusNormalizado = (status || "").trim().toLowerCase();
@@ -1854,7 +1918,7 @@ export default function AgendaFullCalendarPage() {
             <p className="mt-2 text-2xl font-bold text-gray-900">{eventos.length}</p>
             <p className="text-xs text-gray-500">eventos no filtro atual</p>
             <p className="mt-1 text-xs text-gray-500">
-              Grade de slots: {duracaoSlotMinutos} min (fixa)
+              Grade de slots: {duracaoSlotMinutos} min (baseada na duracao cadastrada dos servicos)
             </p>
           </div>
 
@@ -1880,13 +1944,39 @@ export default function AgendaFullCalendarPage() {
                     Atender
                   </button>
 
-                  <button
-                    onClick={laudarSelecionado}
-                    className="inline-flex items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-100"
-                  >
-                    <FileText className="h-3.5 w-3.5" />
-                    Laudar
-                  </button>
+                  <details className="relative">
+                    <summary className="list-none inline-flex cursor-pointer items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-100">
+                      <FileText className="h-3.5 w-3.5" />
+                      Laudar
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </summary>
+                    <div className="absolute left-0 top-full z-20 mt-2 w-56 overflow-hidden rounded-xl border bg-white shadow-lg">
+                      <button
+                        type="button"
+                        onClick={() => laudarSelecionado(TIPO_LAUDO_ECOCARDIOGRAMA)}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        <span>Ecocardiograma</span>
+                        <span className="text-xs text-gray-500">
+                          {obterLaudoVinculado(selecionado.id, TIPO_LAUDO_ECOCARDIOGRAMA)
+                            ? "Editar existente"
+                            : "Novo laudo"}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => laudarSelecionado(TIPO_LAUDO_ULTRASSOM_ABDOMINAL)}
+                        className="flex w-full items-center justify-between gap-3 border-t px-4 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        <span>US abdominal</span>
+                        <span className="text-xs text-gray-500">
+                          {obterLaudoVinculado(selecionado.id, TIPO_LAUDO_ULTRASSOM_ABDOMINAL)
+                            ? "Editar existente"
+                            : "Novo laudo"}
+                        </span>
+                      </button>
+                    </div>
+                  </details>
 
                   {laudoSelecionado && podeBaixarLaudo(laudoSelecionado.status) && (
                     <button

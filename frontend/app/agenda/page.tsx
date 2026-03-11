@@ -18,10 +18,15 @@ import {
   obterJornadaDia,
   slotDentroDaJornada,
 } from "@/lib/agenda-config";
+import {
+  getLaudoEditPath,
+  TIPO_LAUDO_ECOCARDIOGRAMA,
+  TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
+} from "@/lib/laudos";
 import { 
   Calendar, Clock, User, Building, Plus, RefreshCw, X, Trash2,
   CheckCircle2, PlayCircle, CheckCircle, XCircle, AlertCircle,
-  Search, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2, DollarSign
+  Search, ChevronDown, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2, DollarSign
 } from "lucide-react";
 import NovoAgendamentoModal from "./NovoAgendamentoModal";
 
@@ -47,7 +52,10 @@ interface LaudoVinculado {
   id: number;
   status: string;
   titulo: string;
+  tipo: string;
 }
+
+type LaudosVinculadosPorAgendamento = Record<number, Record<string, LaudoVinculado>>;
 
 interface OrdemServicoPagamento {
   os_id: number;
@@ -209,7 +217,7 @@ export default function AgendaPage() {
   const [modalTipoHorario, setModalTipoHorario] = useState<{ id: number; status: StatusType } | null>(null);
   const [tipoHorario, setTipoHorario] = useState<"comercial" | "plantao">("comercial");
   const [osGerada, setOsGerada] = useState<{ numero_os: string; valor_final: number } | null>(null);
-  const [laudosVinculados, setLaudosVinculados] = useState<Record<number, LaudoVinculado>>({});
+  const [laudosVinculados, setLaudosVinculados] = useState<LaudosVinculadosPorAgendamento>({});
   const [osPagasVinculadas, setOsPagasVinculadas] = useState<Record<number, OrdemServicoPagamento>>({});
   const [clinicasEndereco, setClinicasEndereco] = useState<Record<number, ClinicaEndereco>>({});
   const [agendaSemanal, setAgendaSemanal] = useState<AgendaSemanalConfig>(() =>
@@ -486,19 +494,30 @@ export default function AgendaPage() {
       const respLaudos = await api.get("/laudos?limit=1000");
       const listaLaudos = respLaudos.data?.items || [];
 
-      const mapa: Record<number, LaudoVinculado> = {};
+      const mapa: LaudosVinculadosPorAgendamento = {};
       for (const laudo of listaLaudos) {
         const agendamentoId = Number(laudo?.agendamento_id);
         if (!Number.isFinite(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
           continue;
         }
 
-        const anterior = mapa[agendamentoId];
-        if (!anterior || Number(laudo.id) > anterior.id) {
+        const tipo = String(laudo?.tipo || "");
+        const laudoId = Number(laudo?.id);
+        if (!tipo || !Number.isFinite(laudoId)) {
+          continue;
+        }
+
+        const laudosDoAgendamento = mapa[agendamentoId] || {};
+        const anterior = laudosDoAgendamento[tipo];
+        if (!anterior || laudoId > anterior.id) {
           mapa[agendamentoId] = {
-            id: Number(laudo.id),
-            status: laudo.status || "",
-            titulo: laudo.titulo || `Laudo ${laudo.id}`,
+            ...laudosDoAgendamento,
+            [tipo]: {
+              id: laudoId,
+              status: String(laudo?.status || ""),
+              titulo: String(laudo?.titulo || `Laudo ${laudoId}`),
+              tipo,
+            },
           };
         }
       }
@@ -704,6 +723,17 @@ export default function AgendaPage() {
     }
   };
 
+  const obterLaudoVinculado = (agendamentoId: number, tipo: string) =>
+    laudosVinculados[agendamentoId]?.[tipo];
+
+  const obterUltimoLaudoVinculado = (agendamentoId: number) => {
+    const laudosDoAgendamento = Object.values(laudosVinculados[agendamentoId] || {});
+    return laudosDoAgendamento.reduce<LaudoVinculado | undefined>(
+      (maisRecente, atual) => (!maisRecente || atual.id > maisRecente.id ? atual : maisRecente),
+      undefined
+    );
+  };
+
   const confirmarRealizado = async () => {
     if (!modalTipoHorario) return;
     await atualizarStatus(modalTipoHorario.id, modalTipoHorario.status, tipoHorario);
@@ -736,13 +766,19 @@ export default function AgendaPage() {
     }
   };
 
-  const abrirFluxoLaudo = (ag: Agendamento) => {
-    const laudoVinculado = laudosVinculados[ag.id];
+  const getRotaNovoLaudo = (tipo: string, agendamentoId: number) => {
+    const basePath =
+      tipo === TIPO_LAUDO_ULTRASSOM_ABDOMINAL ? "/ultrassonografia-abdominal/novo" : "/laudos/novo";
+    return `${basePath}?agendamento_id=${agendamentoId}`;
+  };
+
+  const abrirFluxoLaudo = (ag: Agendamento, tipo: string) => {
+    const laudoVinculado = obterLaudoVinculado(ag.id, tipo);
     if (laudoVinculado?.id) {
-      router.push(`/laudos/${laudoVinculado.id}/editar`);
+      router.push(getLaudoEditPath(laudoVinculado.id, tipo));
       return;
     }
-    router.push(`/laudos/novo?agendamento_id=${ag.id}`);
+    router.push(getRotaNovoLaudo(tipo, ag.id));
   };
 
   const abrirFluxoAtendimento = (ag: Agendamento) => {
@@ -755,7 +791,7 @@ export default function AgendaPage() {
   };
 
   const baixarLaudoPdf = async (ag: Agendamento) => {
-    const laudoVinculado = laudosVinculados[ag.id];
+    const laudoVinculado = obterUltimoLaudoVinculado(ag.id);
     if (!laudoVinculado?.id) return;
 
     try {
@@ -1257,8 +1293,10 @@ export default function AgendaPage() {
               {agendamentosFiltrados.map((ag) => {
                 const StatusIcon = getStatusIcon(ag.status);
                 const proximosStatus = getProximosStatus(ag.status);
-                const laudoVinculado = laudosVinculados[ag.id];
+                const laudoVinculado = obterUltimoLaudoVinculado(ag.id);
                 const laudoPronto = podeBaixarLaudo(laudoVinculado?.status);
+                const laudoEco = obterLaudoVinculado(ag.id, TIPO_LAUDO_ECOCARDIOGRAMA);
+                const laudoUltrassom = obterLaudoVinculado(ag.id, TIPO_LAUDO_ULTRASSOM_ABDOMINAL);
                 const osPaga = osPagasVinculadas[ag.id];
                 const clinicaComEndereco = ag.clinica_id ? clinicasEndereco[ag.clinica_id] : undefined;
                 const enderecoClinica = montarEnderecoClinica(clinicaComEndereco);
@@ -1405,14 +1443,38 @@ export default function AgendaPage() {
                           Waze
                         </button>
 
-                        <button
-                          onClick={() => abrirFluxoLaudo(ag)}
-                          className="px-3 py-1.5 text-sm text-teal-700 hover:text-teal-900 hover:bg-teal-50 rounded-lg transition-colors flex items-center gap-1"
-                          title={laudoVinculado ? "Abrir laudo vinculado" : "Criar laudo para este agendamento"}
-                        >
-                          <FileText className="w-4 h-4" />
-                          Laudar
-                        </button>
+                        <details className="relative">
+                          <summary
+                            className="list-none px-3 py-1.5 text-sm text-teal-700 hover:text-teal-900 hover:bg-teal-50 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                            title="Escolher tipo de laudo"
+                          >
+                            <FileText className="w-4 h-4" />
+                            Laudar
+                            <ChevronDown className="w-4 h-4" />
+                          </summary>
+                          <div className="absolute right-0 top-full z-20 mt-2 w-60 overflow-hidden rounded-xl border bg-white shadow-lg">
+                            <button
+                              type="button"
+                              onClick={() => abrirFluxoLaudo(ag, TIPO_LAUDO_ECOCARDIOGRAMA)}
+                              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
+                            >
+                              <span>Ecocardiograma</span>
+                              <span className="text-xs text-gray-500">
+                                {laudoEco ? "Editar existente" : "Novo laudo"}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => abrirFluxoLaudo(ag, TIPO_LAUDO_ULTRASSOM_ABDOMINAL)}
+                              className="flex w-full items-center justify-between gap-3 border-t px-4 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
+                            >
+                              <span>US abdominal</span>
+                              <span className="text-xs text-gray-500">
+                                {laudoUltrassom ? "Editar existente" : "Novo laudo"}
+                              </span>
+                            </button>
+                          </div>
+                        </details>
 
                         {laudoVinculado && laudoPronto && (
                           <button

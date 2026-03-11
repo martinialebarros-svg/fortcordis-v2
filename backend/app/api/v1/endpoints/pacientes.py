@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import String, cast, func, inspect, text
+from sqlalchemy import String, cast, func, inspect, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -205,10 +205,23 @@ def listar_pacientes(
     )
 
     if search:
-        query = query.filter(Paciente.nome.ilike(f"%{search}%"))
+        termo = search.strip()
+        termo_key = _gerar_nome_key(termo)
+        filtros = [
+            Paciente.nome.ilike(f"%{termo}%"),
+            Tutor.nome.ilike(f"%{termo}%"),
+        ]
+        if termo_key:
+            filtros.extend(
+                [
+                    func.coalesce(Paciente.nome_key, "").ilike(f"%{termo_key}%"),
+                    func.coalesce(Tutor.nome_key, "").ilike(f"%{termo_key}%"),
+                ]
+            )
+        query = query.filter(or_(*filtros))
 
     total = query.count()
-    items = query.offset(skip).limit(limit).all()
+    items = query.order_by(Paciente.nome.asc()).offset(skip).limit(limit).all()
 
     pacientes = [
         {
