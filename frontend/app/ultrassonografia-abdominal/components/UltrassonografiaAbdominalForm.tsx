@@ -413,6 +413,12 @@ export default function UltrassonografiaAbdominalForm({
       return;
     }
 
+    if (!paciente.id && !paciente.tutor.trim()) {
+      alert("Informe o tutor do paciente antes de salvar o laudo.");
+      setAba("cliente");
+      return;
+    }
+
     const qualitativaPreenchida = Object.entries(qualitativa).reduce<Record<string, string>>(
       (acc, [key, value]) => {
         const texto = value.trim();
@@ -547,9 +553,12 @@ export default function UltrassonografiaAbdominalForm({
 
       {aba === "cliente" && (
         <div className="bg-white rounded-xl border shadow-sm p-6">
+          <p className="mb-4 text-sm text-amber-700">
+            Para paciente novo, o tutor precisa ser informado antes de salvar o laudo.
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {campoTexto("Paciente *", paciente.nome, (value) => setPaciente((prev) => ({ ...prev, nome: value })), "Nome do paciente")}
-            {campoTexto("Tutor", paciente.tutor, (value) => setPaciente((prev) => ({ ...prev, tutor: value })), "Nome do tutor")}
+            {campoTexto("Tutor *", paciente.tutor, (value) => setPaciente((prev) => ({ ...prev, tutor: value })), "Nome do tutor")}
             {campoTexto("Telefone", paciente.telefone, (value) => setPaciente((prev) => ({ ...prev, telefone: value })), "Telefone")}
             {campoTexto("Raca", paciente.raca, (value) => setPaciente((prev) => ({ ...prev, raca: value })), "Raca")}
             {campoTexto("Peso (kg)", paciente.peso, (value) => setPaciente((prev) => ({ ...prev, peso: value })), "Ex: 12.5")}

@@ -411,6 +411,12 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
     if not paciente_nome_input:
         raise HTTPException(status_code=422, detail="Nome do paciente e obrigatorio para salvar o laudo.")
 
+    if tutor_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Informe o tutor do paciente antes de salvar o laudo.",
+        )
+
     paciente_nome = paciente_nome_input or "Paciente sem nome"
     paciente_nome_key = _gerar_nome_key(paciente_nome)
     paciente_especie = (paciente.get("especie") or "Canina").strip() or "Canina"
