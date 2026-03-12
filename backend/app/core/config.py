@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     REQUIRE_STRONG_SECRET_KEY: bool = False
     REQUIRE_UP_TO_DATE_MIGRATIONS: bool = False
     ALLOW_PERMISSION_MATRIX_FALLBACK: bool = False
-    ALLOW_LEGACY_PLAIN_PASSWORDS: bool = True
+    ALLOW_LEGACY_PLAIN_PASSWORDS: bool = False
 
     class Config:
         env_file = ".env"
