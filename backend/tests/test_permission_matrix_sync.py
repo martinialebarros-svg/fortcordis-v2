@@ -24,13 +24,22 @@ class PermissionMatrixSyncTest(unittest.TestCase):
     def test_logistica_is_registered_as_permission_module(self) -> None:
         self.assertIn("logistica", PERMISSION_MODULE_CODES)
 
-    def test_logistica_permission_falls_back_to_agenda_or_clinicas_when_unseeded(self) -> None:
+    def test_logistica_requires_explicit_permission_when_module_row_is_missing(self) -> None:
+        user = SimpleNamespace(papeis=[SimpleNamespace(id=2)])
+
+        def fake_query(_db, _papel_ids, modulo):
+            return []
+
+        with patch("app.core.security._query_permission_rows", side_effect=fake_query):
+            allowed = _user_has_matrix_permission(None, user, "logistica", "visualizar")
+
+        self.assertFalse(allowed)
+
+    def test_explicit_logistica_permission_is_respected(self) -> None:
         user = SimpleNamespace(papeis=[SimpleNamespace(id=2)])
 
         def fake_query(_db, _papel_ids, modulo):
             if modulo == "logistica":
-                return []
-            if modulo == "agenda":
                 return [SimpleNamespace(visualizar=1, editar=0, excluir=0)]
             return []
 
@@ -38,21 +47,6 @@ class PermissionMatrixSyncTest(unittest.TestCase):
             allowed = _user_has_matrix_permission(None, user, "logistica", "visualizar")
 
         self.assertTrue(allowed)
-
-    def test_explicit_logistica_permission_overrides_compatibility_fallback(self) -> None:
-        user = SimpleNamespace(papeis=[SimpleNamespace(id=2)])
-
-        def fake_query(_db, _papel_ids, modulo):
-            if modulo == "logistica":
-                return [SimpleNamespace(visualizar=0, editar=0, excluir=0)]
-            if modulo == "agenda":
-                return [SimpleNamespace(visualizar=1, editar=1, excluir=0)]
-            return []
-
-        with patch("app.core.security._query_permission_rows", side_effect=fake_query):
-            allowed = _user_has_matrix_permission(None, user, "logistica", "visualizar")
-
-        self.assertFalse(allowed)
 
     def test_permission_matrix_sync_supports_safe_logistica_dry_run(self) -> None:
         db = SessionLocal()

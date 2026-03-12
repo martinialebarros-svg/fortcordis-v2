@@ -34,11 +34,6 @@ _MODULE_BY_PATH_PREFIX = [
     ("/api/v1/logistica", "logistica"),
 ]
 
-_COMPAT_PERMISSION_MODULE_ALIASES = {
-    "logistica": ("agenda", "clinicas"),
-}
-
-
 def _normalize_path(path: str) -> str:
     if not path:
         return "/"
@@ -93,11 +88,6 @@ def _user_has_matrix_permission(db: Session, user: User, module: str, action: st
 
     try:
         registros = _query_permission_rows(db, papel_ids, module)
-        if not registros:
-            for alias_module in _COMPAT_PERMISSION_MODULE_ALIASES.get(module, ()):
-                alias_registros = _query_permission_rows(db, papel_ids, alias_module)
-                if any(getattr(registro, action, 0) == 1 for registro in alias_registros):
-                    return True
     except (ProgrammingError, OperationalError) as exc:
         # Compatibilidade temporária para ambientes sem a migração aplicada.
         db.rollback()
