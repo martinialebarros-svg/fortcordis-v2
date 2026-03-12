@@ -16,11 +16,26 @@ os.environ.setdefault(
 )
 
 from app.api.v1.endpoints.admin import PERMISSION_MODULE_CODES, _sync_permission_matrix
+from app.core.config import Settings
 from app.core.security import _user_has_matrix_permission
 from app.db.database import SessionLocal
 
 
 class PermissionMatrixSyncTest(unittest.TestCase):
+    def test_permission_matrix_fallback_defaults_to_false(self) -> None:
+        previous = os.environ.pop("ALLOW_PERMISSION_MATRIX_FALLBACK", None)
+        try:
+            settings = Settings(
+                _env_file=None,
+                DATABASE_URL="sqlite:///./fortcordis.db",
+                SECRET_KEY="permission-audit-test-secret-key-1234567890",
+            )
+        finally:
+            if previous is not None:
+                os.environ["ALLOW_PERMISSION_MATRIX_FALLBACK"] = previous
+
+        self.assertFalse(settings.ALLOW_PERMISSION_MATRIX_FALLBACK)
+
     def test_logistica_is_registered_as_permission_module(self) -> None:
         self.assertIn("logistica", PERMISSION_MODULE_CODES)
 
