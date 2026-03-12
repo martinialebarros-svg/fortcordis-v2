@@ -4,12 +4,34 @@ import logging
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
 
-from app.api.v1.endpoints import auth, admin, agenda, pacientes, clinicas, servicos, laudos, financeiro, xml_import, frases, imagens, tabelas_preco, ordens_servico, configuracoes, tutores, referencias_eco, atendimento, logistica
-from app.models import user, papel, agendamento
+from app.api.v1.endpoints import (
+    admin,
+    agenda,
+    atendimento,
+    auth,
+    clinicas,
+    configuracoes,
+    financeiro,
+    frases,
+    frases_ultrassom_abdominal,
+    imagens,
+    laudos,
+    logistica,
+    ordens_servico,
+    pacientes,
+    referencias_eco,
+    servicos,
+    tabelas_preco,
+    tutores,
+    xml_import,
+)
+from app.core.runtime_checks import build_runtime_report, validate_startup_or_raise
 from app.core.websocket import manager
 from app.db.database import engine
+from app.models import user, papel, agendamento
 
 app = FastAPI(
     redirect_slashes=False,
@@ -72,6 +94,11 @@ app.include_router(laudos.router, prefix="/api/v1", tags=["laudos"])
 app.include_router(financeiro.router, prefix="/api/v1/financeiro", tags=["financeiro"])
 app.include_router(xml_import.router, prefix="/api/v1/xml", tags=["xml_import"])
 app.include_router(frases.router, prefix="/api/v1/frases", tags=["frases"])
+app.include_router(
+    frases_ultrassom_abdominal.router,
+    prefix="/api/v1/frases-ultrassom-abdominal",
+    tags=["frases_ultrassom_abdominal"],
+)
 app.include_router(imagens.router, prefix="/api/v1/imagens", tags=["imagens"])
 app.include_router(tabelas_preco.router, prefix="/api/v1/tabelas-preco", tags=["tabelas_preco"])
 app.include_router(ordens_servico.router, prefix="/api/v1/ordens-servico", tags=["ordens_servico"])
@@ -83,8 +110,9 @@ app.include_router(logistica.router, prefix="/api/v1/logistica", tags=["logistic
 
 
 @app.on_event("startup")
-def startup_schema_compatibility():
+def startup_schema_compatibility() -> None:
     _ensure_financeiro_schema_compat()
+    validate_startup_or_raise()
 
 
 # WebSocket endpoint
@@ -94,15 +122,54 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     try:
         while True:
             data = await websocket.receive_text()
-            # Aqui você pode processar mensagens do cliente se necessário
             await manager.send_personal_message(f"Recebido: {data}", websocket)
     except WebSocketDisconnect:
         manager.disconnect(websocket, client_id)
+
 
 @app.get("/")
 def root():
     return {"message": "FortCordis API v2.0", "status": "online"}
 
+
+def _health_payload(report: dict) -> dict:
+    return {
+        "status": report["status"],
+        "database": report["database"]["status"],
+        "readiness": "ready" if report["ready"] else "degraded",
+        "checks": {
+            "migrations": {
+                "tracking_table_exists": report["migrations"].get("tracking_table_exists"),
+                "current_version": report["migrations"].get("current_version"),
+                "latest_version": report["migrations"].get("latest_version"),
+                "pending_count": report["migrations"].get("pending_count"),
+            },
+            "security": {
+                "secret_key_configured": report["security"]["secret_key"].get("configured"),
+                "secret_key_strong": report["security"]["secret_key"].get("strong"),
+            },
+            "integrations": {
+                "google_maps_configured": report["integrations"].get("google_maps_configured"),
+            },
+        },
+        "compatibility_modes": report["compatibility_modes"],
+        "warnings": report["warnings"],
+    }
+
+
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "database": "connected"}
+    report = build_runtime_report()
+    return _health_payload(report)
+
+
+@app.get("/ready")
+def readiness_check():
+    report = build_runtime_report()
+    payload = {
+        **_health_payload(report),
+        "readiness_issues": report["readiness_issues"],
+    }
+    if report["ready"]:
+        return payload
+    return JSONResponse(status_code=503, content=payload)

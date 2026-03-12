@@ -1531,3 +1531,250 @@ def gerar_pdf_laudo_pressao(
 gerar_pdf_laudo = gerar_pdf_laudo_eco
 
 
+def gerar_pdf_laudo_ultrassom_abdominal(
+    dados: Dict[str, Any],
+    logomarca_bytes: bytes = None,
+    assinatura_bytes: bytes = None,
+    nome_veterinario: str = None,
+    crmv: str = None,
+    texto_rodape: str = None,
+) -> bytes:
+    """Gera PDF para laudo de ultrassonografia abdominal."""
+    temp_files = []
+    orgaos_ordenados = [
+        ("figado", "Figado"),
+        ("vesicula_biliar", "Vesicula biliar"),
+        ("estomago", "Estomago"),
+        ("alcas_intestinais", "Alcas intestinais"),
+        ("duodeno", "Duodeno"),
+        ("colon", "Colon"),
+        ("juncao_ileo_ceco_colica", "Juncao ileo-ceco-colica"),
+        ("baco", "Baco"),
+        ("rins", "Rins"),
+        ("bexiga", "Bexiga"),
+        ("pancreas", "Pancreas"),
+        ("adrenais", "Adrenais"),
+        ("prostata", "Prostata"),
+        ("testiculos", "Testiculos"),
+        ("utero", "Utero"),
+        ("ovarios", "Ovarios"),
+    ]
+
+    try:
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=15 * mm,
+            leftMargin=15 * mm,
+            topMargin=15 * mm,
+            bottomMargin=15 * mm,
+        )
+
+        elements = []
+        styles = create_pdf_styles()
+
+        temp_logo_path = None
+        temp_assinatura_path = None
+
+        if logomarca_bytes:
+            temp_logo = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            temp_logo.write(logomarca_bytes)
+            temp_logo.close()
+            temp_logo_path = temp_logo.name
+            temp_files.append(temp_logo_path)
+
+        if assinatura_bytes:
+            temp_ass = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            temp_ass.write(assinatura_bytes)
+            temp_ass.close()
+            temp_assinatura_path = temp_ass.name
+            temp_files.append(temp_assinatura_path)
+
+        dados_pdf = dict(dados or {})
+        ultrassom = dados_pdf.get("ultrassonografia_abdominal") or {}
+        qualitativa = ultrassom.get("qualitativa") or {}
+        observacoes = (
+            ultrassom.get("observacoes_gerais")
+            or dados_pdf.get("observacoes")
+            or ""
+        ).strip()
+
+        elements.extend(
+            criar_cabecalho(
+                dados_pdf,
+                temp_logo_path,
+                titulo_principal="LAUDO DE ULTRASSONOGRAFIA ABDOMINAL",
+                mostrar_linha_ritmo=False,
+            )
+        )
+
+        elements.append(
+            _bloco_sem_quebra(
+                criar_titulo_secao("AVALIACAO ULTRASSONOGRAFICA"),
+                Spacer(1, 2 * mm),
+            )
+        )
+
+        linhas = [
+            [
+                Paragraph("<b>Estrutura avaliada</b>", styles["Normal"]),
+                Paragraph("<b>Descricao</b>", styles["Normal"]),
+            ]
+        ]
+
+        for chave, label in orgaos_ordenados:
+            texto = str(qualitativa.get(chave) or "").strip()
+            if not texto:
+                continue
+            linhas.append(
+                [
+                    Paragraph(f"<b>{_esc(label)}</b>", styles["Normal"]),
+                    Paragraph(_esc(texto).replace("\n", "<br/>"), styles["Normal"]),
+                ]
+            )
+
+        if len(linhas) == 1:
+            linhas.append(
+                [
+                    Paragraph("<b>Descricao</b>", styles["Normal"]),
+                    Paragraph("Nenhum achado qualitativo informado.", styles["Normal"]),
+                ]
+            )
+
+        tabela = Table(linhas, colWidths=[48 * mm, 132 * mm], repeatRows=1)
+        tabela.setStyle(
+            TableStyle(
+                [
+                    ("GRID", (0, 0), (-1, -1), 0.7, colors.black),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ]
+            )
+        )
+        elements.append(tabela)
+
+        if observacoes:
+            elements.append(Spacer(1, 4 * mm))
+            elements.append(criar_titulo_secao("OBSERVACOES GERAIS"))
+            elements.append(Spacer(1, 2 * mm))
+            elements.append(
+                Paragraph(_esc(observacoes).replace("\n", "<br/>"), styles["Conclusao"])
+            )
+
+        elements.append(Spacer(1, 4 * mm))
+        elements.append(
+            Paragraph(
+                "<i>Os achados ultrassonograficos devem ser interpretados em conjunto com o quadro clinico, exames laboratoriais e demais exames complementares.</i>",
+                styles["Normal"],
+            )
+        )
+        elements.append(Spacer(1, 1 * mm))
+        elements.append(
+            Paragraph(
+                "<i>Este exame descreve as alteracoes identificadas ao metodo ultrassonografico no momento da avaliacao.</i>",
+                styles["Normal"],
+            )
+        )
+
+        vet_nome = nome_veterinario or dados_pdf.get("veterinario_nome") or "Medico Veterinario"
+        vet_crmv = crmv or dados_pdf.get("veterinario_crmv") or ""
+        elements.extend(criar_secao_assinatura(vet_nome, vet_crmv, temp_assinatura_path))
+
+        imagens = dados_pdf.get("imagens", [])
+        if imagens:
+            elements.append(PageBreak())
+            elements.append(criar_titulo_secao("IMAGENS"))
+            elements.append(Spacer(1, 5 * mm))
+
+            img_width_limite = 85 * mm
+            img_height_limite = 70 * mm
+            espacamento = 3 * mm
+
+            for page_idx in range(0, len(imagens), 6):
+                if page_idx > 0:
+                    elements.append(PageBreak())
+                    elements.append(criar_titulo_secao("IMAGENS"))
+                    elements.append(Spacer(1, 5 * mm))
+
+                page_imagens = imagens[page_idx : page_idx + 6]
+                table_data = []
+                row = []
+
+                for idx, img_bytes in enumerate(page_imagens):
+                    try:
+                        if not img_bytes:
+                            continue
+
+                        temp_img = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+                        temp_img.write(img_bytes)
+                        temp_img.close()
+                        temp_files.append(temp_img.name)
+
+                        try:
+                            img_reader = ImageReader(temp_img.name)
+                            img_width, img_height = img_reader.getSize()
+                            aspect = img_height / float(img_width) if img_width else 1
+                            if aspect > (img_height_limite / img_width_limite):
+                                draw_height = img_height_limite
+                                draw_width = img_height_limite / aspect if aspect else img_width_limite
+                            else:
+                                draw_width = img_width_limite
+                                draw_height = img_width_limite * aspect
+                        except Exception:
+                            draw_width = img_width_limite
+                            draw_height = img_height_limite
+
+                        row.append(Image(temp_img.name, width=draw_width, height=draw_height))
+                        if len(row) == 2:
+                            table_data.append(row)
+                            row = []
+                    except Exception as e:
+                        print(f"Erro ao adicionar imagem {page_idx + idx}: {e}")
+
+                if row:
+                    while len(row) < 2:
+                        row.append("")
+                    table_data.append(row)
+
+                if table_data:
+                    img_table = Table(
+                        table_data,
+                        colWidths=[img_width_limite + espacamento, img_width_limite + espacamento],
+                    )
+                    img_table.setStyle(
+                        TableStyle(
+                            [
+                                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                                ("LEFTPADDING", (0, 0), (-1, -1), espacamento),
+                                ("RIGHTPADDING", (0, 0), (-1, -1), espacamento),
+                                ("TOPPADDING", (0, 0), (-1, -1), espacamento),
+                                ("BOTTOMPADDING", (0, 0), (-1, -1), espacamento),
+                            ]
+                        )
+                    )
+                    elements.append(img_table)
+                    elements.append(Spacer(1, 3 * mm))
+
+        rodape_texto = texto_rodape or "Fort Cordis Cardiologia Veterinaria | Fortaleza-CE"
+
+        def add_footer(canvas_obj, doc_obj):
+            footer_todas_paginas(canvas_obj, doc_obj, rodape_texto)
+
+        doc.build(elements, onFirstPage=add_footer, onLaterPages=add_footer)
+        buffer.seek(0)
+        return buffer.getvalue()
+    finally:
+        for temp_file in temp_files:
+            try:
+                if os.path.exists(temp_file):
+                    os.unlink(temp_file)
+            except Exception as e:
+                print(f"Erro ao remover arquivo temporario {temp_file}: {e}")
+
+

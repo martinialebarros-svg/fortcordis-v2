@@ -31,8 +31,8 @@ _MODULE_BY_PATH_PREFIX = [
     ("/api/v1/ordens-servico", "ordens_servico"),
     ("/api/v1/configuracoes", "configuracoes"),
     ("/api/v1/atendimentos", "atendimento_clinico"),
+    ("/api/v1/logistica", "logistica"),
 ]
-
 
 def _normalize_path(path: str) -> str:
     if not path:
@@ -66,25 +66,33 @@ def _is_missing_permission_table_error(exc: Exception) -> bool:
     )
 
 
+def _query_permission_rows(
+    db: Session,
+    papel_ids: list[int],
+    module: str,
+) -> list[PapelPermissao]:
+    return (
+        db.query(PapelPermissao)
+        .filter(
+            PapelPermissao.papel_id.in_(papel_ids),
+            PapelPermissao.modulo == module,
+        )
+        .all()
+    )
+
+
 def _user_has_matrix_permission(db: Session, user: User, module: str, action: str) -> bool:
     papel_ids = [papel.id for papel in user.papeis if papel.id is not None]
     if not papel_ids:
         return False
 
     try:
-        registros = (
-            db.query(PapelPermissao)
-            .filter(
-                PapelPermissao.papel_id.in_(papel_ids),
-                PapelPermissao.modulo == module,
-            )
-            .all()
-        )
+        registros = _query_permission_rows(db, papel_ids, module)
     except (ProgrammingError, OperationalError) as exc:
         # Compatibilidade temporária para ambientes sem a migração aplicada.
         db.rollback()
         if _is_missing_permission_table_error(exc):
-            return True
+            return bool(settings.ALLOW_PERMISSION_MATRIX_FALLBACK)
         raise
 
     if not registros:

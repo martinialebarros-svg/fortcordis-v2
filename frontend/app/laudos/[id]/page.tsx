@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import { getLaudoViewPath, TIPO_LAUDO_ULTRASSOM_ABDOMINAL } from "@/lib/laudos";
 import { ArrowLeft, FileText, Download, Edit, Printer } from "lucide-react";
 
 interface Paciente {
@@ -57,6 +58,10 @@ export default function VisualizarLaudoPage({ params }: { params: { id: string }
       
       // Carregar laudo
       const respLaudo = await api.get(`/laudos/${params.id}`);
+      if (respLaudo.data.tipo === TIPO_LAUDO_ULTRASSOM_ABDOMINAL) {
+        router.replace(getLaudoViewPath(params.id, respLaudo.data.tipo));
+        return;
+      }
       setLaudo(respLaudo.data);
       
       // Carregar dados do paciente (agora vem no laudo)

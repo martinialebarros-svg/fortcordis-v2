@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../../layout-dashboard";
 import api from "@/lib/axios";
+import { getLaudoEditPath, TIPO_LAUDO_ULTRASSOM_ABDOMINAL } from "@/lib/laudos";
 import {
   addRacaCustomPorEspecie,
   getRacaOptions,
@@ -804,6 +805,10 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       // Carregar laudo
       const respLaudo = await api.get(`/laudos/${params.id}`);
       const laudoData = respLaudo.data;
+      if (laudoData.tipo === TIPO_LAUDO_ULTRASSOM_ABDOMINAL) {
+        router.replace(getLaudoEditPath(params.id, laudoData.tipo));
+        return;
+      }
       setLaudo(laudoData);
 
       // Preencher form
