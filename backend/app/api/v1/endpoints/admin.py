@@ -1,8 +1,9 @@
 import json
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, inspect, or_
@@ -24,6 +25,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 PERMISSION_MODULES = [
     {"codigo": "dashboard", "nome": "Dashboard"},
     {"codigo": "agenda", "nome": "Agenda"},
+    {"codigo": "logistica", "nome": "Logistica"},
     {"codigo": "pacientes", "nome": "Pacientes e tutores"},
     {"codigo": "clinicas", "nome": "Clinicas"},
     {"codigo": "servicos", "nome": "Servicos"},
@@ -39,6 +41,9 @@ PERMISSION_MODULES = [
 PERMISSION_MODULE_CODES = {item["codigo"] for item in PERMISSION_MODULES}
 _BCRYPT_PREFIXES = ("$2a$", "$2b$", "$2y$", "$2$")
 _DIAGNOSTIC_SAMPLE_LIMIT = 10
+_PERMISSION_SEED_ALIASES = {
+    "logistica": ("agenda", "clinicas"),
+}
 
 
 class PapelAdminResponse(BaseModel):
@@ -127,36 +132,130 @@ def _default_permission_flags(nome_papel: str, modulo: str) -> Tuple[int, int, i
     return 0, 0, 0
 
 
+def _derive_permission_flags_from_aliases(
+    papel_id: int,
+    modulo: str,
+    permission_map: Dict[Tuple[int, str], Tuple[int, int, int]],
+) -> Optional[Tuple[int, int, int]]:
+    aliases = _PERMISSION_SEED_ALIASES.get(modulo, ())
+    if not aliases:
+        return None
+
+    collected = [
+        permission_map[(papel_id, alias)]
+        for alias in aliases
+        if (papel_id, alias) in permission_map
+    ]
+    if not collected:
+        return None
+
+    visualizar = 1 if any(item[0] for item in collected) else 0
+    editar = 1 if any(item[1] for item in collected) else 0
+    excluir = 1 if any(item[2] for item in collected) else 0
+    return visualizar, editar, excluir
+
+
 def _garantir_matriz_permissoes(db: Session) -> List[Papel]:
+    _sync_permission_matrix(db, commit=True)
+    return db.query(Papel).order_by(Papel.nome.asc()).all()
+
+
+def _sync_permission_matrix(
+    db: Session,
+    *,
+    modules: Optional[Set[str]] = None,
+    commit: bool,
+) -> dict:
+    invalid_modules = sorted(
+        modulo for modulo in (modules or set())
+        if modulo not in PERMISSION_MODULE_CODES
+    )
+    if invalid_modules:
+        raise ValueError(f"Modulo(s) invalido(s): {', '.join(invalid_modules)}")
+
     papeis = db.query(Papel).order_by(Papel.nome.asc()).all()
+    papeis_por_id = {papel.id: papel for papel in papeis}
     permissoes_existentes = db.query(PapelPermissao).all()
     mapa_existente: Set[Tuple[int, str]] = {
         (perm.papel_id, (perm.modulo or "").strip())
         for perm in permissoes_existentes
     }
+    permission_values: Dict[Tuple[int, str], Tuple[int, int, int]] = {
+        (perm.papel_id, (perm.modulo or "").strip()): (
+            int(perm.visualizar or 0),
+            int(perm.editar or 0),
+            int(perm.excluir or 0),
+        )
+        for perm in permissoes_existentes
+    }
 
-    criou_novo_registro = False
+    selected_modules = sorted(modules or PERMISSION_MODULE_CODES)
+    created_rows: List[dict] = []
+
     for papel in papeis:
-        for modulo in PERMISSION_MODULE_CODES:
+        for modulo in selected_modules:
             chave = (papel.id, modulo)
             if chave in mapa_existente:
                 continue
-            visualizar, editar, excluir = _default_permission_flags(papel.nome, modulo)
-            db.add(
-                PapelPermissao(
-                    papel_id=papel.id,
-                    modulo=modulo,
-                    visualizar=visualizar,
-                    editar=editar,
-                    excluir=excluir,
-                )
-            )
-            criou_novo_registro = True
 
-    if criou_novo_registro:
+            derived_flags = _derive_permission_flags_from_aliases(
+                papel.id,
+                modulo,
+                permission_values,
+            )
+            if derived_flags is not None:
+                visualizar, editar, excluir = derived_flags
+                source = "alias"
+                aliases = list(_PERMISSION_SEED_ALIASES.get(modulo, ()))
+            else:
+                visualizar, editar, excluir = _default_permission_flags(papel.nome, modulo)
+                source = "default"
+                aliases = []
+
+            if commit:
+                db.add(
+                    PapelPermissao(
+                        papel_id=papel.id,
+                        modulo=modulo,
+                        visualizar=visualizar,
+                        editar=editar,
+                        excluir=excluir,
+                    )
+                )
+
+            created_rows.append(
+                {
+                    "papel_id": papel.id,
+                    "papel_nome": papel.nome,
+                    "modulo": modulo,
+                    "visualizar": bool(visualizar),
+                    "editar": bool(editar),
+                    "excluir": bool(excluir),
+                    "source": source,
+                    "aliases": aliases,
+                }
+            )
+            mapa_existente.add(chave)
+            permission_values[chave] = (visualizar, editar, excluir)
+
+    if commit and created_rows:
         db.commit()
 
-    return papeis
+    created_by_module = Counter(item["modulo"] for item in created_rows)
+    return {
+        "commit_applied": bool(commit),
+        "target_modules": selected_modules,
+        "roles_count": len(papeis),
+        "permission_rows_before": len(permissoes_existentes),
+        "created_count": len(created_rows),
+        "created_by_module": dict(sorted(created_by_module.items())),
+        "created_rows": created_rows,
+        "created_rows_sample": created_rows[:20],
+        "roles": [
+            {"id": papel_id, "nome": papeis_por_id[papel_id].nome}
+            for papel_id in sorted(papeis_por_id)
+        ],
+    }
 
 
 def _serializar_usuario_risco(user: User) -> dict:
@@ -324,6 +423,15 @@ def _avaliar_fallback_permissoes(db: Session) -> dict:
             "unknown_modules": sorted(unknown_modules),
             "incomplete_roles_count": len(incomplete_roles),
             "incomplete_roles_sample": incomplete_roles[:_DIAGNOSTIC_SAMPLE_LIMIT],
+            "missing_modules_summary": dict(
+                sorted(
+                    Counter(
+                        modulo
+                        for item in incomplete_roles
+                        for modulo in item["missing_modules"]
+                    ).items()
+                )
+            ),
             "users_without_roles_count": users_without_roles_count,
             "users_without_roles_sample": users_without_roles_sample,
         },
@@ -538,6 +646,38 @@ def atualizar_permissoes(
 
     db.commit()
     return {"message": "Permissoes atualizadas com sucesso.", "total": len(payload.itens)}
+
+
+@router.post("/permissoes/sync")
+def sincronizar_permissoes(
+    dry_run: bool = True,
+    modulos: Optional[List[str]] = Query(default=None),
+    current_user: User = Depends(require_papel("admin")),
+    db: Session = Depends(get_db),
+):
+    _ = current_user
+    modulos_normalizados = {
+        (modulo or "").strip()
+        for modulo in (modulos or [])
+        if (modulo or "").strip()
+    } or None
+
+    try:
+        summary = _sync_permission_matrix(
+            db,
+            modules=modulos_normalizados,
+            commit=not dry_run,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return {
+        "dry_run": bool(dry_run),
+        **summary,
+    }
 
 
 @router.get("/usuarios")

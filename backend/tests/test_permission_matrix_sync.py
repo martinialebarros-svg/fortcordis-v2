@@ -1,0 +1,73 @@
+import os
+import sys
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+os.chdir(BACKEND_DIR)
+sys.path.insert(0, str(BACKEND_DIR))
+
+os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
+os.environ.setdefault(
+    "SECRET_KEY",
+    "permission-audit-test-secret-key-1234567890",
+)
+
+from app.api.v1.endpoints.admin import PERMISSION_MODULE_CODES, _sync_permission_matrix
+from app.core.security import _user_has_matrix_permission
+from app.db.database import SessionLocal
+
+
+class PermissionMatrixSyncTest(unittest.TestCase):
+    def test_logistica_is_registered_as_permission_module(self) -> None:
+        self.assertIn("logistica", PERMISSION_MODULE_CODES)
+
+    def test_logistica_permission_falls_back_to_agenda_or_clinicas_when_unseeded(self) -> None:
+        user = SimpleNamespace(papeis=[SimpleNamespace(id=2)])
+
+        def fake_query(_db, _papel_ids, modulo):
+            if modulo == "logistica":
+                return []
+            if modulo == "agenda":
+                return [SimpleNamespace(visualizar=1, editar=0, excluir=0)]
+            return []
+
+        with patch("app.core.security._query_permission_rows", side_effect=fake_query):
+            allowed = _user_has_matrix_permission(None, user, "logistica", "visualizar")
+
+        self.assertTrue(allowed)
+
+    def test_explicit_logistica_permission_overrides_compatibility_fallback(self) -> None:
+        user = SimpleNamespace(papeis=[SimpleNamespace(id=2)])
+
+        def fake_query(_db, _papel_ids, modulo):
+            if modulo == "logistica":
+                return [SimpleNamespace(visualizar=0, editar=0, excluir=0)]
+            if modulo == "agenda":
+                return [SimpleNamespace(visualizar=1, editar=1, excluir=0)]
+            return []
+
+        with patch("app.core.security._query_permission_rows", side_effect=fake_query):
+            allowed = _user_has_matrix_permission(None, user, "logistica", "visualizar")
+
+        self.assertFalse(allowed)
+
+    def test_permission_matrix_sync_supports_safe_logistica_dry_run(self) -> None:
+        db = SessionLocal()
+        try:
+            result = _sync_permission_matrix(
+                db,
+                modules={"logistica"},
+                commit=False,
+            )
+        finally:
+            db.close()
+
+        self.assertFalse(result["commit_applied"])
+        self.assertEqual(result["target_modules"], ["logistica"])
+
+
+if __name__ == "__main__":
+    unittest.main()
