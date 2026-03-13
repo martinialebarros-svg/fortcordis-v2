@@ -119,19 +119,7 @@ jobs:
 
             echo "Inspecting frases store..."
             if python3 sync_frases_store.py | tee /tmp/fortcordis-stage-frases-store-report.json; then
-              if python3 - <<'PY'
-import json
-from pathlib import Path
-
-report = json.loads(Path("/tmp/fortcordis-stage-frases-store-report.json").read_text())
-after = report.get("after") or {}
-needs_apply = (
-    after.get("active_source") != "database"
-    or int(after.get("missing_in_database_count") or 0) > 0
-)
-print(f"needs_apply={str(needs_apply).lower()}")
-raise SystemExit(0 if needs_apply else 1)
-PY
+              if python3 -c "import json, pathlib, sys; after = (json.loads(pathlib.Path('/tmp/fortcordis-stage-frases-store-report.json').read_text()).get('after') or {}); needs_apply = after.get('active_source') != 'database' or int(after.get('missing_in_database_count') or 0) > 0; print(f'needs_apply={str(needs_apply).lower()}'); sys.exit(0 if needs_apply else 1)"
               then
                 echo "Applying frases store sync..."
                 python3 sync_frases_store.py --apply
