@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import { getLaudoEditPath, getLaudoViewPath, getTipoLaudoLabel } from "@/lib/laudos";
+import { baixarLaudoPdf } from "@/lib/laudo-pdf";
 import { FileText, Plus, Search, FileCheck, Clock, User, Calendar, Download, Eye, Trash2, Edit } from "lucide-react";
 
 interface Laudo {
@@ -97,36 +98,7 @@ export default function LaudosPage() {
 
   const downloadPDF = async (laudoId: number, titulo: string) => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`/api/v1/laudos/${laudoId}/pdf`, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
-      
-      if (!response.ok) {
-        throw new Error('Erro ao baixar PDF');
-      }
-      
-      // Extrair nome do arquivo do header Content-Disposition
-      let filename = `${titulo.replace(/\s+/g, '_')}.pdf`;
-      const contentDisposition = response.headers.get('content-disposition');
-      
-      if (contentDisposition) {
-        // Regex que aceita tanto filename="..." quanto filename=...
-        const match = contentDisposition.match(/filename="?([^";\s]+)"?/);
-        if (match && match[1]) {
-          filename = match[1];
-        }
-      }
-      
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', filename);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      await baixarLaudoPdf(laudoId, `${titulo.replace(/\s+/g, "_")}.pdf`);
     } catch (error) {
       alert('Erro ao gerar PDF. Tente novamente.');
     }

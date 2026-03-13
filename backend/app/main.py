@@ -32,6 +32,10 @@ from app.core.runtime_checks import build_runtime_report, validate_startup_or_ra
 from app.core.websocket import manager
 from app.db.database import engine
 from app.models import user, papel, agendamento
+from app.services.laudo_pdf_jobs import (
+    restart_incomplete_laudo_pdf_jobs,
+    shutdown_laudo_pdf_jobs,
+)
 
 app = FastAPI(
     redirect_slashes=False,
@@ -113,6 +117,12 @@ app.include_router(logistica.router, prefix="/api/v1/logistica", tags=["logistic
 def startup_schema_compatibility() -> None:
     _ensure_financeiro_schema_compat()
     validate_startup_or_raise()
+    restart_incomplete_laudo_pdf_jobs()
+
+
+@app.on_event("shutdown")
+def shutdown_background_workers() -> None:
+    shutdown_laudo_pdf_jobs()
 
 
 # WebSocket endpoint

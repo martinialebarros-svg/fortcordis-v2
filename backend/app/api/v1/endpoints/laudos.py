@@ -13,6 +13,16 @@ from app.db.database import get_db
 from app.models.laudo import Laudo, Exame
 from app.models.user import User
 from app.core.security import get_current_user
+from app.services.laudo_pdf_jobs import (
+    JOB_STATUS_COMPLETED,
+    JOB_STATUS_PENDING,
+    enqueue_laudo_pdf_job,
+    get_cached_laudo_pdf_job,
+    get_laudo_pdf_job_for_user,
+    serialize_laudo_pdf_job,
+    submit_laudo_pdf_job,
+)
+from app.services.laudo_pdf_service import compute_laudo_pdf_cache_key, render_laudo_pdf
 
 router = APIRouter()
 
@@ -1187,6 +1197,62 @@ def deletar_laudo(
     return {"message": "Laudo e imagens removidos com sucesso"}
 
 
+@router.post("/laudos/{laudo_id}/pdf-jobs", response_model=dict)
+def criar_job_pdf_laudo(
+    laudo_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Enfileira a geracao de PDF do laudo e retorna o status do job."""
+    try:
+        return enqueue_laudo_pdf_job(db, laudo_id, current_user.id)
+    except ValueError as exc:
+        if "Laudo nao encontrado" in str(exc):
+            raise HTTPException(status_code=404, detail="Laudo nao encontrado")
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/laudos/pdf-jobs/{job_id}", response_model=dict)
+def obter_status_job_pdf_laudo(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Consulta o status de um job de PDF do laudo."""
+    job = get_laudo_pdf_job_for_user(db, job_id, current_user.id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job de PDF nao encontrado")
+
+    if job.status == JOB_STATUS_PENDING:
+        submit_laudo_pdf_job(job.id)
+
+    return serialize_laudo_pdf_job(job)
+
+
+@router.get("/laudos/pdf-jobs/{job_id}/download")
+def baixar_pdf_laudo_pronto(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Faz download do arquivo PDF gerado por um job concluido."""
+    from fastapi.responses import FileResponse
+
+    job = get_laudo_pdf_job_for_user(db, job_id, current_user.id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job de PDF nao encontrado")
+    if job.status != JOB_STATUS_COMPLETED:
+        raise HTTPException(status_code=409, detail="PDF ainda nao esta pronto")
+    if not job.arquivo_caminho or not os.path.exists(job.arquivo_caminho):
+        raise HTTPException(status_code=410, detail="Arquivo PDF nao encontrado no armazenamento")
+
+    return FileResponse(
+        path=job.arquivo_caminho,
+        media_type="application/pdf",
+        filename=job.arquivo_nome or f"laudo_{job.laudo_id}.pdf",
+    )
+
+
 # Endpoint para gerar PDF
 @router.get("/laudos/{laudo_id}/pdf")
 def gerar_pdf_laudo(
@@ -1194,7 +1260,44 @@ def gerar_pdf_laudo(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Gera PDF de laudo ecocardiografico ou de pressao arterial."""
+    """Mantem compatibilidade com download direto, reaproveitando cache quando existir."""
+    from fastapi.responses import FileResponse, StreamingResponse
+
+    try:
+        cached_job = None
+        try:
+            cache_key = compute_laudo_pdf_cache_key(db, laudo_id, current_user.id)
+            cached_job = get_cached_laudo_pdf_job(db, laudo_id, current_user.id, cache_key)
+        except Exception as exc:
+            db.rollback()
+            print(f"[WARN] Cache de PDF assincrono indisponivel, seguindo em modo sincrono: {exc}")
+        if (
+            cached_job
+            and cached_job.status == JOB_STATUS_COMPLETED
+            and cached_job.arquivo_caminho
+            and os.path.exists(cached_job.arquivo_caminho)
+        ):
+            return FileResponse(
+                path=cached_job.arquivo_caminho,
+                media_type="application/pdf",
+                filename=cached_job.arquivo_nome or f"laudo_{laudo_id}.pdf",
+            )
+
+        pdf = render_laudo_pdf(db, laudo_id, current_user)
+        return StreamingResponse(
+            BytesIO(pdf.content),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{pdf.filename}"'},
+        )
+    except ValueError as exc:
+        if "Laudo nao encontrado" in str(exc):
+            raise HTTPException(status_code=404, detail="Laudo nao encontrado")
+        raise HTTPException(status_code=400, detail=str(exc))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar PDF: {str(exc)}")
+
     from fastapi.responses import StreamingResponse
     from app.utils.pdf_laudo import (
         gerar_pdf_laudo_eco,

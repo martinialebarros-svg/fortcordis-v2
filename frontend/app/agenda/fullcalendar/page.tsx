@@ -31,6 +31,7 @@ import {
   TIPO_LAUDO_ECOCARDIOGRAMA,
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
+import { baixarLaudoPdf } from "@/lib/laudo-pdf";
 import {
   AgendaExcecaoConfig,
   AgendaFeriadoConfig,
@@ -964,31 +965,10 @@ export default function AgendaFullCalendarPage() {
     }
 
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(`/api/v1/laudos/${laudoSelecionado.id}/pdf`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-
-      if (!response.ok) {
-        throw new Error("Falha ao gerar PDF.");
-      }
-
-      let filename = `laudo_agendamento_${selecionado.id}.pdf`;
-      const contentDisposition = response.headers.get("content-disposition");
-      const match = contentDisposition?.match(/filename=\"?([^\";\s]+)\"?/);
-      if (match?.[1]) {
-        filename = match[1];
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", filename);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      await baixarLaudoPdf(
+        laudoSelecionado.id,
+        `laudo_agendamento_${selecionado.id}.pdf`,
+      );
     } catch (error) {
       console.error("Erro ao baixar PDF do laudo:", error);
       setErro("Nao foi possivel baixar o PDF do laudo agora.");
