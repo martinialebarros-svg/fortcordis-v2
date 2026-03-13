@@ -1,34 +1,19 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
-import { Upload, FileText, CheckCircle, AlertCircle, X } from "lucide-react";
+import React, { useCallback, useState } from "react";
+import { AlertCircle, CheckCircle, FileText, Upload, X } from "lucide-react";
 
-interface DadosPaciente {
-  nome: string;
-  tutor: string;
-  raca: string;
-  especie: string;
-  peso: string;
-  idade: string;
-  sexo: string;
-  telefone: string;
-  data_exame: string;
-}
-
-interface DadosExame {
-  paciente: DadosPaciente;
-  medidas: Record<string, number>;
-  clinica: string;
-  veterinario_solicitante: string;
-  fc: string;
-}
+import { DadosExameImportados, importarXmlEco } from "@/lib/xml-import";
 
 interface XmlUploaderProps {
-  onDadosImportados: (dados: DadosExame) => void;
+  onDadosImportados: (dados: DadosExameImportados) => void;
   className?: string;
 }
 
-export default function XmlUploader({ onDadosImportados, className = "" }: XmlUploaderProps) {
+export default function XmlUploader({
+  onDadosImportados,
+  className = "",
+}: XmlUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,15 +21,8 @@ export default function XmlUploader({ onDadosImportados, className = "" }: XmlUp
   const [arquivoNome, setArquivoNome] = useState<string | null>(null);
 
   const processarArquivo = async (file: File) => {
-    if (!file.name.endsWith(".xml")) {
-      setError("O arquivo deve ter extensão .xml");
-      return;
-    }
-
-    // Verificar se há token
-    const token = localStorage.getItem("token");
-    if (!token) {
-      setError("Você precisa estar logado para importar XML. Faça login novamente.");
+    if (!file.name.toLowerCase().endsWith(".xml")) {
+      setError("O arquivo deve ter extensao .xml");
       return;
     }
 
@@ -54,35 +32,9 @@ export default function XmlUploader({ onDadosImportados, className = "" }: XmlUp
     setArquivoNome(file.name);
 
     try {
-      const formData = new FormData();
-      formData.append("arquivo", file);
-
-      const response = await fetch("/api/v1/xml/importar-eco", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-        },
-        body: formData,
-      });
-
-      if (response.status === 401) {
-        setError("Sessão expirada. Faça login novamente.");
-        setIsLoading(false);
-        return;
-      }
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `Erro ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (data.success) {
-        setSuccess(true);
-        onDadosImportados(data.dados);
-      } else {
-        setError("Erro ao processar o arquivo");
-      }
+      const dados = await importarXmlEco(file);
+      setSuccess(true);
+      onDadosImportados(dados);
     } catch (err: any) {
       setError(err.message || "Erro ao importar XML");
     } finally {
@@ -106,14 +58,14 @@ export default function XmlUploader({ onDadosImportados, className = "" }: XmlUp
 
     const files = e.dataTransfer.files;
     if (files.length > 0) {
-      processarArquivo(files[0]);
+      void processarArquivo(files[0]);
     }
   }, []);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      processarArquivo(files[0]);
+      void processarArquivo(files[0]);
     }
   }, []);
 
@@ -131,9 +83,10 @@ export default function XmlUploader({ onDadosImportados, className = "" }: XmlUp
         onDrop={handleDrop}
         className={`
           border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer
-          ${isDragging 
-            ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20" 
-            : "border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500"
+          ${
+            isDragging
+              ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+              : "border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500"
           }
           ${error ? "border-red-300 bg-red-50 dark:bg-red-900/20" : ""}
           ${success ? "border-green-300 bg-green-50 dark:bg-green-900/20" : ""}
@@ -150,9 +103,7 @@ export default function XmlUploader({ onDadosImportados, className = "" }: XmlUp
           {isLoading ? (
             <div className="flex flex-col items-center">
               <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500 mb-3"></div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Processando XML...
-              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Processando XML...</p>
             </div>
           ) : success ? (
             <div className="flex flex-col items-center">
@@ -160,21 +111,15 @@ export default function XmlUploader({ onDadosImportados, className = "" }: XmlUp
               <p className="text-sm font-medium text-green-700 dark:text-green-400">
                 XML importado com sucesso!
               </p>
-              {arquivoNome && (
-                <p className="text-xs text-gray-500 mt-1">{arquivoNome}</p>
-              )}
+              {arquivoNome && <p className="text-xs text-gray-500 mt-1">{arquivoNome}</p>}
             </div>
           ) : (
             <div className="flex flex-col items-center">
               {error ? (
                 <>
                   <AlertCircle className="h-10 w-10 text-red-500 mb-3" />
-                  <p className="text-sm text-red-600 dark:text-red-400 mb-1">
-                    {error}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    Clique para tentar novamente
-                  </p>
+                  <p className="text-sm text-red-600 dark:text-red-400 mb-1">{error}</p>
+                  <p className="text-xs text-gray-500">Clique para tentar novamente</p>
                 </>
               ) : (
                 <>
@@ -183,7 +128,7 @@ export default function XmlUploader({ onDadosImportados, className = "" }: XmlUp
                     Arraste o arquivo XML ou clique para selecionar
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Aparelhos compatíveis: Vivid IQ e similares
+                    Aparelhos compativeis: Vivid IQ e similares
                   </p>
                 </>
               )}

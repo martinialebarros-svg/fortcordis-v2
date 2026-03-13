@@ -10,6 +10,7 @@ from app.models.financeiro import Transacao, ContaPagar, ContaReceber
 from app.models.frase import FraseQualitativa, FraseQualitativaHistorico
 from app.models.imagem_laudo import ImagemLaudo, ImagemTemporaria
 from app.models.laudo_pdf_job import LaudoPdfJob
+from app.models.xml_import_job import XmlImportJob
 from app.models.tabela_preco import TabelaPreco, PrecoServico, PrecoServicoClinica
 from app.models.ordem_servico import OrdemServico
 from app.models.referencia_eco import ReferenciaEco
