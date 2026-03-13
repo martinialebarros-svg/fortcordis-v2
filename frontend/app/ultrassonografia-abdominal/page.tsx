@@ -9,6 +9,7 @@ import {
   getLaudoViewPath,
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
+import { baixarLaudoPdf } from "@/lib/laudo-pdf";
 import { Calendar, Download, Eye, Edit, Plus, Search, Trash2 } from "lucide-react";
 
 interface LaudoLista {
@@ -76,22 +77,7 @@ export default function UltrassonografiaAbdominalPage() {
 
   const downloadPDF = async (laudoId: number) => {
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(`/api/v1/laudos/${laudoId}/pdf`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!response.ok) {
-        throw new Error("Erro ao gerar PDF.");
-      }
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `ultrassonografia_abdominal_${laudoId}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      await baixarLaudoPdf(laudoId, `ultrassonografia_abdominal_${laudoId}.pdf`);
     } catch (error) {
       console.error("Erro ao baixar PDF:", error);
       alert("Nao foi possivel baixar o PDF.");

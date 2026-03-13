@@ -273,7 +273,6 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     }
     
     # Debug: listar todos os parâmetros do XML
-    debug_listar_parametros(soup)
     
     # ============== DADOS DO PACIENTE ==============
     

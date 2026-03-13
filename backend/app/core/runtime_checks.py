@@ -6,6 +6,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.db.database import engine
+from app.services.laudo_pdf_jobs import get_laudo_pdf_storage_dir
 from migrations.runner import get_migration_status
 
 _PLACEHOLDER_SECRET_KEYS = {"", "change-me", "changeme", "secret", "default"}
@@ -106,6 +107,12 @@ def build_runtime_report() -> dict[str, Any]:
     if not database["connected"]:
         readiness_issues.insert(0, "Banco indisponivel.")
 
+    laudo_pdf_jobs_dir = None
+    try:
+        laudo_pdf_jobs_dir = get_laudo_pdf_storage_dir()
+    except Exception as exc:
+        warnings.append(f"Diretorio de PDFs assincronos indisponivel: {exc}")
+
     return {
         "status": "healthy" if database["connected"] else "unhealthy",
         "ready": len(readiness_issues) == 0,
@@ -121,6 +128,7 @@ def build_runtime_report() -> dict[str, Any]:
         "integrations": {
             "google_maps_configured": bool(str(settings.GOOGLE_MAPS_API_KEY or "").strip()),
             "upload_dir": settings.UPLOAD_DIR,
+            "laudo_pdf_jobs_dir": laudo_pdf_jobs_dir,
         },
         "warnings": warnings,
         "startup_enforced_issues": startup_enforced_issues,

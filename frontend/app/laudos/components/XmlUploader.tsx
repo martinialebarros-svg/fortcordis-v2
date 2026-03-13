@@ -77,10 +77,6 @@ export default function XmlUploader({ onDadosImportados, className = "" }: XmlUp
       }
 
       const data = await response.json();
-      console.log("[XML_UPLOADER] Resposta da API:", data);
-      console.log("[XML_UPLOADER] Dados recebidos:", data.dados);
-      console.log("[XML_UPLOADER] Medidas recebidas:", data.dados?.medidas);
-
       if (data.success) {
         setSuccess(true);
         onDadosImportados(data.dados);

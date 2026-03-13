@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import { getLaudoViewPath, TIPO_LAUDO_ULTRASSOM_ABDOMINAL } from "@/lib/laudos";
+import { baixarLaudoPdf } from "@/lib/laudo-pdf";
 import { ArrowLeft, FileText, Download, Edit, Printer } from "lucide-react";
 
 interface Paciente {
@@ -109,6 +110,7 @@ export default function VisualizarLaudoPage({ params }: { params: { id: string }
 
   const downloadPDF = async () => {
     try {
+      return await baixarLaudoPdf(Number(params.id), `laudo_${params.id}.pdf`);
       const token = localStorage.getItem('token');
       const response = await fetch(`/api/v1/laudos/${params.id}/pdf`, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
@@ -125,9 +127,9 @@ export default function VisualizarLaudoPage({ params }: { params: { id: string }
       
       if (contentDisposition) {
         // Regex que aceita tanto filename="..." quanto filename=...
-        const match = contentDisposition.match(/filename="?([^";\s]+)"?/);
-        if (match && match[1]) {
-          filename = match[1];
+        const match = contentDisposition?.match(/filename="?([^";\s]+)"?/);
+        if (match?.[1]) {
+          filename = match?.[1] || filename;
           console.log('Nome extraído:', filename);
         }
       }

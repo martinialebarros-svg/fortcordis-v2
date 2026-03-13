@@ -9,6 +9,7 @@ from app.core.security import get_current_user
 from app.utils.xml_parser import parse_xml_eco
 
 router = APIRouter()
+MAX_XML_IMPORT_SIZE = 5 * 1024 * 1024
 
 
 @router.post("/importar-eco", response_model=dict)
@@ -30,6 +31,11 @@ def importar_xml_eco(
     try:
         # Ler conteúdo do arquivo
         content = arquivo.file.read()
+        if len(content) > MAX_XML_IMPORT_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="XML excede o limite de 5MB"
+            )
         
         # Fazer parse do XML
         dados = parse_xml_eco(content)
@@ -40,6 +46,8 @@ def importar_xml_eco(
             "filename": arquivo.filename
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -71,6 +79,11 @@ def importar_xml_eco_base64(
     try:
         # Decodificar base64
         content = base64.b64decode(content_b64)
+        if len(content) > MAX_XML_IMPORT_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="XML excede o limite de 5MB"
+            )
         
         # Fazer parse do XML
         dados_exame = parse_xml_eco(content)
@@ -81,6 +94,8 @@ def importar_xml_eco_base64(
             "filename": filename
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
