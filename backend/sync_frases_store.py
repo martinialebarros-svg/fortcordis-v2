@@ -18,28 +18,43 @@ from app.services.frases_service import (
 )
 
 
+def build_sync_result(apply: bool = False) -> dict:
+    report_before = get_frases_store_report()
+    result = {
+        "before": report_before,
+        "apply_requested": bool(apply),
+        "seed": None,
+        "json_mirror": None,
+    }
+
+    if apply:
+        db = SessionLocal()
+        try:
+            result["seed"] = ensure_frases_store_seeded(db)
+            report_after_seed = get_frases_store_report()
+            if int(report_after_seed.get("missing_in_database_count") or 0) == 0:
+                result["json_mirror"] = sync_frases_json_mirror(db)
+            else:
+                result["json_mirror"] = {
+                    "synced": False,
+                    "count": 0,
+                    "reason": "database_still_missing_entries",
+                    "missing_in_database_count": int(report_after_seed.get("missing_in_database_count") or 0),
+                    "extra_in_database_count": int(report_after_seed.get("extra_in_database_count") or 0),
+                }
+        finally:
+            db.close()
+
+    result["after"] = get_frases_store_report()
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Inspeciona ou sincroniza o store de frases.")
     parser.add_argument("--apply", action="store_true", help="Aplica seed no banco e regrava o espelho JSON.")
     args = parser.parse_args()
 
-    report_before = get_frases_store_report()
-    result = {
-        "before": report_before,
-        "apply_requested": bool(args.apply),
-        "seed": None,
-        "json_mirror": None,
-    }
-
-    if args.apply:
-        db = SessionLocal()
-        try:
-            result["seed"] = ensure_frases_store_seeded(db)
-            result["json_mirror"] = sync_frases_json_mirror(db)
-        finally:
-            db.close()
-
-    result["after"] = get_frases_store_report()
+    result = build_sync_result(apply=bool(args.apply))
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
 

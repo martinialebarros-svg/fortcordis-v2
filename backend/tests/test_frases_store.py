@@ -4,9 +4,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -20,7 +20,9 @@ os.environ.setdefault(
 )
 
 from app.models.frase import FraseQualitativa, FraseQualitativaHistorico
+from app.models.user import User
 from app.services import frases_service
+import sync_frases_store
 
 
 def _sample_frases_payload() -> dict:
@@ -72,6 +74,14 @@ class FrasesStoreTest(unittest.TestCase):
     def _build_session(self, tmpdir: str):
         db_path = Path(tmpdir) / "frases-store-test.db"
         engine = create_engine(f"sqlite:///{db_path}")
+
+        @event.listens_for(engine, "connect")
+        def _set_sqlite_pragma(dbapi_connection, _connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+        User.__table__.create(engine, checkfirst=True)
         FraseQualitativa.__table__.create(engine, checkfirst=True)
         FraseQualitativaHistorico.__table__.create(engine, checkfirst=True)
         return sessionmaker(bind=engine, autocommit=False, autoflush=False)(), engine
@@ -95,6 +105,33 @@ class FrasesStoreTest(unittest.TestCase):
                     resultado = frases_service.listar_frases(db, limit=10)
                     self.assertEqual(resultado["total"], 2)
                     self.assertEqual(resultado["items"][0]["chave"], "Doenca X (Leve)")
+            finally:
+                db.close()
+                engine.dispose()
+
+    def test_seed_ignores_invalid_created_by_in_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            frases_file = data_dir / "frases.json"
+            patologias_file = data_dir / "patologias.json"
+            payload = _sample_frases_payload()
+            payload["frases"][1]["created_by"] = 999
+            frases_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            patologias_file.write_text('{"patologias": []}', encoding="utf-8")
+
+            db, engine = self._build_session(tmpdir)
+            try:
+                with patch.object(frases_service, "DATA_DIR", data_dir), patch.object(
+                    frases_service, "FRASES_FILE", frases_file
+                ), patch.object(frases_service, "PATOLOGIAS_FILE", patologias_file):
+                    report = frases_service.ensure_frases_store_seeded(db)
+                    self.assertTrue(report["seeded"])
+                    self.assertEqual(report["seeded_count"], 2)
+                    self.assertEqual(report["ignored_invalid_created_by_count"], 1)
+
+                    frases = db.query(FraseQualitativa).order_by(FraseQualitativa.id.asc()).all()
+                    self.assertEqual(len(frases), 2)
+                    self.assertIsNone(frases[1].created_by)
             finally:
                 db.close()
                 engine.dispose()
@@ -133,6 +170,33 @@ class FrasesStoreTest(unittest.TestCase):
             finally:
                 db.close()
                 engine.dispose()
+
+    def test_build_sync_result_skips_json_mirror_when_database_still_missing_entries(self) -> None:
+        before = {
+            "tables_ready": True,
+            "active_source": "database",
+            "database_count": 38,
+            "json_count": 76,
+            "missing_in_database_count": 45,
+            "extra_in_database_count": 7,
+        }
+        after_seed = dict(before)
+        fake_session = MagicMock()
+
+        with patch.object(sync_frases_store, "SessionLocal", return_value=fake_session), patch.object(
+            sync_frases_store, "ensure_frases_store_seeded", return_value={"seeded": False, "seeded_count": 0}
+        ), patch.object(
+            sync_frases_store,
+            "get_frases_store_report",
+            side_effect=[before, after_seed, after_seed],
+        ), patch.object(sync_frases_store, "sync_frases_json_mirror") as sync_mirror_mock:
+            result = sync_frases_store.build_sync_result(apply=True)
+
+        sync_mirror_mock.assert_not_called()
+        fake_session.close.assert_called_once()
+        self.assertEqual(result["after"]["missing_in_database_count"], 45)
+        self.assertFalse(result["json_mirror"]["synced"])
+        self.assertEqual(result["json_mirror"]["reason"], "database_still_missing_entries")
 
 
 if __name__ == "__main__":

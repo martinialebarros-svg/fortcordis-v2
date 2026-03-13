@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.db.database import SessionLocal
 from app.models.frase import FraseQualitativa, FraseQualitativaHistorico
+from app.models.user import User
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 FRASES_FILE = DATA_DIR / "frases.json"
@@ -382,6 +383,23 @@ def _db_has_frases(db: Session) -> bool:
         return False
 
 
+def _load_valid_user_ids(db: Session) -> set[int]:
+    try:
+        return {int(row[0]) for row in db.query(User.id).all() if row[0] is not None}
+    except (ProgrammingError, OperationalError):
+        db.rollback()
+        return set()
+
+
+def _normalize_seed_created_by(value: Any, valid_user_ids: set[int]) -> Optional[int]:
+    created_by = _to_int(value)
+    if created_by is None:
+        return None
+    if created_by in valid_user_ids:
+        return created_by
+    return None
+
+
 def _frase_model_to_dict(frase: FraseQualitativa) -> Dict[str, Any]:
     return {
         "id": frase.id,
@@ -418,6 +436,8 @@ def ensure_frases_store_seeded(db: Session) -> Dict[str, Any]:
         "seeded_count": 0,
         "db_count": 0,
         "json_count": 0,
+        "ignored_invalid_created_by_count": 0,
+        "error": None,
     }
     if not report["tables_ready"]:
         return report
@@ -438,6 +458,7 @@ def ensure_frases_store_seeded(db: Session) -> Dict[str, Any]:
     existing_rows = db.query(FraseQualitativa.id, FraseQualitativa.chave).all()
     existing_keys = {str(item.chave or "").strip() for item in existing_rows if str(item.chave or "").strip()}
     existing_ids = {int(item.id) for item in existing_rows if item.id is not None}
+    valid_user_ids = _load_valid_user_ids(db)
 
     inserted = 0
     for item in sorted(frases_json, key=lambda frase: _to_int(frase.get("id")) or 0):
@@ -448,6 +469,11 @@ def ensure_frases_store_seeded(db: Session) -> Dict[str, Any]:
         frase_id = _to_int(item.get("id"))
         if frase_id in existing_ids:
             frase_id = None
+
+        created_by = _to_int(item.get("created_by"))
+        normalized_created_by = _normalize_seed_created_by(created_by, valid_user_ids)
+        if created_by is not None and normalized_created_by is None:
+            report["ignored_invalid_created_by_count"] += 1
 
         db.add(
             FraseQualitativa(
@@ -465,7 +491,7 @@ def ensure_frases_store_seeded(db: Session) -> Dict[str, Any]:
                 detalhado=_normalize_detalhado(item.get("detalhado")),
                 layout=item.get("layout", "detalhado"),
                 ativo=int(item.get("ativo", 1) or 0),
-                created_by=_to_int(item.get("created_by")),
+                created_by=normalized_created_by,
                 created_at=_parse_datetime_value(item.get("created_at")),
                 updated_at=_parse_datetime_value(item.get("updated_at")),
             )
@@ -478,9 +504,10 @@ def ensure_frases_store_seeded(db: Session) -> Dict[str, Any]:
 
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
         report["db_count"] = db.query(FraseQualitativa).count()
+        report["error"] = str(getattr(exc, "orig", exc))
         return report
     report["seeded"] = True
     report["db_count"] = db.query(FraseQualitativa).count()

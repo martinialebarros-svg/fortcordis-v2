@@ -79,6 +79,46 @@ jobs:
               exit 1
             }
 
+            current_frases_count() {
+              python3 - <<'PY'
+import json
+from pathlib import Path
+
+path = Path("backend/data/frases.json")
+if not path.exists():
+    print(0)
+else:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        print(len(payload.get("frases", [])))
+    except Exception:
+        print(0)
+PY
+            }
+
+            restore_richer_frases_backup() {
+              current_count="$(current_frases_count)"
+              best_backup=""
+              best_count="$current_count"
+
+              for backup in backup_stage_*.tar.gz; do
+                [ -f "$backup" ] || continue
+                backup_count="$(tar -xOf "$backup" backend/data/frases.json 2>/dev/null | python3 -c "import json, sys; print(len((json.load(sys.stdin) or {}).get('frases', [])))" 2>/dev/null || echo 0)"
+                if [ "$backup_count" -gt "$best_count" ]; then
+                  best_backup="$backup"
+                  best_count="$backup_count"
+                fi
+              done
+
+              if [ -n "$best_backup" ]; then
+                echo "Restoring richer frases.json from $best_backup (${best_count} entries)..."
+                mkdir -p backend/data
+                tar -xOf "$best_backup" backend/data/frases.json > backend/data/frases.json
+              else
+                echo "No richer frases.json backup found; keeping current file (${current_count} entries)."
+              fi
+            }
+
             if [ ! -d "$STAGE_DIR/.git" ]; then
               echo "ERROR: $STAGE_DIR is not a git checkout"
               exit 1
@@ -102,6 +142,7 @@ jobs:
               cp -r /tmp/fortcordis_data_backup/* backend/data/ 2>/dev/null || true
               rm -rf /tmp/fortcordis_data_backup
             fi
+            restore_richer_frases_backup
 
             echo "Deploying backend..."
             cd backend
