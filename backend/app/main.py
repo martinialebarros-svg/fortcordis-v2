@@ -32,6 +32,10 @@ from app.services.laudo_pdf_jobs import (
     restart_incomplete_laudo_pdf_jobs,
     shutdown_laudo_pdf_jobs,
 )
+from app.services.xml_import_jobs import (
+    restart_incomplete_xml_import_jobs,
+    shutdown_xml_import_jobs,
+)
 
 app = FastAPI(
     redirect_slashes=False,
@@ -114,11 +118,13 @@ def startup_schema_compatibility() -> None:
     _ensure_financeiro_schema_compat()
     validate_startup_or_raise()
     restart_incomplete_laudo_pdf_jobs()
+    restart_incomplete_xml_import_jobs()
 
 
 @app.on_event("shutdown")
 def shutdown_background_workers() -> None:
     shutdown_laudo_pdf_jobs()
+    shutdown_xml_import_jobs()
 
 
 # WebSocket endpoint
