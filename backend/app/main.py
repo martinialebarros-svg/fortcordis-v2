@@ -162,6 +162,7 @@ def _health_payload(report: dict) -> dict:
             },
             "integrations": {
                 "google_maps_configured": report["integrations"].get("google_maps_configured"),
+                "frases_store": report["integrations"].get("frases_store"),
             },
         },
         "compatibility_modes": report["compatibility_modes"],
