@@ -80,20 +80,7 @@ jobs:
             }
 
             current_frases_count() {
-              python3 - <<'PY'
-import json
-from pathlib import Path
-
-path = Path("backend/data/frases.json")
-if not path.exists():
-    print(0)
-else:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        print(len(payload.get("frases", [])))
-    except Exception:
-        print(0)
-PY
+              python3 -c "import json, pathlib; path = pathlib.Path('backend/data/frases.json'); print(0 if not path.exists() else len((json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}).get('frases', [])))" 2>/dev/null || echo 0
             }
 
             restore_richer_frases_backup() {
