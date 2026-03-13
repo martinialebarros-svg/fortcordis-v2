@@ -136,6 +136,33 @@ class FrasesStoreTest(unittest.TestCase):
                 db.close()
                 engine.dispose()
 
+    def test_seed_ignores_duplicate_ids_from_json_and_uses_database_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            frases_file = data_dir / "frases.json"
+            patologias_file = data_dir / "patologias.json"
+            payload = _sample_frases_payload()
+            payload["frases"][0]["id"] = 46
+            payload["frases"][1]["id"] = 46
+            frases_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            patologias_file.write_text('{"patologias": []}', encoding="utf-8")
+
+            db, engine = self._build_session(tmpdir)
+            try:
+                with patch.object(frases_service, "DATA_DIR", data_dir), patch.object(
+                    frases_service, "FRASES_FILE", frases_file
+                ), patch.object(frases_service, "PATOLOGIAS_FILE", patologias_file):
+                    report = frases_service.ensure_frases_store_seeded(db)
+                    self.assertTrue(report["seeded"])
+                    self.assertEqual(report["seeded_count"], 2)
+
+                    frases = db.query(FraseQualitativa).order_by(FraseQualitativa.id.asc()).all()
+                    self.assertEqual(len(frases), 2)
+                    self.assertNotEqual(frases[0].id, frases[1].id)
+            finally:
+                db.close()
+                engine.dispose()
+
     def test_sync_json_mirror_writes_database_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = Path(tmpdir)

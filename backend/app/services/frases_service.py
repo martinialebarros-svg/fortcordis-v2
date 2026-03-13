@@ -457,7 +457,6 @@ def ensure_frases_store_seeded(db: Session) -> Dict[str, Any]:
 
     existing_rows = db.query(FraseQualitativa.id, FraseQualitativa.chave).all()
     existing_keys = {str(item.chave or "").strip() for item in existing_rows if str(item.chave or "").strip()}
-    existing_ids = {int(item.id) for item in existing_rows if item.id is not None}
     valid_user_ids = _load_valid_user_ids(db)
 
     inserted = 0
@@ -466,10 +465,6 @@ def ensure_frases_store_seeded(db: Session) -> Dict[str, Any]:
         if not chave or chave in existing_keys:
             continue
 
-        frase_id = _to_int(item.get("id"))
-        if frase_id in existing_ids:
-            frase_id = None
-
         created_by = _to_int(item.get("created_by"))
         normalized_created_by = _normalize_seed_created_by(created_by, valid_user_ids)
         if created_by is not None and normalized_created_by is None:
@@ -477,7 +472,6 @@ def ensure_frases_store_seeded(db: Session) -> Dict[str, Any]:
 
         db.add(
             FraseQualitativa(
-                id=frase_id,
                 chave=chave,
                 patologia=item.get("patologia", ""),
                 grau=item.get("grau", "Normal"),
