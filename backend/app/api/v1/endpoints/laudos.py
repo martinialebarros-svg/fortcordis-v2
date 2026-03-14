@@ -173,6 +173,26 @@ def _normalizar_sexo_paciente(sexo: Any) -> str:
     return ""
 
 
+def _normalizar_ecocardiograma_cabecalho(raw: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+
+    ritmo = str(raw.get("ritmo") or "").strip()
+    estado = str(raw.get("estado") or "").strip()
+    fc = str(raw.get("fc") or "").strip()
+    versao = _to_int_or_none(raw.get("versao")) or 1
+
+    if not ritmo and not estado and not fc:
+        return None
+
+    return {
+        "versao": versao,
+        "ritmo": ritmo,
+        "estado": estado,
+        "fc": fc,
+    }
+
+
 def _carregar_anexos_dict(anexos_raw: Any) -> Dict[str, Any]:
     anexos_data: Dict[str, Any] = {}
     if isinstance(anexos_raw, dict):
@@ -238,6 +258,7 @@ def _serializar_anexos(
     anexos_raw: Any,
     pressao_arterial: Any = _ANEXOS_UNSET,
     ultrassonografia_abdominal: Any = _ANEXOS_UNSET,
+    ecocardiograma_cabecalho: Any = _ANEXOS_UNSET,
 ) -> Optional[str]:
     anexos_data = _carregar_anexos_dict(anexos_raw)
 
@@ -252,6 +273,12 @@ def _serializar_anexos(
             anexos_data["ultrassonografia_abdominal"] = ultrassonografia_abdominal
         else:
             anexos_data.pop("ultrassonografia_abdominal", None)
+
+    if ecocardiograma_cabecalho is not _ANEXOS_UNSET:
+        if ecocardiograma_cabecalho:
+            anexos_data["ecocardiograma_cabecalho"] = ecocardiograma_cabecalho
+        else:
+            anexos_data.pop("ecocardiograma_cabecalho", None)
 
     if not anexos_data:
         return None
@@ -283,6 +310,21 @@ def _extrair_ultrassonografia_abdominal_de_anexos(anexos_raw: Any) -> Optional[D
             parsed = json.loads(anexos_raw)
             if isinstance(parsed, dict):
                 return _normalizar_ultrassonografia_abdominal(parsed.get("ultrassonografia_abdominal"))
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _extrair_ecocardiograma_cabecalho_de_anexos(anexos_raw: Any) -> Optional[Dict[str, Any]]:
+    if not anexos_raw:
+        return None
+    if isinstance(anexos_raw, dict):
+        return _normalizar_ecocardiograma_cabecalho(anexos_raw.get("ecocardiograma_cabecalho"))
+    if isinstance(anexos_raw, str):
+        try:
+            parsed = json.loads(anexos_raw)
+            if isinstance(parsed, dict):
+                return _normalizar_ecocardiograma_cabecalho(parsed.get("ecocardiograma_cabecalho"))
         except json.JSONDecodeError:
             return None
     return None
@@ -617,6 +659,9 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
 
         paciente_id = _resolver_ou_criar_paciente(paciente, db)
         pressao_arterial = _normalizar_pressao_arterial(laudo_data.get("pressao_arterial"))
+        ecocardiograma_cabecalho = _normalizar_ecocardiograma_cabecalho(
+            laudo_data.get("ecocardiograma_cabecalho")
+        )
 
         descricao_parts = ["## Medidas Ecocardiograficas\n"]
         for key, value in medidas.items():
@@ -633,7 +678,11 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
         observacoes = conteudo.get("observacoes", "")
         clinic_id = _extrair_clinic_id(clinica)
         data_exame = _parse_data_exame(paciente.get("data_exame") or paciente.get("data"))
-        anexos_json = _serializar_anexos(laudo_data.get("anexos"), pressao_arterial)
+        anexos_json = _serializar_anexos(
+            laudo_data.get("anexos"),
+            pressao_arterial=pressao_arterial,
+            ecocardiograma_cabecalho=ecocardiograma_cabecalho,
+        )
 
         agendamento_id = laudo_data.get("agendamento_id")
         if agendamento_id in ("", 0):
@@ -1061,6 +1110,7 @@ def obter_laudo(
 
     pressao_arterial = _extrair_pressao_arterial_de_anexos(laudo.anexos)
     ultrassonografia_abdominal = _extrair_ultrassonografia_abdominal_de_anexos(laudo.anexos)
+    ecocardiograma_cabecalho = _extrair_ecocardiograma_cabecalho_de_anexos(laudo.anexos)
     if not ultrassonografia_abdominal and (laudo.tipo or "").lower() == "ultrassonografia_abdominal":
         ultrassonografia_abdominal = _extrair_ultrassonografia_abdominal_do_descricao(laudo.descricao)
     if ultrassonografia_abdominal and not ultrassonografia_abdominal.get("sexo_paciente") and paciente:
@@ -1095,6 +1145,7 @@ def obter_laudo(
         "data_laudo": laudo.data_laudo.isoformat() if laudo.data_laudo else None,
         "pressao_arterial": pressao_arterial,
         "ultrassonografia_abdominal": ultrassonografia_abdominal,
+        "ecocardiograma_cabecalho": ecocardiograma_cabecalho,
         "imagens": imagens_list,
     }
 
@@ -1161,6 +1212,15 @@ def atualizar_laudo(
                 "observacoes",
                 ultrassonografia_abdominal.get("observacoes_gerais") or "",
             )
+
+    if "ecocardiograma_cabecalho" in laudo_data:
+        ecocardiograma_cabecalho = _normalizar_ecocardiograma_cabecalho(
+            laudo_data.pop("ecocardiograma_cabecalho")
+        )
+        laudo.anexos = _serializar_anexos(
+            laudo.anexos,
+            ecocardiograma_cabecalho=ecocardiograma_cabecalho,
+        )
 
     for field, value in laudo_data.items():
         if hasattr(laudo, field):
@@ -1393,6 +1453,10 @@ def gerar_pdf_laudo(
             "solicitante": laudo.medico_solicitante or "",
             "data_exame": data_exame_str,
         }
+        ecocardiograma_cabecalho = _extrair_ecocardiograma_cabecalho_de_anexos(laudo.anexos) or {}
+        dados_paciente["ritmo"] = str(ecocardiograma_cabecalho.get("ritmo") or "").strip()
+        dados_paciente["estado"] = str(ecocardiograma_cabecalho.get("estado") or "").strip()
+        dados_paciente["fc"] = str(ecocardiograma_cabecalho.get("fc") or "").strip()
 
         logomarca = None
         assinatura = None

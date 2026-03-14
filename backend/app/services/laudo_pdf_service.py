@@ -199,6 +199,12 @@ def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> Generate
             "solicitante": laudo.medico_solicitante or "",
             "data_exame": data_exame_str,
         }
+        ecocardiograma_cabecalho = (
+            laudos_endpoint._extrair_ecocardiograma_cabecalho_de_anexos(laudo.anexos) or {}
+        )
+        dados_paciente["ritmo"] = str(ecocardiograma_cabecalho.get("ritmo") or "").strip()
+        dados_paciente["estado"] = str(ecocardiograma_cabecalho.get("estado") or "").strip()
+        dados_paciente["fc"] = str(ecocardiograma_cabecalho.get("fc") or "").strip()
 
         logomarca = None
         assinatura = None
