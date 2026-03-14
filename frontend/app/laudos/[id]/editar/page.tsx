@@ -125,6 +125,25 @@ const OPCOES_DECUBITO = [
   "Outro",
 ];
 
+const OPCOES_RITMO = [
+  "Sinusal",
+  "Arritmia sinusal",
+  "Fibrilacao atrial",
+  "Taquicardia sinusal",
+  "Bradicardia sinusal",
+];
+
+const OPCOES_ESTADO_PACIENTE = [
+  "Calmo",
+  "Agitado",
+  "Ofegante",
+  "Dispneico",
+  "Sedado",
+];
+
+const incluirOpcaoAtual = (opcoes: string[], valorAtual: string) =>
+  valorAtual && !opcoes.includes(valorAtual) ? [valorAtual, ...opcoes] : opcoes;
+
 interface Clinica {
   id: number;
   nome: string;
@@ -167,6 +186,11 @@ interface Laudo {
     decubito?: string;
     obs_extra?: string;
   } | null;
+  ecocardiograma_cabecalho?: {
+    ritmo?: string | null;
+    estado?: string | null;
+    fc?: string | null;
+  } | null;
   criado_por_nome: string;
 }
 
@@ -198,6 +222,12 @@ interface DadosExame {
   medidas: Record<string, number>;
   clinica: string | { id: number; nome: string };
   veterinario_solicitante: string;
+  fc: string;
+}
+
+interface EcocardiogramaCabecalho {
+  ritmo: string;
+  estado: string;
   fc: string;
 }
 
@@ -253,6 +283,11 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     pericardio: "",
     vasos: "",
     ad_vd: "",
+  });
+  const [ecocardiogramaCabecalho, setEcocardiogramaCabecalho] = useState<EcocardiogramaCabecalho>({
+    ritmo: "",
+    estado: "",
+    fc: "",
   });
 
   const [pressaoArterial, setPressaoArterial] = useState({
@@ -311,6 +346,11 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
   const [imagens, setImagens] = useState<Imagem[]>([]);
   const [imagensTemp, setImagensTemp] = useState<any[]>([]);
   const [sessionId] = useState<string>(() => Math.random().toString(36).substring(2, 15));
+  const opcoesRitmoPaciente = incluirOpcaoAtual(OPCOES_RITMO, ecocardiogramaCabecalho.ritmo);
+  const opcoesEstadoPaciente = incluirOpcaoAtual(
+    OPCOES_ESTADO_PACIENTE,
+    ecocardiogramaCabecalho.estado,
+  );
 
   // Mensagem de sucesso
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
@@ -794,6 +834,13 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       setMedicoSolicitante(dados.veterinario_solicitante);
     }
 
+    if (dados.fc) {
+      setEcocardiogramaCabecalho((prev) => ({
+        ...prev,
+        fc: String(dados.fc || "").trim(),
+      }));
+    }
+
     setMensagemSucesso("Dados do XML importados com sucesso!");
     setTimeout(() => setMensagemSucesso(null), 5000);
   };
@@ -823,6 +870,11 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
         setClinicaId(laudoData.clinic_id.toString());
       }
       setMedicoSolicitante(laudoData.medico_solicitante || "");
+      setEcocardiogramaCabecalho({
+        ritmo: String(laudoData.ecocardiograma_cabecalho?.ritmo || "").trim(),
+        estado: String(laudoData.ecocardiograma_cabecalho?.estado || "").trim(),
+        fc: String(laudoData.ecocardiograma_cabecalho?.fc || "").trim(),
+      });
 
       const pressao = laudoData.pressao_arterial || {};
       const manguito = String(pressao.manguito || "").trim();
@@ -1041,6 +1093,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
         data_exame: pacienteForm.data_exame,
         tipo_laudo: laudoEhPressao ? "pressao_arterial" : "ecocardiograma",
         pressao_arterial: pressaoPayload,
+        ecocardiograma_cabecalho: laudoEhPressao ? null : ecocardiogramaCabecalho,
       };
 
       // Adicionar clinic_id se selecionado
@@ -1437,6 +1490,52 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                           placeholder="Ex: 5 anos"
                         />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Ritmo
+                        </label>
+                        <select
+                          value={ecocardiogramaCabecalho.ritmo}
+                          onChange={(e) =>
+                            setEcocardiogramaCabecalho((prev) => ({
+                              ...prev,
+                              ritmo: e.target.value,
+                            }))
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                        >
+                          <option value="">Selecione...</option>
+                          {opcoesRitmoPaciente.map((ritmo) => (
+                            <option key={ritmo} value={ritmo}>
+                              {ritmo}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Estado do Paciente
+                        </label>
+                        <select
+                          value={ecocardiogramaCabecalho.estado}
+                          onChange={(e) =>
+                            setEcocardiogramaCabecalho((prev) => ({
+                              ...prev,
+                              estado: e.target.value,
+                            }))
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                        >
+                          <option value="">Selecione...</option>
+                          {opcoesEstadoPaciente.map((estado) => (
+                            <option key={estado} value={estado}>
+                              {estado}
+                            </option>
+                          ))}
+                        </select>
                       </div>
 
                       <div>

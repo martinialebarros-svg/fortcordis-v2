@@ -458,10 +458,10 @@ def criar_cabecalho(
     elements.append(Spacer(1, 1*mm))
 
     if mostrar_linha_ritmo:
-        ritmo = paciente.get('ritmo', 'Sinusal') or 'Sinusal'
+        ritmo = paciente.get('ritmo', '') or ''
         fc = paciente.get('fc', '') or ''
-        fc_str = f"{fc} bpm" if fc else "bpm"
-        estado = paciente.get('estado', 'Calmo') or 'Calmo'
+        fc_str = f"{fc} bpm" if fc else ""
+        estado = paciente.get('estado', '') or ''
         linha6 = (
             f"<b>Ritmo:</b> {_esc(ritmo)} | "
             f"<b>FC:</b> {_esc(fc_str)} | "

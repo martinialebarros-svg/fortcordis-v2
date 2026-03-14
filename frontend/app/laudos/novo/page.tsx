@@ -125,6 +125,25 @@ const OPCOES_DECUBITO = [
   "Outro",
 ];
 
+const OPCOES_RITMO = [
+  "Sinusal",
+  "Arritmia sinusal",
+  "Fibrilacao atrial",
+  "Taquicardia sinusal",
+  "Bradicardia sinusal",
+];
+
+const OPCOES_ESTADO_PACIENTE = [
+  "Calmo",
+  "Agitado",
+  "Ofegante",
+  "Dispneico",
+  "Sedado",
+];
+
+const incluirOpcaoAtual = (opcoes: string[], valorAtual: string) =>
+  valorAtual && !opcoes.includes(valorAtual) ? [valorAtual, ...opcoes] : opcoes;
+
 interface DadosPaciente {
   id?: number;
   nome: string;
@@ -148,6 +167,12 @@ interface DadosExame {
   medidas: Record<string, number>;
   clinica: string | { id: number; nome: string };
   veterinario_solicitante: string;
+  fc: string;
+}
+
+interface EcocardiogramaCabecalho {
+  ritmo: string;
+  estado: string;
   fc: string;
 }
 
@@ -292,6 +317,11 @@ export default function NovoLaudoPage() {
     vasos: "",
     ad_vd: "",
   });
+  const [ecocardiogramaCabecalho, setEcocardiogramaCabecalho] = useState<EcocardiogramaCabecalho>({
+    ritmo: "",
+    estado: "",
+    fc: "",
+  });
   
   // Conteúdo do laudo
   const [conteudo, setConteudo] = useState({
@@ -342,6 +372,11 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
   // Imagens do laudo
   const [imagens, setImagens] = useState<any[]>([]);
   const [sessionId, setSessionId] = useState<string>("");
+  const opcoesRitmoPaciente = incluirOpcaoAtual(OPCOES_RITMO, ecocardiogramaCabecalho.ritmo);
+  const opcoesEstadoPaciente = incluirOpcaoAtual(
+    OPCOES_ESTADO_PACIENTE,
+    ecocardiogramaCabecalho.estado,
+  );
   const isInitialMount = useRef(true);
 
   useEffect(() => {
@@ -1011,6 +1046,13 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
     } else {
       console.log("Nenhuma medida encontrada nos dados");
     }
+
+    if (dados.fc) {
+      setEcocardiogramaCabecalho((prev) => ({
+        ...prev,
+        fc: String(dados.fc || "").trim(),
+      }));
+    }
     
     if (dados.clinica) {
       // Se vier como string, usa direto; se vier como objeto, extrai o id
@@ -1107,6 +1149,8 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
         data_exame: paciente.data_exame,
         tipo_laudo: tipoLaudo,
         pressao_arterial: pressaoPayload,
+        ecocardiograma_cabecalho:
+          tipoLaudo === "ecocardiograma" ? ecocardiogramaCabecalho : null,
       };
       
       const response = await api.post("/laudos", payload);
@@ -1485,6 +1529,52 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                           placeholder="Ex: 5 anos"
                         />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Ritmo
+                        </label>
+                        <select
+                          value={ecocardiogramaCabecalho.ritmo}
+                          onChange={(e) =>
+                            setEcocardiogramaCabecalho((prev) => ({
+                              ...prev,
+                              ritmo: e.target.value,
+                            }))
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                        >
+                          <option value="">Selecione...</option>
+                          {opcoesRitmoPaciente.map((ritmo) => (
+                            <option key={ritmo} value={ritmo}>
+                              {ritmo}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Estado do Paciente
+                        </label>
+                        <select
+                          value={ecocardiogramaCabecalho.estado}
+                          onChange={(e) =>
+                            setEcocardiogramaCabecalho((prev) => ({
+                              ...prev,
+                              estado: e.target.value,
+                            }))
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                        >
+                          <option value="">Selecione...</option>
+                          {opcoesEstadoPaciente.map((estado) => (
+                            <option key={estado} value={estado}>
+                              {estado}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                       
                       <div>
