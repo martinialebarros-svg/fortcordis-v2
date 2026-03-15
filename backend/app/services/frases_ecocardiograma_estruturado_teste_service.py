@@ -278,6 +278,27 @@ def get_payload() -> Dict[str, Any]:
     return store
 
 
+def summarize_store(store: Dict[str, Any]) -> Dict[str, int]:
+    aspectos = list(store.get("aspectos") or [])
+    presets = list(store.get("presets") or [])
+    frases_count = sum(len((aspecto.get("frases") or [])) for aspecto in aspectos)
+    return {
+        "aspectos_count": len(aspectos),
+        "frases_count": frases_count,
+        "presets_count": len(presets),
+    }
+
+
+def normalize_external_store(data: Dict[str, Any]) -> Dict[str, Any]:
+    return _normalize_store(data)
+
+
+def import_store(data: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = normalize_external_store(data)
+    _save_store(normalized)
+    return normalized
+
+
 def _find_aspect(payload: Dict[str, Any], aspecto_key: str) -> Optional[Dict[str, Any]]:
     return next((item for item in payload.get("aspectos") or [] if item.get("key") == aspecto_key), None)
 
