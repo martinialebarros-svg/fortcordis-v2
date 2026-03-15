@@ -386,9 +386,46 @@ def criar_cabecalho(
     titulo_principal: str = "LAUDO ECOCARDIOGRAFICO",
     mostrar_linha_ritmo: bool = True,
 ) -> List:
-    """Cria o cabecalho do laudo: logo + titulo no topo, depois dados do paciente."""
+    """Cria o cabecalho do laudo com bloco de titulo e grade de informacoes."""
     elements = []
     styles = create_pdf_styles()
+    paciente = dados.get("paciente", {})
+    clinica = dados.get("clinica", "")
+    data_exame = paciente.get("data_exame", datetime.now().strftime("%d/%m/%Y"))
+
+    titulo_bloco_style = ParagraphStyle(
+        "CabecalhoTituloBloco",
+        parent=styles["TituloPrincipalLeft"],
+        fontSize=17,
+        leading=19,
+        spaceAfter=0,
+    )
+    info_card_style = ParagraphStyle(
+        "CabecalhoInfoCard",
+        parent=styles["Normal"],
+        fontSize=10,
+        leading=12,
+        textColor=COR_PRETO,
+    )
+
+    def _valor_padrao(valor: Any) -> str:
+        texto = str(valor).strip() if valor not in (None, "") else ""
+        return texto or "-"
+
+    def _montar_linha(*partes: str) -> str:
+        partes_validas = [parte for parte in partes if parte and parte != "-"]
+        return " | ".join(partes_validas) if partes_validas else "-"
+
+    def _criar_card_info(label: str, valor: str) -> Paragraph:
+        return Paragraph(
+            f"<font name='Helvetica-Bold' size='7' color='#6b7280'>{_esc(label.upper())}</font><br/>"
+            f"{_esc(valor)}",
+            info_card_style,
+        )
+
+    def _adicionar_card(cards: List[Tuple[str, str]], label: str, valor: str, obrigatorio: bool = False) -> None:
+        if obrigatorio or valor != "-":
+            cards.append((label, valor))
 
     if temp_logo_path and os.path.exists(temp_logo_path):
         try:
@@ -402,75 +439,99 @@ def criar_cabecalho(
                 draw_width = MAX_LOGO_WIDTH
                 draw_height = MAX_LOGO_WIDTH * aspect
             logo = Image(temp_logo_path, width=draw_width, height=draw_height)
-            logo.hAlign = 'LEFT'
-            titulo = Paragraph(f"<b>{_esc(titulo_principal)}</b>", styles['TituloPrincipalLeft'])
+            logo.hAlign = "LEFT"
+            subtitulo_linhas = [
+                "<font size='8' color='#6b7280'>CARDIOLOGIA VETERINARIA</font>",
+                f"<font size='17'><b>{_esc(titulo_principal)}</b></font>",
+            ]
+            linha_secundaria = _montar_linha(_valor_padrao(clinica), _valor_padrao(data_exame))
+            if linha_secundaria != "-":
+                subtitulo_linhas.append(
+                    f"<font size='9' color='#374151'>{_esc(linha_secundaria)}</font>"
+                )
+            titulo = Paragraph("<br/>".join(subtitulo_linhas), titulo_bloco_style)
             largura_titulo = LARGURA_TABELAS - LARGURA_COLUNA_LOGO
             header_data = [[logo, titulo]]
             header_table = Table(header_data, colWidths=[LARGURA_COLUNA_LOGO, largura_titulo])
             header_table.setStyle(TableStyle([
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('ALIGN', (1, 0), (1, 0), 'LEFT'),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (1, 0), (1, 0), "LEFT"),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("LINEBELOW", (0, 0), (-1, -1), 0.8, COR_CINZA_CLARO),
             ]))
             elements.append(header_table)
         except Exception as e:
             print(f"Erro ao adicionar logomarca: {e}")
-            elements.append(Paragraph(_esc(titulo_principal), styles['TituloPrincipal']))
+            elements.append(Paragraph(_esc(titulo_principal), styles["TituloPrincipal"]))
     else:
-        elements.append(Paragraph(_esc(titulo_principal), styles['TituloPrincipal']))
+        titulo_sem_logo = [
+            "<font size='8' color='#6b7280'>CARDIOLOGIA VETERINARIA</font>",
+            f"<font size='17'><b>{_esc(titulo_principal)}</b></font>",
+        ]
+        linha_secundaria = _montar_linha(_valor_padrao(clinica), _valor_padrao(data_exame))
+        if linha_secundaria != "-":
+            titulo_sem_logo.append(
+                f"<font size='9' color='#374151'>{_esc(linha_secundaria)}</font>"
+            )
+        elements.append(Paragraph("<br/>".join(titulo_sem_logo), titulo_bloco_style))
 
-    elements.append(Spacer(1, 2*mm))
+    elements.append(Spacer(1, 2.5 * mm))
 
-    paciente = dados.get('paciente', {})
-    clinica = dados.get('clinica', '')
+    peso = paciente.get("peso", "")
+    peso_str = f"{peso} kg" if peso not in (None, "", "N/A") else "-"
+    ritmo = (paciente.get("ritmo", "") or "").strip()
+    fc = (paciente.get("fc", "") or "").strip()
+    estado = (paciente.get("estado", "") or "").strip()
+    fc_str = f"{fc} bpm" if fc else ""
 
-    linha1 = (
-        f"<b>Paciente:</b> {_esc(paciente.get('nome', 'N/A'))} | "
-        f"<b>Especie:</b> {_esc(paciente.get('especie', 'N/A'))} | "
-        f"<b>Raca:</b> {_esc(paciente.get('raca', 'N/A'))}"
+    cards: List[Tuple[str, str]] = []
+    _adicionar_card(cards, "Paciente", _valor_padrao(paciente.get("nome")), obrigatorio=True)
+    _adicionar_card(cards, "Tutor", _valor_padrao(paciente.get("tutor")), obrigatorio=True)
+    _adicionar_card(
+        cards,
+        "Especie | Raca",
+        _montar_linha(_valor_padrao(paciente.get("especie")), _valor_padrao(paciente.get("raca"))),
+        obrigatorio=True,
     )
-    elements.append(Paragraph(linha1, styles['Normal']))
-    elements.append(Spacer(1, 1*mm))
-
-    peso = paciente.get('peso', 'N/A')
-    peso_str = f"{peso} kg" if peso and peso != 'N/A' else 'N/A'
-    linha2 = (
-        f"<b>Sexo:</b> {_esc(paciente.get('sexo', 'N/A'))} | "
-        f"<b>Idade:</b> {_esc(paciente.get('idade', 'N/A'))} | "
-        f"<b>Peso:</b> {_esc(peso_str)}"
+    _adicionar_card(
+        cards,
+        "Sexo | Idade | Peso",
+        _montar_linha(_valor_padrao(paciente.get("sexo")), _valor_padrao(paciente.get("idade")), peso_str),
+        obrigatorio=True,
     )
-    elements.append(Paragraph(linha2, styles['Normal']))
-    elements.append(Spacer(1, 1*mm))
+    _adicionar_card(cards, "Solicitante", _valor_padrao(paciente.get("solicitante")))
+    _adicionar_card(cards, "Clinica", _valor_padrao(clinica))
+    _adicionar_card(cards, "Data do exame", _valor_padrao(data_exame), obrigatorio=True)
 
-    solicitante = paciente.get('solicitante', '') or ''
-    linha3 = (
-        f"<b>Tutor:</b> {_esc(paciente.get('tutor', 'N/A'))} | "
-        f"<b>Solicitante:</b> {_esc(solicitante)}"
-    )
-    elements.append(Paragraph(linha3, styles['Normal']))
-    elements.append(Spacer(1, 1*mm))
+    if mostrar_linha_ritmo and any([ritmo, fc_str, estado]):
+        cards.append(("Ritmo | FC | Estado", _montar_linha(ritmo, fc_str, estado)))
 
-    if clinica:
-        elements.append(Paragraph(f"<b>Clinica:</b> {_esc(clinica)}", styles['Normal']))
-        elements.append(Spacer(1, 1*mm))
+    if len(cards) % 2 != 0:
+        cards.append(("", ""))
 
-    data_exame = paciente.get('data_exame', datetime.now().strftime('%d/%m/%Y'))
-    elements.append(Paragraph(f"<b>Data:</b> {_esc(data_exame)}", styles['Normal']))
-    elements.append(Spacer(1, 1*mm))
+    info_data = []
+    for idx in range(0, len(cards), 2):
+        linha = []
+        for label, valor in cards[idx:idx + 2]:
+            if label:
+                linha.append(_criar_card_info(label, valor))
+            else:
+                linha.append(Paragraph("", info_card_style))
+        info_data.append(linha)
 
-    if mostrar_linha_ritmo:
-        ritmo = paciente.get('ritmo', '') or ''
-        fc = paciente.get('fc', '') or ''
-        fc_str = f"{fc} bpm" if fc else ""
-        estado = paciente.get('estado', '') or ''
-        linha6 = (
-            f"<b>Ritmo:</b> {_esc(ritmo)} | "
-            f"<b>FC:</b> {_esc(fc_str)} | "
-            f"<b>Estado:</b> {_esc(estado)}"
-        )
-        elements.append(Paragraph(linha6, styles['Normal']))
-        elements.append(Spacer(1, 3*mm))
-    else:
-        elements.append(Spacer(1, 2*mm))
+    info_table = Table(info_data, colWidths=[90 * mm, 90 * mm])
+    info_table.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.8, COR_CINZA_CLARO),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, COR_CINZA_CLARO),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fafafa")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    elements.append(_bloco_sem_quebra(info_table))
+    elements.append(Spacer(1, 3 * mm))
 
     return elements
 
@@ -716,35 +777,109 @@ def criar_secao_ad_vd(texto: str) -> List:
 
 
 def criar_secao_qualitativa(qualitativa: Dict[str, str]) -> List:
-    """Cria a seção de análise qualitativa - formato do modelo de referência
-    
-    No modelo de referência, os itens são apresentados com marcadores (*) em formato de lista.
-    AD/VD é mostrado separadamente antes desta seção.
-    """
+    """Cria a seção de análise qualitativa com hierarquia visual por grupo."""
     elements = []
     styles = create_pdf_styles()
-    
-    # Título da seção
-    elements.append(Spacer(1, 4*mm))
-    elements.append(criar_titulo_secao("ANÁLISE QUALITATIVA"))
-    elements.append(Spacer(1, 2*mm))
-    
-    # Campos conforme modelo de referência (sem AD/VD, que é mostrado separadamente)
+    grupo_style = ParagraphStyle(
+        "QualitativaGrupo",
+        parent=styles["QualitativaLabel"],
+        fontSize=10.5,
+        textColor=COR_PRETO,
+        spaceAfter=1,
+    )
+    item_label_style = ParagraphStyle(
+        "QualitativaItemLabel",
+        parent=styles["QualitativaTexto"],
+        leftIndent=4 * mm,
+        spaceAfter=0.5 * mm,
+    )
+    item_body_style = ParagraphStyle(
+        "QualitativaItemBody",
+        parent=styles["QualitativaTexto"],
+        leftIndent=9 * mm,
+        spaceAfter=1.5 * mm,
+        leading=12,
+    )
+    bloco_texto_style = ParagraphStyle(
+        "QualitativaBlocoTexto",
+        parent=styles["QualitativaTexto"],
+        leftIndent=4 * mm,
+        spaceAfter=1.5 * mm,
+        leading=12,
+    )
+
+    def _quebrar_itens(texto_bruto: str) -> List[str]:
+        itens: List[str] = []
+        atual = ""
+        for linha in texto_bruto.splitlines():
+            linha_limpa = linha.strip()
+            if not linha_limpa:
+                continue
+            if linha_limpa.startswith(("-", "*", "•")):
+                if atual:
+                    itens.append(atual.strip())
+                atual = linha_limpa[1:].strip()
+            elif atual:
+                atual = f"{atual} {linha_limpa}"
+            else:
+                atual = linha_limpa
+        if atual:
+            itens.append(atual.strip())
+        return itens
+
     campos = [
-        ('valvas', 'Valvas'),
-        ('camaras', 'Câmaras'),
-        ('funcao', 'Função'),
-        ('pericardio', 'Pericárdio'),
-        ('vasos', 'Vasos sanguíneos'),
+        ("valvas", "Valvas"),
+        ("camaras", "Câmaras esquerdas"),
+        ("ad_vd", "Câmaras direitas"),
+        ("funcao", "Função"),
+        ("pericardio", "Pericárdio"),
+        ("vasos", "Vasos sanguíneos"),
     ]
-    
+    grupos_renderizados = []
+
     for chave, label in campos:
-        texto = qualitativa.get(chave, '').strip()
-        if texto:
-            # Formato com asterisco como no modelo: * Label: texto
-            elements.append(Paragraph(f"<b>* {label}:</b> {_esc(texto)}", styles['QualitativaTexto']))
-            elements.append(Spacer(1, 1*mm))
-    
+        texto = qualitativa.get(chave, "").strip()
+        if not texto:
+            continue
+
+        bloco = [Paragraph(_esc(label), grupo_style)]
+        itens = _quebrar_itens(texto)
+
+        if itens:
+            for item in itens:
+                titulo_item, separador, corpo_item = item.partition(":")
+                titulo_item = titulo_item.strip()
+                corpo_item = corpo_item.strip()
+
+                if separador:
+                    bloco.append(
+                        Paragraph(f"&bull; <b>{_esc(titulo_item)}</b>", item_label_style)
+                    )
+                    bloco.append(Paragraph(_esc(corpo_item), item_body_style))
+                else:
+                    bloco.append(Paragraph(f"&bull; {_esc(item)}", bloco_texto_style))
+        else:
+            bloco.append(Paragraph(_esc(texto), bloco_texto_style))
+
+        grupos_renderizados.append(_bloco_sem_quebra(*bloco))
+
+    if not grupos_renderizados:
+        return elements
+
+    elements.append(
+        _bloco_sem_quebra(
+            Spacer(1, 4 * mm),
+            criar_titulo_secao("ANÁLISE QUALITATIVA"),
+            Spacer(1, 2 * mm),
+            grupos_renderizados[0],
+        )
+    )
+    elements.append(Spacer(1, 1.5 * mm))
+
+    for grupo in grupos_renderizados[1:]:
+        elements.append(grupo)
+        elements.append(Spacer(1, 1.5 * mm))
+
     return elements
 
 
@@ -796,55 +931,148 @@ def criar_secao_pressao_arterial(pressao: Optional[Dict[str, Any]]) -> List:
         else:
             classificacao = "Severamente elevada (>= 180 mmHg)"
 
-    afericoes_txt = "<br/>".join([
-        f"1a afericao (PAS): {pas_1 or '-'} mmHg",
-        f"2a afericao (PAS): {pas_2 or '-'} mmHg",
-        f"3a afericao (PAS): {pas_3 or '-'} mmHg",
-        f"<b>PAS media: {pas_media or '-'} mmHg</b>",
-        f"Metodo: {_esc(metodo)}",
-    ])
+    resumo_label_style = ParagraphStyle(
+        "PressaoResumoLabel",
+        parent=styles["Normal"],
+        fontSize=8.5,
+        textColor=COR_CINZA_ESCURO,
+        alignment=1,
+        fontName="Helvetica-Bold",
+    )
+    resumo_valor_style = ParagraphStyle(
+        "PressaoResumoValor",
+        parent=styles["Normal"],
+        fontSize=11,
+        textColor=COR_PRETO,
+        alignment=1,
+        fontName="Helvetica-Bold",
+        leading=13,
+    )
+    detalhe_label_style = ParagraphStyle(
+        "PressaoDetalheLabel",
+        parent=styles["Normal"],
+        fontSize=8.5,
+        textColor=COR_CINZA_ESCURO,
+        alignment=1,
+        fontName="Helvetica-Bold",
+    )
+    detalhe_valor_style = ParagraphStyle(
+        "PressaoDetalheValor",
+        parent=styles["Normal"],
+        fontSize=9.5,
+        textColor=COR_PRETO,
+        alignment=1,
+        leading=12,
+    )
+    texto_box_style = ParagraphStyle(
+        "PressaoTextoBox",
+        parent=styles["Normal"],
+        fontSize=10,
+        textColor=COR_PRETO,
+        leading=13,
+    )
 
-    proc_linhas = []
-    if manguito:
-        proc_linhas.append(f"Manguito: {_esc(manguito)}")
-    if membro:
-        proc_linhas.append(f"Membro: {_esc(membro)}")
-    if decubito:
-        proc_linhas.append(f"Decubito: {_esc(decubito)}")
-    if not proc_linhas:
-        proc_linhas.append("Sem observacoes de procedimento.")
+    classificacao_bg = colors.HexColor("#ecfdf5")
+    classificacao_border = colors.HexColor("#15803d")
+    if pas_media is not None and pas_media > 0:
+        if pas_media <= 140:
+            classificacao_bg = colors.HexColor("#ecfdf5")
+            classificacao_border = colors.HexColor("#15803d")
+        elif pas_media <= 159:
+            classificacao_bg = colors.HexColor("#fefce8")
+            classificacao_border = colors.HexColor("#ca8a04")
+        elif pas_media <= 179:
+            classificacao_bg = colors.HexColor("#fff7ed")
+            classificacao_border = colors.HexColor("#ea580c")
+        else:
+            classificacao_bg = colors.HexColor("#fef2f2")
+            classificacao_border = colors.HexColor("#dc2626")
 
     bloco_secao = [Spacer(1, 4 * mm), criar_titulo_secao("PRESSAO ARTERIAL (ANEXO)"), Spacer(1, 2 * mm)]
 
-    tabela = Table(
-        [
-            [
-                Paragraph("<b>Afericoes</b>", styles["Normal"]),
-                Paragraph("<b>Procedimento</b>", styles["Normal"]),
-            ],
-            [
-                Paragraph(afericoes_txt, styles["Normal"]),
-                Paragraph("<br/>".join(proc_linhas), styles["Normal"]),
-            ],
-        ],
-        colWidths=[90 * mm, 90 * mm],
+    tabela_resumo = Table(
+        [[
+            Paragraph("1a afericao", resumo_label_style),
+            Paragraph("2a afericao", resumo_label_style),
+            Paragraph("3a afericao", resumo_label_style),
+            Paragraph("PAS media", resumo_label_style),
+        ], [
+            Paragraph(f"{pas_1 or '-'} mmHg", resumo_valor_style),
+            Paragraph(f"{pas_2 or '-'} mmHg", resumo_valor_style),
+            Paragraph(f"{pas_3 or '-'} mmHg", resumo_valor_style),
+            Paragraph(f"{pas_media or '-'} mmHg", resumo_valor_style),
+        ]],
+        colWidths=[45 * mm, 45 * mm, 45 * mm, 45 * mm],
     )
-    tabela.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.7, colors.black),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+    tabela_resumo.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.8, COR_CINZA_CLARO),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, COR_CINZA_CLARO),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
     ]))
-    bloco_secao.append(tabela)
+    bloco_secao.append(tabela_resumo)
     bloco_secao.append(Spacer(1, 2 * mm))
-    bloco_secao.append(Paragraph(f"<b>Classificacao PAS:</b> {_esc(classificacao)}", styles["Normal"]))
+
+    tabela_procedimento = Table(
+        [[
+            Paragraph("Metodo", detalhe_label_style),
+            Paragraph("Manguito", detalhe_label_style),
+            Paragraph("Membro", detalhe_label_style),
+            Paragraph("Decubito", detalhe_label_style),
+        ], [
+            Paragraph(_esc(metodo or "-"), detalhe_valor_style),
+            Paragraph(_esc(manguito or "-"), detalhe_valor_style),
+            Paragraph(_esc(membro or "-"), detalhe_valor_style),
+            Paragraph(_esc(decubito or "-"), detalhe_valor_style),
+        ]],
+        colWidths=[45 * mm, 45 * mm, 45 * mm, 45 * mm],
+    )
+    tabela_procedimento.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.8, COR_CINZA_CLARO),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, COR_CINZA_CLARO),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    bloco_secao.append(tabela_procedimento)
+    bloco_secao.append(Spacer(1, 2 * mm))
+
+    tabela_classificacao = Table(
+        [[Paragraph(f"<b>Classificacao PAS</b><br/>{_esc(classificacao)}", texto_box_style)]],
+        colWidths=[180 * mm],
+    )
+    tabela_classificacao.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 1, classificacao_border),
+        ("BACKGROUND", (0, 0), (-1, -1), classificacao_bg),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    bloco_secao.append(tabela_classificacao)
 
     if obs_extra:
-        bloco_secao.append(Spacer(1, 1 * mm))
-        bloco_secao.append(Paragraph(f"<b>Obs:</b> {_esc(obs_extra)}", styles["Normal"]))
+        bloco_secao.append(Spacer(1, 2 * mm))
+        tabela_obs = Table(
+            [[Paragraph("<b>Observacoes adicionais</b><br/>" + _esc(obs_extra), texto_box_style)]],
+            colWidths=[180 * mm],
+        )
+        tabela_obs.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.8, COR_CINZA_CLARO),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fafafa")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        bloco_secao.append(tabela_obs)
 
     elements.append(_bloco_sem_quebra(*bloco_secao))
 
@@ -859,15 +1087,96 @@ def criar_secao_conclusao(conclusao: str) -> List:
     if not conclusao or not conclusao.strip():
         return elements
     
+    conclusao_box_style = ParagraphStyle(
+        "ConclusaoBox",
+        parent=styles["Conclusao"],
+        fontSize=10.5,
+        leading=14,
+        spaceAfter=1.5 * mm,
+    )
+    conclusao_item_label_style = ParagraphStyle(
+        "ConclusaoItemLabel",
+        parent=styles["Conclusao"],
+        leftIndent=4 * mm,
+        spaceAfter=0.5 * mm,
+    )
+    conclusao_item_body_style = ParagraphStyle(
+        "ConclusaoItemBody",
+        parent=styles["Conclusao"],
+        leftIndent=9 * mm,
+        leading=14,
+        spaceAfter=1.5 * mm,
+    )
+
+    def _separar_blocos(texto_bruto: str) -> List[str]:
+        blocos: List[str] = []
+        atual: List[str] = []
+        for linha in texto_bruto.splitlines():
+            if linha.strip():
+                atual.append(linha.strip())
+            elif atual:
+                blocos.append("\n".join(atual).strip())
+                atual = []
+        if atual:
+            blocos.append("\n".join(atual).strip())
+        return blocos
+
+    def _quebrar_itens(texto_bruto: str) -> List[str]:
+        itens: List[str] = []
+        atual = ""
+        for linha in texto_bruto.splitlines():
+            linha_limpa = linha.strip()
+            if not linha_limpa:
+                continue
+            if linha_limpa.startswith(("-", "*", "•")):
+                if atual:
+                    itens.append(atual.strip())
+                atual = linha_limpa[1:].strip()
+            elif atual:
+                atual = f"{atual} {linha_limpa}"
+            else:
+                atual = linha_limpa
+        if atual:
+            itens.append(atual.strip())
+        return itens
+
     elements.append(Spacer(1, 4*mm))
     elements.append(criar_titulo_secao("CONCLUSÃO"))
     elements.append(Spacer(1, 2*mm))
-    
-    # Divide a conclusão em parágrafos
-    paragrafos = conclusao.strip().split('\n')
-    for para in paragrafos:
-        if para.strip():
-            elements.append(Paragraph(_esc(para.strip()), styles['Conclusao']))
+
+    conteudo = []
+    for bloco in _separar_blocos(conclusao.strip()):
+        linhas_validas = [linha.strip() for linha in bloco.splitlines() if linha.strip()]
+        tem_marcadores = any(linha.startswith(("-", "*", "•")) for linha in linhas_validas)
+
+        if tem_marcadores:
+            for item in _quebrar_itens(bloco):
+                titulo_item, separador, corpo_item = item.partition(":")
+                titulo_item = titulo_item.strip()
+                corpo_item = corpo_item.strip()
+
+                if separador:
+                    conteudo.append(
+                        Paragraph(f"&bull; <b>{_esc(titulo_item)}</b>", conclusao_item_label_style)
+                    )
+                    conteudo.append(Paragraph(_esc(corpo_item), conclusao_item_body_style))
+                else:
+                    conteudo.append(Paragraph(f"&bull; {_esc(item)}", conclusao_box_style))
+        else:
+            conteudo.append(
+                Paragraph(_esc(bloco).replace("\n", "<br/>"), conclusao_box_style)
+            )
+
+    caixa_conclusao = Table([[conteudo]], colWidths=[180 * mm])
+    caixa_conclusao.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.8, COR_CINZA_CLARO),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fafafa")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    elements.append(_bloco_sem_quebra(caixa_conclusao))
     
     return elements
 
@@ -1033,7 +1342,7 @@ def gerar_pdf_laudo_eco(
         # Definição dos parâmetros - Layout conforme modelo de referência
         # =================================================================
         
-        # Grupo: VE - Modo M (tabela única com todos os parâmetros)
+        # Grupo: VE - Modo B e Modo M (tabela única com todos os parâmetros)
         # Conforme solicitado: COM Referência, SEM Interpretação
         params_ve_modo_m = [
             {'chave': 'DIVEd', 'label': 'DIVEd (Diâmetro interno do VE em diástole)', 'unidade': 'mm', 'ref_min': 16.0, 'ref_max': 24.0},
@@ -1113,11 +1422,11 @@ def gerar_pdf_laudo_eco(
         # Montar tabelas conforme modelo de referência
         # =================================================================
         
-        # VE - Modo M: COM Referência (diferença solicitada pelo usuário)
+        # VE - Modo B e Modo M: COM Referência (diferença solicitada pelo usuário)
         elements.append(
             _bloco_sem_quebra(
                 criar_tabela_medidas(
-                    "VE - Modo M",
+                    "VE - Modo B e Modo M",
                     params_ve_modo_m,
                     dados_pdf,
                     mostrar_referencia=True,
@@ -1197,17 +1506,10 @@ def gerar_pdf_laudo_eco(
             )
         )
         
-        # 3. Análise Qualitativa e AD/VD
+        # 3. Análise Qualitativa
         qualitativa = dados_pdf.get('qualitativa', {})
-        
-        # AD/VD (Subjetivo) - Seção de texto antes da análise qualitativa
-        ad_vd_texto = qualitativa.get('ad_vd', '').strip() if qualitativa else ''
-        if ad_vd_texto:
-            elements.extend(criar_secao_ad_vd(ad_vd_texto))
-            elements.append(Spacer(1, 3*mm))
-        
-        # Analise qualitativa (sem AD/VD, que ja foi mostrado)
-        if qualitativa and any(qualitativa.get(k, '').strip() for k in ['valvas', 'camaras', 'funcao', 'pericardio', 'vasos']):
+
+        if qualitativa and any(qualitativa.get(k, '').strip() for k in ['valvas', 'camaras', 'ad_vd', 'funcao', 'pericardio', 'vasos']):
             elements.extend(criar_secao_qualitativa(qualitativa))
 
         # 4. Conclusao
