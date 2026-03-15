@@ -254,11 +254,154 @@ def _montar_descricao_ultrassonografia_abdominal(data: Optional[Dict[str, Any]])
     return "\n".join(linhas).strip()
 
 
+def _listar_campos_qualitativa_ecocardiograma() -> List[str]:
+    return ["valvas", "camaras", "funcao", "pericardio", "vasos", "ad_vd"]
+
+
+def _montar_descricao_ecocardiograma(
+    medidas: Optional[Dict[str, Any]],
+    qualitativa: Optional[Dict[str, Any]],
+) -> str:
+    medidas = medidas or {}
+    qualitativa = qualitativa or {}
+
+    descricao_parts = ["## Medidas Ecocardiograficas\n"]
+    for key, value in medidas.items():
+        if value:
+            descricao_parts.append(f"- {key}: {value}")
+
+    descricao_parts.append("\n## Avaliacao Qualitativa\n")
+    for key, value in qualitativa.items():
+        texto_original = str(value or "")
+        texto = texto_original.strip()
+        if texto:
+            if "\n" in texto:
+                descricao_parts.append(f"- {key}:")
+                descricao_parts.extend(texto_original.strip("\n").splitlines())
+            else:
+                descricao_parts.append(f"- {key}: {texto}")
+
+    return "\n".join(descricao_parts)
+
+
+def _get_ecocardiograma_estruturado_aspectos() -> List[Dict[str, str]]:
+    from app.services.frases_ecocardiograma_estruturado_teste_service import DEFAULT_ASPECTS
+
+    return [
+        {
+            "key": str(item.get("key") or "").strip(),
+            "label": str(item.get("label") or "").strip(),
+            "legacy_field": str(item.get("legacy_field") or "").strip(),
+        }
+        for item in DEFAULT_ASPECTS
+        if str(item.get("key") or "").strip()
+    ]
+
+
+def _normalizar_ecocardiograma_estruturado(raw: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+
+    aspectos = _get_ecocardiograma_estruturado_aspectos()
+    aspectos_map = {item["key"]: item for item in aspectos}
+    textos_raw = raw.get("textos")
+    if not isinstance(textos_raw, dict):
+        textos_raw = {}
+    preset_textos_raw = raw.get("preset_textos")
+    if not isinstance(preset_textos_raw, dict):
+        preset_textos_raw = {}
+
+    textos: Dict[str, str] = {}
+    preset_textos: Dict[str, str] = {}
+    for aspecto_key in aspectos_map:
+        texto = str(textos_raw.get(aspecto_key) or "").strip()
+        if texto:
+            textos[aspecto_key] = texto
+        preset_texto = str(preset_textos_raw.get(aspecto_key) or "").strip()
+        if preset_texto:
+            preset_textos[aspecto_key] = preset_texto
+
+    preset_id = _to_int_or_none(raw.get("preset_id"))
+    preset_label = str(raw.get("preset_label") or "").strip()
+    usar_no_laudo = bool(raw.get("usar_no_laudo"))
+    modo = str(raw.get("modo") or "teste").strip() or "teste"
+    versao = _to_int_or_none(raw.get("versao")) or 1
+    updated_at = str(raw.get("updated_at") or "").strip() or datetime.now().isoformat()
+
+    if not textos and preset_id is None and not preset_label:
+        return None
+
+    return {
+        "versao": versao,
+        "modo": modo,
+        "usar_no_laudo": usar_no_laudo,
+        "preset_id": preset_id,
+        "preset_label": preset_label,
+        "preset_textos": preset_textos,
+        "updated_at": updated_at,
+        "textos": textos,
+    }
+
+
+def _montar_bloco_legado_ecocardiograma_estruturado(
+    itens: List[Dict[str, str]],
+) -> str:
+    if not itens:
+        return ""
+    if len(itens) == 1:
+        return itens[0]["texto"]
+    linhas: List[str] = []
+    for item in itens:
+        texto = str(item["texto"] or "").strip().replace("\n", "\n    ")
+        linhas.append(f'  - {item["label"]}: {texto}')
+    return "\n".join(linhas)
+
+
+def _derivar_legado_de_ecocardiograma_estruturado(
+    data: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    qualitativa = {campo: "" for campo in _listar_campos_qualitativa_ecocardiograma()}
+    conclusao = ""
+
+    if not data:
+        return {"qualitativa": qualitativa, "conclusao": conclusao}
+
+    textos = data.get("textos") or {}
+    if not isinstance(textos, dict):
+        textos = {}
+
+    agrupados: Dict[str, List[Dict[str, str]]] = {}
+    for aspecto in _get_ecocardiograma_estruturado_aspectos():
+        legacy_field = aspecto["legacy_field"]
+        if legacy_field == "conclusao":
+            conclusao = str(textos.get(aspecto["key"]) or "").strip()
+            continue
+
+        if legacy_field not in qualitativa:
+            continue
+
+        texto = str(textos.get(aspecto["key"]) or "").strip()
+        if not texto:
+            continue
+
+        agrupados.setdefault(legacy_field, []).append(
+            {"label": aspecto["label"], "texto": texto}
+        )
+
+    for legacy_field in qualitativa:
+        qualitativa[legacy_field] = _montar_bloco_legado_ecocardiograma_estruturado(
+            agrupados.get(legacy_field, [])
+        )
+
+    return {"qualitativa": qualitativa, "conclusao": conclusao}
+
+
 def _serializar_anexos(
     anexos_raw: Any,
     pressao_arterial: Any = _ANEXOS_UNSET,
     ultrassonografia_abdominal: Any = _ANEXOS_UNSET,
     ecocardiograma_cabecalho: Any = _ANEXOS_UNSET,
+    ecocardiograma_estruturado: Any = _ANEXOS_UNSET,
 ) -> Optional[str]:
     anexos_data = _carregar_anexos_dict(anexos_raw)
 
@@ -279,6 +422,12 @@ def _serializar_anexos(
             anexos_data["ecocardiograma_cabecalho"] = ecocardiograma_cabecalho
         else:
             anexos_data.pop("ecocardiograma_cabecalho", None)
+
+    if ecocardiograma_estruturado is not _ANEXOS_UNSET:
+        if ecocardiograma_estruturado:
+            anexos_data["ecocardiograma_estruturado"] = ecocardiograma_estruturado
+        else:
+            anexos_data.pop("ecocardiograma_estruturado", None)
 
     if not anexos_data:
         return None
@@ -325,6 +474,21 @@ def _extrair_ecocardiograma_cabecalho_de_anexos(anexos_raw: Any) -> Optional[Dic
             parsed = json.loads(anexos_raw)
             if isinstance(parsed, dict):
                 return _normalizar_ecocardiograma_cabecalho(parsed.get("ecocardiograma_cabecalho"))
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _extrair_ecocardiograma_estruturado_de_anexos(anexos_raw: Any) -> Optional[Dict[str, Any]]:
+    if not anexos_raw:
+        return None
+    if isinstance(anexos_raw, dict):
+        return _normalizar_ecocardiograma_estruturado(anexos_raw.get("ecocardiograma_estruturado"))
+    if isinstance(anexos_raw, str):
+        try:
+            parsed = json.loads(anexos_raw)
+            if isinstance(parsed, dict):
+                return _normalizar_ecocardiograma_estruturado(parsed.get("ecocardiograma_estruturado"))
         except json.JSONDecodeError:
             return None
     return None
@@ -662,17 +826,17 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
         ecocardiograma_cabecalho = _normalizar_ecocardiograma_cabecalho(
             laudo_data.get("ecocardiograma_cabecalho")
         )
+        ecocardiograma_estruturado = _normalizar_ecocardiograma_estruturado(
+            laudo_data.get("ecocardiograma_estruturado")
+        )
+        if ecocardiograma_estruturado and ecocardiograma_estruturado.get("usar_no_laudo"):
+            legado = _derivar_legado_de_ecocardiograma_estruturado(ecocardiograma_estruturado)
+            qualitativa = legado["qualitativa"]
+            conteudo = dict(conteudo)
+            if legado["conclusao"]:
+                conteudo["conclusao"] = legado["conclusao"]
 
-        descricao_parts = ["## Medidas Ecocardiograficas\n"]
-        for key, value in medidas.items():
-            if value:
-                descricao_parts.append(f"- {key}: {value}")
-
-        descricao_parts.append("\n## Avaliacao Qualitativa\n")
-        for key, value in qualitativa.items():
-            if value:
-                descricao_parts.append(f"- {key}: {value}")
-        descricao = "\n".join(descricao_parts)
+        descricao = _montar_descricao_ecocardiograma(medidas, qualitativa)
 
         diagnostico = conteudo.get("conclusao", "")
         observacoes = conteudo.get("observacoes", "")
@@ -682,6 +846,7 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
             laudo_data.get("anexos"),
             pressao_arterial=pressao_arterial,
             ecocardiograma_cabecalho=ecocardiograma_cabecalho,
+            ecocardiograma_estruturado=ecocardiograma_estruturado,
         )
 
         agendamento_id = laudo_data.get("agendamento_id")
@@ -1111,6 +1276,7 @@ def obter_laudo(
     pressao_arterial = _extrair_pressao_arterial_de_anexos(laudo.anexos)
     ultrassonografia_abdominal = _extrair_ultrassonografia_abdominal_de_anexos(laudo.anexos)
     ecocardiograma_cabecalho = _extrair_ecocardiograma_cabecalho_de_anexos(laudo.anexos)
+    ecocardiograma_estruturado = _extrair_ecocardiograma_estruturado_de_anexos(laudo.anexos)
     if not ultrassonografia_abdominal and (laudo.tipo or "").lower() == "ultrassonografia_abdominal":
         ultrassonografia_abdominal = _extrair_ultrassonografia_abdominal_do_descricao(laudo.descricao)
     if ultrassonografia_abdominal and not ultrassonografia_abdominal.get("sexo_paciente") and paciente:
@@ -1146,6 +1312,7 @@ def obter_laudo(
         "pressao_arterial": pressao_arterial,
         "ultrassonografia_abdominal": ultrassonografia_abdominal,
         "ecocardiograma_cabecalho": ecocardiograma_cabecalho,
+        "ecocardiograma_estruturado": ecocardiograma_estruturado,
         "imagens": imagens_list,
     }
 
@@ -1221,6 +1388,27 @@ def atualizar_laudo(
             laudo.anexos,
             ecocardiograma_cabecalho=ecocardiograma_cabecalho,
         )
+
+    if "ecocardiograma_estruturado" in laudo_data:
+        ecocardiograma_estruturado = _normalizar_ecocardiograma_estruturado(
+            laudo_data.pop("ecocardiograma_estruturado")
+        )
+        laudo.anexos = _serializar_anexos(
+            laudo.anexos,
+            ecocardiograma_estruturado=ecocardiograma_estruturado,
+        )
+        if (
+            (laudo_data.get("tipo") or laudo.tipo or "").strip().lower() == "ecocardiograma"
+            and ecocardiograma_estruturado
+            and ecocardiograma_estruturado.get("usar_no_laudo")
+        ):
+            legado = _derivar_legado_de_ecocardiograma_estruturado(ecocardiograma_estruturado)
+            laudo_data.setdefault(
+                "descricao",
+                _montar_descricao_ecocardiograma({}, legado["qualitativa"]),
+            )
+            if legado["conclusao"]:
+                laudo_data.setdefault("diagnostico", legado["conclusao"])
 
     for field, value in laudo_data.items():
         if hasattr(laudo, field):

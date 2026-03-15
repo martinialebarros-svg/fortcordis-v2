@@ -13,8 +13,15 @@ import {
 import XmlUploader from "../components/XmlUploader";
 import ImageUploader from "../components/ImageUploader";
 import FraseModal from "../components/FraseModal";
+import EcocardiogramaEstruturadoEditor from "../components/EcocardiogramaEstruturadoEditor";
 import { Save, ArrowLeft, Heart, User, Activity, BookOpen, Settings, Image as ImageIcon, Minus, Plus } from "lucide-react";
 import { ReferenciaComparison } from "../components/ReferenciaComparison";
+import {
+  criarEcocardiogramaEstruturadoInicial,
+  derivarLegadoDeEcocardiogramaEstruturado,
+  qualitativaEcoLegadaIgual,
+  serializarEcocardiogramaEstruturado,
+} from "@/lib/ecocardiograma-estruturado";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -191,6 +198,7 @@ interface FraseQualitativa {
   layout?: string;
 }
 
+
 // Parâmetros ecocardiográficos
 const PARAMETROS_MEDIDAS = [
   { key: "Ao", label: "Ao (mm)", categoria: "Câmaras" },
@@ -294,6 +302,9 @@ export default function NovoLaudoPage() {
     conclusao: "",
     observacoes: "",
   });
+  const [ecocardiogramaEstruturado, setEcocardiogramaEstruturado] = useState(
+    criarEcocardiogramaEstruturadoInicial()
+  );
 
   const [pressaoArterial, setPressaoArterial] = useState({
     pas_1: "",
@@ -318,21 +329,17 @@ export default function NovoLaudoPage() {
   
   // Mensagem de sucesso
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
-  
-  // Sidebar - Frases
-  const [patologias, setPatologias] = useState<string[]>([]);
+  const [patologias] = useState<string[]>([]);
   const [patologiaSelecionada, setPatologiaSelecionada] = useState("Normal");
-  const [graus, setGraus] = useState<string[]>(["Leve", "Moderada", "Importante"]);
+  const [graus] = useState<string[]>(["Leve", "Moderada", "Importante"]);
   const [grauSelecionado, setGrauSelecionado] = useState("Leve");
-  const [layoutQualitativa, setLayoutQualitativa] = useState<"detalhado" | "enxuto">("detalhado");
+  const [layoutQualitativa] = useState<"detalhado" | "enxuto">("detalhado");
   const [aplicandoFrase, setAplicandoFrase] = useState(false);
   const [salvandoFraseQualitativa, setSalvandoFraseQualitativa] = useState(false);
   const [fraseAplicadaId, setFraseAplicadaId] = useState<number | null>(null);
-  
-  // Lista de frases (para aba Frases)
   const [frases, setFrases] = useState<FraseQualitativa[]>([]);
   const [fraseEditando, setFraseEditando] = useState<FraseQualitativa | null>(null);
-const [modalFraseOpen, setModalFraseOpen] = useState(false);
+  const [modalFraseOpen, setModalFraseOpen] = useState(false);
   
   // Imagens do laudo
   const [imagens, setImagens] = useState<any[]>([]);
@@ -354,6 +361,21 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
   }, [racasLoaded, racasCustomPorEspecie]);
 
   useEffect(() => {
+    if (!ecocardiogramaEstruturado.usar_no_laudo) return;
+    const legado = derivarLegadoDeEcocardiogramaEstruturado(ecocardiogramaEstruturado);
+    setQualitativa((prev) =>
+      qualitativaEcoLegadaIgual(prev, legado.qualitativa) ? prev : legado.qualitativa
+    );
+    if (legado.conclusao) {
+      setConteudo((prev) =>
+        prev.conclusao === legado.conclusao
+          ? prev
+          : { ...prev, conclusao: legado.conclusao }
+      );
+    }
+  }, [ecocardiogramaEstruturado]);
+
+  useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
       router.push("/");
@@ -362,7 +384,6 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
     // Inicializar valores dinâmicos no cliente para evitar hydration mismatch
     setPaciente(prev => ({ ...prev, data_exame: prev.data_exame || new Date().toISOString().split('T')[0] }));
     setSessionId(Math.random().toString(36).substring(2, 15));
-    carregarFrases();
     carregarClinicas();
   }, [router]);
 
@@ -591,41 +612,12 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
     }
   };
 
-  const PATOLOGIAS_FALLBACK = [
-    "Normal",
-    "Endocardiose Mitral",
-    "Cardiomiopatia Dilatada",
-    "Estenose Aortica",
-    "Estenose Pulmonar",
-  ];
 
-  const sincronizarPatologiasComFrases = (items: FraseQualitativa[]) => {
-    const lista = Array.from(
-      new Set(
-        items
-          .map((f) => (f.patologia || "").trim())
-          .filter(Boolean)
-      )
-    ).sort((a, b) => a.localeCompare(b, "pt-BR"));
 
-    const patologiasAtualizadas = lista.length > 0 ? lista : PATOLOGIAS_FALLBACK;
-    setPatologias(patologiasAtualizadas);
-    setPatologiaSelecionada((prev) =>
-      patologiasAtualizadas.includes(prev) ? prev : patologiasAtualizadas[0]
-    );
-  };
+
 
   const carregarFrases = async () => {
-    try {
-      const response = await api.get("/frases?limit=1000");
-      const items = response.data.items || [];
-      setFrases(items);
-      sincronizarPatologiasComFrases(items);
-    } catch (error) {
-      console.error("Erro ao carregar frases:", error);
-      setFrases([]);
-      sincronizarPatologiasComFrases([]);
-    }
+    setFrases([]);
   };
 
   const handleEditarFrase = (frase: FraseQualitativa) => {
@@ -1055,12 +1047,28 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
         alert("Preencha pelo menos uma afericao de pressao para salvar como laudo de pressao arterial.");
         return;
       }
+
+      const ecoEstruturadoPayload =
+        tipoLaudo === "ecocardiograma"
+          ? serializarEcocardiogramaEstruturado(ecocardiogramaEstruturado)
+          : null;
+      const legadoEco =
+        ecoEstruturadoPayload && ecoEstruturadoPayload.usar_no_laudo
+          ? derivarLegadoDeEcocardiogramaEstruturado(ecoEstruturadoPayload)
+          : null;
+      const qualitativaPayload = legadoEco?.qualitativa || qualitativa;
+      const conteudoPayload = legadoEco
+        ? {
+            ...conteudo,
+            conclusao: legadoEco.conclusao || conteudo.conclusao,
+          }
+        : conteudo;
       
       const payload = {
         paciente,
         medidas,
-        qualitativa,
-        conteudo,
+        qualitativa: qualitativaPayload,
+        conteudo: conteudoPayload,
         agendamento_id: agendamentoVinculadoId,
         clinica: clinicaPayload,
         veterinario: { nome: veterinario },
@@ -1069,6 +1077,7 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
         pressao_arterial: pressaoPayload,
         ecocardiograma_cabecalho:
           tipoLaudo === "ecocardiograma" ? ecocardiogramaCabecalho : null,
+        ecocardiograma_estruturado: ecoEstruturadoPayload,
       };
       
       const response = await api.post("/laudos", payload);
@@ -1135,7 +1144,7 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Coluna Esquerda - Upload XML e Suspeita */}
+          {/* Coluna Esquerda - Upload XML */}
           <div className="lg:col-span-1 space-y-6">
             {/* Upload XML */}
             <div className="bg-white p-6 rounded-lg shadow-sm border">
@@ -1159,92 +1168,6 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
               </div>
             </div>
 
-            {/* Suspeita - Sidebar */}
-            <div className="bg-white p-6 rounded-lg shadow-sm border">
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <Heart className="w-5 h-5 text-teal-600" />
-                Suspeita
-              </h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Patologia
-                  </label>
-                  <select
-                    value={patologiaSelecionada}
-                    onChange={(e) => setPatologiaSelecionada(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 text-sm"
-                  >
-                    {patologias.map((p) => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Grau
-                  </label>
-                  <input
-                    type="range"
-                    min={0}
-                    max={graus.length - 1}
-                    step={1}
-                    value={Math.max(0, graus.indexOf(grauSelecionado))}
-                    onChange={(e) => {
-                      const idx = Number.parseInt(e.target.value, 10);
-                      setGrauSelecionado(graus[idx] || graus[0]);
-                    }}
-                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-teal-600"
-                  />
-                  <div className="flex justify-between text-xs text-gray-500 mt-1">
-                    {graus.map((g) => (
-                      <span key={g} className={grauSelecionado === g ? "font-bold text-teal-600" : ""}>
-                        {g}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Layout
-                  </label>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setLayoutQualitativa("detalhado")}
-                      className={`flex-1 px-3 py-2 text-sm rounded-lg border ${
-                        layoutQualitativa === "detalhado"
-                          ? "bg-teal-100 border-teal-300 text-teal-800"
-                          : "bg-white border-gray-300 text-gray-700"
-                      }`}
-                    >
-                      Detalhado
-                    </button>
-                    <button
-                      onClick={() => setLayoutQualitativa("enxuto")}
-                      className={`flex-1 px-3 py-2 text-sm rounded-lg border ${
-                        layoutQualitativa === "enxuto"
-                          ? "bg-teal-100 border-teal-300 text-teal-800"
-                          : "bg-white border-gray-300 text-gray-700"
-                      }`}
-                    >
-                      Enxuto
-                    </button>
-                  </div>
-                </div>
-                
-                <button
-                  onClick={handleGerarTexto}
-                  disabled={aplicandoFrase}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50"
-                >
-                  <BookOpen className="w-4 h-4" />
-                  {aplicandoFrase ? "Gerando..." : "Gerar Texto"}
-                </button>
-              </div>
-            </div>
           </div>
 
           {/* Coluna Direita - Formulário */}
@@ -1306,17 +1229,6 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
                 >
                   <Heart className="w-4 h-4" />
                   Pressao
-                </button>
-                <button
-                  onClick={() => setAba("frases")}
-                  className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
-                    aba === "frases"
-                      ? "text-teal-600 border-b-2 border-teal-600"
-                      : "text-gray-600 hover:text-gray-800"
-                  }`}
-                >
-                  <Settings className="w-4 h-4" />
-                  Frases
                 </button>
                 <button
                   onClick={() => setAba("referencias")}
@@ -1812,32 +1724,25 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
 
                 {aba === "qualitativa" && (
                   <div className="space-y-4">
-                    <div className="flex flex-col gap-3 mb-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="mb-4">
                       <div>
                         <h3 className="font-medium text-gray-900">Qualitativa Detalhada</h3>
                         <span className="text-sm text-gray-500">
-                          Use a barra lateral para gerar texto automaticamente
+                          Use o editor estruturado como fonte principal e ajuste os campos legados apenas quando necessario.
                         </span>
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={handleSalvarComoNovaPatologia}
-                          disabled={aplicandoFrase || salvandoFraseQualitativa}
-                          className="px-3 py-2 text-sm rounded-lg border border-teal-300 text-teal-700 hover:bg-teal-50 disabled:opacity-50"
-                        >
-                          Salvar como nova patologia
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleAtualizarPatologia}
-                          disabled={aplicandoFrase || salvandoFraseQualitativa}
-                          className="px-3 py-2 text-sm rounded-lg border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-50"
-                        >
-                          Atualizar patologia
-                        </button>
-                      </div>
                     </div>
+
+                    <EcocardiogramaEstruturadoEditor
+                      value={ecocardiogramaEstruturado}
+                      onChange={setEcocardiogramaEstruturado}
+                    />
+
+                    {ecocardiogramaEstruturado.usar_no_laudo ? (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                        Os campos legados abaixo estao sendo gerados a partir do estruturado e ficam bloqueados para evitar divergencia.
+                      </div>
+                    ) : null}
                     
                     {CAMPOS_QUALITATIVA.map((campo) => (
                       <div key={campo.key}>
@@ -1848,7 +1753,8 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
                           value={qualitativa[campo.key as keyof typeof qualitativa]}
                           onChange={(e) => handleQualitativaChange(campo.key, e.target.value)}
                           rows={3}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                          readOnly={ecocardiogramaEstruturado.usar_no_laudo}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 read-only:bg-gray-50"
                           placeholder={campo.placeholder}
                         />
                       </div>
@@ -1862,7 +1768,8 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
                         value={conteudo.conclusao}
                         onChange={(e) => setConteudo({ ...conteudo, conclusao: e.target.value })}
                         rows={4}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                        readOnly={ecocardiogramaEstruturado.usar_no_laudo}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 read-only:bg-gray-50"
                         placeholder="ConclusÃ£o diagnÃ³stica..."
                       />
                     </div>
@@ -2183,7 +2090,3 @@ const [modalFraseOpen, setModalFraseOpen] = useState(false);
     </DashboardLayout>
   );
 }
-
-
-
-

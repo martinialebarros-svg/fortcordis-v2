@@ -13,10 +13,20 @@ import {
 } from "@/lib/racas";
 import XmlUploader from "../../components/XmlUploader";
 import ImageUploader from "../../components/ImageUploader";
+import EcocardiogramaEstruturadoEditor from "../../components/EcocardiogramaEstruturadoEditor";
 import { ArrowLeft, Save, User, Activity, Heart, BookOpen, Settings, Image as ImageIcon, Minus, Plus } from "lucide-react";
 import { ReferenciaComparison } from "../../components/ReferenciaComparison";
+import {
+  criarEcocardiogramaEstruturadoInicial,
+  derivarLegadoDeEcocardiogramaEstruturado,
+  hidratarEcocardiogramaEstruturadoDeLegado,
+  montarDescricaoEcocardiograma,
+  normalizarEcocardiogramaEstruturado,
+  qualitativaEcoLegadaIgual,
+  serializarEcocardiogramaEstruturado,
+} from "@/lib/ecocardiograma-estruturado";
 
-// Componente de input de medida com botões +/-
+// Componente de input de medida com botÃµes +/-
 interface MedidaInputProps {
   label: string;
   value: string;
@@ -247,12 +257,12 @@ interface FraseQualitativa {
 }
 
 const CAMPOS_QUALITATIVA = [
-  { key: "valvas", label: "Válvulas", placeholder: "Descreva o estado das válvulas cardíacas..." },
-  { key: "camaras", label: "Câmaras", placeholder: "Descreva as cavidades cardíacas..." },
-  { key: "funcao", label: "Função", placeholder: "Descreva a função cardíaca..." },
-  { key: "pericardio", label: "Pericárdio", placeholder: "Descreva o pericárdio..." },
+  { key: "valvas", label: "VÃ¡lvulas", placeholder: "Descreva o estado das vÃ¡lvulas cardÃ­acas..." },
+  { key: "camaras", label: "CÃ¢maras", placeholder: "Descreva as cavidades cardÃ­acas..." },
+  { key: "funcao", label: "FunÃ§Ã£o", placeholder: "Descreva a funÃ§Ã£o cardÃ­aca..." },
+  { key: "pericardio", label: "PericÃ¡rdio", placeholder: "Descreva o pericÃ¡rdio..." },
   { key: "vasos", label: "Vasos", placeholder: "Descreva os grandes vasos..." },
-  { key: "ad_vd", label: "AD/VD", placeholder: "Descreva as câmaras direitas..." },
+  { key: "ad_vd", label: "AD/VD", placeholder: "Descreva as cÃ¢maras direitas..." },
 ];
 
 export default function EditarLaudoPage({ params }: { params: { id: string } }) {
@@ -284,6 +294,9 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     vasos: "",
     ad_vd: "",
   });
+  const [ecocardiogramaEstruturado, setEcocardiogramaEstruturado] = useState(
+    criarEcocardiogramaEstruturadoInicial()
+  );
   const [ecocardiogramaCabecalho, setEcocardiogramaCabecalho] = useState<EcocardiogramaCabecalho>({
     ritmo: "",
     estado: "",
@@ -303,7 +316,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     obs_extra: "",
   });
 
-  // Dados do paciente (editáveis)
+  // Dados do paciente (editÃ¡veis)
   const [pacienteForm, setPacienteForm] = useState({
     nome: "",
     especie: "Canina",
@@ -336,7 +349,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     setNovaRaca("");
   };
 
-  // Clínica
+  // ClÃ­nica
   const [clinicaId, setClinicaId] = useState<string>("");
   const [clinicaNome, setClinicaNome] = useState<string>("");
   const [clinicas, setClinicas] = useState<Clinica[]>([]);
@@ -374,6 +387,17 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     if (!racasLoaded) return;
     saveRacasCustomPorEspecie(racasCustomPorEspecie);
   }, [racasLoaded, racasCustomPorEspecie]);
+
+  useEffect(() => {
+    if (!ecocardiogramaEstruturado.usar_no_laudo) return;
+    const legado = derivarLegadoDeEcocardiogramaEstruturado(ecocardiogramaEstruturado);
+    setQualitativa((prev) =>
+      qualitativaEcoLegadaIgual(prev, legado.qualitativa) ? prev : legado.qualitativa
+    );
+    if (legado.conclusao) {
+      setDiagnostico((prev) => (prev === legado.conclusao ? prev : legado.conclusao));
+    }
+  }, [ecocardiogramaEstruturado]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -691,14 +715,14 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       const response = await api.get("/clinicas");
       setClinicas(response.data.items || []);
     } catch (error) {
-      console.error("Erro ao carregar clínicas:", error);
+      console.error("Erro ao carregar clÃ­nicas:", error);
     }
   };
 
   // Mapeamento de campos antigos para novos (compatibilidade com XMLs)
   const mapearCamposMedidas = (medidasOriginais: Record<string, number>): Record<string, string> => {
     const mapeamento: Record<string, string> = {
-      // Campos em inglês (XML cru) -> nomes em português
+      // Campos em inglÃªs (XML cru) -> nomes em portuguÃªs
       "LVIDd": "DIVEd",
       "LVIDs": "DIVES",
       "IVSd": "SIVd",
@@ -738,7 +762,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       "AR_Vmax": "IA_Vmax",
       "PR_Vmax": "IP_Vmax",
       "DIVdN": "DIVEd_normalizado",
-      // Campos já em português (XML já processado pelo backend) -> mesmos nomes
+      // Campos jÃ¡ em portuguÃªs (XML jÃ¡ processado pelo backend) -> mesmos nomes
       "DIVEd": "DIVEd",
       "DIVES": "DIVES",
       "SIVd": "SIVd",
@@ -864,17 +888,20 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       setObservacoes(laudoData.observacoes || "");
       setDescricao(laudoData.descricao || "");
       setStatus(laudoData.status || "Rascunho");
-
-      // Preencher clínica
-      if (laudoData.clinic_id) {
-        setClinicaId(laudoData.clinic_id.toString());
-      }
-      setMedicoSolicitante(laudoData.medico_solicitante || "");
+      const ecoEstruturadoNormalizado = normalizarEcocardiogramaEstruturado(
+        laudoData.ecocardiograma_estruturado
+      );
       setEcocardiogramaCabecalho({
         ritmo: String(laudoData.ecocardiograma_cabecalho?.ritmo || "").trim(),
         estado: String(laudoData.ecocardiograma_cabecalho?.estado || "").trim(),
         fc: String(laudoData.ecocardiograma_cabecalho?.fc || "").trim(),
       });
+
+      // Preencher clÃ­nica
+      if (laudoData.clinic_id) {
+        setClinicaId(laudoData.clinic_id.toString());
+      }
+      setMedicoSolicitante(laudoData.medico_solicitante || "");
 
       const pressao = laudoData.pressao_arterial || {};
       const manguito = String(pressao.manguito || "").trim();
@@ -927,7 +954,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
         const pacienteData = laudoData.paciente;
         setPaciente(pacienteData);
 
-        // Preencher formulário do paciente - os dados já vêm completos do backend
+        // Preencher formulÃ¡rio do paciente - os dados jÃ¡ vÃªm completos do backend
         setPacienteForm({
           nome: pacienteData.nome || "",
           especie: pacienteData.especie || "Canina",
@@ -948,7 +975,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
           const pacienteData = respPaciente.data;
           setPaciente(pacienteData);
 
-          // Preencher formulário do paciente
+          // Preencher formulÃ¡rio do paciente
           setPacienteForm({
             nome: pacienteData.nome || "",
             especie: pacienteData.especie || "Canina",
@@ -967,7 +994,16 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
         }
       }
 
-      // Extrair medidas e qualitativa da descrição
+      // Extrair medidas e qualitativa da descriÃ§Ã£o
+      const qualitativaExtraida = {
+        valvas: "",
+        camaras: "",
+        funcao: "",
+        pericardio: "",
+        vasos: "",
+        ad_vd: "",
+      };
+
       if (laudoData.descricao) {
         const descricao = laudoData.descricao;
 
@@ -981,21 +1017,23 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
         setMedidas(medidasExtraidas);
 
         // Extrair qualitativa
-        const qualitativaExtraida: Record<string, string> = {};
-        const regexQualitativa = /-\s*(valvas|camaras|funcao|pericardio|vasos|ad_vd):\s*(.+?)(?=\n-|$)/gi;
+        const regexQualitativa =
+          /-\s*(valvas|camaras|funcao|pericardio|vasos|ad_vd):\s*([\s\S]*?)(?=\n-\s*(?:valvas|camaras|funcao|pericardio|vasos|ad_vd):|$)/gi;
         while ((match = regexQualitativa.exec(descricao)) !== null) {
-          qualitativaExtraida[match[1].toLowerCase()] = match[2].trim();
+          const campo = match[1].toLowerCase() as keyof typeof qualitativaExtraida;
+          qualitativaExtraida[campo] = match[2].trim();
         }
 
-        setQualitativa({
-          valvas: qualitativaExtraida["valvas"] || "",
-          camaras: qualitativaExtraida["camaras"] || "",
-          funcao: qualitativaExtraida["funcao"] || "",
-          pericardio: qualitativaExtraida["pericardio"] || "",
-          vasos: qualitativaExtraida["vasos"] || "",
-          ad_vd: qualitativaExtraida["ad_vd"] || "",
-        });
+        setQualitativa(qualitativaExtraida);
       }
+
+      setEcocardiogramaEstruturado(
+        hidratarEcocardiogramaEstruturadoDeLegado(
+          ecoEstruturadoNormalizado,
+          qualitativaExtraida,
+          laudoData.diagnostico || ""
+        )
+      );
     } catch (error) {
       console.error("Erro ao carregar laudo:", error);
       alert("Erro ao carregar laudo.");
@@ -1009,7 +1047,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     try {
       // 1. Salvar dados do paciente primeiro
       if (paciente?.id) {
-        // Montar observações com idade
+        // Montar observaÃ§Ãµes com idade
         let observacoesPaciente = "";
         if (pacienteForm.idade) {
           observacoesPaciente += `Idade: ${pacienteForm.idade}\n`;
@@ -1034,7 +1072,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
               telefone: pacienteForm.telefone,
             };
 
-            // Se já existe tutor, atualiza; senão, cria novo
+            // Se jÃ¡ existe tutor, atualiza; senÃ£o, cria novo
             if (paciente?.tutor_id) {
               await api.put(`/tutores/${paciente.tutor_id}`, tutorPayload);
             } else {
@@ -1050,8 +1088,17 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       }
 
       const pressaoPayload = montarPayloadPressao();
+      const ecoEstruturadoPayload = laudoEhPressao
+        ? null
+        : serializarEcocardiogramaEstruturado(ecocardiogramaEstruturado);
+      const legadoEco =
+        ecoEstruturadoPayload && ecoEstruturadoPayload.usar_no_laudo
+          ? derivarLegadoDeEcocardiogramaEstruturado(ecoEstruturadoPayload)
+          : null;
+      const qualitativaPayload = legadoEco?.qualitativa || qualitativa;
+      const diagnosticoPayload = legadoEco?.conclusao || diagnostico;
 
-      // 2. Montar descrição do laudo conforme tipo
+      // 2. Montar descricao do laudo conforme tipo
       let descricao = "";
       if (laudoEhPressao) {
         const pas1 = parseInteiroPositivo(pressaoArterial.pas_1) || 0;
@@ -1064,19 +1111,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
         descricao += `- PAS media: ${pasMediaCalculada || 0} mmHg\n`;
         descricao += "- Metodo: Doppler\n";
       } else {
-        descricao = "## Medidas Ecocardiográficas\n";
-        Object.entries(medidas).forEach(([key, value]) => {
-          if (value) {
-            descricao += `- ${key}: ${value}\n`;
-          }
-        });
-
-        descricao += "\n## Avaliação Qualitativa\n";
-        Object.entries(qualitativa).forEach(([key, value]) => {
-          if (value) {
-            descricao += `- ${key}: ${value}\n`;
-          }
-        });
+        descricao = montarDescricaoEcocardiograma(medidas, qualitativaPayload);
       }
 
       // 3. Salvar laudo
@@ -1087,13 +1122,14 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
             ? `Laudo de Pressao Arterial - ${pacienteForm.nome || "Paciente"}`
             : `Laudo de Ecocardiograma - ${pacienteForm.nome || "Paciente"}`),
         descricao,
-        diagnostico,
+        diagnostico: diagnosticoPayload,
         observacoes,
         status,
         data_exame: pacienteForm.data_exame,
         tipo_laudo: laudoEhPressao ? "pressao_arterial" : "ecocardiograma",
         pressao_arterial: pressaoPayload,
         ecocardiograma_cabecalho: laudoEhPressao ? null : ecocardiogramaCabecalho,
+        ecocardiograma_estruturado: ecoEstruturadoPayload,
       };
 
       // Adicionar clinic_id se selecionado
@@ -1101,7 +1137,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
         payload.clinic_id = parseInt(clinicaId);
       }
 
-      // Adicionar médico solicitante
+      // Adicionar mÃ©dico solicitante
       if (medicoSolicitante) {
         payload.medico_solicitante = medicoSolicitante;
       }
@@ -1147,8 +1183,8 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     return (
       <DashboardLayout>
         <div className="p-6 text-center">
-          <h1 className="text-2xl font-bold text-gray-900">Laudo não encontrado</h1>
-          <p className="text-gray-500 mt-2">O laudo solicitado não existe ou foi removido.</p>
+          <h1 className="text-2xl font-bold text-gray-900">Laudo nÃ£o encontrado</h1>
+          <p className="text-gray-500 mt-2">O laudo solicitado nÃ£o existe ou foi removido.</p>
           <button
             onClick={() => router.push("/laudos")}
             className="mt-4 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
@@ -1208,95 +1244,6 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                 <p className="text-sm text-blue-800">
                   <strong>Dica:</strong> Arraste o arquivo XML exportado do aparelho de ecocardiograma para preencher automaticamente os dados e medidas.
                 </p>
-              </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-lg shadow-sm border">
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <Heart className="w-5 h-5 text-teal-600" />
-                Suspeita
-              </h2>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Patologia
-                  </label>
-                  <select
-                    value={patologiaSelecionada}
-                    onChange={(e) => setPatologiaSelecionada(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 text-sm"
-                  >
-                    {patologias.map((p) => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Grau
-                  </label>
-                  <input
-                    type="range"
-                    min={0}
-                    max={graus.length - 1}
-                    step={1}
-                    value={Math.max(0, graus.indexOf(grauSelecionado))}
-                    onChange={(e) => {
-                      const idx = Number.parseInt(e.target.value, 10);
-                      setGrauSelecionado(graus[idx] || graus[0]);
-                    }}
-                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-teal-600"
-                  />
-                  <div className="flex justify-between text-xs text-gray-500 mt-1">
-                    {graus.map((g) => (
-                      <span key={g} className={grauSelecionado === g ? "font-bold text-teal-600" : ""}>
-                        {g}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Layout
-                  </label>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setLayoutQualitativa("detalhado")}
-                      className={`flex-1 px-3 py-2 text-sm rounded-lg border ${
-                        layoutQualitativa === "detalhado"
-                          ? "bg-teal-100 border-teal-300 text-teal-800"
-                          : "bg-white border-gray-300 text-gray-700"
-                      }`}
-                    >
-                      Detalhado
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setLayoutQualitativa("enxuto")}
-                      className={`flex-1 px-3 py-2 text-sm rounded-lg border ${
-                        layoutQualitativa === "enxuto"
-                          ? "bg-teal-100 border-teal-300 text-teal-800"
-                          : "bg-white border-gray-300 text-gray-700"
-                      }`}
-                    >
-                      Enxuto
-                    </button>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleGerarTexto}
-                  disabled={aplicandoFrase}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50"
-                >
-                  <BookOpen className="w-4 h-4" />
-                  {aplicandoFrase ? "Gerando..." : "Gerar Texto"}
-                </button>
               </div>
             </div>
           </div>
@@ -1359,7 +1306,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                   }`}
                 >
                   <Heart className="w-4 h-4" />
-                  Pressão
+                  PressÃ£o
                 </button>
                 <button
                   onClick={() => setAba("referencias")}
@@ -1370,11 +1317,11 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                   }`}
                 >
                   <BookOpen className="w-4 h-4" />
-                  Referências
+                  ReferÃªncias
                 </button>
               </div>
 
-              {/* Conteúdo das Abas */}
+              {/* ConteÃºdo das Abas */}
               <div className="p-6">
                 {aba === "paciente" && (
                   <div className="space-y-4">
@@ -1407,7 +1354,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
 
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Espécie
+                          EspÃ©cie
                         </label>
                         <select
                           value={pacienteForm.especie}
@@ -1426,7 +1373,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
 
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Raça
+                          RaÃ§a
                         </label>
                         <select
                           value={pacienteForm.raca}
@@ -1451,7 +1398,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                                 handleAdicionarRaca();
                               }
                             }}
-                            placeholder="Adicionar nova raça"
+                            placeholder="Adicionar nova raÃ§a"
                             className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                           />
                           <button
@@ -1475,7 +1422,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                         >
                           <option value="Macho">Macho</option>
-                          <option value="Fêmea">Fêmea</option>
+                          <option value="FÃªmea">FÃªmea</option>
                         </select>
                       </div>
 
@@ -1578,11 +1525,11 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                     </div>
 
                     <div className="border-t pt-4 mt-4">
-                      <h4 className="font-medium text-gray-900 mb-4">Informações da Clínica</h4>
+                      <h4 className="font-medium text-gray-900 mb-4">InformaÃ§Ãµes da ClÃ­nica</h4>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Clínica
+                            ClÃ­nica
                           </label>
                           <select
                             value={clinicaId}
@@ -1594,7 +1541,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                             }}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                           >
-                            <option value="">Selecione uma clínica</option>
+                            <option value="">Selecione uma clÃ­nica</option>
                             {clinicas.map((c) => (
                               <option key={c.id} value={c.id}>
                                 {c.nome}
@@ -1604,7 +1551,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Veterinário Solicitante
+                            VeterinÃ¡rio Solicitante
                           </label>
                           <input
                             type="text"
@@ -1617,18 +1564,18 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                     </div>
 
                     <div className="border-t pt-4 mt-4">
-                      <h4 className="font-medium text-gray-900 mb-4">Informações do Laudo</h4>
+                      <h4 className="font-medium text-gray-900 mb-4">InformaÃ§Ãµes do Laudo</h4>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Título
+                            TÃ­tulo
                           </label>
                           <input
                             type="text"
                             value={titulo}
                             onChange={(e) => setTitulo(e.target.value)}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-                            placeholder="Título do laudo"
+                            placeholder="TÃ­tulo do laudo"
                           />
                         </div>
                         <div>
@@ -1659,7 +1606,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                         <h4 className="font-semibold text-gray-900 text-sm">VE - Modo M</h4>
 
                         <MedidaInput
-                          label="DIVEd (mm - Diâmetro interno do VE em diástole)"
+                          label="DIVEd (mm - DiÃ¢metro interno do VE em diÃ¡stole)"
                           value={medidas["DIVEd"] || ""}
                           onChange={(v) => handleMedidaChange("DIVEd", v)}
                         />
@@ -1671,27 +1618,27 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                           reference="Ref.: 1.27-1.73"
                         />
                         <MedidaInput
-                          label="SIVd (mm - Septo interventricular em diástole)"
+                          label="SIVd (mm - Septo interventricular em diÃ¡stole)"
                           value={medidas["SIVd"] || ""}
                           onChange={(v) => handleMedidaChange("SIVd", v)}
                         />
                         <MedidaInput
-                          label="PLVEd (mm - Parede livre do VE em diástole)"
+                          label="PLVEd (mm - Parede livre do VE em diÃ¡stole)"
                           value={medidas["PLVEd"] || ""}
                           onChange={(v) => handleMedidaChange("PLVEd", v)}
                         />
                         <MedidaInput
-                          label="DIVÉs (mm - Diâmetro interno do VE em sístole)"
+                          label="DIVÃ‰s (mm - DiÃ¢metro interno do VE em sÃ­stole)"
                           value={medidas["DIVES"] || ""}
                           onChange={(v) => handleMedidaChange("DIVES", v)}
                         />
                         <MedidaInput
-                          label="SIVs (mm - Septo interventricular em sístole)"
+                          label="SIVs (mm - Septo interventricular em sÃ­stole)"
                           value={medidas["SIVs"] || ""}
                           onChange={(v) => handleMedidaChange("SIVs", v)}
                         />
                         <MedidaInput
-                          label="PLVÉs (mm - Parede livre do VE em sístole)"
+                          label="PLVÃ‰s (mm - Parede livre do VE em sÃ­stole)"
                           value={medidas["PLVES"] || ""}
                           onChange={(v) => handleMedidaChange("PLVES", v)}
                         />
@@ -1716,20 +1663,20 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                           onChange={(v) => handleMedidaChange("DeltaD_FS", v)}
                         />
                         <MedidaInput
-                          label="TAPSE (mm - excursão sistólica do plano anular tricúspide)"
+                          label="TAPSE (mm - excursÃ£o sistÃ³lica do plano anular tricÃºspide)"
                           value={medidas["TAPSE"] || ""}
                           onChange={(v) => handleMedidaChange("TAPSE", v)}
                         />
                         <MedidaInput
-                          label="MAPSE (mm - excursão sistólica do plano anular mitral)"
+                          label="MAPSE (mm - excursÃ£o sistÃ³lica do plano anular mitral)"
                           value={medidas["MAPSE"] || ""}
                           onChange={(v) => handleMedidaChange("MAPSE", v)}
                         />
                       </div>
 
-                      {/* Coluna 2: Átrio esquerdo/Aorta e Diastólica */}
+                      {/* Coluna 2: Ãtrio esquerdo/Aorta e DiastÃ³lica */}
                       <div className="space-y-4">
-                        <h4 className="font-semibold text-gray-900 text-sm">Átrio esquerdo/ Aorta</h4>
+                        <h4 className="font-semibold text-gray-900 text-sm">Ãtrio esquerdo/ Aorta</h4>
 
                         <MedidaInput
                           label="Aorta (mm)"
@@ -1737,12 +1684,12 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                           onChange={(v) => handleMedidaChange("Aorta", v)}
                         />
                         <MedidaInput
-                          label="Átrio esquerdo (mm)"
+                          label="Ãtrio esquerdo (mm)"
                           value={medidas["Atrio_esquerdo"] || ""}
                           onChange={(v) => handleMedidaChange("Atrio_esquerdo", v)}
                         />
                         <MedidaInput
-                          label="AE/Ao (Átrio esquerdo/Aorta)"
+                          label="AE/Ao (Ãtrio esquerdo/Aorta)"
                           value={medidas["AE_Ao"] || ""}
                           onChange={(v) => handleMedidaChange("AE_Ao", v)}
                           readOnly
@@ -1751,7 +1698,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                         {pacienteForm.especie === "Felina" && (
                           <>
                             <MedidaInput
-                              label="Fração de encurtamento do AE (átrio esquerdo)"
+                              label="FraÃ§Ã£o de encurtamento do AE (Ã¡trio esquerdo)"
                               value={medidas["Fracao_encurtamento_AE"] ?? ""}
                               onChange={(v) => handleMedidaChange("Fracao_encurtamento_AE", v)}
                               reference="Ref.: 21 - 25%"
@@ -1767,7 +1714,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
 
                         <hr className="border-gray-200 my-4" />
 
-                        <h4 className="font-semibold text-gray-900 text-sm">Diastólica</h4>
+                        <h4 className="font-semibold text-gray-900 text-sm">DiastÃ³lica</h4>
 
                         <MedidaInput
                           label="Onda E"
@@ -1780,17 +1727,17 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                           onChange={(v) => handleMedidaChange("Onda_A", v)}
                         />
                         <MedidaInput
-                          label="E/A (relação E/A)"
+                          label="E/A (relaÃ§Ã£o E/A)"
                           value={medidas["E_A"] || ""}
                           onChange={(v) => handleMedidaChange("E_A", v)}
                         />
                         <MedidaInput
-                          label="TD (tempo desaceleração)"
+                          label="TD (tempo desaceleraÃ§Ã£o)"
                           value={medidas["TD"] || ""}
                           onChange={(v) => handleMedidaChange("TD", v)}
                         />
                         <MedidaInput
-                          label="TRIV (tempo relaxamento isovolumétrico)"
+                          label="TRIV (tempo relaxamento isovolumÃ©trico)"
                           value={medidas["TRIV"] || ""}
                           onChange={(v) => handleMedidaChange("TRIV", v)}
                         />
@@ -1810,7 +1757,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                           onChange={(v) => handleMedidaChange("a_doppler", v)}
                         />
                         <MedidaInput
-                          label="Doppler tecidual (Relação e'/a')"
+                          label="Doppler tecidual (RelaÃ§Ã£o e'/a')"
                           value={medidas["doppler_tecidual_relacao"] || ""}
                           onChange={(v) => handleMedidaChange("doppler_tecidual_relacao", v)}
                         />
@@ -1822,56 +1769,56 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                         />
                       </div>
 
-                      {/* Coluna 3: Artéria pulmonar/Aorta e Regurgitações */}
+                      {/* Coluna 3: ArtÃ©ria pulmonar/Aorta e RegurgitaÃ§Ãµes */}
                       <div className="space-y-4">
-                        <h4 className="font-semibold text-gray-900 text-sm">Artéria pulmonar/ Aorta</h4>
+                        <h4 className="font-semibold text-gray-900 text-sm">ArtÃ©ria pulmonar/ Aorta</h4>
 
                         <MedidaInput
-                          label="AP (mm - Artéria pulmonar)"
+                          label="AP (mm - ArtÃ©ria pulmonar)"
                           value={medidas["AP"] || ""}
                           onChange={(v) => handleMedidaChange("AP", v)}
                         />
                         <MedidaInput
-                          label="Ao (mm - Aorta - nível AP)"
+                          label="Ao (mm - Aorta - nÃ­vel AP)"
                           value={medidas["Ao_nivel_AP"] || ""}
                           onChange={(v) => handleMedidaChange("Ao_nivel_AP", v)}
                         />
                         <MedidaInput
-                          label="AP/Ao (Artéria pulmonar/Aorta)"
+                          label="AP/Ao (ArtÃ©ria pulmonar/Aorta)"
                           value={medidas["AP_Ao"] || ""}
                           onChange={(v) => handleMedidaChange("AP_Ao", v)}
                         />
 
                         <hr className="border-gray-200 my-4" />
 
-                        <h4 className="font-semibold text-gray-900 text-sm">Regurgitações</h4>
+                        <h4 className="font-semibold text-gray-900 text-sm">RegurgitaÃ§Ãµes</h4>
 
                         <MedidaInput
-                          label="IM (insuficiência mitral) Vmax"
+                          label="IM (insuficiÃªncia mitral) Vmax"
                           value={medidas["IM_Vmax"] || ""}
                           onChange={(v) => handleMedidaChange("IM_Vmax", v)}
                         />
                         <MedidaInput
-                          label="IT (insuficiência tricúspide) Vmax"
+                          label="IT (insuficiÃªncia tricÃºspide) Vmax"
                           value={medidas["IT_Vmax"] || ""}
                           onChange={(v) => handleMedidaChange("IT_Vmax", v)}
                         />
                         <MedidaInput
-                          label="IA (insuficiência aórtica) Vmax"
+                          label="IA (insuficiÃªncia aÃ³rtica) Vmax"
                           value={medidas["IA_Vmax"] || ""}
                           onChange={(v) => handleMedidaChange("IA_Vmax", v)}
                         />
                         <MedidaInput
-                          label="IP (insuficiência pulmonar) Vmax"
+                          label="IP (insuficiÃªncia pulmonar) Vmax"
                           value={medidas["IP_Vmax"] || ""}
                           onChange={(v) => handleMedidaChange("IP_Vmax", v)}
                         />
                       </div>
                     </div>
 
-                    {/* Linha inferior: Doppler - Saídas */}
+                    {/* Linha inferior: Doppler - SaÃ­das */}
                     <div className="border-t pt-6 mt-6">
-                      <h4 className="font-semibold text-gray-900 text-sm mb-4">Doppler - Saídas</h4>
+                      <h4 className="font-semibold text-gray-900 text-sm mb-4">Doppler - SaÃ­das</h4>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <MedidaInput
                           label="Vmax aorta"
@@ -1900,27 +1847,23 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
 
                 {aba === "qualitativa" && (
                   <div className="space-y-4">
-                    <div className="flex flex-col gap-3 mb-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="mb-4">
                       <h3 className="font-medium text-gray-900">Qualitativa Detalhada</h3>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={handleSalvarComoNovaPatologia}
-                          disabled={aplicandoFrase || salvandoFraseQualitativa}
-                          className="px-3 py-2 text-sm rounded-lg border border-teal-300 text-teal-700 hover:bg-teal-50 disabled:opacity-50"
-                        >
-                          Salvar como nova patologia
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleAtualizarPatologia}
-                          disabled={aplicandoFrase || salvandoFraseQualitativa}
-                          className="px-3 py-2 text-sm rounded-lg border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-50"
-                        >
-                          Atualizar patologia
-                        </button>
-                      </div>
+                      <span className="text-sm text-gray-500">
+                        Use o editor estruturado como fonte principal e ajuste os campos legados apenas quando necessario.
+                      </span>
                     </div>
+
+                    <EcocardiogramaEstruturadoEditor
+                      value={ecocardiogramaEstruturado}
+                      onChange={setEcocardiogramaEstruturado}
+                    />
+
+                    {ecocardiogramaEstruturado.usar_no_laudo ? (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                        Os campos legados abaixo estao sendo gerados a partir do estruturado e ficam bloqueados para evitar divergencia.
+                      </div>
+                    ) : null}
 
                     {CAMPOS_QUALITATIVA.map((campo) => (
                       <div key={campo.key}>
@@ -1931,7 +1874,8 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                           value={qualitativa[campo.key as keyof typeof qualitativa]}
                           onChange={(e) => handleQualitativaChange(campo.key, e.target.value)}
                           rows={3}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                          readOnly={ecocardiogramaEstruturado.usar_no_laudo}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 read-only:bg-gray-50"
                           placeholder={campo.placeholder}
                         />
                       </div>
@@ -1945,7 +1889,8 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                         value={diagnostico}
                         onChange={(e) => setDiagnostico(e.target.value)}
                         rows={4}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                        readOnly={ecocardiogramaEstruturado.usar_no_laudo}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 read-only:bg-gray-50"
                         placeholder="Conclusao diagnostica..."
                       />
                     </div>
@@ -2009,7 +1954,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
 
                     <div className="mt-4 p-4 bg-blue-50 rounded-lg">
                       <p className="text-sm text-blue-800">
-                        <strong>Dica:</strong> As imagens serão inseridas automaticamente no PDF do laudo.
+                        <strong>Dica:</strong> As imagens serÃ£o inseridas automaticamente no PDF do laudo.
                       </p>
                     </div>
                   </div>
@@ -2179,7 +2124,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                 {aba === "referencias" && (
                   <div className="space-y-4">
                     <div className="flex justify-between items-center mb-4">
-                      <h3 className="font-medium text-gray-900">Tabelas de Referência</h3>
+                      <h3 className="font-medium text-gray-900">Tabelas de ReferÃªncia</h3>
                       <a
                         href="/referencias-eco"
                         target="_blank"
@@ -2192,9 +2137,9 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
 
                     <div className="p-4 bg-blue-50 rounded-lg">
                       <p className="text-sm text-blue-800">
-                        <strong>Nota:</strong> As tabelas de referência são usadas para comparar automaticamente
+                        <strong>Nota:</strong> As tabelas de referÃªncia sÃ£o usadas para comparar automaticamente
                         as medidas do paciente com os valores normais. Clique em "Editar Tabelas" para gerenciar
-                        os valores de referência.
+                        os valores de referÃªncia.
                       </p>
                     </div>
 
@@ -2213,3 +2158,4 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     </DashboardLayout>
   );
 }
+

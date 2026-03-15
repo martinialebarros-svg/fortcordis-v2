@@ -12,6 +12,7 @@ from app.api.v1.endpoints import (
     configuracoes,
     financeiro,
     frases,
+    frases_ecocardiograma_estruturado_teste,
     frases_ultrassom_abdominal,
     imagens,
     laudos,
@@ -98,6 +99,11 @@ app.include_router(laudos.router, prefix="/api/v1", tags=["laudos"])
 app.include_router(financeiro.router, prefix="/api/v1/financeiro", tags=["financeiro"])
 app.include_router(xml_import.router, prefix="/api/v1/xml", tags=["xml_import"])
 app.include_router(frases.router, prefix="/api/v1/frases", tags=["frases"])
+app.include_router(
+    frases_ecocardiograma_estruturado_teste.router,
+    prefix="/api/v1/frases-ecocardiograma-estruturado-teste",
+    tags=["frases_ecocardiograma_estruturado_teste"],
+)
 app.include_router(
     frases_ultrassom_abdominal.router,
     prefix="/api/v1/frases-ultrassom-abdominal",

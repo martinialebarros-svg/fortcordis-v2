@@ -153,7 +153,10 @@ export default function LaudosPage() {
             <h1 className="text-2xl font-bold text-gray-900">Laudos e Exames</h1>
             <p className="text-gray-500">Gerencie laudos médicos e exames</p>
           </div>
-          <button onClick={() => router.push("/laudos/novo")} className="flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors">
+          <button
+            onClick={() => router.push("/laudos/novo")}
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
+          >
             <Plus className="w-4 h-4" />
             Novo Laudo
           </button>
