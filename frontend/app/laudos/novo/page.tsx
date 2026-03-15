@@ -366,7 +366,7 @@ export default function NovoLaudoPage() {
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
   const [patologias] = useState<string[]>([]);
   const [patologiaSelecionada, setPatologiaSelecionada] = useState("Normal");
-  const [graus] = useState<string[]>(["Leve", "Moderada", "Importante"]);
+  const [graus, setGraus] = useState<string[]>(["Leve", "Moderada", "Importante"]);
   const [grauSelecionado, setGrauSelecionado] = useState("Leve");
   const [layoutQualitativa] = useState<"detalhado" | "enxuto">("detalhado");
   const [aplicandoFrase, setAplicandoFrase] = useState(false);
@@ -379,6 +379,7 @@ export default function NovoLaudoPage() {
   // Imagens do laudo
   const [imagens, setImagens] = useState<any[]>([]);
   const [sessionId, setSessionId] = useState<string>("");
+  const isInitialMount = useRef(true);
   const opcoesRitmoPaciente = incluirOpcaoAtual(OPCOES_RITMO, ecocardiogramaCabecalho.ritmo);
   const opcoesEstadoPaciente = incluirOpcaoAtual(
     OPCOES_ESTADO_PACIENTE,
