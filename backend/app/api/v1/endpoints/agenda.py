@@ -803,7 +803,7 @@ def listar_agendamentos(
         query = query.filter(Agendamento.paciente_id == paciente_id)
 
     total = query.count()
-    results = query.offset(skip).limit(limit).all()
+    results = query.order_by(Agendamento.inicio.asc(), Agendamento.id.asc()).offset(skip).limit(limit).all()
 
     items = [
         _serialize_agendamento(

@@ -685,8 +685,31 @@ export default function AgendaFullCalendarPage() {
   const carregarAgendamentos = useCallback(async (periodo: IntervaloConsulta) => {
     setLoading(true);
     try {
-      const response = await api.get(`/agenda?data_inicio=${periodo.inicio}&data_fim=${periodo.fim}`);
-      const items = Array.isArray(response.data?.items) ? response.data.items : [];
+      const pageSize = 500;
+      let skip = 0;
+      let total = 0;
+      const items: Agendamento[] = [];
+
+      while (true) {
+        const response = await api.get(
+          `/agenda?data_inicio=${periodo.inicio}&data_fim=${periodo.fim}&skip=${skip}&limit=${pageSize}`
+        );
+        const pagina = Array.isArray(response.data?.items) ? (response.data.items as Agendamento[]) : [];
+        const totalResposta = Number(response.data?.total);
+
+        if (Number.isFinite(totalResposta) && totalResposta >= 0) {
+          total = totalResposta;
+        }
+
+        items.push(...pagina);
+
+        if (pagina.length === 0 || pagina.length < pageSize || (total > 0 && items.length >= total)) {
+          break;
+        }
+
+        skip += pagina.length;
+      }
+
       setAgendamentos(items);
       await Promise.all([
         carregarClinicasComEndereco(items),
