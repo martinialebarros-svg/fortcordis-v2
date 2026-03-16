@@ -22,6 +22,7 @@ import {
   qualitativaEcoLegadaIgual,
   serializarEcocardiogramaEstruturado,
 } from "@/lib/ecocardiograma-estruturado";
+import { extrairIdadePaciente, normalizarSexoPaciente } from "@/lib/paciente";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -631,7 +632,8 @@ export default function NovoLaudoPage() {
           dadosPaciente?.peso_kg !== null && dadosPaciente?.peso_kg !== undefined
             ? String(dadosPaciente.peso_kg)
             : prev.peso,
-        sexo: dadosPaciente?.sexo || prev.sexo || "Macho",
+        idade: extrairIdadePaciente(dadosPaciente || {}) || prev.idade,
+        sexo: normalizarSexoPaciente(dadosPaciente?.sexo || prev.sexo || "Macho") || "Macho",
         telefone: agendamento.telefone || prev.telefone,
         data_exame: agendamento.data || prev.data_exame || new Date().toISOString().split("T")[0],
       }));
@@ -673,7 +675,8 @@ export default function NovoLaudoPage() {
           dadosPaciente?.peso_kg !== null && dadosPaciente?.peso_kg !== undefined
             ? String(dadosPaciente.peso_kg)
             : prev.peso,
-        sexo: dadosPaciente?.sexo || prev.sexo || "Macho",
+        idade: extrairIdadePaciente(dadosPaciente || {}) || prev.idade,
+        sexo: normalizarSexoPaciente(dadosPaciente?.sexo || prev.sexo || "Macho") || "Macho",
         data_exame: prev.data_exame || new Date().toISOString().split("T")[0],
       }));
 
@@ -1011,7 +1014,7 @@ export default function NovoLaudoPage() {
         especie: dados.paciente.especie || anterior.especie || "Canina",
         peso: dados.paciente.peso || anterior.peso || "",
         idade: dados.paciente.idade || anterior.idade || "",
-        sexo: dados.paciente.sexo || anterior.sexo || "Macho",
+        sexo: normalizarSexoPaciente(dados.paciente.sexo || anterior.sexo || "Macho") || "Macho",
         telefone: dados.paciente.telefone || anterior.telefone || "",
         data_exame: dados.paciente.data_exame
           ? dados.paciente.data_exame.substring(0, 10)

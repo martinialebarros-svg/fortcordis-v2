@@ -23,6 +23,11 @@ from app.services.laudo_pdf_jobs import (
     submit_laudo_pdf_job,
 )
 from app.services.laudo_pdf_service import compute_laudo_pdf_cache_key, render_laudo_pdf
+from app.utils.paciente_helpers import (
+    atualizar_observacoes_com_idade,
+    extrair_idade_paciente,
+    normalizar_sexo_paciente,
+)
 
 router = APIRouter()
 
@@ -163,14 +168,7 @@ def _normalizar_pressao_arterial(raw: Any) -> Optional[Dict[str, Any]]:
 
 
 def _normalizar_sexo_paciente(sexo: Any) -> str:
-    texto = unicodedata.normalize("NFKD", str(sexo or ""))
-    texto = "".join(c for c in texto if not unicodedata.combining(c))
-    texto = texto.strip().lower()
-    if texto.startswith("f"):
-        return "Femea"
-    if texto.startswith("m"):
-        return "Macho"
-    return ""
+    return normalizar_sexo_paciente(sexo)
 
 
 def _normalizar_ecocardiograma_cabecalho(raw: Any) -> Optional[Dict[str, Any]]:
@@ -586,7 +584,7 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
             db_paciente.raca = raca_payload
             houve_alteracao = True
 
-        sexo_payload = (paciente.get("sexo") or "").strip()
+        sexo_payload = normalizar_sexo_paciente(paciente.get("sexo"))
         if sexo_payload and sexo_payload != (db_paciente.sexo or ""):
             db_paciente.sexo = sexo_payload
             houve_alteracao = True
@@ -601,6 +599,16 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
         if tutor_id is not None and tutor_id != db_paciente.tutor_id:
             db_paciente.tutor_id = tutor_id
             houve_alteracao = True
+
+        idade_payload = str(paciente.get("idade") or "").strip()
+        if idade_payload:
+            observacoes_atualizadas = atualizar_observacoes_com_idade(
+                db_paciente.observacoes,
+                idade_payload,
+            )
+            if observacoes_atualizadas != str(db_paciente.observacoes or "").strip():
+                db_paciente.observacoes = observacoes_atualizadas or None
+                houve_alteracao = True
 
         if db_paciente.ativo != 1:
             db_paciente.ativo = 1
@@ -649,16 +657,14 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
         _atualizar_paciente_existente_sem_limpar_campos(paciente_existente)
         return paciente_existente.id
 
-    observacoes = ""
-    if paciente.get("idade"):
-        observacoes += f"Idade: {paciente.get('idade')}\n"
+    observacoes = atualizar_observacoes_com_idade("", paciente.get("idade"))
 
     novo_paciente = Paciente(
         nome=paciente_nome,
         nome_key=paciente_nome_key,
         especie=paciente_especie,
         raca=paciente.get("raca", ""),
-        sexo=paciente.get("sexo", ""),
+        sexo=normalizar_sexo_paciente(paciente.get("sexo", "")),
         peso_kg=_to_float_or_none(paciente.get("peso")),
         tutor_id=tutor_id,
         observacoes=observacoes if observacoes else None,
@@ -1223,30 +1229,10 @@ def obter_laudo(
             tutor_nome = tutor.nome
             tutor_telefone = tutor.telefone
     
-    # Calcular idade do paciente se tiver data de nascimento
-    idade = ""
-    if paciente and paciente.nascimento:
-        try:
-            nasc = datetime.strptime(str(paciente.nascimento), "%Y-%m-%d")
-            hoje = datetime.now()
-            meses = (hoje.year - nasc.year) * 12 + hoje.month - nasc.month
-            if meses < 12:
-                idade = f"{meses}m"
-            else:
-                anos = meses // 12
-                meses_rest = meses % 12
-                if meses_rest > 0:
-                    idade = f"{anos}a {meses_rest}m"
-                else:
-                    idade = f"{anos}a"
-        except:
-            idade = str(paciente.nascimento)
-    
-    # Extrair idade das observações se não calculou
-    if not idade and paciente and paciente.observacoes:
-        match = re.search(r'Idade:\s*(.+?)(?:\n|$)', paciente.observacoes)
-        if match:
-            idade = match.group(1).strip()
+    idade = extrair_idade_paciente(
+        paciente.nascimento if paciente else None,
+        paciente.observacoes if paciente else None,
+    )
     
     # Buscar nome da clínica
     clinica_nome = None
@@ -1292,7 +1278,7 @@ def obter_laudo(
             "telefone": tutor_telefone or "",
             "especie": paciente.especie if paciente else "",
             "raca": paciente.raca if paciente else "",
-            "sexo": paciente.sexo if paciente else "",
+            "sexo": normalizar_sexo_paciente(paciente.sexo if paciente else ""),
             "peso_kg": paciente.peso_kg if paciente else None,
             "idade": idade,
         },
@@ -1616,25 +1602,16 @@ def gerar_pdf_laudo(
             data_exame = _parse_data_exame(data_exame)
         data_exame_str = data_exame.strftime("%d/%m/%Y") if data_exame else datetime.now().strftime("%d/%m/%Y")
 
-        idade = ""
-        if paciente and paciente.nascimento:
-            try:
-                nasc = datetime.strptime(str(paciente.nascimento), "%Y-%m-%d")
-                hoje = datetime.now()
-                meses = (hoje.year - nasc.year) * 12 + hoje.month - nasc.month
-                idade = f"{meses}m" if meses < 12 else f"{meses // 12}a"
-            except Exception:
-                idade = ""
-        if not idade and paciente and paciente.observacoes:
-            match = re.search(r"Idade:\s*(.+?)(?:\\n|$)", paciente.observacoes)
-            if match:
-                idade = match.group(1).strip()
+        idade = extrair_idade_paciente(
+            paciente.nascimento if paciente else None,
+            paciente.observacoes if paciente else None,
+        )
 
         dados_paciente = {
             "nome": paciente.nome if paciente else "N/A",
             "especie": paciente.especie if paciente else "Canina",
             "raca": paciente.raca if paciente else "",
-            "sexo": paciente.sexo if paciente else "",
+            "sexo": normalizar_sexo_paciente(paciente.sexo if paciente else ""),
             "idade": idade,
             "peso": f"{paciente.peso_kg:.1f}" if paciente and paciente.peso_kg else "",
             "tutor": tutor_nome,
