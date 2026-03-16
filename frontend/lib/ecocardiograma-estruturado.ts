@@ -66,6 +66,10 @@ export function criarEcocardiogramaEstruturadoInicial(): EcocardiogramaEstrutura
   };
 }
 
+function normalizarQuebrasDeLinha(texto: string): string {
+  return String(texto || "").replace(/\r\n/g, "\n");
+}
+
 function normalizarTextoEstruturado(texto: string): string {
   return String(texto || "")
     .replace(/\r\n/g, "\n")
@@ -110,15 +114,15 @@ export function normalizarEcocardiogramaEstruturado(
       : {};
 
   const textos = ASPECTOS_ECO_META.reduce<Record<string, string>>((acc, aspecto) => {
-    const texto = String(textosRaw[aspecto.key] || "").trim();
-    if (texto) {
+    const texto = normalizarQuebrasDeLinha(String(textosRaw[aspecto.key] || ""));
+    if (texto.trim()) {
       acc[aspecto.key] = texto;
     }
     return acc;
   }, {});
   const preset_textos = ASPECTOS_ECO_META.reduce<Record<string, string>>((acc, aspecto) => {
-    const texto = String(presetTextosRaw[aspecto.key] || "").trim();
-    if (texto) {
+    const texto = normalizarQuebrasDeLinha(String(presetTextosRaw[aspecto.key] || ""));
+    if (texto.trim()) {
       acc[aspecto.key] = texto;
     }
     return acc;

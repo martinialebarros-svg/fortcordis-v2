@@ -396,6 +396,36 @@ def delete_preset(preset_id: int) -> None:
     _save_store(payload)
 
 
+def create_phrase(data: Dict[str, Any]) -> Dict[str, Any]:
+    payload = get_payload()
+    aspecto_key = str(data.get("aspecto") or "").strip()
+    aspecto = _find_aspect(payload, aspecto_key)
+    if not aspecto:
+        raise KeyError("Aspecto nao encontrado.")
+
+    titulo = str(data.get("titulo") or "").strip()
+    texto = str(data.get("texto") or "").strip()
+    if not titulo or not texto:
+        raise ValueError("Titulo e texto da frase sao obrigatorios.")
+
+    frases = aspecto.get("frases") or []
+    titulo_normalizado = titulo.casefold()
+    if any(str(item.get("titulo") or "").strip().casefold() == titulo_normalizado for item in frases):
+        raise ValueError("Ja existe uma frase com esse titulo neste aspecto.")
+
+    nova_frase = {
+        "id": max([int(item.get("id") or 0) for item in frases] + [0]) + 1,
+        "titulo": titulo,
+        "texto": texto,
+        "tags": list(data.get("tags") or []),
+        "ativo": 1,
+    }
+    frases.append(nova_frase)
+    aspecto["frases"] = frases
+    _save_store(payload)
+    return nova_frase
+
+
 def update_phrase(frase_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
     payload = get_payload()
     aspecto_key = str(data.get("aspecto") or "").strip()

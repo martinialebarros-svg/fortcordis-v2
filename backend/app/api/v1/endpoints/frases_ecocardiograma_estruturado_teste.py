@@ -42,6 +42,16 @@ def excluir_preset(preset_id: int) -> Dict[str, Any]:
     return {"ok": True}
 
 
+@router.post("/frases")
+def criar_frase(data: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return service.create_phrase(data)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.put("/frases/{frase_id}")
 def atualizar_frase(frase_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
     try:

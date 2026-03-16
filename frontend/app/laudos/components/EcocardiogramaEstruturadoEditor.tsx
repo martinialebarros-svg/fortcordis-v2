@@ -152,6 +152,7 @@ export default function EcocardiogramaEstruturadoEditor({
   const [salvandoPreset, setSalvandoPreset] = useState(false);
   const [atualizandoPresetSelecionado, setAtualizandoPresetSelecionado] = useState(false);
   const [atualizandoFraseAspecto, setAtualizandoFraseAspecto] = useState<string | null>(null);
+  const [salvandoNovaFraseAspecto, setSalvandoNovaFraseAspecto] = useState<string | null>(null);
   const [presetFormAberto, setPresetFormAberto] = useState(false);
   const [filtroAspectosPreset, setFiltroAspectosPreset] = useState<"all" | "pending">("all");
   const [presetDeteccao, setPresetDeteccao] = useState<Record<string, PresetDeteccaoInfo>>({});
@@ -789,6 +790,55 @@ export default function EcocardiogramaEstruturadoEditor({
     }
   };
 
+  const salvarNovaFraseDoAspecto = async (aspecto: AspectoEcoEstruturadoTeste) => {
+    const textoAtual = String(estado.textos[aspecto.key] || "").trim();
+    if (!textoAtual) {
+      setError(`O texto de ${aspecto.label} esta vazio.`);
+      return;
+    }
+
+    const tituloPadrao =
+      aspecto.key === "conclusao" ? "Nova conclusao personalizada" : `Nova frase - ${aspecto.label}`;
+    const tituloInformado = window.prompt(
+      `Titulo da nova frase para ${aspecto.label}:`,
+      tituloPadrao
+    );
+    const titulo = String(tituloInformado || "").trim();
+    if (!titulo) {
+      return;
+    }
+
+    const tagsInformadas = window.prompt(
+      "Tags opcionais separadas por virgula:",
+      aspecto.key === "conclusao" ? "conclusao, personalizado" : ""
+    );
+
+    try {
+      setSalvandoNovaFraseAspecto(aspecto.key);
+      setError("");
+      setHint("");
+      const response = await api.post("/frases-ecocardiograma-estruturado-teste/frases", {
+        aspecto: aspecto.key,
+        titulo,
+        texto: textoAtual,
+        tags: normalizarTagsInput(String(tagsInformadas || "")),
+      });
+      const novaFraseId = String(response.data?.id || "").trim();
+      await carregarPayload(true);
+      if (novaFraseId) {
+        setFraseSelecionadaPorAspecto((prev) => ({
+          ...prev,
+          [aspecto.key]: novaFraseId,
+        }));
+      }
+      setHint(`Frase "${titulo}" salva no banco em ${aspecto.label}.`);
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || "Nao foi possivel salvar a nova frase.");
+    } finally {
+      setSalvandoNovaFraseAspecto(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
@@ -807,7 +857,8 @@ export default function EcocardiogramaEstruturadoEditor({
           <h4 className="font-medium text-gray-900">Ecocardiograma estruturado</h4>
           <p className="text-sm text-gray-600">
             Presets e frases por aspecto. Quando ativo, os blocos legados abaixo passam
-            a ser gerados a partir desta estrutura.
+            a ser gerados a partir desta estrutura. Voce pode editar qualquer texto e
+            salvar como nova frase, inclusive no aspecto Conclusao.
           </p>
         </div>
         <button
@@ -1163,7 +1214,7 @@ export default function EcocardiogramaEstruturadoEditor({
                     </option>
                   ))}
                 </select>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => aplicarFraseDoAspecto(aspecto)}
@@ -1185,6 +1236,19 @@ export default function EcocardiogramaEstruturadoEditor({
                     {atualizandoFraseAspecto === aspecto.key
                       ? "Atualizando..."
                       : "Atualizar frase"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => salvarNovaFraseDoAspecto(aspecto)}
+                    disabled={
+                      !String(estado.textos[aspecto.key] || "").trim() ||
+                      salvandoNovaFraseAspecto === aspecto.key
+                    }
+                    className="rounded-lg border border-teal-300 px-3 py-2 text-sm text-teal-700 hover:bg-teal-50 disabled:opacity-50"
+                  >
+                    {salvandoNovaFraseAspecto === aspecto.key
+                      ? "Salvando..."
+                      : "Salvar como nova frase"}
                   </button>
                 </div>
               </div>

@@ -1740,7 +1740,7 @@ export default function NovoLaudoPage() {
 
                     {ecocardiogramaEstruturado.usar_no_laudo ? (
                       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                        Os campos legados abaixo estao sendo gerados a partir do estruturado e ficam bloqueados para evitar divergencia.
+                        Os campos legados abaixo estao sendo gerados a partir do estruturado e ficam bloqueados para evitar divergencia. Para ajustar a conclusao oficial, edite o aspecto "Conclusao" no bloco estruturado acima.
                       </div>
                     ) : null}
                     
