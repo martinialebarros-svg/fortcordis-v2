@@ -14,6 +14,7 @@ from app.db.database import get_db
 from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.models.user import User
+from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_paciente
 
 router = APIRouter()
 
@@ -270,7 +271,7 @@ def criar_paciente(
                 "tutor": paciente.tutor or "",
                 "especie": paciente_existente.especie,
                 "raca": paciente_existente.raca,
-                "sexo": paciente_existente.sexo,
+                "sexo": normalizar_sexo_paciente(paciente_existente.sexo),
                 "peso_kg": paciente_existente.peso_kg,
                 "message": "Paciente ja existe",
             }
@@ -281,7 +282,7 @@ def criar_paciente(
         paciente_existente.tutor_id = tutor_id
         paciente_existente.especie = especie
         paciente_existente.raca = paciente.raca
-        paciente_existente.sexo = paciente.sexo
+        paciente_existente.sexo = normalizar_sexo_paciente(paciente.sexo)
         paciente_existente.peso_kg = paciente.peso_kg
         paciente_existente.nascimento = paciente.data_nascimento
         paciente_existente.microchip = paciente.microchip
@@ -297,7 +298,7 @@ def criar_paciente(
             "tutor": paciente.tutor or "",
             "especie": paciente_existente.especie,
             "raca": paciente_existente.raca,
-            "sexo": paciente_existente.sexo,
+            "sexo": normalizar_sexo_paciente(paciente_existente.sexo),
             "peso_kg": paciente_existente.peso_kg,
             "message": "Paciente reativado com sucesso",
         }
@@ -309,7 +310,7 @@ def criar_paciente(
             tutor_id=tutor_id,
             especie=especie,
             raca=paciente.raca,
-            sexo=paciente.sexo,
+            sexo=normalizar_sexo_paciente(paciente.sexo),
             peso_kg=paciente.peso_kg,
             nascimento=paciente.data_nascimento,
             microchip=paciente.microchip,
@@ -328,7 +329,7 @@ def criar_paciente(
             "tutor": paciente.tutor or "",
             "especie": db_paciente.especie,
             "raca": db_paciente.raca,
-            "sexo": db_paciente.sexo,
+            "sexo": normalizar_sexo_paciente(db_paciente.sexo),
             "peso_kg": db_paciente.peso_kg,
         }
     except Exception as e:
@@ -361,8 +362,9 @@ def obter_paciente(
         "tutor": tutor_nome or "",
         "especie": p.especie,
         "raca": p.raca,
-        "sexo": p.sexo,
+        "sexo": normalizar_sexo_paciente(p.sexo),
         "peso_kg": p.peso_kg,
+        "idade": extrair_idade_paciente(p.nascimento, p.observacoes),
         "data_nascimento": p.nascimento,
         "microchip": p.microchip,
         "observacoes": p.observacoes,
@@ -393,7 +395,7 @@ def atualizar_paciente(
     db_paciente.nome_key = _gerar_nome_key(paciente.nome)
     db_paciente.especie = paciente.especie
     db_paciente.raca = paciente.raca
-    db_paciente.sexo = paciente.sexo
+    db_paciente.sexo = normalizar_sexo_paciente(paciente.sexo)
     db_paciente.peso_kg = paciente.peso_kg
     db_paciente.nascimento = paciente.data_nascimento
     db_paciente.microchip = paciente.microchip

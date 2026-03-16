@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models.laudo import Laudo
 from app.models.user import User
+from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_paciente
 
 
 @dataclass(frozen=True)
@@ -174,25 +175,16 @@ def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> Generate
             data_exame = laudos_endpoint._parse_data_exame(data_exame)
         data_exame_str = data_exame.strftime("%d/%m/%Y") if data_exame else datetime.now().strftime("%d/%m/%Y")
 
-        idade = ""
-        if paciente and paciente.nascimento:
-            try:
-                nasc = datetime.strptime(str(paciente.nascimento), "%Y-%m-%d")
-                hoje = datetime.now()
-                meses = (hoje.year - nasc.year) * 12 + hoje.month - nasc.month
-                idade = f"{meses}m" if meses < 12 else f"{meses // 12}a"
-            except Exception:
-                idade = ""
-        if not idade and paciente and paciente.observacoes:
-            match = re.search(r"Idade:\s*(.+?)(?:\\n|$)", paciente.observacoes)
-            if match:
-                idade = match.group(1).strip()
+        idade = extrair_idade_paciente(
+            paciente.nascimento if paciente else None,
+            paciente.observacoes if paciente else None,
+        )
 
         dados_paciente = {
             "nome": paciente.nome if paciente else "N/A",
             "especie": paciente.especie if paciente else "Canina",
             "raca": paciente.raca if paciente else "",
-            "sexo": paciente.sexo if paciente else "",
+            "sexo": normalizar_sexo_paciente(paciente.sexo if paciente else ""),
             "idade": idade,
             "peso": f"{paciente.peso_kg:.1f}" if paciente and paciente.peso_kg else "",
             "tutor": tutor_nome,

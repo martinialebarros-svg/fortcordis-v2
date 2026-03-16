@@ -25,6 +25,7 @@ import {
   qualitativaEcoLegadaIgual,
   serializarEcocardiogramaEstruturado,
 } from "@/lib/ecocardiograma-estruturado";
+import { extrairIdadePaciente, normalizarSexoPaciente } from "@/lib/paciente";
 
 // Componente de input de medida com botÃµes +/-
 interface MedidaInputProps {
@@ -822,7 +823,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
         nome: dados.paciente.nome || "",
         especie: dados.paciente.especie || "Canina",
         raca: dados.paciente.raca || "",
-        sexo: dados.paciente.sexo || "Macho",
+        sexo: normalizarSexoPaciente(dados.paciente.sexo || "Macho") || "Macho",
         peso: dados.paciente.peso || "",
         idade: dados.paciente.idade || "",
         tutor: dados.paciente.tutor || "",
@@ -959,9 +960,9 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
           nome: pacienteData.nome || "",
           especie: pacienteData.especie || "Canina",
           raca: pacienteData.raca || "",
-          sexo: pacienteData.sexo || "Macho",
+          sexo: normalizarSexoPaciente(pacienteData.sexo || "Macho") || "Macho",
           peso: pacienteData.peso_kg ? pacienteData.peso_kg.toString() : "",
-          idade: pacienteData.idade || "",
+          idade: extrairIdadePaciente(pacienteData) || "",
           tutor: pacienteData.tutor || "",
           telefone: pacienteData.telefone || "",
           data_exame: laudoData.data_exame
@@ -980,9 +981,9 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
             nome: pacienteData.nome || "",
             especie: pacienteData.especie || "Canina",
             raca: pacienteData.raca || "",
-            sexo: pacienteData.sexo || "Macho",
+            sexo: normalizarSexoPaciente(pacienteData.sexo || "Macho") || "Macho",
             peso: pacienteData.peso_kg ? pacienteData.peso_kg.toString() : "",
-            idade: pacienteData.idade || "",
+            idade: extrairIdadePaciente(pacienteData) || "",
             tutor: pacienteData.tutor || "",
             telefone: pacienteData.telefone || "",
             data_exame: laudoData.data_exame
@@ -1058,7 +1059,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
           tutor: pacienteForm.tutor || undefined,
           especie: pacienteForm.especie,
           raca: pacienteForm.raca,
-          sexo: pacienteForm.sexo,
+          sexo: normalizarSexoPaciente(pacienteForm.sexo),
           peso_kg: pacienteForm.peso ? parseFloat(pacienteForm.peso) : null,
           observacoes: observacoesPaciente || null,
         };
@@ -1422,7 +1423,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                         >
                           <option value="Macho">Macho</option>
-                          <option value="FÃªmea">FÃªmea</option>
+                          <option value="Fêmea">Fêmea</option>
                         </select>
                       </div>
 
