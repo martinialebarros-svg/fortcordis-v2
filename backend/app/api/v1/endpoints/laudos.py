@@ -1544,6 +1544,7 @@ def gerar_pdf_laudo(
     from app.models.imagem_laudo import ImagemLaudo
     from app.models.configuracao import Configuracao, ConfiguracaoUsuario
     from app.models.referencia_eco import ReferenciaEco
+    from app.utils.referencia_eco_defaults import aplicar_defaults_publicados_caninos
     from sqlalchemy import func
     import traceback
 
@@ -1740,10 +1741,10 @@ def gerar_pdf_laudo(
                         func.abs(ReferenciaEco.peso_kg - float(paciente.peso_kg))
                     ).first()
                     if ref:
-                        referencia_eco = {
+                        referencia_eco = aplicar_defaults_publicados_caninos({
                             col.name: getattr(ref, col.name)
                             for col in ref.__table__.columns
-                        }
+                        }, peso_kg=paciente.peso_kg)
                 except Exception as e:
                     db.rollback()
                     print(f"[WARN] ReferenciaEco indisponivel para PDF: {e}")

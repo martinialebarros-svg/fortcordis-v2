@@ -113,6 +113,7 @@ def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> Generate
     from app.models.paciente import Paciente
     from app.models.referencia_eco import ReferenciaEco
     from app.models.tutor import Tutor
+    from app.utils.referencia_eco_defaults import aplicar_defaults_publicados_caninos
     from app.utils.pdf_laudo import (
         gerar_pdf_laudo_eco,
         gerar_pdf_laudo_pressao,
@@ -320,10 +321,10 @@ def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> Generate
                         func.abs(ReferenciaEco.peso_kg - float(paciente.peso_kg))
                     ).first()
                     if ref:
-                        referencia_eco = {
+                        referencia_eco = aplicar_defaults_publicados_caninos({
                             col.name: getattr(ref, col.name)
                             for col in ref.__table__.columns
-                        }
+                        }, peso_kg=paciente.peso_kg)
                 except Exception as exc:
                     db.rollback()
                     print(f"[WARN] ReferenciaEco indisponivel para PDF: {exc}")
