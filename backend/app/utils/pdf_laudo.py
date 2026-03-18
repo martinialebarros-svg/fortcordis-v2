@@ -1356,8 +1356,8 @@ def gerar_pdf_laudo_eco(
             {'chave': 'VSF', 'label': 'VSF (Teicholz)', 'unidade': 'ml', 'ref_min': 0, 'ref_max': 0},
             {'chave': 'FE_Teicholz', 'label': 'FE (Teicholz)', 'unidade': '%', 'ref_min': 55, 'ref_max': 80},
             {'chave': 'DeltaD_FS', 'label': 'Delta D / %FS', 'unidade': '%', 'ref_min': 28, 'ref_max': 42},
-            {'chave': 'TAPSE', 'label': 'TAPSE (excursão sistólica do plano anular tricúspide)', 'unidade': 'mm', 'ref_min': 15, 'ref_max': 20},
-            {'chave': 'MAPSE', 'label': 'MAPSE (excursão sistólica do plano anular mitral)', 'unidade': 'mm', 'ref_min': 8, 'ref_max': 12},
+            {'chave': 'TAPSE', 'label': 'TAPSE (excursão sistólica do plano anular tricúspide)', 'unidade': 'mm', 'ref_min': None, 'ref_max': None},
+            {'chave': 'MAPSE', 'label': 'MAPSE (excursão sistólica do plano anular mitral)', 'unidade': 'mm', 'ref_min': None, 'ref_max': None},
         ]
         
         # Grupo: Átrio Esquerdo / Aorta - SEM Interpretação

@@ -11,6 +11,7 @@ from app.db.database import get_db
 from app.models.referencia_eco import ReferenciaEco
 from app.models.user import User
 from app.core.security import get_current_user
+from app.utils.referencia_eco_defaults import aplicar_defaults_publicados_caninos
 
 router = APIRouter()
 
@@ -67,9 +68,9 @@ def _aplicar_filtro_especie(query, especie: Optional[str]):
     return query.filter(ReferenciaEco.especie.ilike(especie_norm))
 
 
-def _referencia_to_dict(r: ReferenciaEco) -> dict:
+def _referencia_to_dict(r: ReferenciaEco, peso_kg_override: Optional[float] = None) -> dict:
     """Serializa um ReferenciaEco para dict (evita problemas de JSON com objetos SQLAlchemy)."""
-    return {
+    referencia = {
         "id": r.id,
         "especie": r.especie,
         "peso_kg": r.peso_kg,
@@ -110,6 +111,7 @@ def _referencia_to_dict(r: ReferenciaEco) -> dict:
         "esv_min": r.esv_min, "esv_max": r.esv_max,
         "sv_min": r.sv_min, "sv_max": r.sv_max,
     }
+    return aplicar_defaults_publicados_caninos(referencia, peso_kg=peso_kg_override)
 
 
 def _importar_csv_from_content(content: str, especie: str, db: Session) -> int:
@@ -285,7 +287,7 @@ def obter_referencia(
     ref = db.query(ReferenciaEco).filter(ReferenciaEco.id == referencia_id).first()
     if not ref:
         raise HTTPException(status_code=404, detail="Referência não encontrada")
-    return ref
+    return _referencia_to_dict(ref)
 
 
 @router.get("/buscar/{especie}/{peso_kg}")
@@ -303,7 +305,7 @@ def buscar_referencia_por_peso(
     
     if not ref:
         raise HTTPException(status_code=404, detail="Referência não encontrada")
-    return _referencia_to_dict(ref)
+    return _referencia_to_dict(ref, peso_kg_override=peso_kg)
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
@@ -317,7 +319,7 @@ def criar_referencia(
     db.add(nova_ref)
     db.commit()
     db.refresh(nova_ref)
-    return nova_ref
+    return _referencia_to_dict(nova_ref)
 
 
 @router.put("/{referencia_id}")
@@ -337,7 +339,7 @@ def atualizar_referencia(
     
     db.commit()
     db.refresh(ref)
-    return ref
+    return _referencia_to_dict(ref)
 
 
 @router.delete("/{referencia_id}")
