@@ -1,6 +1,9 @@
 """Adds pharmacology metadata and prescription adjustment history."""
 from __future__ import annotations
 
+import re
+import unicodedata
+
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection
 
@@ -21,6 +24,15 @@ STARTER_CARDIO_MEDICATIONS = [
     ("Sildenafil", "Sildenafil", "Vasodilatador pulmonar"),
     ("Digoxina", "Digoxina", "Inotropico"),
 ]
+
+
+def _gerar_nome_key(value: str) -> str:
+    texto = unicodedata.normalize("NFKD", value or "")
+    texto = "".join(ch for ch in texto if not unicodedata.combining(ch))
+    texto = texto.lower().strip()
+    texto = re.sub(r"[^a-z0-9\s]", "", texto)
+    texto = re.sub(r"\s+", " ", texto)
+    return texto
 
 
 def _table_exists(connection: Connection, table_name: str) -> bool:
@@ -150,6 +162,7 @@ def _seed_starter_medications(connection: Connection) -> None:
 
         values_by_column = {
             "nome": nome,
+            "nome_key": _gerar_nome_key(nome),
             "principio_ativo": principio_ativo,
             "concentracao": "",
             "forma_farmaceutica": "",
@@ -165,6 +178,7 @@ def _seed_starter_medications(connection: Connection) -> None:
 
         ordered_columns = [
             "nome",
+            "nome_key",
             "principio_ativo",
             "concentracao",
             "forma_farmaceutica",
