@@ -37,6 +37,9 @@ def _add_medicamento_columns(connection: Connection, dialect: str) -> None:
 
     columns = _column_names(connection, "medicamentos")
     missing = {
+        "principio_ativo": ("VARCHAR(255)", "TEXT"),
+        "concentracao": ("VARCHAR(120)", "TEXT"),
+        "forma_farmaceutica": ("VARCHAR(120)", "TEXT"),
         "classe_terapeutica": ("VARCHAR(255)", "TEXT"),
         "especie_alvo": ("VARCHAR(255)", "TEXT"),
         "dose_min_mg_kg": ("DOUBLE PRECISION", "REAL"),
@@ -133,6 +136,10 @@ def _seed_starter_medications(connection: Connection) -> None:
     if not _table_exists(connection, "medicamentos"):
         return
 
+    columns = _column_names(connection, "medicamentos")
+    if "nome" not in columns:
+        return
+
     for nome, principio_ativo, classe in STARTER_CARDIO_MEDICATIONS:
         exists = connection.execute(
             text("SELECT id FROM medicamentos WHERE lower(nome) = lower(:nome)"),
@@ -141,45 +148,60 @@ def _seed_starter_medications(connection: Connection) -> None:
         if exists:
             continue
 
-        connection.execute(
-            text(
-                """
-                INSERT INTO medicamentos (
-                    nome,
-                    principio_ativo,
-                    categoria,
-                    classe_terapeutica,
-                    especie_alvo,
-                    dose_unidade,
-                    observacao_seguranca,
-                    observacoes,
-                    parametrizacao_origem,
-                    ativo,
-                    created_at,
-                    updated_at
-                )
-                VALUES (
-                    :nome,
-                    :principio_ativo,
-                    'Cardiologia',
-                    :classe_terapeutica,
-                    'Canina,Felina',
-                    'mg/kg',
-                    'Revisar dose, interacoes e ajustes especificos antes do uso clinico.',
-                    'Medicamento inicial do catalogo cardiologico. Parametrize a posologia antes de automatizar receituarios.',
-                    'starter',
-                    1,
-                    CURRENT_TIMESTAMP,
-                    CURRENT_TIMESTAMP
-                )
-                """
-            ),
-            {
-                "nome": nome,
-                "principio_ativo": principio_ativo,
-                "classe_terapeutica": classe,
-            },
+        values_by_column = {
+            "nome": nome,
+            "principio_ativo": principio_ativo,
+            "concentracao": "",
+            "forma_farmaceutica": "",
+            "categoria": "Cardiologia",
+            "classe_terapeutica": classe,
+            "especie_alvo": "Canina,Felina",
+            "dose_unidade": "mg/kg",
+            "observacao_seguranca": "Revisar dose, interacoes e ajustes especificos antes do uso clinico.",
+            "observacoes": "Medicamento inicial do catalogo cardiologico. Parametrize a posologia antes de automatizar receituarios.",
+            "parametrizacao_origem": "starter",
+            "ativo": 1,
+        }
+
+        ordered_columns = [
+            "nome",
+            "principio_ativo",
+            "concentracao",
+            "forma_farmaceutica",
+            "categoria",
+            "classe_terapeutica",
+            "especie_alvo",
+            "dose_unidade",
+            "observacao_seguranca",
+            "observacoes",
+            "parametrizacao_origem",
+            "ativo",
+            "created_at",
+            "updated_at",
+        ]
+
+        insert_columns: list[str] = []
+        value_fragments: list[str] = []
+        bind_params: dict[str, object] = {}
+
+        for column_name in ordered_columns:
+            if column_name not in columns:
+                continue
+            insert_columns.append(column_name)
+            if column_name in {"created_at", "updated_at"}:
+                value_fragments.append("CURRENT_TIMESTAMP")
+            else:
+                value_fragments.append(f":{column_name}")
+                bind_params[column_name] = values_by_column.get(column_name)
+
+        if not insert_columns:
+            continue
+
+        insert_sql = (
+            f"INSERT INTO medicamentos ({', '.join(insert_columns)}) "
+            f"VALUES ({', '.join(value_fragments)})"
         )
+        connection.execute(text(insert_sql), bind_params)
 
 
 def upgrade(connection: Connection, dialect: str) -> None:
