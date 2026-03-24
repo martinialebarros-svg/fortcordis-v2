@@ -7,3 +7,18 @@ from app.schemas.financeiro import (
     ContaReceberCreate, ContaReceberResponse, ContaReceberLista,
     ResumoFinanceiro, RelatorioCategoria, RelatorioFluxoCaixa, RelatorioComparativo
 )
+from app.schemas.atendimento import (
+    AtendimentoCreatePayload,
+    AtendimentoUpdatePayload,
+    TriagemPayload,
+    DiagnosticoPayload,
+    ExameSolicitacaoPayload,
+    PrescricaoPayload,
+    PrescricaoItemPayload,
+    PrescricaoPreviewPayload,
+    EvolucaoPayload,
+    AnexoPayload,
+    AlertaPayload,
+    MedicamentoPayload,
+    ClinicalPhrasePayload,
+)

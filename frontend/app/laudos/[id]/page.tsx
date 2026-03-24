@@ -123,14 +123,12 @@ export default function VisualizarLaudoPage({ params }: { params: { id: string }
       // Extrair nome do arquivo do header Content-Disposition
       let filename = `laudo_${params.id}.pdf`;
       const contentDisposition = response.headers.get('content-disposition');
-      console.log('Content-Disposition:', contentDisposition);
       
       if (contentDisposition) {
         // Regex que aceita tanto filename="..." quanto filename=...
         const match = contentDisposition?.match(/filename="?([^";\s]+)"?/);
         if (match?.[1]) {
           filename = match?.[1] || filename;
-          console.log('Nome extraído:', filename);
         }
       }
       

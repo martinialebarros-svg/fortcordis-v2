@@ -13,6 +13,7 @@ class AtendimentoClinico(Base):
     clinica_id = Column(Integer, nullable=True, index=True)
     agendamento_id = Column(Integer, nullable=True, index=True)
     veterinario_id = Column(Integer, nullable=False, index=True)
+    especie = Column(String)  # Canina, Felina, etc. - preenchido automaticamente a partir do paciente
 
     data_atendimento = Column(DateTime(timezone=True), nullable=False, default=func.now(), index=True)
     status = Column(String, nullable=False, default="Triagem", index=True)
@@ -62,12 +63,15 @@ class AnexoAtendimento(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     atendimento_id = Column(Integer, nullable=False, index=True)
+    exame_id = Column(Integer, nullable=True, index=True)
     tipo = Column(String, nullable=False)  # imagem, documento, radiografia, ultrassom, outro
     descricao = Column(String)
     url = Column(String, nullable=False)
     nome_original = Column(String)
     tamanho = Column(Integer)  # bytes
     mime_type = Column(String)
+    caminho_arquivo = Column(String)
+    origem = Column(String, nullable=False, default="externo")
 
     created_at = Column(DateTime(timezone=True), default=func.now())
 
@@ -112,6 +116,21 @@ class Medicamento(Base):
     concentracao = Column(String)
     forma_farmaceutica = Column(String)
     categoria = Column(String, index=True)
+    classe_terapeutica = Column(String, index=True)
+    especie_alvo = Column(String)
+    dose_min_mg_kg = Column(Float)
+    dose_max_mg_kg = Column(Float)
+    dose_intervalo_horas = Column(Integer)
+    dose_unidade = Column(String)
+    via_padrao = Column(String)
+    duracao_padrao = Column(String)
+    concentracao_mg_ml = Column(Float)
+    concentracao_mg_comprimido = Column(Float)
+    indicacoes = Column(Text)
+    contraindicacoes = Column(Text)
+    interacoes_json = Column(Text)
+    observacao_seguranca = Column(Text)
+    parametrizacao_origem = Column(String)
     observacoes = Column(Text)
     ativo = Column(Integer, nullable=False, default=1, index=True)
 
@@ -138,6 +157,7 @@ class PrescricaoItem(Base):
     prescricao_id = Column(Integer, nullable=False, index=True)
     medicamento_id = Column(Integer, nullable=True, index=True)
     medicamento_nome = Column(String, nullable=False, index=True)
+    apresentacao_selecionada = Column(String)
     dose = Column(String)
     frequencia = Column(String)
     duracao = Column(String)
@@ -147,3 +167,19 @@ class PrescricaoItem(Base):
 
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class PrescricaoItemAjuste(Base):
+    __tablename__ = "prescricao_item_ajustes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    prescricao_item_id = Column(Integer, nullable=False, index=True)
+    atendimento_id = Column(Integer, nullable=False, index=True)
+    campo = Column(String, nullable=False, index=True)
+    valor_anterior = Column(Text)
+    valor_novo = Column(Text)
+    motivo = Column(Text)
+    responsavel_id = Column(Integer)
+    responsavel_nome = Column(String)
+
+    created_at = Column(DateTime(timezone=True), default=func.now(), index=True)

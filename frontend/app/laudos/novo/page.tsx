@@ -929,8 +929,6 @@ export default function NovoLaudoPage() {
   };
 
   const handleDadosImportados = (dados: DadosExame) => {
-    console.log("Dados recebidos do XML:", dados);
-    console.log("Medidas brutas do XML:", dados.medidas);
     
     if (dados.paciente) {
       setPaciente((anterior) => ({
@@ -951,13 +949,9 @@ export default function NovoLaudoPage() {
     }
     
     if (dados.medidas) {
-      console.log("Processando medidas...");
       const medidasFormatadas = mapearCamposMedidas(dados.medidas);
-      console.log("Medidas formatadas:", medidasFormatadas);
       setMedidas(medidasFormatadas);
-      console.log("Medidas setadas no estado");
     } else {
-      console.log("Nenhuma medida encontrada nos dados");
     }
 
     if (dados.fc) {

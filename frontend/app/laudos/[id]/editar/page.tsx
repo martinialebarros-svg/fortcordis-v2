@@ -816,7 +816,6 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
   };
 
   const handleDadosImportados = (dados: DadosExame) => {
-    console.log("Dados recebidos do XML:", dados);
 
     if (dados.paciente) {
       const novoPaciente = {

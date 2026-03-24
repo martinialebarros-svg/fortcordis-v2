@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import axios from "axios";
 import { Lock, Mail, Loader2 } from "lucide-react";
 
@@ -12,7 +11,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,7 +37,10 @@ export default function LoginPage() {
         })
       );
 
-      router.push("/dashboard");
+      if (typeof window !== "undefined") {
+        window.location.replace("/dashboard");
+        return;
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || "Erro ao fazer login");
     } finally {

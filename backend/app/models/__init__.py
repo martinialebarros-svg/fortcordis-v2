@@ -6,6 +6,7 @@ from app.models.tutor import Tutor
 from app.models.clinica import Clinica
 from app.models.servico import Servico
 from app.models.laudo import Laudo, Exame
+from app.models.catalogo_exame import CatalogoExame, PainelExame, PainelExameItem
 from app.models.financeiro import Transacao, ContaPagar, ContaReceber
 from app.models.frase import FraseQualitativa, FraseQualitativaHistorico
 from app.models.imagem_laudo import ImagemLaudo, ImagemTemporaria
@@ -20,7 +21,9 @@ from app.models.atendimento_clinico import (
     Medicamento,
     PrescricaoClinica,
     PrescricaoItem,
+    PrescricaoItemAjuste,
 )
 from app.models.auditoria_evento import AuditoriaEvento
 from app.models.clinica_deslocamento import ClinicaDeslocamento
 from app.models.cep_bairro_override import CepBairroOverride
+from app.models.frase_atendimento_clinico import FraseAtendimentoClinico

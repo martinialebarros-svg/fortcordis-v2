@@ -61,7 +61,6 @@ export default function NovoServicoPage() {
 
     // Verificar se o usuário está autenticado
     const token = localStorage.getItem("token");
-    console.log("Token no localStorage:", token ? "Presente" : "Ausente");
     
     if (!token) {
       alert("Sessão expirada. Por favor, faça login novamente.");
