@@ -72,12 +72,12 @@ function InstitutionalLanding() {
           <header className="mb-14 flex flex-col gap-6 border-b border-white/15 pb-10 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <Image
-                src="/brand/fortcordis-logo.svg"
+                src="/brand/fortcordis-logo-oficial.png"
                 alt="Logomarca FortCordis"
-                width={292}
-                height={80}
+                width={1563}
+                height={1563}
                 priority
-                className="mb-4 h-14 w-auto sm:h-16"
+                className="mb-4 h-24 w-auto sm:h-28"
               />
               <h1 className="font-[family-name:var(--font-display)] text-4xl leading-tight text-balance text-white sm:text-5xl lg:text-6xl">
                 Cardiologia veterinária com integração clínica e continuidade do cuidado.
