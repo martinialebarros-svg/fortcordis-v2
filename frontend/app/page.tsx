@@ -77,7 +77,7 @@ function InstitutionalLanding() {
                 width={1563}
                 height={1563}
                 priority
-                className="mb-4 h-24 w-auto sm:h-28"
+                className="mb-5 h-28 w-auto rounded-2xl bg-white/92 p-2 shadow-[0_20px_55px_rgba(2,6,23,0.45)] ring-1 ring-slate-200/60 sm:h-36 lg:h-40"
               />
               <h1 className="font-[family-name:var(--font-display)] text-4xl leading-tight text-balance text-white sm:text-5xl lg:text-6xl">
                 Cardiologia veterinária com integração clínica e continuidade do cuidado.
