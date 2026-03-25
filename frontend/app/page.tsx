@@ -16,7 +16,11 @@ const textFont = Manrope({
   weight: ["400", "500", "600", "700"],
 });
 
-const INSTITUTIONAL_HOSTS = new Set(["fortcordis.com.br", "www.fortcordis.com.br"]);
+const INSTITUTIONAL_HOSTS = new Set([
+  "fortcordis.com.br",
+  "www.fortcordis.com.br",
+  "stage.fortcordis.com.br",
+]);
 
 const landingLinks = [
   {
