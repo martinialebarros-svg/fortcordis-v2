@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { headers } from "next/headers";
 import { Fraunces, Manrope } from "next/font/google";
 import { ArrowRight, Building2, ShieldCheck, UserRound } from "lucide-react";
@@ -24,20 +25,20 @@ const INSTITUTIONAL_HOSTS = new Set([
 
 const landingLinks = [
   {
-    title: "Area de pacientes",
-    description: "Espaco para servicos online e acompanhamento do cuidado cardiologico.",
+    title: "Área de pacientes",
+    description: "Espaço para serviços online e acompanhamento do cuidado cardiológico.",
     href: "/area-pacientes",
     icon: UserRound,
   },
   {
-    title: "Area da clinica parceira",
-    description: "Portal para download de laudos, consultas de status e pendencias financeiras.",
+    title: "Área da clínica parceira",
+    description: "Portal para download de laudos, consultas de status e pendências financeiras.",
     href: "/clinica-parceira",
     icon: Building2,
   },
   {
-    title: "Area administrativa",
-    description: "Acesso ao app FortCordis e configuracoes operacionais da equipe interna.",
+    title: "Área administrativa",
+    description: "Acesso ao app FortCordis e configurações operacionais da equipe interna.",
     href: "https://app.fortcordis.com.br/",
     icon: ShieldCheck,
   },
@@ -70,16 +71,21 @@ function InstitutionalLanding() {
         <div className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 pb-16 pt-16 sm:px-10 lg:px-14">
           <header className="mb-14 flex flex-col gap-6 border-b border-white/15 pb-10 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="mb-3 inline-flex w-fit rounded-full border border-cyan-300/40 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100">
-                FortCordis
-              </p>
+              <Image
+                src="/brand/fortcordis-logo.svg"
+                alt="Logomarca FortCordis"
+                width={292}
+                height={80}
+                priority
+                className="mb-4 h-14 w-auto sm:h-16"
+              />
               <h1 className="font-[family-name:var(--font-display)] text-4xl leading-tight text-balance text-white sm:text-5xl lg:text-6xl">
-                Cardiologia veterinaria com integracao clinica e continuidade do cuidado.
+                Cardiologia veterinária com integração clínica e continuidade do cuidado.
               </h1>
             </div>
             <p className="max-w-md font-[family-name:var(--font-manrope)] text-sm leading-relaxed text-slate-300 sm:text-base">
-              Plataforma institucional para conectar tutores, clinicas parceiras e equipe interna em um
-              fluxo unico de atendimento.
+              Plataforma institucional para conectar tutores, clínicas parceiras e equipe interna em um
+              fluxo único de atendimento.
             </p>
           </header>
 
@@ -108,7 +114,7 @@ function InstitutionalLanding() {
           </section>
 
           <footer className="mt-auto pt-16 font-[family-name:var(--font-manrope)] text-xs uppercase tracking-[0.14em] text-slate-400">
-            FortCordis Sistema Integrado de Atendimento Veterinario
+            FortCordis Sistema Integrado de Atendimento Veterinário
           </footer>
         </div>
       </div>
