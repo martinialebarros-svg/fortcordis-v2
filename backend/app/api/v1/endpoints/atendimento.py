@@ -1,11 +1,32 @@
+from collections import defaultdict
 from datetime import datetime, timedelta
 from io import BytesIO
+import json
+import os
 import re
+import tempfile
+import unicodedata
 from typing import Any, Dict, List, Optional, Union
+from xml.sax.saxutils import escape as xml_escape
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import FileResponse, StreamingResponse
+from jose import JWTError, jwt
+from app.schemas.atendimento import (
+    AnexoPayload,
+    AlertaPayload,
+    AtendimentoCreatePayload,
+    AtendimentoUpdatePayload,
+    ClinicalPhrasePayload,
+    DiagnosticoPayload,
+    ExameSolicitacaoPayload,
+    EvolucaoPayload,
+    MedicamentoPayload,
+    PrescricaoItemPayload,
+    PrescricaoPayload,
+    PrescricaoPreviewPayload,
+    TriagemPayload,
+)
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -14,7 +35,8 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.core.security import get_current_user
+from app.core.config import settings
+from app.core.security import _authorize_request_by_matrix, get_current_user
 from app.db.database import get_db
 from app.models.agendamento import Agendamento
 from app.models.atendimento_clinico import (
@@ -25,135 +47,112 @@ from app.models.atendimento_clinico import (
     Medicamento,
     PrescricaoClinica,
     PrescricaoItem,
+    PrescricaoItemAjuste,
 )
+from app.models.catalogo_exame import CatalogoExame, PainelExame
 from app.models.clinica import Clinica
-from app.models.laudo import Exame
+from app.models.configuracao import Configuracao, ConfiguracaoUsuario
+from app.models.frase_atendimento_clinico import FraseAtendimentoClinico
+from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.models.user import User
+from app.services.clinical_phrase_service import (
+    VALID_SECOES,
+    clinical_phrase_to_dict,
+    montar_contexto_frases_clinicas,
+)
+from app.services.exam_catalog_service import montar_contexto_catalogo_exames
+from app.services.atendimento_upload_service import (
+    store_atendimento_attachment_file,
+    remove_atendimento_attachment_file,
+)
+from app.services.medication_automation import analyze_prescription_items, medication_to_dict
+from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_paciente
+from app.utils.pdf_laudo import (
+    create_pdf_styles,
+    criar_cabecalho,
+    criar_secao_assinatura,
+    criar_titulo_secao,
+    footer_todas_paginas,
+)
 
 router = APIRouter()
 
 
-class ExameSolicitacaoPayload(BaseModel):
-    id: Optional[int] = None
-    tipo_exame: str = Field(..., min_length=2, max_length=120)
-    prioridade: str = Field(default="Rotina", max_length=50)
-    status: str = Field(default="Solicitado", max_length=50)
-    observacoes: Optional[str] = ""
-    valor: Optional[float] = 0.0
-    laudo_id: Optional[int] = None
+def _serialize_medicamento(item: Medicamento) -> dict:
+    return medication_to_dict(item)
 
 
-class PrescricaoItemPayload(BaseModel):
-    id: Optional[int] = None
-    medicamento_id: Optional[int] = None
-    medicamento_nome: Optional[str] = ""
-    dose: Optional[str] = ""
-    frequencia: Optional[str] = ""
-    duracao: Optional[str] = ""
-    via: Optional[str] = ""
-    instrucoes: Optional[str] = ""
-    ordem: Optional[int] = 0
+def _resolver_peso_referencia(
+    atendimento: Optional[AtendimentoClinico],
+    paciente: Optional[Paciente],
+) -> Optional[float]:
+    if atendimento and atendimento.peso is not None:
+        return float(atendimento.peso)
+    if paciente and paciente.peso_kg is not None:
+        return float(paciente.peso_kg)
+    return None
 
 
-class PrescricaoPayload(BaseModel):
-    orientacoes_gerais: Optional[str] = ""
-    retorno_dias: Optional[int] = None
-    itens: List[PrescricaoItemPayload] = Field(default_factory=list)
+def _registrar_ajuste_prescricao(
+    db: Session,
+    *,
+    item: PrescricaoItem,
+    atendimento_id: int,
+    campo: str,
+    valor_anterior: Any,
+    valor_novo: Any,
+    current_user: User,
+    motivo: str = "Atualizacao manual da prescricao",
+) -> None:
+    anterior = "" if valor_anterior is None else str(valor_anterior).strip()
+    novo = "" if valor_novo is None else str(valor_novo).strip()
+    if anterior == novo:
+        return
+
+    db.add(
+        PrescricaoItemAjuste(
+            prescricao_item_id=item.id,
+            atendimento_id=atendimento_id,
+            campo=campo,
+            valor_anterior=anterior,
+            valor_novo=novo,
+            motivo=motivo,
+            responsavel_id=current_user.id,
+            responsavel_nome=current_user.nome,
+        )
+    )
 
 
-class TriagemPayload(BaseModel):
-    peso: Optional[float] = None
-    temperatura: Optional[float] = None
-    frequencia_cardiaca: Optional[int] = None
-    frequencia_respiratoria: Optional[int] = None
-    pressao_arterial: Optional[str] = ""
-    saturacao_oxigenio: Optional[int] = None
-    escore_condicion_corpo: Optional[int] = None
-    mucosas: Optional[str] = ""
-    hidratacao: Optional[str] = ""
-    triagem_observacoes: Optional[str] = ""
+def _map_ajustes_por_item(
+    db: Session,
+    item_ids: List[int],
+) -> Dict[int, List[dict]]:
+    if not item_ids:
+        return {}
 
-
-class DiagnosticoPayload(BaseModel):
-    diagnostico_principal: Optional[str] = ""
-    diagnostico_secundario: Optional[str] = ""
-    diagnostico_diferencial: Optional[str] = ""
-    prognostico: Optional[str] = ""
-
-
-class EvolucaoPayload(BaseModel):
-    descricao: str
-    sinais_vitais: Optional[str] = ""
-
-
-class AnexoPayload(BaseModel):
-    tipo: str = Field(..., max_length=50)
-    descricao: Optional[str] = ""
-    url: str
-    nome_original: Optional[str] = ""
-    tamanho: Optional[int] = None
-    mime_type: Optional[str] = ""
-
-
-class AlertaPayload(BaseModel):
-    tipo: str = Field(..., max_length=50)
-    titulo: str
-    descricao: Optional[str] = ""
-    gravidade: Optional[str] = "media"
-
-
-class AtendimentoCreatePayload(BaseModel):
-    paciente_id: int
-    clinica_id: Optional[int] = None
-    agendamento_id: Optional[int] = None
-    data_atendimento: Optional[str] = None
-    status: str = Field(default="Triagem", max_length=50)
-    triagem: Optional[TriagemPayload] = None
-    queixa_principal: Optional[str] = ""
-    anamnese: Optional[str] = ""
-    exame_fisico: Optional[str] = ""
-    dados_clinicos: Optional[str] = ""
-    diagnostico: Optional[Union[DiagnosticoPayload, str]] = None
-    plano_terapeutico: Optional[str] = ""
-    retorno_recomendado: Optional[str] = ""
-    motivo_retorno: Optional[str] = ""
-    observacoes: Optional[str] = ""
-    exames: List[ExameSolicitacaoPayload] = Field(default_factory=list)
-    prescricao: Optional[PrescricaoPayload] = None
-
-
-class AtendimentoUpdatePayload(BaseModel):
-    paciente_id: Optional[int] = None
-    clinica_id: Optional[int] = None
-    agendamento_id: Optional[int] = None
-    data_atendimento: Optional[str] = None
-    status: Optional[str] = None
-    triagem: Optional[TriagemPayload] = None
-    triagem_concluida: Optional[int] = None
-    consulta_concluida: Optional[int] = None
-    queixa_principal: Optional[str] = None
-    anamnese: Optional[str] = None
-    exame_fisico: Optional[str] = None
-    dados_clinicos: Optional[str] = None
-    diagnostico: Optional[Union[DiagnosticoPayload, str]] = None
-    plano_terapeutico: Optional[str] = None
-    retorno_recomendado: Optional[str] = None
-    motivo_retorno: Optional[str] = None
-    observacoes: Optional[str] = None
-    exames: Optional[List[ExameSolicitacaoPayload]] = None
-    prescricao: Optional[PrescricaoPayload] = None
-
-
-class MedicamentoPayload(BaseModel):
-    nome: str = Field(..., min_length=2, max_length=255)
-    principio_ativo: Optional[str] = ""
-    concentracao: Optional[str] = ""
-    forma_farmaceutica: Optional[str] = ""
-    categoria: Optional[str] = ""
-    observacoes: Optional[str] = ""
-    ativo: Optional[int] = 1
+    ajustes = (
+        db.query(PrescricaoItemAjuste)
+        .filter(PrescricaoItemAjuste.prescricao_item_id.in_(item_ids))
+        .order_by(PrescricaoItemAjuste.created_at.desc(), PrescricaoItemAjuste.id.desc())
+        .all()
+    )
+    grouped: Dict[int, List[dict]] = defaultdict(list)
+    for ajuste in ajustes:
+        grouped[ajuste.prescricao_item_id].append(
+            {
+                "id": ajuste.id,
+                "campo": ajuste.campo,
+                "valor_anterior": ajuste.valor_anterior or "",
+                "valor_novo": ajuste.valor_novo or "",
+                "motivo": ajuste.motivo or "",
+                "responsavel_id": ajuste.responsavel_id,
+                "responsavel_nome": ajuste.responsavel_nome or "",
+                "created_at": _to_iso(ajuste.created_at),
+            }
+        )
+    return grouped
 
 
 def _normalizar_diagnostico(diagnostico: Optional[Union[DiagnosticoPayload, str]]) -> Dict[str, Optional[str]]:
@@ -230,6 +229,131 @@ def _nome_arquivo_limpo(raw: str, fallback: str) -> str:
     return cleaned or fallback
 
 
+def _pdf_escape(value: Any) -> str:
+    if value is None:
+        return ""
+    return xml_escape(str(value))
+
+
+def _texto_pdf_html(value: Any, fallback: str = "-") -> str:
+    texto = str(value or "").strip()
+    if not texto:
+        return fallback
+    return _pdf_escape(texto).replace("\r\n", "\n").replace("\n", "<br/>")
+
+
+def _formatar_moeda_brl(value: Any) -> str:
+    if value in (None, ""):
+        return "-"
+    try:
+        numero = float(value)
+    except Exception:
+        return str(value)
+    formatado = f"{numero:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {formatado}"
+
+
+def _obter_branding_pdf_documento(
+    db: Session,
+    current_user: User,
+) -> Dict[str, Any]:
+    config_sistema = None
+    config_usuario = None
+    try:
+        config_sistema = db.query(Configuracao).first()
+    except Exception:
+        db.rollback()
+    try:
+        config_usuario = db.query(ConfiguracaoUsuario).filter(
+            ConfiguracaoUsuario.user_id == current_user.id
+        ).first()
+    except Exception:
+        db.rollback()
+
+    logomarca_bytes = None
+    assinatura_bytes = None
+    texto_rodape = None
+    crmv = ""
+
+    if config_sistema:
+        if config_sistema.mostrar_logomarca and config_sistema.logomarca_dados:
+            logomarca_bytes = config_sistema.logomarca_dados
+        texto_rodape = config_sistema.texto_rodape_laudo
+
+    if config_usuario and config_usuario.assinatura_dados:
+        assinatura_bytes = config_usuario.assinatura_dados
+    elif config_sistema and config_sistema.mostrar_assinatura and config_sistema.assinatura_dados:
+        assinatura_bytes = config_sistema.assinatura_dados
+
+    if config_usuario and config_usuario.crmv:
+        crmv = config_usuario.crmv
+
+    return {
+        "nome_veterinario": current_user.nome or "",
+        "crmv": crmv,
+        "logomarca_bytes": logomarca_bytes,
+        "assinatura_bytes": assinatura_bytes,
+        "texto_rodape": texto_rodape,
+    }
+
+
+def _autenticar_usuario_pdf(
+    request: Request,
+    db: Session,
+) -> User:
+    auth_header = request.headers.get("Authorization", "")
+    token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciais invalidas",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        email: str = payload.get("sub")
+        if not email:
+            raise ValueError("sub ausente")
+    except (JWTError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciais invalidas",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user = db.query(User).filter(User.email == email).first()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciais invalidas",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if user.ativo != 1:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuario inativo")
+
+    _authorize_request_by_matrix(request, db, user)
+    return user
+
+
+def _excluir_anexo_registro(db: Session, anexo: AnexoAtendimento) -> None:
+    remove_atendimento_attachment_file(anexo.caminho_arquivo)
+    db.delete(anexo)
+
+
+def _excluir_anexos_por_exame(db: Session, exame_id: int) -> None:
+    anexos = db.query(AnexoAtendimento).filter(AnexoAtendimento.exame_id == exame_id).all()
+    for anexo in anexos:
+        _excluir_anexo_registro(db, anexo)
+
+
+def _excluir_anexos_por_atendimento(db: Session, atendimento_id: int) -> None:
+    anexos = db.query(AnexoAtendimento).filter(AnexoAtendimento.atendimento_id == atendimento_id).all()
+    for anexo in anexos:
+        _excluir_anexo_registro(db, anexo)
+
+
 def _montar_story_cabecalho_atendimento(
     atendimento: AtendimentoClinico,
     paciente: Optional[Paciente],
@@ -266,6 +390,145 @@ def _montar_story_cabecalho_atendimento(
     return story
 
 
+# Helpers compartilhados para prescricao (usados por PDF final e preview)
+def _prescricao_criar_box_texto(titulo: str, corpo_html: str, bg: str, border: str) -> Table:
+    """Cria box de texto com titulo e corpo HTML."""
+    styles = create_pdf_styles()
+    label_style = ParagraphStyle(
+        "PrescricaoBoxLabel",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=7,
+        textColor=colors.HexColor("#6b7280"),
+        leading=10,
+    )
+    texto_style = ParagraphStyle(
+        "PrescricaoBoxTexto",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=9.5,
+        textColor=colors.HexColor("#111827"),
+        leading=13,
+    )
+    conteudo = [
+        Paragraph(
+            f"<font name='Helvetica-Bold' size='7' color='#6b7280'>{_pdf_escape(titulo.upper())}</font>",
+            label_style,
+        ),
+        Spacer(1, 1.2 * mm),
+        Paragraph(corpo_html, texto_style),
+    ]
+    tabela = Table([[conteudo]], colWidths=[180 * mm])
+    tabela.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor(border)),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(bg)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+    return tabela
+
+
+def _prescricao_criar_card_info(label: str, valor: str) -> Paragraph:
+    """Cria card de informacao para item de prescricao."""
+    styles = create_pdf_styles()
+    obs_style = ParagraphStyle(
+        "PrescricaoCardObs",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=9.2,
+        textColor=colors.HexColor("#111827"),
+        leading=12.5,
+    )
+    return Paragraph(
+        f"<font name='Helvetica-Bold' size='7' color='#6b7280'>{_pdf_escape(label.upper())}</font><br/>{_texto_pdf_html(valor)}",
+        obs_style,
+    )
+
+
+def _prescricao_criar_card_prescricao(idx: int, nome: str, dose: str, frequencia: str, duracao: str, via: str, apresentacao: str = "", instrucoes: str = "") -> Table:
+    """Cria card de prescricao (item) - versao generica."""
+    styles = create_pdf_styles()
+    titulo_style = ParagraphStyle(
+        "PrescricaoItemTitulo",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=11.5,
+        textColor=colors.HexColor("#111827"),
+        leading=14,
+        spaceAfter=1,
+    )
+    obs_style = ParagraphStyle(
+        "PrescricaoItemObs",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=9.2,
+        textColor=colors.HexColor("#111827"),
+        leading=12.5,
+    )
+
+    nome_item = nome.strip() or "Medicamento sem nome"
+    formula_manipulada = "formula manipulada" in nome_item.lower()
+    apres = apresentacao.strip()
+    if formula_manipulada and not apres:
+        apres = "Formula manipulada"
+    titulo_html = f"{idx}. {_pdf_escape(nome_item)}"
+    if formula_manipulada:
+        titulo_html += " <font name='Helvetica-Bold' size='7' color='#9a3412'>FORMULA MANIPULADA</font>"
+
+    info_table = Table(
+        [[
+            _prescricao_criar_card_info("Dose", dose or "-"),
+            _prescricao_criar_card_info("Frequencia", frequencia or "-"),
+            _prescricao_criar_card_info("Duracao", duracao or "-"),
+            _prescricao_criar_card_info("Via", via or "-"),
+        ]],
+        colWidths=[45 * mm, 45 * mm, 45 * mm, 45 * mm],
+    )
+    info_table.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#d1d5db")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#e5e7eb")),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+
+    conteudo: List[Any] = [Paragraph(titulo_html, titulo_style)]
+    if apres:
+        conteudo.extend([
+            Spacer(1, 1.2 * mm),
+            Paragraph(
+                f"<font name='Helvetica-Bold' size='7' color='#6b7280'>APRESENTACAO</font><br/>{_texto_pdf_html(apres)}",
+                obs_style,
+            ),
+        ])
+    conteudo.extend([Spacer(1, 2 * mm), info_table])
+    if instrucoes.strip():
+        conteudo.extend([
+            Spacer(1, 2.2 * mm),
+            Paragraph(
+                f"<font name='Helvetica-Bold' size='7' color='#6b7280'>INSTRUCOES ESPECIFICAS</font><br/>{_texto_pdf_html(instrucoes)}",
+                obs_style,
+            ),
+        ])
+    card_bg = "#fff7ed" if formula_manipulada else "#fafafa"
+    card_border = "#fdba74" if formula_manipulada else "#e5e7eb"
+    card = Table([[conteudo]], colWidths=[180 * mm])
+    card.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor(card_border)),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(card_bg)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 9),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    return card
+
+
 def _gerar_pdf_prescricao_bytes(
     atendimento: AtendimentoClinico,
     paciente: Optional[Paciente],
@@ -273,91 +536,148 @@ def _gerar_pdf_prescricao_bytes(
     clinica: Optional[Clinica],
     prescricao: PrescricaoClinica,
     itens: List[PrescricaoItem],
+    *,
+    nome_veterinario: str = "",
+    crmv: str = "",
+    logomarca_bytes: Optional[bytes] = None,
+    assinatura_bytes: Optional[bytes] = None,
+    texto_rodape: Optional[str] = None,
 ) -> bytes:
-    styles = getSampleStyleSheet()
-    normal = ParagraphStyle(
-        "AtendimentoPdfBody",
-        parent=styles["BodyText"],
+    styles = create_pdf_styles()
+    resumo_label_style = ParagraphStyle(
+        "PrescricaoResumoLabel",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=7,
+        textColor=colors.HexColor("#6b7280"),
+        leading=10,
+    )
+    card_texto_style = ParagraphStyle(
+        "PrescricaoCardTexto",
+        parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=10,
+        fontSize=9.5,
+        textColor=colors.HexColor("#111827"),
         leading=13,
     )
-    heading = ParagraphStyle(
-        "AtendimentoPdfHeading",
-        parent=styles["Heading3"],
+    item_titulo_style = ParagraphStyle(
+        "PrescricaoItemTitulo",
+        parent=styles["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=12,
-        spaceAfter=5,
+        fontSize=11.5,
+        textColor=colors.HexColor("#111827"),
+        leading=14,
+        spaceAfter=1,
     )
+    data_referencia = atendimento.data_atendimento if isinstance(atendimento.data_atendimento, datetime) else datetime.now()
+    peso_referencia = _resolver_peso_referencia(atendimento, paciente)
+    dados_pdf = {
+        "paciente": {
+            "nome": paciente.nome if paciente else "N/A",
+            "especie": paciente.especie if paciente else "",
+            "raca": paciente.raca if paciente else "",
+            "sexo": normalizar_sexo_paciente(paciente.sexo if paciente else ""),
+            "idade": extrair_idade_paciente(
+                paciente.nascimento if paciente else None,
+                paciente.observacoes if paciente else None,
+            ),
+            "peso": f"{peso_referencia:.1f}" if peso_referencia is not None else "",
+            "tutor": tutor.nome if tutor else "",
+            "solicitante": atendimento.criado_por_nome or nome_veterinario or "",
+            "data_exame": data_referencia.strftime("%d/%m/%Y"),
+        },
+        "clinica": clinica.nome if clinica else "",
+    }
 
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        leftMargin=15 * mm,
-        rightMargin=15 * mm,
-        topMargin=12 * mm,
-        bottomMargin=12 * mm,
-        title=f"Receita - Atendimento {atendimento.id}",
-    )
-
-    story = _montar_story_cabecalho_atendimento(
-        atendimento,
-        paciente,
-        tutor,
-        clinica,
-        "Receita Veterinaria",
-    )
-
-    data = [[
-        "Medicamento",
-        "Dose",
-        "Frequencia",
-        "Duracao",
-        "Via",
-        "Instrucoes",
-    ]]
-    for idx, item in enumerate(itens, start=1):
-        data.append([
-            f"{idx}. {item.medicamento_nome or '-'}",
-            item.dose or "-",
-            item.frequencia or "-",
-            item.duracao or "-",
-            item.via or "-",
-            item.instrucoes or "-",
-        ])
-
-    table = Table(
-        data,
-        colWidths=[52 * mm, 20 * mm, 24 * mm, 19 * mm, 17 * mm, 48 * mm],
-        repeatRows=1,
-    )
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5e7eb")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111827")),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    story.append(table)
-    story.append(Spacer(1, 5 * mm))
-
-    story.append(Paragraph("Orientacoes Gerais", heading))
-    story.append(Paragraph((prescricao.orientacoes_gerais or "-").replace("\n", "<br/>"), normal))
+    orientacoes_bloco: List[str] = []
+    if (prescricao.orientacoes_gerais or "").strip():
+        orientacoes_bloco.append(_texto_pdf_html(prescricao.orientacoes_gerais, ""))
     if prescricao.retorno_dias:
-        story.append(Spacer(1, 3 * mm))
-        story.append(Paragraph(f"<b>Retorno sugerido:</b> {prescricao.retorno_dias} dia(s)", normal))
+        orientacoes_bloco.append(f"<b>Retorno sugerido:</b> {prescricao.retorno_dias} dia(s)")
 
-    doc.build(story)
-    pdf = buffer.getvalue()
-    buffer.close()
-    return pdf
+    temp_files: List[str] = []
+    try:
+        temp_logo_path = None
+        temp_assinatura_path = None
+        if logomarca_bytes:
+            temp_logo = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            temp_logo.write(logomarca_bytes)
+            temp_logo.close()
+            temp_logo_path = temp_logo.name
+            temp_files.append(temp_logo_path)
+        if assinatura_bytes:
+            temp_assinatura = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            temp_assinatura.write(assinatura_bytes)
+            temp_assinatura.close()
+            temp_assinatura_path = temp_assinatura.name
+            temp_files.append(temp_assinatura_path)
+
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            leftMargin=15 * mm,
+            rightMargin=15 * mm,
+            topMargin=15 * mm,
+            bottomMargin=15 * mm,
+            title=f"Receita - Atendimento {atendimento.id}",
+        )
+
+        story: List[Any] = []
+        story.extend(
+            criar_cabecalho(
+                dados_pdf,
+                temp_logo_path=temp_logo_path,
+                titulo_principal="RECEITA VETERINARIA",
+                mostrar_linha_ritmo=False,
+                label_data_exame="Data",
+            )
+        )
+
+        if orientacoes_bloco:
+            story.append(
+                _prescricao_criar_box_texto(
+                    "Orientacoes gerais",
+                    "<br/><br/>".join(orientacoes_bloco),
+                    "#fafafa",
+                    "#e5e7eb",
+                )
+            )
+            story.append(Spacer(1, 4 * mm))
+
+        story.append(criar_titulo_secao("ITENS PRESCRITOS"))
+        if itens:
+            for idx, item in enumerate(itens, start=1):
+                story.append(_prescricao_criar_card_prescricao(
+                    idx,
+                    item.medicamento_nome or "",
+                    item.dose or "",
+                    item.frequencia or "",
+                    item.duracao or "",
+                    item.via or "",
+                    item.apresentacao_selecionada or "",
+                    item.instrucoes or "",
+                ))
+                story.append(Spacer(1, 3 * mm))
+        else:
+            story.append(Paragraph("Nenhum item de medicacao foi registrado.", card_texto_style))
+
+        if nome_veterinario:
+            story.extend(criar_secao_assinatura(nome_veterinario, crmv=crmv, temp_assinatura_path=temp_assinatura_path))
+
+        def add_footer(canvas_obj, pdf_doc):
+            footer_todas_paginas(canvas_obj, pdf_doc, texto_rodape)
+
+        doc.build(story, onFirstPage=add_footer, onLaterPages=add_footer)
+        pdf = buffer.getvalue()
+        buffer.close()
+        return pdf
+    finally:
+        for temp_file in temp_files:
+            try:
+                os.unlink(temp_file)
+            except OSError:
+                pass
 
 
 def _gerar_pdf_exames_bytes(
@@ -366,95 +686,169 @@ def _gerar_pdf_exames_bytes(
     tutor: Optional[Tutor],
     clinica: Optional[Clinica],
     exames: List[Exame],
+    *,
+    nome_veterinario: str = "",
+    crmv: str = "",
+    logomarca_bytes: Optional[bytes] = None,
+    assinatura_bytes: Optional[bytes] = None,
+    texto_rodape: Optional[str] = None,
 ) -> bytes:
-    styles = getSampleStyleSheet()
-    normal = ParagraphStyle(
-        "AtendimentoPdfBodyExames",
-        parent=styles["BodyText"],
+    styles = create_pdf_styles()
+    resumo_label_style = ParagraphStyle(
+        "SolicitacaoResumoLabel",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=7,
+        textColor=colors.HexColor("#6b7280"),
+        leading=10,
+    )
+    card_texto_style = ParagraphStyle(
+        "SolicitacaoExameTexto",
+        parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=10,
+        fontSize=9.5,
+        textColor=colors.HexColor("#111827"),
         leading=13,
     )
-    heading = ParagraphStyle(
-        "AtendimentoPdfHeadingExames",
-        parent=styles["Heading3"],
-        fontName="Helvetica-Bold",
-        fontSize=12,
-        spaceAfter=5,
+    exame_item_style = ParagraphStyle(
+        "SolicitacaoExameItem",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=11,
+        textColor=colors.HexColor("#111827"),
+        leading=14,
+        spaceAfter=2,
     )
 
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        leftMargin=15 * mm,
-        rightMargin=15 * mm,
-        topMargin=12 * mm,
-        bottomMargin=12 * mm,
-        title=f"Solicitacao de exames - Atendimento {atendimento.id}",
-    )
+    def _criar_box_texto(titulo: str, corpo_html: str, bg: str, border: str) -> Table:
+        conteudo = [
+            Paragraph(
+                f"<font name='Helvetica-Bold' size='7' color='#6b7280'>{_pdf_escape(titulo.upper())}</font>",
+                resumo_label_style,
+            ),
+            Spacer(1, 1.2 * mm),
+            Paragraph(corpo_html, card_texto_style),
+        ]
+        tabela = Table([[conteudo]], colWidths=[180 * mm])
+        tabela.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor(border)),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(bg)),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ]))
+        return tabela
 
-    story = _montar_story_cabecalho_atendimento(
-        atendimento,
-        paciente,
-        tutor,
-        clinica,
-        "Solicitacao de Exames",
-    )
+    datas_solicitacao_validas = [
+        exame.data_solicitacao
+        for exame in exames
+        if isinstance(exame.data_solicitacao, datetime)
+    ]
+    if datas_solicitacao_validas:
+        data_solicitacao_ref = min(datas_solicitacao_validas)
+    elif isinstance(atendimento.data_atendimento, datetime):
+        data_solicitacao_ref = atendimento.data_atendimento
+    else:
+        data_solicitacao_ref = datetime.now()
 
-    data = [[
-        "Exame",
-        "Prioridade",
-        "Status",
-        "Data solicitacao",
-        "Valor",
-        "Observacoes",
-    ]]
-    for idx, exame in enumerate(exames, start=1):
-        valor = "-"
-        if exame.valor not in (None, ""):
+    peso_referencia = _resolver_peso_referencia(atendimento, paciente)
+    dados_pdf = {
+        "paciente": {
+            "nome": paciente.nome if paciente else "N/A",
+            "especie": paciente.especie if paciente else "",
+            "raca": paciente.raca if paciente else "",
+            "sexo": normalizar_sexo_paciente(paciente.sexo if paciente else ""),
+            "idade": extrair_idade_paciente(
+                paciente.nascimento if paciente else None,
+                paciente.observacoes if paciente else None,
+            ),
+            "peso": f"{peso_referencia:.1f}" if peso_referencia is not None else "",
+            "tutor": tutor.nome if tutor else "",
+            "solicitante": atendimento.criado_por_nome or nome_veterinario or "",
+            "data_exame": data_solicitacao_ref.strftime("%d/%m/%Y"),
+        },
+        "clinica": clinica.nome if clinica else "",
+    }
+
+    contexto_clinico = []
+    if atendimento.queixa_principal:
+        contexto_clinico.append(f"<b>Queixa principal:</b> {_texto_pdf_html(atendimento.queixa_principal, '')}")
+
+    temp_files: List[str] = []
+    try:
+        temp_logo_path = None
+        temp_assinatura_path = None
+        if logomarca_bytes:
+            temp_logo = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            temp_logo.write(logomarca_bytes)
+            temp_logo.close()
+            temp_logo_path = temp_logo.name
+            temp_files.append(temp_logo_path)
+        if assinatura_bytes:
+            temp_assinatura = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            temp_assinatura.write(assinatura_bytes)
+            temp_assinatura.close()
+            temp_assinatura_path = temp_assinatura.name
+            temp_files.append(temp_assinatura_path)
+
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            leftMargin=15 * mm,
+            rightMargin=15 * mm,
+            topMargin=15 * mm,
+            bottomMargin=15 * mm,
+            title=f"Solicitacao de exames - Atendimento {atendimento.id}",
+        )
+
+        story: List[Any] = []
+        story.extend(
+            criar_cabecalho(
+                dados_pdf,
+                temp_logo_path=temp_logo_path,
+                titulo_principal="SOLICITACAO DE EXAMES",
+                mostrar_linha_ritmo=False,
+                label_data_exame="Data",
+            )
+        )
+
+        if contexto_clinico:
+            story.append(
+                _criar_box_texto(
+                    "Contexto clinico",
+                    "<br/><br/>".join(contexto_clinico),
+                    "#fafafa",
+                    "#e5e7eb",
+                )
+            )
+            story.append(Spacer(1, 4 * mm))
+
+        story.append(criar_titulo_secao("EXAMES SOLICITADOS"))
+        if exames:
+            for idx, exame in enumerate(exames, start=1):
+                nome_exame = (exame.tipo_exame or "").strip() or "Exame sem descricao"
+                story.append(Paragraph(f"{idx}. {_pdf_escape(nome_exame)}", exame_item_style))
+        else:
+            story.append(Paragraph("Nenhum exame solicitado para este atendimento.", card_texto_style))
+
+        if nome_veterinario:
+            story.extend(criar_secao_assinatura(nome_veterinario, crmv=crmv, temp_assinatura_path=temp_assinatura_path))
+
+        def add_footer(canvas_obj, pdf_doc):
+            footer_todas_paginas(canvas_obj, pdf_doc, texto_rodape)
+
+        doc.build(story, onFirstPage=add_footer, onLaterPages=add_footer)
+        pdf = buffer.getvalue()
+        buffer.close()
+        return pdf
+    finally:
+        for temp_file in temp_files:
             try:
-                valor = f"R$ {float(exame.valor):.2f}"
-            except Exception:
-                valor = str(exame.valor)
-
-        data.append([
-            f"{idx}. {exame.tipo_exame or '-'}",
-            exame.prioridade or "-",
-            exame.status or "-",
-            _formatar_data_hora(exame.data_solicitacao),
-            valor,
-            exame.observacoes or "-",
-        ])
-
-    table = Table(
-        data,
-        colWidths=[50 * mm, 24 * mm, 20 * mm, 25 * mm, 18 * mm, 43 * mm],
-        repeatRows=1,
-    )
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#dbeafe")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111827")),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    story.append(table)
-    story.append(Spacer(1, 5 * mm))
-
-    story.append(Paragraph("Observacoes clinicas", heading))
-    story.append(Paragraph((atendimento.observacoes or "-").replace("\n", "<br/>"), normal))
-
-    doc.build(story)
-    pdf = buffer.getvalue()
-    buffer.close()
-    return pdf
+                os.unlink(temp_file)
+            except OSError:
+                pass
 
 
 def _resolver_tutor_paciente(db: Session, paciente_id: int) -> Optional[int]:
@@ -464,12 +858,27 @@ def _resolver_tutor_paciente(db: Session, paciente_id: int) -> Optional[int]:
     return paciente.tutor_id
 
 
+def _resolver_especie_paciente(db: Session, paciente_id: int) -> Optional[str]:
+    paciente = db.query(Paciente).filter(Paciente.id == paciente_id).first()
+    if not paciente:
+        return None
+    return (paciente.especie or "").strip() or None
+
+
 def _map_exame(exame: Exame) -> dict:
     return {
         "id": exame.id,
+        "catalogo_exame_id": exame.catalogo_exame_id,
+        "painel_exame_id": exame.painel_exame_id,
+        "painel_exame_nome": exame.painel_exame_nome or "",
         "tipo_exame": exame.tipo_exame,
+        "categoria_exame": exame.categoria_exame or "",
+        "preparo": exame.preparo or "",
         "prioridade": exame.prioridade or "Rotina",
         "status": exame.status,
+        "resultado": exame.resultado or "",
+        "valor_referencia": exame.valor_referencia or "",
+        "unidade": exame.unidade or "",
         "observacoes": exame.observacoes or "",
         "valor": exame.valor or 0,
         "laudo_id": exame.laudo_id,
@@ -478,11 +887,54 @@ def _map_exame(exame: Exame) -> dict:
     }
 
 
+def _normalizar_status(value: Optional[str]) -> str:
+    status = (value or "").strip().lower()
+    if not status:
+        return ""
+    normalizado = unicodedata.normalize("NFKD", status)
+    normalizado = "".join(ch for ch in normalizado if not unicodedata.combining(ch))
+    normalizado = normalizado.replace("\u00ad", "")
+    return " ".join(normalizado.split())
+
+
+def _status_exame_concluido(value: Optional[str]) -> bool:
+    status = _normalizar_status(value)
+    return status in {"concluido", "concluida"} or status.startswith("concluid")
+
+
+def _serialize_anexo(anexo: AnexoAtendimento) -> dict:
+    download_url = None
+    if anexo.caminho_arquivo:
+        download_url = f"/api/v1/atendimentos/anexos/{anexo.id}/arquivo"
+
+    mime = anexo.mime_type or ""
+    preview_disponivel = bool(
+        download_url and (mime.startswith("image/") or mime == "application/pdf")
+    )
+
+    return {
+        "id": anexo.id,
+        "atendimento_id": anexo.atendimento_id,
+        "exame_id": anexo.exame_id,
+        "tipo": anexo.tipo,
+        "descricao": anexo.descricao or "",
+        "url": anexo.url,
+        "nome_original": anexo.nome_original or "",
+        "tamanho": anexo.tamanho,
+        "mime_type": mime,
+        "origem": anexo.origem or "externo",
+        "download_url": download_url,
+        "preview_disponivel": preview_disponivel,
+        "created_at": _to_iso(anexo.created_at),
+    }
+
+
 def _map_prescricao_item(item: PrescricaoItem) -> dict:
     return {
         "id": item.id,
         "medicamento_id": item.medicamento_id,
         "medicamento_nome": item.medicamento_nome,
+        "apresentacao_selecionada": item.apresentacao_selecionada or "",
         "dose": item.dose or "",
         "frequencia": item.frequencia or "",
         "duracao": item.duracao or "",
@@ -498,12 +950,12 @@ def _obter_nome_medicamento(
     medicamento_nome: Optional[str],
 ) -> str:
     nome_limpo = (medicamento_nome or "").strip()
+    if nome_limpo:
+        return nome_limpo
     if medicamento_id:
         medicamento = db.query(Medicamento).filter(Medicamento.id == medicamento_id).first()
         if medicamento:
             return medicamento.nome
-    if nome_limpo:
-        return nome_limpo
     raise HTTPException(status_code=422, detail="Informe o nome do medicamento.")
 
 
@@ -534,20 +986,57 @@ def _sync_exames(
             )
             db.add(exame)
 
+        catalogo_exame = None
+        if payload.catalogo_exame_id:
+            catalogo_exame = db.query(CatalogoExame).filter(CatalogoExame.id == payload.catalogo_exame_id).first()
+
+        painel_exame = None
+        if payload.painel_exame_id:
+            painel_exame = db.query(PainelExame).filter(PainelExame.id == payload.painel_exame_id).first()
+
         exame.atendimento_id = atendimento.id
         exame.paciente_id = atendimento.paciente_id
-        exame.tipo_exame = payload.tipo_exame.strip()
+        exame.catalogo_exame_id = catalogo_exame.id if catalogo_exame else None
+        exame.painel_exame_id = painel_exame.id if painel_exame else None
+        exame.painel_exame_nome = (
+            (payload.painel_exame_nome or "").strip()
+            or (painel_exame.nome if painel_exame else "")
+            or None
+        )
+        exame.tipo_exame = (
+            (payload.tipo_exame or "").strip()
+            or (catalogo_exame.nome if catalogo_exame else "").strip()
+        )
+        exame.categoria_exame = (
+            (payload.categoria_exame or "").strip()
+            or (catalogo_exame.categoria if catalogo_exame else "")
+            or None
+        )
+        exame.preparo = (
+            (payload.preparo or "").strip()
+            or (catalogo_exame.preparo if catalogo_exame else "")
+            or None
+        )
         exame.prioridade = (payload.prioridade or "Rotina").strip() or "Rotina"
         exame.status = (payload.status or "Solicitado").strip() or "Solicitado"
-        exame.observacoes = payload.observacoes or ""
-        exame.valor = payload.valor or 0
+        exame.resultado = (payload.resultado or "").strip() or None
+        exame.valor_referencia = (payload.valor_referencia or "").strip() or None
+        exame.unidade = (payload.unidade or "").strip() or None
+        exame.observacoes = (
+            (payload.observacoes or "").strip()
+            or (catalogo_exame.observacoes_padrao if catalogo_exame else "")
+            or ""
+        )
+        exame.valor = payload.valor if payload.valor not in (None, "") else (catalogo_exame.valor_padrao if catalogo_exame else 0)
         exame.laudo_id = payload.laudo_id
         exame.data_solicitacao = exame.data_solicitacao or datetime.now()
-        if exame.status.lower() in {"concluido", "concluído"} and exame.data_resultado is None:
+        exame.data_resultado = _parse_datetime(payload.data_resultado) if payload.data_resultado else exame.data_resultado
+        if _status_exame_concluido(exame.status) and exame.data_resultado is None:
             exame.data_resultado = datetime.now()
 
     for exame_id, exame in existentes.items():
         if exame_id not in recebidos_ids:
+            _excluir_anexos_por_exame(db, exame.id)
             db.delete(exame)
 
 
@@ -555,6 +1044,7 @@ def _sync_prescricao(
     db: Session,
     atendimento: AtendimentoClinico,
     prescricao_payload: Optional[PrescricaoPayload],
+    current_user: User,
 ) -> Optional[PrescricaoClinica]:
     if prescricao_payload is None:
         return db.query(PrescricaoClinica).filter(PrescricaoClinica.atendimento_id == atendimento.id).first()
@@ -585,6 +1075,15 @@ def _sync_prescricao(
             item = PrescricaoItem(prescricao_id=prescricao.id)
             db.add(item)
 
+        previous_values = {
+            "medicamento_nome": item.medicamento_nome,
+            "apresentacao_selecionada": item.apresentacao_selecionada,
+            "dose": item.dose,
+            "frequencia": item.frequencia,
+            "duracao": item.duracao,
+            "via": item.via,
+            "instrucoes": item.instrucoes,
+        }
         item.prescricao_id = prescricao.id
         item.medicamento_id = item_payload.medicamento_id
         item.medicamento_nome = _obter_nome_medicamento(
@@ -592,6 +1091,7 @@ def _sync_prescricao(
             item_payload.medicamento_id,
             item_payload.medicamento_nome,
         )
+        item.apresentacao_selecionada = item_payload.apresentacao_selecionada or ""
         item.dose = item_payload.dose or ""
         item.frequencia = item_payload.frequencia or ""
         item.duracao = item_payload.duracao or ""
@@ -599,6 +1099,18 @@ def _sync_prescricao(
         item.instrucoes = item_payload.instrucoes or ""
         item.ordem = item_payload.ordem if item_payload.ordem is not None else index
         item.updated_at = datetime.now()
+
+        if item_payload.id and item.id:
+            for field_name, previous in previous_values.items():
+                _registrar_ajuste_prescricao(
+                    db,
+                    item=item,
+                    atendimento_id=atendimento.id,
+                    campo=field_name,
+                    valor_anterior=previous,
+                    valor_novo=getattr(item, field_name),
+                    current_user=current_user,
+                )
 
     for item_id, item in itens_existentes.items():
         if item_id not in itens_recebidos_ids:
@@ -639,14 +1151,38 @@ def _montar_detalhe_atendimento(
             .order_by(PrescricaoItem.ordem.asc(), PrescricaoItem.id.asc())
             .all()
         )
+        historico_por_item = _map_ajustes_por_item(db, [item.id for item in itens if item.id])
+        medicamentos_ids = [item.medicamento_id for item in itens if item.medicamento_id]
+        medicamentos = (
+            db.query(Medicamento)
+            .filter(Medicamento.id.in_(medicamentos_ids))
+            .all()
+            if medicamentos_ids
+            else []
+        )
+        medicamentos_map = {med.id: _serialize_medicamento(med) for med in medicamentos}
+        itens_dict = []
+        for item in itens:
+            mapped_item = _map_prescricao_item(item)
+            mapped_item["historico_ajustes"] = historico_por_item.get(item.id, [])
+            itens_dict.append(mapped_item)
+
+        peso_referencia = _resolver_peso_referencia(atendimento, paciente)
+        apoio_prescricao = analyze_prescription_items(
+            peso_kg=peso_referencia,
+            medicamentos=medicamentos_map,
+            itens=itens_dict,
+        )
         prescricao_dict = {
             "id": prescricao.id,
             "orientacoes_gerais": prescricao.orientacoes_gerais or "",
             "retorno_dias": prescricao.retorno_dias,
-            "itens": [_map_prescricao_item(item) for item in itens],
+            "peso_referencia_kg": peso_referencia,
+            "itens": itens_dict,
+            "apoio_clinico": apoio_prescricao,
         }
 
-    # Buscar evoluções
+    # Buscar evoluÃ§Ãµes
     evolucoes = (
         db.query(EvolucaoClinica)
         .filter(EvolucaoClinica.atendimento_id == atendimento.id)
@@ -661,6 +1197,10 @@ def _montar_detalhe_atendimento(
         .order_by(AnexoAtendimento.created_at.desc())
         .all()
     )
+    anexos_por_exame: Dict[int, List[dict]] = defaultdict(list)
+    for anexo in anexos:
+        if anexo.exame_id:
+            anexos_por_exame[anexo.exame_id].append(_serialize_anexo(anexo))
 
     return {
         "id": atendimento.id,
@@ -669,6 +1209,7 @@ def _montar_detalhe_atendimento(
         "clinica_id": atendimento.clinica_id,
         "agendamento_id": atendimento.agendamento_id,
         "veterinario_id": atendimento.veterinario_id,
+        "especie": atendimento.especie or "",
         "data_atendimento": _to_iso(atendimento.data_atendimento),
         "status": atendimento.status,
         # Triagem
@@ -691,7 +1232,7 @@ def _montar_detalhe_atendimento(
         "anamnese": atendimento.anamnese or "",
         "exame_fisico": atendimento.exame_fisico or "",
         "dados_clinicos": atendimento.dados_clinicos or "",
-        # Diagnósticos
+        # DiagnÃ³sticos
         "diagnostico_principal": atendimento.diagnostico_principal or "",
         "diagnostico_secundario": atendimento.diagnostico_secundario or "",
         "diagnostico_diferencial": atendimento.diagnostico_diferencial or "",
@@ -712,8 +1253,15 @@ def _montar_detalhe_atendimento(
         "paciente_nome": paciente.nome if paciente else "",
         "tutor_nome": tutor.nome if tutor else "",
         "clinica_nome": clinica.nome if clinica else "",
+        "peso_referencia_kg": _resolver_peso_referencia(atendimento, paciente),
         # Extras
-        "exames": [_map_exame(exame) for exame in exames],
+        "exames": [
+            {
+                **_map_exame(exame),
+                "anexos_resultado": anexos_por_exame.get(exame.id, []),
+            }
+            for exame in exames
+        ],
         "prescricao": prescricao_dict,
         "evolucoes": [
             {
@@ -725,19 +1273,7 @@ def _montar_detalhe_atendimento(
             }
             for e in evolucoes
         ],
-        "anexos": [
-            {
-                "id": a.id,
-                "tipo": a.tipo,
-                "descricao": a.descricao or "",
-                "url": a.url,
-                "nome_original": a.nome_original or "",
-                "tamanho": a.tamanho,
-                "mime_type": a.mime_type or "",
-                "created_at": _to_iso(a.created_at),
-            }
-            for a in anexos
-        ],
+        "anexos": [_serialize_anexo(a) for a in anexos],
     }
 
 
@@ -824,6 +1360,7 @@ def listar_atendimentos(
             {
                 "id": atendimento.id,
                 "paciente_id": atendimento.paciente_id,
+                "especie": atendimento.especie or "",
                 "clinica_id": atendimento.clinica_id,
                 "agendamento_id": atendimento.agendamento_id,
                 "data_atendimento": _to_iso(atendimento.data_atendimento),
@@ -840,6 +1377,160 @@ def listar_atendimentos(
         )
 
     return {"total": total, "items": items}
+
+
+@router.get("/exames/catalogo")
+def listar_catalogo_exames_atendimento(
+    search: Optional[str] = None,
+    categoria: Optional[str] = None,
+    ativos: int = 1,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    return montar_contexto_catalogo_exames(
+        db,
+        search=search,
+        categoria=categoria,
+        ativos=ativos,
+    )
+
+
+@router.get("/frases-clinicas")
+def listar_frases_clinicas_atendimento(
+    secao: Optional[str] = None,
+    search: Optional[str] = None,
+    include_inactive: int = 0,
+    limit: int = Query(default=500, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    return montar_contexto_frases_clinicas(
+        db,
+        secao=(secao or "").strip() or None,
+        search=(search or "").strip() or None,
+        include_inactive=bool(include_inactive),
+        limit=limit,
+    )
+
+
+@router.post("/frases-clinicas", status_code=status.HTTP_201_CREATED)
+def criar_frase_clinica_atendimento(
+    payload: ClinicalPhrasePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    secao = (payload.secao or "").strip()
+    titulo = (payload.titulo or "").strip()
+    texto = (payload.texto or "").strip()
+    if secao not in VALID_SECOES:
+        raise HTTPException(status_code=422, detail="Secao clinica invalida.")
+
+    existente = (
+        db.query(FraseAtendimentoClinico)
+        .filter(
+            FraseAtendimentoClinico.secao == secao,
+            FraseAtendimentoClinico.titulo == titulo,
+        )
+        .first()
+    )
+    if existente:
+        raise HTTPException(status_code=409, detail="Ja existe uma frase com esse titulo nessa secao.")
+
+    frase = FraseAtendimentoClinico(
+        secao=secao,
+        titulo=titulo,
+        texto=texto,
+        ordem=payload.ordem or 0,
+        ativo=1 if payload.ativo is None else int(payload.ativo),
+        parametrizacao_origem="manual",
+        created_by=current_user.id,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    db.add(frase)
+    db.commit()
+    db.refresh(frase)
+    return clinical_phrase_to_dict(frase)
+
+
+@router.put("/frases-clinicas/{phrase_id}")
+def atualizar_frase_clinica_atendimento(
+    phrase_id: int,
+    payload: ClinicalPhrasePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    frase = db.query(FraseAtendimentoClinico).filter(FraseAtendimentoClinico.id == phrase_id).first()
+    if not frase:
+        raise HTTPException(status_code=404, detail="Frase clinica nao encontrada.")
+
+    secao = (payload.secao or "").strip()
+    titulo = (payload.titulo or "").strip()
+    texto = (payload.texto or "").strip()
+    if secao not in VALID_SECOES:
+        raise HTTPException(status_code=422, detail="Secao clinica invalida.")
+
+    duplicada = (
+        db.query(FraseAtendimentoClinico)
+        .filter(
+            FraseAtendimentoClinico.id != phrase_id,
+            FraseAtendimentoClinico.secao == secao,
+            FraseAtendimentoClinico.titulo == titulo,
+        )
+        .first()
+    )
+    if duplicada:
+        raise HTTPException(status_code=409, detail="Ja existe uma frase com esse titulo nessa secao.")
+
+    frase.secao = secao
+    frase.titulo = titulo
+    frase.texto = texto
+    frase.ordem = payload.ordem or 0
+    if payload.ativo is not None:
+        frase.ativo = int(payload.ativo)
+    frase.updated_at = datetime.now()
+
+    db.commit()
+    db.refresh(frase)
+    return clinical_phrase_to_dict(frase)
+
+
+@router.delete("/frases-clinicas/{phrase_id}")
+def desativar_frase_clinica_atendimento(
+    phrase_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    frase = db.query(FraseAtendimentoClinico).filter(FraseAtendimentoClinico.id == phrase_id).first()
+    if not frase:
+        raise HTTPException(status_code=404, detail="Frase clinica nao encontrada.")
+
+    frase.ativo = 0
+    frase.updated_at = datetime.now()
+    db.commit()
+    return {"message": "Frase clinica desativada com sucesso."}
+
+
+@router.post("/frases-clinicas/{phrase_id}/restaurar")
+def restaurar_frase_clinica_atendimento(
+    phrase_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    frase = db.query(FraseAtendimentoClinico).filter(FraseAtendimentoClinico.id == phrase_id).first()
+    if not frase:
+        raise HTTPException(status_code=404, detail="Frase clinica nao encontrada.")
+
+    frase.ativo = 1
+    frase.updated_at = datetime.now()
+    db.commit()
+    db.refresh(frase)
+    return clinical_phrase_to_dict(frase)
 
 
 @router.get("/contexto")
@@ -860,6 +1551,7 @@ def obter_contexto_agendamento(
     return {
         "agendamento_id": agendamento.id,
         "paciente_id": agendamento.paciente_id,
+        "especie": (paciente.especie or "").strip() if paciente else "",
         "paciente_nome": paciente.nome if paciente else (agendamento.paciente or ""),
         "tutor_id": tutor.id if tutor else None,
         "tutor_nome": tutor.nome if tutor else (agendamento.tutor or ""),
@@ -886,10 +1578,10 @@ def obter_atendimento(
 @router.get("/{atendimento_id}/prescricao/pdf")
 def gerar_pdf_prescricao(
     atendimento_id: int,
+    request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
-    _ = current_user
+    current_user = _autenticar_usuario_pdf(request, db)
     atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
@@ -914,6 +1606,7 @@ def gerar_pdf_prescricao(
     if not itens:
         raise HTTPException(status_code=404, detail="Prescricao sem itens para gerar PDF.")
 
+    branding = _obter_branding_pdf_documento(db, current_user)
     pdf_bytes = _gerar_pdf_prescricao_bytes(
         atendimento,
         paciente,
@@ -921,6 +1614,11 @@ def gerar_pdf_prescricao(
         clinica,
         prescricao,
         itens,
+        nome_veterinario=branding["nome_veterinario"],
+        crmv=branding["crmv"],
+        logomarca_bytes=branding["logomarca_bytes"],
+        assinatura_bytes=branding["assinatura_bytes"],
+        texto_rodape=branding["texto_rodape"],
     )
     paciente_nome = _nome_arquivo_limpo(paciente.nome if paciente else "", f"paciente_{atendimento.paciente_id}")
     filename = f"receita_atendimento_{atendimento.id}_{paciente_nome}.pdf"
@@ -931,13 +1629,147 @@ def gerar_pdf_prescricao(
     )
 
 
-@router.get("/{atendimento_id}/exames/pdf")
-def gerar_pdf_solicitacao_exames(
-    atendimento_id: int,
+def _gerar_pdf_prescricao_preview_bytes(
+    dados: PrescricaoPreviewPayload,
+    *,
+    logomarca_bytes: Optional[bytes] = None,
+) -> bytes:
+    """Gera PDF da prescricao a partir de dados dict (sem modelo SQLAlchemy).
+    Usa a mesma estrutura e helpers do PDF final para garantir visual consistente."""
+    # Montar dados_pdf no mesmo formato usado pelo PDF final
+    data_exame = dados.data_atendimento or ""
+    peso_str = f"{dados.paciente_peso:.1f}" if dados.paciente_peso else ""
+
+    dados_pdf = {
+        "paciente": {
+            "nome": dados.paciente_nome or "N/A",
+            "especie": dados.paciente_especie or "",
+            "raca": dados.paciente_raca or "",
+            "sexo": dados.paciente_sexo or "",
+            "idade": dados.paciente_idade or "",
+            "peso": peso_str,
+            "tutor": dados.tutor_nome or "",
+            "solicitante": dados.veterinario_nome or "",
+            "data_exame": data_exame,
+        },
+        "clinica": "",
+    }
+
+    # Orientacoes (mesmo formato do PDF final)
+    orientacoes_bloco: List[str] = []
+    if (dados.orientacoes_gerais or "").strip():
+        orientacoes_bloco.append(_texto_pdf_html(dados.orientacoes_gerais, ""))
+    if dados.retorno_dias:
+        orientacoes_bloco.append(f"<b>Retorno sugerido:</b> {dados.retorno_dias} dia(s)")
+
+    # Criar temp file para logo (mesmo padrao do PDF final)
+    temp_files: List[str] = []
+    temp_logo_path = None
+    if logomarca_bytes:
+        temp_logo = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        temp_logo.write(logomarca_bytes)
+        temp_logo.close()
+        temp_logo_path = temp_logo.name
+        temp_files.append(temp_logo_path)
+
+    try:
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            leftMargin=15 * mm,
+            rightMargin=15 * mm,
+            topMargin=15 * mm,
+            bottomMargin=15 * mm,
+            title=f"Receita - {dados.paciente_nome or 'Preview'}",
+        )
+
+        story: List[Any] = []
+
+        # Cabecalho padrao com logo (mesmo do PDF final)
+        story.extend(
+            criar_cabecalho(
+                dados_pdf,
+                temp_logo_path=temp_logo_path,
+                titulo_principal="RECEITA VETERINARIA",
+                mostrar_linha_ritmo=False,
+                label_data_exame="Data",
+            )
+        )
+
+        # Orientacoes antes dos itens (mesma posicao do PDF final)
+        if orientacoes_bloco:
+            story.append(
+                _prescricao_criar_box_texto(
+                    "Orientacoes gerais",
+                    "<br/><br/>".join(orientacoes_bloco),
+                    "#fafafa",
+                    "#e5e7eb",
+                )
+            )
+            story.append(Spacer(1, 4 * mm))
+
+        # Titulo da secao de itens (fundo preto, mesma estrutura do PDF final)
+        story.append(criar_titulo_secao("ITENS PRESCRITOS"))
+
+        if dados.itens:
+            for idx, item in enumerate(dados.itens, start=1):
+                story.append(_prescricao_criar_card_prescricao(
+                    idx,
+                    item.medicamento_nome or "",
+                    item.dose or "",
+                    item.frequencia or "",
+                    item.duracao or "",
+                    item.via or "",
+                    item.apresentacao_selecionada or "",
+                    item.instrucoes or "",
+                ))
+                story.append(Spacer(1, 3 * mm))
+        else:
+            styles = create_pdf_styles()
+            story.append(Paragraph("Nenhum item de medicacao foi registrado.", styles["Normal"]))
+
+        doc.build(story)
+        return buffer.getvalue()
+    finally:
+        for temp_file in temp_files:
+            try:
+                os.unlink(temp_file)
+            except OSError:
+                pass
+
+
+@router.post("/prescricao/preview")
+def preview_pdf_prescricao(
+    payload: PrescricaoPreviewPayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _ = current_user
+    """Gera preview da prescricao em PDF (nao salva no banco)."""
+    if not payload.itens:
+        raise HTTPException(status_code=400, detail="Adicione pelo menos um item para gerar o preview.")
+
+    # Filter out empty items
+    itens_validos = [i for i in payload.itens if (i.medicamento_nome or "").strip()]
+    if not itens_validos:
+        raise HTTPException(status_code=400, detail="Adicione pelo menos um medicamento para gerar o preview.")
+
+    branding = _obter_branding_pdf_documento(db, current_user)
+    import base64
+    pdf_bytes = _gerar_pdf_prescricao_preview_bytes(
+        payload,
+        logomarca_bytes=branding.get("logomarca_bytes"),
+    )
+    return {"pdf_base64": base64.b64encode(pdf_bytes).decode()}
+
+
+@router.get("/{atendimento_id}/exames/pdf")
+def gerar_pdf_solicitacao_exames(
+    atendimento_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    current_user = _autenticar_usuario_pdf(request, db)
     atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
@@ -954,12 +1786,18 @@ def gerar_pdf_solicitacao_exames(
     if not exames:
         raise HTTPException(status_code=404, detail="Nao ha exames para este atendimento.")
 
+    branding = _obter_branding_pdf_documento(db, current_user)
     pdf_bytes = _gerar_pdf_exames_bytes(
         atendimento,
         paciente,
         tutor,
         clinica,
         exames,
+        nome_veterinario=branding["nome_veterinario"],
+        crmv=branding["crmv"],
+        logomarca_bytes=branding["logomarca_bytes"],
+        assinatura_bytes=branding["assinatura_bytes"],
+        texto_rodape=branding["texto_rodape"],
     )
     paciente_nome = _nome_arquivo_limpo(paciente.nome if paciente else "", f"paciente_{atendimento.paciente_id}")
     filename = f"solicitacao_exames_atendimento_{atendimento.id}_{paciente_nome}.pdf"
@@ -978,6 +1816,7 @@ def criar_atendimento(
 ):
     data_atendimento = _parse_datetime(payload.data_atendimento) or datetime.now()
     tutor_id = _resolver_tutor_paciente(db, payload.paciente_id)
+    especie = _resolver_especie_paciente(db, payload.paciente_id)
 
     # Extrair dados de triagem
     triagem = payload.triagem
@@ -989,6 +1828,7 @@ def criar_atendimento(
         clinica_id=payload.clinica_id,
         agendamento_id=payload.agendamento_id,
         veterinario_id=current_user.id,
+        especie=especie,
         data_atendimento=data_atendimento,
         status=payload.status or "Triagem",
         # Triagem
@@ -1008,7 +1848,7 @@ def criar_atendimento(
         anamnese=payload.anamnese or "",
         exame_fisico=payload.exame_fisico or "",
         dados_clinicos=payload.dados_clinicos or "",
-        # Diagnósticos
+        # DiagnÃ³sticos
         diagnostico_principal=diagnostico["diagnostico_principal"] or "",
         diagnostico_secundario=diagnostico["diagnostico_secundario"] or "",
         diagnostico_diferencial=diagnostico["diagnostico_diferencial"] or "",
@@ -1028,7 +1868,7 @@ def criar_atendimento(
     db.flush()
 
     _sync_exames(db, atendimento, payload.exames, current_user)
-    _sync_prescricao(db, atendimento, payload.prescricao)
+    _sync_prescricao(db, atendimento, payload.prescricao, current_user)
 
     db.commit()
     db.refresh(atendimento)
@@ -1051,6 +1891,7 @@ def atualizar_atendimento(
     if "paciente_id" in data and data["paciente_id"] is not None:
         atendimento.paciente_id = data["paciente_id"]
         atendimento.tutor_id = _resolver_tutor_paciente(db, atendimento.paciente_id)
+        atendimento.especie = _resolver_especie_paciente(db, atendimento.paciente_id)
 
     if "clinica_id" in data:
         atendimento.clinica_id = data["clinica_id"]
@@ -1081,7 +1922,7 @@ def atualizar_atendimento(
     if "consulta_concluida" in data:
         atendimento.consulta_concluida = data["consulta_concluida"]
 
-    # Diagnósticos
+    # DiagnÃ³sticos
     if payload.diagnostico is not None:
         diag = _normalizar_diagnostico(payload.diagnostico)
         atendimento.diagnostico_principal = diag["diagnostico_principal"] or ""
@@ -1110,7 +1951,7 @@ def atualizar_atendimento(
     if payload.exames is not None:
         _sync_exames(db, atendimento, payload.exames, current_user)
     if "prescricao" in data:
-        _sync_prescricao(db, atendimento, payload.prescricao)
+        _sync_prescricao(db, atendimento, payload.prescricao, current_user)
 
     db.commit()
     db.refresh(atendimento)
@@ -1130,7 +1971,10 @@ def excluir_atendimento(
 
     exames = db.query(Exame).filter(Exame.atendimento_id == atendimento_id).all()
     for exame in exames:
+        _excluir_anexos_por_exame(db, exame.id)
         db.delete(exame)
+
+    _excluir_anexos_por_atendimento(db, atendimento_id)
 
     prescricao = db.query(PrescricaoClinica).filter(PrescricaoClinica.atendimento_id == atendimento_id).first()
     if prescricao:
@@ -1164,6 +2008,7 @@ def listar_medicamentos(
                 Medicamento.nome.ilike(termo),
                 Medicamento.principio_ativo.ilike(termo),
                 Medicamento.categoria.ilike(termo),
+                Medicamento.classe_terapeutica.ilike(termo),
             )
         )
 
@@ -1177,19 +2022,7 @@ def listar_medicamentos(
 
     return {
         "total": total,
-        "items": [
-            {
-                "id": item.id,
-                "nome": item.nome,
-                "principio_ativo": item.principio_ativo or "",
-                "concentracao": item.concentracao or "",
-                "forma_farmaceutica": item.forma_farmaceutica or "",
-                "categoria": item.categoria or "",
-                "observacoes": item.observacoes or "",
-                "ativo": item.ativo,
-            }
-            for item in items
-        ],
+        "items": [_serialize_medicamento(item) for item in items],
     }
 
 
@@ -1218,6 +2051,21 @@ def criar_medicamento(
         concentracao=payload.concentracao or "",
         forma_farmaceutica=payload.forma_farmaceutica or "",
         categoria=payload.categoria or "",
+        classe_terapeutica=payload.classe_terapeutica or "",
+        especie_alvo=payload.especie_alvo or "Canina,Felina",
+        dose_min_mg_kg=payload.dose_min_mg_kg,
+        dose_max_mg_kg=payload.dose_max_mg_kg,
+        dose_intervalo_horas=payload.dose_intervalo_horas,
+        dose_unidade=payload.dose_unidade or "mg/kg",
+        via_padrao=payload.via_padrao or "",
+        duracao_padrao=payload.duracao_padrao or "",
+        concentracao_mg_ml=payload.concentracao_mg_ml,
+        concentracao_mg_comprimido=payload.concentracao_mg_comprimido,
+        indicacoes=payload.indicacoes or "",
+        contraindicacoes=payload.contraindicacoes or "",
+        interacoes_json=json.dumps(payload.interacoes or []),
+        observacao_seguranca=payload.observacao_seguranca or "",
+        parametrizacao_origem=payload.parametrizacao_origem or "manual",
         observacoes=payload.observacoes or "",
         ativo=1 if payload.ativo else 0,
         created_at=datetime.now(),
@@ -1226,16 +2074,7 @@ def criar_medicamento(
     db.add(medicamento)
     db.commit()
     db.refresh(medicamento)
-    return {
-        "id": medicamento.id,
-        "nome": medicamento.nome,
-        "principio_ativo": medicamento.principio_ativo or "",
-        "concentracao": medicamento.concentracao or "",
-        "forma_farmaceutica": medicamento.forma_farmaceutica or "",
-        "categoria": medicamento.categoria or "",
-        "observacoes": medicamento.observacoes or "",
-        "ativo": medicamento.ativo,
-    }
+    return _serialize_medicamento(medicamento)
 
 
 @router.put("/medicamentos/banco/{medicamento_id}")
@@ -1267,22 +2106,28 @@ def atualizar_medicamento(
     medicamento.concentracao = payload.concentracao or ""
     medicamento.forma_farmaceutica = payload.forma_farmaceutica or ""
     medicamento.categoria = payload.categoria or ""
+    medicamento.classe_terapeutica = payload.classe_terapeutica or ""
+    medicamento.especie_alvo = payload.especie_alvo or "Canina,Felina"
+    medicamento.dose_min_mg_kg = payload.dose_min_mg_kg
+    medicamento.dose_max_mg_kg = payload.dose_max_mg_kg
+    medicamento.dose_intervalo_horas = payload.dose_intervalo_horas
+    medicamento.dose_unidade = payload.dose_unidade or "mg/kg"
+    medicamento.via_padrao = payload.via_padrao or ""
+    medicamento.duracao_padrao = payload.duracao_padrao or ""
+    medicamento.concentracao_mg_ml = payload.concentracao_mg_ml
+    medicamento.concentracao_mg_comprimido = payload.concentracao_mg_comprimido
+    medicamento.indicacoes = payload.indicacoes or ""
+    medicamento.contraindicacoes = payload.contraindicacoes or ""
+    medicamento.interacoes_json = json.dumps(payload.interacoes or [])
+    medicamento.observacao_seguranca = payload.observacao_seguranca or ""
+    medicamento.parametrizacao_origem = payload.parametrizacao_origem or medicamento.parametrizacao_origem or "manual"
     medicamento.observacoes = payload.observacoes or ""
     medicamento.ativo = 1 if payload.ativo else 0
     medicamento.updated_at = datetime.now()
 
     db.commit()
     db.refresh(medicamento)
-    return {
-        "id": medicamento.id,
-        "nome": medicamento.nome,
-        "principio_ativo": medicamento.principio_ativo or "",
-        "concentracao": medicamento.concentracao or "",
-        "forma_farmaceutica": medicamento.forma_farmaceutica or "",
-        "categoria": medicamento.categoria or "",
-        "observacoes": medicamento.observacoes or "",
-        "ativo": medicamento.ativo,
-    }
+    return _serialize_medicamento(medicamento)
 
 
 @router.delete("/medicamentos/banco/{medicamento_id}")
@@ -1302,7 +2147,7 @@ def desativar_medicamento(
     return {"message": "Medicamento desativado com sucesso.", "id": medicamento_id}
 
 
-# === EVOLUÇÕES CLÍNICAS ===
+# === EVOLUÃ‡Ã•ES CLÃNICAS ===
 @router.get("/{atendimento_id}/evolucoes")
 def listar_evolucoes(
     atendimento_id: int,
@@ -1369,32 +2214,16 @@ def criar_evolucao(
 @router.get("/{atendimento_id}/anexos")
 def listar_anexos(
     atendimento_id: int,
+    exame_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     _ = current_user
-    anexos = (
-        db.query(AnexoAtendimento)
-        .filter(AnexoAtendimento.atendimento_id == atendimento_id)
-        .order_by(AnexoAtendimento.created_at.desc())
-        .all()
-    )
-    return {
-        "items": [
-            {
-                "id": a.id,
-                "atendimento_id": a.atendimento_id,
-                "tipo": a.tipo,
-                "descricao": a.descricao or "",
-                "url": a.url,
-                "nome_original": a.nome_original or "",
-                "tamanho": a.tamanho,
-                "mime_type": a.mime_type or "",
-                "created_at": _to_iso(a.created_at),
-            }
-            for a in anexos
-        ]
-    }
+    query = db.query(AnexoAtendimento).filter(AnexoAtendimento.atendimento_id == atendimento_id)
+    if exame_id is not None:
+        query = query.filter(AnexoAtendimento.exame_id == exame_id)
+    anexos = query.order_by(AnexoAtendimento.created_at.desc()).all()
+    return {"items": [_serialize_anexo(a) for a in anexos]}
 
 
 @router.post("/{atendimento_id}/anexos", status_code=status.HTTP_201_CREATED)
@@ -1408,28 +2237,114 @@ def criar_anexo(
     atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+    if payload.exame_id:
+        exame = (
+            db.query(Exame)
+            .filter(Exame.id == payload.exame_id, Exame.atendimento_id == atendimento_id)
+            .first()
+        )
+        if not exame:
+            raise HTTPException(status_code=404, detail="Exame nao encontrado para este atendimento.")
 
     anexo = AnexoAtendimento(
         atendimento_id=atendimento_id,
+        exame_id=payload.exame_id,
         tipo=payload.tipo,
         descricao=payload.descricao,
         url=payload.url,
         nome_original=payload.nome_original,
         tamanho=payload.tamanho,
         mime_type=payload.mime_type,
+        origem="externo",
     )
     db.add(anexo)
     db.commit()
     db.refresh(anexo)
 
-    return {
-        "id": anexo.id,
-        "atendimento_id": anexo.atendimento_id,
-        "tipo": anexo.tipo,
-        "descricao": anexo.descricao or "",
-        "url": anexo.url,
-        "nome_original": anexo.nome_original or "",
-    }
+    return _serialize_anexo(anexo)
+
+
+@router.post("/{atendimento_id}/anexos/upload", status_code=status.HTTP_201_CREATED)
+async def upload_anexo(
+    atendimento_id: int,
+    arquivo: UploadFile = File(...),
+    tipo: str = Form(...),
+    descricao: str = Form(""),
+    exame_id: Optional[int] = Form(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    if not atendimento:
+        raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+
+    exame = None
+    if exame_id is not None:
+        exame = db.query(Exame).filter(Exame.id == exame_id, Exame.atendimento_id == atendimento_id).first()
+        if not exame:
+            raise HTTPException(status_code=404, detail="Exame nao encontrado para este atendimento.")
+
+    content = await arquivo.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Arquivo vazio.")
+
+    try:
+        storage_path, normalized_name = store_atendimento_attachment_file(
+            atendimento_id,
+            arquivo.filename,
+            content,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    anexo = AnexoAtendimento(
+        atendimento_id=atendimento_id,
+        exame_id=exame.id if exame else None,
+        tipo=(tipo or "documento").strip() or "documento",
+        descricao=(descricao or "").strip() or None,
+        url="",
+        nome_original=normalized_name,
+        tamanho=len(content),
+        mime_type=arquivo.content_type or "application/octet-stream",
+        caminho_arquivo=storage_path,
+        origem="upload",
+    )
+    db.add(anexo)
+    db.flush()
+    anexo.url = f"/api/v1/atendimentos/anexos/{anexo.id}/arquivo"
+
+    if exame and not _status_exame_concluido(exame.status):
+        exame.status = "Em andamento"
+    if exame and not exame.data_resultado:
+        exame.data_resultado = datetime.now()
+
+    db.commit()
+    db.refresh(anexo)
+
+    return _serialize_anexo(anexo)
+
+
+@router.get("/anexos/{anexo_id}/arquivo")
+def baixar_arquivo_anexo(
+    anexo_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    anexo = db.query(AnexoAtendimento).filter(AnexoAtendimento.id == anexo_id).first()
+    if not anexo:
+        raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
+    if not anexo.caminho_arquivo or not os.path.exists(anexo.caminho_arquivo):
+        raise HTTPException(status_code=410, detail="Arquivo nao encontrado no armazenamento.")
+
+    return FileResponse(
+        path=anexo.caminho_arquivo,
+        media_type=anexo.mime_type or "application/octet-stream",
+        filename=anexo.nome_original or f"anexo_{anexo.id}",
+    )
 
 
 @router.delete("/anexos/{anexo_id}")
@@ -1443,12 +2358,12 @@ def excluir_anexo(
     if not anexo:
         raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
 
-    db.delete(anexo)
+    _excluir_anexo_registro(db, anexo)
     db.commit()
     return {"message": "Anexo removido com sucesso.", "id": anexo_id}
 
 
-# === ALERTAS CLÍNICOS ===
+# === ALERTAS CLÃNICOS ===
 @router.get("/paciente/{paciente_id}/alertas")
 def listar_alertas_paciente(
     paciente_id: int,
@@ -1557,7 +2472,173 @@ def desativar_alerta(
     return {"message": "Alerta desativado com sucesso.", "id": alerta_id}
 
 
-# === HISTÓRICO DO PACIENTE ===
+def _resumir_texto_timeline(value: Optional[str], fallback: str) -> str:
+    text = (value or "").strip()
+    if not text:
+        return fallback
+    compact = re.sub(r"\s+", " ", text)
+    return compact[:140]
+
+
+def _montar_timeline_paciente(db: Session, paciente_id: int) -> List[dict]:
+    atendimentos = (
+        db.query(AtendimentoClinico)
+        .filter(AtendimentoClinico.paciente_id == paciente_id)
+        .order_by(AtendimentoClinico.data_atendimento.asc(), AtendimentoClinico.id.asc())
+        .all()
+    )
+    atendimento_ids = [item.id for item in atendimentos if item.id]
+
+    evolucoes = (
+        db.query(EvolucaoClinica)
+        .filter(EvolucaoClinica.atendimento_id.in_(atendimento_ids))
+        .order_by(EvolucaoClinica.data_evolucao.asc(), EvolucaoClinica.id.asc())
+        .all()
+        if atendimento_ids
+        else []
+    )
+    anexos = (
+        db.query(AnexoAtendimento)
+        .filter(AnexoAtendimento.atendimento_id.in_(atendimento_ids))
+        .order_by(AnexoAtendimento.created_at.asc(), AnexoAtendimento.id.asc())
+        .all()
+        if atendimento_ids
+        else []
+    )
+    exames = (
+        db.query(Exame)
+        .filter(Exame.paciente_id == paciente_id)
+        .order_by(Exame.data_solicitacao.asc(), Exame.id.asc())
+        .all()
+    )
+    laudos = (
+        db.query(Laudo)
+        .filter(Laudo.paciente_id == paciente_id)
+        .order_by(Laudo.data_laudo.asc(), Laudo.id.asc())
+        .all()
+    )
+
+    events: List[dict] = []
+    exame_map = {exame.id: exame for exame in exames if exame.id}
+    for atendimento in atendimentos:
+        data_evento = atendimento.data_atendimento or atendimento.created_at
+        if not data_evento:
+            continue
+        events.append(
+            {
+                "data": _to_iso(data_evento),
+                "tipo": "atendimento",
+                "titulo": atendimento.diagnostico_principal or atendimento.status or "Atendimento clinico",
+                "descricao": _resumir_texto_timeline(
+                    atendimento.queixa_principal or atendimento.observacoes,
+                    "Registro de atendimento clinico.",
+                ),
+                "status": atendimento.status or "",
+                "referencia_id": atendimento.id,
+            }
+        )
+
+    for evolucao in evolucoes:
+        data_evento = evolucao.data_evolucao or evolucao.created_at
+        if not data_evento:
+            continue
+        events.append(
+            {
+                "data": _to_iso(data_evento),
+                "tipo": "evolucao",
+                "titulo": "Evolucao clinica",
+                "descricao": _resumir_texto_timeline(evolucao.descricao, "Acompanhamento clinico registrado."),
+                "status": evolucao.responsavel_nome or "",
+                "referencia_id": evolucao.id,
+            }
+        )
+
+    for exame in exames:
+        data_solicitacao = exame.data_solicitacao or exame.created_at
+        if data_solicitacao:
+            events.append(
+                {
+                    "data": _to_iso(data_solicitacao),
+                    "tipo": "exame_solicitado",
+                    "titulo": f"Solicitacao: {exame.tipo_exame or 'Exame'}",
+                    "descricao": _resumir_texto_timeline(
+                        exame.preparo or exame.observacoes,
+                        "Exame solicitado para acompanhamento clinico.",
+                    ),
+                    "status": exame.prioridade or "",
+                    "referencia_id": exame.id,
+                }
+            )
+
+        if exame.resultado or exame.data_resultado or _status_exame_concluido(exame.status):
+            data_resultado = exame.data_resultado or exame.created_at
+            if data_resultado:
+                events.append(
+                    {
+                        "data": _to_iso(data_resultado),
+                        "tipo": "exame_resultado",
+                        "titulo": f"Resultado: {exame.tipo_exame or 'Exame'}",
+                        "descricao": _resumir_texto_timeline(
+                            exame.resultado or exame.observacoes,
+                            "Resultado ou andamento de exame registrado.",
+                        ),
+                        "status": exame.status or "",
+                        "referencia_id": exame.id,
+                    }
+                )
+
+    for anexo in anexos:
+        data_evento = anexo.created_at
+        if not data_evento:
+            continue
+        exam_prefix = ""
+        if anexo.exame_id:
+            exame = exame_map.get(anexo.exame_id)
+            if exame:
+                exam_prefix = f"{exame.tipo_exame}: "
+        events.append(
+            {
+                "data": _to_iso(data_evento),
+                "tipo": "anexo",
+                "titulo": "Arquivo anexado",
+                "descricao": _resumir_texto_timeline(
+                    f"{exam_prefix}{anexo.nome_original or anexo.descricao or anexo.tipo}",
+                    "Arquivo clinico anexado ao prontuario.",
+                ),
+                "status": anexo.tipo or "",
+                "referencia_id": anexo.id,
+            }
+        )
+
+    for laudo in laudos:
+        data_evento = laudo.data_laudo or laudo.created_at
+        if not data_evento:
+            continue
+        events.append(
+            {
+                "data": _to_iso(data_evento),
+                "tipo": "laudo",
+                "titulo": laudo.titulo or laudo.tipo or "Laudo",
+                "descricao": _resumir_texto_timeline(laudo.diagnostico or laudo.descricao, "Documento clinico registrado."),
+                "status": laudo.status or "",
+                "referencia_id": laudo.id,
+            }
+        )
+
+    grouped: Dict[str, List[dict]] = defaultdict(list)
+    for event in sorted(events, key=lambda item: item.get("data") or ""):
+        year = "Sem data"
+        if event.get("data"):
+            parsed = _parse_datetime(event["data"])
+            if parsed:
+                year = str(parsed.year)
+        grouped[year].append(event)
+
+    ordered_years = sorted(grouped.keys(), key=lambda value: (value == "Sem data", value))
+    return [{"ano": year, "eventos": grouped[year]} for year in ordered_years]
+
+
+# === HISTÃ“RICO DO PACIENTE ===
 @router.get("/paciente/{paciente_id}/historico")
 def historico_paciente(
     paciente_id: int,
@@ -1592,8 +2673,8 @@ def historico_paciente(
             "nome": paciente.nome,
             "especie": paciente.especie or "",
             "raca": paciente.raca or "",
-            "peso": paciente.peso or "",
-            "nascimento": _to_iso(paciente.nascimento) if paciente.nascimento else None,
+            "peso": paciente.peso_kg,
+            "nascimento": paciente.nascimento or None,
         },
         "alertas": [
             {
@@ -1613,7 +2694,41 @@ def historico_paciente(
                 "queixa_principal": a.queixa_principal or "",
                 "diagnostico_principal": a.diagnostico_principal or "",
                 "veterinario": a.criado_por_nome or "",
+                "peso": a.peso,
             }
             for a in atendimentos
         ],
+        "pesos": [
+            {
+                "atendimento_id": a.id,
+                "data_atendimento": _to_iso(a.data_atendimento),
+                "peso": a.peso,
+            }
+            for a in atendimentos
+            if a.peso is not None
+        ],
+        "timeline": _montar_timeline_paciente(db, paciente_id),
     }
+
+
+@router.get("/paciente/{paciente_id}/timeline")
+def timeline_paciente(
+    paciente_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    paciente = db.query(Paciente).filter(Paciente.id == paciente_id).first()
+    if not paciente:
+        raise HTTPException(status_code=404, detail="Paciente nao encontrado.")
+
+    return {
+        "paciente": {
+            "id": paciente.id,
+            "nome": paciente.nome,
+            "especie": paciente.especie or "",
+            "raca": paciente.raca or "",
+        },
+        "timeline": _montar_timeline_paciente(db, paciente_id),
+    }
+

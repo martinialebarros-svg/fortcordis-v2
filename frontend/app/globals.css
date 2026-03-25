@@ -12,3 +12,9 @@ body {
   color: var(--foreground);
   font-family: var(--font-inter), Arial, Helvetica, sans-serif;
 }
+
+/* Native dropdown options need explicit contrast in dark prescription panel (Windows/Chrome). */
+select.prescricao-select-dark option {
+  color: #0f172a;
+  background-color: #ffffff;
+}

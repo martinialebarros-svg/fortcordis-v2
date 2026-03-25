@@ -199,6 +199,8 @@ def listar_pacientes(
             Paciente.id,
             Paciente.nome,
             Paciente.tutor_id,
+            Paciente.especie,
+            Paciente.raca,
             Tutor.nome.label("tutor_nome"),
         )
         .outerjoin(Tutor, Paciente.tutor_id == Tutor.id)
@@ -230,6 +232,8 @@ def listar_pacientes(
             "nome": p.nome,
             "tutor_id": p.tutor_id,
             "tutor": p.tutor_nome or "",
+            "especie": (p.especie or "").strip() or "",
+            "raca": (p.raca or "").strip() or "",
         }
         for p in items
     ]

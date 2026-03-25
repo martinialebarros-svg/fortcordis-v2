@@ -16,3 +16,20 @@ backend/*.db
 *.log
 .DS_Store
 backups/
+.vscode/
+.cursor/
+nul
+backend/preview_test*.pdf
+
+# Artefatos locais de contexto/planejamento (IA)
+ARCHITECTURE_DECISIONS.md
+CURRENT_TASK.md
+KNOWN_BUGS.md
+NEXT_STEPS.md
+PROJECT_CONTEXT.md
+
+# Dados brutos de scraping/import temporario (nao usados em runtime)
+backend/data/vetsmart_html/
+backend/data/vetsmart_cardio.csv
+backend/data/vetsmart_cardio.json
+backend/import_vetsmart_saved_html.py

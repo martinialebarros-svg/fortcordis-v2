@@ -385,6 +385,7 @@ def criar_cabecalho(
     temp_logo_path: str = None,
     titulo_principal: str = "LAUDO ECOCARDIOGRAFICO",
     mostrar_linha_ritmo: bool = True,
+    label_data_exame: str = "Data do exame",
 ) -> List:
     """Cria o cabecalho do laudo com bloco de titulo e grade de informacoes."""
     elements = []
@@ -501,7 +502,7 @@ def criar_cabecalho(
     )
     _adicionar_card(cards, "Solicitante", _valor_padrao(paciente.get("solicitante")))
     _adicionar_card(cards, "Clinica", _valor_padrao(clinica))
-    _adicionar_card(cards, "Data do exame", _valor_padrao(data_exame), obrigatorio=True)
+    _adicionar_card(cards, label_data_exame, _valor_padrao(data_exame), obrigatorio=True)
 
     if mostrar_linha_ritmo and any([ritmo, fc_str, estado]):
         cards.append(("Ritmo | FC | Estado", _montar_linha(ritmo, fc_str, estado)))

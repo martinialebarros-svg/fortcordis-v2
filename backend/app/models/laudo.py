@@ -53,6 +53,11 @@ class Exame(Base):
     
     # Tipo de exame
     tipo_exame = Column(String, nullable=False)  # Sangue, Urina, Raio-X, Ultrassom, etc
+    catalogo_exame_id = Column(Integer, nullable=True, index=True)
+    painel_exame_id = Column(Integer, nullable=True, index=True)
+    painel_exame_nome = Column(String)
+    categoria_exame = Column(String)
+    preparo = Column(Text)
     prioridade = Column(String, default='Rotina')  # Rotina, Urgente, Emergencial
     
     # Resultados
