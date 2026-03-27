@@ -12,6 +12,7 @@ import {
   saveRacasCustomPorEspecie,
 } from "@/lib/racas";
 import XmlUploader from "../../components/XmlUploader";
+import ImageHeaderUploader from "../../components/ImageHeaderUploader";
 import ImageUploader from "../../components/ImageUploader";
 import EcocardiogramaEstruturadoEditor from "../../components/EcocardiogramaEstruturadoEditor";
 import { ArrowLeft, Save, User, Activity, Heart, BookOpen, Settings, Image as ImageIcon, Minus, Plus } from "lucide-react";
@@ -865,7 +866,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       }));
     }
 
-    setMensagemSucesso("Dados do XML importados com sucesso!");
+    setMensagemSucesso("Dados importados com sucesso!");
     setTimeout(() => setMensagemSucesso(null), 5000);
   };
 
@@ -1224,7 +1225,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Coluna Esquerda - Upload XML */}
+          {/* Coluna Esquerda - Importadores */}
           <div className="lg:col-span-1 space-y-6">
             <div className="bg-white p-6 rounded-lg shadow-sm border">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -1243,6 +1244,21 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
               <div className="mt-6 p-4 bg-blue-50 rounded-lg">
                 <p className="text-sm text-blue-800">
                   <strong>Dica:</strong> Arraste o arquivo XML exportado do aparelho de ecocardiograma para preencher automaticamente os dados e medidas.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-lg shadow-sm border">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <ImageIcon className="w-5 h-5 text-teal-600" />
+                Importar Cabecalho (Imagem)
+              </h2>
+
+              <ImageHeaderUploader onDadosImportados={handleDadosImportados} />
+
+              <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  <strong>Dica:</strong> Envie a imagem gerada pelo equipamento para preencher automaticamente os campos de cabecalho.
                 </p>
               </div>
             </div>
