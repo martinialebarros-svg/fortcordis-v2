@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 backend/venv/
+backend/.venv/
 .env
 
 # Next.js

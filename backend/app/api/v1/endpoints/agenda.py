@@ -48,6 +48,7 @@ router = APIRouter()
 # Horario de Brasilia (UTC-3). Evita dependencia de tzdata no Windows local.
 LOCAL_TZ = timezone(timedelta(hours=-3))
 AGENDA_STATUS_PERMITIDOS = ["Agendado", "Reservado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"]
+AGENDA_STATUS_PRE_AGENDADOS = {"Agendado", "Reservado", "Confirmado"}
 MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN = 10
 
 
@@ -1207,6 +1208,7 @@ def sugerir_agendamento_proximo(
         raise HTTPException(status_code=422, detail="Data invalida. Use o formato YYYY-MM-DD.")
 
     data_ref = datetime.strptime(data_iso, "%Y-%m-%d").date()
+    agora_local = datetime.now(LOCAL_TZ).replace(tzinfo=None)
     janela_dias = int(payload.janela_dias_proximidade)
     data_inicio_busca = (data_ref - timedelta(days=janela_dias)).strftime("%Y-%m-%d")
     data_fim_busca = (data_ref + timedelta(days=janela_dias)).strftime("%Y-%m-%d")
@@ -1220,8 +1222,20 @@ def sugerir_agendamento_proximo(
     perfil_norm = normalizar_perfil(payload.perfil_deslocamento)
     melhor_item: Optional[dict] = None
     melhor_tempo: Optional[int] = None
+    melhor_rank = None
 
     for item in agendamentos_periodo:
+        inicio_item = item.get("inicio")
+        if inicio_item is None:
+            continue
+
+        status_item = (str(item.get("status") or "").strip() or "Agendado")
+        if status_item not in AGENDA_STATUS_PRE_AGENDADOS:
+            continue
+
+        if inicio_item < agora_local:
+            continue
+
         clinica_item_id = int(item.get("clinica_id") or 0)
         if clinica_item_id <= 0:
             continue
@@ -1239,18 +1253,26 @@ def sugerir_agendamento_proximo(
         if duracao_min <= 0:
             if clinica_item_id != payload.clinica_id:
                 continue
-        if melhor_tempo is None or duracao_min < melhor_tempo:
-            melhor_tempo = duracao_min
+
+        rank = (
+            int(duracao_min),
+            abs((inicio_item.date() - data_ref).days),
+            inicio_item,
+            int(item.get("id") or 0),
+        )
+        if melhor_rank is None or rank < melhor_rank:
+            melhor_rank = rank
+            melhor_tempo = int(duracao_min)
             melhor_item = {
                 "agendamento_id": item.get("id"),
                 "clinica_id": clinica_item_id,
                 "clinica": item.get("clinica_nome") or _nome_clinica_por_id(db, clinica_item_id),
-                "data": item.get("inicio").strftime("%Y-%m-%d") if item.get("inicio") else None,
-                "inicio": item.get("inicio").strftime("%H:%M") if item.get("inicio") else None,
+                "data": inicio_item.strftime("%Y-%m-%d"),
+                "inicio": inicio_item.strftime("%H:%M"),
                 "fim": item.get("fim").strftime("%H:%M") if item.get("fim") else None,
                 "duracao_deslocamento_min": duracao_min,
                 "fonte_deslocamento": fonte,
-                "status": item.get("status"),
+                "status": status_item,
             }
 
     limite_minutos = int(payload.limite_minutos)
@@ -1261,7 +1283,7 @@ def sugerir_agendamento_proximo(
             "clinica_id": payload.clinica_id,
             "sugerir": False,
             "limite_minutos": limite_minutos,
-            "mensagem": "Nao encontramos agenda proxima para sugestao automatica nesta data.",
+            "mensagem": "Nao encontramos agenda proxima para sugestao automatica dentro da janela configurada.",
             "item": None,
         }
 
