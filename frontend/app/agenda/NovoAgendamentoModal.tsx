@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, User, Building, Calendar, Clock, Sparkles } from "lucide-react";
 import api from "@/lib/axios";
 import {
@@ -72,6 +72,23 @@ interface ConflitoDeslocamentoDetail {
   confirmavel?: boolean;
 }
 
+interface SugestaoProximidadeResponse {
+  ok: boolean;
+  sugerir: boolean;
+  mensagem: string;
+  limite_minutos?: number;
+  item?: {
+    agendamento_id: number;
+    clinica_id: number;
+    clinica: string;
+    inicio?: string | null;
+    fim?: string | null;
+    duracao_deslocamento_min: number;
+    fonte_deslocamento?: string;
+    status?: string;
+  } | null;
+}
+
 const rotularFonteDeslocamento = (fonte?: string | null): string => {
   const valor = String(fonte || "").trim().toLowerCase();
   if (!valor) return "Fonte nao informada";
@@ -115,6 +132,8 @@ export default function NovoAgendamentoModal({
   const [sugestoesHorario, setSugestoesHorario] = useState<SugestaoHorarioItem[]>([]);
   const [erroSugestoes, setErroSugestoes] = useState<string>("");
   const [mensagemSugestoes, setMensagemSugestoes] = useState<string>("");
+  const [mensagemProximidade, setMensagemProximidade] = useState<string>("");
+  const ultimoAlertaProximidadeRef = useRef<string>("");
   
   const [formData, setFormData] = useState({
     paciente_id: "",
@@ -259,6 +278,7 @@ export default function NovoAgendamentoModal({
   useEffect(() => {
     if (isOpen) {
       carregarDados();
+      ultimoAlertaProximidadeRef.current = "";
     }
   }, [isOpen]);
 
@@ -338,6 +358,41 @@ export default function NovoAgendamentoModal({
     setTutorSelecionado(paciente?.tutor || "");
   };
 
+  const buscarSugestaoProximidade = async (clinicaId: string, dataISO: string) => {
+    const clinicaIdNum = Number.parseInt(clinicaId, 10);
+    if (!Number.isFinite(clinicaIdNum)) {
+      setMensagemProximidade("");
+      return;
+    }
+    if (!dataISO) {
+      setMensagemProximidade("Selecione a data para ativar o assistente inteligente de proximidade.");
+      return;
+    }
+
+    try {
+      const response = await api.post<SugestaoProximidadeResponse>("/agenda/sugestao-proximidade", {
+        clinica_id: clinicaIdNum,
+        data: dataISO,
+        perfil_deslocamento: "comercial",
+        limite_minutos: 20,
+        ignorar_agendamento_id: isEditando ? agendamento?.id : null,
+      });
+
+      const sugerir = Boolean(response?.data?.sugerir);
+      const mensagem = String(response?.data?.mensagem || "").trim();
+      setMensagemProximidade(mensagem || "Assistente inteligente sem sugestao para os dados atuais.");
+      if (sugerir && mensagem) {
+        if (ultimoAlertaProximidadeRef.current !== mensagem) {
+          window.alert(`Assistente de agendamento inteligente:\n\n${mensagem}`);
+          ultimoAlertaProximidadeRef.current = mensagem;
+        }
+        return;
+      }
+    } catch {
+      setMensagemProximidade("Nao foi possivel consultar sugestoes de proximidade agora.");
+    }
+  };
+
   const handleClinicaChange = (clinicaId: string) => {
     setFormData({
       ...formData,
@@ -345,6 +400,15 @@ export default function NovoAgendamentoModal({
       clinica_nova_nome: clinicaId ? "" : formData.clinica_nova_nome,
     });
   };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!formData.clinica_id) {
+      setMensagemProximidade("");
+      return;
+    }
+    void buscarSugestaoProximidade(formData.clinica_id, formData.data);
+  }, [isOpen, formData.clinica_id, formData.data]);
 
   const obterDuracaoServicoSelecionado = (): number => {
     const servicoSelecionado = servicos.find((s) => s.id?.toString() === formData.servico_id);
@@ -677,6 +741,11 @@ export default function NovoAgendamentoModal({
                 </option>
               ))}
             </select>
+            {mensagemProximidade && (
+              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                <strong>Assistente inteligente:</strong> {mensagemProximidade}
+              </div>
+            )}
 
             {!formData.clinica_id && (
               <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">

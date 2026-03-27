@@ -62,6 +62,16 @@ class SugestaoHorarioPayload(BaseModel):
     ignorar_agendamento_id: Optional[int] = Field(default=None, ge=1)
 
 
+class SugestaoProximidadePayload(BaseModel):
+    clinica_id: int = Field(..., ge=1)
+    data: Optional[str] = Field(default=None, description="Data no formato YYYY-MM-DD")
+    perfil_deslocamento: str = Field(default="comercial")
+    limite_minutos: int = Field(default=20, ge=1, le=180)
+    ignorar_agendamento_id: Optional[int] = Field(default=None, ge=1)
+    incluir_mesma_clinica: bool = Field(default=True)
+    janela_dias_proximidade: int = Field(default=7, ge=0, le=30)
+
+
 def _parse_hora_hhmm(value: Optional[str], fallback: str) -> str:
     raw = str(value or "").strip()
     if len(raw) != 5 or raw[2] != ":":
@@ -171,16 +181,18 @@ def _obter_janela_funcionamento_data(
     return inicio, fim, None
 
 
-def _listar_agendamentos_ativos_do_dia(
+def _listar_agendamentos_ativos_periodo(
     db: Session,
-    data_iso: str,
+    data_inicio_iso: str,
+    data_fim_iso: str,
     *,
     agendamento_id_excluir: Optional[int] = None,
 ) -> list[dict]:
     query = (
         db.query(Agendamento)
         .filter(Agendamento.status != "Cancelado")
-        .filter(func.date(Agendamento.inicio) == data_iso)
+        .filter(func.date(Agendamento.inicio) >= data_inicio_iso)
+        .filter(func.date(Agendamento.inicio) <= data_fim_iso)
     )
     if agendamento_id_excluir is not None:
         query = query.filter(Agendamento.id != agendamento_id_excluir)
@@ -207,6 +219,20 @@ def _listar_agendamentos_ativos_do_dia(
         )
 
     return registros
+
+
+def _listar_agendamentos_ativos_do_dia(
+    db: Session,
+    data_iso: str,
+    *,
+    agendamento_id_excluir: Optional[int] = None,
+) -> list[dict]:
+    return _listar_agendamentos_ativos_periodo(
+        db,
+        data_iso,
+        data_iso,
+        agendamento_id_excluir=agendamento_id_excluir,
+    )
 
 
 def _obter_vizinhos_horario(
@@ -1165,6 +1191,104 @@ def sugerir_horarios_agenda(
     }
 
 
+@router.post("/sugestao-proximidade")
+def sugerir_agendamento_proximo(
+    payload: SugestaoProximidadePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Sugere aproveitamento de agenda existente em clinica proxima."""
+    clinica_base = db.query(Clinica).filter(Clinica.id == payload.clinica_id).first()
+    if not clinica_base:
+        raise HTTPException(status_code=404, detail="Clinica nao encontrada.")
+
+    data_iso = _extract_date_filter(payload.data) if payload.data else datetime.now().strftime("%Y-%m-%d")
+    if not data_iso:
+        raise HTTPException(status_code=422, detail="Data invalida. Use o formato YYYY-MM-DD.")
+
+    data_ref = datetime.strptime(data_iso, "%Y-%m-%d").date()
+    janela_dias = int(payload.janela_dias_proximidade)
+    data_inicio_busca = (data_ref - timedelta(days=janela_dias)).strftime("%Y-%m-%d")
+    data_fim_busca = (data_ref + timedelta(days=janela_dias)).strftime("%Y-%m-%d")
+
+    agendamentos_periodo = _listar_agendamentos_ativos_periodo(
+        db,
+        data_inicio_busca,
+        data_fim_busca,
+        agendamento_id_excluir=payload.ignorar_agendamento_id,
+    )
+    perfil_norm = normalizar_perfil(payload.perfil_deslocamento)
+    melhor_item: Optional[dict] = None
+    melhor_tempo: Optional[int] = None
+
+    for item in agendamentos_periodo:
+        clinica_item_id = int(item.get("clinica_id") or 0)
+        if clinica_item_id <= 0:
+            continue
+        if clinica_item_id == payload.clinica_id:
+            if not payload.incluir_mesma_clinica:
+                continue
+            duracao_min, fonte = 0, "mesma_clinica"
+        else:
+            duracao_min, fonte = obter_duracao_deslocamento(
+                db,
+                origem_clinica_id=payload.clinica_id,
+                destino_clinica_id=clinica_item_id,
+                perfil=perfil_norm,
+            )
+        if duracao_min <= 0:
+            if clinica_item_id != payload.clinica_id:
+                continue
+        if melhor_tempo is None or duracao_min < melhor_tempo:
+            melhor_tempo = duracao_min
+            melhor_item = {
+                "agendamento_id": item.get("id"),
+                "clinica_id": clinica_item_id,
+                "clinica": item.get("clinica_nome") or _nome_clinica_por_id(db, clinica_item_id),
+                "data": item.get("inicio").strftime("%Y-%m-%d") if item.get("inicio") else None,
+                "inicio": item.get("inicio").strftime("%H:%M") if item.get("inicio") else None,
+                "fim": item.get("fim").strftime("%H:%M") if item.get("fim") else None,
+                "duracao_deslocamento_min": duracao_min,
+                "fonte_deslocamento": fonte,
+                "status": item.get("status"),
+            }
+
+    limite_minutos = int(payload.limite_minutos)
+    if melhor_item is None or melhor_tempo is None or melhor_tempo > limite_minutos:
+        return {
+            "ok": True,
+            "data": data_iso,
+            "clinica_id": payload.clinica_id,
+            "sugerir": False,
+            "limite_minutos": limite_minutos,
+            "mensagem": "Nao encontramos agenda proxima para sugestao automatica nesta data.",
+            "item": None,
+        }
+
+    data_item = str(melhor_item.get("data") or data_iso)
+    if int(melhor_item.get("clinica_id") or 0) == payload.clinica_id:
+        mensagem = (
+            f"Ja temos um agendamento na mesma clinica na data {data_item} as {melhor_item['inicio']}. "
+            "Sugira esse horario para o cliente e confirme a disponibilidade."
+        )
+    else:
+        mensagem = (
+            f"Ja temos um agendamento na clinica {melhor_item['clinica']} "
+            f"na data {data_item} as {melhor_item['inicio']} "
+            f"(aprox. {melhor_tempo} min de deslocamento). "
+            "Sugira esse horario para o cliente e confirme a disponibilidade."
+        )
+    return {
+        "ok": True,
+        "data": data_iso,
+        "clinica_id": payload.clinica_id,
+        "sugerir": True,
+        "limite_minutos": limite_minutos,
+        "mensagem": mensagem,
+        "item": melhor_item,
+    }
+
+
 @router.get("/{agendamento_id}", response_model=AgendamentoResponse)
 def obter_agendamento(
     agendamento_id: int,
@@ -1764,4 +1888,3 @@ def deletar_agendamento(
     )
 
     return {"message": "Agendamento deletado com sucesso"}
-
