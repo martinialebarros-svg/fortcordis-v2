@@ -21,6 +21,7 @@ const INSTITUTIONAL_HOSTS = new Set([
   "fortcordis.com.br",
   "www.fortcordis.com.br",
   "stage.fortcordis.com.br",
+  "www.stage.fortcordis.com.br",
 ]);
 
 const landingLinks = [
@@ -49,9 +50,18 @@ export const revalidate = 0;
 
 function normalizeHost(hostHeader: string | null): string {
   if (!hostHeader) return "";
+  return hostHeader.toLowerCase().split(":")[0]?.trim() ?? "";
+}
 
-  const firstHost = hostHeader.split(",")[0] ?? "";
-  return firstHost.toLowerCase().split(":")[0]?.trim() ?? "";
+function normalizeForwardedHost(hostHeader: string | null): string {
+  if (!hostHeader) return "";
+
+  const parts = hostHeader
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const candidate = parts[parts.length - 1] ?? "";
+  return candidate.toLowerCase().split(":")[0]?.trim() ?? "";
 }
 
 function isInstitutionalHost(host: string): boolean {
@@ -124,7 +134,11 @@ function InstitutionalLanding() {
 
 export default async function HomePage() {
   const headersList = await headers();
-  const host = normalizeHost(headersList.get("x-forwarded-host") ?? headersList.get("host"));
+  const rawHost = normalizeHost(headersList.get("host"));
+  const forwardedHost = normalizeForwardedHost(
+    headersList.get("x-forwarded-host") ?? headersList.get("x-original-host"),
+  );
+  const host = rawHost || forwardedHost;
 
   if (isInstitutionalHost(host)) {
     return <InstitutionalLanding />;
