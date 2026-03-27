@@ -4,6 +4,11 @@ import { headers } from "next/headers";
 import { Fraunces, Manrope } from "next/font/google";
 import { ArrowRight, Building2, ShieldCheck, UserRound } from "lucide-react";
 import LoginPageClient from "./page-client";
+import {
+  isInstitutionalHost,
+  resolveAppHostForInstitutionalHost,
+  resolveRequestHost,
+} from "@/lib/host-routing";
 
 const displayFont = Fraunces({
   subsets: ["latin"],
@@ -17,14 +22,10 @@ const textFont = Manrope({
   weight: ["400", "500", "600", "700"],
 });
 
-const INSTITUTIONAL_HOSTS = new Set([
-  "fortcordis.com.br",
-  "www.fortcordis.com.br",
-  "stage.fortcordis.com.br",
-  "www.stage.fortcordis.com.br",
-]);
+function getLandingLinks(host: string) {
+  const appHost = resolveAppHostForInstitutionalHost(host) ?? "app.fortcordis.com.br";
 
-const landingLinks = [
+  return [
   {
     title: "Área de pacientes",
     description: "Espaço para serviços online e acompanhamento do cuidado cardiológico.",
@@ -40,35 +41,18 @@ const landingLinks = [
   {
     title: "Área administrativa",
     description: "Acesso ao app FortCordis e configurações operacionais da equipe interna.",
-    href: "https://app.fortcordis.com.br/",
+    href: `https://${appHost}/`,
     icon: ShieldCheck,
   },
-] as const;
+  ] as const;
+}
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function normalizeHost(hostHeader: string | null): string {
-  if (!hostHeader) return "";
-  return hostHeader.toLowerCase().split(":")[0]?.trim() ?? "";
-}
+function InstitutionalLanding({ host }: { host: string }) {
+  const landingLinks = getLandingLinks(host);
 
-function normalizeForwardedHost(hostHeader: string | null): string {
-  if (!hostHeader) return "";
-
-  const parts = hostHeader
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
-  const candidate = parts[parts.length - 1] ?? "";
-  return candidate.toLowerCase().split(":")[0]?.trim() ?? "";
-}
-
-function isInstitutionalHost(host: string): boolean {
-  return INSTITUTIONAL_HOSTS.has(host);
-}
-
-function InstitutionalLanding() {
   return (
     <main
       className={`${displayFont.variable} ${textFont.variable} min-h-screen bg-slate-950 text-slate-100`}
@@ -134,14 +118,14 @@ function InstitutionalLanding() {
 
 export default async function HomePage() {
   const headersList = await headers();
-  const rawHost = normalizeHost(headersList.get("host"));
-  const forwardedHost = normalizeForwardedHost(
-    headersList.get("x-forwarded-host") ?? headersList.get("x-original-host"),
-  );
-  const host = rawHost || forwardedHost;
+  const host = resolveRequestHost({
+    host: headersList.get("host"),
+    forwardedHost: headersList.get("x-forwarded-host"),
+    originalHost: headersList.get("x-original-host"),
+  });
 
   if (isInstitutionalHost(host)) {
-    return <InstitutionalLanding />;
+    return <InstitutionalLanding host={host} />;
   }
 
   return <LoginPageClient />;
