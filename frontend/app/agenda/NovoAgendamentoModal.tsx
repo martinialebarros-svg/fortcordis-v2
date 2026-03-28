@@ -90,6 +90,85 @@ interface SugestaoProximidadeResponse {
   } | null;
 }
 
+interface TutorOption {
+  id: number;
+  nome: string;
+  telefone?: string | null;
+}
+
+interface PacienteOption {
+  id: number;
+  nome: string;
+  tutor_id?: number | null;
+  tutor?: string;
+  especie?: string;
+  raca?: string;
+}
+
+interface FormDataAgenda {
+  tutor_id: string;
+  paciente_id: string;
+  clinica_id: string;
+  clinica_nova_nome: string;
+  clinica_nova_tabela_preco_id: string;
+  servico_id: string;
+  data: string;
+  hora: string;
+  marcar_como_reserva: boolean;
+  observacoes: string;
+}
+
+interface NovoTutorForm {
+  nome: string;
+  telefone: string;
+  whatsapp: string;
+  email: string;
+}
+
+interface NovoAnimalForm {
+  tutor_id: string;
+  nome: string;
+  especie: string;
+  raca: string;
+  sexo: string;
+  peso_kg: string;
+  data_nascimento: string;
+  microchip: string;
+  observacoes: string;
+}
+
+const buildInitialFormData = (defaultDate?: string, defaultTime?: string): FormDataAgenda => ({
+  tutor_id: "",
+  paciente_id: "",
+  clinica_id: "",
+  clinica_nova_nome: "",
+  clinica_nova_tabela_preco_id: "1",
+  servico_id: "",
+  data: defaultDate || "",
+  hora: defaultTime || "",
+  marcar_como_reserva: false,
+  observacoes: "",
+});
+
+const buildInitialTutorForm = (): NovoTutorForm => ({
+  nome: "",
+  telefone: "",
+  whatsapp: "",
+  email: "",
+});
+
+const buildInitialAnimalForm = (tutorId = ""): NovoAnimalForm => ({
+  tutor_id: tutorId,
+  nome: "",
+  especie: "Canina",
+  raca: "",
+  sexo: "Macho",
+  peso_kg: "",
+  data_nascimento: "",
+  microchip: "",
+  observacoes: "",
+});
+
 const rotularFonteDeslocamento = (fonte?: string | null): string => {
   const valor = String(fonte || "").trim().toLowerCase();
   if (!valor) return "Fonte nao informada";
@@ -123,7 +202,8 @@ export default function NovoAgendamentoModal({
   agendaExcecoes,
 }: NovoAgendamentoModalProps) {
   const [loading, setLoading] = useState(false);
-  const [pacientes, setPacientes] = useState<any[]>([]);
+  const [pacientes, setPacientes] = useState<PacienteOption[]>([]);
+  const [tutores, setTutores] = useState<TutorOption[]>([]);
   const [clinicas, setClinicas] = useState<any[]>([]);
   const [servicos, setServicos] = useState<any[]>([]);
   const [tabelasPreco, setTabelasPreco] = useState<{ id: number; nome: string }[]>(TABELA_PRECO_PADRAO);
@@ -136,20 +216,16 @@ export default function NovoAgendamentoModal({
   const [mensagemProximidade, setMensagemProximidade] = useState<string>("");
   const [sugestaoProximidade, setSugestaoProximidade] = useState<SugestaoProximidadeResponse | null>(null);
   const ultimoAlertaProximidadeRef = useRef<string>("");
-  
-  const [formData, setFormData] = useState({
-    paciente_id: "",
-    paciente_novo: "",
-    tutor_novo: "",
-    clinica_id: "",
-    clinica_nova_nome: "",
-    clinica_nova_tabela_preco_id: "1",
-    servico_id: "",
-    data: "",
-    hora: "",
-    marcar_como_reserva: false,
-    observacoes: "",
-  });
+  const [modalTutorAberto, setModalTutorAberto] = useState(false);
+  const [modalAnimalAberto, setModalAnimalAberto] = useState(false);
+  const [salvandoTutor, setSalvandoTutor] = useState(false);
+  const [salvandoAnimal, setSalvandoAnimal] = useState(false);
+  const [novoTutor, setNovoTutor] = useState<NovoTutorForm>(buildInitialTutorForm());
+  const [novoAnimal, setNovoAnimal] = useState<NovoAnimalForm>(buildInitialAnimalForm());
+
+  const [formData, setFormData] = useState<FormDataAgenda>(
+    buildInitialFormData(defaultDate, defaultTime)
+  );
 
   const isEditando = !!agendamento;
   const statusFormulario = isEditando
@@ -228,60 +304,64 @@ export default function NovoAgendamentoModal({
     return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
   };
 
-  // Preencher formulário quando estiver editando
+  // Inicializa formulario ao abrir no modo "novo" sem resetar quando pacientes/tutores atualizam.
   useEffect(() => {
-    if (isEditando && agendamento) {
-      const inicio = parseAgendamentoInicio(agendamento);
-      const data = inicio ? toInputDate(inicio) : "";
-      const hora = inicio ? toInputTime(inicio) : "";
-      
-      setFormData({
-        paciente_id: agendamento.paciente_id && agendamento.paciente_id > 0
+    if (!isOpen || isEditando) return;
+    setFormData(buildInitialFormData(defaultDate, defaultTime));
+    setTutorSelecionado("");
+  }, [defaultDate, defaultTime, isEditando, isOpen]);
+
+  // Preenche formulario ao abrir/atualizar no modo de edicao.
+  useEffect(() => {
+    if (!isOpen || !isEditando || !agendamento) return;
+
+    const inicio = parseAgendamentoInicio(agendamento);
+    const data = inicio ? toInputDate(inicio) : "";
+    const hora = inicio ? toInputTime(inicio) : "";
+    const pacienteSelecionado =
+      agendamento.paciente_id && agendamento.paciente_id > 0
+        ? pacientes.find((p) => p.id === agendamento.paciente_id)
+        : null;
+
+    setFormData({
+      tutor_id:
+        pacienteSelecionado?.tutor_id !== null &&
+        pacienteSelecionado?.tutor_id !== undefined
+          ? pacienteSelecionado.tutor_id.toString()
+          : "",
+      paciente_id:
+        agendamento.paciente_id && agendamento.paciente_id > 0
           ? agendamento.paciente_id.toString()
           : "",
-        paciente_novo: "",
-        tutor_novo: "",
-        clinica_id: agendamento.clinica_id?.toString() || "",
-        clinica_nova_nome: "",
-        clinica_nova_tabela_preco_id: "1",
-        servico_id: agendamento.servico_id?.toString() || "",
-        data: data,
-        hora: hora,
-        marcar_como_reserva: agendamento.status === "Reservado",
-        observacoes: agendamento.observacoes || "",
-      });
-      
-      // Buscar tutor do paciente selecionado
-      if (agendamento.paciente_id && agendamento.paciente_id > 0) {
-        const paciente = pacientes.find(p => p.id === agendamento.paciente_id);
-        if (paciente?.tutor) {
-          setTutorSelecionado(paciente.tutor);
-        }
-      }
-    } else {
-      setFormData({
-        paciente_id: "",
-        paciente_novo: "",
-        tutor_novo: "",
-        clinica_id: "",
-        clinica_nova_nome: "",
-        clinica_nova_tabela_preco_id: "1",
-        servico_id: "",
-        data: defaultDate || "",
-        hora: defaultTime || "",
-        marcar_como_reserva: false,
-        observacoes: "",
-      });
-      setTutorSelecionado("");
-    }
-  }, [agendamento, defaultDate, defaultTime, isEditando, isOpen, pacientes]);
+      clinica_id: agendamento.clinica_id?.toString() || "",
+      clinica_nova_nome: "",
+      clinica_nova_tabela_preco_id: "1",
+      servico_id: agendamento.servico_id?.toString() || "",
+      data,
+      hora,
+      marcar_como_reserva: agendamento.status === "Reservado",
+      observacoes: agendamento.observacoes || "",
+    });
+
+    setTutorSelecionado(pacienteSelecionado?.tutor || "");
+  }, [agendamento, isEditando, isOpen, pacientes]);
 
   // Carregar dados dos selects
   useEffect(() => {
     if (isOpen) {
       carregarDados();
-      ultimoAlertaProximidadeRef.current = "";
+      return;
     }
+
+    setModalTutorAberto(false);
+    setModalAnimalAberto(false);
+    setSalvandoTutor(false);
+    setSalvandoAnimal(false);
+    setNovoTutor(buildInitialTutorForm());
+    setNovoAnimal(buildInitialAnimalForm());
+    setMensagemProximidade("");
+    setSugestaoProximidade(null);
+    ultimoAlertaProximidadeRef.current = "";
   }, [isOpen]);
 
   const carregarDados = async () => {
@@ -294,6 +374,7 @@ export default function NovoAgendamentoModal({
 
     const resultados = await Promise.allSettled([
       api.get("/pacientes?limit=1000"),
+      api.get("/tutores?limit=1000"),
       api.get("/clinicas?limit=1000"),
       api.get("/clinicas/tabelas-preco/opcoes"),
       api.get("/servicos?limit=1000"),
@@ -303,13 +384,21 @@ export default function NovoAgendamentoModal({
 
     const pacientesResp = resultados[0];
     if (pacientesResp.status === "fulfilled") {
-      setPacientes(extrairItems(pacientesResp.value?.data));
+      setPacientes(extrairItems(pacientesResp.value?.data) as PacienteOption[]);
     } else {
       setPacientes([]);
       falhas.push("pacientes");
     }
 
-    const clinicasResp = resultados[1];
+    const tutoresResp = resultados[1];
+    if (tutoresResp.status === "fulfilled") {
+      setTutores(extrairItems(tutoresResp.value?.data) as TutorOption[]);
+    } else {
+      setTutores([]);
+      falhas.push("tutores");
+    }
+
+    const clinicasResp = resultados[2];
     if (clinicasResp.status === "fulfilled") {
       setClinicas(extrairItems(clinicasResp.value?.data));
     } else {
@@ -317,7 +406,7 @@ export default function NovoAgendamentoModal({
       falhas.push("clinicas");
     }
 
-    const tabelasResp = resultados[2];
+    const tabelasResp = resultados[3];
     if (tabelasResp.status === "fulfilled") {
       const itens = extrairItems(tabelasResp.value?.data);
       if (itens.length > 0) {
@@ -330,7 +419,7 @@ export default function NovoAgendamentoModal({
       falhas.push("tabelas de preco");
     }
 
-    const servicosResp = resultados[3];
+    const servicosResp = resultados[4];
     if (servicosResp.status === "fulfilled") {
       setServicos(extrairItems(servicosResp.value?.data));
     } else {
@@ -347,17 +436,27 @@ export default function NovoAgendamentoModal({
     }
   };
 
+  const handleTutorChange = (tutorId: string) => {
+    const tutor = tutores.find((t) => t.id.toString() === tutorId);
+    setTutorSelecionado(tutor?.nome || "");
+    setFormData((prev) => ({
+      ...prev,
+      tutor_id: tutorId,
+      paciente_id: "",
+    }));
+  };
+
   const handlePacienteChange = (pacienteId: string) => {
-    setFormData({
-      ...formData,
-      paciente_id: pacienteId,
-      paciente_novo: pacienteId ? "" : formData.paciente_novo,
-      tutor_novo: pacienteId ? "" : formData.tutor_novo,
-    });
-    
-    // Buscar tutor do paciente selecionado
-    const paciente = pacientes.find(p => p.id.toString() === pacienteId);
+    const paciente = pacientes.find((p) => p.id.toString() === pacienteId);
     setTutorSelecionado(paciente?.tutor || "");
+    setFormData((prev) => ({
+      ...prev,
+      paciente_id: pacienteId,
+      tutor_id:
+        paciente?.tutor_id !== null && paciente?.tutor_id !== undefined
+          ? paciente.tutor_id.toString()
+          : prev.tutor_id,
+    }));
   };
 
   const buscarSugestaoProximidade = async (clinicaId: string, dataISO: string) => {
@@ -401,11 +500,11 @@ export default function NovoAgendamentoModal({
   };
 
   const handleClinicaChange = (clinicaId: string) => {
-    setFormData({
-      ...formData,
+    setFormData((prev) => ({
+      ...prev,
       clinica_id: clinicaId,
-      clinica_nova_nome: clinicaId ? "" : formData.clinica_nova_nome,
-    });
+      clinica_nova_nome: clinicaId ? "" : prev.clinica_nova_nome,
+    }));
   };
 
   useEffect(() => {
@@ -422,6 +521,10 @@ export default function NovoAgendamentoModal({
     }
     void buscarSugestaoProximidade(formData.clinica_id, formData.data);
   }, [isOpen, formData.clinica_id, formData.servico_id, formData.data]);
+
+  const pacientesFiltradosPorTutor = formData.tutor_id
+    ? pacientes.filter((paciente) => String(paciente.tutor_id || "") === formData.tutor_id)
+    : pacientes;
 
   const obterDuracaoServicoSelecionado = (): number => {
     const servicoSelecionado = servicos.find((s) => s.id?.toString() === formData.servico_id);
@@ -543,6 +646,134 @@ export default function NovoAgendamentoModal({
     return null;
   };
 
+  const abrirModalTutor = () => {
+    setNovoTutor(buildInitialTutorForm());
+    setModalTutorAberto(true);
+  };
+
+  const abrirModalAnimal = () => {
+    setNovoAnimal(buildInitialAnimalForm(formData.tutor_id));
+    setModalAnimalAberto(true);
+  };
+
+  const salvarNovoTutor = async () => {
+    const nome = novoTutor.nome.trim();
+    if (!nome) {
+      alert("Informe o nome do tutor.");
+      return;
+    }
+
+    try {
+      setSalvandoTutor(true);
+      const response = await api.post("/tutores", {
+        nome,
+        telefone: novoTutor.telefone || null,
+        whatsapp: novoTutor.whatsapp || novoTutor.telefone || null,
+        email: novoTutor.email || null,
+      });
+
+      const tutorId = response?.data?.id;
+      const tutorNome = response?.data?.nome || nome;
+      if (!tutorId) {
+        throw new Error("Nao foi possivel salvar o tutor.");
+      }
+
+      setTutores((prev) => {
+        const tutorNormalizado: TutorOption = {
+          id: Number(tutorId),
+          nome: tutorNome,
+          telefone: novoTutor.telefone || null,
+        };
+        const restantes = prev.filter((item) => item.id !== Number(tutorId));
+        return [...restantes, tutorNormalizado].sort((a, b) => a.nome.localeCompare(b.nome));
+      });
+
+      setFormData((prev) => ({
+        ...prev,
+        tutor_id: String(tutorId),
+        paciente_id: "",
+      }));
+      setTutorSelecionado(tutorNome);
+      setModalTutorAberto(false);
+      setNovoTutor(buildInitialTutorForm());
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail ?? error?.message;
+      alert(`Erro ao salvar tutor: ${extrairMensagemErro(detail)}`);
+    } finally {
+      setSalvandoTutor(false);
+    }
+  };
+
+  const salvarNovoAnimal = async () => {
+    const nomeAnimal = novoAnimal.nome.trim();
+    if (!nomeAnimal) {
+      alert("Informe o nome do animal.");
+      return;
+    }
+
+    const tutorId = Number.parseInt(novoAnimal.tutor_id || "", 10);
+    if (!Number.isFinite(tutorId)) {
+      alert("Selecione um tutor para cadastrar o animal.");
+      return;
+    }
+
+    const tutor = tutores.find((item) => item.id === tutorId);
+    if (!tutor?.nome) {
+      alert("Tutor selecionado nao encontrado.");
+      return;
+    }
+
+    const pesoInformado = (novoAnimal.peso_kg || "").trim().replace(",", ".");
+    const pesoKg = pesoInformado ? Number.parseFloat(pesoInformado) : NaN;
+
+    try {
+      setSalvandoAnimal(true);
+      const response = await api.post("/pacientes", {
+        nome: nomeAnimal,
+        tutor: tutor.nome,
+        especie: (novoAnimal.especie || "").trim() || "Canina",
+        raca: novoAnimal.raca || "",
+        sexo: novoAnimal.sexo || "Macho",
+        peso_kg: Number.isFinite(pesoKg) ? pesoKg : null,
+        data_nascimento: novoAnimal.data_nascimento || null,
+        microchip: novoAnimal.microchip || "",
+        observacoes: novoAnimal.observacoes || "Cadastro via modal de animal na agenda",
+      });
+
+      const novoPacienteId = response?.data?.id;
+      if (!novoPacienteId) {
+        throw new Error("Nao foi possivel salvar o animal.");
+      }
+
+      const pacienteCriado: PacienteOption = {
+        id: Number(novoPacienteId),
+        nome: response?.data?.nome || nomeAnimal,
+        tutor: tutor.nome,
+        tutor_id: tutor.id,
+        especie: response?.data?.especie || novoAnimal.especie || "Canina",
+        raca: response?.data?.raca || novoAnimal.raca || "",
+      };
+
+      setPacientes((prev) => {
+        const restantes = prev.filter((item) => item.id !== pacienteCriado.id);
+        return [...restantes, pacienteCriado].sort((a, b) => a.nome.localeCompare(b.nome));
+      });
+      setFormData((prev) => ({
+        ...prev,
+        tutor_id: String(tutor.id),
+        paciente_id: String(pacienteCriado.id),
+      }));
+      setTutorSelecionado(tutor.nome);
+      setModalAnimalAberto(false);
+      setNovoAnimal(buildInitialAnimalForm(String(tutor.id)));
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail ?? error?.message;
+      alert(`Erro ao salvar animal: ${extrairMensagemErro(detail)}`);
+    } finally {
+      setSalvandoAnimal(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -567,35 +798,13 @@ export default function NovoAgendamentoModal({
         throw new Error(validacaoHorario.motivo);
       }
 
-      const nomePacienteCadastroRapido = (formData.paciente_novo || "").trim();
-      const nomeTutorCadastroRapido = (formData.tutor_novo || "").trim();
       let pacienteId = formData.paciente_id ? parseInt(formData.paciente_id, 10) : NaN;
 
-      if (!Number.isFinite(pacienteId)) {
-        if (nomePacienteCadastroRapido) {
-          if (!nomeTutorCadastroRapido && !permiteSemPacienteTutor) {
-            throw new Error("Para este status, informe o nome do tutor.");
-          }
-
-          const respostaPaciente = await api.post("/pacientes", {
-            nome: nomePacienteCadastroRapido,
-            tutor: nomeTutorCadastroRapido || null,
-            especie: "Canina",
-            raca: "",
-            sexo: "Macho",
-            peso_kg: null,
-            data_nascimento: null,
-            microchip: "",
-            observacoes: "Cadastro rapido via agenda panoramica",
-          });
-
-          pacienteId = respostaPaciente?.data?.id;
-          if (!pacienteId) {
-            throw new Error("Nao foi possivel criar o paciente rapidamente.");
-          }
-        } else if (!permiteSemPacienteTutor) {
-          throw new Error("Selecione um paciente ou informe um nome para cadastro rapido.");
+      if (!Number.isFinite(pacienteId) && !permiteSemPacienteTutor) {
+        if (formData.tutor_id) {
+          throw new Error("Selecione um animal do tutor escolhido ou cadastre um novo animal.");
         }
+        throw new Error("Selecione um animal para o agendamento.");
       }
 
       let clinicaId = formData.clinica_id ? parseInt(formData.clinica_id, 10) : NaN;
@@ -666,23 +875,14 @@ export default function NovoAgendamentoModal({
 
       await onSuccess(response?.data);
       onClose();
-      setFormData({
-        paciente_id: "",
-        paciente_novo: "",
-        tutor_novo: "",
-        clinica_id: "",
-        clinica_nova_nome: "",
-        clinica_nova_tabela_preco_id: "1",
-        servico_id: "",
-        data: defaultDate || "",
-        hora: defaultTime || "",
-        marcar_como_reserva: false,
-        observacoes: "",
-      });
+      setFormData(buildInitialFormData(defaultDate, defaultTime));
       setTutorSelecionado("");
       setSugestoesHorario([]);
       setErroSugestoes("");
       setMensagemSugestoes("");
+      setMensagemProximidade("");
+      setSugestaoProximidade(null);
+      ultimoAlertaProximidadeRef.current = "";
     } catch (error: any) {
       const detail = error?.response?.data?.detail ?? error?.message;
       const detailStr = extrairMensagemErro(detail);
@@ -713,50 +913,69 @@ export default function NovoAgendamentoModal({
             </div>
           )}
 
-          {/* Paciente */}
+          {/* Tutor */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               <User className="w-4 h-4 inline mr-1" />
-              {permiteSemPacienteTutor ? "Paciente (opcional para reserva)" : "Paciente *"}
+              Tutor {permiteSemPacienteTutor ? "(opcional para reserva)" : "*"}
             </label>
-            <select
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              value={formData.paciente_id}
-              onChange={(e) => handlePacienteChange(e.target.value)}
-            >
-              <option value="">Selecione...</option>
-              {pacientes.map((p) => (
-                <option key={p.id} value={p.id.toString()}>
-                  {p.nome}
-                </option>
-              ))}
-            </select>
-            
-            {/* Exibir Tutor quando paciente é selecionado */}
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                value={formData.tutor_id}
+                onChange={(e) => handleTutorChange(e.target.value)}
+              >
+                <option value="">Selecione...</option>
+                {tutores.map((tutor) => (
+                  <option key={tutor.id} value={tutor.id.toString()}>
+                    {tutor.nome}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={abrirModalTutor}
+                className="px-3 py-2 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50"
+              >
+                Novo tutor
+              </button>
+            </div>
+          </div>
+
+          {/* Animal */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              <User className="w-4 h-4 inline mr-1" />
+              {permiteSemPacienteTutor ? "Animal (opcional para reserva)" : "Animal *"}
+            </label>
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                value={formData.paciente_id}
+                onChange={(e) => handlePacienteChange(e.target.value)}
+              >
+                <option value="">Selecione...</option>
+                {pacientesFiltradosPorTutor.map((p) => (
+                  <option key={p.id} value={p.id.toString()}>
+                    {p.nome}
+                    {!formData.tutor_id && p.tutor ? ` - Tutor: ${p.tutor}` : ""}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={abrirModalAnimal}
+                className="px-3 py-2 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50"
+              >
+                Novo animal
+              </button>
+            </div>
+
             {tutorSelecionado && (
               <div className="mt-2 flex items-center gap-2 text-sm text-gray-600 bg-blue-50 p-2 rounded-lg">
                 <User className="w-4 h-4 text-blue-500" />
-                <span className="font-medium">Tutor:</span>
+                <span className="font-medium">Tutor selecionado:</span>
                 <span>{tutorSelecionado}</span>
-              </div>
-            )}
-
-            {!formData.paciente_id && (
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                <input
-                  type="text"
-                  value={formData.paciente_novo}
-                  onChange={(e) => setFormData({ ...formData, paciente_novo: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="Nome do paciente (cadastro rapido)"
-                />
-                <input
-                  type="text"
-                  value={formData.tutor_novo}
-                  onChange={(e) => setFormData({ ...formData, tutor_novo: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder={permiteSemPacienteTutor ? "Nome do tutor (opcional)" : "Nome do tutor"}
-                />
               </div>
             )}
           </div>
@@ -975,6 +1194,236 @@ export default function NovoAgendamentoModal({
           </div>
         </form>
       </div>
+
+      {modalTutorAberto && (
+        <div className="fixed inset-0 z-[60] bg-black bg-opacity-40 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded-lg bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b px-5 py-4">
+              <h3 className="text-lg font-semibold text-gray-900">Cadastrar Tutor</h3>
+              <button
+                type="button"
+                onClick={() => setModalTutorAberto(false)}
+                className="text-gray-400 hover:text-gray-600"
+                disabled={salvandoTutor}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-3 px-5 py-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nome *</label>
+                <input
+                  type="text"
+                  value={novoTutor.nome}
+                  onChange={(e) => setNovoTutor((prev) => ({ ...prev, nome: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Nome do tutor"
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
+                  <input
+                    type="text"
+                    value={novoTutor.telefone}
+                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, telefone: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="(00) 00000-0000"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp</label>
+                  <input
+                    type="text"
+                    value={novoTutor.whatsapp}
+                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, whatsapp: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="(00) 00000-0000"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={novoTutor.email}
+                  onChange={(e) => setNovoTutor((prev) => ({ ...prev, email: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="email@exemplo.com"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setModalTutorAberto(false)}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                disabled={salvandoTutor}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={salvarNovoTutor}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                disabled={salvandoTutor}
+              >
+                {salvandoTutor ? "Salvando..." : "Salvar Tutor"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalAnimalAberto && (
+        <div className="fixed inset-0 z-[60] bg-black bg-opacity-40 flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl rounded-lg bg-white shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b px-5 py-4">
+              <h3 className="text-lg font-semibold text-gray-900">Cadastrar Animal</h3>
+              <button
+                type="button"
+                onClick={() => setModalAnimalAberto(false)}
+                className="text-gray-400 hover:text-gray-600"
+                disabled={salvandoAnimal}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-3 px-5 py-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tutor *</label>
+                <select
+                  value={novoAnimal.tutor_id}
+                  onChange={(e) => setNovoAnimal((prev) => ({ ...prev, tutor_id: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Selecione...</option>
+                  {tutores.map((tutor) => (
+                    <option key={tutor.id} value={tutor.id.toString()}>
+                      {tutor.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nome do Animal *</label>
+                  <input
+                    type="text"
+                    value={novoAnimal.nome}
+                    onChange={(e) => setNovoAnimal((prev) => ({ ...prev, nome: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="Nome do animal"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Especie</label>
+                  <select
+                    value={novoAnimal.especie}
+                    onChange={(e) => setNovoAnimal((prev) => ({ ...prev, especie: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    {["Canina", "Felina", "Equina", "Outra"].map((especie) => (
+                      <option key={especie} value={especie}>
+                        {especie}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Raca</label>
+                  <input
+                    type="text"
+                    value={novoAnimal.raca}
+                    onChange={(e) => setNovoAnimal((prev) => ({ ...prev, raca: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="Raca"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Sexo</label>
+                  <select
+                    value={novoAnimal.sexo}
+                    onChange={(e) => setNovoAnimal((prev) => ({ ...prev, sexo: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    {["Macho", "Femea"].map((sexo) => (
+                      <option key={sexo} value={sexo}>
+                        {sexo}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Peso (kg)</label>
+                  <input
+                    type="text"
+                    value={novoAnimal.peso_kg}
+                    onChange={(e) => setNovoAnimal((prev) => ({ ...prev, peso_kg: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ex: 12.5"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nascimento</label>
+                  <input
+                    type="date"
+                    value={novoAnimal.data_nascimento}
+                    onChange={(e) => setNovoAnimal((prev) => ({ ...prev, data_nascimento: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Microchip</label>
+                  <input
+                    type="text"
+                    value={novoAnimal.microchip}
+                    onChange={(e) => setNovoAnimal((prev) => ({ ...prev, microchip: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="Codigo"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Observacoes</label>
+                <textarea
+                  rows={3}
+                  value={novoAnimal.observacoes}
+                  onChange={(e) => setNovoAnimal((prev) => ({ ...prev, observacoes: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Informacoes adicionais"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setModalAnimalAberto(false)}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                disabled={salvandoAnimal}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={salvarNovoAnimal}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                disabled={salvandoAnimal}
+              >
+                {salvandoAnimal ? "Salvando..." : "Salvar Animal"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
