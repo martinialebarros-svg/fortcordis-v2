@@ -21,6 +21,7 @@ from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
 from app.models.servico import Servico
 from app.models.ordem_servico import OrdemServico
+from app.models.laudo import Laudo
 from app.models.user import User
 from app.models.tutor import Tutor
 from app.schemas.agendamento import (
@@ -1276,7 +1277,7 @@ def sugerir_agendamento_proximo(
             }
 
     limite_minutos = int(payload.limite_minutos)
-    if melhor_item is None or melhor_tempo is None or melhor_tempo > limite_minutos:
+    if melhor_item is None or melhor_tempo is None:
         return {
             "ok": True,
             "data": data_iso,
@@ -1285,6 +1286,24 @@ def sugerir_agendamento_proximo(
             "limite_minutos": limite_minutos,
             "mensagem": "Nao encontramos agenda proxima para sugestao automatica dentro da janela configurada.",
             "item": None,
+        }
+
+    if melhor_tempo > limite_minutos:
+        data_item = str(melhor_item.get("data") or data_iso)
+        mensagem_limite = (
+            f"Opcao mais proxima encontrada em {data_item} as {melhor_item.get('inicio')} "
+            f"na clinica {melhor_item.get('clinica')} (aprox. {melhor_tempo} min de deslocamento), "
+            f"acima do limite configurado de {limite_minutos} min."
+        )
+        return {
+            "ok": True,
+            "data": data_iso,
+            "clinica_id": payload.clinica_id,
+            "sugerir": True,
+            "limite_minutos": limite_minutos,
+            "mensagem": mensagem_limite,
+            "item": melhor_item,
+            "acima_do_limite": True,
         }
 
     data_item = str(melhor_item.get("data") or data_iso)
@@ -1888,6 +1907,18 @@ def deletar_agendamento(
             "hora": snapshot.get("hora"),
         },
     )
+
+    laudos_vinculados = (
+        db.query(Laudo)
+        .filter(Laudo.agendamento_id == agendamento_id)
+        .all()
+    )
+    laudos_desvinculados: list[int] = []
+    for laudo in laudos_vinculados:
+        laudo.agendamento_id = None
+        laudo.updated_at = datetime.now()
+        laudos_desvinculados.append(laudo.id)
+    snapshot["laudos_desvinculados"] = laudos_desvinculados
 
     db.delete(db_agendamento)
     db.commit()
