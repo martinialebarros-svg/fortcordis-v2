@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { X, User, Building, Calendar, Clock, Sparkles } from "lucide-react";
 import api from "@/lib/axios";
 import {
@@ -215,7 +215,6 @@ export default function NovoAgendamentoModal({
   const [mensagemSugestoes, setMensagemSugestoes] = useState<string>("");
   const [mensagemProximidade, setMensagemProximidade] = useState<string>("");
   const [sugestaoProximidade, setSugestaoProximidade] = useState<SugestaoProximidadeResponse | null>(null);
-  const ultimoAlertaProximidadeRef = useRef<string>("");
   const [modalTutorAberto, setModalTutorAberto] = useState(false);
   const [modalAnimalAberto, setModalAnimalAberto] = useState(false);
   const [salvandoTutor, setSalvandoTutor] = useState(false);
@@ -359,10 +358,11 @@ export default function NovoAgendamentoModal({
     setSalvandoAnimal(false);
     setNovoTutor(buildInitialTutorForm());
     setNovoAnimal(buildInitialAnimalForm());
+    setFormData(buildInitialFormData(defaultDate, defaultTime));
+    setTutorSelecionado("");
     setMensagemProximidade("");
     setSugestaoProximidade(null);
-    ultimoAlertaProximidadeRef.current = "";
-  }, [isOpen]);
+  }, [defaultDate, defaultTime, isOpen]);
 
   const carregarDados = async () => {
     const extrairItems = (payload: any): any[] => {
@@ -483,16 +483,8 @@ export default function NovoAgendamentoModal({
 
       const data = response?.data || null;
       setSugestaoProximidade(data);
-      const sugerir = Boolean(data?.sugerir);
       const mensagem = String(data?.mensagem || "").trim();
       setMensagemProximidade(mensagem || "Assistente inteligente sem sugestao para os dados atuais.");
-      if (sugerir && mensagem) {
-        if (ultimoAlertaProximidadeRef.current !== mensagem) {
-          window.alert(`Assistente de agendamento inteligente:\n\n${mensagem}`);
-          ultimoAlertaProximidadeRef.current = mensagem;
-        }
-        return;
-      }
     } catch {
       setMensagemProximidade("Nao foi possivel consultar sugestoes de proximidade agora.");
       setSugestaoProximidade(null);
@@ -882,7 +874,6 @@ export default function NovoAgendamentoModal({
       setMensagemSugestoes("");
       setMensagemProximidade("");
       setSugestaoProximidade(null);
-      ultimoAlertaProximidadeRef.current = "";
     } catch (error: any) {
       const detail = error?.response?.data?.detail ?? error?.message;
       const detailStr = extrairMensagemErro(detail);
