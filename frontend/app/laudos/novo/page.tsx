@@ -11,6 +11,7 @@ import {
   saveRacasCustomPorEspecie,
 } from "@/lib/racas";
 import XmlUploader from "../components/XmlUploader";
+import ImageHeaderUploader from "../components/ImageHeaderUploader";
 import ImageUploader from "../components/ImageUploader";
 import FraseModal from "../components/FraseModal";
 import EcocardiogramaEstruturadoEditor from "../components/EcocardiogramaEstruturadoEditor";
@@ -1050,7 +1051,7 @@ export default function NovoLaudoPage() {
       }
     }
     
-    setMensagemSucesso("Dados do XML importados com sucesso!");
+    setMensagemSucesso("Dados importados com sucesso!");
     setTimeout(() => setMensagemSucesso(null), 5000);
   };
 
@@ -1213,7 +1214,7 @@ export default function NovoLaudoPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Coluna Esquerda - Upload XML */}
+          {/* Coluna Esquerda - Importadores */}
           <div className="lg:col-span-1 space-y-6">
             {/* Upload XML */}
             <div className="bg-white p-6 rounded-lg shadow-sm border">
@@ -1233,6 +1234,22 @@ export default function NovoLaudoPage() {
               <div className="mt-6 p-4 bg-blue-50 rounded-lg">
                 <p className="text-sm text-blue-800">
                   <strong>Dica:</strong> Arraste o arquivo XML exportado do aparelho de ecocardiograma (Vivid IQ) para preencher automaticamente os dados do paciente e medidas.
+                </p>
+              </div>
+            </div>
+
+            {/* Upload de imagem para OCR do cabecalho */}
+            <div className="bg-white p-6 rounded-lg shadow-sm border">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <ImageIcon className="w-5 h-5 text-teal-600" />
+                Importar Cabecalho (Imagem)
+              </h2>
+
+              <ImageHeaderUploader onDadosImportados={handleDadosImportados} />
+
+              <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  <strong>Dica:</strong> Envie a imagem/PDF convertido em imagem gerado pelo equipamento para preencher automaticamente campos do cabecalho (paciente, tutor, especie, raca, sexo, idade e data).
                 </p>
               </div>
             </div>
