@@ -415,8 +415,13 @@ export default function NovoAgendamentoModal({
       setSugestaoProximidade(null);
       return;
     }
+    if (!formData.servico_id) {
+      setMensagemProximidade("Selecione o servico para ativar o assistente inteligente de proximidade.");
+      setSugestaoProximidade(null);
+      return;
+    }
     void buscarSugestaoProximidade(formData.clinica_id, formData.data);
-  }, [isOpen, formData.clinica_id, formData.data]);
+  }, [isOpen, formData.clinica_id, formData.servico_id, formData.data]);
 
   const obterDuracaoServicoSelecionado = (): number => {
     const servicoSelecionado = servicos.find((s) => s.id?.toString() === formData.servico_id);
@@ -452,6 +457,10 @@ export default function NovoAgendamentoModal({
     const clinicaId = Number.parseInt(formData.clinica_id || "", 10);
     if (!Number.isFinite(clinicaId)) {
       setErroSugestoes("Selecione uma clinica cadastrada para sugerir horarios.");
+      return;
+    }
+    if (!formData.servico_id) {
+      setErroSugestoes("Selecione o servico para sugerir horarios operacionais com duracao correta.");
       return;
     }
 
