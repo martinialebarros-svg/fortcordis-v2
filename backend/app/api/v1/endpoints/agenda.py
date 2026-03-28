@@ -1255,8 +1255,8 @@ def sugerir_agendamento_proximo(
                 continue
 
         rank = (
-            int(duracao_min),
             abs((inicio_item.date() - data_ref).days),
+            int(duracao_min),
             inicio_item,
             int(item.get("id") or 0),
         )
