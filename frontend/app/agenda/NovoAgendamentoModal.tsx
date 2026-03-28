@@ -81,6 +81,7 @@ interface SugestaoProximidadeResponse {
     agendamento_id: number;
     clinica_id: number;
     clinica: string;
+    data?: string | null;
     inicio?: string | null;
     fim?: string | null;
     duracao_deslocamento_min: number;
@@ -133,6 +134,7 @@ export default function NovoAgendamentoModal({
   const [erroSugestoes, setErroSugestoes] = useState<string>("");
   const [mensagemSugestoes, setMensagemSugestoes] = useState<string>("");
   const [mensagemProximidade, setMensagemProximidade] = useState<string>("");
+  const [sugestaoProximidade, setSugestaoProximidade] = useState<SugestaoProximidadeResponse | null>(null);
   const ultimoAlertaProximidadeRef = useRef<string>("");
   
   const [formData, setFormData] = useState({
@@ -362,10 +364,12 @@ export default function NovoAgendamentoModal({
     const clinicaIdNum = Number.parseInt(clinicaId, 10);
     if (!Number.isFinite(clinicaIdNum)) {
       setMensagemProximidade("");
+      setSugestaoProximidade(null);
       return;
     }
     if (!dataISO) {
       setMensagemProximidade("Selecione a data para ativar o assistente inteligente de proximidade.");
+      setSugestaoProximidade(null);
       return;
     }
 
@@ -378,8 +382,10 @@ export default function NovoAgendamentoModal({
         ignorar_agendamento_id: isEditando ? agendamento?.id : null,
       });
 
-      const sugerir = Boolean(response?.data?.sugerir);
-      const mensagem = String(response?.data?.mensagem || "").trim();
+      const data = response?.data || null;
+      setSugestaoProximidade(data);
+      const sugerir = Boolean(data?.sugerir);
+      const mensagem = String(data?.mensagem || "").trim();
       setMensagemProximidade(mensagem || "Assistente inteligente sem sugestao para os dados atuais.");
       if (sugerir && mensagem) {
         if (ultimoAlertaProximidadeRef.current !== mensagem) {
@@ -390,6 +396,7 @@ export default function NovoAgendamentoModal({
       }
     } catch {
       setMensagemProximidade("Nao foi possivel consultar sugestoes de proximidade agora.");
+      setSugestaoProximidade(null);
     }
   };
 
@@ -405,6 +412,7 @@ export default function NovoAgendamentoModal({
     if (!isOpen) return;
     if (!formData.clinica_id) {
       setMensagemProximidade("");
+      setSugestaoProximidade(null);
       return;
     }
     void buscarSugestaoProximidade(formData.clinica_id, formData.data);
@@ -447,15 +455,30 @@ export default function NovoAgendamentoModal({
       return;
     }
 
-    if (!formData.data) {
+    const dataSelecionada = String(formData.data || "").trim();
+    const dataProximidade = String(sugestaoProximidade?.item?.data || "").trim();
+    const deveUsarDataProximidade =
+      Boolean(sugestaoProximidade?.sugerir) && Boolean(dataProximidade);
+    const dataBaseBusca = deveUsarDataProximidade ? dataProximidade : dataSelecionada;
+
+    if (!dataBaseBusca) {
       setErroSugestoes("Informe a data antes de buscar sugestoes.");
       return;
     }
 
     try {
       setCarregandoSugestoes(true);
+      const mudouDataPorProximidade = dataBaseBusca !== dataSelecionada;
+      const prefixoMensagem = mudouDataPorProximidade
+        ? `Sugestoes calculadas automaticamente para ${dataBaseBusca} com base no agendamento proximo. `
+        : "";
+
+      if (mudouDataPorProximidade) {
+        setFormData((prev) => ({ ...prev, data: dataBaseBusca }));
+      }
+
       const payload = {
-        data: formData.data,
+        data: dataBaseBusca,
         clinica_id: clinicaId,
         servico_id: formData.servico_id ? parseInt(formData.servico_id, 10) : null,
         duracao_minutos: obterDuracaoServicoSelecionado(),
@@ -469,9 +492,15 @@ export default function NovoAgendamentoModal({
       const items = Array.isArray(response?.data?.items) ? response.data.items : [];
       setSugestoesHorario(items);
       if (items.length === 0) {
-        setMensagemSugestoes(response?.data?.motivo || "Nenhum horario operacional encontrado para essa data.");
+        setMensagemSugestoes(
+          `${prefixoMensagem}${response?.data?.motivo || "Nenhum horario operacional encontrado para essa data."}`.trim()
+        );
       } else if (items.every((item) => !item.anterior && !item.proximo)) {
-        setMensagemSugestoes("Nao ha agendamentos vizinhos nesta data; por isso o deslocamento pode aparecer como 0 min.");
+        setMensagemSugestoes(
+          `${prefixoMensagem}Nao ha agendamentos vizinhos nesta data; por isso o deslocamento pode aparecer como 0 min.`.trim()
+        );
+      } else if (prefixoMensagem) {
+        setMensagemSugestoes(prefixoMensagem.trim());
       }
     } catch (error: any) {
       const detail = error?.response?.data?.detail;
