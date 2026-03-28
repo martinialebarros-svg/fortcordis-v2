@@ -1234,7 +1234,9 @@ def sugerir_agendamento_proximo(
         if status_item not in AGENDA_STATUS_PRE_AGENDADOS:
             continue
 
-        if inicio_item < agora_local:
+        # Mantem o filtro de passado para datas antigas, mas preserva itens
+        # do proprio dia selecionado (importante para sugestao operacional no dia).
+        if inicio_item < agora_local and inicio_item.date() != data_ref:
             continue
 
         clinica_item_id = int(item.get("clinica_id") or 0)
