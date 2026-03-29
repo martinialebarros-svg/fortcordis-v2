@@ -79,6 +79,7 @@ interface SugestaoProximidadeResponse {
   sugerir: boolean;
   mensagem: string;
   limite_minutos?: number;
+  acima_do_limite?: boolean;
   item?: {
     agendamento_id: number;
     clinica_id: number;
@@ -527,14 +528,29 @@ export default function NovoAgendamentoModal({
 
       const dataSugerida = String(item?.data || dataISO || "").trim();
       const horaSugerida = String(item?.inicio || "").trim();
-      const tipoPopup =
-        duracao <= limiteBase
-          ? "Sugestao inteligente de proximidade"
-          : "Opcao alternativa de proximidade";
+      const clinicaSugerida = String(item?.clinica || "").trim();
       const detalheHora = horaSugerida ? ` as ${horaSugerida}` : "";
-      const confirmou = window.confirm(
-        `${tipoPopup}:\n\n${mensagem}\n\nDeseja aplicar ${dataSugerida}${detalheHora}?`
-      );
+      const resumoHorario = `${dataSugerida}${detalheHora}`.trim() || "a data e horario sugeridos";
+      const acimaDoLimite = duracao > limiteBase || Boolean(data?.acima_do_limite);
+      const mensagemPopup = acimaDoLimite
+        ? [
+            "Sugestao de proximidade acima do limite:",
+            "",
+            `Encontramos a melhor opcao disponivel para reduzir deslocamento em ${resumoHorario}${
+              clinicaSugerida ? ` na clinica ${clinicaSugerida}` : ""
+            }.`,
+            `Tempo estimado de deslocamento: ${duracao} min (limite configurado: ${limiteBase} min).`,
+            "",
+            "Deseja aplicar mesmo assim?",
+          ].join("\n")
+        : [
+            "Sugestao inteligente de proximidade:",
+            "",
+            mensagem,
+            "",
+            `Deseja aplicar ${resumoHorario}?`,
+          ].join("\n");
+      const confirmou = window.confirm(mensagemPopup);
 
       if (confirmou && dataSugerida) {
         setFormData((prev) => ({
