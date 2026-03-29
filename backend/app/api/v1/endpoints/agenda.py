@@ -21,6 +21,7 @@ from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
 from app.models.servico import Servico
 from app.models.ordem_servico import OrdemServico
+from app.models.laudo import Laudo
 from app.models.user import User
 from app.models.tutor import Tutor
 from app.schemas.agendamento import (
@@ -49,7 +50,7 @@ router = APIRouter()
 LOCAL_TZ = timezone(timedelta(hours=-3))
 AGENDA_STATUS_PERMITIDOS = ["Agendado", "Reservado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"]
 AGENDA_STATUS_PRE_AGENDADOS = {"Agendado", "Reservado", "Confirmado"}
-MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN = 10
+MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN = 5
 
 
 class SugestaoHorarioPayload(BaseModel):
@@ -67,7 +68,7 @@ class SugestaoProximidadePayload(BaseModel):
     clinica_id: int = Field(..., ge=1)
     data: Optional[str] = Field(default=None, description="Data no formato YYYY-MM-DD")
     perfil_deslocamento: str = Field(default="comercial")
-    limite_minutos: int = Field(default=20, ge=1, le=180)
+    limite_minutos: int = Field(default=25, ge=1, le=180)
     ignorar_agendamento_id: Optional[int] = Field(default=None, ge=1)
     incluir_mesma_clinica: bool = Field(default=True)
     janela_dias_proximidade: int = Field(default=7, ge=0, le=30)
@@ -1233,7 +1234,9 @@ def sugerir_agendamento_proximo(
         if status_item not in AGENDA_STATUS_PRE_AGENDADOS:
             continue
 
-        if inicio_item < agora_local:
+        # Mantem o filtro de passado para datas antigas, mas preserva itens
+        # do proprio dia selecionado (importante para sugestao operacional no dia).
+        if inicio_item < agora_local and inicio_item.date() != data_ref:
             continue
 
         clinica_item_id = int(item.get("clinica_id") or 0)
@@ -1276,7 +1279,7 @@ def sugerir_agendamento_proximo(
             }
 
     limite_minutos = int(payload.limite_minutos)
-    if melhor_item is None or melhor_tempo is None or melhor_tempo > limite_minutos:
+    if melhor_item is None or melhor_tempo is None:
         return {
             "ok": True,
             "data": data_iso,
@@ -1285,6 +1288,24 @@ def sugerir_agendamento_proximo(
             "limite_minutos": limite_minutos,
             "mensagem": "Nao encontramos agenda proxima para sugestao automatica dentro da janela configurada.",
             "item": None,
+        }
+
+    if melhor_tempo > limite_minutos:
+        data_item = str(melhor_item.get("data") or data_iso)
+        mensagem_limite = (
+            f"Opcao mais proxima encontrada em {data_item} as {melhor_item.get('inicio')} "
+            f"na clinica {melhor_item.get('clinica')} (aprox. {melhor_tempo} min de deslocamento), "
+            f"acima do limite configurado de {limite_minutos} min."
+        )
+        return {
+            "ok": True,
+            "data": data_iso,
+            "clinica_id": payload.clinica_id,
+            "sugerir": True,
+            "limite_minutos": limite_minutos,
+            "mensagem": mensagem_limite,
+            "item": melhor_item,
+            "acima_do_limite": True,
         }
 
     data_item = str(melhor_item.get("data") or data_iso)
@@ -1888,6 +1909,18 @@ def deletar_agendamento(
             "hora": snapshot.get("hora"),
         },
     )
+
+    laudos_vinculados = (
+        db.query(Laudo)
+        .filter(Laudo.agendamento_id == agendamento_id)
+        .all()
+    )
+    laudos_desvinculados: list[int] = []
+    for laudo in laudos_vinculados:
+        laudo.agendamento_id = None
+        laudo.updated_at = datetime.now()
+        laudos_desvinculados.append(laudo.id)
+    snapshot["laudos_desvinculados"] = laudos_desvinculados
 
     db.delete(db_agendamento)
     db.commit()
