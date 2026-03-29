@@ -50,7 +50,7 @@ router = APIRouter()
 LOCAL_TZ = timezone(timedelta(hours=-3))
 AGENDA_STATUS_PERMITIDOS = ["Agendado", "Reservado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"]
 AGENDA_STATUS_PRE_AGENDADOS = {"Agendado", "Reservado", "Confirmado"}
-MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN = 10
+MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN = 5
 
 
 class SugestaoHorarioPayload(BaseModel):
