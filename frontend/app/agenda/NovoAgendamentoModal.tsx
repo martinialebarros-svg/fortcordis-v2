@@ -16,6 +16,7 @@ const TABELA_PRECO_PADRAO = [
   { id: 3, nome: "Domiciliar" },
   { id: 4, nome: "Personalizado" },
 ];
+const LIMITE_MINUTOS_PROXIMIDADE = 25;
 const LIMITE_ESTENDIDO_EXTRA_MIN = 15;
 const COOLDOWN_POPUP_PROXIMIDADE_MS = 60_000;
 
@@ -306,6 +307,26 @@ export default function NovoAgendamentoModal({
     return `${day}/${month}/${year}`;
   };
 
+  const getDiaRelativo = (isoDate?: string): string => {
+    const match = String(isoDate || "")
+      .trim()
+      .match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return "";
+
+    const [, year, month, day] = match;
+    const dataReferencia = new Date(Number(year), Number(month) - 1, Number(day), 0, 0, 0, 0);
+    if (Number.isNaN(dataReferencia.getTime())) return "";
+
+    const agora = new Date();
+    const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate(), 0, 0, 0, 0);
+    const diffDias = Math.round((dataReferencia.getTime() - hoje.getTime()) / (24 * 60 * 60 * 1000));
+
+    if (diffDias === 0) return "hoje";
+    if (diffDias === 1) return "amanhã";
+    if (diffDias === 2) return "depois de amanhã";
+    return "";
+  };
+
   const toInputTime = (date: Date): string => {
     const hours = String(date.getHours()).padStart(2, "0");
     const minutes = String(date.getMinutes()).padStart(2, "0");
@@ -506,7 +527,7 @@ export default function NovoAgendamentoModal({
         clinica_id: clinicaIdNum,
         data: dataISO,
         perfil_deslocamento: "comercial",
-        limite_minutos: 20,
+        limite_minutos: LIMITE_MINUTOS_PROXIMIDADE,
         ignorar_agendamento_id: isEditando ? agendamento?.id : null,
       });
       if (consultaId !== sequenciaConsultaProximidadeRef.current) {
@@ -523,7 +544,7 @@ export default function NovoAgendamentoModal({
         return;
       }
 
-      const limiteBase = Number(data?.limite_minutos || 20);
+      const limiteBase = Number(data?.limite_minutos || LIMITE_MINUTOS_PROXIMIDADE);
       const limiteEstendido = limiteBase + LIMITE_ESTENDIDO_EXTRA_MIN;
       const duracao = Number(item?.duracao_deslocamento_min || 0);
       if (!Number.isFinite(duracao) || duracao <= 0 || duracao > limiteEstendido) {
@@ -551,30 +572,33 @@ export default function NovoAgendamentoModal({
         clinicas.find((c) => String(c?.id || "") === String(clinicaIdNum))?.nome || ""
       ).trim();
       const mesmoDestino = !!clinicaDestino && clinicaDestino === clinicaSugerida;
-      const detalheHora = horaSugerida ? ` as ${horaSugerida}` : "";
+      const detalheHora = horaSugerida ? ` às ${horaSugerida}` : "";
       const dataSugeridaBr = toBrDate(dataSugerida) || dataSugerida;
-      const resumoHorario = `${dataSugeridaBr}${detalheHora}`.trim() || "a data e horario sugeridos";
+      const diaRelativo = getDiaRelativo(dataSugerida);
+      const dataSugeridaContexto = diaRelativo ? `${dataSugeridaBr} (${diaRelativo})` : dataSugeridaBr;
+      const resumoHorario = `${dataSugeridaContexto}${detalheHora}`.trim() || "a data e o horário sugeridos";
       const acimaDoLimite = duracao > limiteBase || Boolean(data?.acima_do_limite);
       const textoDeslocamento =
         clinicaDestino && !mesmoDestino
-          ? `e o tempo de deslocamento para ${clinicaDestino} e de ${duracao} min`
+          ? `e o tempo de deslocamento para ${clinicaDestino} é de ${duracao} min`
           : `com tempo estimado de deslocamento de ${duracao} min`;
+      const textoBase = `Encontramos uma opção melhor de horário para reduzir deslocamento. Temos um atendimento ${
+        clinicaSugerida ? `na ${clinicaSugerida}` : "próximo"
+      } no dia ${resumoHorario} ${textoDeslocamento}.`;
       const mensagemPopup = acimaDoLimite
         ? [
-            "Sugestao de proximidade acima do limite:",
+            "Sugestão de proximidade acima do limite:",
             "",
-            `Encontramos uma opcao melhor de horario para reduzir deslocamento. Temos um atendimento ${
-              clinicaSugerida ? `na ${clinicaSugerida}` : "proximo"
-            } no dia ${resumoHorario} ${textoDeslocamento} (limite configurado: ${limiteBase} min).`,
+            `${textoBase} (limite configurado: ${limiteBase} min).`,
             "",
-            "Posso aplicar esse horario?",
+            "Posso aplicar esse horário?",
           ].join("\n")
         : [
-            "Sugestao inteligente de proximidade:",
+            "Sugestão inteligente de proximidade:",
             "",
-            mensagem,
+            `${textoBase} Esse deslocamento está dentro do limite configurado de ${limiteBase} min.`,
             "",
-            `Posso aplicar ${resumoHorario}?`,
+            "Posso aplicar esse horário?",
           ].join("\n");
       const confirmou = window.confirm(mensagemPopup);
 

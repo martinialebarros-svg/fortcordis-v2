@@ -68,7 +68,7 @@ class SugestaoProximidadePayload(BaseModel):
     clinica_id: int = Field(..., ge=1)
     data: Optional[str] = Field(default=None, description="Data no formato YYYY-MM-DD")
     perfil_deslocamento: str = Field(default="comercial")
-    limite_minutos: int = Field(default=20, ge=1, le=180)
+    limite_minutos: int = Field(default=25, ge=1, le=180)
     ignorar_agendamento_id: Optional[int] = Field(default=None, ge=1)
     incluir_mesma_clinica: bool = Field(default=True)
     janela_dias_proximidade: int = Field(default=7, ge=0, le=30)
