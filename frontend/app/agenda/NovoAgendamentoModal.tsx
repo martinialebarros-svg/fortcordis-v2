@@ -537,33 +537,15 @@ export default function NovoAgendamentoModal({
       const data = response?.data || null;
       setSugestaoProximidade(data);
       const mensagem = String(data?.mensagem || "").trim();
-      setMensagemProximidade(mensagem || "Assistente inteligente sem sugestao para os dados atuais.");
 
       const item = data?.item;
       if (!data?.sugerir || !item) {
+        setMensagemProximidade(mensagem || "Assistente inteligente sem sugestao para os dados atuais.");
         return;
       }
 
       const limiteBase = Number(data?.limite_minutos || LIMITE_MINUTOS_PROXIMIDADE);
-      const limiteEstendido = limiteBase + LIMITE_ESTENDIDO_EXTRA_MIN;
       const duracao = Number(item?.duracao_deslocamento_min || 0);
-      if (!Number.isFinite(duracao) || duracao <= 0 || duracao > limiteEstendido) {
-        return;
-      }
-
-      const chavePopup = [
-        String(clinicaIdNum),
-        String(formData.servico_id || ""),
-        String(item?.agendamento_id || ""),
-        String(item?.data || ""),
-        String(item?.inicio || ""),
-      ].join("|");
-      const agora = Date.now();
-      const ultimo = popupProximidadeHistoricoRef.current[chavePopup] || 0;
-      if (agora - ultimo < COOLDOWN_POPUP_PROXIMIDADE_MS) {
-        return;
-      }
-      popupProximidadeHistoricoRef.current[chavePopup] = agora;
 
       const dataSugerida = String(item?.data || dataISO || "").trim();
       const horaSugerida = String(item?.inicio || "").trim();
@@ -585,18 +567,42 @@ export default function NovoAgendamentoModal({
       const textoBase = `Encontramos uma opção melhor de horário para reduzir deslocamento. Temos um atendimento ${
         clinicaSugerida ? `na ${clinicaSugerida}` : "próximo"
       } no dia ${resumoHorario} ${textoDeslocamento}.`;
+      const mensagemAssistente = acimaDoLimite
+        ? `${textoBase} (limite configurado: ${limiteBase} min).`
+        : `${textoBase} Esse deslocamento está dentro do limite configurado de ${limiteBase} min.`;
+      setMensagemProximidade(mensagemAssistente);
+
+      const limiteEstendido = limiteBase + LIMITE_ESTENDIDO_EXTRA_MIN;
+      if (!Number.isFinite(duracao) || duracao <= 0 || duracao > limiteEstendido) {
+        return;
+      }
+
+      const chavePopup = [
+        String(clinicaIdNum),
+        String(formData.servico_id || ""),
+        String(item?.agendamento_id || ""),
+        String(item?.data || ""),
+        String(item?.inicio || ""),
+      ].join("|");
+      const agora = Date.now();
+      const ultimo = popupProximidadeHistoricoRef.current[chavePopup] || 0;
+      if (agora - ultimo < COOLDOWN_POPUP_PROXIMIDADE_MS) {
+        return;
+      }
+      popupProximidadeHistoricoRef.current[chavePopup] = agora;
+
       const mensagemPopup = acimaDoLimite
         ? [
             "Sugestão de proximidade acima do limite:",
             "",
-            `${textoBase} (limite configurado: ${limiteBase} min).`,
+            mensagemAssistente,
             "",
             "Posso aplicar esse horário?",
           ].join("\n")
         : [
             "Sugestão inteligente de proximidade:",
             "",
-            `${textoBase} Esse deslocamento está dentro do limite configurado de ${limiteBase} min.`,
+            mensagemAssistente,
             "",
             "Posso aplicar esse horário?",
           ].join("\n");
