@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, User, Building, Calendar, Clock, Sparkles } from "lucide-react";
 import api from "@/lib/axios";
 import {
@@ -16,6 +16,8 @@ const TABELA_PRECO_PADRAO = [
   { id: 3, nome: "Domiciliar" },
   { id: 4, nome: "Personalizado" },
 ];
+const LIMITE_ESTENDIDO_EXTRA_MIN = 15;
+const COOLDOWN_POPUP_PROXIMIDADE_MS = 60_000;
 
 interface NovoAgendamentoModalProps {
   isOpen: boolean;
@@ -215,6 +217,12 @@ export default function NovoAgendamentoModal({
   const [mensagemSugestoes, setMensagemSugestoes] = useState<string>("");
   const [mensagemProximidade, setMensagemProximidade] = useState<string>("");
   const [sugestaoProximidade, setSugestaoProximidade] = useState<SugestaoProximidadeResponse | null>(null);
+  const [interacaoProximidade, setInteracaoProximidade] = useState({
+    clinica: false,
+    servico: false,
+    data: false,
+  });
+  const popupProximidadeHistoricoRef = useRef<Record<string, number>>({});
   const [modalTutorAberto, setModalTutorAberto] = useState(false);
   const [modalAnimalAberto, setModalAnimalAberto] = useState(false);
   const [salvandoTutor, setSalvandoTutor] = useState(false);
@@ -308,6 +316,8 @@ export default function NovoAgendamentoModal({
     if (!isOpen || isEditando) return;
     setFormData(buildInitialFormData(defaultDate, defaultTime));
     setTutorSelecionado("");
+    setInteracaoProximidade({ clinica: false, servico: false, data: false });
+    popupProximidadeHistoricoRef.current = {};
   }, [defaultDate, defaultTime, isEditando, isOpen]);
 
   // Preenche formulario ao abrir/atualizar no modo de edicao.
@@ -343,6 +353,8 @@ export default function NovoAgendamentoModal({
     });
 
     setTutorSelecionado(pacienteSelecionado?.tutor || "");
+    setInteracaoProximidade({ clinica: false, servico: false, data: false });
+    popupProximidadeHistoricoRef.current = {};
   }, [agendamento, isEditando, isOpen, pacientes]);
 
   // Carregar dados dos selects
@@ -362,6 +374,8 @@ export default function NovoAgendamentoModal({
     setTutorSelecionado("");
     setMensagemProximidade("");
     setSugestaoProximidade(null);
+    setInteracaoProximidade({ clinica: false, servico: false, data: false });
+    popupProximidadeHistoricoRef.current = {};
   }, [defaultDate, defaultTime, isOpen]);
 
   const carregarDados = async () => {
@@ -485,6 +499,50 @@ export default function NovoAgendamentoModal({
       setSugestaoProximidade(data);
       const mensagem = String(data?.mensagem || "").trim();
       setMensagemProximidade(mensagem || "Assistente inteligente sem sugestao para os dados atuais.");
+
+      const item = data?.item;
+      if (!data?.sugerir || !item) {
+        return;
+      }
+
+      const limiteBase = Number(data?.limite_minutos || 20);
+      const limiteEstendido = limiteBase + LIMITE_ESTENDIDO_EXTRA_MIN;
+      const duracao = Number(item?.duracao_deslocamento_min || 0);
+      if (!Number.isFinite(duracao) || duracao <= 0 || duracao > limiteEstendido) {
+        return;
+      }
+
+      const chavePopup = [
+        String(clinicaIdNum),
+        String(formData.servico_id || ""),
+        String(dataISO || ""),
+        String(item?.agendamento_id || ""),
+      ].join("|");
+      const agora = Date.now();
+      const ultimo = popupProximidadeHistoricoRef.current[chavePopup] || 0;
+      if (agora - ultimo < COOLDOWN_POPUP_PROXIMIDADE_MS) {
+        return;
+      }
+      popupProximidadeHistoricoRef.current[chavePopup] = agora;
+
+      const dataSugerida = String(item?.data || dataISO || "").trim();
+      const horaSugerida = String(item?.inicio || "").trim();
+      const tipoPopup =
+        duracao <= limiteBase
+          ? "Sugestao inteligente de proximidade"
+          : "Opcao alternativa de proximidade";
+      const detalheHora = horaSugerida ? ` as ${horaSugerida}` : "";
+      const confirmou = window.confirm(
+        `${tipoPopup}:\n\n${mensagem}\n\nDeseja aplicar ${dataSugerida}${detalheHora}?`
+      );
+
+      if (confirmou && dataSugerida) {
+        setFormData((prev) => ({
+          ...prev,
+          data: dataSugerida,
+          hora: horaSugerida || prev.hora,
+        }));
+      }
     } catch {
       setMensagemProximidade("Nao foi possivel consultar sugestoes de proximidade agora.");
       setSugestaoProximidade(null);
@@ -492,10 +550,27 @@ export default function NovoAgendamentoModal({
   };
 
   const handleClinicaChange = (clinicaId: string) => {
+    setInteracaoProximidade((prev) => ({ ...prev, clinica: true }));
     setFormData((prev) => ({
       ...prev,
       clinica_id: clinicaId,
       clinica_nova_nome: clinicaId ? "" : prev.clinica_nova_nome,
+    }));
+  };
+
+  const handleServicoChange = (servicoId: string) => {
+    setInteracaoProximidade((prev) => ({ ...prev, servico: true }));
+    setFormData((prev) => ({
+      ...prev,
+      servico_id: servicoId,
+    }));
+  };
+
+  const handleDataChange = (data: string) => {
+    setInteracaoProximidade((prev) => ({ ...prev, data: true }));
+    setFormData((prev) => ({
+      ...prev,
+      data,
     }));
   };
 
@@ -511,8 +586,18 @@ export default function NovoAgendamentoModal({
       setSugestaoProximidade(null);
       return;
     }
+    if (!interacaoProximidade.clinica || !interacaoProximidade.servico) {
+      return;
+    }
     void buscarSugestaoProximidade(formData.clinica_id, formData.data);
-  }, [isOpen, formData.clinica_id, formData.servico_id, formData.data]);
+  }, [
+    isOpen,
+    formData.clinica_id,
+    formData.servico_id,
+    formData.data,
+    interacaoProximidade.clinica,
+    interacaoProximidade.servico,
+  ]);
 
   const pacientesFiltradosPorTutor = formData.tutor_id
     ? pacientes.filter((paciente) => String(paciente.tutor_id || "") === formData.tutor_id)
@@ -1027,7 +1112,7 @@ export default function NovoAgendamentoModal({
             <select
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               value={formData.servico_id}
-              onChange={(e) => setFormData({...formData, servico_id: e.target.value})}
+              onChange={(e) => handleServicoChange(e.target.value)}
             >
               <option value="">Selecione...</option>
               {servicos.map((s) => (
@@ -1061,7 +1146,7 @@ export default function NovoAgendamentoModal({
                 required
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 value={formData.data}
-                onChange={(e) => setFormData({...formData, data: e.target.value})}
+                onChange={(e) => handleDataChange(e.target.value)}
               />
             </div>
             <div>
