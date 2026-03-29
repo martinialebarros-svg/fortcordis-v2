@@ -224,6 +224,7 @@ export default function NovoAgendamentoModal({
     data: false,
   });
   const popupProximidadeHistoricoRef = useRef<Record<string, number>>({});
+  const sequenciaConsultaProximidadeRef = useRef(0);
   const [modalTutorAberto, setModalTutorAberto] = useState(false);
   const [modalAnimalAberto, setModalAnimalAberto] = useState(false);
   const [salvandoTutor, setSalvandoTutor] = useState(false);
@@ -296,6 +297,15 @@ export default function NovoAgendamentoModal({
     return `${year}-${month}-${day}`;
   };
 
+  const toBrDate = (isoDate?: string): string => {
+    const match = String(isoDate || "")
+      .trim()
+      .match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return String(isoDate || "").trim();
+    const [, year, month, day] = match;
+    return `${day}/${month}/${year}`;
+  };
+
   const toInputTime = (date: Date): string => {
     const hours = String(date.getHours()).padStart(2, "0");
     const minutes = String(date.getMinutes()).padStart(2, "0");
@@ -319,6 +329,7 @@ export default function NovoAgendamentoModal({
     setTutorSelecionado("");
     setInteracaoProximidade({ clinica: false, servico: false, data: false });
     popupProximidadeHistoricoRef.current = {};
+    sequenciaConsultaProximidadeRef.current = 0;
   }, [defaultDate, defaultTime, isEditando, isOpen]);
 
   // Preenche formulario ao abrir/atualizar no modo de edicao.
@@ -356,6 +367,7 @@ export default function NovoAgendamentoModal({
     setTutorSelecionado(pacienteSelecionado?.tutor || "");
     setInteracaoProximidade({ clinica: false, servico: false, data: false });
     popupProximidadeHistoricoRef.current = {};
+    sequenciaConsultaProximidadeRef.current = 0;
   }, [agendamento, isEditando, isOpen, pacientes]);
 
   // Carregar dados dos selects
@@ -377,6 +389,7 @@ export default function NovoAgendamentoModal({
     setSugestaoProximidade(null);
     setInteracaoProximidade({ clinica: false, servico: false, data: false });
     popupProximidadeHistoricoRef.current = {};
+    sequenciaConsultaProximidadeRef.current = 0;
   }, [defaultDate, defaultTime, isOpen]);
 
   const carregarDados = async () => {
@@ -486,6 +499,7 @@ export default function NovoAgendamentoModal({
       setSugestaoProximidade(null);
       return;
     }
+    const consultaId = ++sequenciaConsultaProximidadeRef.current;
 
     try {
       const response = await api.post<SugestaoProximidadeResponse>("/agenda/sugestao-proximidade", {
@@ -495,6 +509,9 @@ export default function NovoAgendamentoModal({
         limite_minutos: 20,
         ignorar_agendamento_id: isEditando ? agendamento?.id : null,
       });
+      if (consultaId !== sequenciaConsultaProximidadeRef.current) {
+        return;
+      }
 
       const data = response?.data || null;
       setSugestaoProximidade(data);
@@ -516,8 +533,9 @@ export default function NovoAgendamentoModal({
       const chavePopup = [
         String(clinicaIdNum),
         String(formData.servico_id || ""),
-        String(dataISO || ""),
         String(item?.agendamento_id || ""),
+        String(item?.data || ""),
+        String(item?.inicio || ""),
       ].join("|");
       const agora = Date.now();
       const ultimo = popupProximidadeHistoricoRef.current[chavePopup] || 0;
@@ -529,26 +547,34 @@ export default function NovoAgendamentoModal({
       const dataSugerida = String(item?.data || dataISO || "").trim();
       const horaSugerida = String(item?.inicio || "").trim();
       const clinicaSugerida = String(item?.clinica || "").trim();
+      const clinicaDestino = String(
+        clinicas.find((c) => String(c?.id || "") === String(clinicaIdNum))?.nome || ""
+      ).trim();
+      const mesmoDestino = !!clinicaDestino && clinicaDestino === clinicaSugerida;
       const detalheHora = horaSugerida ? ` as ${horaSugerida}` : "";
-      const resumoHorario = `${dataSugerida}${detalheHora}`.trim() || "a data e horario sugeridos";
+      const dataSugeridaBr = toBrDate(dataSugerida) || dataSugerida;
+      const resumoHorario = `${dataSugeridaBr}${detalheHora}`.trim() || "a data e horario sugeridos";
       const acimaDoLimite = duracao > limiteBase || Boolean(data?.acima_do_limite);
+      const textoDeslocamento =
+        clinicaDestino && !mesmoDestino
+          ? `e o tempo de deslocamento para ${clinicaDestino} e de ${duracao} min`
+          : `com tempo estimado de deslocamento de ${duracao} min`;
       const mensagemPopup = acimaDoLimite
         ? [
             "Sugestao de proximidade acima do limite:",
             "",
-            `Encontramos a melhor opcao disponivel para reduzir deslocamento em ${resumoHorario}${
-              clinicaSugerida ? ` na clinica ${clinicaSugerida}` : ""
-            }.`,
-            `Tempo estimado de deslocamento: ${duracao} min (limite configurado: ${limiteBase} min).`,
+            `Encontramos uma opcao melhor de horario para reduzir deslocamento. Temos um atendimento ${
+              clinicaSugerida ? `na ${clinicaSugerida}` : "proximo"
+            } no dia ${resumoHorario} ${textoDeslocamento} (limite configurado: ${limiteBase} min).`,
             "",
-            "Deseja aplicar mesmo assim?",
+            "Posso aplicar esse horario?",
           ].join("\n")
         : [
             "Sugestao inteligente de proximidade:",
             "",
             mensagem,
             "",
-            `Deseja aplicar ${resumoHorario}?`,
+            `Posso aplicar ${resumoHorario}?`,
           ].join("\n");
       const confirmou = window.confirm(mensagemPopup);
 
@@ -560,6 +586,9 @@ export default function NovoAgendamentoModal({
         }));
       }
     } catch {
+      if (consultaId !== sequenciaConsultaProximidadeRef.current) {
+        return;
+      }
       setMensagemProximidade("Nao foi possivel consultar sugestoes de proximidade agora.");
       setSugestaoProximidade(null);
     }
