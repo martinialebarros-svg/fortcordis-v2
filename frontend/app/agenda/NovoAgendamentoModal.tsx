@@ -603,11 +603,52 @@ export default function NovoAgendamentoModal({
       const confirmou = window.confirm(mensagemPopup);
 
       if (confirmou && dataSugerida) {
-        setFormData((prev) => ({
-          ...prev,
-          data: dataSugerida,
-          hora: horaSugerida || prev.hora,
-        }));
+        try {
+          const { items } = await buscarSugestoesOperacionais(dataSugerida, clinicaIdNum);
+          setSugestoesHorario(items);
+
+          const itemAlternativo = items.find((cand) => {
+            const [dataCand, horaCand] = String(cand?.inicio || "").split(" ");
+            if (!dataCand || !horaCand) return false;
+            return dataCand !== dataSugerida || horaCand !== horaSugerida;
+          });
+
+          if (itemAlternativo?.inicio) {
+            const [dataAplicacao, horaAplicacao] = String(itemAlternativo.inicio || "").split(" ");
+            if (dataAplicacao && horaAplicacao) {
+              setFormData((prev) => ({
+                ...prev,
+                data: dataAplicacao,
+                hora: horaAplicacao,
+              }));
+              setErroSugestoes("");
+              setMensagemSugestoes(`Horario operacional aplicado automaticamente: ${horaAplicacao}.`);
+              return;
+            }
+          }
+
+          setFormData((prev) => ({
+            ...prev,
+            data: dataSugerida,
+            hora: "",
+          }));
+          setErroSugestoes("");
+          setMensagemSugestoes(
+            items.length > 0
+              ? "Data de proximidade aplicada. Escolha um horario operacional na lista de sugestoes."
+              : "Data de proximidade aplicada. Clique em Sugerir horarios para encontrar um horario operacional."
+          );
+        } catch {
+          setFormData((prev) => ({
+            ...prev,
+            data: dataSugerida,
+            hora: "",
+          }));
+          setErroSugestoes("");
+          setMensagemSugestoes(
+            "Data de proximidade aplicada. Nao foi possivel aplicar horario automaticamente agora."
+          );
+        }
       }
     } catch {
       if (consultaId !== sequenciaConsultaProximidadeRef.current) {
@@ -681,6 +722,27 @@ export default function NovoAgendamentoModal({
     return Number.isFinite(duracaoMinutos) && duracaoMinutos > 0 ? duracaoMinutos : 30;
   };
 
+  const buscarSugestoesOperacionais = async (
+    dataBaseBusca: string,
+    clinicaId: number
+  ): Promise<{ items: SugestaoHorarioItem[]; motivo: string }> => {
+    const payload = {
+      data: dataBaseBusca,
+      clinica_id: clinicaId,
+      servico_id: formData.servico_id ? parseInt(formData.servico_id, 10) : null,
+      duracao_minutos: obterDuracaoServicoSelecionado(),
+      intervalo_minutos: 30,
+      limite: 8,
+      perfil_deslocamento: "comercial",
+      ignorar_agendamento_id: isEditando ? agendamento?.id : null,
+    };
+
+    const response = await api.post<SugestoesHorarioResponse>("/agenda/sugestoes-horario", payload);
+    const items = Array.isArray(response?.data?.items) ? response.data.items : [];
+    const motivo = String(response?.data?.motivo || "").trim();
+    return { items, motivo };
+  };
+
   const aplicarSugestaoHorario = (item: SugestaoHorarioItem) => {
     const [data, hora] = String(item.inicio || "").split(" ");
     if (!data || !hora) {
@@ -735,23 +797,11 @@ export default function NovoAgendamentoModal({
         setFormData((prev) => ({ ...prev, data: dataBaseBusca }));
       }
 
-      const payload = {
-        data: dataBaseBusca,
-        clinica_id: clinicaId,
-        servico_id: formData.servico_id ? parseInt(formData.servico_id, 10) : null,
-        duracao_minutos: obterDuracaoServicoSelecionado(),
-        intervalo_minutos: 30,
-        limite: 8,
-        perfil_deslocamento: "comercial",
-        ignorar_agendamento_id: isEditando ? agendamento?.id : null,
-      };
-
-      const response = await api.post<SugestoesHorarioResponse>("/agenda/sugestoes-horario", payload);
-      const items = Array.isArray(response?.data?.items) ? response.data.items : [];
+      const { items, motivo } = await buscarSugestoesOperacionais(dataBaseBusca, clinicaId);
       setSugestoesHorario(items);
       if (items.length === 0) {
         setMensagemSugestoes(
-          `${prefixoMensagem}${response?.data?.motivo || "Nenhum horario operacional encontrado para essa data."}`.trim()
+          `${prefixoMensagem}${motivo || "Nenhum horario operacional encontrado para essa data."}`.trim()
         );
       } else if (items.every((item) => !item.anterior && !item.proximo)) {
         setMensagemSugestoes(
