@@ -607,7 +607,31 @@ export default function NovoAgendamentoModal({
           const { items } = await buscarSugestoesOperacionais(dataSugerida, clinicaIdNum);
           setSugestoesHorario(items);
 
-          const itemAlternativo = items.find((cand) => {
+          const candidatosRelacionados = items.filter(
+            (cand) => Number(cand?.anterior?.agendamento_id || 0) === Number(item?.agendamento_id || 0)
+          );
+
+          const ordenarPorMenorOciosidade = (a: SugestaoHorarioItem, b: SugestaoHorarioItem): number => {
+            const margemA = Number(a?.anterior?.margem_min);
+            const margemB = Number(b?.anterior?.margem_min);
+            const ociosidadeA = Number.isFinite(margemA) ? Math.max(0, margemA) : Number.POSITIVE_INFINITY;
+            const ociosidadeB = Number.isFinite(margemB) ? Math.max(0, margemB) : Number.POSITIVE_INFINITY;
+            if (ociosidadeA !== ociosidadeB) {
+              return ociosidadeA - ociosidadeB;
+            }
+
+            const inicioA = parseApiDateTime(String(a?.inicio || ""));
+            const inicioB = parseApiDateTime(String(b?.inicio || ""));
+            const tsA = inicioA ? inicioA.getTime() : Number.POSITIVE_INFINITY;
+            const tsB = inicioB ? inicioB.getTime() : Number.POSITIVE_INFINITY;
+            return tsA - tsB;
+          };
+
+          const origemBusca = (candidatosRelacionados.length > 0 ? candidatosRelacionados : items)
+            .slice()
+            .sort(ordenarPorMenorOciosidade);
+
+          const itemAlternativo = origemBusca.find((cand) => {
             const [dataCand, horaCand] = String(cand?.inicio || "").split(" ");
             if (!dataCand || !horaCand) return false;
             return dataCand !== dataSugerida || horaCand !== horaSugerida;
