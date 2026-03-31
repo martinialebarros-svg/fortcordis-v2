@@ -867,7 +867,7 @@ export default function NovoAgendamentoModal({
 
     const detailStr = String(detail || "");
     if (detailStr.toLowerCase().includes("deslocamento")) {
-      return { mensagem: detailStr, confirmavel: true };
+      return { mensagem: detailStr, confirmavel: false };
     }
     return null;
   };
@@ -1067,36 +1067,27 @@ export default function NovoAgendamentoModal({
         observacoes: formData.observacoes,
       };
 
-      const enviarAgendamento = async (confirmarConflitoDeslocamento: boolean) => {
-        const payload = confirmarConflitoDeslocamento
-          ? { ...payloadBase, confirmar_conflito_deslocamento: true }
-          : payloadBase;
-
+      const enviarAgendamento = async () => {
         if (isEditando) {
-          return api.put(`/agenda/${agendamento.id}`, payload);
+          return api.put(`/agenda/${agendamento.id}`, payloadBase);
         }
-        return api.post("/agenda", payload);
+        return api.post("/agenda", payloadBase);
       };
 
       let response;
       try {
-        response = await enviarAgendamento(false);
+        response = await enviarAgendamento();
       } catch (error: any) {
         const conflito = extrairConflitoDeslocamento(error);
-        if (!conflito?.confirmavel) {
-          throw error;
+        if (conflito) {
+          throw new Error(
+            extrairMensagemErro(
+              conflito,
+              "Conflito operacional de deslocamento. Ajuste o horario ou escolha outra clinica."
+            )
+          );
         }
-
-        const mensagemConflito = extrairMensagemErro(
-          conflito,
-          "Existe um conflito operacional de deslocamento para este horario."
-        );
-        const confirmou = window.confirm(`${mensagemConflito}\n\nDeseja confirmar este agendamento?`);
-        if (!confirmou) {
-          return;
-        }
-
-        response = await enviarAgendamento(true);
+        throw error;
       }
 
       await onSuccess(response?.data);

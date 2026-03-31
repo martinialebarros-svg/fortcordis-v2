@@ -261,7 +261,6 @@ def _validar_deslocamento_agendamento(
     *,
     agendamento_id_excluir: Optional[int] = None,
     perfil_deslocamento: str = "comercial",
-    permitir_confirmacao: bool = False,
 ) -> None:
     status_atual = (str(agendamento.status or "").strip() or "Agendado")
     if status_atual == "Cancelado":
@@ -315,25 +314,24 @@ def _validar_deslocamento_agendamento(
             folga_prev = _minutos_entre(anterior["fim"], inicio_dt)
             if duracao_prev > 0 and folga_prev < duracao_prev:
                 clinica_anterior = anterior.get("clinica_nome") or _nome_clinica_por_id(db, anterior.get("clinica_id"))
-                if not permitir_confirmacao:
-                    raise HTTPException(
-                        status_code=409,
-                        detail={
-                            "codigo": "CONFLITO_DESLOCAMENTO",
-                            "mensagem": (
-                                f"O tempo de deslocamento entre {clinica_anterior} e {clinica_atual} "
-                                f"e de aproximadamente {duracao_prev} minutos. "
-                                f"Disponivel: {max(0, folga_prev)} minutos. "
-                                "Deseja confirmar este agendamento?"
-                            ),
-                            "origem_clinica": clinica_anterior,
-                            "destino_clinica": clinica_atual,
-                            "duracao_min": int(duracao_prev),
-                            "folga_min": max(0, int(folga_prev)),
-                            "fonte": fonte_prev,
-                            "confirmavel": True,
-                        },
-                    )
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "codigo": "CONFLITO_DESLOCAMENTO",
+                        "mensagem": (
+                            f"O tempo de deslocamento entre {clinica_anterior} e {clinica_atual} "
+                            f"e de aproximadamente {duracao_prev} minutos. "
+                            f"Disponivel: {max(0, folga_prev)} minutos. "
+                            "Ajuste o horario ou escolha outra clinica."
+                        ),
+                        "origem_clinica": clinica_anterior,
+                        "destino_clinica": clinica_atual,
+                        "duracao_min": int(duracao_prev),
+                        "folga_min": max(0, int(folga_prev)),
+                        "fonte": fonte_prev,
+                        "confirmavel": False,
+                    },
+                )
 
     if proximo and proximo.get("clinica_id"):
         clinica_proxima_obj = _get_clinica(proximo.get("clinica_id"))
@@ -348,25 +346,24 @@ def _validar_deslocamento_agendamento(
             folga_next = _minutos_entre(fim_dt, proximo["inicio"])
             if duracao_next > 0 and folga_next < duracao_next:
                 clinica_proxima = proximo.get("clinica_nome") or _nome_clinica_por_id(db, proximo.get("clinica_id"))
-                if not permitir_confirmacao:
-                    raise HTTPException(
-                        status_code=409,
-                        detail={
-                            "codigo": "CONFLITO_DESLOCAMENTO",
-                            "mensagem": (
-                                f"O tempo de deslocamento entre {clinica_atual} e {clinica_proxima} "
-                                f"e de aproximadamente {duracao_next} minutos. "
-                                f"Disponivel: {max(0, folga_next)} minutos. "
-                                "Deseja confirmar este agendamento?"
-                            ),
-                            "origem_clinica": clinica_atual,
-                            "destino_clinica": clinica_proxima,
-                            "duracao_min": int(duracao_next),
-                            "folga_min": max(0, int(folga_next)),
-                            "fonte": fonte_next,
-                            "confirmavel": True,
-                        },
-                    )
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "codigo": "CONFLITO_DESLOCAMENTO",
+                        "mensagem": (
+                            f"O tempo de deslocamento entre {clinica_atual} e {clinica_proxima} "
+                            f"e de aproximadamente {duracao_next} minutos. "
+                            f"Disponivel: {max(0, folga_next)} minutos. "
+                            "Ajuste o horario ou escolha outra clinica."
+                        ),
+                        "origem_clinica": clinica_atual,
+                        "destino_clinica": clinica_proxima,
+                        "duracao_min": int(duracao_next),
+                        "folga_min": max(0, int(folga_next)),
+                        "fonte": fonte_next,
+                        "confirmavel": False,
+                    },
+                )
 
 
 def _notificar_agenda_update(action: str, agendamento_id: int, data: Optional[dict] = None) -> None:
@@ -1354,8 +1351,6 @@ def criar_agendamento(
 ):
     """Cria novo agendamento"""
     now = datetime.now()
-    confirmar_conflito_deslocamento = bool(agendamento.confirmar_conflito_deslocamento)
-
     db_agendamento = Agendamento(
         **agendamento.model_dump(exclude={"confirmar_conflito_deslocamento"})
     )
@@ -1377,7 +1372,6 @@ def criar_agendamento(
     _validar_deslocamento_agendamento(
         db,
         db_agendamento,
-        permitir_confirmacao=confirmar_conflito_deslocamento,
     )
     _fill_data_hora_from_inicio(db_agendamento)
     related = _fetch_related_names(db, db_agendamento)
@@ -1452,7 +1446,7 @@ def atualizar_agendamento(
     status_anterior = str(db_agendamento.status or "").strip() or "Agendado"
 
     update_data = agendamento.model_dump(exclude_unset=True)
-    confirmar_conflito_deslocamento = bool(update_data.pop("confirmar_conflito_deslocamento", False))
+    update_data.pop("confirmar_conflito_deslocamento", None)
     for field, value in update_data.items():
         setattr(db_agendamento, field, value)
 
@@ -1495,7 +1489,6 @@ def atualizar_agendamento(
                 db,
                 db_agendamento,
                 agendamento_id_excluir=agendamento_id,
-                permitir_confirmacao=confirmar_conflito_deslocamento,
             )
     elif reativando_cancelado:
         _apply_service_duration_if_needed(db, db_agendamento)
@@ -1505,7 +1498,6 @@ def atualizar_agendamento(
             db,
             db_agendamento,
             agendamento_id_excluir=agendamento_id,
-            permitir_confirmacao=confirmar_conflito_deslocamento,
         )
     if "inicio" in update_data:
         _fill_data_hora_from_inicio(db_agendamento)

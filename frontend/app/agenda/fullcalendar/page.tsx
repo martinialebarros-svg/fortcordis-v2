@@ -385,7 +385,7 @@ const extrairConflitoDeslocamento = (error: any): ConflitoDeslocamentoDetail | n
 
   const texto = String(detail || "");
   if (texto.toLowerCase().includes("deslocamento")) {
-    return { mensagem: texto, confirmavel: true };
+    return { mensagem: texto, confirmavel: false };
   }
 
   return null;
@@ -1292,33 +1292,23 @@ export default function AgendaFullCalendarPage() {
           observacoes: agendamento.observacoes || "",
         };
 
-        const enviarAtualizacao = async (confirmarConflitoDeslocamento: boolean) => {
-          const payload = confirmarConflitoDeslocamento
-            ? { ...payloadBase, confirmar_conflito_deslocamento: true }
-            : payloadBase;
-          await api.put(`/agenda/${id}`, payload);
+        const enviarAtualizacao = async () => {
+          await api.put(`/agenda/${id}`, payloadBase);
         };
 
         try {
-          await enviarAtualizacao(false);
+          await enviarAtualizacao();
         } catch (error: any) {
           const conflito = extrairConflitoDeslocamento(error);
-          if (!conflito?.confirmavel) {
-            throw error;
+          if (conflito) {
+            throw new Error(
+              extrairMensagemErroApi(
+                conflito,
+                "Conflito operacional de deslocamento. Ajuste o horario ou escolha outra clinica."
+              )
+            );
           }
-
-          const mensagemConflito = extrairMensagemErroApi(
-            conflito,
-            "Existe um conflito operacional de deslocamento para este horario."
-          );
-          const confirmou = window.confirm(`${mensagemConflito}\n\nDeseja confirmar este agendamento?`);
-          if (!confirmou) {
-            revert();
-            setMensagemStatus("Alteracao cancelada pelo usuario.");
-            return;
-          }
-
-          await enviarAtualizacao(true);
+          throw error;
         }
 
         if (intervalo) {
@@ -1483,37 +1473,23 @@ export default function AgendaFullCalendarPage() {
           observacoes: agendamento.observacoes || "",
         };
 
-        const enviarAtualizacaoMovimentacao = async (confirmarConflitoDeslocamento: boolean) => {
-          const payload = confirmarConflitoDeslocamento
-            ? { ...payloadBase, confirmar_conflito_deslocamento: true }
-            : payloadBase;
-          await api.put(`/agenda/${id}`, payload);
+        const enviarAtualizacaoMovimentacao = async () => {
+          await api.put(`/agenda/${id}`, payloadBase);
         };
 
         try {
-          await enviarAtualizacaoMovimentacao(false);
+          await enviarAtualizacaoMovimentacao();
         } catch (error: any) {
           const conflito = extrairConflitoDeslocamento(error);
-          if (!conflito?.confirmavel) {
-            throw error;
+          if (conflito) {
+            throw new Error(
+              extrairMensagemErroApi(
+                conflito,
+                "Conflito operacional de deslocamento. Ajuste o horario ou escolha outra clinica."
+              )
+            );
           }
-
-          const mensagemConflito = extrairMensagemErroApi(
-            conflito,
-            "Existe um conflito operacional de deslocamento para este horario."
-          );
-          const confirmou = window.confirm(`${mensagemConflito}\n\nDeseja confirmar este agendamento?`);
-          if (!confirmou) {
-            if (origem === "movimentacao") {
-              revert();
-            }
-            setMensagemStatus("Alteracao recorrente cancelada pelo usuario.");
-            setModalRecorrenciaAberto(false);
-            setMovimentacaoPendente(null);
-            return;
-          }
-
-          await enviarAtualizacaoMovimentacao(true);
+          throw error;
         }
       }
 
@@ -1550,7 +1526,6 @@ export default function AgendaFullCalendarPage() {
             fim: toApiDateTime(fimRecorrente),
             status: agendamento.status || "Agendado",
             observacoes: agendamento.observacoes || "",
-            confirmar_conflito_deslocamento: true,
           });
           ocupacoesLocais.push({ inicio: inicioRecorrente, fim: fimRecorrente });
           criados += 1;
