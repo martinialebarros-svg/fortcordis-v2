@@ -47,8 +47,6 @@ const menuItems = [
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 
-const FORTINHO_ENABLED = process.env.NEXT_PUBLIC_ENABLE_FORTINHO === "1";
-
 export default function DashboardLayout({
   children,
 }: {
@@ -63,6 +61,7 @@ export default function DashboardLayout({
   const [editandoNomeClinica, setEditandoNomeClinica] = useState(false);
   const [salvandoNomeClinica, setSalvandoNomeClinica] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [fortinhoHabilitado, setFortinhoHabilitado] = useState(false);
   const faviconOriginalRef = useRef<string>("/favicon.ico");
   const overlayCleanupRafRef = useRef<number | null>(null);
   const router = useRouter();
@@ -212,6 +211,7 @@ export default function DashboardLayout({
       const nomeFinal = nomeConfigurado || "FortCordis";
       setNomeClinica(nomeFinal);
       setNomeClinicaDraft(nomeFinal);
+      setFortinhoHabilitado(respConfig.data?.fortinho_habilitado === true);
 
       const deveMostrarLogo = respConfig.data?.mostrar_logomarca !== false;
       const temLogo = Boolean(respConfig.data?.tem_logomarca);
@@ -228,6 +228,7 @@ export default function DashboardLayout({
       atualizarLogoUrl(null);
     } catch (error) {
       console.error("Erro ao carregar branding da clinica:", error);
+      setFortinhoHabilitado(false);
       atualizarLogoUrl(null);
     }
   };
@@ -566,7 +567,7 @@ export default function DashboardLayout({
     </div>
   );
 
-  return FORTINHO_ENABLED ? (
+  return fortinhoHabilitado ? (
     <FortinhoProvider>{dashboardContent}</FortinhoProvider>
   ) : (
     dashboardContent
