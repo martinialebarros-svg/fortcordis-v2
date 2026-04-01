@@ -18,9 +18,11 @@ import {
   FileText,
   ClipboardPlus,
   DollarSign,
+  BarChart3,
   Settings,
   BookOpen,
   MapPin,
+  Car,
   Pencil,
   Check,
   Loader2
@@ -39,6 +41,8 @@ const menuItems = [
   { href: "/referencias-eco", label: "Referências Eco", icon: BookOpen },
   { href: "/logistica", label: "Logistica", icon: MapPin },
   { href: "/financeiro", label: "Financeiro", icon: DollarSign },
+  { href: "/financeiro/frota", label: "Custos Frota", icon: Car },
+  { href: "/relatorios", label: "Relatorios", icon: BarChart3 },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 
