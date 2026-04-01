@@ -24,7 +24,7 @@ jobs:
 
       - name: Deploy to Stage (VPS)
         run: |
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+          ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
             set -euo pipefail
             STAGE_DIR="/var/www/fortcordis-stage"
 
@@ -115,20 +115,24 @@ jobs:
             echo "Backing up stage files..."
             tar -czf backup_stage_$(date +%Y%m%d_%H%M%S).tar.gz backend frontend 2>/dev/null || true
 
-            echo "Preserving backend/data..."
-            if [ -d "backend/data" ]; then
-              cp -r backend/data /tmp/fortcordis_data_backup
-            fi
+            echo "Preserving runtime files (frases/db)..."
+            RUNTIME_BACKUP_DIR="/tmp/fortcordis_stage_runtime_backup"
+            rm -rf "$RUNTIME_BACKUP_DIR"
+            mkdir -p "$RUNTIME_BACKUP_DIR/backend/data"
+            [ -f backend/data/frases.json ] && cp backend/data/frases.json "$RUNTIME_BACKUP_DIR/backend/data/frases.json" || true
+            [ -f backend/data/patologias.json ] && cp backend/data/patologias.json "$RUNTIME_BACKUP_DIR/backend/data/patologias.json" || true
+            [ -f backend/fortcordis.db ] && cp backend/fortcordis.db "$RUNTIME_BACKUP_DIR/backend/fortcordis.db" || true
 
             echo "Updating code from origin/stage..."
             git fetch origin
             git reset --hard origin/stage
 
-            echo "Restoring backend/data..."
-            if [ -d "/tmp/fortcordis_data_backup" ]; then
-              cp -r /tmp/fortcordis_data_backup/* backend/data/ 2>/dev/null || true
-              rm -rf /tmp/fortcordis_data_backup
-            fi
+            echo "Restoring runtime files (frases/db)..."
+            mkdir -p backend/data
+            [ -f "$RUNTIME_BACKUP_DIR/backend/data/frases.json" ] && cp "$RUNTIME_BACKUP_DIR/backend/data/frases.json" backend/data/frases.json || true
+            [ -f "$RUNTIME_BACKUP_DIR/backend/data/patologias.json" ] && cp "$RUNTIME_BACKUP_DIR/backend/data/patologias.json" backend/data/patologias.json || true
+            [ -f "$RUNTIME_BACKUP_DIR/backend/fortcordis.db" ] && cp "$RUNTIME_BACKUP_DIR/backend/fortcordis.db" backend/fortcordis.db || true
+            rm -rf "$RUNTIME_BACKUP_DIR" || true
             restore_richer_frases_backup
 
             echo "Deploying backend..."
