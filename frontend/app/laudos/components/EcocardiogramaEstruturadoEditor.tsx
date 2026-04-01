@@ -151,6 +151,7 @@ export default function EcocardiogramaEstruturadoEditor({
   const [aplicandoPreset, setAplicandoPreset] = useState(false);
   const [salvandoPreset, setSalvandoPreset] = useState(false);
   const [atualizandoPresetSelecionado, setAtualizandoPresetSelecionado] = useState(false);
+  const [propagandoFrasesSelecionadas, setPropagandoFrasesSelecionadas] = useState(false);
   const [atualizandoFraseAspecto, setAtualizandoFraseAspecto] = useState<string | null>(null);
   const [salvandoNovaFraseAspecto, setSalvandoNovaFraseAspecto] = useState<string | null>(null);
   const [presetFormAberto, setPresetFormAberto] = useState(false);
@@ -790,6 +791,72 @@ export default function EcocardiogramaEstruturadoEditor({
     }
   };
 
+  const propagarTextosSelecionadosParaBanco = async () => {
+    if (!presetAtual) {
+      return;
+    }
+
+    const confirmar = window.confirm(
+      "Atualizar no banco as frases selecionadas com os textos atuais? Isso afeta todos os presets que usam essas frases."
+    );
+    if (!confirmar) {
+      return;
+    }
+
+    try {
+      setPropagandoFrasesSelecionadas(true);
+      setError("");
+      setHint("");
+
+      let totalAtualizado = 0;
+
+      for (const aspecto of aspectos) {
+        const fraseId = String(fraseSelecionadaEfetivaPorAspecto[aspecto.key] || "").trim();
+        if (!fraseId) {
+          continue;
+        }
+
+        const textoAtual = String(estado.textos[aspecto.key] || "").trim();
+        if (!textoAtual) {
+          continue;
+        }
+
+        const fraseSelecionada = (aspecto.frases || []).find(
+          (item) => String(item.id) === fraseId && Number(item.ativo ?? 1) === 1
+        );
+        if (!fraseSelecionada?.id) {
+          continue;
+        }
+
+        const textoBanco = String(fraseSelecionada.texto || "").trim();
+        if (textoBanco === textoAtual) {
+          continue;
+        }
+
+        await api.put(`/frases-ecocardiograma-estruturado-teste/frases/${fraseSelecionada.id}`, {
+          aspecto: aspecto.key,
+          titulo: String(fraseSelecionada.titulo || "").trim(),
+          texto: textoAtual,
+          tags: Array.isArray(fraseSelecionada.tags) ? fraseSelecionada.tags : [],
+        });
+        totalAtualizado += 1;
+      }
+
+      if (totalAtualizado > 0) {
+        await carregarPayload(true);
+        setHint(
+          `${totalAtualizado} frase(s) atualizada(s) no banco. A mudanca vale para todos os presets que usam essas frases.`
+        );
+      } else {
+        setHint("Nenhuma frase precisou de atualizacao no banco.");
+      }
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || "Nao foi possivel propagar as frases para o banco.");
+    } finally {
+      setPropagandoFrasesSelecionadas(false);
+    }
+  };
+
   const salvarNovaFraseDoAspecto = async (aspecto: AspectoEcoEstruturadoTeste) => {
     const textoAtual = String(estado.textos[aspecto.key] || "").trim();
     if (!textoAtual) {
@@ -952,6 +1019,14 @@ export default function EcocardiogramaEstruturadoEditor({
           className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-50"
         >
           {atualizandoPresetSelecionado ? "Atualizando preset..." : "Atualizar preset"}
+        </button>
+        <button
+          type="button"
+          onClick={propagarTextosSelecionadosParaBanco}
+          disabled={!presetAtual || propagandoFrasesSelecionadas}
+          className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+        >
+          {propagandoFrasesSelecionadas ? "Propagando frases..." : "Propagar frases para banco"}
         </button>
         <button
           type="button"
