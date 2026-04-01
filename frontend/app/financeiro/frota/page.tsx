@@ -6,7 +6,6 @@ import { CarFront, Fuel, Plus, RefreshCw, Save, Settings2, Trash2, Waypoints } f
 
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
-import { formatarMoeda, formatarNumero } from "@/app/relatorios/formatters";
 
 type FormaRateio = "por_km" | "por_atendimento" | "fixo_mensal" | "hibrido";
 type AbaFrota = "custos" | "veiculos" | "telemetria" | "config";
@@ -143,6 +142,22 @@ const parseNumero = (raw: string): number | null => {
   const parsed = Number(raw);
   if (!Number.isFinite(parsed)) return null;
   return parsed;
+};
+
+const formatarNumero = (valor: number, casas = 2): string => {
+  const numero = Number.isFinite(valor) ? valor : 0;
+  return numero.toLocaleString("pt-BR", {
+    minimumFractionDigits: casas,
+    maximumFractionDigits: casas,
+  });
+};
+
+const formatarMoeda = (valor: number): string => {
+  const numero = Number.isFinite(valor) ? valor : 0;
+  return numero.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
 };
 
 const labelVeiculo = (item: VeiculoFrotaItem) => {
