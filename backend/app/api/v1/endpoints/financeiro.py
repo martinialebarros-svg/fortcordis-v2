@@ -3,9 +3,19 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, extract
 from typing import List, Optional
 from datetime import datetime, date, timedelta
+from calendar import monthrange
 
 from app.db.database import get_db
-from app.models.financeiro import Transacao, ContaPagar, ContaReceber, CategoriaTransacao
+from app.models.financeiro import (
+    Transacao,
+    ContaPagar,
+    ContaReceber,
+    CustoFrota,
+    VeiculoFrota,
+    TelemetriaFrotaMensal,
+    ConfigRateioFrota,
+    CategoriaTransacao,
+)
 from app.models.user import User
 from app.core.security import get_current_user
 from app.services.auditoria_service import registrar_auditoria
@@ -13,12 +23,54 @@ from app.schemas.financeiro import (
     TransacaoCreate, TransacaoUpdate, TransacaoResponse, TransacaoLista,
     ContaPagarCreate, ContaPagarUpdate, ContaPagarResponse, ContaPagarLista,
     ContaReceberCreate, ContaReceberUpdate, ContaReceberResponse, ContaReceberLista,
+    CustoFrotaCreate, CustoFrotaUpdate, CustoFrotaResponse, CustoFrotaLista,
+    VeiculoFrotaCreate, VeiculoFrotaUpdate, VeiculoFrotaResponse, VeiculoFrotaLista,
+    TelemetriaFrotaMensalCreate, TelemetriaFrotaMensalUpdate, TelemetriaFrotaMensalResponse, TelemetriaFrotaMensalLista,
+    ConfigRateioFrotaUpdate, ConfigRateioFrotaResponse,
     ResumoFinanceiro, DadosGrafico, RelatorioCategoria, CategoriaResumo,
     RelatorioFluxoCaixa, FluxoCaixaItem, RelatorioComparativo, ComparativoMes,
     RelatorioDRE, DREItem
 )
 
 router = APIRouter()
+
+
+def _obter_ou_criar_config_rateio_frota(db: Session) -> ConfigRateioFrota:
+    config = db.query(ConfigRateioFrota).order_by(ConfigRateioFrota.id.asc()).first()
+    if config:
+        return config
+
+    config = ConfigRateioFrota(
+        peso_km=0.7,
+        peso_atendimento=0.3,
+        auto_gerar_depreciacao=False,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    db.add(config)
+    db.commit()
+    db.refresh(config)
+    return config
+
+
+def _validar_pesos_rateio(peso_km: float, peso_atendimento: float) -> tuple[float, float]:
+    total = float(peso_km or 0) + float(peso_atendimento or 0)
+    if total <= 0:
+        raise HTTPException(status_code=422, detail="A soma dos pesos de rateio deve ser maior que zero.")
+    return round(float(peso_km) / total, 6), round(float(peso_atendimento) / total, 6)
+
+
+def _parse_competencia_intervalo(competencia: str) -> tuple[date, date]:
+    try:
+        ano = int(competencia[:4])
+        mes = int(competencia[5:7])
+        if len(competencia) != 7 or competencia[4] != "-":
+            raise ValueError("formato")
+        inicio = date(ano, mes, 1)
+        fim = date(ano, mes, monthrange(ano, mes)[1])
+        return inicio, fim
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="Competencia invalida. Use YYYY-MM.") from exc
 
 
 # ==================== TRANSAÇÕES - CRUD COMPLETO ====================
@@ -268,6 +320,556 @@ def listar_categorias(
         return {"items": categorias_saida}
     else:
         return {"items": categorias_entrada + categorias_saida}
+
+
+# ==================== CUSTOS DE FROTA ====================
+
+@router.get("/custos-frota", response_model=CustoFrotaLista)
+def listar_custos_frota(
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    categoria: Optional[str] = None,
+    forma_rateio: Optional[str] = Query(None, pattern="^(por_km|por_atendimento|fixo_mensal|hibrido)$"),
+    clinica_id: Optional[int] = Query(None, description="Filtrar por clínica vinculada"),
+    veiculo_id: Optional[int] = Query(None, description="Filtrar por veículo"),
+    veiculo: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Lista custos de frota com filtros."""
+    _ = current_user
+    query = db.query(CustoFrota)
+
+    if categoria:
+        query = query.filter(CustoFrota.categoria == categoria)
+    if forma_rateio:
+        query = query.filter(CustoFrota.forma_rateio == forma_rateio)
+    if clinica_id:
+        query = query.filter(CustoFrota.clinica_id == clinica_id)
+    if veiculo_id:
+        query = query.filter(CustoFrota.veiculo_id == veiculo_id)
+    if veiculo:
+        query = query.filter(CustoFrota.veiculo.ilike(f"%{veiculo.strip()}%"))
+    if data_inicio:
+        query = query.filter(func.date(CustoFrota.data_referencia) >= data_inicio)
+    if data_fim:
+        query = query.filter(func.date(CustoFrota.data_referencia) <= data_fim)
+
+    total = query.count()
+    items = (
+        query.order_by(CustoFrota.data_referencia.desc(), CustoFrota.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return {"total": total, "items": items}
+
+
+@router.post("/custos-frota", response_model=CustoFrotaResponse, status_code=status.HTTP_201_CREATED)
+def criar_custo_frota(
+    payload: CustoFrotaCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Cria um lançamento de custo de frota."""
+    item = CustoFrota(
+        data_referencia=payload.data_referencia,
+        categoria=payload.categoria.strip().lower(),
+        valor=payload.valor,
+        forma_rateio=payload.forma_rateio,
+        km_referencia=payload.km_referencia,
+        atendimentos_referencia=payload.atendimentos_referencia,
+        clinica_id=payload.clinica_id,
+        veiculo_id=payload.veiculo_id,
+        veiculo=(payload.veiculo or "").strip() or None,
+        descricao=(payload.descricao or "").strip() or None,
+        observacoes=(payload.observacoes or "").strip() or None,
+        criado_por_id=current_user.id,
+        criado_por_nome=current_user.nome,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.put("/custos-frota/{custo_id}", response_model=CustoFrotaResponse)
+def atualizar_custo_frota(
+    custo_id: int,
+    payload: CustoFrotaUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Atualiza custo de frota."""
+    _ = current_user
+    item = db.query(CustoFrota).filter(CustoFrota.id == custo_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Custo de frota nao encontrado")
+
+    dados = payload.model_dump(exclude_unset=True)
+    for field, value in dados.items():
+        if field == "categoria" and value is not None:
+            setattr(item, field, str(value).strip().lower())
+            continue
+        if field in {"veiculo", "descricao", "observacoes"} and value is not None:
+            valor_limpo = str(value).strip()
+            setattr(item, field, valor_limpo or None)
+            continue
+        setattr(item, field, value)
+
+    item.updated_at = datetime.now()
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.delete("/custos-frota/{custo_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remover_custo_frota(
+    custo_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove custo de frota."""
+    _ = current_user
+    item = db.query(CustoFrota).filter(CustoFrota.id == custo_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Custo de frota nao encontrado")
+    db.delete(item)
+    db.commit()
+    return None
+
+
+@router.get("/custos-frota/rateio-resumo")
+def resumo_rateio_custos_frota(
+    data_inicio: str,
+    data_fim: str,
+    km_rodado_periodo: float = Query(..., ge=0),
+    atendimentos_periodo: int = Query(..., ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Resumo de custo por km/atendimento com base nos lançamentos da frota."""
+    _ = current_user
+    config = _obter_ou_criar_config_rateio_frota(db)
+    peso_km, peso_atendimento = _validar_pesos_rateio(
+        float(config.peso_km or 0),
+        float(config.peso_atendimento or 0),
+    )
+
+    rows = (
+        db.query(CustoFrota.forma_rateio, func.sum(CustoFrota.valor).label("total"))
+        .filter(
+            func.date(CustoFrota.data_referencia) >= data_inicio,
+            func.date(CustoFrota.data_referencia) <= data_fim,
+        )
+        .group_by(CustoFrota.forma_rateio)
+        .all()
+    )
+    totais = {str(row.forma_rateio): float(row.total or 0) for row in rows}
+    total_periodo = float(sum(totais.values()))
+
+    custo_por_km = 0.0
+    if km_rodado_periodo > 0:
+        custo_por_km = round(
+            (totais.get("por_km", 0.0) + totais.get("fixo_mensal", 0.0)) / km_rodado_periodo,
+            4,
+        )
+
+    custo_por_atendimento = 0.0
+    if atendimentos_periodo > 0:
+        custo_por_atendimento = round(
+            (totais.get("por_atendimento", 0.0) + totais.get("fixo_mensal", 0.0)) / atendimentos_periodo,
+            4,
+        )
+
+    custo_hibrido_atendimento = 0.0
+    custo_hibrido_km = 0.0
+    km_medio_atendimento = 0.0
+    if atendimentos_periodo > 0:
+        km_medio_atendimento = round(km_rodado_periodo / atendimentos_periodo, 6)
+
+    componente_km = (
+        round((totais.get("por_km", 0.0) + totais.get("fixo_mensal", 0.0)) / km_rodado_periodo, 6)
+        if km_rodado_periodo > 0
+        else 0.0
+    )
+    componente_atendimento = (
+        round(totais.get("por_atendimento", 0.0) / atendimentos_periodo, 6)
+        if atendimentos_periodo > 0
+        else 0.0
+    )
+    if atendimentos_periodo > 0:
+        custo_hibrido_atendimento = round(
+            (km_medio_atendimento * componente_km * peso_km) + (componente_atendimento * peso_atendimento),
+            6,
+        )
+    if km_rodado_periodo > 0 and km_medio_atendimento > 0:
+        componente_atendimento_em_km = componente_atendimento / km_medio_atendimento
+        custo_hibrido_km = round(
+            (componente_km * peso_km) + (componente_atendimento_em_km * peso_atendimento),
+            6,
+        )
+
+    return {
+        "data_inicio": data_inicio,
+        "data_fim": data_fim,
+        "total_periodo": round(total_periodo, 2),
+        "totais_por_rateio": {
+            "por_km": round(totais.get("por_km", 0.0), 2),
+            "por_atendimento": round(totais.get("por_atendimento", 0.0), 2),
+            "fixo_mensal": round(totais.get("fixo_mensal", 0.0), 2),
+            "hibrido": round(totais.get("hibrido", 0.0), 2),
+        },
+        "indices": {
+            "custo_por_km": custo_por_km,
+            "custo_por_atendimento": custo_por_atendimento,
+            "custo_hibrido_por_km": custo_hibrido_km,
+            "custo_hibrido_por_atendimento": custo_hibrido_atendimento,
+            "km_medio_por_atendimento": round(km_medio_atendimento, 4),
+        },
+        "config_rateio": {
+            "peso_km": peso_km,
+            "peso_atendimento": peso_atendimento,
+            "auto_gerar_depreciacao": bool(config.auto_gerar_depreciacao),
+        },
+    }
+
+
+# ==================== FROTA V2 ====================
+
+@router.get("/frota/veiculos", response_model=VeiculoFrotaLista)
+def listar_veiculos_frota(
+    ativo: Optional[bool] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    query = db.query(VeiculoFrota)
+    if ativo is not None:
+        query = query.filter(VeiculoFrota.ativo == ativo)
+    total = query.count()
+    items = query.order_by(VeiculoFrota.nome.asc()).offset(skip).limit(limit).all()
+    return {"total": total, "items": items}
+
+
+@router.post("/frota/veiculos", response_model=VeiculoFrotaResponse, status_code=status.HTTP_201_CREATED)
+def criar_veiculo_frota(
+    payload: VeiculoFrotaCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    item = VeiculoFrota(
+        nome=payload.nome.strip(),
+        placa=(payload.placa or "").strip() or None,
+        tipo_combustivel=(payload.tipo_combustivel or "").strip() or None,
+        consumo_km_litro=payload.consumo_km_litro,
+        valor_aquisicao=payload.valor_aquisicao,
+        valor_residual=payload.valor_residual,
+        vida_util_meses=payload.vida_util_meses,
+        ativo=bool(payload.ativo),
+        criado_por_id=current_user.id,
+        criado_por_nome=current_user.nome,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.put("/frota/veiculos/{veiculo_id}", response_model=VeiculoFrotaResponse)
+def atualizar_veiculo_frota(
+    veiculo_id: int,
+    payload: VeiculoFrotaUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    item = db.query(VeiculoFrota).filter(VeiculoFrota.id == veiculo_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Veiculo de frota nao encontrado")
+
+    dados = payload.model_dump(exclude_unset=True)
+    for field, value in dados.items():
+        if field in {"nome", "placa", "tipo_combustivel"} and value is not None:
+            texto = str(value).strip()
+            if field == "nome" and not texto:
+                raise HTTPException(status_code=422, detail="Nome do veiculo nao pode ficar vazio.")
+            setattr(item, field, texto or None)
+            continue
+        setattr(item, field, value)
+
+    item.updated_at = datetime.now()
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.delete("/frota/veiculos/{veiculo_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remover_veiculo_frota(
+    veiculo_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    item = db.query(VeiculoFrota).filter(VeiculoFrota.id == veiculo_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Veiculo de frota nao encontrado")
+    item.ativo = False
+    item.updated_at = datetime.now()
+    db.commit()
+    return None
+
+
+@router.get("/frota/telemetria", response_model=TelemetriaFrotaMensalLista)
+def listar_telemetria_frota(
+    competencia: Optional[str] = Query(None, pattern="^\\d{4}-\\d{2}$"),
+    veiculo_id: Optional[int] = Query(None, ge=1),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    query = db.query(TelemetriaFrotaMensal)
+    if competencia:
+        query = query.filter(TelemetriaFrotaMensal.competencia == competencia)
+    if veiculo_id:
+        query = query.filter(TelemetriaFrotaMensal.veiculo_id == veiculo_id)
+
+    total = query.count()
+    items = (
+        query.order_by(TelemetriaFrotaMensal.competencia.desc(), TelemetriaFrotaMensal.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return {"total": total, "items": items}
+
+
+@router.post(
+    "/frota/telemetria",
+    response_model=TelemetriaFrotaMensalResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def registrar_telemetria_frota(
+    payload: TelemetriaFrotaMensalCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    veiculo = db.query(VeiculoFrota).filter(VeiculoFrota.id == payload.veiculo_id).first()
+    if not veiculo:
+        raise HTTPException(status_code=404, detail="Veiculo nao encontrado")
+
+    existente = (
+        db.query(TelemetriaFrotaMensal)
+        .filter(
+            TelemetriaFrotaMensal.veiculo_id == payload.veiculo_id,
+            TelemetriaFrotaMensal.competencia == payload.competencia,
+        )
+        .first()
+    )
+    if existente:
+        existente.km_inicial = payload.km_inicial
+        existente.km_final = payload.km_final
+        existente.km_rodado = payload.km_rodado
+        existente.litros_consumidos = payload.litros_consumidos
+        existente.valor_combustivel = payload.valor_combustivel
+        existente.updated_at = datetime.now()
+        db.commit()
+        db.refresh(existente)
+        return existente
+
+    item = TelemetriaFrotaMensal(
+        veiculo_id=payload.veiculo_id,
+        competencia=payload.competencia,
+        km_inicial=payload.km_inicial,
+        km_final=payload.km_final,
+        km_rodado=payload.km_rodado,
+        litros_consumidos=payload.litros_consumidos,
+        valor_combustivel=payload.valor_combustivel,
+        criado_por_id=current_user.id,
+        criado_por_nome=current_user.nome,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.put("/frota/telemetria/{telemetria_id}", response_model=TelemetriaFrotaMensalResponse)
+def atualizar_telemetria_frota(
+    telemetria_id: int,
+    payload: TelemetriaFrotaMensalUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    item = db.query(TelemetriaFrotaMensal).filter(TelemetriaFrotaMensal.id == telemetria_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Telemetria nao encontrada")
+
+    dados = payload.model_dump(exclude_unset=True)
+    for field, value in dados.items():
+        setattr(item, field, value)
+    item.updated_at = datetime.now()
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.delete("/frota/telemetria/{telemetria_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remover_telemetria_frota(
+    telemetria_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    item = db.query(TelemetriaFrotaMensal).filter(TelemetriaFrotaMensal.id == telemetria_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Telemetria nao encontrada")
+    db.delete(item)
+    db.commit()
+    return None
+
+
+@router.get("/frota/rateio-config", response_model=ConfigRateioFrotaResponse)
+def obter_config_rateio_frota(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    return _obter_ou_criar_config_rateio_frota(db)
+
+
+@router.put("/frota/rateio-config", response_model=ConfigRateioFrotaResponse)
+def atualizar_config_rateio_frota(
+    payload: ConfigRateioFrotaUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    peso_km, peso_atendimento = _validar_pesos_rateio(payload.peso_km, payload.peso_atendimento)
+    config = _obter_ou_criar_config_rateio_frota(db)
+    config.peso_km = peso_km
+    config.peso_atendimento = peso_atendimento
+    config.auto_gerar_depreciacao = bool(payload.auto_gerar_depreciacao)
+    config.updated_at = datetime.now()
+    config.criado_por_id = current_user.id
+    config.criado_por_nome = current_user.nome
+    db.commit()
+    db.refresh(config)
+    return config
+
+
+@router.post("/custos-frota/depreciacao/gerar")
+def gerar_depreciacao_frota_mensal(
+    competencia: str = Query(..., pattern="^\\d{4}-\\d{2}$"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    inicio, fim = _parse_competencia_intervalo(competencia)
+    veiculos = (
+        db.query(VeiculoFrota)
+        .filter(VeiculoFrota.ativo == True)
+        .order_by(VeiculoFrota.nome.asc())
+        .all()
+    )
+
+    criados = 0
+    ignorados = 0
+    detalhes: list[dict] = []
+
+    for veiculo in veiculos:
+        valor_aquisicao = float(veiculo.valor_aquisicao or 0)
+        valor_residual = float(veiculo.valor_residual or 0)
+        vida_util_meses = int(veiculo.vida_util_meses or 0)
+        if valor_aquisicao <= 0 or vida_util_meses <= 0 or valor_aquisicao <= valor_residual:
+            ignorados += 1
+            detalhes.append(
+                {
+                    "veiculo_id": int(veiculo.id),
+                    "veiculo_nome": str(veiculo.nome),
+                    "status": "ignorado_parametros",
+                }
+            )
+            continue
+
+        existente = (
+            db.query(CustoFrota)
+            .filter(
+                CustoFrota.categoria == "depreciacao_veiculo",
+                CustoFrota.veiculo_id == int(veiculo.id),
+                func.date(CustoFrota.data_referencia) >= inicio.isoformat(),
+                func.date(CustoFrota.data_referencia) <= fim.isoformat(),
+            )
+            .first()
+        )
+        if existente:
+            ignorados += 1
+            detalhes.append(
+                {
+                    "veiculo_id": int(veiculo.id),
+                    "veiculo_nome": str(veiculo.nome),
+                    "status": "ja_existente",
+                    "custo_id": int(existente.id),
+                }
+            )
+            continue
+
+        depreciacao_mensal = round((valor_aquisicao - valor_residual) / vida_util_meses, 2)
+        if depreciacao_mensal <= 0:
+            ignorados += 1
+            detalhes.append(
+                {
+                    "veiculo_id": int(veiculo.id),
+                    "veiculo_nome": str(veiculo.nome),
+                    "status": "depreciacao_zero",
+                }
+            )
+            continue
+
+        item = CustoFrota(
+            data_referencia=datetime(inicio.year, inicio.month, 1),
+            categoria="depreciacao_veiculo",
+            valor=depreciacao_mensal,
+            forma_rateio="fixo_mensal",
+            clinica_id=None,
+            veiculo_id=int(veiculo.id),
+            veiculo=str(veiculo.nome),
+            descricao=f"Depreciacao mensal - {veiculo.nome} ({competencia})",
+            observacoes="Geracao automatica V2",
+            criado_por_id=current_user.id,
+            criado_por_nome=current_user.nome,
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+        )
+        db.add(item)
+        criados += 1
+        detalhes.append(
+            {
+                "veiculo_id": int(veiculo.id),
+                "veiculo_nome": str(veiculo.nome),
+                "status": "criado",
+                "valor": depreciacao_mensal,
+            }
+        )
+
+    db.commit()
+    return {
+        "competencia": competencia,
+        "criados": criados,
+        "ignorados": ignorados,
+        "detalhes": detalhes,
+    }
 
 
 # ==================== CONTAS A PAGAR - CRUD COMPLETO ====================

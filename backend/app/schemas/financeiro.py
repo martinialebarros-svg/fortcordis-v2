@@ -197,6 +197,75 @@ class ContaReceberLista(BaseModel):
     items: List[ContaReceberResponse]
 
 
+# ==================== CUSTOS DE FROTA ====================
+
+class CustoFrotaBase(BaseModel):
+    data_referencia: datetime = Field(default_factory=datetime.now, description="Data de referencia do custo")
+    categoria: str = Field(..., min_length=2, max_length=80, description="Categoria do custo de frota")
+    valor: float = Field(..., gt=0, description="Valor do custo")
+    forma_rateio: str = Field(
+        default="por_km",
+        pattern="^(por_km|por_atendimento|fixo_mensal|hibrido)$",
+        description="Regra de rateio para custos sem clinica vinculada",
+    )
+    km_referencia: Optional[float] = Field(default=None, ge=0, description="KM de referencia do lancamento")
+    atendimentos_referencia: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Quantidade de atendimentos de referencia do lancamento",
+    )
+    clinica_id: Optional[int] = Field(default=None, description="Clinica vinculada (opcional)")
+    veiculo_id: Optional[int] = Field(default=None, description="Veiculo vinculado (opcional)")
+    veiculo: Optional[str] = Field(default=None, max_length=120, description="Identificacao do veiculo")
+    descricao: Optional[str] = Field(default=None, max_length=255, description="Descricao curta")
+    observacoes: Optional[str] = Field(default=None, description="Observacoes")
+
+
+class CustoFrotaCreate(CustoFrotaBase):
+    pass
+
+
+class CustoFrotaUpdate(BaseModel):
+    data_referencia: Optional[datetime] = None
+    categoria: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    valor: Optional[float] = Field(default=None, gt=0)
+    forma_rateio: Optional[str] = Field(default=None, pattern="^(por_km|por_atendimento|fixo_mensal|hibrido)$")
+    km_referencia: Optional[float] = Field(default=None, ge=0)
+    atendimentos_referencia: Optional[int] = Field(default=None, ge=0)
+    clinica_id: Optional[int] = None
+    veiculo_id: Optional[int] = None
+    veiculo: Optional[str] = Field(default=None, max_length=120)
+    descricao: Optional[str] = Field(default=None, max_length=255)
+    observacoes: Optional[str] = None
+
+
+class CustoFrotaResponse(BaseModel):
+    id: int
+    data_referencia: datetime
+    categoria: str
+    valor: float
+    forma_rateio: str
+    km_referencia: Optional[float]
+    atendimentos_referencia: Optional[int]
+    clinica_id: Optional[int]
+    veiculo_id: Optional[int]
+    veiculo: Optional[str]
+    descricao: Optional[str]
+    observacoes: Optional[str]
+    criado_por_id: Optional[int]
+    criado_por_nome: Optional[str]
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class CustoFrotaLista(BaseModel):
+    total: int
+    items: List[CustoFrotaResponse]
+
+
 # ==================== RELATÓRIOS ====================
 
 class ResumoFinanceiro(BaseModel):
@@ -295,3 +364,119 @@ class RelatorioDRE(BaseModel):
     lucro_operacional: float
     margem_bruta: float
     margem_operacional: float
+
+
+# ==================== FROTA V2 ====================
+
+class VeiculoFrotaBase(BaseModel):
+    nome: str = Field(..., min_length=2, max_length=120)
+    placa: Optional[str] = Field(default=None, max_length=20)
+    tipo_combustivel: Optional[str] = Field(default=None, max_length=40)
+    consumo_km_litro: Optional[float] = Field(default=None, gt=0)
+    valor_aquisicao: Optional[float] = Field(default=None, ge=0)
+    valor_residual: Optional[float] = Field(default=None, ge=0)
+    vida_util_meses: Optional[int] = Field(default=None, ge=1)
+    ativo: bool = True
+
+
+class VeiculoFrotaCreate(VeiculoFrotaBase):
+    pass
+
+
+class VeiculoFrotaUpdate(BaseModel):
+    nome: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    placa: Optional[str] = Field(default=None, max_length=20)
+    tipo_combustivel: Optional[str] = Field(default=None, max_length=40)
+    consumo_km_litro: Optional[float] = Field(default=None, gt=0)
+    valor_aquisicao: Optional[float] = Field(default=None, ge=0)
+    valor_residual: Optional[float] = Field(default=None, ge=0)
+    vida_util_meses: Optional[int] = Field(default=None, ge=1)
+    ativo: Optional[bool] = None
+
+
+class VeiculoFrotaResponse(BaseModel):
+    id: int
+    nome: str
+    placa: Optional[str]
+    tipo_combustivel: Optional[str]
+    consumo_km_litro: Optional[float]
+    valor_aquisicao: Optional[float]
+    valor_residual: Optional[float]
+    vida_util_meses: Optional[int]
+    ativo: bool
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class VeiculoFrotaLista(BaseModel):
+    total: int
+    items: List[VeiculoFrotaResponse]
+
+
+class TelemetriaFrotaMensalBase(BaseModel):
+    veiculo_id: int = Field(..., ge=1)
+    competencia: str = Field(..., pattern="^\\d{4}-\\d{2}$", description="Formato YYYY-MM")
+    km_inicial: Optional[float] = Field(default=None, ge=0)
+    km_final: Optional[float] = Field(default=None, ge=0)
+    km_rodado: Optional[float] = Field(default=None, ge=0)
+    litros_consumidos: Optional[float] = Field(default=None, ge=0)
+    valor_combustivel: Optional[float] = Field(default=None, ge=0)
+
+
+class TelemetriaFrotaMensalCreate(TelemetriaFrotaMensalBase):
+    pass
+
+
+class TelemetriaFrotaMensalUpdate(BaseModel):
+    competencia: Optional[str] = Field(default=None, pattern="^\\d{4}-\\d{2}$")
+    km_inicial: Optional[float] = Field(default=None, ge=0)
+    km_final: Optional[float] = Field(default=None, ge=0)
+    km_rodado: Optional[float] = Field(default=None, ge=0)
+    litros_consumidos: Optional[float] = Field(default=None, ge=0)
+    valor_combustivel: Optional[float] = Field(default=None, ge=0)
+
+
+class TelemetriaFrotaMensalResponse(BaseModel):
+    id: int
+    veiculo_id: int
+    competencia: str
+    km_inicial: Optional[float]
+    km_final: Optional[float]
+    km_rodado: Optional[float]
+    litros_consumidos: Optional[float]
+    valor_combustivel: Optional[float]
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class TelemetriaFrotaMensalLista(BaseModel):
+    total: int
+    items: List[TelemetriaFrotaMensalResponse]
+
+
+class ConfigRateioFrotaBase(BaseModel):
+    peso_km: float = Field(default=0.7, ge=0, le=1)
+    peso_atendimento: float = Field(default=0.3, ge=0, le=1)
+    auto_gerar_depreciacao: bool = False
+
+
+class ConfigRateioFrotaUpdate(ConfigRateioFrotaBase):
+    pass
+
+
+class ConfigRateioFrotaResponse(BaseModel):
+    id: int
+    peso_km: float
+    peso_atendimento: float
+    auto_gerar_depreciacao: bool
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True

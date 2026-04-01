@@ -7,7 +7,15 @@ from app.models.clinica import Clinica
 from app.models.servico import Servico
 from app.models.laudo import Laudo, Exame
 from app.models.catalogo_exame import CatalogoExame, PainelExame, PainelExameItem
-from app.models.financeiro import Transacao, ContaPagar, ContaReceber
+from app.models.financeiro import (
+    Transacao,
+    ContaPagar,
+    ContaReceber,
+    CustoFrota,
+    VeiculoFrota,
+    TelemetriaFrotaMensal,
+    ConfigRateioFrota,
+)
 from app.models.frase import FraseQualitativa, FraseQualitativaHistorico
 from app.models.imagem_laudo import ImagemLaudo, ImagemTemporaria
 from app.models.laudo_pdf_job import LaudoPdfJob
