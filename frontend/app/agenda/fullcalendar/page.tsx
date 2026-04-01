@@ -24,6 +24,7 @@ import { CalendarDays, ChevronDown, Download, FileText, RefreshCw, Stethoscope, 
 import DashboardLayout from "../../layout-dashboard";
 import NovoAgendamentoModal from "../NovoAgendamentoModal";
 import api from "@/lib/axios";
+import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import { montarToastAgendaRealtime } from "@/lib/agenda-realtime-toast";
 import { useAgendaRealtime, type AgendaRealtimePayload } from "@/lib/useAgendaRealtime";
 import {
@@ -392,6 +393,7 @@ const extrairConflitoDeslocamento = (error: any): ConflitoDeslocamentoDetail | n
 };
 
 export default function AgendaFullCalendarPage() {
+  const fortinho = useFortinho();
   const [authChecked, setAuthChecked] = useState(false);
   const [intervalo, setIntervalo] = useState<IntervaloConsulta | null>(null);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
@@ -633,6 +635,9 @@ export default function AgendaFullCalendarPage() {
 
   const carregarLaudosVinculados = useCallback(async (items: Agendamento[]) => {
     const idsAgendamento = new Set(items.map((item) => item.id));
+    const pacientePorAgendamento = new Map(
+      items.map((item) => [item.id, Number(item.paciente_id || 0)])
+    );
     if (idsAgendamento.size === 0) {
       setLaudosVinculados({});
       return;
@@ -646,6 +651,18 @@ export default function AgendaFullCalendarPage() {
       for (const laudo of listaLaudos) {
         const agendamentoId = Number(laudo?.agendamento_id);
         if (!Number.isFinite(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
+          continue;
+        }
+
+        const pacienteLaudoId = Number(laudo?.paciente_id);
+        const pacienteAgendamentoId = Number(pacientePorAgendamento.get(agendamentoId) || 0);
+        if (
+          Number.isFinite(pacienteLaudoId) &&
+          pacienteLaudoId > 0 &&
+          Number.isFinite(pacienteAgendamentoId) &&
+          pacienteAgendamentoId > 0 &&
+          pacienteLaudoId !== pacienteAgendamentoId
+        ) {
           continue;
         }
 
@@ -1195,7 +1212,14 @@ export default function AgendaFullCalendarPage() {
 
   const excluirSelecionado = useCallback(async () => {
     if (!selecionado) return;
-    const confirmar = window.confirm("Deseja realmente excluir este agendamento?");
+    const confirmar = await fortinho.confirm({
+      title: "Excluir agendamento",
+      message: "Deseja realmente excluir este agendamento?",
+      confirmLabel: "Excluir",
+      cancelLabel: "Cancelar",
+      mood: "alert",
+      gesture: "open-arms",
+    });
     if (!confirmar) return;
 
     try {
@@ -1219,7 +1243,7 @@ export default function AgendaFullCalendarPage() {
     } finally {
       setExcluindoAgendamentoId(null);
     }
-  }, [carregarAgendamentos, intervalo, selecionado]);
+  }, [carregarAgendamentos, fortinho, intervalo, selecionado]);
 
   const existeConflitoSlot = useCallback(
     (inicio: Date, fim: Date, agendamentoIgnoradoId?: number) => {
@@ -1328,7 +1352,7 @@ export default function AgendaFullCalendarPage() {
         setSalvandoMovimentacao(false);
       }
     },
-    [agendamentos, carregarAgendamentos, existeConflitoSlot, intervalo, validarHorarioNaAgenda]
+    [agendamentos, carregarAgendamentos, existeConflitoSlot, fortinho, intervalo, validarHorarioNaAgenda]
   );
 
   const abrirFluxoRecorrenciaMovimentacao = useCallback(
@@ -1570,6 +1594,7 @@ export default function AgendaFullCalendarPage() {
     carregarAgendamentos,
     dataLimiteRecorrencia,
     existeConflitoSlot,
+    fortinho,
     gerarIniciosRecorrencia,
     intervalo,
     movimentacaoPendente,

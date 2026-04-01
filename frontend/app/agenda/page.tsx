@@ -486,6 +486,9 @@ export default function AgendaPage() {
 
   const carregarLaudosVinculados = async (items: Agendamento[]) => {
     const idsAgendamento = new Set(items.map((item) => item.id));
+    const pacientePorAgendamento = new Map(
+      items.map((item) => [item.id, Number(item.paciente_id || 0)])
+    );
     if (idsAgendamento.size === 0) {
       setLaudosVinculados({});
       return;
@@ -499,6 +502,18 @@ export default function AgendaPage() {
       for (const laudo of listaLaudos) {
         const agendamentoId = Number(laudo?.agendamento_id);
         if (!Number.isFinite(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
+          continue;
+        }
+
+        const pacienteLaudoId = Number(laudo?.paciente_id);
+        const pacienteAgendamentoId = Number(pacientePorAgendamento.get(agendamentoId) || 0);
+        if (
+          Number.isFinite(pacienteLaudoId) &&
+          pacienteLaudoId > 0 &&
+          Number.isFinite(pacienteAgendamentoId) &&
+          pacienteAgendamentoId > 0 &&
+          pacienteLaudoId !== pacienteAgendamentoId
+        ) {
           continue;
         }
 

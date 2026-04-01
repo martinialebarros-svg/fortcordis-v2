@@ -18,3 +18,171 @@ select.prescricao-select-dark option {
   color: #0f172a;
   background-color: #ffffff;
 }
+
+@keyframes fortinho-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes fortinho-bob-fast {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+@keyframes fortinho-blink {
+  0%,
+  44%,
+  100% {
+    transform: scaleY(1);
+  }
+  46%,
+  48% {
+    transform: scaleY(0.12);
+  }
+  50%,
+  52% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes fortinho-wave {
+  0%,
+  100% {
+    transform: rotate(4deg);
+  }
+  20% {
+    transform: rotate(28deg);
+  }
+  40% {
+    transform: rotate(-6deg);
+  }
+  60% {
+    transform: rotate(24deg);
+  }
+  80% {
+    transform: rotate(2deg);
+  }
+}
+
+@keyframes fortinho-leg-left-sway {
+  0%,
+  100% {
+    transform: rotate(-2deg);
+  }
+  50% {
+    transform: rotate(4deg);
+  }
+}
+
+@keyframes fortinho-leg-right-sway {
+  0%,
+  100% {
+    transform: rotate(2deg);
+  }
+  50% {
+    transform: rotate(-4deg);
+  }
+}
+
+@keyframes fortinho-leg-hop {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  40% {
+    transform: translateY(-2px) rotate(6deg);
+  }
+  60% {
+    transform: translateY(0) rotate(-4deg);
+  }
+}
+
+.fortinho-bob {
+  animation: fortinho-bob 2.4s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.fortinho-bob-fast {
+  animation: fortinho-bob-fast 1.3s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.fortinho-eye {
+  animation: fortinho-blink 4.8s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.fortinho-arm-left-idle {
+  transform-box: fill-box;
+}
+
+.fortinho-arm-right-idle {
+  transform-box: fill-box;
+}
+
+.fortinho-arm-left-open {
+  transform: rotate(-22deg);
+  transform-box: fill-box;
+}
+
+.fortinho-arm-right-open {
+  transform: rotate(22deg);
+  transform-box: fill-box;
+}
+
+.fortinho-arm-right-point {
+  transform: rotate(8deg) translateX(7px);
+  transform-box: fill-box;
+}
+
+.fortinho-arm-right-wave {
+  animation: fortinho-wave 1.65s ease-in-out infinite;
+  transform-box: fill-box;
+}
+
+.fortinho-leg-left-idle {
+  animation: fortinho-leg-left-sway 2.3s ease-in-out infinite;
+  transform-box: fill-box;
+}
+
+.fortinho-leg-right-idle {
+  animation: fortinho-leg-right-sway 2.1s ease-in-out infinite;
+  transform-box: fill-box;
+}
+
+.fortinho-leg-left-hop {
+  animation: fortinho-leg-hop 0.92s ease-in-out infinite;
+  transform-box: fill-box;
+}
+
+.fortinho-leg-right-hop {
+  animation: fortinho-leg-hop 0.92s ease-in-out infinite reverse;
+  transform-box: fill-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fortinho-bob,
+  .fortinho-bob-fast,
+  .fortinho-eye,
+  .fortinho-arm-right-wave,
+  .fortinho-leg-left-idle,
+  .fortinho-leg-right-idle,
+  .fortinho-leg-left-hop,
+  .fortinho-leg-right-hop {
+    animation: none !important;
+    transform: none !important;
+  }
+}

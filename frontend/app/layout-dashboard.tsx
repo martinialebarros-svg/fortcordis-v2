@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import api from "@/lib/axios";
+import { FortinhoProvider } from "@/components/fortinho/FortinhoProvider";
 import {
   Calendar,
   CalendarDays,
@@ -68,6 +69,19 @@ export default function DashboardLayout({
   const limparBackdropsOrfaos = () => {
     if (typeof document === "undefined") return;
 
+    const elementoVisivelNoViewport = (el: Element | null): boolean => {
+      if (!(el instanceof HTMLElement)) return false;
+      const style = window.getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity || "1") === 0) {
+        return false;
+      }
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      if (rect.bottom <= 0 || rect.right <= 0) return false;
+      if (rect.top >= window.innerHeight || rect.left >= window.innerWidth) return false;
+      return true;
+    };
+
     const viewportArea = window.innerWidth * window.innerHeight;
     const candidatos = Array.from(
       document.body.querySelectorAll(
@@ -88,10 +102,18 @@ export default function DashboardLayout({
         rect.width * rect.height >= viewportArea * 0.9 &&
         rect.top <= 0 &&
         rect.left <= 0;
-      const hasDialogContent = Boolean(
-        elemento.querySelector("[role='dialog'], iframe, img, form, section, article, textarea, input, select, button")
+      const candidatosDialogo = Array.from(
+        elemento.querySelectorAll(
+          "[role='dialog'], iframe, img, form, section, article, textarea, input, select, button, [data-modal-content]"
+        )
       );
-      const hasMeaningfulText = Boolean((elemento.textContent || "").trim());
+      const hasDialogContentVisivel = candidatosDialogo.some((item) => elementoVisivelNoViewport(item));
+      const hasMeaningfulTextVisivel = Array.from(
+        elemento.querySelectorAll("h1, h2, h3, h4, h5, h6, p, span, strong, small, label, button")
+      ).some((item) => {
+        if (!elementoVisivelNoViewport(item)) return false;
+        return Boolean((item.textContent || "").trim());
+      });
       const backgroundColor = style.backgroundColor || "";
       const isDarkBackdrop =
         className.includes("bg-black/50") ||
@@ -107,7 +129,7 @@ export default function DashboardLayout({
           isDarkBackdrop
         );
 
-      if (looksLikeOverlay && !hasDialogContent && !hasMeaningfulText) {
+      if (looksLikeOverlay && !hasDialogContentVisivel && !hasMeaningfulTextVisivel) {
         elemento.style.display = "none";
         elemento.style.pointerEvents = "none";
         elemento.setAttribute("data-fortcordis-orphan-overlay-hidden", "1");
@@ -375,170 +397,172 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header mobile */}
-      <div className="lg:hidden bg-white border-b px-4 py-3 flex justify-between items-center">
-        <div className="flex items-center gap-2 min-w-0">
-          {logoUrl ? (
-            <img
-              src={logoUrl}
-              alt="Logomarca da clinica"
-              className="w-8 h-8 rounded-lg object-contain border bg-white"
-            />
-          ) : (
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">FC</span>
-            </div>
-          )}
-          <h1 className="text-lg font-bold text-gray-900 truncate">{nomeClinica}</h1>
+    <FortinhoProvider>
+      <div className="min-h-screen bg-gray-50">
+        {/* Header mobile */}
+        <div className="lg:hidden bg-white border-b px-4 py-3 flex justify-between items-center">
+          <div className="flex items-center gap-2 min-w-0">
+            {logoUrl ? (
+              <img
+                src={logoUrl}
+                alt="Logomarca da clinica"
+                className="w-8 h-8 rounded-lg object-contain border bg-white"
+              />
+            ) : (
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold text-sm">FC</span>
+              </div>
+            )}
+            <h1 className="text-lg font-bold text-gray-900 truncate">{nomeClinica}</h1>
+          </div>
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="p-2 text-gray-600 hover:text-gray-900"
+          >
+            {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
         </div>
-        <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="p-2 text-gray-600 hover:text-gray-900"
-        >
-          {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-        </button>
-      </div>
 
-      <div className="flex">
-        {/* Sidebar */}
-        <aside
-          className={`${
-            sidebarOpen ? "translate-x-0" : "-translate-x-full"
-          } lg:translate-x-0 fixed lg:static inset-y-0 left-0 z-[60] w-64 bg-white border-r transition-transform duration-200 ease-in-out`}
-        >
-          <div className="h-full flex flex-col">
-            {/* Logo */}
-            <div className="hidden lg:flex flex-col gap-3 px-4 py-4 border-b">
-              <div className="flex items-center gap-3">
-                {logoUrl ? (
-                  <img
-                    src={logoUrl}
-                    alt="Logomarca da clinica"
-                    className="w-9 h-9 rounded-lg object-contain border bg-white"
-                  />
-                ) : (
-                  <div className="w-9 h-9 bg-blue-600 rounded-lg flex items-center justify-center">
-                    <span className="text-white font-bold text-sm">FC</span>
-                  </div>
-                )}
-
-                <div className="flex-1 min-w-0">
-                  {editandoNomeClinica ? (
-                    <input
-                      value={nomeClinicaDraft}
-                      onChange={(e) => setNomeClinicaDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          salvarNomeClinica();
-                        }
-                        if (e.key === "Escape") {
-                          setNomeClinicaDraft(nomeClinica);
-                          setEditandoNomeClinica(false);
-                        }
-                      }}
-                      className="w-full px-2 py-1 text-sm font-semibold text-gray-900 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      autoFocus
+        <div className="flex">
+          {/* Sidebar */}
+          <aside
+            className={`${
+              sidebarOpen ? "translate-x-0" : "-translate-x-full"
+            } lg:translate-x-0 fixed lg:static inset-y-0 left-0 z-[60] w-64 bg-white border-r transition-transform duration-200 ease-in-out`}
+          >
+            <div className="h-full flex flex-col">
+              {/* Logo */}
+              <div className="hidden lg:flex flex-col gap-3 px-4 py-4 border-b">
+                <div className="flex items-center gap-3">
+                  {logoUrl ? (
+                    <img
+                      src={logoUrl}
+                      alt="Logomarca da clinica"
+                      className="w-9 h-9 rounded-lg object-contain border bg-white"
                     />
                   ) : (
-                    <span className="block text-base font-bold text-gray-900 truncate">
-                      {nomeClinica}
-                    </span>
+                    <div className="w-9 h-9 bg-blue-600 rounded-lg flex items-center justify-center">
+                      <span className="text-white font-bold text-sm">FC</span>
+                    </div>
+                  )}
+
+                  <div className="flex-1 min-w-0">
+                    {editandoNomeClinica ? (
+                      <input
+                        value={nomeClinicaDraft}
+                        onChange={(e) => setNomeClinicaDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            salvarNomeClinica();
+                          }
+                          if (e.key === "Escape") {
+                            setNomeClinicaDraft(nomeClinica);
+                            setEditandoNomeClinica(false);
+                          }
+                        }}
+                        className="w-full px-2 py-1 text-sm font-semibold text-gray-900 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        autoFocus
+                      />
+                    ) : (
+                      <span className="block text-base font-bold text-gray-900 truncate">
+                        {nomeClinica}
+                      </span>
+                    )}
+                  </div>
+
+                  {editandoNomeClinica ? (
+                    <button
+                      onClick={salvarNomeClinica}
+                      disabled={salvandoNomeClinica}
+                      className="p-1.5 rounded-md text-green-700 hover:bg-green-50 disabled:opacity-60"
+                      title="Salvar nome da clinica"
+                    >
+                      {salvandoNomeClinica ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Check className="w-4 h-4" />
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setEditandoNomeClinica(true)}
+                      className="p-1.5 rounded-md text-gray-600 hover:bg-gray-100"
+                      title="Editar nome da clinica"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
                   )}
                 </div>
 
-                {editandoNomeClinica ? (
-                  <button
-                    onClick={salvarNomeClinica}
-                    disabled={salvandoNomeClinica}
-                    className="p-1.5 rounded-md text-green-700 hover:bg-green-50 disabled:opacity-60"
-                    title="Salvar nome da clinica"
-                  >
-                    {salvandoNomeClinica ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Check className="w-4 h-4" />
-                    )}
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setEditandoNomeClinica(true)}
-                    className="p-1.5 rounded-md text-gray-600 hover:bg-gray-100"
-                    title="Editar nome da clinica"
-                  >
-                    <Pencil className="w-4 h-4" />
-                  </button>
+                {editandoNomeClinica && (
+                  <p className="text-[11px] leading-4 text-gray-500 px-1">
+                    Pressione Enter para salvar ou Esc para cancelar.
+                  </p>
                 )}
               </div>
 
-              {editandoNomeClinica && (
-                <p className="text-[11px] leading-4 text-gray-500 px-1">
-                  Pressione Enter para salvar ou Esc para cancelar.
+              {/* Menu */}
+              <nav className="flex-1 px-4 py-4 space-y-1">
+                {menuItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = pathname === item.href;
+
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setSidebarOpen(false)}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                        isActive
+                          ? "bg-blue-50 text-blue-700"
+                          : "text-gray-700 hover:bg-gray-100"
+                      }`}
+                    >
+                      <Icon className={`w-5 h-5 ${isActive ? "text-blue-600" : "text-gray-400"}`} />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </nav>
+
+              {/* User & Logout */}
+              <div className="border-t p-4">
+                <div className="flex items-center gap-3 mb-3 px-3">
+                  <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
+                    <User className="w-4 h-4 text-gray-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{user.nome}</p>
+                    <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                >
+                  <LogOut className="w-5 h-5" />
+                  Sair
+                </button>
+                <p className="mt-3 px-3 text-[11px] leading-4 text-gray-400">
+                  Sistema proprietario da FortCordis. Desenvolvido por Martiniano Le Barros.
                 </p>
-              )}
-            </div>
-
-            {/* Menu */}
-            <nav className="flex-1 px-4 py-4 space-y-1">
-              {menuItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = pathname === item.href;
-                
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setSidebarOpen(false)}
-                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                      isActive
-                        ? "bg-blue-50 text-blue-700"
-                        : "text-gray-700 hover:bg-gray-100"
-                    }`}
-                  >
-                    <Icon className={`w-5 h-5 ${isActive ? "text-blue-600" : "text-gray-400"}`} />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
-
-            {/* User & Logout */}
-            <div className="border-t p-4">
-              <div className="flex items-center gap-3 mb-3 px-3">
-                <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
-                  <User className="w-4 h-4 text-gray-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">{user.nome}</p>
-                  <p className="text-xs text-gray-500 truncate">{user.email}</p>
-                </div>
               </div>
-              <button
-                onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-              >
-                <LogOut className="w-5 h-5" />
-                Sair
-              </button>
-              <p className="mt-3 px-3 text-[11px] leading-4 text-gray-400">
-                Sistema proprietario da FortCordis. Desenvolvido por Martiniano Le Barros.
-              </p>
             </div>
-          </div>
-        </aside>
+          </aside>
 
-        {/* Main content */}
-        <main
-          className="flex-1 min-w-0"
-          onClick={() => {
-            if (sidebarOpen && isMobileViewport) {
-              setSidebarOpen(false);
-            }
-          }}
-        >
-          {children}
-        </main>
+          {/* Main content */}
+          <main
+            className="flex-1 min-w-0"
+            onClick={() => {
+              if (sidebarOpen && isMobileViewport) {
+                setSidebarOpen(false);
+              }
+            }}
+          >
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </FortinhoProvider>
   );
 }

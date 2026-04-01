@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { X, User, Building, Calendar, Clock, Sparkles } from "lucide-react";
 import api from "@/lib/axios";
+import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import {
   AgendaExcecaoConfig,
   AgendaFeriadoConfig,
@@ -205,6 +206,7 @@ export default function NovoAgendamentoModal({
   agendaFeriados,
   agendaExcecoes,
 }: NovoAgendamentoModalProps) {
+  const fortinho = useFortinho();
   const [loading, setLoading] = useState(false);
   const [pacientes, setPacientes] = useState<PacienteOption[]>([]);
   const [tutores, setTutores] = useState<TutorOption[]>([]);
@@ -606,7 +608,16 @@ export default function NovoAgendamentoModal({
             "",
             "Posso aplicar esse horário?",
           ].join("\n");
-      const confirmou = window.confirm(mensagemPopup);
+      const confirmou = await fortinho.confirm({
+        title: acimaDoLimite
+          ? "Sugestao de proximidade acima do limite"
+          : "Sugestao inteligente de proximidade",
+        message: mensagemPopup,
+        confirmLabel: "Aplicar horario",
+        cancelLabel: "Manter como esta",
+        mood: acimaDoLimite ? "alert" : "thinking",
+        gesture: "point-right",
+      });
 
       if (confirmou && dataSugerida) {
         try {
@@ -885,7 +896,13 @@ export default function NovoAgendamentoModal({
   const salvarNovoTutor = async () => {
     const nome = novoTutor.nome.trim();
     if (!nome) {
-      alert("Informe o nome do tutor.");
+      fortinho.notify({
+        title: "Cadastro de tutor",
+        message: "Informe o nome do tutor.",
+        mood: "alert",
+        gesture: "idle",
+        sticky: true,
+      });
       return;
     }
 
@@ -924,7 +941,13 @@ export default function NovoAgendamentoModal({
       setNovoTutor(buildInitialTutorForm());
     } catch (error: any) {
       const detail = error?.response?.data?.detail ?? error?.message;
-      alert(`Erro ao salvar tutor: ${extrairMensagemErro(detail)}`);
+      fortinho.notify({
+        title: "Erro ao salvar tutor",
+        message: extrairMensagemErro(detail),
+        mood: "alert",
+        gesture: "idle",
+        sticky: true,
+      });
     } finally {
       setSalvandoTutor(false);
     }
@@ -933,19 +956,37 @@ export default function NovoAgendamentoModal({
   const salvarNovoAnimal = async () => {
     const nomeAnimal = novoAnimal.nome.trim();
     if (!nomeAnimal) {
-      alert("Informe o nome do animal.");
+      fortinho.notify({
+        title: "Cadastro de animal",
+        message: "Informe o nome do animal.",
+        mood: "alert",
+        gesture: "idle",
+        sticky: true,
+      });
       return;
     }
 
     const tutorId = Number.parseInt(novoAnimal.tutor_id || "", 10);
     if (!Number.isFinite(tutorId)) {
-      alert("Selecione um tutor para cadastrar o animal.");
+      fortinho.notify({
+        title: "Cadastro de animal",
+        message: "Selecione um tutor para cadastrar o animal.",
+        mood: "alert",
+        gesture: "idle",
+        sticky: true,
+      });
       return;
     }
 
     const tutor = tutores.find((item) => item.id === tutorId);
     if (!tutor?.nome) {
-      alert("Tutor selecionado nao encontrado.");
+      fortinho.notify({
+        title: "Cadastro de animal",
+        message: "Tutor selecionado nao encontrado.",
+        mood: "alert",
+        gesture: "idle",
+        sticky: true,
+      });
       return;
     }
 
@@ -994,7 +1035,13 @@ export default function NovoAgendamentoModal({
       setNovoAnimal(buildInitialAnimalForm(String(tutor.id)));
     } catch (error: any) {
       const detail = error?.response?.data?.detail ?? error?.message;
-      alert(`Erro ao salvar animal: ${extrairMensagemErro(detail)}`);
+      fortinho.notify({
+        title: "Erro ao salvar animal",
+        message: extrairMensagemErro(detail),
+        mood: "alert",
+        gesture: "idle",
+        sticky: true,
+      });
     } finally {
       setSalvandoAnimal(false);
     }
@@ -1102,7 +1149,13 @@ export default function NovoAgendamentoModal({
     } catch (error: any) {
       const detail = error?.response?.data?.detail ?? error?.message;
       const detailStr = extrairMensagemErro(detail);
-      alert(`Erro ao ${isEditando ? "editar" : "criar"} agendamento: ${detailStr}`);
+      fortinho.notify({
+        title: `Erro ao ${isEditando ? "editar" : "criar"} agendamento`,
+        message: detailStr,
+        mood: "alert",
+        gesture: "idle",
+        sticky: true,
+      });
     } finally {
       setLoading(false);
     }
