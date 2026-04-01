@@ -19,6 +19,7 @@ from app.api.v1.endpoints import (
     logistica,
     ordens_servico,
     pacientes,
+    relatorios,
     referencias_eco,
     servicos,
     tabelas_preco,
@@ -52,6 +53,7 @@ def _ensure_financeiro_schema_compat() -> None:
         "transacoes": {"clinica_id": "INTEGER"},
         "contas_pagar": {"clinica_id": "INTEGER"},
         "contas_receber": {"clinica_id": "INTEGER"},
+        "custos_frota": {"veiculo_id": "INTEGER"},
     }
 
     try:
@@ -75,6 +77,19 @@ def _ensure_financeiro_schema_compat() -> None:
                         f"[schema-compat] Coluna adicionada: "
                         f"{table_name}.{column_name} ({column_type})"
                     )
+
+            # Compat para entidade de custos de frota (V1 de rentabilidade real)
+            from app.models.financeiro import (
+                ConfigRateioFrota,
+                CustoFrota,
+                TelemetriaFrotaMensal,
+                VeiculoFrota,
+            )
+
+            CustoFrota.__table__.create(bind=conn, checkfirst=True)
+            VeiculoFrota.__table__.create(bind=conn, checkfirst=True)
+            TelemetriaFrotaMensal.__table__.create(bind=conn, checkfirst=True)
+            ConfigRateioFrota.__table__.create(bind=conn, checkfirst=True)
     except Exception as exc:
         print(f"[schema-compat] Falha ao validar schema financeiro: {exc}")
 
@@ -117,6 +132,7 @@ app.include_router(tutores.router, prefix="/api/v1/tutores", tags=["tutores"])
 app.include_router(referencias_eco.router, prefix="/api/v1/referencias-eco", tags=["referencias_eco"])
 app.include_router(atendimento.router, prefix="/api/v1/atendimentos", tags=["atendimento"])
 app.include_router(logistica.router, prefix="/api/v1/logistica", tags=["logistica"])
+app.include_router(relatorios.router, prefix="/api/v1/relatorios", tags=["relatorios"])
 
 
 @app.on_event("startup")

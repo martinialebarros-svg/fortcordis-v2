@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Float, Enum
+from sqlalchemy import Column, Integer, String, DateTime, Text, Float, Enum, Boolean, UniqueConstraint
 from sqlalchemy.sql import func
 from app.db.database import Base
 import enum
@@ -141,3 +141,96 @@ class ContaReceber(Base):
 
     # Centro de custos (Feature Flag: feature_centro_custos)
     clinica_id = Column(Integer, nullable=True)
+
+
+class CustoFrota(Base):
+    __tablename__ = "custos_frota"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Data de competencia/lancamento
+    data_referencia = Column(DateTime(timezone=True), nullable=False, default=func.now())
+
+    # Categoria do custo
+    categoria = Column(String, nullable=False)  # combustivel, pedagio, manutencao, seguro...
+
+    # Valor total do lancamento
+    valor = Column(Float, nullable=False)
+
+    # Regra de rateio quando nao houver clinica vinculada
+    forma_rateio = Column(String, nullable=False, default="por_km")  # por_km, por_atendimento, fixo_mensal, hibrido
+
+    # Base opcional do lancamento (ex.: litros, km, numero de atendimentos)
+    km_referencia = Column(Float, nullable=True)
+    atendimentos_referencia = Column(Integer, nullable=True)
+
+    # Vinculos opcionais
+    clinica_id = Column(Integer, nullable=True)
+    veiculo_id = Column(Integer, nullable=True)
+    veiculo = Column(String, nullable=True)
+
+    descricao = Column(Text, nullable=True)
+    observacoes = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    criado_por_id = Column(Integer, nullable=True)
+    criado_por_nome = Column(String, nullable=True)
+
+
+class VeiculoFrota(Base):
+    __tablename__ = "veiculos_frota"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String, nullable=False)
+    placa = Column(String, nullable=True)
+    tipo_combustivel = Column(String, nullable=True)
+    consumo_km_litro = Column(Float, nullable=True)
+
+    valor_aquisicao = Column(Float, nullable=True)
+    valor_residual = Column(Float, nullable=True)
+    vida_util_meses = Column(Integer, nullable=True)
+
+    ativo = Column(Boolean, nullable=False, default=True)
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    criado_por_id = Column(Integer, nullable=True)
+    criado_por_nome = Column(String, nullable=True)
+
+
+class TelemetriaFrotaMensal(Base):
+    __tablename__ = "telemetria_frota_mensal"
+    __table_args__ = (
+        UniqueConstraint("veiculo_id", "competencia", name="uq_telemetria_frota_veiculo_competencia"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    veiculo_id = Column(Integer, nullable=False)
+    competencia = Column(String(7), nullable=False)  # YYYY-MM
+
+    km_inicial = Column(Float, nullable=True)
+    km_final = Column(Float, nullable=True)
+    km_rodado = Column(Float, nullable=True)
+
+    litros_consumidos = Column(Float, nullable=True)
+    valor_combustivel = Column(Float, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    criado_por_id = Column(Integer, nullable=True)
+    criado_por_nome = Column(String, nullable=True)
+
+
+class ConfigRateioFrota(Base):
+    __tablename__ = "config_rateio_frota"
+
+    id = Column(Integer, primary_key=True, index=True)
+    peso_km = Column(Float, nullable=False, default=0.7)
+    peso_atendimento = Column(Float, nullable=False, default=0.3)
+    auto_gerar_depreciacao = Column(Boolean, nullable=False, default=False)
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    criado_por_id = Column(Integer, nullable=True)
+    criado_por_nome = Column(String, nullable=True)
