@@ -33,6 +33,7 @@ class Configuracao(Base):
     texto_rodape_laudo = Column(Text, default="Fort Cordis Cardiologia Veterinária | Fortaleza-CE")
     mostrar_logomarca = Column(Boolean, default=True)
     mostrar_assinatura = Column(Boolean, default=True)
+    fortinho_habilitado = Column(Boolean, default=False)
     
     # Configurações de agendamento
     horario_comercial_inicio = Column(String(5), default="08:00")

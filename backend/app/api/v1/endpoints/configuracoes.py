@@ -26,6 +26,20 @@ MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "t", "yes", "y", "sim", "on"}:
+            return True
+        if normalized in {"0", "false", "f", "no", "n", "nao", "não", "off", ""}:
+            return False
+    return bool(value)
+
+
 def get_or_create_configuracao(db: Session) -> Configuracao:
     """Obtém ou cria a configuração padrão"""
     config = db.query(Configuracao).first()
@@ -65,6 +79,7 @@ def obter_configuracoes(
             "texto_rodape_laudo": config.texto_rodape_laudo,
             "mostrar_logomarca": config.mostrar_logomarca,
             "mostrar_assinatura": config.mostrar_assinatura,
+            "fortinho_habilitado": bool(getattr(config, "fortinho_habilitado", False)),
             "horario_comercial_inicio": config.horario_comercial_inicio,
             "horario_comercial_fim": config.horario_comercial_fim,
             "dias_trabalho": config.dias_trabalho,
@@ -92,10 +107,19 @@ def atualizar_configuracoes(
     campos_permitidos = [
         "nome_empresa", "endereco", "telefone", "email", "cidade", "estado",
         "website", "texto_cabecalho_laudo", "texto_rodape_laudo",
-        "mostrar_logomarca", "mostrar_assinatura",
+        "mostrar_logomarca", "mostrar_assinatura", "fortinho_habilitado",
         "horario_comercial_inicio", "horario_comercial_fim", "dias_trabalho",
         "agenda_semanal", "agenda_feriados", "agenda_excecoes",
     ]
+
+    if "fortinho_habilitado" in dados and not current_user.tem_papel("admin"):
+        valor_atual = _coerce_bool(getattr(config, "fortinho_habilitado", False))
+        valor_novo = _coerce_bool(dados.get("fortinho_habilitado"))
+        if valor_novo != valor_atual:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Apenas administradores podem ativar ou desativar o Fortinho.",
+            )
     
     agenda_semanal_normalizada = None
     for campo in campos_permitidos:

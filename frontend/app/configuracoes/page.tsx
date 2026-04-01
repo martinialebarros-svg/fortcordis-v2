@@ -41,6 +41,7 @@ interface ConfiguracoesSistema {
   texto_rodape_laudo: string;
   mostrar_logomarca: boolean;
   mostrar_assinatura: boolean;
+  fortinho_habilitado: boolean;
   agenda_semanal: AgendaSemanalConfig;
   agenda_feriados: AgendaFeriadoConfig[];
   agenda_excecoes: AgendaExcecaoConfig[];
@@ -137,6 +138,7 @@ export default function ConfiguracoesPage() {
     texto_rodape_laudo: "Fort Cordis Cardiologia VeterinÃ¡ria | Fortaleza-CE",
     mostrar_logomarca: true,
     mostrar_assinatura: true,
+    fortinho_habilitado: false,
     agenda_semanal: normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL),
     agenda_feriados: [],
     agenda_excecoes: [],
@@ -166,6 +168,7 @@ export default function ConfiguracoesPage() {
   const [carregandoPermissoes, setCarregandoPermissoes] = useState(false);
   const [salvandoPermissoes, setSalvandoPermissoes] = useState(false);
   const [somenteLeituraAgenda, setSomenteLeituraAgenda] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [modulosPermissoes, setModulosPermissoes] = useState<ModuloPermissao[]>([]);
   const [matrizPermissoes, setMatrizPermissoes] = useState<MatrizPermissaoPapel[]>([]);
   const [auditoriaItens, setAuditoriaItens] = useState<AuditoriaEventoItem[]>([]);
@@ -197,12 +200,48 @@ export default function ConfiguracoesPage() {
     papeis: [],
   });
 
+  const usuarioEhAdmin = () => {
+    if (typeof window === "undefined") return false;
+
+    const userData = localStorage.getItem("user");
+    const token = localStorage.getItem("token");
+
+    try {
+      if (userData) {
+        const user = JSON.parse(userData);
+        const papeisUser: unknown[] = Array.isArray(user?.papeis) ? user.papeis : [];
+        if (papeisUser.some((papel: unknown) => String(papel || "").trim().toLowerCase() === "admin")) {
+          return true;
+        }
+      }
+
+      if (token) {
+        const partes = token.split(".");
+        if (partes.length >= 2) {
+          const base64Url = partes[1];
+          const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+          const normalizado = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+          const payloadStr = atob(normalizado);
+          const payload = JSON.parse(payloadStr);
+          const papeisToken: unknown[] = Array.isArray(payload?.papeis) ? payload.papeis : [];
+          if (papeisToken.some((papel: unknown) => String(papel || "").trim().toLowerCase() === "admin")) {
+            return true;
+          }
+        }
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
       router.push("/");
       return;
     }
+    setIsAdmin(usuarioEhAdmin());
     carregarConfiguracoes();
   }, [router]);
 
@@ -505,12 +544,15 @@ export default function ConfiguracoesPage() {
   const salvarConfigEmpresa = async () => {
     try {
       setSalvando(true);
-      const payload = {
+      const payload: Record<string, any> = {
         ...configEmpresa,
         agenda_semanal: normalizarAgendaSemanal(configEmpresa.agenda_semanal),
         agenda_feriados: normalizarAgendaFeriados(configEmpresa.agenda_feriados),
         agenda_excecoes: normalizarAgendaExcecoes(configEmpresa.agenda_excecoes),
       };
+      if (!isAdmin) {
+        delete payload.fortinho_habilitado;
+      }
       await api.put("/configuracoes", payload);
       setConfigEmpresa((prev) => ({
         ...prev,
@@ -1242,6 +1284,32 @@ export default function ConfiguracoesPage() {
                   Mostrar assinatura nos laudos
                 </label>
               </div>
+            </div>
+
+            {/* Fortinho */}
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <h2 className="text-lg font-semibold mb-2">Fortinho</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                Controle global do assistente Fortinho para todo o sistema.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="fortinho_habilitado"
+                  checked={configEmpresa.fortinho_habilitado}
+                  disabled={!isAdmin}
+                  onChange={(e) => setConfigEmpresa({ ...configEmpresa, fortinho_habilitado: e.target.checked })}
+                  className="w-4 h-4 text-teal-600 disabled:opacity-50"
+                />
+                <label htmlFor="fortinho_habilitado" className="text-sm text-gray-700">
+                  Ativar Fortinho no sistema
+                </label>
+              </div>
+              {!isAdmin && (
+                <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                  Somente administradores podem ativar ou desativar o Fortinho.
+                </p>
+              )}
             </div>
 
             {/* Texto do RodapÃ© */}
