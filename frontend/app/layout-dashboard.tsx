@@ -47,6 +47,8 @@ const menuItems = [
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 
+const FORTINHO_ENABLED = process.env.NEXT_PUBLIC_ENABLE_FORTINHO === "1";
+
 export default function DashboardLayout({
   children,
 }: {
@@ -396,9 +398,8 @@ export default function DashboardLayout({
     );
   }
 
-  return (
-    <FortinhoProvider>
-      <div className="min-h-screen bg-gray-50">
+  const dashboardContent = (
+    <div className="min-h-screen bg-gray-50">
         {/* Header mobile */}
         <div className="lg:hidden bg-white border-b px-4 py-3 flex justify-between items-center">
           <div className="flex items-center gap-2 min-w-0">
@@ -562,7 +563,12 @@ export default function DashboardLayout({
             {children}
           </main>
         </div>
-      </div>
-    </FortinhoProvider>
+    </div>
+  );
+
+  return FORTINHO_ENABLED ? (
+    <FortinhoProvider>{dashboardContent}</FortinhoProvider>
+  ) : (
+    dashboardContent
   );
 }
