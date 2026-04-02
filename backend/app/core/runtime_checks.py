@@ -6,7 +6,6 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.db.database import engine
-from app.services.frases_service import get_frases_store_report
 from app.services.laudo_pdf_jobs import get_laudo_pdf_storage_dir
 from migrations.runner import get_migration_status
 
@@ -114,9 +113,6 @@ def build_runtime_report() -> dict[str, Any]:
     except Exception as exc:
         warnings.append(f"Diretorio de PDFs assincronos indisponivel: {exc}")
 
-    frases_store = get_frases_store_report()
-    warnings.extend(frases_store.get("warnings") or [])
-
     return {
         "status": "healthy" if database["connected"] else "unhealthy",
         "ready": len(readiness_issues) == 0,
@@ -133,7 +129,6 @@ def build_runtime_report() -> dict[str, Any]:
             "google_maps_configured": bool(str(settings.GOOGLE_MAPS_API_KEY or "").strip()),
             "upload_dir": settings.UPLOAD_DIR,
             "laudo_pdf_jobs_dir": laudo_pdf_jobs_dir,
-            "frases_store": frases_store,
         },
         "warnings": warnings,
         "startup_enforced_issues": startup_enforced_issues,

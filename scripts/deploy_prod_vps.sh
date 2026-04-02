@@ -3,7 +3,6 @@ set -euo pipefail
 
 # Production deploy script with guardrails:
 # - hard reset to origin/main (avoids stash/pop conflicts)
-# - runtime backup/restore for frases.json
 # - backend deps + migrations + health check
 # - frontend clean build (.next) + service checks
 #
@@ -34,7 +33,6 @@ API_BACKEND_URL="${API_BACKEND_URL:-http://127.0.0.1:${BACKEND_PORT}}"
 PUBLIC_URL="${PUBLIC_URL:-https://app.fortcordis.com.br}"
 
 RUNTIME_BACKUP_DIR="${RUNTIME_BACKUP_DIR:-$HOME/fortcordis-runtime-backups}"
-RUNTIME_FRASES="${APP_DIR}/backend/data/frases.json"
 
 log() {
   printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"
@@ -84,14 +82,9 @@ cd "$APP_DIR"
 
 mkdir -p "$RUNTIME_BACKUP_DIR"
 STAMP="$(date +%Y%m%d_%H%M%S)"
-FRASES_BACKUP="${RUNTIME_BACKUP_DIR}/${STAMP}__frases.json"
-
-if [[ -f "$RUNTIME_FRASES" ]]; then
-  cp "$RUNTIME_FRASES" "$FRASES_BACKUP"
-  log "Runtime backup saved: $FRASES_BACKUP"
-else
-  log "Runtime frases.json not found (continuing)."
-fi
+DEPLOY_BACKUP_MARKER="${RUNTIME_BACKUP_DIR}/${STAMP}__deploy-prod.marker"
+touch "$DEPLOY_BACKUP_MARKER"
+log "Deploy marker created: $DEPLOY_BACKUP_MARKER"
 
 log "Updating code from origin/${BRANCH}"
 git fetch origin
@@ -100,11 +93,6 @@ git reset --hard "origin/${BRANCH}"
 NEW_HASH="$(git rev-parse --short HEAD)"
 log "Current HEAD: ${NEW_HASH}"
 git log --oneline -n 1
-
-if [[ -f "$FRASES_BACKUP" ]]; then
-  cp "$FRASES_BACKUP" "$RUNTIME_FRASES"
-  log "Runtime frases.json restored from backup."
-fi
 
 log "Backend: install deps + migrations"
 cd "$BACKEND_DIR"
