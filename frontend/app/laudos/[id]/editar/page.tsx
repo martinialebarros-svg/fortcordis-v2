@@ -243,30 +243,6 @@ interface EcocardiogramaCabecalho {
   fc: string;
 }
 
-interface FraseQualitativa {
-  id: number;
-  chave: string;
-  patologia: string;
-  grau: string;
-  valvas: string;
-  camaras: string;
-  funcao: string;
-  pericardio: string;
-  vasos: string;
-  ad_vd: string;
-  conclusao: string;
-  layout?: string;
-}
-
-const CAMPOS_QUALITATIVA = [
-  { key: "valvas", label: "VÃ¡lvulas", placeholder: "Descreva o estado das vÃ¡lvulas cardÃ­acas..." },
-  { key: "camaras", label: "CÃ¢maras", placeholder: "Descreva as cavidades cardÃ­acas..." },
-  { key: "funcao", label: "FunÃ§Ã£o", placeholder: "Descreva a funÃ§Ã£o cardÃ­aca..." },
-  { key: "pericardio", label: "PericÃ¡rdio", placeholder: "Descreva o pericÃ¡rdio..." },
-  { key: "vasos", label: "Vasos", placeholder: "Descreva os grandes vasos..." },
-  { key: "ad_vd", label: "AD/VD", placeholder: "Descreva as cÃ¢maras direitas..." },
-];
-
 export default function EditarLaudoPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -369,16 +345,6 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
 
   // Mensagem de sucesso
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
-  // Sidebar - Frases/Patologia
-  const [patologias, setPatologias] = useState<string[]>([]);
-  const [patologiaSelecionada, setPatologiaSelecionada] = useState("Normal");
-  const [graus] = useState<string[]>(["Leve", "Moderada", "Importante"]);
-  const [grauSelecionado, setGrauSelecionado] = useState("Leve");
-  const [layoutQualitativa, setLayoutQualitativa] = useState<"detalhado" | "enxuto">("detalhado");
-  const [aplicandoFrase, setAplicandoFrase] = useState(false);
-  const [salvandoFraseQualitativa, setSalvandoFraseQualitativa] = useState(false);
-  const [fraseAplicadaId, setFraseAplicadaId] = useState<number | null>(null);
-  const [frases, setFrases] = useState<FraseQualitativa[]>([]);
 
   useEffect(() => {
     setRacasCustomPorEspecie(loadRacasCustomPorEspecie());
@@ -409,204 +375,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     }
     carregarLaudo();
     carregarClinicas();
-    carregarFrases();
   }, [router, params.id]);
-
-  const PATOLOGIAS_FALLBACK = [
-    "Normal",
-    "Endocardiose Mitral",
-    "Cardiomiopatia Dilatada",
-    "Estenose Aortica",
-    "Estenose Pulmonar",
-  ];
-
-  const sincronizarPatologiasComFrases = (items: FraseQualitativa[]) => {
-    const lista = Array.from(
-      new Set(
-        items
-          .map((f) => (f.patologia || "").trim())
-          .filter(Boolean)
-      )
-    ).sort((a, b) => a.localeCompare(b, "pt-BR"));
-
-    const patologiasAtualizadas = lista.length > 0 ? lista : PATOLOGIAS_FALLBACK;
-    setPatologias(patologiasAtualizadas);
-    setPatologiaSelecionada((prev) =>
-      patologiasAtualizadas.includes(prev) ? prev : patologiasAtualizadas[0]
-    );
-  };
-
-  const carregarFrases = async () => {
-    try {
-      const response = await api.get("/frases?limit=1000");
-      const items = response.data.items || [];
-      setFrases(items);
-      sincronizarPatologiasComFrases(items);
-    } catch (error) {
-      console.error("Erro ao carregar frases:", error);
-      setFrases([]);
-      sincronizarPatologiasComFrases([]);
-    }
-  };
-
-  const normalizarGrauSidebar = (grau: string | null | undefined) => {
-    const valor = (grau || "").trim();
-    return graus.includes(valor) ? valor : graus[0];
-  };
-
-  const obterGrauEfetivo = () =>
-    patologiaSelecionada.trim().toLowerCase() === "normal"
-      ? "Normal"
-      : normalizarGrauSidebar(grauSelecionado);
-
-  const gerarChaveFrase = (patologia: string, grau: string) => {
-    if (patologia === "Normal") return "Normal (Normal)";
-    return `${patologia} (${grau})`;
-  };
-
-  const montarPayloadFrase = (patologia: string, grau: string) => ({
-    chave: gerarChaveFrase(patologia, grau),
-    patologia,
-    grau,
-    valvas: qualitativa.valvas || "",
-    camaras: qualitativa.camaras || "",
-    funcao: qualitativa.funcao || "",
-    pericardio: qualitativa.pericardio || "",
-    vasos: qualitativa.vasos || "",
-    ad_vd: qualitativa.ad_vd || "",
-    conclusao: diagnostico || "",
-    layout: layoutQualitativa,
-  });
-
-  const encontrarFraseAtual = () => {
-    const grauBusca = obterGrauEfetivo();
-    const frasePorPatologiaEGrau = frases.find(
-      (frase) =>
-        (frase.patologia || "").trim().toLowerCase() === patologiaSelecionada.trim().toLowerCase() &&
-        (frase.grau || "").trim().toLowerCase() === grauBusca.trim().toLowerCase()
-    );
-    if (frasePorPatologiaEGrau) return frasePorPatologiaEGrau;
-    if (fraseAplicadaId) {
-      return frases.find((frase) => frase.id === fraseAplicadaId) || null;
-    }
-    return null;
-  };
-
-  const handleGerarTexto = async () => {
-    setAplicandoFrase(true);
-    try {
-      const grauEfetivo = obterGrauEfetivo();
-      const request = {
-        patologia: patologiaSelecionada,
-        grau_refluxo: patologiaSelecionada === "Endocardiose Mitral" ? grauEfetivo : undefined,
-        grau_geral: patologiaSelecionada !== "Endocardiose Mitral" ? grauEfetivo : undefined,
-        layout: layoutQualitativa,
-      };
-
-      const response = await api.post("/frases/aplicar", request);
-      if (response.data.success && response.data.dados) {
-        const dados = response.data.dados;
-        setFraseAplicadaId(response.data?.frase?.id ?? null);
-
-        setQualitativa({
-          valvas: dados.valvas || "",
-          camaras: dados.camaras || "",
-          funcao: dados.funcao || "",
-          pericardio: dados.pericardio || "",
-          vasos: dados.vasos || "",
-          ad_vd: dados.ad_vd || "",
-        });
-        setDiagnostico(dados.conclusao || "");
-        setMensagemSucesso("Texto gerado com sucesso!");
-        setTimeout(() => setMensagemSucesso(null), 3000);
-      } else {
-        alert("Frase nao encontrada para esta patologia/grau.");
-      }
-    } catch (error) {
-      console.error("Erro ao gerar texto:", error);
-      alert("Erro ao gerar texto qualitativo.");
-    } finally {
-      setAplicandoFrase(false);
-    }
-  };
-
-  const handleSalvarComoNovaPatologia = async () => {
-    const patologiaInformada = window.prompt(
-      "Nome da nova patologia:",
-      patologiaSelecionada === "Normal" ? "" : patologiaSelecionada
-    );
-    if (patologiaInformada === null) return;
-
-    const patologia = patologiaInformada.trim();
-    if (!patologia) {
-      alert("Informe um nome de patologia.");
-      return;
-    }
-
-    const sugestaoGrau = patologia === "Normal" ? "Normal" : grauSelecionado;
-    const grauInformado = window.prompt("Grau da patologia:", sugestaoGrau);
-    if (grauInformado === null) return;
-
-    const grau = patologia === "Normal" ? "Normal" : (grauInformado.trim() || sugestaoGrau);
-    const payload = montarPayloadFrase(patologia, grau);
-
-    setSalvandoFraseQualitativa(true);
-    try {
-      const response = await api.post("/frases", payload);
-      await carregarFrases();
-      setPatologiaSelecionada(patologia);
-      setGrauSelecionado(normalizarGrauSidebar(grau));
-      setFraseAplicadaId(response.data?.id ?? null);
-      setMensagemSucesso("Nova patologia salva no banco de frases.");
-      setTimeout(() => setMensagemSucesso(null), 3000);
-    } catch (error: any) {
-      const detail = error?.response?.data?.detail || "Erro ao salvar nova patologia.";
-      console.error("Erro ao salvar nova patologia:", error);
-      alert(detail);
-    } finally {
-      setSalvandoFraseQualitativa(false);
-    }
-  };
-
-  const handleAtualizarPatologia = async () => {
-    const fraseAtual = encontrarFraseAtual();
-    if (!fraseAtual?.id) {
-      alert("Nenhuma patologia encontrada para atualizar. Gere o texto ou selecione uma patologia existente.");
-      return;
-    }
-
-    const patologia = patologiaSelecionada.trim() || fraseAtual.patologia || "Normal";
-    const grau = patologia === "Normal" ? "Normal" : (grauSelecionado.trim() || fraseAtual.grau || "Leve");
-    const payload = {
-      patologia,
-      grau,
-      valvas: qualitativa.valvas || "",
-      camaras: qualitativa.camaras || "",
-      funcao: qualitativa.funcao || "",
-      pericardio: qualitativa.pericardio || "",
-      vasos: qualitativa.vasos || "",
-      ad_vd: qualitativa.ad_vd || "",
-      conclusao: diagnostico || "",
-      layout: layoutQualitativa,
-    };
-
-    setSalvandoFraseQualitativa(true);
-    try {
-      const response = await api.put(`/frases/${fraseAtual.id}`, payload);
-      await carregarFrases();
-      setPatologiaSelecionada(patologia);
-      setGrauSelecionado(normalizarGrauSidebar(grau));
-      setFraseAplicadaId(response.data?.id ?? fraseAtual.id);
-      setMensagemSucesso("Patologia atualizada no banco de frases.");
-      setTimeout(() => setMensagemSucesso(null), 3000);
-    } catch (error: any) {
-      const detail = error?.response?.data?.detail || "Erro ao atualizar patologia.";
-      console.error("Erro ao atualizar patologia:", error);
-      alert(detail);
-    } finally {
-      setSalvandoFraseQualitativa(false);
-    }
-  };
 
   useEffect(() => {
     const aorta = parseNumero(medidas["Aorta"]);
@@ -1097,12 +866,14 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       const ecoEstruturadoPayload = laudoEhPressao
         ? null
         : serializarEcocardiogramaEstruturado(ecocardiogramaEstruturado);
-      const legadoEco =
-        ecoEstruturadoPayload && ecoEstruturadoPayload.usar_no_laudo
-          ? derivarLegadoDeEcocardiogramaEstruturado(ecoEstruturadoPayload)
-          : null;
+      const legadoEco = ecoEstruturadoPayload
+        ? derivarLegadoDeEcocardiogramaEstruturado(ecoEstruturadoPayload)
+        : null;
       const qualitativaPayload = legadoEco?.qualitativa || qualitativa;
-      const diagnosticoPayload = legadoEco?.conclusao || diagnostico;
+      const diagnosticoPayload =
+        ecoEstruturadoPayload?.usar_no_laudo
+          ? legadoEco?.conclusao || diagnostico
+          : diagnostico;
 
       // 2. Montar descricao do laudo conforme tipo
       let descricao = "";
@@ -1171,10 +942,6 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
 
   const handleMedidaChange = (key: string, value: string) => {
     setMedidas(prev => ({ ...prev, [key]: value }));
-  };
-
-  const handleQualitativaChange = (key: string, value: string) => {
-    setQualitativa(prev => ({ ...prev, [key]: value }));
   };
 
   if (loading) {
@@ -1871,7 +1638,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                     <div className="mb-4">
                       <h3 className="font-medium text-gray-900">Qualitativa Detalhada</h3>
                       <span className="text-sm text-gray-500">
-                        Use o editor estruturado como fonte principal e ajuste os campos legados apenas quando necessario.
+                        Use o editor estruturado como fonte principal. O bloco qualitativo legado eh gerado automaticamente ao salvar para compatibilidade do PDF.
                       </span>
                     </div>
 
@@ -1882,25 +1649,9 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
 
                     {ecocardiogramaEstruturado.usar_no_laudo ? (
                       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                        Os campos legados abaixo estao sendo gerados a partir do estruturado e ficam bloqueados para evitar divergencia.
+                        Para ajustar a conclusao oficial, edite o aspecto "Conclusao" no bloco estruturado acima.
                       </div>
                     ) : null}
-
-                    {CAMPOS_QUALITATIVA.map((campo) => (
-                      <div key={campo.key}>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          {campo.label}
-                        </label>
-                        <textarea
-                          value={qualitativa[campo.key as keyof typeof qualitativa]}
-                          onChange={(e) => handleQualitativaChange(campo.key, e.target.value)}
-                          rows={3}
-                          readOnly={ecocardiogramaEstruturado.usar_no_laudo}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 read-only:bg-gray-50"
-                          placeholder={campo.placeholder}
-                        />
-                      </div>
-                    ))}
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">

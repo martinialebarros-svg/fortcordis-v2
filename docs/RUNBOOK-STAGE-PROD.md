@@ -33,7 +33,6 @@ bash scripts/deploy_prod_vps.sh
 
 Notas:
 - O script de prod evita `git stash pop` e faz `git reset --hard origin/main`.
-- O script de prod cria backup de `backend/data/frases.json` e restaura apos atualizar codigo.
 - O script valida backend health (`/health`) e frontend (`.next/BUILD_ID` + HTTP local/publico).
 
 ## 0) Padrao de ambientes

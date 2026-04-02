@@ -15,7 +15,6 @@ from app.api.v1.endpoints import (
     clinicas,
     configuracoes,
     financeiro,
-    frases,
     frases_ecocardiograma_estruturado_teste,
     frases_ultrassom_abdominal,
     imagens,
@@ -117,7 +116,6 @@ app.include_router(servicos.router, prefix="/api/v1/servicos", tags=["servicos"]
 app.include_router(laudos.router, prefix="/api/v1", tags=["laudos"])
 app.include_router(financeiro.router, prefix="/api/v1/financeiro", tags=["financeiro"])
 app.include_router(xml_import.router, prefix="/api/v1/xml", tags=["xml_import"])
-app.include_router(frases.router, prefix="/api/v1/frases", tags=["frases"])
 app.include_router(
     frases_ecocardiograma_estruturado_teste.router,
     prefix="/api/v1/frases-ecocardiograma-estruturado-teste",
@@ -188,7 +186,6 @@ def _health_payload(report: dict) -> dict:
             },
             "integrations": {
                 "google_maps_configured": report["integrations"].get("google_maps_configured"),
-                "frases_store": report["integrations"].get("frases_store"),
             },
         },
         "compatibility_modes": report["compatibility_modes"],
