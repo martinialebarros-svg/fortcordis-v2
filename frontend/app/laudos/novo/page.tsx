@@ -215,16 +215,6 @@ const PARAMETROS_MEDIDAS = [
   { key: "TR_Vmax", label: "TR Vmax (m/s)", categoria: "Regurgitação" },
 ];
 
-// Campos da qualitativa detalhada
-const CAMPOS_QUALITATIVA = [
-  { key: "valvas", label: "Válvulas", placeholder: "Descreva o estado das válvulas cardíacas..." },
-  { key: "camaras", label: "Câmaras", placeholder: "Descreva as cavidades cardíacas..." },
-  { key: "funcao", label: "Função", placeholder: "Descreva a função cardíaca..." },
-  { key: "pericardio", label: "Pericárdio", placeholder: "Descreva o pericárdio..." },
-  { key: "vasos", label: "Vasos", placeholder: "Descreva os grandes vasos..." },
-  { key: "ad_vd", label: "AD/VD", placeholder: "Descreva as câmaras direitas..." },
-];
-
 // Subcampos para o layout detalhado
 const SUBCAMPOS_DETALHADO: Record<string, { key: string; label: string }[]> = {
   valvas: [
@@ -842,12 +832,12 @@ export default function NovoLaudoPage() {
         tipoLaudo === "ecocardiograma"
           ? serializarEcocardiogramaEstruturado(ecocardiogramaEstruturado)
           : null;
-      const legadoEco =
-        ecoEstruturadoPayload && ecoEstruturadoPayload.usar_no_laudo
-          ? derivarLegadoDeEcocardiogramaEstruturado(ecoEstruturadoPayload)
-          : null;
+      const legadoEco = ecoEstruturadoPayload
+        ? derivarLegadoDeEcocardiogramaEstruturado(ecoEstruturadoPayload)
+        : null;
       const qualitativaPayload = legadoEco?.qualitativa || qualitativa;
-      const conteudoPayload = legadoEco
+      const conteudoPayload =
+        ecoEstruturadoPayload?.usar_no_laudo && legadoEco
         ? {
             ...conteudo,
             conclusao: legadoEco.conclusao || conteudo.conclusao,
@@ -895,10 +885,6 @@ export default function NovoLaudoPage() {
 
   const handleMedidaChange = (key: string, value: string) => {
     setMedidas(prev => ({ ...prev, [key]: value }));
-  };
-
-  const handleQualitativaChange = (key: string, value: string) => {
-    setQualitativa(prev => ({ ...prev, [key]: value }));
   };
 
   return (
@@ -1534,7 +1520,7 @@ export default function NovoLaudoPage() {
                       <div>
                         <h3 className="font-medium text-gray-900">Qualitativa Detalhada</h3>
                         <span className="text-sm text-gray-500">
-                          Use o editor estruturado como fonte principal e ajuste os campos legados apenas quando necessario.
+                          Use o editor estruturado como fonte principal. O bloco qualitativo legado eh gerado automaticamente ao salvar para compatibilidade do PDF.
                         </span>
                       </div>
                     </div>
@@ -1546,25 +1532,9 @@ export default function NovoLaudoPage() {
 
                     {ecocardiogramaEstruturado.usar_no_laudo ? (
                       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                        Os campos legados abaixo estao sendo gerados a partir do estruturado e ficam bloqueados para evitar divergencia. Para ajustar a conclusao oficial, edite o aspecto "Conclusao" no bloco estruturado acima.
+                        Para ajustar a conclusao oficial, edite o aspecto "Conclusao" no bloco estruturado acima.
                       </div>
                     ) : null}
-                    
-                    {CAMPOS_QUALITATIVA.map((campo) => (
-                      <div key={campo.key}>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          {campo.label}
-                        </label>
-                        <textarea
-                          value={qualitativa[campo.key as keyof typeof qualitativa]}
-                          onChange={(e) => handleQualitativaChange(campo.key, e.target.value)}
-                          rows={3}
-                          readOnly={ecocardiogramaEstruturado.usar_no_laudo}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 read-only:bg-gray-50"
-                          placeholder={campo.placeholder}
-                        />
-                      </div>
-                    ))}
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">

@@ -243,15 +243,6 @@ interface EcocardiogramaCabecalho {
   fc: string;
 }
 
-const CAMPOS_QUALITATIVA = [
-  { key: "valvas", label: "VÃ¡lvulas", placeholder: "Descreva o estado das vÃ¡lvulas cardÃ­acas..." },
-  { key: "camaras", label: "CÃ¢maras", placeholder: "Descreva as cavidades cardÃ­acas..." },
-  { key: "funcao", label: "FunÃ§Ã£o", placeholder: "Descreva a funÃ§Ã£o cardÃ­aca..." },
-  { key: "pericardio", label: "PericÃ¡rdio", placeholder: "Descreva o pericÃ¡rdio..." },
-  { key: "vasos", label: "Vasos", placeholder: "Descreva os grandes vasos..." },
-  { key: "ad_vd", label: "AD/VD", placeholder: "Descreva as cÃ¢maras direitas..." },
-];
-
 export default function EditarLaudoPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -875,12 +866,14 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       const ecoEstruturadoPayload = laudoEhPressao
         ? null
         : serializarEcocardiogramaEstruturado(ecocardiogramaEstruturado);
-      const legadoEco =
-        ecoEstruturadoPayload && ecoEstruturadoPayload.usar_no_laudo
-          ? derivarLegadoDeEcocardiogramaEstruturado(ecoEstruturadoPayload)
-          : null;
+      const legadoEco = ecoEstruturadoPayload
+        ? derivarLegadoDeEcocardiogramaEstruturado(ecoEstruturadoPayload)
+        : null;
       const qualitativaPayload = legadoEco?.qualitativa || qualitativa;
-      const diagnosticoPayload = legadoEco?.conclusao || diagnostico;
+      const diagnosticoPayload =
+        ecoEstruturadoPayload?.usar_no_laudo
+          ? legadoEco?.conclusao || diagnostico
+          : diagnostico;
 
       // 2. Montar descricao do laudo conforme tipo
       let descricao = "";
@@ -949,10 +942,6 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
 
   const handleMedidaChange = (key: string, value: string) => {
     setMedidas(prev => ({ ...prev, [key]: value }));
-  };
-
-  const handleQualitativaChange = (key: string, value: string) => {
-    setQualitativa(prev => ({ ...prev, [key]: value }));
   };
 
   if (loading) {
@@ -1649,7 +1638,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                     <div className="mb-4">
                       <h3 className="font-medium text-gray-900">Qualitativa Detalhada</h3>
                       <span className="text-sm text-gray-500">
-                        Use o editor estruturado como fonte principal e ajuste os campos legados apenas quando necessario.
+                        Use o editor estruturado como fonte principal. O bloco qualitativo legado eh gerado automaticamente ao salvar para compatibilidade do PDF.
                       </span>
                     </div>
 
@@ -1660,25 +1649,9 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
 
                     {ecocardiogramaEstruturado.usar_no_laudo ? (
                       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                        Os campos legados abaixo estao sendo gerados a partir do estruturado e ficam bloqueados para evitar divergencia.
+                        Para ajustar a conclusao oficial, edite o aspecto "Conclusao" no bloco estruturado acima.
                       </div>
                     ) : null}
-
-                    {CAMPOS_QUALITATIVA.map((campo) => (
-                      <div key={campo.key}>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          {campo.label}
-                        </label>
-                        <textarea
-                          value={qualitativa[campo.key as keyof typeof qualitativa]}
-                          onChange={(e) => handleQualitativaChange(campo.key, e.target.value)}
-                          rows={3}
-                          readOnly={ecocardiogramaEstruturado.usar_no_laudo}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 read-only:bg-gray-50"
-                          placeholder={campo.placeholder}
-                        />
-                      </div>
-                    ))}
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
