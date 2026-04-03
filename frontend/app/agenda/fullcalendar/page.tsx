@@ -43,6 +43,7 @@ import {
   normalizarAgendaFeriados,
   normalizarAgendaSemanal,
   obterJornadaDia,
+  slotDentroDaJornada,
   validarHorarioAgendamento,
 } from "@/lib/agenda-config";
 
@@ -1752,6 +1753,64 @@ export default function AgendaFullCalendarPage() {
     [validarHorarioNaAgenda]
   );
 
+  const obterEstadoSlotAgenda = useCallback(
+    (dataSlot?: Date) => {
+      if (!dataSlot) {
+        return {
+          fechado: false,
+          motivo: "",
+        };
+      }
+
+      const dataIso = toDateInput(dataSlot);
+      const jornada = obterJornadaDia(dataIso, agendaSemanal, agendaFeriados, agendaExcecoes);
+      const horaSlot = toTimeInput(dataSlot);
+      const fechado = !slotDentroDaJornada(horaSlot, jornada);
+
+      return {
+        fechado,
+        motivo: jornada.motivo || "Agenda fechada",
+      };
+    },
+    [agendaExcecoes, agendaFeriados, agendaSemanal]
+  );
+
+  const slotLaneClassNames = useCallback(
+    (slotInfo: { date?: Date }) => {
+      const estado = obterEstadoSlotAgenda(slotInfo.date);
+      return estado.fechado ? ["bg-gray-100"] : [];
+    },
+    [obterEstadoSlotAgenda]
+  );
+
+  const slotLaneContent = useCallback(
+    (slotInfo: { date?: Date }) => {
+      const estado = obterEstadoSlotAgenda(slotInfo.date);
+      if (!estado.fechado) return null;
+
+      return (
+        <div className="pointer-events-none flex h-full items-center justify-center px-1">
+          <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">
+            Agenda fechada
+          </span>
+        </div>
+      );
+    },
+    [obterEstadoSlotAgenda]
+  );
+
+  const slotLaneDidMount = useCallback(
+    (slotInfo: { date?: Date; el: HTMLElement }) => {
+      const estado = obterEstadoSlotAgenda(slotInfo.date);
+      if (estado.fechado) {
+        slotInfo.el.title = estado.motivo;
+        return;
+      }
+      slotInfo.el.removeAttribute("title");
+    },
+    [obterEstadoSlotAgenda]
+  );
+
   return (
     <DashboardLayout>
       <div className="p-6">
@@ -1898,6 +1957,9 @@ export default function AgendaFullCalendarPage() {
             slotDuration={duracaoSlot}
             snapDuration={duracaoSlot}
             slotLabelInterval={duracaoSlot}
+            slotLaneClassNames={slotLaneClassNames}
+            slotLaneContent={slotLaneContent}
+            slotLaneDidMount={slotLaneDidMount}
             height="auto"
             eventTimeFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
             dayMaxEventRows={3}

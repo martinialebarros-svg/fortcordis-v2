@@ -1524,7 +1524,7 @@ export default function AgendaPage() {
                   <div>{formatarDiaPanoramica(dia)}</div>
                   {jornadaPanoramicaPorDia.get(dia)?.fechado && (
                     <div className="mt-1 inline-flex items-center rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-700">
-                      Fechado
+                      Agenda fechada
                     </div>
                   )}
                 </div>
@@ -1551,7 +1551,7 @@ export default function AgendaPage() {
                           className="border-b border-r px-2 py-2 text-left bg-gray-100 text-gray-400"
                           title={jornadaDia?.motivo || "Agenda fechada"}
                         >
-                          <div className="text-xs font-semibold">Fechado</div>
+                          <div className="text-xs font-semibold text-gray-600">Agenda fechada</div>
                         </div>
                       );
                     }
