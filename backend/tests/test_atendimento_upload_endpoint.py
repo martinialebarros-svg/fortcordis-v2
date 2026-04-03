@@ -1,0 +1,181 @@
+import asyncio
+import io
+import os
+import sys
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from fastapi import HTTPException
+from starlette.datastructures import Headers, UploadFile
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+os.chdir(BACKEND_DIR)
+sys.path.insert(0, str(BACKEND_DIR))
+
+os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
+os.environ.setdefault("SECRET_KEY", "atendimento-upload-endpoint-test-secret-key-1234567890")
+
+from app.api.v1.endpoints import atendimento
+from app.services.atendimento_upload_service import AttachmentTooLargeError, AttachmentTypeError
+
+
+class _FakeQuery:
+    def __init__(self, result):
+        self._result = result
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def first(self):
+        return self._result
+
+
+class _FakeDB:
+    def __init__(self, *, atendimento_exists: bool = True):
+        self._atendimento = SimpleNamespace(id=1) if atendimento_exists else None
+        self._exame = None
+        self.added = []
+        self.commit_count = 0
+
+    def query(self, model):
+        model_name = getattr(model, "__name__", "")
+        if model_name == "AtendimentoClinico":
+            return _FakeQuery(self._atendimento)
+        if model_name == "Exame":
+            return _FakeQuery(self._exame)
+        return _FakeQuery(None)
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    def flush(self):
+        if self.added and getattr(self.added[-1], "id", None) is None:
+            self.added[-1].id = 123
+
+    def commit(self):
+        self.commit_count += 1
+
+    def refresh(self, obj):
+        return None
+
+
+def _make_upload_file(filename: str, content_type: str, content: bytes) -> UploadFile:
+    headers = Headers({"content-type": content_type})
+    return UploadFile(
+        io.BytesIO(content),
+        filename=filename,
+        headers=headers,
+        size=len(content),
+    )
+
+
+class AtendimentoUploadEndpointTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.user = SimpleNamespace(id=99, nome="Teste Upload")
+
+    def test_upload_anexo_returns_201_payload_when_storage_succeeds(self) -> None:
+        db = _FakeDB()
+        arquivo = _make_upload_file("resultado.pdf", "application/pdf", b"conteudo-ok")
+
+        with patch.object(
+            atendimento,
+            "store_atendimento_attachment_file",
+            return_value=("C:/tmp/anexo.pdf", "resultado.pdf", "application/pdf"),
+        ) as store_mock:
+            payload = asyncio.run(
+                atendimento.upload_anexo(
+                    atendimento_id=1,
+                    arquivo=arquivo,
+                    tipo="documento",
+                    descricao="Arquivo de resultado",
+                    exame_id=None,
+                    db=db,
+                    current_user=self.user,
+                )
+            )
+
+        self.assertEqual(store_mock.call_count, 1)
+        self.assertEqual(db.commit_count, 1)
+        self.assertEqual(len(db.added), 1)
+        self.assertEqual(payload["nome_original"], "resultado.pdf")
+        self.assertEqual(payload["mime_type"], "application/pdf")
+
+    def test_upload_anexo_maps_type_error_to_400(self) -> None:
+        db = _FakeDB()
+        arquivo = _make_upload_file("resultado.exe", "application/octet-stream", b"fake")
+
+        with patch.object(
+            atendimento,
+            "store_atendimento_attachment_file",
+            side_effect=AttachmentTypeError("Tipo de arquivo nao permitido."),
+        ):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(
+                    atendimento.upload_anexo(
+                        atendimento_id=1,
+                        arquivo=arquivo,
+                        tipo="documento",
+                        descricao="Arquivo invalido",
+                        exame_id=None,
+                        db=db,
+                        current_user=self.user,
+                    )
+                )
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("Tipo de arquivo", str(ctx.exception.detail))
+        self.assertEqual(db.commit_count, 0)
+
+    def test_upload_anexo_maps_size_error_to_413(self) -> None:
+        db = _FakeDB()
+        arquivo = _make_upload_file("resultado.pdf", "application/pdf", b"x" * 16)
+
+        with patch.object(
+            atendimento,
+            "store_atendimento_attachment_file",
+            side_effect=AttachmentTooLargeError("Arquivo excede o limite de 25MB"),
+        ):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(
+                    atendimento.upload_anexo(
+                        atendimento_id=1,
+                        arquivo=arquivo,
+                        tipo="documento",
+                        descricao="Arquivo grande",
+                        exame_id=None,
+                        db=db,
+                        current_user=self.user,
+                    )
+                )
+
+        self.assertEqual(ctx.exception.status_code, 413)
+        self.assertIn("25MB", str(ctx.exception.detail))
+        self.assertEqual(db.commit_count, 0)
+
+    def test_upload_anexo_rejects_empty_file_before_storage(self) -> None:
+        db = _FakeDB()
+        arquivo = _make_upload_file("vazio.pdf", "application/pdf", b"")
+
+        with patch.object(atendimento, "store_atendimento_attachment_file") as store_mock:
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(
+                    atendimento.upload_anexo(
+                        atendimento_id=1,
+                        arquivo=arquivo,
+                        tipo="documento",
+                        descricao="",
+                        exame_id=None,
+                        db=db,
+                        current_user=self.user,
+                    )
+                )
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("Arquivo vazio", str(ctx.exception.detail))
+        self.assertEqual(store_mock.call_count, 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
