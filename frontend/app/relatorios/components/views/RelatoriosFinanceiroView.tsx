@@ -31,6 +31,8 @@ export default function RelatoriosFinanceiroView({
     relatorio.periodo.data_referencia
   );
   const aReceber = totalContasPendentes(financeiroContexto?.contas_receber, ["Pendente", "Atrasado"]);
+  const pendenciasOs = relatorio.insights_avancados.pendencias_recebimento?.valor_total_pendente || 0;
+  const aReceberConsolidado = aReceber + pendenciasOs;
   const aPagar = totalContasPendentes(financeiroContexto?.contas_pagar, ["Pendente", "Atrasado"]);
 
   return (
@@ -55,7 +57,8 @@ export default function RelatoriosFinanceiroView({
         />
         <MetricCard
           titulo="Contas a receber"
-          valor={formatarMoeda(aReceber)}
+          valor={formatarMoeda(aReceberConsolidado)}
+          descricao={`Contas: ${formatarMoeda(aReceber)} | OS pendentes: ${formatarMoeda(pendenciasOs)}`}
           icon={Landmark}
           iconColorClass="text-blue-600"
         />

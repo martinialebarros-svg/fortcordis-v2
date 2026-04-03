@@ -874,6 +874,39 @@ def relatorio_controle_gerencial(
         )
     previsao_recebimentos_30d_itens = previsao_recebimentos_30d_itens[:TOP_LIMIT]
 
+    pendencias_recebimento_rows = (
+        _aplicar_filtros_os(
+            db.query(
+                OrdemServico.clinica_id,
+                func.sum(OrdemServico.valor_final).label("total"),
+                func.count(OrdemServico.id).label("quantidade"),
+            ).filter(
+                OrdemServico.status == "Pendente",
+                OrdemServico.clinica_id.isnot(None),
+                func.date(OrdemServico.data_atendimento) <= referencia.isoformat(),
+            )
+        )
+        .group_by(OrdemServico.clinica_id)
+        .order_by(func.sum(OrdemServico.valor_final).desc())
+        .all()
+    )
+
+    pendencias_recebimento_itens = []
+    total_pendencias_recebimento = 0.0
+    for row in pendencias_recebimento_rows:
+        cid = int(row.clinica_id)
+        clinica = clinica_map.get(cid)
+        valor = round(_to_float(row.total), 2)
+        total_pendencias_recebimento += valor
+        pendencias_recebimento_itens.append(
+            {
+                "clinica_id": cid,
+                "clinica_nome": str(clinica.nome) if clinica and clinica.nome else f"Clinica #{cid}",
+                "valor_pendente": valor,
+                "ordens_pendentes": int(row.quantidade or 0),
+            }
+        )
+
     entradas_periodo = _sum_transacoes(
         db,
         tipo="entrada",
@@ -1672,6 +1705,11 @@ def relatorio_controle_gerencial(
                 "data_limite": data_limite_recebimento.isoformat(),
                 "valor_total_previsto": round(total_previsao_30d, 2),
                 "itens": previsao_recebimentos_30d_itens,
+            },
+            "pendencias_recebimento": {
+                "data_corte": referencia.isoformat(),
+                "valor_total_pendente": round(total_pendencias_recebimento, 2),
+                "itens": pendencias_recebimento_itens,
             },
         },
         "sugestoes_relatorios": sugestoes_relatorios,

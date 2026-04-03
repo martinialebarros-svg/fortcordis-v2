@@ -195,6 +195,13 @@ export interface PrevisaoRecebimentoItem {
   ordens_pendentes: number;
 }
 
+export interface PendenciaRecebimentoItem {
+  clinica_id: number;
+  clinica_nome: string;
+  valor_pendente: number;
+  ordens_pendentes: number;
+}
+
 export interface RelatorioControleResponse {
   periodo: {
     data_inicio: string;
@@ -306,6 +313,11 @@ export interface RelatorioControleResponse {
       data_limite: string;
       valor_total_previsto: number;
       itens: PrevisaoRecebimentoItem[];
+    };
+    pendencias_recebimento?: {
+      data_corte: string;
+      valor_total_pendente: number;
+      itens: PendenciaRecebimentoItem[];
     };
   };
   sugestoes_relatorios: SugestaoRelatorioItem[];
