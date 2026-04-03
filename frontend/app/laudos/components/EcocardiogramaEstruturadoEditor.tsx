@@ -1208,7 +1208,7 @@ export default function EcocardiogramaEstruturadoEditor({
                   </select>
                   {deteccao.status === "pending" && deteccao.textoAtual ? (
                     <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                      Texto atual nao reconhecido automaticamente: "{resumirTexto(deteccao.textoAtual)}"
+                      Texto atual nao reconhecido automaticamente: &quot;{resumirTexto(deteccao.textoAtual)}&quot;
                     </div>
                   ) : null}
                 </div>

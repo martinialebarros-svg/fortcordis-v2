@@ -305,6 +305,12 @@ def _autenticar_usuario_pdf(
     request: Request,
     db: Session,
 ) -> User:
+    if "access_token" in request.query_params:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nao use access_token na URL. Use Authorization: Bearer <token>.",
+        )
+
     auth_header = request.headers.get("Authorization", "")
     token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
 
