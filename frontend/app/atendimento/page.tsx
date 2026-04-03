@@ -635,6 +635,15 @@ const hydratePrescriptionItem = (item?: Partial<PrescricaoItem> | null): Prescri
   historico_ajustes: item?.historico_ajustes || [],
 });
 
+const ATENDIMENTO_ATTACHMENT_ALLOWED_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png", ".webp"] as const;
+const ATENDIMENTO_ATTACHMENT_ACCEPT = ATENDIMENTO_ATTACHMENT_ALLOWED_EXTENSIONS.join(",");
+const ATENDIMENTO_ATTACHMENT_MAX_SIZE_BYTES = 25 * 1024 * 1024;
+
+const isAllowedAttachmentFilename = (filename: string) => {
+  const normalized = (filename || "").trim().toLowerCase();
+  return ATENDIMENTO_ATTACHMENT_ALLOWED_EXTENSIONS.some((ext) => normalized.endsWith(ext));
+};
+
 const nowLocalInput = () => {
   const date = new Date();
   date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
@@ -1212,6 +1221,7 @@ export default function AtendimentoPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState("");
+  const [erroPopup, setErroPopup] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [workspacePainel, setWorkspacePainel] = useState<WorkspacePainel>("consulta");
@@ -1269,6 +1279,7 @@ export default function AtendimentoPage() {
   >({});
   const formRef = useRef(form);
   const autosaveTimerRef = useRef<number | null>(null);
+  const erroPopupTimeoutRef = useRef<number | null>(null);
   const pacienteDropdownBlurTimeoutRef = useRef<number | null>(null);
   const lastPersistedSnapshotRef = useRef(serializeAtendimentoSnapshot(form));
   const hydratingFormRef = useRef(false);
@@ -1302,8 +1313,34 @@ export default function AtendimentoPage() {
   }, [examUploadDrafts]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    if (!erro) {
+      setErroPopup(null);
+      if (erroPopupTimeoutRef.current) {
+        window.clearTimeout(erroPopupTimeoutRef.current);
+        erroPopupTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    setErroPopup(erro);
+    if (erroPopupTimeoutRef.current) {
+      window.clearTimeout(erroPopupTimeoutRef.current);
+    }
+    erroPopupTimeoutRef.current = window.setTimeout(() => {
+      setErroPopup(null);
+      erroPopupTimeoutRef.current = null;
+    }, 8000);
+  }, [erro]);
+
+  useEffect(() => {
     return () => {
       if (typeof window === "undefined") return;
+      if (erroPopupTimeoutRef.current) {
+        window.clearTimeout(erroPopupTimeoutRef.current);
+        erroPopupTimeoutRef.current = null;
+      }
       Object.values(examUploadDraftsRef.current).forEach((entry) => {
         if (entry.previewUrl) {
           window.URL.revokeObjectURL(entry.previewUrl);
@@ -2901,6 +2938,14 @@ export default function AtendimentoPage() {
       setErro("Salve o atendimento antes de enviar arquivos.");
       return;
     }
+    if (!isAllowedAttachmentFilename(file.name)) {
+      setErro("Tipo de arquivo nao permitido. Use: .jpeg, .jpg, .pdf, .png, .webp");
+      return;
+    }
+    if (file.size > ATENDIMENTO_ATTACHMENT_MAX_SIZE_BYTES) {
+      setErro("Arquivo excede o limite de 25MB");
+      return;
+    }
 
     const uploadKey = options?.uploadKey || (options?.exameId ? `exame-${options.exameId}` : "geral");
     const formData = new FormData();
@@ -4144,6 +4189,15 @@ export default function AtendimentoPage() {
     );
   };
 
+  const dismissErrorPopup = () => {
+    if (typeof window !== "undefined" && erroPopupTimeoutRef.current) {
+      window.clearTimeout(erroPopupTimeoutRef.current);
+      erroPopupTimeoutRef.current = null;
+    }
+    setErroPopup(null);
+    setErro("");
+  };
+
   if (loading) {
     return <DashboardLayout><div className="p-6 text-gray-600">Carregando modulo de atendimento...</div></DashboardLayout>;
   }
@@ -4151,6 +4205,23 @@ export default function AtendimentoPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6 bg-slate-50 p-6">
+        {erroPopup ? (
+          <div className="fixed right-4 top-4 z-[90] max-w-md">
+            <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-xl">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p className="flex-1 font-medium leading-5">{erroPopup}</p>
+              <button
+                type="button"
+                onClick={dismissErrorPopup}
+                className="rounded-md border border-red-200 bg-white px-1.5 py-1 text-red-600 transition hover:bg-red-100"
+                aria-label="Fechar aviso de erro"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         <section className="overflow-visible rounded-[28px] border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-teal-900 px-6 py-6 text-white shadow-[0_30px_80px_-40px_rgba(15,23,42,0.95)]">
           <div className="flex flex-col gap-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -4222,7 +4293,6 @@ export default function AtendimentoPage() {
           </div>
         </section>
 
-        {erro ? <div className="rounded-[22px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</div> : null}
         {sucesso ? <div className="rounded-[22px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{sucesso}</div> : null}
 
         <section className="rounded-[26px] border border-slate-200 bg-white p-4 shadow-sm">
@@ -5182,7 +5252,7 @@ export default function AtendimentoPage() {
                           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                             <div>
                               <p className="text-sm font-semibold text-slate-900">Arquivos do exame</p>
-                              <p className="text-xs text-slate-500">PDFs, imagens e documentos de resultado entram no prontuario e na timeline.</p>
+                              <p className="text-xs text-slate-500">PDF, JPG, JPEG, PNG e WEBP entram no prontuario e na timeline.</p>
                             </div>
                           </div>
 
@@ -5217,7 +5287,7 @@ export default function AtendimentoPage() {
                             <input
                               id={examDropzoneId}
                               type="file"
-                              accept=".pdf,image/*,.doc,.docx,.txt"
+                              accept={ATENDIMENTO_ATTACHMENT_ACCEPT}
                               className="hidden"
                               onChange={(event) => {
                                 const file = event.target.files?.[0];
@@ -5429,6 +5499,7 @@ export default function AtendimentoPage() {
                       <input
                         key={anexoArquivo ? `${anexoArquivo.name}-${anexoArquivo.lastModified}` : "anexo-vazio"}
                         type="file"
+                        accept={ATENDIMENTO_ATTACHMENT_ACCEPT}
                         onChange={(e) => setAnexoArquivo(e.target.files?.[0] || null)}
                         className="w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:text-white"
                       />

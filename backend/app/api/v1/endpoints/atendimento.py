@@ -2,6 +2,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from io import BytesIO
 import json
+import logging
 import os
 import re
 import tempfile
@@ -64,6 +65,8 @@ from app.services.clinical_phrase_service import (
 )
 from app.services.exam_catalog_service import montar_contexto_catalogo_exames
 from app.services.atendimento_upload_service import (
+    AttachmentTooLargeError,
+    AttachmentTypeError,
     store_atendimento_attachment_file,
     remove_atendimento_attachment_file,
 )
@@ -78,6 +81,7 @@ from app.utils.pdf_laudo import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _serialize_medicamento(item: Medicamento) -> dict:
@@ -2287,17 +2291,49 @@ async def upload_anexo(
 
     content = await arquivo.read()
     if not content:
+        logger.warning(
+            "Upload de anexo rejeitado: arquivo vazio (atendimento_id=%s, user_id=%s, filename=%s)",
+            atendimento_id,
+            current_user.id,
+            arquivo.filename,
+        )
         raise HTTPException(status_code=400, detail="Arquivo vazio.")
 
     try:
-        storage_path, normalized_name = store_atendimento_attachment_file(
+        storage_path, normalized_name, normalized_mime_type = store_atendimento_attachment_file(
             atendimento_id,
             arquivo.filename,
             content,
+            arquivo.content_type,
         )
-    except ValueError as exc:
+    except AttachmentTooLargeError as exc:
+        logger.warning(
+            "Upload de anexo rejeitado: arquivo acima do limite (atendimento_id=%s, user_id=%s, filename=%s, size_bytes=%s)",
+            atendimento_id,
+            current_user.id,
+            arquivo.filename,
+            len(content),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=str(exc),
+        ) from exc
+    except AttachmentTypeError as exc:
+        logger.warning(
+            "Upload de anexo rejeitado: tipo invalido (atendimento_id=%s, user_id=%s, filename=%s, content_type=%s)",
+            atendimento_id,
+            current_user.id,
+            arquivo.filename,
+            arquivo.content_type,
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
+        logger.exception(
+            "Upload de anexo falhou por erro de storage (atendimento_id=%s, user_id=%s, filename=%s)",
+            atendimento_id,
+            current_user.id,
+            arquivo.filename,
+        )
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     anexo = AnexoAtendimento(
@@ -2308,7 +2344,7 @@ async def upload_anexo(
         url="",
         nome_original=normalized_name,
         tamanho=len(content),
-        mime_type=arquivo.content_type or "application/octet-stream",
+        mime_type=normalized_mime_type,
         caminho_arquivo=storage_path,
         origem="upload",
     )
