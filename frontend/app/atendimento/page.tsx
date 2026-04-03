@@ -1223,6 +1223,7 @@ export default function AtendimentoPage() {
   const [erro, setErro] = useState("");
   const [erroPopup, setErroPopup] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState("");
+  const [sucessoPopup, setSucessoPopup] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [workspacePainel, setWorkspacePainel] = useState<WorkspacePainel>("consulta");
   const [consultaEditorEtapa, setConsultaEditorEtapa] = useState<ConsultaEditorEtapa>("anamnese");
@@ -1280,6 +1281,7 @@ export default function AtendimentoPage() {
   const formRef = useRef(form);
   const autosaveTimerRef = useRef<number | null>(null);
   const erroPopupTimeoutRef = useRef<number | null>(null);
+  const sucessoPopupTimeoutRef = useRef<number | null>(null);
   const pacienteDropdownBlurTimeoutRef = useRef<number | null>(null);
   const lastPersistedSnapshotRef = useRef(serializeAtendimentoSnapshot(form));
   const hydratingFormRef = useRef(false);
@@ -1325,14 +1327,52 @@ export default function AtendimentoPage() {
     }
 
     setErroPopup(erro);
+    if (sucessoPopupTimeoutRef.current) {
+      window.clearTimeout(sucessoPopupTimeoutRef.current);
+      sucessoPopupTimeoutRef.current = null;
+    }
+    setSucessoPopup(null);
+    setSucesso("");
+
     if (erroPopupTimeoutRef.current) {
       window.clearTimeout(erroPopupTimeoutRef.current);
     }
     erroPopupTimeoutRef.current = window.setTimeout(() => {
       setErroPopup(null);
       erroPopupTimeoutRef.current = null;
+      setErro("");
     }, 8000);
   }, [erro]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    if (!sucesso) {
+      setSucessoPopup(null);
+      if (sucessoPopupTimeoutRef.current) {
+        window.clearTimeout(sucessoPopupTimeoutRef.current);
+        sucessoPopupTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    setSucessoPopup(sucesso);
+    if (erroPopupTimeoutRef.current) {
+      window.clearTimeout(erroPopupTimeoutRef.current);
+      erroPopupTimeoutRef.current = null;
+    }
+    setErroPopup(null);
+    setErro("");
+
+    if (sucessoPopupTimeoutRef.current) {
+      window.clearTimeout(sucessoPopupTimeoutRef.current);
+    }
+    sucessoPopupTimeoutRef.current = window.setTimeout(() => {
+      setSucessoPopup(null);
+      sucessoPopupTimeoutRef.current = null;
+      setSucesso("");
+    }, 5000);
+  }, [sucesso]);
 
   useEffect(() => {
     return () => {
@@ -1340,6 +1380,10 @@ export default function AtendimentoPage() {
       if (erroPopupTimeoutRef.current) {
         window.clearTimeout(erroPopupTimeoutRef.current);
         erroPopupTimeoutRef.current = null;
+      }
+      if (sucessoPopupTimeoutRef.current) {
+        window.clearTimeout(sucessoPopupTimeoutRef.current);
+        sucessoPopupTimeoutRef.current = null;
       }
       Object.values(examUploadDraftsRef.current).forEach((entry) => {
         if (entry.previewUrl) {
@@ -4198,6 +4242,15 @@ export default function AtendimentoPage() {
     setErro("");
   };
 
+  const dismissSuccessPopup = () => {
+    if (typeof window !== "undefined" && sucessoPopupTimeoutRef.current) {
+      window.clearTimeout(sucessoPopupTimeoutRef.current);
+      sucessoPopupTimeoutRef.current = null;
+    }
+    setSucessoPopup(null);
+    setSucesso("");
+  };
+
   if (loading) {
     return <DashboardLayout><div className="p-6 text-gray-600">Carregando modulo de atendimento...</div></DashboardLayout>;
   }
@@ -4205,8 +4258,8 @@ export default function AtendimentoPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6 bg-slate-50 p-6">
-        {erroPopup ? (
-          <div className="fixed right-4 top-4 z-[90] max-w-md">
+        <div className="fixed right-4 top-4 z-[90] flex max-w-md flex-col gap-2">
+          {erroPopup ? (
             <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-xl">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <p className="flex-1 font-medium leading-5">{erroPopup}</p>
@@ -4219,8 +4272,23 @@ export default function AtendimentoPage() {
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
-          </div>
-        ) : null}
+          ) : null}
+
+          {sucessoPopup ? (
+            <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 shadow-xl">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              <p className="flex-1 font-medium leading-5">{sucessoPopup}</p>
+              <button
+                type="button"
+                onClick={dismissSuccessPopup}
+                className="rounded-md border border-emerald-200 bg-white px-1.5 py-1 text-emerald-600 transition hover:bg-emerald-100"
+                aria-label="Fechar aviso de sucesso"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : null}
+        </div>
 
         <section className="overflow-visible rounded-[28px] border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-teal-900 px-6 py-6 text-white shadow-[0_30px_80px_-40px_rgba(15,23,42,0.95)]">
           <div className="flex flex-col gap-6">
@@ -4292,8 +4360,6 @@ export default function AtendimentoPage() {
             </div>
           </div>
         </section>
-
-        {sucesso ? <div className="rounded-[22px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{sucesso}</div> : null}
 
         <section className="rounded-[26px] border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
