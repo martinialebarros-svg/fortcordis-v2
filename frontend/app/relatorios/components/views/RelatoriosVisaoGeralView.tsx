@@ -5,7 +5,6 @@ import MetricCard from "../MetricCard";
 import { formatarMoeda, formatarNumero } from "../../formatters";
 import {
   mediaTicketPeriodo,
-  montarProjecaoFluxo30d,
   ordenarComparativoMensal,
   somarKmPeriodo,
   totalContasPendentes,
@@ -29,6 +28,8 @@ export default function RelatoriosVisaoGeralView({
     "Pendente",
     "Atrasado",
   ]);
+  const pendenciasOs = relatorio.insights_avancados.pendencias_recebimento?.valor_total_pendente || 0;
+  const contasReceberConsolidado = contasReceberPendentes + pendenciasOs;
   const saldoCaixa = relatorio.financeiro.periodo.saldo;
   const ticketMedio = mediaTicketPeriodo(relatorio);
   const kmPeriodo = somarKmPeriodo(relatorio);
@@ -38,11 +39,11 @@ export default function RelatoriosVisaoGeralView({
     1,
     ...comparativo.map((item) => Math.max(item.entradas || 0, item.saidas || 0))
   );
-  const previsao30d = relatorio.insights_avancados.previsao_recebimentos_30d;
-  const projecaoFluxo = montarProjecaoFluxo30d(
-    financeiroContexto,
-    relatorio.periodo.data_referencia
-  );
+  const pendenciasRecebimento = relatorio.insights_avancados.pendencias_recebimento;
+  const pendenciasItens = pendenciasRecebimento?.itens || [];
+  const totalPendenciasRecebimento = pendenciasRecebimento?.valor_total_pendente || 0;
+  const dataCortePendencias =
+    pendenciasRecebimento?.data_corte || relatorio.periodo.data_referencia;
   const rankingResumo = relatorio.rentabilidade.ranking_clinicas.slice(0, 5);
 
   return (
@@ -71,7 +72,8 @@ export default function RelatoriosVisaoGeralView({
         />
         <MetricCard
           titulo="Contas a receber"
-          valor={formatarMoeda(contasReceberPendentes)}
+          valor={formatarMoeda(contasReceberConsolidado)}
+          descricao={`Contas: ${formatarMoeda(contasReceberPendentes)} | OS pendentes: ${formatarMoeda(pendenciasOs)}`}
           icon={Landmark}
           iconColorClass="text-amber-600"
         />
@@ -147,23 +149,13 @@ export default function RelatoriosVisaoGeralView({
         </div>
 
         <div className="bg-white border rounded-xl p-4">
-          <h2 className="font-semibold text-gray-900 mb-3">Previsao de recebimentos 30 dias</h2>
+          <h2 className="font-semibold text-gray-900 mb-3">Pendencias de recebimento por clinica</h2>
           <div className="space-y-2 text-sm">
             <p className="text-gray-600">
-              Janela: {previsao30d.data_referencia} ate {previsao30d.data_limite}
+              Base de corte: ate {dataCortePendencias}
             </p>
             <p className="text-gray-900 font-semibold">
-              Recebimentos previstos: {formatarMoeda(previsao30d.valor_total_previsto)}
-            </p>
-            <p className="text-gray-700">
-              Fluxo projetado 30d:{" "}
-              <span className={projecaoFluxo.saldo_previsto >= 0 ? "text-green-700" : "text-red-700"}>
-                {formatarMoeda(projecaoFluxo.saldo_previsto)}
-              </span>
-            </p>
-            <p className="text-xs text-gray-500">
-              Entradas previstas {formatarMoeda(projecaoFluxo.entradas_previstas)} | Saidas previstas{" "}
-              {formatarMoeda(projecaoFluxo.saidas_previstas)}
+              Total pendente em OS: {formatarMoeda(totalPendenciasRecebimento)}
             </p>
           </div>
           <div className="mt-3 overflow-x-auto">
@@ -176,13 +168,21 @@ export default function RelatoriosVisaoGeralView({
                 </tr>
               </thead>
               <tbody>
-                {previsao30d.itens.slice(0, 5).map((item) => (
-                  <tr key={item.clinica_id} className="border-t">
-                    <td className="px-3 py-2">{item.clinica_nome}</td>
-                    <td className="px-3 py-2 text-right">{item.ordens_pendentes}</td>
-                    <td className="px-3 py-2 text-right">{formatarMoeda(item.valor_previsto)}</td>
+                {pendenciasItens.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="px-3 py-5 text-center text-gray-500">
+                      Nenhuma OS pendente ate a data de corte.
+                    </td>
                   </tr>
-                ))}
+                ) : (
+                  pendenciasItens.map((item) => (
+                    <tr key={item.clinica_id} className="border-t">
+                      <td className="px-3 py-2">{item.clinica_nome}</td>
+                      <td className="px-3 py-2 text-right">{item.ordens_pendentes}</td>
+                      <td className="px-3 py-2 text-right">{formatarMoeda(item.valor_pendente)}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
