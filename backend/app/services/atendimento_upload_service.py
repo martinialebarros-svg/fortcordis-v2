@@ -8,7 +8,50 @@ from typing import Final
 
 from app.core.config import settings
 
+
+class AttachmentValidationError(ValueError):
+    """Base para erros de validacao de upload de anexo."""
+
+
+class AttachmentTypeError(AttachmentValidationError):
+    """Arquivo com tipo/extensao invalido para upload."""
+
+
+class AttachmentTooLargeError(AttachmentValidationError):
+    """Arquivo acima do limite permitido para upload."""
+
+
 MAX_ATENDIMENTO_ATTACHMENT_SIZE: Final[int] = 25 * 1024 * 1024
+ALLOWED_ATENDIMENTO_ATTACHMENT_EXTENSIONS: Final[set[str]] = {
+    ".pdf",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+}
+ALLOWED_ATENDIMENTO_ATTACHMENT_MIME_TYPES: Final[set[str]] = {
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+}
+
+_MIME_ALIASES: Final[dict[str, str]] = {
+    "image/jpg": "image/jpeg",
+}
+_EXTENSION_MIME_MAP: Final[dict[str, str]] = {
+    ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
+_MIME_ALLOWED_EXTENSIONS: Final[dict[str, set[str]]] = {
+    "application/pdf": {".pdf"},
+    "image/jpeg": {".jpg", ".jpeg"},
+    "image/png": {".png"},
+    "image/webp": {".webp"},
+}
 
 
 def _fallback_storage_dir() -> str:
@@ -47,19 +90,57 @@ def normalize_attachment_filename(filename: str | None, fallback: str = "anexo.b
     return cleaned or fallback
 
 
+def _normalize_content_type(content_type: str | None) -> str:
+    normalized = (content_type or "").strip().lower()
+    if ";" in normalized:
+        normalized = normalized.split(";", 1)[0].strip()
+    return _MIME_ALIASES.get(normalized, normalized)
+
+
+def _allowed_extensions_display() -> str:
+    return ", ".join(sorted(ALLOWED_ATENDIMENTO_ATTACHMENT_EXTENSIONS))
+
+
+def validate_attachment_type(filename: str | None, content_type: str | None) -> str:
+    normalized_name = normalize_attachment_filename(filename)
+    extension = os.path.splitext(normalized_name)[1].lower()
+    if extension not in ALLOWED_ATENDIMENTO_ATTACHMENT_EXTENSIONS:
+        raise AttachmentTypeError(
+            f"Tipo de arquivo nao permitido. Use: {_allowed_extensions_display()}"
+        )
+
+    normalized_content_type = _normalize_content_type(content_type)
+    if not normalized_content_type or normalized_content_type == "application/octet-stream":
+        return _EXTENSION_MIME_MAP[extension]
+
+    if normalized_content_type not in ALLOWED_ATENDIMENTO_ATTACHMENT_MIME_TYPES:
+        raise AttachmentTypeError(
+            f"Tipo MIME nao permitido: {normalized_content_type}. "
+            f"Use: {', '.join(sorted(ALLOWED_ATENDIMENTO_ATTACHMENT_MIME_TYPES))}"
+        )
+
+    allowed_extensions = _MIME_ALLOWED_EXTENSIONS.get(normalized_content_type, set())
+    if extension not in allowed_extensions:
+        raise AttachmentTypeError("Extensao do arquivo nao corresponde ao tipo MIME informado.")
+
+    return normalized_content_type
+
+
 def validate_attachment_size(content: bytes) -> None:
     if len(content) > MAX_ATENDIMENTO_ATTACHMENT_SIZE:
-        raise ValueError("Arquivo excede o limite de 25MB")
+        raise AttachmentTooLargeError("Arquivo excede o limite de 25MB")
 
 
 def store_atendimento_attachment_file(
     atendimento_id: int,
     filename: str | None,
     content: bytes,
-) -> tuple[str, str]:
+    content_type: str | None = None,
+) -> tuple[str, str, str]:
+    normalized_name = normalize_attachment_filename(filename)
+    normalized_mime_type = validate_attachment_type(normalized_name, content_type)
     validate_attachment_size(content)
 
-    normalized_name = normalize_attachment_filename(filename)
     storage_dir = get_atendimento_upload_storage_dir(atendimento_id)
     unique_prefix = uuid.uuid4().hex[:12]
     target_name = f"{unique_prefix}_{normalized_name}"
@@ -81,7 +162,7 @@ def store_atendimento_attachment_file(
             pass
         raise
 
-    return target_path, normalized_name
+    return target_path, normalized_name, normalized_mime_type
 
 
 def remove_atendimento_attachment_file(path: str | None) -> None:
