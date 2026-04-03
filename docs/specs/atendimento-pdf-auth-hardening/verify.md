@@ -8,10 +8,10 @@ Status: approved
 
 | ID | Tipo | Evidencia | Status |
 | --- | --- | --- | --- |
-| CA-001 | aceitacao | `test_rejects_access_token_query_even_with_valid_bearer` | ok |
-| CA-002 | aceitacao | `test_requires_bearer_header` | ok |
-| CA-003 | aceitacao | `test_rejects_invalid_bearer` | ok |
-| CA-004 | aceitacao | `test_returns_user_for_valid_bearer` | ok |
+| CA-001 | aceitacao | unit test + stage (`GET /prescricao/pdf?access_token=abc` => `400`) | ok |
+| CA-002 | aceitacao | unit test + stage (`GET /prescricao/pdf` sem header => `401`) | ok |
+| CA-003 | aceitacao | unit test + stage (`Authorization: Bearer invalido` => `401`) | ok |
+| CA-004 | aceitacao | unit test + stage (`GET /atendimentos/6/prescricao/pdf` com bearer tecnico => `200`) | ok |
 | CA-005 | aceitacao | `backend/.venv/Scripts/python -m unittest backend/tests/test_atendimento_pdf_auth.py -v` | ok |
 | NFR-001 | nao funcional | bloqueio explicito no helper `_autenticar_usuario_pdf` | ok |
 | NFR-002 | nao funcional | testes cobrindo `400` (query token), `401` (sem/invalid bearer), `403` (usuario inativo) | ok |
@@ -36,7 +36,14 @@ Resumo dos resultados:
 - Cenario 1: download PDF prescricao com sessao autenticada.
 - Cenario 2: download PDF exames com sessao autenticada.
 - Cenario 3: tentativa manual com query token sem header (esperado: bloqueio `400`).
-- Status: pendente (nao executado nesta rodada local automatizada).
+- Evidencias stage (2026-04-03):
+- `GET http://127.0.0.1:8001/api/v1/atendimentos/1/prescricao/pdf?access_token=abc` => `400` + detalhe orientando header bearer.
+- `GET http://127.0.0.1:8001/api/v1/atendimentos/1/prescricao/pdf` sem header => `401`.
+- `GET http://127.0.0.1:8001/api/v1/atendimentos/1/prescricao/pdf` com bearer invalido => `401`.
+- `GET http://127.0.0.1:8001/api/v1/atendimentos/6/prescricao/pdf` com bearer tecnico => `200` (PDF gerado).
+- `GET http://127.0.0.1:8001/api/v1/atendimentos/6/exames/pdf` com bearer tecnico => `404` funcional (`Nao ha exames para este atendimento.`), validando que auth foi aceita (nao `401`).
+- Log backend stage sem `500` para os cenarios executados.
+- Status: concluido para gate de seguranca/auth em stage.
 
 ## 4) Regressao e riscos residuais
 
@@ -49,7 +56,7 @@ Resumo dos resultados:
 
 ## 6) Decisao de release
 
-- [ ] Aprovado para stage.
+- [x] Aprovado para stage.
 - [ ] Aprovado para producao.
 - [ ] Nao aprovado (descrever motivo).
 
