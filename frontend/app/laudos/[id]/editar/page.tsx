@@ -1649,7 +1649,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
 
                     {ecocardiogramaEstruturado.usar_no_laudo ? (
                       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                        Para ajustar a conclusao oficial, edite o aspecto "Conclusao" no bloco estruturado acima.
+                        Para ajustar a conclusao oficial, edite o aspecto &quot;Conclusao&quot; no bloco estruturado acima.
                       </div>
                     ) : null}
 
@@ -1910,7 +1910,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
                     <div className="p-4 bg-blue-50 rounded-lg">
                       <p className="text-sm text-blue-800">
                         <strong>Nota:</strong> As tabelas de referÃªncia sÃ£o usadas para comparar automaticamente
-                        as medidas do paciente com os valores normais. Clique em "Editar Tabelas" para gerenciar
+                        as medidas do paciente com os valores normais. Clique em &quot;Editar Tabelas&quot; para gerenciar
                         os valores de referÃªncia.
                       </p>
                     </div>

@@ -137,7 +137,7 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
         <div className="text-center py-8 text-gray-500">
           <AlertTriangle className="w-12 h-12 mx-auto mb-3 text-yellow-400" />
           <p>Nenhuma medida preenchida para comparação.</p>
-          <p className="text-sm mt-1">Vá para a aba "Medidas" e preencha os valores.</p>
+          <p className="text-sm mt-1">Vá para a aba &quot;Medidas&quot; e preencha os valores.</p>
         </div>
       ) : (
         Object.entries(porCategoria).map(([categoria, items]) => (

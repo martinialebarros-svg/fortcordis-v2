@@ -315,7 +315,7 @@ export default function ReferenciasEcoPage() {
         <div className="mt-6 bg-blue-50 p-4 rounded-lg text-sm text-blue-800">
           <p className="font-medium mb-2">Como usar:</p>
           <ul className="space-y-1 ml-4 list-disc">
-            <li>As referências são usadas automaticamente ao preencher a aba "Medidas" do laudo</li>
+            <li>As referências são usadas automaticamente ao preencher a aba &quot;Medidas&quot; do laudo</li>
             <li>Clique no ícone de editar (✏️) para alterar os valores de referência</li>
             <li>Os valores são organizados por espécie (Canina/Felina) e peso</li>
             <li>As interpretações de normalidade/alteração são baseadas nestas referências</li>
