@@ -26,159 +26,20 @@ jobs:
         run: |
           ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
             set -euo pipefail
-            STAGE_DIR="/var/www/fortcordis-stage"
+            APP_DIR="/var/www/fortcordis-stage"
+            BRANCH="stage"
 
-            restart_service() {
-              svc="$1"
-              echo "Restarting ${svc}..."
-              if sudo -n /bin/systemctl restart "$svc" 2>/dev/null; then
-                :
-              else
-                echo "Passwordless sudo unavailable for ${svc}; attempting process fallback."
-                pid="$(/bin/systemctl show "$svc" -p MainPID --value 2>/dev/null || true)"
-                if [ -n "$pid" ] && [ "$pid" != "0" ]; then
-                  kill -TERM "$pid" || true
-                  sleep 3
-                fi
-              fi
-              if ! /bin/systemctl is-active --quiet "$svc"; then
-                echo "Service ${svc} is not active after deploy."
-                return 1
-              fi
-              return 0
-            }
-
-            start_backend_manual_fallback() {
-              echo "Starting backend manually on port 8001 (fallback)..."
-              cd "$STAGE_DIR/backend"
-
-              pkill -f "uvicorn app.main:app --host 0.0.0.0 --port 8001" || true
-              sleep 2
-
-              if [ -f .env ]; then
-                set -a
-                source .env
-                set +a
-              fi
-
-              nohup venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001 \
-                >/tmp/fortcordis-stage-backend-manual.out \
-                2>/tmp/fortcordis-stage-backend-manual.err < /dev/null &
-
-              for attempt in $(seq 1 30); do
-                if curl -fsS http://127.0.0.1:8001/health >/dev/null; then
-                  echo "Backend fallback is up."
-                  cd "$STAGE_DIR"
-                  return 0
-                fi
-                sleep 1
-              done
-
-              echo "Backend fallback failed to start after waiting for startup."
-              tail -n 80 /tmp/fortcordis-stage-backend-manual.err || true
-              exit 1
-            }
-
-            current_frases_count() {
-              python3 -c "import json, pathlib; path = pathlib.Path('backend/data/frases.json'); print(0 if not path.exists() else len((json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}).get('frases', [])))" 2>/dev/null || echo 0
-            }
-
-            restore_richer_frases_backup() {
-              current_count="$(current_frases_count)"
-              best_backup=""
-              best_count="$current_count"
-
-              for backup in backup_stage_*.tar.gz; do
-                [ -f "$backup" ] || continue
-                backup_count="$(tar -xOf "$backup" backend/data/frases.json 2>/dev/null | python3 -c "import json, sys; print(len((json.load(sys.stdin) or {}).get('frases', [])))" 2>/dev/null || echo 0)"
-                if [ "$backup_count" -gt "$best_count" ]; then
-                  best_backup="$backup"
-                  best_count="$backup_count"
-                fi
-              done
-
-              if [ -n "$best_backup" ]; then
-                echo "Restoring richer frases.json from $best_backup (${best_count} entries)..."
-                mkdir -p backend/data
-                tar -xOf "$best_backup" backend/data/frases.json > backend/data/frases.json
-              else
-                echo "No richer frases.json backup found; keeping current file (${current_count} entries)."
-              fi
-            }
-
-            if [ ! -d "$STAGE_DIR/.git" ]; then
-              echo "ERROR: $STAGE_DIR is not a git checkout"
+            if [ ! -d "$APP_DIR/.git" ]; then
+              echo "ERROR: $APP_DIR is not a git checkout"
               exit 1
             fi
 
-            cd "$STAGE_DIR"
-            echo "Backing up stage files..."
-            tar -czf backup_stage_$(date +%Y%m%d_%H%M%S).tar.gz backend frontend 2>/dev/null || true
-            ls -1t backup_stage_*.tar.gz 2>/dev/null | tail -n +6 | xargs -r rm -f || true
-
-            echo "Preserving runtime files (frases/db)..."
-            RUNTIME_BACKUP_DIR="/tmp/fortcordis_stage_runtime_backup"
-            rm -rf "$RUNTIME_BACKUP_DIR"
-            mkdir -p "$RUNTIME_BACKUP_DIR/backend/data"
-            [ -f backend/data/frases.json ] && cp backend/data/frases.json "$RUNTIME_BACKUP_DIR/backend/data/frases.json" || true
-            [ -f backend/data/frases_ecocardiograma_estruturado_teste.json ] && cp backend/data/frases_ecocardiograma_estruturado_teste.json "$RUNTIME_BACKUP_DIR/backend/data/frases_ecocardiograma_estruturado_teste.json" || true
-            [ -f backend/data/patologias.json ] && cp backend/data/patologias.json "$RUNTIME_BACKUP_DIR/backend/data/patologias.json" || true
-            [ -f backend/fortcordis.db ] && cp backend/fortcordis.db "$RUNTIME_BACKUP_DIR/backend/fortcordis.db" || true
-
-            echo "Updating code from origin/stage..."
+            cd "$APP_DIR"
+            echo "Updating checkout to origin/${BRANCH}..."
             git fetch origin
-            git reset --hard origin/stage
+            git checkout "$BRANCH"
+            git reset --hard "origin/${BRANCH}"
 
-            echo "Restoring runtime files (frases/db)..."
-            mkdir -p backend/data
-            [ -f "$RUNTIME_BACKUP_DIR/backend/data/frases.json" ] && cp "$RUNTIME_BACKUP_DIR/backend/data/frases.json" backend/data/frases.json || true
-            [ -f "$RUNTIME_BACKUP_DIR/backend/data/frases_ecocardiograma_estruturado_teste.json" ] && cp "$RUNTIME_BACKUP_DIR/backend/data/frases_ecocardiograma_estruturado_teste.json" backend/data/frases_ecocardiograma_estruturado_teste.json || true
-            [ -f "$RUNTIME_BACKUP_DIR/backend/data/patologias.json" ] && cp "$RUNTIME_BACKUP_DIR/backend/data/patologias.json" backend/data/patologias.json || true
-            [ -f "$RUNTIME_BACKUP_DIR/backend/fortcordis.db" ] && cp "$RUNTIME_BACKUP_DIR/backend/fortcordis.db" backend/fortcordis.db || true
-            rm -rf "$RUNTIME_BACKUP_DIR" || true
-            restore_richer_frases_backup
-
-            echo "Deploying backend..."
-            cd backend
-            python3 -m venv venv 2>/dev/null || true
-            source venv/bin/activate
-            pip install -r requirements.txt
-            if [ -f .env ]; then
-              set -a
-              source .env
-              set +a
-            fi
-
-            echo "Running setup_database.py..."
-            python3 setup_database.py
-
-            echo "Inspecting frases store..."
-            if python3 sync_frases_store.py | tee /tmp/fortcordis-stage-frases-store-report.json; then
-              if python3 -c "import json, pathlib, sys; after = (json.loads(pathlib.Path('/tmp/fortcordis-stage-frases-store-report.json').read_text()).get('after') or {}); needs_apply = after.get('active_source') != 'database' or int(after.get('missing_in_database_count') or 0) > 0; print(f'needs_apply={str(needs_apply).lower()}'); sys.exit(0 if needs_apply else 1)"
-              then
-                echo "Applying frases store sync..."
-                python3 sync_frases_store.py --apply
-              else
-                echo "Frases store already aligned."
-              fi
-            else
-              echo "WARNING: dry-run de frases store falhou; mantendo deploy sem apply."
-            fi
-
-            cd ..
-            if ! restart_service fortcordis-stage-backend; then
-              start_backend_manual_fallback
-            fi
-
-            echo "Deploying frontend..."
-            cd frontend
-            npm install
-            API_BACKEND_URL=http://127.0.0.1:8001 npm run build
-            cd ..
-            if ! restart_service fortcordis-stage-frontend; then
-              echo "Service fortcordis-stage-frontend is not active after deploy."
-              exit 1
-            fi
-
-            echo "Stage deploy finished."
+            echo "Running standardized stage deploy script..."
+            APP_DIR="$APP_DIR" BRANCH="$BRANCH" bash scripts/deploy_stage_vps.sh
           EOF
