@@ -30,6 +30,23 @@ Resumo dos resultados:
 - Frontend: lint executado sem warnings/erros.
 - Backend: nao aplicavel.
 
+## 2.1) Homologacao tecnica em stage
+
+Evidencias de deploy e runtime (2026-04-04):
+- `origin/stage` aplicado em `/var/www/fortcordis-stage` com `HEAD=e3d5bbd`.
+- Build frontend concluido no stage (`next build` finalizado com sucesso).
+- Servicos ativos apos restart:
+- `fortcordis-stage-backend`: `active`
+- `fortcordis-stage-frontend`: `active`
+- Smoke checks stage:
+- `https://stage.fortcordis.com.br` => `200`
+- `https://stage.fortcordis.com.br/api/v1/atendimentos` sem token => `401`
+- Logs recentes:
+- frontend stage iniciou sem erro fatal (`Ready in ...ms`).
+- backend stage respondeu requests esperados sem `500` nos checks executados.
+- Confirmacao do codigo da feature no checkout stage:
+- `frontend/app/atendimento/page.tsx` contem `sucessoPopup`, `dismissSuccessPopup` e `aria-label=\"Fechar aviso de sucesso\"`.
+
 ## 3) Testes manuais
 
 - Cenario 1: salvar atendimento e validar toast de sucesso.
@@ -52,3 +69,6 @@ Resumo dos resultados:
 - [ ] Aprovado para stage.
 - [ ] Aprovado para producao.
 - [ ] Nao aprovado (descrever motivo).
+
+Motivo atual:
+- Homologacao tecnica de stage concluida, aguardando apenas checklist visual/manual dos toasts (CA-001..CA-004).
