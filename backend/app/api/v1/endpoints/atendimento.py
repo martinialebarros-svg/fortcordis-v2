@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Union
 from xml.sax.saxutils import escape as xml_escape
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from jose import JWTError, jwt
 from app.schemas.atendimento import (
     AnexoPayload,
@@ -67,6 +67,7 @@ from app.services.exam_catalog_service import montar_contexto_catalogo_exames
 from app.services.atendimento_upload_service import (
     AttachmentTooLargeError,
     AttachmentTypeError,
+    calculate_attachment_sha256,
     store_atendimento_attachment_file,
     remove_atendimento_attachment_file,
 )
@@ -2305,6 +2306,31 @@ async def upload_anexo(
         )
         raise HTTPException(status_code=400, detail="Arquivo vazio.")
 
+    arquivo_hash = calculate_attachment_sha256(content)
+    anexo_existente_query = db.query(AnexoAtendimento).filter(
+        AnexoAtendimento.atendimento_id == atendimento_id,
+        AnexoAtendimento.origem == "upload",
+        AnexoAtendimento.arquivo_hash == arquivo_hash,
+    )
+    if exame is not None:
+        anexo_existente_query = anexo_existente_query.filter(AnexoAtendimento.exame_id == exame.id)
+    else:
+        anexo_existente_query = anexo_existente_query.filter(AnexoAtendimento.exame_id.is_(None))
+
+    anexo_existente = anexo_existente_query.order_by(AnexoAtendimento.id.desc()).first()
+    if anexo_existente:
+        logger.info(
+            "Upload de anexo deduplicado (atendimento_id=%s, exame_id=%s, user_id=%s, anexo_id=%s, hash=%s)",
+            atendimento_id,
+            exame.id if exame else None,
+            current_user.id,
+            anexo_existente.id,
+            arquivo_hash,
+        )
+        payload = _serialize_anexo(anexo_existente)
+        payload["deduplicado"] = True
+        return JSONResponse(status_code=status.HTTP_200_OK, content=payload)
+
     try:
         storage_path, normalized_name, normalized_mime_type = store_atendimento_attachment_file(
             atendimento_id,
@@ -2351,6 +2377,7 @@ async def upload_anexo(
         nome_original=normalized_name,
         tamanho=len(content),
         mime_type=normalized_mime_type,
+        arquivo_hash=arquivo_hash,
         caminho_arquivo=storage_path,
         origem="upload",
     )
@@ -2366,7 +2393,9 @@ async def upload_anexo(
     db.commit()
     db.refresh(anexo)
 
-    return _serialize_anexo(anexo)
+    payload = _serialize_anexo(anexo)
+    payload["deduplicado"] = False
+    return payload
 
 
 @router.get("/anexos/{anexo_id}/arquivo")

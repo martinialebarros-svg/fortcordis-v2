@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import tempfile
@@ -129,6 +130,10 @@ def validate_attachment_type(filename: str | None, content_type: str | None) -> 
 def validate_attachment_size(content: bytes) -> None:
     if len(content) > MAX_ATENDIMENTO_ATTACHMENT_SIZE:
         raise AttachmentTooLargeError("Arquivo excede o limite de 25MB")
+
+
+def calculate_attachment_sha256(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
 
 
 def store_atendimento_attachment_file(

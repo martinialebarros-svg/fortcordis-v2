@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import os
 import sys
 import unittest
@@ -28,14 +29,18 @@ class _FakeQuery:
     def filter(self, *args, **kwargs):
         return self
 
+    def order_by(self, *args, **kwargs):
+        return self
+
     def first(self):
         return self._result
 
 
 class _FakeDB:
-    def __init__(self, *, atendimento_exists: bool = True):
+    def __init__(self, *, atendimento_exists: bool = True, existing_anexo=None):
         self._atendimento = SimpleNamespace(id=1) if atendimento_exists else None
         self._exame = None
+        self._existing_anexo = existing_anexo
         self.added = []
         self.commit_count = 0
 
@@ -45,6 +50,8 @@ class _FakeDB:
             return _FakeQuery(self._atendimento)
         if model_name == "Exame":
             return _FakeQuery(self._exame)
+        if model_name == "AnexoAtendimento":
+            return _FakeQuery(self._existing_anexo)
         return _FakeQuery(None)
 
     def add(self, obj):
@@ -101,6 +108,49 @@ class AtendimentoUploadEndpointTest(unittest.TestCase):
         self.assertEqual(len(db.added), 1)
         self.assertEqual(payload["nome_original"], "resultado.pdf")
         self.assertEqual(payload["mime_type"], "application/pdf")
+        self.assertFalse(payload["deduplicado"])
+
+    def test_upload_anexo_returns_200_existing_attachment_when_hash_matches(self) -> None:
+        existing_anexo = SimpleNamespace(
+            id=7,
+            atendimento_id=1,
+            exame_id=None,
+            tipo="documento",
+            descricao="ja existente",
+            url="/api/v1/atendimentos/anexos/7/arquivo",
+            nome_original="resultado.pdf",
+            tamanho=12,
+            mime_type="application/pdf",
+            arquivo_hash="hash-duplicado",
+            caminho_arquivo="C:/tmp/existente.pdf",
+            origem="upload",
+            created_at=None,
+        )
+        db = _FakeDB(existing_anexo=existing_anexo)
+        arquivo = _make_upload_file("resultado.pdf", "application/pdf", b"conteudo-ok")
+
+        with patch.object(atendimento, "calculate_attachment_sha256", return_value="hash-duplicado"), patch.object(
+            atendimento,
+            "store_atendimento_attachment_file",
+        ) as store_mock:
+            response = asyncio.run(
+                atendimento.upload_anexo(
+                    atendimento_id=1,
+                    arquivo=arquivo,
+                    tipo="documento",
+                    descricao="Arquivo duplicado",
+                    exame_id=None,
+                    db=db,
+                    current_user=self.user,
+                )
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.body.decode("utf-8"))
+        self.assertEqual(body["id"], 7)
+        self.assertTrue(body["deduplicado"])
+        self.assertEqual(store_mock.call_count, 0)
+        self.assertEqual(db.commit_count, 0)
 
     def test_upload_anexo_maps_type_error_to_400(self) -> None:
         db = _FakeDB()

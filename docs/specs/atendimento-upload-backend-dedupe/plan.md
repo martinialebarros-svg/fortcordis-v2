@@ -15,34 +15,34 @@ Status: in-progress
 
 ### Fase 1
 
-- [ ] T1.1 Criar migracao com coluna `arquivo_hash` em `anexos_atendimentos`.
-- [ ] T1.2 Criar indice composto para busca de dedupe.
+- [x] T1.1 Criar migracao com coluna `arquivo_hash` em `anexos_atendimentos`.
+- [x] T1.2 Criar indice composto para busca de dedupe.
 - Criterio de conclusao: schema atualizado sem quebrar leitura/escrita atual.
 - Risco: incompatibilidade de sintaxe entre SQLite e Postgres.
 - Rollback: migracao com guardas por dialeto e revert logico.
 
 ### Fase 2
 
-- [ ] T2.1 Calcular SHA-256 no fluxo de upload.
-- [ ] T2.2 Consultar duplicado por `atendimento_id/exame_id/arquivo_hash/origem`.
-- [ ] T2.3 Retornar anexo existente com `deduplicado=true` sem persistir novo arquivo.
-- [ ] T2.4 Registrar logs de dedupe.
+- [x] T2.1 Calcular SHA-256 no fluxo de upload.
+- [x] T2.2 Consultar duplicado por `atendimento_id/exame_id/arquivo_hash/origem`.
+- [x] T2.3 Retornar anexo existente com `deduplicado=true` sem persistir novo arquivo.
+- [x] T2.4 Registrar logs de dedupe.
 - Criterio de conclusao: dedupe backend funcional e idempotente.
 - Risco: condicao de corrida em uploads simultaneos.
 - Rollback: desligar dedupe e manter apenas fluxo atual de upload.
 
 ### Fase 3
 
-- [ ] T3.1 Ajustar frontend para lidar com `deduplicado=true` sem erro.
-- [ ] T3.2 Exibir mensagem amigavel opcional quando dedupe ocorrer.
+- [x] T3.1 Ajustar frontend para lidar com `deduplicado=true` sem erro.
+- [x] T3.2 Exibir mensagem amigavel opcional quando dedupe ocorrer.
 - Criterio de conclusao: UX consistente para upload novo e deduplicado.
 - Risco: confusao de mensagem com sucesso padrao.
 - Rollback: ignorar flag no frontend e manter mensagem atual.
 
 ### Fase 4
 
-- [ ] T4.1 Atualizar testes de service para hash/dedupe.
-- [ ] T4.2 Atualizar testes de endpoint para status e payload deduplicado.
+- [x] T4.1 Atualizar testes de service para hash/dedupe.
+- [x] T4.2 Atualizar testes de endpoint para status e payload deduplicado.
 - [ ] T4.3 Executar checklist manual local/stage e preencher `verify.md`.
 - Criterio de conclusao: CA-001..CA-005 em `ok`.
 - Risco: cobertura insuficiente de concorrencia.
