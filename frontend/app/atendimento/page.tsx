@@ -5519,23 +5519,23 @@ export default function AtendimentoPage() {
                 {anexosGerais.length > 0 ? (
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     {anexosGerais.map((anexo) => (
-                      <div key={anexo.id} className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
-                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-slate-900">{anexo.nome_original || anexo.tipo}</p>
+                      <div key={anexo.id} className="overflow-hidden rounded-[20px] border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <p className="break-all text-sm font-medium text-slate-900">{anexo.nome_original || anexo.tipo}</p>
                             <p className="mt-1 text-xs text-slate-500">{anexo.descricao || anexo.tipo}</p>
                             <p className="mt-1 text-xs text-slate-500">{formatBytes(anexo.tamanho)}{anexo.created_at ? ` · ${formatDate(anexo.created_at)}` : ""}</p>
                           </div>
-                          <div className="flex flex-wrap gap-2">
-                            <button onClick={() => abrirAnexo(anexo, "preview")} className="inline-flex items-center gap-1 rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-700 hover:bg-slate-200">
+                          <div className="flex shrink-0 flex-wrap gap-2 md:w-32 md:flex-col md:items-stretch">
+                            <button onClick={() => abrirAnexo(anexo, "preview")} className="inline-flex items-center justify-center gap-1 rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-700 hover:bg-slate-200">
                               {openingAttachmentId === anexo.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
                               Visualizar
                             </button>
-                            <button onClick={() => abrirAnexo(anexo, "download")} className="inline-flex items-center gap-1 rounded-xl bg-blue-100 px-3 py-2 text-sm text-blue-700 hover:bg-blue-200">
+                            <button onClick={() => abrirAnexo(anexo, "download")} className="inline-flex items-center justify-center gap-1 rounded-xl bg-blue-100 px-3 py-2 text-sm text-blue-700 hover:bg-blue-200">
                               <Download className="h-4 w-4" />
                               Baixar
                             </button>
-                            <button onClick={() => excluirAnexo(anexo)} className="inline-flex items-center gap-1 rounded-xl bg-red-100 px-3 py-2 text-sm text-red-700 hover:bg-red-200">
+                            <button onClick={() => excluirAnexo(anexo)} className="inline-flex items-center justify-center gap-1 rounded-xl bg-red-100 px-3 py-2 text-sm text-red-700 hover:bg-red-200">
                               <Trash2 className="h-4 w-4" />
                               Remover
                             </button>
