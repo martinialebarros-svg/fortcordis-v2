@@ -34,8 +34,10 @@ Resumo:
 - [x] Executar `GET /api/v1/atendimentos/upload-metrics/dedupe` apos cleanup sem erro.
 
 - Stage:
-- [ ] Rodar cleanup em `stage.fortcordis.com.br` com massa controlada.
-- [ ] Validar endpoint de metrica apos cleanup.
+- [x] Rodar cleanup em `stage.fortcordis.com.br` com massa controlada.
+- [x] Validar endpoint de metrica apos cleanup.
+- Evidencia: `POST /api/v1/atendimentos/upload-metrics/dedupe/cleanup` => `200` (`retention_days=90`, `cutoff_date=2026-01-04`, `deleted_rows=0`).
+- Evidencia: `GET /api/v1/atendimentos/upload-metrics/dedupe` => `200` (resposta valida com `items` e `filters`).
 
 - Producao:
 - [ ] Executar smoke test apos promover `main`.
@@ -57,4 +59,4 @@ Resumo:
 - [ ] Nao aprovado (descrever motivo).
 
 Motivo atual:
-- Implementacao e testes locais concluidos; validacao em stage/producao pendente.
+- Implementacao validada em local e stage; pendente apenas smoke em producao apos promover `main`.

@@ -39,9 +39,9 @@ Status: in-progress
 
 ### Fase 4
 
-- [ ] T4.1 Rodar cleanup em stage com amostra controlada.
-- [ ] T4.2 Validar consulta de metricas apos cleanup.
-- [ ] T4.3 Atualizar `verify.md` e decisao de release.
+- [x] T4.1 Rodar cleanup em stage com amostra controlada.
+- [x] T4.2 Validar consulta de metricas apos cleanup.
+- [x] T4.3 Atualizar `verify.md` e decisao de release.
 - Criterio de conclusao: ciclo aprovado em stage e producao.
 - Risco: remocao excessiva por cutoff mal configurado.
 - Rollback: ajustar retenção e interromper execucoes futuras.
