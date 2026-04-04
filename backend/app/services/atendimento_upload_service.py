@@ -136,6 +136,11 @@ def calculate_attachment_sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def build_upload_dedupe_key(exame_id: int | None, arquivo_hash: str) -> str:
+    scope = f"exame:{exame_id}" if exame_id is not None else "exame:none"
+    return f"{scope}|sha256:{(arquivo_hash or '').strip().lower()}"
+
+
 def store_atendimento_attachment_file(
     atendimento_id: int,
     filename: str | None,

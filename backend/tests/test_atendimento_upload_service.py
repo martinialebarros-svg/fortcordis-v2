@@ -16,6 +16,14 @@ from app.services import atendimento_upload_service
 
 
 class AtendimentoUploadServiceTest(unittest.TestCase):
+    def test_build_upload_dedupe_key_uses_none_scope_for_null_exam(self) -> None:
+        key = atendimento_upload_service.build_upload_dedupe_key(None, "ABC123")
+        self.assertEqual(key, "exame:none|sha256:abc123")
+
+    def test_build_upload_dedupe_key_uses_exam_scope_when_exam_is_present(self) -> None:
+        key = atendimento_upload_service.build_upload_dedupe_key(42, "ff00")
+        self.assertEqual(key, "exame:42|sha256:ff00")
+
     def test_calculate_attachment_sha256_returns_stable_hex_digest(self) -> None:
         digest_a = atendimento_upload_service.calculate_attachment_sha256(b"conteudo")
         digest_b = atendimento_upload_service.calculate_attachment_sha256(b"conteudo")
