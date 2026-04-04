@@ -2,16 +2,16 @@
 
 Data: 2026-04-04  
 Responsavel: Equipe FortCordis  
-Status: in-progress
+Status: approved
 
 ## 1) Matriz de rastreabilidade
 
 | ID | Tipo | Evidencia | Status |
 | --- | --- | --- | --- |
-| CA-001 | aceitacao | guarda de assinatura no upload geral implementada | pending-manual |
-| CA-002 | aceitacao | guarda de assinatura no upload por exame implementada | pending-manual |
-| CA-003 | aceitacao | cleanup da assinatura em sucesso/erro/cancelamento no `finally` | pending-manual |
-| CA-004 | aceitacao | aviso neutro `Upload ja esta em andamento para este arquivo.` | pending-manual |
+| CA-001 | aceitacao | clique duplo no upload geral bloqueado sem POST duplicado | ok |
+| CA-002 | aceitacao | clique duplo no upload por exame bloqueado sem POST duplicado | ok |
+| CA-003 | aceitacao | cleanup da assinatura em sucesso/erro/cancelamento validado | ok |
+| CA-004 | aceitacao | aviso neutro de duplicidade exibido de forma consistente | ok |
 | CA-005 | aceitacao | lint da tela `app/atendimento/page.tsx` | ok |
 
 ## 2) Testes automatizados executados
@@ -28,14 +28,17 @@ Resultado:
 ## 3) Testes manuais
 
 - Local:
-- [ ] Upload geral com clique duplo rapido gera apenas uma submissao.
-- [ ] Upload por exame com clique duplo rapido gera apenas uma submissao.
-- [ ] Durante upload ativo, segunda tentativa mostra aviso neutro de duplicidade.
-- [ ] Apos cancelar upload, reenvio imediato do mesmo arquivo funciona.
-- [ ] Apos sucesso/erro, novo envio do mesmo arquivo funciona normalmente.
+- [x] Upload geral com clique duplo rapido gera apenas uma submissao.
+- [x] Upload por exame com clique duplo rapido gera apenas uma submissao.
+- [x] Durante upload ativo, segunda tentativa mostra aviso neutro de duplicidade.
+- [x] Apos cancelar upload, reenvio imediato do mesmo arquivo funciona.
+- [x] Apos sucesso/erro, novo envio do mesmo arquivo funciona normalmente.
 
 - Stage:
-- [ ] Repetir os 5 cenarios acima em `stage.fortcordis.com.br`.
+- [x] Repetir os 5 cenarios acima em `stage.fortcordis.com.br`.
+
+- Producao:
+- [x] Smoke test apos promocao da `main` sem regressao no fluxo de anexos.
 
 ## 4) Regressao e riscos residuais
 
@@ -48,9 +51,9 @@ Resultado:
 
 ## 6) Decisao de release
 
-- [ ] Aprovado para stage.
-- [ ] Aprovado para producao.
+- [x] Aprovado para stage.
+- [x] Aprovado para producao.
 - [ ] Nao aprovado (descrever motivo).
 
 Motivo atual:
-- Pendente checklist manual local/stage para confirmar CA-001..CA-004.
+- Fluxo validado e estavel em local, stage e producao.
