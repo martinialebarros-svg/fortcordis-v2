@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 
 import api from "@/lib/axios";
@@ -47,12 +47,11 @@ interface ResultadoDeteccaoPreset {
 }
 
 type OrigemAspectoStatus = "preset" | "alterado" | "manual" | "empty";
+type StatusSincronizacaoAspecto = "saving" | "saved" | "error";
 
 interface SincronizacaoFraseOptions {
-  confirmar?: boolean;
   silencioso?: boolean;
-  mostrarHintSucesso?: boolean;
-  controlarLoading?: boolean;
+  onErroSilencioso?: () => void;
 }
 
 function normalizarTagsInput(tags: string): string[] {
@@ -131,6 +130,28 @@ function getOrigemAspectoClasses(status: OrigemAspectoStatus): string {
   }
 }
 
+function getStatusSincronizacaoLabel(status: StatusSincronizacaoAspecto): string {
+  switch (status) {
+    case "saving":
+      return "Salvando...";
+    case "saved":
+      return "Salvo";
+    default:
+      return "Falha ao salvar";
+  }
+}
+
+function getStatusSincronizacaoClasses(status: StatusSincronizacaoAspecto): string {
+  switch (status) {
+    case "saving":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case "saved":
+      return "border-green-200 bg-green-50 text-green-700";
+    default:
+      return "border-red-200 bg-red-50 text-red-700";
+  }
+}
+
 function atualizarEstrutura(
   atual: EcocardiogramaEstruturadoPersistido,
   patch: Partial<EcocardiogramaEstruturadoPersistido>
@@ -159,11 +180,14 @@ export default function EcocardiogramaEstruturadoEditor({
   const [salvandoPreset, setSalvandoPreset] = useState(false);
   const [atualizandoPresetSelecionado, setAtualizandoPresetSelecionado] = useState(false);
   const [propagandoFrasesSelecionadas, setPropagandoFrasesSelecionadas] = useState(false);
-  const [atualizandoFraseAspecto, setAtualizandoFraseAspecto] = useState<string | null>(null);
   const [salvandoNovaFraseAspecto, setSalvandoNovaFraseAspecto] = useState<string | null>(null);
+  const [statusSincronizacaoPorAspecto, setStatusSincronizacaoPorAspecto] = useState<
+    Record<string, StatusSincronizacaoAspecto>
+  >({});
   const [presetFormAberto, setPresetFormAberto] = useState(false);
   const [filtroAspectosPreset, setFiltroAspectosPreset] = useState<"all" | "pending">("all");
   const [presetDeteccao, setPresetDeteccao] = useState<Record<string, PresetDeteccaoInfo>>({});
+  const limparStatusTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [presetForm, setPresetForm] = useState<PresetForm>({
     label: "",
     key: "",
@@ -201,6 +225,14 @@ export default function EcocardiogramaEstruturadoEditor({
 
   useEffect(() => {
     carregarPayload();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      Object.values(limparStatusTimeoutRef.current).forEach((timer) => {
+        clearTimeout(timer);
+      });
+    };
   }, []);
 
   const aspectos = useMemo(
@@ -751,6 +783,53 @@ export default function EcocardiogramaEstruturadoEditor({
     );
   };
 
+  const limparStatusSincronizacao = (aspectoKey: string) => {
+    const timerAtual = limparStatusTimeoutRef.current[aspectoKey];
+    if (timerAtual) {
+      clearTimeout(timerAtual);
+      delete limparStatusTimeoutRef.current[aspectoKey];
+    }
+    setStatusSincronizacaoPorAspecto((prev) => {
+      if (!prev[aspectoKey]) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[aspectoKey];
+      return next;
+    });
+  };
+
+  const definirStatusSincronizacao = (
+    aspectoKey: string,
+    status: StatusSincronizacaoAspecto,
+    limparEmMs?: number
+  ) => {
+    const timerAtual = limparStatusTimeoutRef.current[aspectoKey];
+    if (timerAtual) {
+      clearTimeout(timerAtual);
+      delete limparStatusTimeoutRef.current[aspectoKey];
+    }
+
+    setStatusSincronizacaoPorAspecto((prev) => ({
+      ...prev,
+      [aspectoKey]: status,
+    }));
+
+    if (limparEmMs && limparEmMs > 0) {
+      limparStatusTimeoutRef.current[aspectoKey] = setTimeout(() => {
+        setStatusSincronizacaoPorAspecto((prev) => {
+          if (!prev[aspectoKey]) {
+            return prev;
+          }
+          const next = { ...prev };
+          delete next[aspectoKey];
+          return next;
+        });
+        delete limparStatusTimeoutRef.current[aspectoKey];
+      }, limparEmMs);
+    }
+  };
+
   const atualizarTextoFraseNoPayloadLocal = (
     aspectoKey: string,
     fraseId: number,
@@ -786,12 +865,7 @@ export default function EcocardiogramaEstruturadoEditor({
     aspecto: AspectoEcoEstruturadoTeste,
     options: SincronizacaoFraseOptions = {}
   ): Promise<boolean> => {
-    const {
-      confirmar = false,
-      silencioso = false,
-      mostrarHintSucesso = false,
-      controlarLoading = false,
-    } = options;
+    const { silencioso = false, onErroSilencioso } = options;
 
     const fraseId = String(fraseSelecionadaEfetivaPorAspecto[aspecto.key] || "").trim();
     if (!fraseId) {
@@ -824,19 +898,7 @@ export default function EcocardiogramaEstruturadoEditor({
       return false;
     }
 
-    if (confirmar) {
-      const confirmarAtualizacao = window.confirm(
-        `Atualizar a frase "${frase.titulo}" no banco com o texto atual de ${aspecto.label}?`
-      );
-      if (!confirmarAtualizacao) {
-        return false;
-      }
-    }
-
     try {
-      if (controlarLoading) {
-        setAtualizandoFraseAspecto(aspecto.key);
-      }
       if (!silencioso) {
         setError("");
         setHint("");
@@ -849,30 +911,50 @@ export default function EcocardiogramaEstruturadoEditor({
       });
 
       atualizarTextoFraseNoPayloadLocal(aspecto.key, Number(frase.id), textoAtual);
-      if (mostrarHintSucesso) {
-        setHint(`Frase "${frase.titulo}" atualizada no banco para ${aspecto.label}.`);
-      }
       return true;
     } catch (err: any) {
       if (!silencioso) {
         setError(err?.response?.data?.detail || "Nao foi possivel atualizar a frase do banco.");
       } else {
         console.error("Falha ao sincronizar frase automaticamente:", err);
+        onErroSilencioso?.();
       }
       return false;
-    } finally {
-      if (controlarLoading) {
-        setAtualizandoFraseAspecto(null);
-      }
     }
   };
 
-  const atualizarFraseDoBanco = async (aspecto: AspectoEcoEstruturadoTeste) => {
-    await sincronizarFraseSelecionadaDoAspecto(aspecto, {
-      confirmar: true,
-      mostrarHintSucesso: true,
-      controlarLoading: true,
+  const sincronizarFraseSelecionadaNoBlur = async (aspecto: AspectoEcoEstruturadoTeste) => {
+    const aspectoKey = aspecto.key;
+    const temFraseSelecionada = Boolean(
+      String(fraseSelecionadaEfetivaPorAspecto[aspectoKey] || "").trim()
+    );
+    const temTexto = Boolean(String(estado.textos[aspectoKey] || "").trim());
+
+    if (!temFraseSelecionada || !temTexto) {
+      limparStatusSincronizacao(aspectoKey);
+      return;
+    }
+
+    let houveErroSilencioso = false;
+    definirStatusSincronizacao(aspectoKey, "saving");
+    const atualizado = await sincronizarFraseSelecionadaDoAspecto(aspecto, {
+      silencioso: true,
+      onErroSilencioso: () => {
+        houveErroSilencioso = true;
+      },
     });
+
+    if (houveErroSilencioso) {
+      definirStatusSincronizacao(aspectoKey, "error", 4000);
+      return;
+    }
+
+    if (atualizado) {
+      definirStatusSincronizacao(aspectoKey, "saved", 2000);
+      return;
+    }
+
+    limparStatusSincronizacao(aspectoKey);
   };
 
   const propagarTextosSelecionadosParaBanco = async () => {
@@ -1317,18 +1399,30 @@ export default function EcocardiogramaEstruturadoEditor({
           const frasesAtivas = (aspecto.frases || []).filter(
             (frase) => Number(frase.ativo ?? 1) === 1
           );
+          const statusSincronizacao = statusSincronizacaoPorAspecto[aspecto.key];
           return (
             <div key={aspecto.key} className="rounded-lg border border-gray-200 bg-white p-4">
               <div className="mb-2">
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <div className="text-sm font-medium text-gray-900">{aspecto.label}</div>
-                  <span
-                    className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-xs font-medium ${getOrigemAspectoClasses(
-                      origemAspectos[aspecto.key]
-                    )}`}
-                  >
-                    {getOrigemAspectoLabel(origemAspectos[aspecto.key])}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {statusSincronizacao ? (
+                      <span
+                        className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusSincronizacaoClasses(
+                          statusSincronizacao
+                        )}`}
+                      >
+                        {getStatusSincronizacaoLabel(statusSincronizacao)}
+                      </span>
+                    ) : null}
+                    <span
+                      className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-xs font-medium ${getOrigemAspectoClasses(
+                        origemAspectos[aspecto.key]
+                      )}`}
+                    >
+                      {getOrigemAspectoLabel(origemAspectos[aspecto.key])}
+                    </span>
+                  </div>
                 </div>
                 <div className="text-xs text-gray-500">{aspecto.placeholder}</div>
               </div>
@@ -1361,20 +1455,6 @@ export default function EcocardiogramaEstruturadoEditor({
                   </button>
                   <button
                     type="button"
-                    onClick={() => atualizarFraseDoBanco(aspecto)}
-                    disabled={
-                      !fraseSelecionadaEfetivaPorAspecto[aspecto.key] ||
-                      !String(estado.textos[aspecto.key] || "").trim() ||
-                      atualizandoFraseAspecto === aspecto.key
-                    }
-                    className="rounded-lg border border-amber-300 px-3 py-2 text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-50"
-                  >
-                    {atualizandoFraseAspecto === aspecto.key
-                      ? "Atualizando..."
-                      : "Atualizar frase"}
-                  </button>
-                  <button
-                    type="button"
                     onClick={() => salvarNovaFraseDoAspecto(aspecto)}
                     disabled={
                       !String(estado.textos[aspecto.key] || "").trim() ||
@@ -1391,19 +1471,20 @@ export default function EcocardiogramaEstruturadoEditor({
               <textarea
                 value={estado.textos[aspecto.key] || ""}
                 onChange={(e) =>
-                  onChange(
-                    atualizarEstrutura(estado, {
-                      textos: {
-                        ...estado.textos,
-                        [aspecto.key]: e.target.value,
-                      },
-                    })
-                  )
+                  {
+                    limparStatusSincronizacao(aspecto.key);
+                    onChange(
+                      atualizarEstrutura(estado, {
+                        textos: {
+                          ...estado.textos,
+                          [aspecto.key]: e.target.value,
+                        },
+                      })
+                    );
+                  }
                 }
                 onBlur={() => {
-                  void sincronizarFraseSelecionadaDoAspecto(aspecto, {
-                    silencioso: true,
-                  });
+                  void sincronizarFraseSelecionadaNoBlur(aspecto);
                 }}
                 rows={4}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
