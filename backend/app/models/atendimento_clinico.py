@@ -78,6 +78,17 @@ class AnexoAtendimento(Base):
     created_at = Column(DateTime(timezone=True), default=func.now())
 
 
+class UploadDedupeMetrica(Base):
+    __tablename__ = "upload_dedupe_metricas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    atendimento_id = Column(Integer, nullable=False, index=True)
+    clinica_id = Column(Integer, nullable=True, index=True)
+    evento = Column(String(40), nullable=False, index=True)
+    dedupe_key = Column(String(120))
+    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now(), index=True)
+
+
 class EvolucaoClinica(Base):
     __tablename__ = "evolucoes_clinicas"
 

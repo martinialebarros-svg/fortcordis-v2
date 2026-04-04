@@ -25,11 +25,15 @@ from app.models.ordem_servico import OrdemServico
 from app.models.referencia_eco import ReferenciaEco
 from app.models.papel_permissao import PapelPermissao
 from app.models.atendimento_clinico import (
+    AnexoAtendimento,
+    AlertaClinico,
     AtendimentoClinico,
+    EvolucaoClinica,
     Medicamento,
     PrescricaoClinica,
     PrescricaoItem,
     PrescricaoItemAjuste,
+    UploadDedupeMetrica,
 )
 from app.models.auditoria_evento import AuditoriaEvento
 from app.models.clinica_deslocamento import ClinicaDeslocamento
