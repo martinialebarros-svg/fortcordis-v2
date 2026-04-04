@@ -2,7 +2,7 @@
 
 Data: 2026-04-04  
 Responsavel: Equipe FortCordis  
-Status: in-progress
+Status: approved
 
 ## 1) Matriz de rastreabilidade
 
@@ -40,7 +40,11 @@ Resumo:
 - Evidencia: `GET /api/v1/atendimentos/upload-metrics/dedupe` => `200` (resposta valida com `items` e `filters`).
 
 - Producao:
-- [ ] Executar smoke test apos promover `main`.
+- [x] Executar smoke test apos promover `main`.
+- Evidencia (2026-04-04): `GET /api/v1/auth/me`, `GET /api/v1/clinicas`, `GET /api/v1/servicos`, `GET /api/v1/agenda?limit=5`, `GET /api/v1/atendimentos?limit=5`, `GET /api/v1/laudos?limit=1` => `200`.
+- Evidencia (2026-04-04): `GET /api/v1/atendimentos/upload-metrics/dedupe` => `200`.
+- Evidencia (2026-04-04): `POST /api/v1/atendimentos/upload-metrics/dedupe/cleanup` => `200` (`retention_days=90`, `cutoff_date=2026-01-04`, `deleted_rows=0`).
+- Evidencia (2026-04-04): `GET /api/v1/laudos/183/pdf` => `200` (`application/pdf`).
 
 ## 4) Regressao e riscos residuais
 
@@ -55,8 +59,8 @@ Resumo:
 ## 6) Decisao de release
 
 - [x] Aprovado para stage.
-- [ ] Aprovado para producao.
+- [x] Aprovado para producao.
 - [ ] Nao aprovado (descrever motivo).
 
 Motivo atual:
-- Implementacao validada em local e stage; pendente apenas smoke em producao apos promover `main`.
+- Implementacao validada em local, stage e producao.
