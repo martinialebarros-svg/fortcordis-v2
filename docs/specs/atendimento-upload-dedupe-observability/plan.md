@@ -15,26 +15,26 @@ Status: in-progress
 
 ### Fase 1
 
-- [ ] T1.1 Criar migracao da tabela `upload_dedupe_metricas`.
-- [ ] T1.2 Definir indices por data/clinica para leitura eficiente.
+- [x] T1.1 Criar migracao da tabela `upload_dedupe_metricas`.
+- [x] T1.2 Definir indices por data/clinica para leitura eficiente.
 - Criterio de conclusao: schema pronto para escrita/consulta diaria.
 - Risco: modelagem excessiva para primeira versao.
 - Rollback: simplificar para tabela minima.
 
 ### Fase 2
 
-- [ ] T2.1 Instrumentar caminho de upload novo e deduplicado.
-- [ ] T2.2 Garantir `try/except` para nao quebrar upload se metrica falhar.
-- [ ] T2.3 Criar endpoint de consulta diaria agregada.
+- [x] T2.1 Instrumentar caminho de upload novo e deduplicado.
+- [x] T2.2 Garantir `try/except` para nao quebrar upload se metrica falhar.
+- [x] T2.3 Criar endpoint de consulta diaria agregada.
 - Criterio de conclusao: eventos registrados e consultaveis por dia.
 - Risco: ruido de logs sem padrao.
 - Rollback: manter apenas logs e desativar persistencia.
 
 ### Fase 3
 
-- [ ] T3.1 Adicionar testes de agregacao/registro de metrica.
-- [ ] T3.2 Executar suites de upload + novo endpoint.
-- [ ] T3.3 Rodar lint frontend (sanidade geral de atendimento).
+- [x] T3.1 Adicionar testes de agregacao/registro de metrica.
+- [x] T3.2 Executar suites de upload + novo endpoint.
+- [x] T3.3 Rodar lint frontend (sanidade geral de atendimento).
 - Criterio de conclusao: cobertura minima e sem regressao.
 - Risco: mocks insuficientes para cenarios de corrida.
 - Rollback: segurar promocao ate estabilizar testes.

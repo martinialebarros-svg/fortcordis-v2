@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from io import BytesIO
 import json
 import logging
@@ -33,7 +33,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -50,6 +50,7 @@ from app.models.atendimento_clinico import (
     PrescricaoClinica,
     PrescricaoItem,
     PrescricaoItemAjuste,
+    UploadDedupeMetrica,
 )
 from app.models.catalogo_exame import CatalogoExame, PainelExame
 from app.models.clinica import Clinica
@@ -85,6 +86,15 @@ from app.utils.pdf_laudo import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+UPLOAD_DEDUPE_EVENT_UPLOAD_NOVO = "upload_novo"
+UPLOAD_DEDUPE_EVENT_PRECHECK = "dedupe_precheck"
+UPLOAD_DEDUPE_EVENT_COLLISION = "dedupe_collision"
+UPLOAD_DEDUPE_EVENTS_VALIDOS = {
+    UPLOAD_DEDUPE_EVENT_UPLOAD_NOVO,
+    UPLOAD_DEDUPE_EVENT_PRECHECK,
+    UPLOAD_DEDUPE_EVENT_COLLISION,
+}
 
 
 def _serialize_medicamento(item: Medicamento) -> dict:
@@ -958,6 +968,50 @@ def _find_existing_upload_anexo_by_dedupe_key(
         .order_by(AnexoAtendimento.id.desc())
         .first()
     )
+
+
+def _parse_upload_metrics_date(value: Optional[str], param_name: str) -> Optional[date]:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{param_name} invalido. Use o formato YYYY-MM-DD.",
+        ) from exc
+
+
+def _registrar_upload_dedupe_metrica(
+    db: Session,
+    *,
+    atendimento: AtendimentoClinico,
+    evento: str,
+    dedupe_key: Optional[str] = None,
+) -> None:
+    if evento not in UPLOAD_DEDUPE_EVENTS_VALIDOS:
+        return
+    if not isinstance(db, Session):
+        return
+    try:
+        db.add(
+            UploadDedupeMetrica(
+                atendimento_id=atendimento.id,
+                clinica_id=atendimento.clinica_id,
+                evento=evento,
+                dedupe_key=(dedupe_key or "").strip()[:120] or None,
+            )
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "Falha ao registrar metrica de upload dedupe (atendimento_id=%s, clinica_id=%s, evento=%s)",
+            atendimento.id,
+            atendimento.clinica_id,
+            evento,
+        )
 
 
 def _map_prescricao_item(item: PrescricaoItem) -> dict:
@@ -2242,6 +2296,74 @@ def criar_evolucao(
 
 
 # === ANEXOS ===
+@router.get("/upload-metrics/dedupe")
+def consultar_metricas_upload_dedupe(
+    data_inicio: Optional[str] = Query(None, description="Data inicial no formato YYYY-MM-DD"),
+    data_fim: Optional[str] = Query(None, description="Data final no formato YYYY-MM-DD"),
+    clinica_id: Optional[int] = Query(None, ge=1),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    inicio = _parse_upload_metrics_date(data_inicio, "data_inicio")
+    fim = _parse_upload_metrics_date(data_fim, "data_fim")
+    if inicio and fim and inicio > fim:
+        raise HTTPException(status_code=400, detail="data_inicio nao pode ser maior que data_fim.")
+
+    params = {
+        "data_inicio": inicio.isoformat() if inicio else None,
+        "data_fim": fim.isoformat() if fim else None,
+        "clinica_id": clinica_id,
+    }
+    rows = db.execute(
+        text(
+            """
+            SELECT
+                DATE(created_at) AS dia,
+                SUM(CASE WHEN evento = 'upload_novo' THEN 1 ELSE 0 END) AS uploads_novos,
+                SUM(CASE WHEN evento = 'dedupe_precheck' THEN 1 ELSE 0 END) AS dedupe_precheck,
+                SUM(CASE WHEN evento = 'dedupe_collision' THEN 1 ELSE 0 END) AS dedupe_collision,
+                COUNT(*) AS total_uploads
+            FROM upload_dedupe_metricas
+            WHERE (:data_inicio IS NULL OR DATE(created_at) >= :data_inicio)
+              AND (:data_fim IS NULL OR DATE(created_at) <= :data_fim)
+              AND (:clinica_id IS NULL OR clinica_id = :clinica_id)
+            GROUP BY DATE(created_at)
+            ORDER BY DATE(created_at) DESC
+            """
+        ),
+        params,
+    ).fetchall()
+
+    items = []
+    for row in rows:
+        mapping = row._mapping if hasattr(row, "_mapping") else None
+        dia_raw = mapping["dia"] if mapping is not None else row[0]
+        dia = dia_raw.isoformat() if hasattr(dia_raw, "isoformat") else str(dia_raw)
+        uploads_novos = int((mapping["uploads_novos"] if mapping is not None else row[1]) or 0)
+        dedupe_precheck = int((mapping["dedupe_precheck"] if mapping is not None else row[2]) or 0)
+        dedupe_collision = int((mapping["dedupe_collision"] if mapping is not None else row[3]) or 0)
+        total_uploads = int((mapping["total_uploads"] if mapping is not None else row[4]) or 0)
+        items.append(
+            {
+                "date": dia,
+                "uploads_novos": uploads_novos,
+                "dedupe_precheck": dedupe_precheck,
+                "dedupe_collision": dedupe_collision,
+                "total_uploads": total_uploads,
+            }
+        )
+
+    return {
+        "items": items,
+        "filters": {
+            "data_inicio": params["data_inicio"],
+            "data_fim": params["data_fim"],
+            "clinica_id": clinica_id,
+        },
+    }
+
+
 @router.get("/{atendimento_id}/anexos")
 def listar_anexos(
     atendimento_id: int,
@@ -2342,6 +2464,12 @@ async def upload_anexo(
             anexo_existente.id,
             dedupe_key,
         )
+        _registrar_upload_dedupe_metrica(
+            db,
+            atendimento=atendimento,
+            evento=UPLOAD_DEDUPE_EVENT_PRECHECK,
+            dedupe_key=dedupe_key,
+        )
         payload = _serialize_anexo(anexo_existente)
         payload["deduplicado"] = True
         return JSONResponse(status_code=status.HTTP_200_OK, content=payload)
@@ -2410,6 +2538,12 @@ async def upload_anexo(
         db.commit()
         db.refresh(anexo)
 
+        _registrar_upload_dedupe_metrica(
+            db,
+            atendimento=atendimento,
+            evento=UPLOAD_DEDUPE_EVENT_UPLOAD_NOVO,
+            dedupe_key=dedupe_key,
+        )
         payload = _serialize_anexo(anexo)
         payload["deduplicado"] = False
         return payload
@@ -2429,6 +2563,12 @@ async def upload_anexo(
                 current_user.id,
                 anexo_concorrente.id,
                 dedupe_key,
+            )
+            _registrar_upload_dedupe_metrica(
+                db,
+                atendimento=atendimento,
+                evento=UPLOAD_DEDUPE_EVENT_COLLISION,
+                dedupe_key=dedupe_key,
             )
             payload = _serialize_anexo(anexo_concorrente)
             payload["deduplicado"] = True
