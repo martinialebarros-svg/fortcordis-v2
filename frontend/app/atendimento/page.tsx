@@ -1259,6 +1259,7 @@ export default function AtendimentoPage() {
   const [anexoForm, setAnexoForm] = useState({ tipo: "imagem", descricao: "", url: "" });
   const [anexoArquivo, setAnexoArquivo] = useState<File | null>(null);
   const [uploadingAttachmentKey, setUploadingAttachmentKey] = useState<string | null>(null);
+  const [uploadProgressByKey, setUploadProgressByKey] = useState<Record<string, number | null>>({});
   const [openingAttachmentId, setOpeningAttachmentId] = useState<number | null>(null);
   const [attachmentPreview, setAttachmentPreview] = useState<AttachmentPreview | null>(null);
   const [attachmentImageZoom, setAttachmentImageZoom] = useState(1);
@@ -3002,7 +3003,20 @@ export default function AtendimentoPage() {
 
     try {
       setUploadingAttachmentKey(uploadKey);
-      const response = await api.post(`/atendimentos/${selecionado}/anexos/upload`, formData);
+      setUploadProgressByKey((prev) => ({ ...prev, [uploadKey]: null }));
+      const response = await api.post(`/atendimentos/${selecionado}/anexos/upload`, formData, {
+        onUploadProgress: (progressEvent) => {
+          const total = progressEvent.total;
+          const nextValue =
+            typeof total === "number" && total > 0
+              ? Math.max(0, Math.min(100, Math.round((progressEvent.loaded * 100) / total)))
+              : null;
+          setUploadProgressByKey((prev) => {
+            if (prev[uploadKey] === nextValue) return prev;
+            return { ...prev, [uploadKey]: nextValue };
+          });
+        },
+      });
       mergeUploadedAnexo(response.data);
       setSucesso(options?.exameId ? "Arquivo vinculado ao exame com sucesso." : "Arquivo anexado com sucesso.");
       if (!options?.exameId) {
@@ -3014,6 +3028,12 @@ export default function AtendimentoPage() {
       setErro(e?.response?.data?.detail || "Erro ao enviar arquivo.");
     } finally {
       setUploadingAttachmentKey(null);
+      setUploadProgressByKey((prev) => {
+        if (!(uploadKey in prev)) return prev;
+        const next = { ...prev };
+        delete next[uploadKey];
+        return next;
+      });
     }
   };
 
@@ -3576,6 +3596,8 @@ export default function AtendimentoPage() {
   const isPrescricaoWorkspace = workspacePainel === "prescricao";
   const isDocumentosWorkspace = workspacePainel === "documentos";
   const isBibliotecasWorkspace = workspacePainel === "bibliotecas";
+  const uploadGeralEmAndamento = uploadingAttachmentKey === "geral";
+  const progressoUploadGeral = uploadProgressByKey["geral"] ?? null;
   const showClinicalRadarAside = isConsultaWorkspace || isDocumentosWorkspace;
   const consultaEditorEtapas = useMemo(
     () =>
@@ -5212,6 +5234,8 @@ export default function AtendimentoPage() {
                 {examesVisiveis.map(({ exame, index, anexosResultado, flowStatus }) => {
                   const exameExpandido = examesExpandidos[index] ?? index === 0;
                   const exameUploadKey = `exame-${index}`;
+                  const exameEmUpload = uploadingAttachmentKey === exameUploadKey;
+                  const exameUploadProgress = uploadProgressByKey[exameUploadKey] ?? null;
                   const examDropzoneId = `exame-upload-${index}`;
                   const uploadDraft = examUploadDrafts[index] || null;
                   const dropAtivo = examDropActive[index] || false;
@@ -5382,14 +5406,36 @@ export default function AtendimentoPage() {
                                     if (!uploadDraft) return;
                                     await uploadArquivoResultadoExame(index, uploadDraft.file);
                                   }}
-                                  disabled={!uploadDraft || uploadingAttachmentKey === exameUploadKey || !form.paciente_id}
+                                  disabled={!uploadDraft || exameEmUpload || !form.paciente_id}
                                   className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                  {uploadingAttachmentKey === exameUploadKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                                  {uploadingAttachmentKey === exameUploadKey ? "Enviando..." : "Enviar agora"}
+                                  {exameEmUpload ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                                  {exameEmUpload
+                                    ? typeof exameUploadProgress === "number"
+                                      ? `Enviando ${exameUploadProgress}%`
+                                      : "Enviando..."
+                                    : "Enviar agora"}
                                 </button>
                               </div>
                             </div>
+
+                            {exameEmUpload ? (
+                              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                                <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                                  <div
+                                    className={`h-full rounded-full bg-slate-900 transition-[width] duration-200 ${
+                                      typeof exameUploadProgress === "number" ? "" : "animate-pulse"
+                                    }`}
+                                    style={{ width: `${typeof exameUploadProgress === "number" ? exameUploadProgress : 35}%` }}
+                                  />
+                                </div>
+                                <p className="mt-1 text-xs text-slate-600">
+                                  {typeof exameUploadProgress === "number"
+                                    ? `Upload do exame em andamento (${exameUploadProgress}%).`
+                                    : "Upload do exame em andamento..."}
+                                </p>
+                              </div>
+                            ) : null}
 
                             {uploadDraft ? (
                               <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
@@ -5409,7 +5455,7 @@ export default function AtendimentoPage() {
                                 <button
                                   type="button"
                                   onClick={() => clearExamUploadDraft(index)}
-                                  disabled={uploadingAttachmentKey === exameUploadKey}
+                                  disabled={exameEmUpload}
                                   className="inline-flex items-center gap-1 rounded-xl bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
                                 >
                                   <X className="h-3.5 w-3.5" />
@@ -5580,11 +5626,15 @@ export default function AtendimentoPage() {
                           descricao: anexoForm.descricao,
                         });
                       }}
-                      disabled={!selecionado || !anexoArquivo || uploadingAttachmentKey === "geral"}
+                      disabled={!selecionado || !anexoArquivo || uploadGeralEmAndamento}
                       className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2 text-sm text-white hover:bg-orange-700 disabled:opacity-50"
                     >
-                      {uploadingAttachmentKey === "geral" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
-                      Enviar arquivo
+                      {uploadGeralEmAndamento ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
+                      {uploadGeralEmAndamento
+                        ? typeof progressoUploadGeral === "number"
+                          ? `Enviando ${progressoUploadGeral}%`
+                          : "Enviando..."
+                        : "Enviar arquivo"}
                     </button>
                     {anexoArquivo ? (
                       <span className="inline-flex items-center rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-600">
@@ -5592,6 +5642,24 @@ export default function AtendimentoPage() {
                       </span>
                     ) : null}
                   </div>
+
+                  {uploadGeralEmAndamento ? (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                        <div
+                          className={`h-full rounded-full bg-orange-600 transition-[width] duration-200 ${
+                            typeof progressoUploadGeral === "number" ? "" : "animate-pulse"
+                          }`}
+                          style={{ width: `${typeof progressoUploadGeral === "number" ? progressoUploadGeral : 35}%` }}
+                        />
+                      </div>
+                      <p className="mt-1 text-xs text-slate-600">
+                        {typeof progressoUploadGeral === "number"
+                          ? `Upload geral em andamento (${progressoUploadGeral}%).`
+                          : "Upload geral em andamento..."}
+                      </p>
+                    </div>
+                  ) : null}
 
                   <div className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
                     <p className="text-sm font-medium text-slate-900">Adicionar link externo</p>
