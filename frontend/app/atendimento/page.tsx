@@ -1295,6 +1295,7 @@ export default function AtendimentoPage() {
     originX: 0,
     originY: 0,
   });
+  const uploadAbortControllersRef = useRef<Record<string, AbortController>>({});
   const examUploadDraftsRef = useRef<Record<number, PendingExamUpload>>({});
   const pdfDownloadInFlightRef = useRef<"prescricao" | "exames" | null>(null);
 
@@ -1391,6 +1392,10 @@ export default function AtendimentoPage() {
           window.URL.revokeObjectURL(entry.previewUrl);
         }
       });
+      Object.values(uploadAbortControllersRef.current).forEach((controller) => {
+        controller.abort();
+      });
+      uploadAbortControllersRef.current = {};
     };
   }, []);
 
@@ -2965,31 +2970,39 @@ export default function AtendimentoPage() {
       return;
     }
 
-    await uploadAnexoArquivo(file, {
+    const uploadConcluido = await uploadAnexoArquivo(file, {
       exameId,
       tipo: "resultado_exame",
       descricao: `Arquivo de resultado: ${examAtual.tipo_exame || "Exame"}`,
       uploadKey,
     });
-    clearExamUploadDraft(index);
-    clearExamDropState(index);
+    if (uploadConcluido) {
+      clearExamUploadDraft(index);
+      clearExamDropState(index);
+    }
+  };
+
+  const cancelarUploadAnexo = (uploadKey: string) => {
+    const controller = uploadAbortControllersRef.current[uploadKey];
+    if (!controller) return;
+    controller.abort();
   };
 
   const uploadAnexoArquivo = async (
     file: File,
     options?: { exameId?: number | null; tipo?: string; descricao?: string; uploadKey?: string }
-  ) => {
+  ): Promise<boolean> => {
     if (!selecionado) {
       setErro("Salve o atendimento antes de enviar arquivos.");
-      return;
+      return false;
     }
     if (!isAllowedAttachmentFilename(file.name)) {
       setErro("Tipo de arquivo nao permitido. Use: .jpeg, .jpg, .pdf, .png, .webp");
-      return;
+      return false;
     }
     if (file.size > ATENDIMENTO_ATTACHMENT_MAX_SIZE_BYTES) {
       setErro("Arquivo excede o limite de 25MB");
-      return;
+      return false;
     }
 
     const uploadKey = options?.uploadKey || (options?.exameId ? `exame-${options.exameId}` : "geral");
@@ -3004,7 +3017,10 @@ export default function AtendimentoPage() {
     try {
       setUploadingAttachmentKey(uploadKey);
       setUploadProgressByKey((prev) => ({ ...prev, [uploadKey]: null }));
+      const uploadAbortController = new AbortController();
+      uploadAbortControllersRef.current[uploadKey] = uploadAbortController;
       const response = await api.post(`/atendimentos/${selecionado}/anexos/upload`, formData, {
+        signal: uploadAbortController.signal,
         onUploadProgress: (progressEvent) => {
           const total = progressEvent.total;
           const nextValue =
@@ -3024,8 +3040,19 @@ export default function AtendimentoPage() {
         setAnexoForm((current) => ({ ...current, descricao: "", url: "" }));
       }
       setErro("");
+      return true;
     } catch (e: any) {
+      const isCanceled =
+        e?.code === "ERR_CANCELED" ||
+        e?.name === "CanceledError" ||
+        (typeof e?.message === "string" && /cancel/i.test(e.message));
+      if (isCanceled) {
+        setSucesso("Upload cancelado.");
+        setErro("");
+        return false;
+      }
       setErro(e?.response?.data?.detail || "Erro ao enviar arquivo.");
+      return false;
     } finally {
       setUploadingAttachmentKey(null);
       setUploadProgressByKey((prev) => {
@@ -3034,6 +3061,9 @@ export default function AtendimentoPage() {
         delete next[uploadKey];
         return next;
       });
+      if (uploadAbortControllersRef.current[uploadKey]) {
+        delete uploadAbortControllersRef.current[uploadKey];
+      }
     }
   };
 
@@ -5416,6 +5446,16 @@ export default function AtendimentoPage() {
                                       : "Enviando..."
                                     : "Enviar agora"}
                                 </button>
+                                {exameEmUpload ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => cancelarUploadAnexo(exameUploadKey)}
+                                    className="inline-flex items-center gap-2 rounded-xl bg-red-100 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-200"
+                                  >
+                                    <X className="h-4 w-4" />
+                                    Cancelar upload
+                                  </button>
+                                ) : null}
                               </div>
                             </div>
 
@@ -5636,6 +5676,16 @@ export default function AtendimentoPage() {
                           : "Enviando..."
                         : "Enviar arquivo"}
                     </button>
+                    {uploadGeralEmAndamento ? (
+                      <button
+                        type="button"
+                        onClick={() => cancelarUploadAnexo("geral")}
+                        className="inline-flex items-center gap-2 rounded-xl bg-red-100 px-4 py-2 text-sm text-red-700 hover:bg-red-200"
+                      >
+                        <X className="h-4 w-4" />
+                        Cancelar upload
+                      </button>
+                    ) : null}
                     {anexoArquivo ? (
                       <span className="inline-flex items-center rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-600">
                         {anexoArquivo.name} · {formatBytes(anexoArquivo.size)}
