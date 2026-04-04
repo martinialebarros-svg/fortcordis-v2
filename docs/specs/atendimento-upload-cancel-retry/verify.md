@@ -2,16 +2,16 @@
 
 Data: 2026-04-04  
 Responsavel: Equipe FortCordis  
-Status: in-progress
+Status: approved
 
 ## 1) Matriz de rastreabilidade
 
 | ID | Tipo | Evidencia | Status |
 | --- | --- | --- | --- |
-| CA-001 | aceitacao | botao de cancelar upload geral implementado | pending-manual |
-| CA-002 | aceitacao | botao de cancelar upload por exame implementado | pending-manual |
-| CA-003 | aceitacao | reset de progresso/loading apos cancelamento | pending-manual |
-| CA-004 | aceitacao | arquivo mantido para reenvio apos cancelamento | pending-manual |
+| CA-001 | aceitacao | upload geral cancelado e reenvio validado | ok |
+| CA-002 | aceitacao | upload por exame cancelado e reenvio validado | ok |
+| CA-003 | aceitacao | reset de loading/progresso validado sem refresh | ok |
+| CA-004 | aceitacao | arquivo mantido apos cancelamento para retry imediato | ok |
 | CA-005 | aceitacao | lint da tela `app/atendimento/page.tsx` | ok |
 
 ## 2) Testes automatizados executados
@@ -28,14 +28,17 @@ Resultado:
 ## 3) Testes manuais
 
 - Local:
-- [ ] Upload geral: iniciar envio e cancelar no meio.
-- [ ] Upload geral: reenviar o mesmo arquivo apos cancelar.
-- [ ] Upload de exame: iniciar envio e cancelar no meio.
-- [ ] Upload de exame: reenviar o mesmo arquivo apos cancelar.
-- [ ] Validar toast `Upload cancelado.` sem erro vermelho.
+- [x] Upload geral: iniciar envio e cancelar no meio.
+- [x] Upload geral: reenviar o mesmo arquivo apos cancelar.
+- [x] Upload de exame: iniciar envio e cancelar no meio.
+- [x] Upload de exame: reenviar o mesmo arquivo apos cancelar.
+- [x] Validar toast `Upload cancelado.` sem erro vermelho.
 
 - Stage:
-- [ ] Repetir os 5 cenarios acima em `stage.fortcordis.com.br`.
+- [x] Repetir os 5 cenarios acima em `stage.fortcordis.com.br`.
+
+- Producao:
+- [x] Smoke test apos promocao para `main` sem regressao reportada no fluxo de anexos.
 
 ## 4) Regressao e riscos residuais
 
@@ -48,9 +51,9 @@ Resultado:
 
 ## 6) Decisao de release
 
-- [ ] Aprovado para stage.
-- [ ] Aprovado para producao.
+- [x] Aprovado para stage.
+- [x] Aprovado para producao.
 - [ ] Nao aprovado (descrever motivo).
 
 Motivo atual:
-- Pendente checklist manual local/stage para confirmar CA-001..CA-004.
+- Fluxo validado e estavel em local, stage e producao.

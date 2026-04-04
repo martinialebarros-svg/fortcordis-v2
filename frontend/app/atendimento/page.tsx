@@ -1296,6 +1296,7 @@ export default function AtendimentoPage() {
     originY: 0,
   });
   const uploadAbortControllersRef = useRef<Record<string, AbortController>>({});
+  const activeUploadSignaturesRef = useRef<Set<string>>(new Set());
   const examUploadDraftsRef = useRef<Record<number, PendingExamUpload>>({});
   const pdfDownloadInFlightRef = useRef<"prescricao" | "exames" | null>(null);
 
@@ -1396,6 +1397,7 @@ export default function AtendimentoPage() {
         controller.abort();
       });
       uploadAbortControllersRef.current = {};
+      activeUploadSignaturesRef.current.clear();
     };
   }, []);
 
@@ -2988,6 +2990,9 @@ export default function AtendimentoPage() {
     controller.abort();
   };
 
+  const buildUploadSignature = (atendimentoId: number, uploadKey: string, file: File) =>
+    `${atendimentoId}|${uploadKey}|${file.name}|${file.size}|${file.lastModified}`;
+
   const uploadAnexoArquivo = async (
     file: File,
     options?: { exameId?: number | null; tipo?: string; descricao?: string; uploadKey?: string }
@@ -3006,6 +3011,14 @@ export default function AtendimentoPage() {
     }
 
     const uploadKey = options?.uploadKey || (options?.exameId ? `exame-${options.exameId}` : "geral");
+    const uploadSignature = buildUploadSignature(selecionado, uploadKey, file);
+    if (activeUploadSignaturesRef.current.has(uploadSignature)) {
+      setSucesso("Upload ja esta em andamento para este arquivo.");
+      setErro("");
+      return false;
+    }
+
+    activeUploadSignaturesRef.current.add(uploadSignature);
     const formData = new FormData();
     formData.append("arquivo", file);
     formData.append("tipo", options?.tipo || anexoForm.tipo || "documento");
@@ -3064,6 +3077,7 @@ export default function AtendimentoPage() {
       if (uploadAbortControllersRef.current[uploadKey]) {
         delete uploadAbortControllersRef.current[uploadKey];
       }
+      activeUploadSignaturesRef.current.delete(uploadSignature);
     }
   };
 
