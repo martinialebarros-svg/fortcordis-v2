@@ -3047,7 +3047,16 @@ export default function AtendimentoPage() {
         },
       });
       mergeUploadedAnexo(response.data);
-      setSucesso(options?.exameId ? "Arquivo vinculado ao exame com sucesso." : "Arquivo anexado com sucesso.");
+      const deduplicado = response?.data?.deduplicado === true;
+      if (deduplicado) {
+        setSucesso(
+          options?.exameId
+            ? "Arquivo ja estava vinculado a este exame."
+            : "Arquivo ja estava anexado neste atendimento."
+        );
+      } else {
+        setSucesso(options?.exameId ? "Arquivo vinculado ao exame com sucesso." : "Arquivo anexado com sucesso.");
+      }
       if (!options?.exameId) {
         setAnexoArquivo(null);
         setAnexoForm((current) => ({ ...current, descricao: "", url: "" }));

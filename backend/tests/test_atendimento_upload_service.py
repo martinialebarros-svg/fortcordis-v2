@@ -16,6 +16,17 @@ from app.services import atendimento_upload_service
 
 
 class AtendimentoUploadServiceTest(unittest.TestCase):
+    def test_calculate_attachment_sha256_returns_stable_hex_digest(self) -> None:
+        digest_a = atendimento_upload_service.calculate_attachment_sha256(b"conteudo")
+        digest_b = atendimento_upload_service.calculate_attachment_sha256(b"conteudo")
+        self.assertEqual(digest_a, digest_b)
+        self.assertEqual(len(digest_a), 64)
+
+    def test_calculate_attachment_sha256_differs_for_distinct_content(self) -> None:
+        digest_a = atendimento_upload_service.calculate_attachment_sha256(b"arquivo-a")
+        digest_b = atendimento_upload_service.calculate_attachment_sha256(b"arquivo-b")
+        self.assertNotEqual(digest_a, digest_b)
+
     def test_validate_attachment_type_accepts_allowed_extension_and_mime(self) -> None:
         mime = atendimento_upload_service.validate_attachment_type("relatorio.PDF", "application/pdf")
         self.assertEqual(mime, "application/pdf")
