@@ -15,24 +15,24 @@ Status: in-progress
 
 ### Fase 1
 
-- [ ] T1.1 Definir constante de retencao (90 dias).
-- [ ] T1.2 Implementar funcao de cleanup com cutoff.
+- [x] T1.1 Definir constante de retencao (90 dias).
+- [x] T1.2 Implementar funcao de cleanup com cutoff.
 - Criterio de conclusao: limpeza funcional com retorno de `deleted_rows`.
 - Risco: comparacao de data/hora inconsistente entre dialetos.
 - Rollback: manter coleta sem cleanup automatico.
 
 ### Fase 2
 
-- [ ] T2.1 Criar endpoint tecnico de cleanup manual.
-- [ ] T2.2 Registrar logs estruturados do cleanup.
+- [x] T2.1 Criar endpoint tecnico de cleanup manual.
+- [x] T2.2 Registrar logs estruturados do cleanup.
 - Criterio de conclusao: operacao consegue executar cleanup sob demanda.
 - Risco: endpoint exposto sem controle suficiente.
 - Rollback: restringir endpoint a uso interno/autenticado.
 
 ### Fase 3
 
-- [ ] T3.1 Adicionar testes de cleanup com e sem expirados.
-- [ ] T3.2 Executar suites de upload + metricas.
+- [x] T3.1 Adicionar testes de cleanup com e sem expirados.
+- [x] T3.2 Executar suites de upload + metricas.
 - Criterio de conclusao: CA-001..CA-005 validados automaticamente.
 - Risco: testes com data fixa flakey.
 - Rollback: usar datas deterministicas em fixture.

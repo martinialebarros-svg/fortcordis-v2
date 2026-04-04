@@ -983,6 +983,36 @@ def _parse_upload_metrics_date(value: Optional[str], param_name: str) -> Optiona
         ) from exc
 
 
+def _cleanup_upload_dedupe_metricas(
+    db: Session,
+    *,
+    retention_days: int,
+) -> Dict[str, Union[int, str]]:
+    if retention_days < 1:
+        raise ValueError("retention_days deve ser maior ou igual a 1.")
+
+    cutoff_date = date.today() - timedelta(days=retention_days)
+    cutoff_datetime = datetime.combine(cutoff_date, datetime.min.time())
+    result = db.execute(
+        text(
+            """
+            DELETE FROM upload_dedupe_metricas
+            WHERE created_at < :cutoff_datetime
+            """
+        ),
+        {"cutoff_datetime": cutoff_datetime},
+    )
+    deleted_rows = int((getattr(result, "rowcount", 0) or 0))
+    if deleted_rows < 0:
+        deleted_rows = 0
+
+    return {
+        "retention_days": retention_days,
+        "cutoff_date": cutoff_date.isoformat(),
+        "deleted_rows": deleted_rows,
+    }
+
+
 def _registrar_upload_dedupe_metrica(
     db: Session,
     *,
@@ -2362,6 +2392,43 @@ def consultar_metricas_upload_dedupe(
             "clinica_id": clinica_id,
         },
     }
+
+
+@router.post("/upload-metrics/dedupe/cleanup")
+def executar_cleanup_upload_dedupe_metricas(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    retention_days = int(settings.UPLOAD_DEDUPE_METRICS_RETENTION_DAYS or 0)
+    if retention_days < 1:
+        raise HTTPException(
+            status_code=500,
+            detail="UPLOAD_DEDUPE_METRICS_RETENTION_DAYS invalido. Configure valor >= 1.",
+        )
+
+    try:
+        payload = _cleanup_upload_dedupe_metricas(db, retention_days=retention_days)
+        db.commit()
+        logger.info(
+            "Cleanup upload dedupe metricas concluido (retention_days=%s, cutoff_date=%s, deleted_rows=%s)",
+            payload["retention_days"],
+            payload["cutoff_date"],
+            payload["deleted_rows"],
+        )
+        return payload
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "Falha ao executar cleanup upload dedupe metricas (retention_days=%s)",
+            retention_days,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Falha ao executar cleanup de metricas de upload.",
+        )
 
 
 @router.get("/{atendimento_id}/anexos")
