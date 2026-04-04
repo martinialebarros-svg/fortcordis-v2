@@ -134,6 +134,28 @@ reload_nginx_if_possible() {
   return 0
 }
 
+backup_runtime_file() {
+  local rel_path="$1"
+  local src="${APP_DIR}/${rel_path}"
+  local dst="${RUNTIME_SNAPSHOT_DIR}/${rel_path}"
+  if [[ -f "$src" ]]; then
+    mkdir -p "$(dirname "$dst")"
+    cp -f "$src" "$dst"
+    log "Preserved runtime file: ${rel_path}"
+  fi
+}
+
+restore_runtime_file() {
+  local rel_path="$1"
+  local src="${RUNTIME_SNAPSHOT_DIR}/${rel_path}"
+  local dst="${APP_DIR}/${rel_path}"
+  if [[ -f "$src" ]]; then
+    mkdir -p "$(dirname "$dst")"
+    cp -f "$src" "$dst"
+    log "Restored runtime file: ${rel_path}"
+  fi
+}
+
 require_cmd git
 require_cmd curl
 require_cmd npm
@@ -153,11 +175,21 @@ STAMP="$(date +%Y%m%d_%H%M%S)"
 DEPLOY_BACKUP_MARKER="${RUNTIME_BACKUP_DIR}/${STAMP}__deploy-prod.marker"
 touch "$DEPLOY_BACKUP_MARKER"
 log "Deploy marker created: $DEPLOY_BACKUP_MARKER"
+RUNTIME_SNAPSHOT_DIR="${RUNTIME_BACKUP_DIR}/${STAMP}__runtime"
+
+backup_runtime_file "backend/fortcordis.db"
+backup_runtime_file "backend/data/frases.json"
+backup_runtime_file "backend/data/patologias.json"
+backup_runtime_file "backend/data/frases_ecocardiograma_estruturado_teste.json"
 
 log "Updating code from origin/${BRANCH}"
 git fetch origin
 git checkout "$BRANCH"
 git reset --hard "origin/${BRANCH}"
+restore_runtime_file "backend/fortcordis.db"
+restore_runtime_file "backend/data/frases.json"
+restore_runtime_file "backend/data/patologias.json"
+restore_runtime_file "backend/data/frases_ecocardiograma_estruturado_teste.json"
 NEW_HASH="$(git rev-parse --short HEAD)"
 log "Current HEAD: ${NEW_HASH}"
 git log --oneline -n 1
