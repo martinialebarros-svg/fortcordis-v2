@@ -2,7 +2,7 @@
 
 Data: 2026-04-04  
 Responsavel: Equipe FortCordis  
-Status: in-progress
+Status: approved
 
 ## 1) Matriz de rastreabilidade
 
@@ -10,7 +10,7 @@ Status: in-progress
 | --- | --- | --- | --- |
 | CA-001 | aceitacao | `test_upload_anexo_returns_200_existing_attachment_when_hash_matches` | ok |
 | CA-002 | aceitacao | `test_upload_anexo_returns_201_payload_when_storage_succeeds` | ok |
-| CA-003 | aceitacao | validacao manual em atendimento diferente (pendente) | pending-manual |
+| CA-003 | aceitacao | validacao manual em atendimento diferente e escopos distintos | ok |
 | CA-004 | aceitacao | `store_atendimento_attachment_file` nao chamado em dedupe (`call_count=0`) | ok |
 | CA-005 | aceitacao | suites upload backend + lint frontend | ok |
 
@@ -30,13 +30,16 @@ Resumo:
 ## 3) Testes manuais
 
 - Local:
-- [ ] Mesmo arquivo no mesmo atendimento/exame retorna dedupe (`200`, sem novo registro).
-- [ ] Mesmo arquivo em atendimento diferente cria novo anexo (nao dedupe).
-- [ ] Mesmo arquivo com `exame_id` diferente no mesmo atendimento respeita escopo.
-- [ ] Mensagem frontend para dedupe exibida sem erro vermelho.
+- [x] Mesmo arquivo no mesmo atendimento/exame retorna dedupe (`200`, sem novo registro).
+- [x] Mesmo arquivo em atendimento diferente cria novo anexo (nao dedupe).
+- [x] Mesmo arquivo com `exame_id` diferente no mesmo atendimento respeita escopo.
+- [x] Mensagem frontend para dedupe exibida sem erro vermelho.
 
 - Stage:
-- [ ] Repetir os 4 cenarios acima em `stage.fortcordis.com.br`.
+- [x] Repetir os 4 cenarios acima em `stage.fortcordis.com.br`.
+
+- Producao:
+- [x] Smoke test apos deploy da `main` concluido sem regressao de upload.
 
 ## 4) Regressao e riscos residuais
 
@@ -51,8 +54,8 @@ Resumo:
 ## 6) Decisao de release
 
 - [x] Aprovado para stage.
-- [ ] Aprovado para producao.
+- [x] Aprovado para producao.
 - [ ] Nao aprovado (descrever motivo).
 
 Motivo atual:
-- Implementacao e testes automatizados concluidos; pendente checklist manual em stage/producao.
+- Entrega validada em local, stage e producao.
