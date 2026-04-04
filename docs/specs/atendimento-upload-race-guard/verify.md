@@ -2,7 +2,7 @@
 
 Data: 2026-04-04  
 Responsavel: Equipe FortCordis  
-Status: in-progress
+Status: approved
 
 ## 1) Matriz de rastreabilidade
 
@@ -30,12 +30,15 @@ Resumo:
 ## 3) Testes manuais
 
 - Local:
-- [ ] Simular dois uploads identicos quase simultaneos e validar um unico registro final.
-- [ ] Confirmar que segunda tentativa retorna dedupe sem erro 500.
-- [ ] Confirmar cleanup de arquivo temporario em colisao (sem lixo em storage).
+- [x] Simular dois uploads identicos quase simultaneos e validar um unico registro final.
+- [x] Confirmar que segunda tentativa retorna dedupe sem erro 500.
+- [x] Confirmar cleanup de arquivo temporario em colisao (sem lixo em storage).
 
 - Stage:
-- [ ] Repetir os 3 cenarios acima em `stage.fortcordis.com.br`.
+- [x] Repetir os 3 cenarios acima em `stage.fortcordis.com.br`.
+
+- Producao:
+- [x] Smoke test apos deploy da `main` sem regressao no fluxo de upload.
 
 ## 4) Regressao e riscos residuais
 
@@ -50,8 +53,8 @@ Resumo:
 ## 6) Decisao de release
 
 - [x] Aprovado para stage.
-- [ ] Aprovado para producao.
+- [x] Aprovado para producao.
 - [ ] Nao aprovado (descrever motivo).
 
 Motivo atual:
-- Implementacao e testes automatizados concluidos; pendente checklist manual em stage/producao.
+- Entrega validada em local, stage e producao.
