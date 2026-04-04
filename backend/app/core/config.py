@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     REQUIRE_UP_TO_DATE_MIGRATIONS: bool = False
     ALLOW_PERMISSION_MATRIX_FALLBACK: bool = False
     ALLOW_LEGACY_PLAIN_PASSWORDS: bool = False
+    UPLOAD_DEDUPE_METRICS_RETENTION_DAYS: int = 90
 
     class Config:
         env_file = ".env"
