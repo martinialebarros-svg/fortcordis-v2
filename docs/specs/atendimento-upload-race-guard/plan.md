@@ -15,33 +15,33 @@ Status: in-progress
 
 ### Fase 1
 
-- [ ] T1.1 Criar migracao para coluna `dedupe_key` em `anexos_atendimentos`.
-- [ ] T1.2 Criar indice unico `(atendimento_id, origem, dedupe_key)`.
+- [x] T1.1 Criar migracao para coluna `dedupe_key` em `anexos_atendimentos`.
+- [x] T1.2 Criar indice unico `(atendimento_id, origem, dedupe_key)`.
 - Criterio de conclusao: schema apto a bloquear duplicidade concorrente.
 - Risco: sintaxe de indice entre dialetos.
 - Rollback: migracao corretiva removendo indice unico.
 
 ### Fase 2
 
-- [ ] T2.1 Gerar `dedupe_key` no fluxo de upload (`scope_exame + arquivo_hash`).
-- [ ] T2.2 Tratar `IntegrityError` na insercao para recuperar anexo existente.
-- [ ] T2.3 Evitar lixo no storage quando houver colisao apos escrita.
+- [x] T2.1 Gerar `dedupe_key` no fluxo de upload (`scope_exame + arquivo_hash`).
+- [x] T2.2 Tratar `IntegrityError` na insercao para recuperar anexo existente.
+- [x] T2.3 Evitar lixo no storage quando houver colisao apos escrita.
 - Criterio de conclusao: endpoint idempotente sob corrida.
 - Risco: limpeza de arquivo fisico em caminho de erro.
 - Rollback: fallback para consulta pre-insert sem constraint.
 
 ### Fase 3
 
-- [ ] T3.1 Confirmar que frontend continua tratando `deduplicado=true` normalmente.
-- [ ] T3.2 Ajustar mensagem apenas se necessario.
+- [x] T3.1 Confirmar que frontend continua tratando `deduplicado=true` normalmente.
+- [x] T3.2 Ajustar mensagem apenas se necessario.
 - Criterio de conclusao: sem regressao visual no upload.
 - Risco: mensagem ambigua para usuario.
 - Rollback: manter texto atual de dedupe.
 
 ### Fase 4
 
-- [ ] T4.1 Adicionar teste simulando `IntegrityError` e recuperacao de anexo.
-- [ ] T4.2 Rodar suites de upload backend + lint frontend.
+- [x] T4.1 Adicionar teste simulando `IntegrityError` e recuperacao de anexo.
+- [x] T4.2 Rodar suites de upload backend + lint frontend.
 - [ ] T4.3 Executar checklist manual em stage e atualizar `verify.md`.
 - Criterio de conclusao: CA-001..CA-005 marcados `ok`.
 - Risco: cobertura parcial de concorrencia real.

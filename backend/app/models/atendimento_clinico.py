@@ -71,6 +71,7 @@ class AnexoAtendimento(Base):
     tamanho = Column(Integer)  # bytes
     mime_type = Column(String)
     arquivo_hash = Column(String(64))
+    dedupe_key = Column(String(96))
     caminho_arquivo = Column(String)
     origem = Column(String, nullable=False, default="externo")
 

@@ -34,6 +34,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -67,6 +68,7 @@ from app.services.exam_catalog_service import montar_contexto_catalogo_exames
 from app.services.atendimento_upload_service import (
     AttachmentTooLargeError,
     AttachmentTypeError,
+    build_upload_dedupe_key,
     calculate_attachment_sha256,
     store_atendimento_attachment_file,
     remove_atendimento_attachment_file,
@@ -938,6 +940,24 @@ def _serialize_anexo(anexo: AnexoAtendimento) -> dict:
         "preview_disponivel": preview_disponivel,
         "created_at": _to_iso(anexo.created_at),
     }
+
+
+def _find_existing_upload_anexo_by_dedupe_key(
+    db: Session,
+    *,
+    atendimento_id: int,
+    dedupe_key: str,
+) -> Optional[AnexoAtendimento]:
+    return (
+        db.query(AnexoAtendimento)
+        .filter(
+            AnexoAtendimento.atendimento_id == atendimento_id,
+            AnexoAtendimento.origem == "upload",
+            AnexoAtendimento.dedupe_key == dedupe_key,
+        )
+        .order_by(AnexoAtendimento.id.desc())
+        .first()
+    )
 
 
 def _map_prescricao_item(item: PrescricaoItem) -> dict:
@@ -2307,25 +2327,20 @@ async def upload_anexo(
         raise HTTPException(status_code=400, detail="Arquivo vazio.")
 
     arquivo_hash = calculate_attachment_sha256(content)
-    anexo_existente_query = db.query(AnexoAtendimento).filter(
-        AnexoAtendimento.atendimento_id == atendimento_id,
-        AnexoAtendimento.origem == "upload",
-        AnexoAtendimento.arquivo_hash == arquivo_hash,
+    dedupe_key = build_upload_dedupe_key(exame.id if exame else None, arquivo_hash)
+    anexo_existente = _find_existing_upload_anexo_by_dedupe_key(
+        db,
+        atendimento_id=atendimento_id,
+        dedupe_key=dedupe_key,
     )
-    if exame is not None:
-        anexo_existente_query = anexo_existente_query.filter(AnexoAtendimento.exame_id == exame.id)
-    else:
-        anexo_existente_query = anexo_existente_query.filter(AnexoAtendimento.exame_id.is_(None))
-
-    anexo_existente = anexo_existente_query.order_by(AnexoAtendimento.id.desc()).first()
     if anexo_existente:
         logger.info(
-            "Upload de anexo deduplicado (atendimento_id=%s, exame_id=%s, user_id=%s, anexo_id=%s, hash=%s)",
+            "Upload de anexo deduplicado (atendimento_id=%s, exame_id=%s, user_id=%s, anexo_id=%s, dedupe_key=%s)",
             atendimento_id,
             exame.id if exame else None,
             current_user.id,
             anexo_existente.id,
-            arquivo_hash,
+            dedupe_key,
         )
         payload = _serialize_anexo(anexo_existente)
         payload["deduplicado"] = True
@@ -2378,24 +2393,55 @@ async def upload_anexo(
         tamanho=len(content),
         mime_type=normalized_mime_type,
         arquivo_hash=arquivo_hash,
+        dedupe_key=dedupe_key,
         caminho_arquivo=storage_path,
         origem="upload",
     )
     db.add(anexo)
-    db.flush()
-    anexo.url = f"/api/v1/atendimentos/anexos/{anexo.id}/arquivo"
+    try:
+        db.flush()
+        anexo.url = f"/api/v1/atendimentos/anexos/{anexo.id}/arquivo"
 
-    if exame and not _status_exame_concluido(exame.status):
-        exame.status = "Em andamento"
-    if exame and not exame.data_resultado:
-        exame.data_resultado = datetime.now()
+        if exame and not _status_exame_concluido(exame.status):
+            exame.status = "Em andamento"
+        if exame and not exame.data_resultado:
+            exame.data_resultado = datetime.now()
 
-    db.commit()
-    db.refresh(anexo)
+        db.commit()
+        db.refresh(anexo)
 
-    payload = _serialize_anexo(anexo)
-    payload["deduplicado"] = False
-    return payload
+        payload = _serialize_anexo(anexo)
+        payload["deduplicado"] = False
+        return payload
+    except IntegrityError:
+        db.rollback()
+        remove_atendimento_attachment_file(storage_path)
+        anexo_concorrente = _find_existing_upload_anexo_by_dedupe_key(
+            db,
+            atendimento_id=atendimento_id,
+            dedupe_key=dedupe_key,
+        )
+        if anexo_concorrente:
+            logger.info(
+                "Upload deduplicado por corrida de concorrencia (atendimento_id=%s, exame_id=%s, user_id=%s, anexo_id=%s, dedupe_key=%s)",
+                atendimento_id,
+                exame.id if exame else None,
+                current_user.id,
+                anexo_concorrente.id,
+                dedupe_key,
+            )
+            payload = _serialize_anexo(anexo_concorrente)
+            payload["deduplicado"] = True
+            return JSONResponse(status_code=status.HTTP_200_OK, content=payload)
+
+        logger.exception(
+            "Falha ao resolver colisao de upload por dedupe_key (atendimento_id=%s, exame_id=%s, user_id=%s, dedupe_key=%s)",
+            atendimento_id,
+            exame.id if exame else None,
+            current_user.id,
+            dedupe_key,
+        )
+        raise HTTPException(status_code=409, detail="Conflito ao processar upload duplicado. Tente novamente.")
 
 
 @router.get("/anexos/{anexo_id}/arquivo")

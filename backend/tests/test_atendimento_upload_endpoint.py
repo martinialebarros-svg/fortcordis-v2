@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from starlette.datastructures import Headers, UploadFile
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -37,12 +38,14 @@ class _FakeQuery:
 
 
 class _FakeDB:
-    def __init__(self, *, atendimento_exists: bool = True, existing_anexo=None):
+    def __init__(self, *, atendimento_exists: bool = True, existing_anexo_sequence=None):
         self._atendimento = SimpleNamespace(id=1) if atendimento_exists else None
         self._exame = None
-        self._existing_anexo = existing_anexo
+        self._anexo_query_results = list(existing_anexo_sequence or [])
+        self._last_anexo_result = self._anexo_query_results[-1] if self._anexo_query_results else None
         self.added = []
         self.commit_count = 0
+        self.rollback_count = 0
 
     def query(self, model):
         model_name = getattr(model, "__name__", "")
@@ -51,7 +54,11 @@ class _FakeDB:
         if model_name == "Exame":
             return _FakeQuery(self._exame)
         if model_name == "AnexoAtendimento":
-            return _FakeQuery(self._existing_anexo)
+            if self._anexo_query_results:
+                result = self._anexo_query_results.pop(0)
+                self._last_anexo_result = result
+                return _FakeQuery(result)
+            return _FakeQuery(self._last_anexo_result)
         return _FakeQuery(None)
 
     def add(self, obj):
@@ -66,6 +73,9 @@ class _FakeDB:
 
     def refresh(self, obj):
         return None
+
+    def rollback(self):
+        self.rollback_count += 1
 
 
 def _make_upload_file(filename: str, content_type: str, content: bytes) -> UploadFile:
@@ -126,7 +136,7 @@ class AtendimentoUploadEndpointTest(unittest.TestCase):
             origem="upload",
             created_at=None,
         )
-        db = _FakeDB(existing_anexo=existing_anexo)
+        db = _FakeDB(existing_anexo_sequence=[existing_anexo])
         arquivo = _make_upload_file("resultado.pdf", "application/pdf", b"conteudo-ok")
 
         with patch.object(atendimento, "calculate_attachment_sha256", return_value="hash-duplicado"), patch.object(
@@ -150,6 +160,58 @@ class AtendimentoUploadEndpointTest(unittest.TestCase):
         self.assertEqual(body["id"], 7)
         self.assertTrue(body["deduplicado"])
         self.assertEqual(store_mock.call_count, 0)
+        self.assertEqual(db.commit_count, 0)
+
+    def test_upload_anexo_handles_integrity_error_as_dedupe_response(self) -> None:
+        existing_anexo = SimpleNamespace(
+            id=11,
+            atendimento_id=1,
+            exame_id=None,
+            tipo="documento",
+            descricao="concorrente",
+            url="/api/v1/atendimentos/anexos/11/arquivo",
+            nome_original="resultado.pdf",
+            tamanho=12,
+            mime_type="application/pdf",
+            arquivo_hash="hash-duplicado",
+            dedupe_key="exame:none|sha256:hash-duplicado",
+            caminho_arquivo="C:/tmp/existente.pdf",
+            origem="upload",
+            created_at=None,
+        )
+        db = _FakeDB(existing_anexo_sequence=[None, existing_anexo])
+        arquivo = _make_upload_file("resultado.pdf", "application/pdf", b"conteudo-ok")
+
+        with patch.object(atendimento, "calculate_attachment_sha256", return_value="hash-duplicado"), patch.object(
+            atendimento,
+            "store_atendimento_attachment_file",
+            return_value=("C:/tmp/novo.pdf", "resultado.pdf", "application/pdf"),
+        ) as store_mock, patch.object(
+            atendimento, "remove_atendimento_attachment_file"
+        ) as remove_mock, patch.object(
+            db,
+            "flush",
+            side_effect=IntegrityError("INSERT", {"id": 1}, Exception("duplicate key")),
+        ):
+            response = asyncio.run(
+                atendimento.upload_anexo(
+                    atendimento_id=1,
+                    arquivo=arquivo,
+                    tipo="documento",
+                    descricao="Arquivo concorrente",
+                    exame_id=None,
+                    db=db,
+                    current_user=self.user,
+                )
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.body.decode("utf-8"))
+        self.assertTrue(body["deduplicado"])
+        self.assertEqual(body["id"], 11)
+        self.assertEqual(store_mock.call_count, 1)
+        remove_mock.assert_called_once_with("C:/tmp/novo.pdf")
+        self.assertEqual(db.rollback_count, 1)
         self.assertEqual(db.commit_count, 0)
 
     def test_upload_anexo_maps_type_error_to_400(self) -> None:
