@@ -108,3 +108,24 @@ Atualizacao final deste arquivo apos T4.2/T4.3:
 - `CA-004` marcado como `ok`.
 - `Aprovado para stage` marcado.
 - `Nao aprovado` desmarcado.
+
+## 9) Registro Operacional Pos-release (2026-04-04)
+
+Incidente observado:
+- Upload de PDF valido (~2.7MB) falhando com `413 Request Entity Too Large` em stage.
+- O erro ocorria no Nginx (proxy) antes de chegar ao backend, apesar do limite de 25MB no service de upload.
+
+Causa raiz:
+- Configuracao Nginx sem `client_max_body_size` nos blocos de `location /api` (default efetivo menor que esperado para o fluxo).
+
+Correcao aplicada:
+- Ajuste de infraestrutura no VPS para ambos domínios:
+- stage: `/etc/nginx/sites-enabled/fortcordis-stage` em `location /api` com `client_max_body_size 30m;`
+- producao: `/etc/nginx/sites-enabled/fortcordis-app` em `location /api/` com `client_max_body_size 30m;`
+- Validacao: `nginx -t` + `systemctl reload nginx`.
+
+Reteste de evidencia:
+- Arquivo: `2026-03-30__Nenem__NATALIA_LOPES__Vet_Plus.pdf` (2,724,579 bytes).
+- Endpoint stage: `POST /api/v1/atendimentos/11/anexos/upload`.
+- Resultado apos ajuste: `201` (upload concluido), com remocao do anexo de teste na sequencia (`DELETE` => `200`).
+- Endpoint prod sem token para mesmo arquivo retornou `401` (confirmando que nao houve novo `413` no proxy).

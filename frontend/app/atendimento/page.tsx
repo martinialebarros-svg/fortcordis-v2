@@ -1223,6 +1223,7 @@ export default function AtendimentoPage() {
   const [erro, setErro] = useState("");
   const [erroPopup, setErroPopup] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState("");
+  const [sucessoPopup, setSucessoPopup] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [workspacePainel, setWorkspacePainel] = useState<WorkspacePainel>("consulta");
   const [consultaEditorEtapa, setConsultaEditorEtapa] = useState<ConsultaEditorEtapa>("anamnese");
@@ -1280,6 +1281,7 @@ export default function AtendimentoPage() {
   const formRef = useRef(form);
   const autosaveTimerRef = useRef<number | null>(null);
   const erroPopupTimeoutRef = useRef<number | null>(null);
+  const sucessoPopupTimeoutRef = useRef<number | null>(null);
   const pacienteDropdownBlurTimeoutRef = useRef<number | null>(null);
   const lastPersistedSnapshotRef = useRef(serializeAtendimentoSnapshot(form));
   const hydratingFormRef = useRef(false);
@@ -1325,14 +1327,52 @@ export default function AtendimentoPage() {
     }
 
     setErroPopup(erro);
+    if (sucessoPopupTimeoutRef.current) {
+      window.clearTimeout(sucessoPopupTimeoutRef.current);
+      sucessoPopupTimeoutRef.current = null;
+    }
+    setSucessoPopup(null);
+    setSucesso("");
+
     if (erroPopupTimeoutRef.current) {
       window.clearTimeout(erroPopupTimeoutRef.current);
     }
     erroPopupTimeoutRef.current = window.setTimeout(() => {
       setErroPopup(null);
       erroPopupTimeoutRef.current = null;
+      setErro("");
     }, 8000);
   }, [erro]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    if (!sucesso) {
+      setSucessoPopup(null);
+      if (sucessoPopupTimeoutRef.current) {
+        window.clearTimeout(sucessoPopupTimeoutRef.current);
+        sucessoPopupTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    setSucessoPopup(sucesso);
+    if (erroPopupTimeoutRef.current) {
+      window.clearTimeout(erroPopupTimeoutRef.current);
+      erroPopupTimeoutRef.current = null;
+    }
+    setErroPopup(null);
+    setErro("");
+
+    if (sucessoPopupTimeoutRef.current) {
+      window.clearTimeout(sucessoPopupTimeoutRef.current);
+    }
+    sucessoPopupTimeoutRef.current = window.setTimeout(() => {
+      setSucessoPopup(null);
+      sucessoPopupTimeoutRef.current = null;
+      setSucesso("");
+    }, 5000);
+  }, [sucesso]);
 
   useEffect(() => {
     return () => {
@@ -1340,6 +1380,10 @@ export default function AtendimentoPage() {
       if (erroPopupTimeoutRef.current) {
         window.clearTimeout(erroPopupTimeoutRef.current);
         erroPopupTimeoutRef.current = null;
+      }
+      if (sucessoPopupTimeoutRef.current) {
+        window.clearTimeout(sucessoPopupTimeoutRef.current);
+        sucessoPopupTimeoutRef.current = null;
       }
       Object.values(examUploadDraftsRef.current).forEach((entry) => {
         if (entry.previewUrl) {
@@ -4198,6 +4242,15 @@ export default function AtendimentoPage() {
     setErro("");
   };
 
+  const dismissSuccessPopup = () => {
+    if (typeof window !== "undefined" && sucessoPopupTimeoutRef.current) {
+      window.clearTimeout(sucessoPopupTimeoutRef.current);
+      sucessoPopupTimeoutRef.current = null;
+    }
+    setSucessoPopup(null);
+    setSucesso("");
+  };
+
   if (loading) {
     return <DashboardLayout><div className="p-6 text-gray-600">Carregando modulo de atendimento...</div></DashboardLayout>;
   }
@@ -4205,8 +4258,8 @@ export default function AtendimentoPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6 bg-slate-50 p-6">
-        {erroPopup ? (
-          <div className="fixed right-4 top-4 z-[90] max-w-md">
+        <div className="fixed right-4 top-4 z-[90] flex max-w-md flex-col gap-2">
+          {erroPopup ? (
             <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-xl">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <p className="flex-1 font-medium leading-5">{erroPopup}</p>
@@ -4219,8 +4272,23 @@ export default function AtendimentoPage() {
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
-          </div>
-        ) : null}
+          ) : null}
+
+          {sucessoPopup ? (
+            <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 shadow-xl">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              <p className="flex-1 font-medium leading-5">{sucessoPopup}</p>
+              <button
+                type="button"
+                onClick={dismissSuccessPopup}
+                className="rounded-md border border-emerald-200 bg-white px-1.5 py-1 text-emerald-600 transition hover:bg-emerald-100"
+                aria-label="Fechar aviso de sucesso"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : null}
+        </div>
 
         <section className="overflow-visible rounded-[28px] border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-teal-900 px-6 py-6 text-white shadow-[0_30px_80px_-40px_rgba(15,23,42,0.95)]">
           <div className="flex flex-col gap-6">
@@ -4292,8 +4360,6 @@ export default function AtendimentoPage() {
             </div>
           </div>
         </section>
-
-        {sucesso ? <div className="rounded-[22px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{sucesso}</div> : null}
 
         <section className="rounded-[26px] border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -5453,23 +5519,23 @@ export default function AtendimentoPage() {
                 {anexosGerais.length > 0 ? (
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     {anexosGerais.map((anexo) => (
-                      <div key={anexo.id} className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
-                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-slate-900">{anexo.nome_original || anexo.tipo}</p>
+                      <div key={anexo.id} className="overflow-hidden rounded-[20px] border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <p className="break-all text-sm font-medium text-slate-900">{anexo.nome_original || anexo.tipo}</p>
                             <p className="mt-1 text-xs text-slate-500">{anexo.descricao || anexo.tipo}</p>
                             <p className="mt-1 text-xs text-slate-500">{formatBytes(anexo.tamanho)}{anexo.created_at ? ` · ${formatDate(anexo.created_at)}` : ""}</p>
                           </div>
-                          <div className="flex flex-wrap gap-2">
-                            <button onClick={() => abrirAnexo(anexo, "preview")} className="inline-flex items-center gap-1 rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-700 hover:bg-slate-200">
+                          <div className="flex shrink-0 flex-wrap gap-2 md:w-32 md:flex-col md:items-stretch">
+                            <button onClick={() => abrirAnexo(anexo, "preview")} className="inline-flex items-center justify-center gap-1 rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-700 hover:bg-slate-200">
                               {openingAttachmentId === anexo.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
                               Visualizar
                             </button>
-                            <button onClick={() => abrirAnexo(anexo, "download")} className="inline-flex items-center gap-1 rounded-xl bg-blue-100 px-3 py-2 text-sm text-blue-700 hover:bg-blue-200">
+                            <button onClick={() => abrirAnexo(anexo, "download")} className="inline-flex items-center justify-center gap-1 rounded-xl bg-blue-100 px-3 py-2 text-sm text-blue-700 hover:bg-blue-200">
                               <Download className="h-4 w-4" />
                               Baixar
                             </button>
-                            <button onClick={() => excluirAnexo(anexo)} className="inline-flex items-center gap-1 rounded-xl bg-red-100 px-3 py-2 text-sm text-red-700 hover:bg-red-200">
+                            <button onClick={() => excluirAnexo(anexo)} className="inline-flex items-center justify-center gap-1 rounded-xl bg-red-100 px-3 py-2 text-sm text-red-700 hover:bg-red-200">
                               <Trash2 className="h-4 w-4" />
                               Remover
                             </button>
