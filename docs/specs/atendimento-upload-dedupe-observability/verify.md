@@ -2,7 +2,7 @@
 
 Data: 2026-04-04  
 Responsavel: Equipe FortCordis  
-Status: in-progress
+Status: approved
 
 ## 1) Matriz de rastreabilidade
 
@@ -30,12 +30,15 @@ Resumo:
 ## 3) Testes manuais
 
 - Local:
-- [ ] Executar uploads novos e deduplicados e validar contagem no endpoint de metrica.
-- [ ] Validar filtro por `clinica_id`.
-- [ ] Validar intervalo `data_inicio/data_fim`.
+- [x] Executar uploads novos e deduplicados e validar contagem no endpoint de metrica.
+- [x] Validar filtro por `clinica_id`.
+- [x] Validar intervalo `data_inicio/data_fim`.
 
 - Stage:
-- [ ] Repetir os 3 cenarios acima em `stage.fortcordis.com.br`.
+- [x] Repetir os 3 cenarios acima em `stage.fortcordis.com.br`.
+
+- Producao:
+- [x] Smoke test apos deploy da `main` sem regressao no endpoint de metrica/dedupe.
 
 ## 4) Regressao e riscos residuais
 
@@ -49,8 +52,8 @@ Resumo:
 ## 6) Decisao de release
 
 - [x] Aprovado para stage.
-- [ ] Aprovado para producao.
+- [x] Aprovado para producao.
 - [ ] Nao aprovado (descrever motivo).
 
 Motivo atual:
-- Implementacao e testes automatizados concluidos; pendente checklist manual em stage/producao.
+- Entrega validada em local, stage e producao.
