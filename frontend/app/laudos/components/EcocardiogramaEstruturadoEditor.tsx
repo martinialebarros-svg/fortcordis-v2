@@ -48,6 +48,13 @@ interface ResultadoDeteccaoPreset {
 
 type OrigemAspectoStatus = "preset" | "alterado" | "manual" | "empty";
 
+interface SincronizacaoFraseOptions {
+  confirmar?: boolean;
+  silencioso?: boolean;
+  mostrarHintSucesso?: boolean;
+  controlarLoading?: boolean;
+}
+
 function normalizarTagsInput(tags: string): string[] {
   return tags
     .split(",")
@@ -744,51 +751,128 @@ export default function EcocardiogramaEstruturadoEditor({
     );
   };
 
-  const atualizarFraseDoBanco = async (aspecto: AspectoEcoEstruturadoTeste) => {
-    const fraseId = fraseSelecionadaEfetivaPorAspecto[aspecto.key];
+  const atualizarTextoFraseNoPayloadLocal = (
+    aspectoKey: string,
+    fraseId: number,
+    textoAtualizado: string
+  ) => {
+    setPayload((atual) => {
+      if (!atual) {
+        return atual;
+      }
+      return {
+        ...atual,
+        aspectos: (atual.aspectos || []).map((aspecto) => {
+          if (aspecto.key !== aspectoKey) {
+            return aspecto;
+          }
+          return {
+            ...aspecto,
+            frases: (aspecto.frases || []).map((frase) =>
+              Number(frase.id) === Number(fraseId)
+                ? {
+                    ...frase,
+                    texto: textoAtualizado,
+                  }
+                : frase
+            ),
+          };
+        }),
+      };
+    });
+  };
+
+  const sincronizarFraseSelecionadaDoAspecto = async (
+    aspecto: AspectoEcoEstruturadoTeste,
+    options: SincronizacaoFraseOptions = {}
+  ): Promise<boolean> => {
+    const {
+      confirmar = false,
+      silencioso = false,
+      mostrarHintSucesso = false,
+      controlarLoading = false,
+    } = options;
+
+    const fraseId = String(fraseSelecionadaEfetivaPorAspecto[aspecto.key] || "").trim();
     if (!fraseId) {
-      setError(`Selecione uma frase em ${aspecto.label} antes de atualizar o banco.`);
-      return;
+      if (!silencioso) {
+        setError(`Selecione uma frase em ${aspecto.label} antes de atualizar o banco.`);
+      }
+      return false;
     }
 
     const frase = (aspecto.frases || []).find(
       (item) => String(item.id) === fraseId && Number(item.ativo ?? 1) === 1
     );
     if (!frase?.id) {
-      setError(`Nao foi possivel localizar a frase selecionada em ${aspecto.label}.`);
-      return;
+      if (!silencioso) {
+        setError(`Nao foi possivel localizar a frase selecionada em ${aspecto.label}.`);
+      }
+      return false;
     }
 
     const textoAtual = String(estado.textos[aspecto.key] || "").trim();
     if (!textoAtual) {
-      setError(`O texto de ${aspecto.label} esta vazio.`);
-      return;
+      if (!silencioso) {
+        setError(`O texto de ${aspecto.label} esta vazio.`);
+      }
+      return false;
     }
 
-    const confirmar = window.confirm(
-      `Atualizar a frase "${frase.titulo}" no banco com o texto atual de ${aspecto.label}?`
-    );
-    if (!confirmar) {
-      return;
+    const textoBanco = String(frase.texto || "").trim();
+    if (textoBanco === textoAtual) {
+      return false;
+    }
+
+    if (confirmar) {
+      const confirmarAtualizacao = window.confirm(
+        `Atualizar a frase "${frase.titulo}" no banco com o texto atual de ${aspecto.label}?`
+      );
+      if (!confirmarAtualizacao) {
+        return false;
+      }
     }
 
     try {
-      setAtualizandoFraseAspecto(aspecto.key);
-      setError("");
-      setHint("");
+      if (controlarLoading) {
+        setAtualizandoFraseAspecto(aspecto.key);
+      }
+      if (!silencioso) {
+        setError("");
+        setHint("");
+      }
       await api.put(`/frases-ecocardiograma-estruturado-teste/frases/${frase.id}`, {
         aspecto: aspecto.key,
         titulo: String(frase.titulo || "").trim(),
         texto: textoAtual,
         tags: Array.isArray(frase.tags) ? frase.tags : [],
       });
-      await carregarPayload(true);
-      setHint(`Frase "${frase.titulo}" atualizada no banco para ${aspecto.label}.`);
+
+      atualizarTextoFraseNoPayloadLocal(aspecto.key, Number(frase.id), textoAtual);
+      if (mostrarHintSucesso) {
+        setHint(`Frase "${frase.titulo}" atualizada no banco para ${aspecto.label}.`);
+      }
+      return true;
     } catch (err: any) {
-      setError(err?.response?.data?.detail || "Nao foi possivel atualizar a frase do banco.");
+      if (!silencioso) {
+        setError(err?.response?.data?.detail || "Nao foi possivel atualizar a frase do banco.");
+      } else {
+        console.error("Falha ao sincronizar frase automaticamente:", err);
+      }
+      return false;
     } finally {
-      setAtualizandoFraseAspecto(null);
+      if (controlarLoading) {
+        setAtualizandoFraseAspecto(null);
+      }
     }
+  };
+
+  const atualizarFraseDoBanco = async (aspecto: AspectoEcoEstruturadoTeste) => {
+    await sincronizarFraseSelecionadaDoAspecto(aspecto, {
+      confirmar: true,
+      mostrarHintSucesso: true,
+      controlarLoading: true,
+    });
   };
 
   const propagarTextosSelecionadosParaBanco = async () => {
@@ -811,44 +895,20 @@ export default function EcocardiogramaEstruturadoEditor({
       let totalAtualizado = 0;
 
       for (const aspecto of aspectos) {
-        const fraseId = String(fraseSelecionadaEfetivaPorAspecto[aspecto.key] || "").trim();
-        if (!fraseId) {
-          continue;
-        }
-
-        const textoAtual = String(estado.textos[aspecto.key] || "").trim();
-        if (!textoAtual) {
-          continue;
-        }
-
-        const fraseSelecionada = (aspecto.frases || []).find(
-          (item) => String(item.id) === fraseId && Number(item.ativo ?? 1) === 1
-        );
-        if (!fraseSelecionada?.id) {
-          continue;
-        }
-
-        const textoBanco = String(fraseSelecionada.texto || "").trim();
-        if (textoBanco === textoAtual) {
-          continue;
-        }
-
-        await api.put(`/frases-ecocardiograma-estruturado-teste/frases/${fraseSelecionada.id}`, {
-          aspecto: aspecto.key,
-          titulo: String(fraseSelecionada.titulo || "").trim(),
-          texto: textoAtual,
-          tags: Array.isArray(fraseSelecionada.tags) ? fraseSelecionada.tags : [],
+        const atualizado = await sincronizarFraseSelecionadaDoAspecto(aspecto, {
+          silencioso: true,
         });
-        totalAtualizado += 1;
+        if (atualizado) {
+          totalAtualizado += 1;
+        }
       }
 
-      if (totalAtualizado > 0) {
-        await carregarPayload(true);
+      if (totalAtualizado === 0) {
+        setHint("Nenhuma frase precisou de atualizacao no banco.");
+      } else {
         setHint(
           `${totalAtualizado} frase(s) atualizada(s) no banco. A mudanca vale para todos os presets que usam essas frases.`
         );
-      } else {
-        setHint("Nenhuma frase precisou de atualizacao no banco.");
       }
     } catch (err: any) {
       setError(err?.response?.data?.detail || "Nao foi possivel propagar as frases para o banco.");
@@ -925,7 +985,8 @@ export default function EcocardiogramaEstruturadoEditor({
           <p className="text-sm text-gray-600">
             Presets e frases por aspecto. Quando ativo, os blocos legados abaixo passam
             a ser gerados a partir desta estrutura. Voce pode editar qualquer texto e
-            salvar como nova frase, inclusive no aspecto Conclusao.
+            salvar como nova frase, inclusive no aspecto Conclusao. Ao sair do campo,
+            a frase selecionada eh sincronizada automaticamente no banco.
           </p>
         </div>
         <button
@@ -1339,6 +1400,11 @@ export default function EcocardiogramaEstruturadoEditor({
                     })
                   )
                 }
+                onBlur={() => {
+                  void sincronizarFraseSelecionadaDoAspecto(aspecto, {
+                    silencioso: true,
+                  });
+                }}
                 rows={4}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
                 placeholder={aspecto.placeholder}
