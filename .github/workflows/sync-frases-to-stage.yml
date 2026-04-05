@@ -4,22 +4,23 @@ name: Sync Frases to Stage
 on:
   workflow_dispatch:  # Dispara manualmente
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   sync-frases:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code (branch stage)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: stage
 
-      - name: Setup SSH
-        uses: webfactory/ssh-agent@v0.8.0
-        with:
-          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+      - name: Setup SSH key
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s' "$VPS_SSH_KEY" > ~/.ssh/id_vps
+          chmod 600 ~/.ssh/id_vps
 
       - name: Add VPS to known hosts
         run: |
@@ -28,13 +29,13 @@ jobs:
 
       - name: Sync frases.json and patologias.json to Stage
         run: |
-          echo "Garantindo diretório backend/data no stage..."
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "mkdir -p /var/www/fortcordis-stage/backend/data"
+          echo "Garantindo diretorio backend/data no stage..."
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "mkdir -p /var/www/fortcordis-stage/backend/data"
           echo "Copiando frases.json e patologias.json..."
-          scp backend/data/frases.json ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/fortcordis-stage/backend/data/frases.json
-          scp backend/data/patologias.json ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/fortcordis-stage/backend/data/patologias.json
+          scp -i ~/.ssh/id_vps -o IdentitiesOnly=yes backend/data/frases.json ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/fortcordis-stage/backend/data/frases.json
+          scp -i ~/.ssh/id_vps -o IdentitiesOnly=yes backend/data/patologias.json ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/fortcordis-stage/backend/data/patologias.json
           echo "Verificando arquivo no stage..."
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "head -20 /var/www/fortcordis-stage/backend/data/frases.json"
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "head -20 /var/www/fortcordis-stage/backend/data/frases.json"
           echo "Reiniciando backend do stage..."
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "sudo systemctl restart fortcordis-stage-backend"
-          echo "✅ Frases sincronizadas com sucesso!"
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "sudo systemctl restart fortcordis-stage-backend"
+          echo "Frases sincronizadas com sucesso!"
