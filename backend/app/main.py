@@ -2,7 +2,7 @@ import json
 import os
 import logging
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
@@ -41,6 +41,7 @@ from app.services.upload_dedupe_cleanup_service import (
     shutdown_upload_dedupe_cleanup_worker,
     start_upload_dedupe_cleanup_worker,
 )
+from app.services.runtime_observability import record_http_status
 from app.services.xml_import_jobs import (
     restart_incomplete_xml_import_jobs,
     shutdown_xml_import_jobs,
@@ -52,6 +53,7 @@ app = FastAPI(
     description="API do sistema FortCordis",
     version="2.0.0",
 )
+logger = logging.getLogger(__name__)
 
 
 def _ensure_financeiro_schema_compat() -> None:
@@ -109,6 +111,24 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Content-Disposition"],
 )
+
+
+@app.middleware("http")
+async def monitor_runtime_http_status(request: Request, call_next):
+    try:
+        response = await call_next(request)
+    except Exception:
+        try:
+            record_http_status(500)
+        except Exception:
+            logger.exception("Falha ao registrar erro 5xx no monitor de runtime.")
+        raise
+
+    try:
+        record_http_status(response.status_code)
+    except Exception:
+        logger.exception("Falha ao registrar status HTTP no monitor de runtime.")
+    return response
 
 # Rotas REST
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
@@ -192,6 +212,10 @@ def _health_payload(report: dict) -> dict:
             },
             "integrations": {
                 "google_maps_configured": report["integrations"].get("google_maps_configured"),
+            },
+            "observability": {
+                "http_5xx_monitor": report["observability"].get("http_5xx_monitor"),
+                "upload_dedupe_cleanup_worker": report["observability"].get("upload_dedupe_cleanup_worker"),
             },
         },
         "compatibility_modes": report["compatibility_modes"],

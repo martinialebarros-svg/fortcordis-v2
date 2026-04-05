@@ -477,6 +477,41 @@ def _auto_cleanup_worker_main() -> None:
             break
 
 
+def get_upload_dedupe_cleanup_worker_runtime_state() -> Dict[str, Any]:
+    config_error: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
+    try:
+        config = get_upload_dedupe_cleanup_config()
+    except ValueError as exc:
+        config_error = str(exc)
+
+    with _AUTO_WORKER_LOCK:
+        thread = _AUTO_WORKER_THREAD
+        thread_alive = bool(thread and thread.is_alive())
+        worker_started = thread is not None
+        stop_signal_set = _AUTO_WORKER_STOP_EVENT.is_set()
+
+    enabled = bool(config["enabled"]) if config else bool(settings.UPLOAD_DEDUPE_METRICS_AUTOCLEAN_ENABLED)
+    if config_error:
+        status = "invalid_config"
+    elif not enabled:
+        status = "disabled"
+    elif thread_alive:
+        status = "running"
+    else:
+        status = "stopped"
+
+    return {
+        "enabled": enabled,
+        "status": status,
+        "thread_alive": thread_alive,
+        "worker_started": worker_started,
+        "stop_signal_set": stop_signal_set,
+        "poll_seconds": _WORKER_POLL_SECONDS,
+        "config_error": config_error,
+    }
+
+
 def start_upload_dedupe_cleanup_worker() -> None:
     global _AUTO_WORKER_THREAD
     with _AUTO_WORKER_LOCK:
