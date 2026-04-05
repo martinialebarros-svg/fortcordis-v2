@@ -3,7 +3,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import ExitStack
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -59,14 +59,14 @@ class UploadDedupeCleanupServiceTest(unittest.TestCase):
                                 clinica_id=1,
                                 evento="upload_novo",
                                 dedupe_key="k1",
-                                created_at=datetime.now(UTC) - timedelta(days=120),
+                                created_at=datetime.now(timezone.utc) - timedelta(days=120),
                             ),
                             UploadDedupeMetrica(
                                 atendimento_id=11,
                                 clinica_id=1,
                                 evento="upload_novo",
                                 dedupe_key="k2",
-                                created_at=datetime.now(UTC) - timedelta(days=3),
+                                created_at=datetime.now(timezone.utc) - timedelta(days=3),
                             ),
                         ]
                     )
@@ -119,7 +119,7 @@ class UploadDedupeCleanupServiceTest(unittest.TestCase):
             try:
                 db = SessionFactory()
                 try:
-                    now = datetime.now(UTC)
+                    now = datetime.now(timezone.utc)
                     db.add(
                         UploadDedupeCleanupRun(
                             executor="automatic",
@@ -181,7 +181,7 @@ class UploadDedupeCleanupServiceTest(unittest.TestCase):
             try:
                 db = SessionFactory()
                 try:
-                    now = datetime.now(UTC)
+                    now = datetime.now(timezone.utc)
                     db.add(
                         UploadDedupeCleanupRun(
                             executor="automatic",
