@@ -12,6 +12,9 @@ on:
           - stage
           - production
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   fix-database:
     runs-on: ubuntu-latest

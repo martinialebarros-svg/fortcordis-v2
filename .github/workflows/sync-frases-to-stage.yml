@@ -4,6 +4,9 @@ name: Sync Frases to Stage
 on:
   workflow_dispatch:  # Dispara manualmente
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   sync-frases:
     runs-on: ubuntu-latest
