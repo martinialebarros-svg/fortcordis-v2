@@ -1,8 +1,10 @@
-﻿/** @type {import('next').NextConfig} */
+/** @type {import('next').NextConfig} */
 // No servidor (stage/producao), defina API_BACKEND_URL (ex.: http://127.0.0.1:8000)
+const path = require("path")
 const apiBackend = process.env.API_BACKEND_URL || 'http://127.0.0.1:8000'
 
 const nextConfig = {
+  outputFileTracingRoot: path.resolve(__dirname),
   async rewrites() {
     return [
       {

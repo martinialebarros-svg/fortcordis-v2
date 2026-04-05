@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import { getLaudoViewPath, TIPO_LAUDO_ULTRASSOM_ABDOMINAL } from "@/lib/laudos";
@@ -36,8 +36,10 @@ interface Laudo {
   criado_por_nome: string;
 }
 
-export default function VisualizarLaudoPage({ params }: { params: { id: string } }) {
+export default function VisualizarLaudoPage() {
   const router = useRouter();
+  const routeParams = useParams<{ id?: string | string[] }>();
+  const laudoId = Array.isArray(routeParams.id) ? routeParams.id[0] : routeParams.id;
   const [loading, setLoading] = useState(true);
   const [laudo, setLaudo] = useState<Laudo | null>(null);
   const [paciente, setPaciente] = useState<Paciente | null>(null);
@@ -50,17 +52,19 @@ export default function VisualizarLaudoPage({ params }: { params: { id: string }
       router.push("/");
       return;
     }
+    if (!laudoId) return;
     carregarLaudo();
-  }, [router, params.id]);
+  }, [router, laudoId]);
 
   const carregarLaudo = async () => {
+    if (!laudoId) return;
     try {
       setLoading(true);
       
       // Carregar laudo
-      const respLaudo = await api.get(`/laudos/${params.id}`);
+      const respLaudo = await api.get(`/laudos/${laudoId}`);
       if (respLaudo.data.tipo === TIPO_LAUDO_ULTRASSOM_ABDOMINAL) {
-        router.replace(getLaudoViewPath(params.id, respLaudo.data.tipo));
+        router.replace(getLaudoViewPath(laudoId, respLaudo.data.tipo));
         return;
       }
       setLaudo(respLaudo.data);
@@ -109,10 +113,11 @@ export default function VisualizarLaudoPage({ params }: { params: { id: string }
   };
 
   const downloadPDF = async () => {
+    if (!laudoId) return;
     try {
-      return await baixarLaudoPdf(Number(params.id), `laudo_${params.id}.pdf`);
-      const token = localStorage.getItem('token');
-      const response = await fetch(`/api/v1/laudos/${params.id}/pdf`, {
+      return await baixarLaudoPdf(Number(laudoId), `laudo_${laudoId}.pdf`);
+      const token = localStorage.getItem("token");
+      const response = await fetch(`/api/v1/laudos/${laudoId}/pdf`, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
       
@@ -121,7 +126,7 @@ export default function VisualizarLaudoPage({ params }: { params: { id: string }
       }
       
       // Extrair nome do arquivo do header Content-Disposition
-      let filename = `laudo_${params.id}.pdf`;
+      let filename = `laudo_${laudoId}.pdf`;
       const contentDisposition = response.headers.get('content-disposition');
       
       if (contentDisposition) {
