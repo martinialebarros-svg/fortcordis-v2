@@ -6,7 +6,7 @@
     "dev": "next dev --hostname 0.0.0.0 --port 3002",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx --max-warnings=0"
   },
   "dependencies": {
     "@fullcalendar/daygrid": "^6.1.20",
