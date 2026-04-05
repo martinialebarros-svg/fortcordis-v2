@@ -18,6 +18,12 @@ set -euo pipefail
 #   FRONTEND_PORT=3000
 #   PUBLIC_URL=https://app.fortcordis.com.br
 #   AUTO_ROLLBACK_ON_FAILURE=1
+#   ENABLE_AUTH_CANARY=1
+#   AUTH_CANARY_TIMEOUT_SECONDS=8
+#   AUTH_CANARY_DISABLE_INTERNAL_TOKEN=0
+#   CANARY_BEARER_TOKEN=<token-opcional>
+#   CANARY_USERNAME=<usuario-opcional>
+#   CANARY_PASSWORD=<senha-opcional>
 
 APP_DIR="${APP_DIR:-/var/www/fortcordis-v2}"
 BRANCH="${BRANCH:-main}"
@@ -35,6 +41,9 @@ PUBLIC_URL="${PUBLIC_URL:-https://app.fortcordis.com.br}"
 
 RUNTIME_BACKUP_DIR="${RUNTIME_BACKUP_DIR:-$HOME/fortcordis-runtime-backups}"
 AUTO_ROLLBACK_ON_FAILURE="${AUTO_ROLLBACK_ON_FAILURE:-1}"
+ENABLE_AUTH_CANARY="${ENABLE_AUTH_CANARY:-1}"
+AUTH_CANARY_TIMEOUT_SECONDS="${AUTH_CANARY_TIMEOUT_SECONDS:-8}"
+AUTH_CANARY_DISABLE_INTERNAL_TOKEN="${AUTH_CANARY_DISABLE_INTERNAL_TOKEN:-0}"
 PRE_DEPLOY_HASH=""
 NEW_HASH=""
 CODE_UPDATED=0
@@ -397,6 +406,30 @@ if ! python3 "${APP_DIR}/scripts/runtime_observability_gate.py" \
   exit 1
 fi
 log "Runtime observability gate OK"
+
+DEPLOY_STAGE="auth_canary"
+if [[ "${ENABLE_AUTH_CANARY}" == "1" ]]; then
+  log "Authenticated canary smoke"
+  CANARY_CMD=(
+    "${BACKEND_DIR}/venv/bin/python"
+    "${APP_DIR}/scripts/deploy_authenticated_canary.py"
+    --base-url "http://127.0.0.1:${BACKEND_PORT}"
+    --timeout-seconds "${AUTH_CANARY_TIMEOUT_SECONDS}"
+    --backend-dir "${BACKEND_DIR}"
+  )
+  if [[ "${AUTH_CANARY_DISABLE_INTERNAL_TOKEN}" == "1" ]]; then
+    CANARY_CMD+=(--disable-internal-token)
+  fi
+
+  if ! PYTHONPATH="$BACKEND_DIR" "${CANARY_CMD[@]}"; then
+    echo "[ERROR] Authenticated canary smoke failed." >&2
+    print_service_diagnostics "$BACKEND_SERVICE"
+    exit 1
+  fi
+  log "Authenticated canary smoke OK"
+else
+  log "Authenticated canary disabled (ENABLE_AUTH_CANARY=${ENABLE_AUTH_CANARY}); skipping."
+fi
 
 DEPLOY_STAGE="completed"
 log "Deploy finished successfully (HEAD=${NEW_HASH})"
