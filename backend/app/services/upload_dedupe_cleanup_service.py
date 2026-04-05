@@ -4,7 +4,7 @@ import logging
 import random
 import threading
 import time
-from datetime import date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Dict, Optional
 
 from sqlalchemy import bindparam, text
@@ -51,18 +51,28 @@ class UploadDedupeCleanupExecutionError(RuntimeError):
         self.duration_ms = duration_ms
 
 
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _ensure_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 def _coerce_datetime(value: Any) -> Optional[datetime]:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value
+        return _ensure_utc(value)
     raw = str(value).strip()
     if not raw:
         return None
     if raw.endswith("Z"):
         raw = raw[:-1] + "+00:00"
     try:
-        return datetime.fromisoformat(raw)
+        return _ensure_utc(datetime.fromisoformat(raw))
     except ValueError:
         return None
 
@@ -71,7 +81,7 @@ def _to_iso(value: Any) -> Optional[str]:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value.isoformat()
+        return _ensure_utc(value).isoformat()
     if hasattr(value, "isoformat"):
         try:
             return value.isoformat()
@@ -246,7 +256,7 @@ def _is_automatic_cleanup_due(db: Session, interval_hours: int) -> bool:
         return True
 
     next_run_at = last_success_at + timedelta(hours=interval_hours)
-    return datetime.utcnow() >= next_run_at
+    return _utc_now() >= next_run_at
 
 
 def _build_success_payload(
@@ -289,8 +299,8 @@ def run_upload_dedupe_cleanup(*, executor: str) -> Dict[str, Any]:
             return {"executed": False, "reason": "interval_not_reached"}
 
         start_monotonic = time.monotonic()
-        started_at = datetime.utcnow()
-        cutoff_date = date.today() - timedelta(days=config["retention_days"])
+        started_at = _utc_now()
+        cutoff_date = _utc_now().date() - timedelta(days=config["retention_days"])
         cutoff_datetime = datetime.combine(cutoff_date, datetime.min.time())
         cutoff_datetime_str = cutoff_datetime.strftime("%Y-%m-%d %H:%M:%S")
         deleted_rows = 0
@@ -310,7 +320,7 @@ def run_upload_dedupe_cleanup(*, executor: str) -> Dict[str, Any]:
             start_monotonic=start_monotonic,
         )
 
-        runs_cutoff_date = date.today() - timedelta(days=config["runs_retention_days"])
+        runs_cutoff_date = _utc_now().date() - timedelta(days=config["runs_retention_days"])
         runs_cutoff_datetime_str = datetime.combine(
             runs_cutoff_date, datetime.min.time()
         ).strftime("%Y-%m-%d %H:%M:%S")
@@ -333,7 +343,7 @@ def run_upload_dedupe_cleanup(*, executor: str) -> Dict[str, Any]:
             error_message=None,
             duration_ms=duration_ms,
             started_at=started_at,
-            finished_at=datetime.utcnow(),
+            finished_at=_utc_now(),
         )
         db.add(run)
         db.commit()
@@ -365,8 +375,8 @@ def run_upload_dedupe_cleanup(*, executor: str) -> Dict[str, Any]:
             deleted_rows=deleted_rows if "deleted_rows" in locals() else 0,
             error_message=str(exc)[:4000],
             duration_ms=duration_ms,
-            started_at=started_at if "started_at" in locals() else datetime.utcnow(),
-            finished_at=datetime.utcnow(),
+            started_at=started_at if "started_at" in locals() else _utc_now(),
+            finished_at=_utc_now(),
         )
         run_id = None
         try:
