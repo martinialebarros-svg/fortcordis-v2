@@ -2,20 +2,20 @@
 
 Data: 2026-04-05  
 Responsavel: Equipe FortCordis  
-Status: in_progress
+Status: done
 
 ## Fase 1 - Definicao
 - [x] Criar intent/spec/plan.
 
 ## Fase 2 - Implementacao
-- [ ] Atualizar script de lint para ESLint CLI.
+- [x] Atualizar script de lint para ESLint CLI.
 
 ## Fase 3 - Validacao
-- [ ] Rodar `npm run lint`.
-- [ ] Rodar `npm run build`.
+- [x] Rodar `npm run lint`.
+- [x] Rodar `npm run build`.
 
 ## Fase 4 - Operacao
-- [ ] Commit/push em stage.
-- [ ] Confirmar deploy stage verde.
-- [ ] Promover para main.
-- [ ] Confirmar deploy main verde.
+- [x] Commit/push em stage.
+- [x] Confirmar deploy stage verde.
+- [x] Promover para main.
+- [x] Confirmar deploy main verde.

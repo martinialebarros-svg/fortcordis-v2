@@ -2,7 +2,7 @@
 
 Data: 2026-04-05  
 Responsavel: Equipe FortCordis  
-Status: draft
+Status: done
 
 ## 1) Problema atual
 

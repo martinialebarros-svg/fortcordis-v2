@@ -2,7 +2,7 @@
 
 Data: 2026-04-05  
 Responsavel: Equipe FortCordis  
-Status: in_progress
+Status: done
 
 ## 1) Sequencia de fases
 
@@ -38,10 +38,10 @@ Status: in_progress
 
 ### Fase 4
 
-- [ ] T4.1 Commit e push em `stage`.
-- [ ] T4.2 Confirmar deploy stage verde.
-- [ ] T4.3 Promover para `main`.
-- [ ] T4.4 Confirmar deploy main verde.
+- [x] T4.1 Commit e push em `stage`.
+- [x] T4.2 Confirmar deploy stage verde.
+- [x] T4.3 Promover para `main`.
+- [x] T4.4 Confirmar deploy main verde.
 - Criterio: ciclo completo fechado com deploys bem-sucedidos.
 
 ## 3) Plano de testes
