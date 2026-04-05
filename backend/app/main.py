@@ -37,6 +37,10 @@ from app.services.laudo_pdf_jobs import (
     restart_incomplete_laudo_pdf_jobs,
     shutdown_laudo_pdf_jobs,
 )
+from app.services.upload_dedupe_cleanup_service import (
+    shutdown_upload_dedupe_cleanup_worker,
+    start_upload_dedupe_cleanup_worker,
+)
 from app.services.xml_import_jobs import (
     restart_incomplete_xml_import_jobs,
     shutdown_xml_import_jobs,
@@ -143,12 +147,14 @@ def startup_schema_compatibility() -> None:
     validate_startup_or_raise()
     restart_incomplete_laudo_pdf_jobs()
     restart_incomplete_xml_import_jobs()
+    start_upload_dedupe_cleanup_worker()
 
 
 @app.on_event("shutdown")
 def shutdown_background_workers() -> None:
     shutdown_laudo_pdf_jobs()
     shutdown_xml_import_jobs()
+    shutdown_upload_dedupe_cleanup_worker()
 
 
 # WebSocket endpoint
