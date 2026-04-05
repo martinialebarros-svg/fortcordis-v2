@@ -24,6 +24,9 @@ set -euo pipefail
 #   CANARY_BEARER_TOKEN=<token-opcional>
 #   CANARY_USERNAME=<usuario-opcional>
 #   CANARY_PASSWORD=<senha-opcional>
+#   ENABLE_BACKUP_RESTORE_DRILL=1
+#   BACKUP_RESTORE_DRILL_SKIP_SQLITE_CHECK=0
+#   BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR=0
 
 APP_DIR="${APP_DIR:-/var/www/fortcordis-v2}"
 BRANCH="${BRANCH:-main}"
@@ -44,6 +47,9 @@ AUTO_ROLLBACK_ON_FAILURE="${AUTO_ROLLBACK_ON_FAILURE:-1}"
 ENABLE_AUTH_CANARY="${ENABLE_AUTH_CANARY:-1}"
 AUTH_CANARY_TIMEOUT_SECONDS="${AUTH_CANARY_TIMEOUT_SECONDS:-8}"
 AUTH_CANARY_DISABLE_INTERNAL_TOKEN="${AUTH_CANARY_DISABLE_INTERNAL_TOKEN:-0}"
+ENABLE_BACKUP_RESTORE_DRILL="${ENABLE_BACKUP_RESTORE_DRILL:-1}"
+BACKUP_RESTORE_DRILL_SKIP_SQLITE_CHECK="${BACKUP_RESTORE_DRILL_SKIP_SQLITE_CHECK:-0}"
+BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR="${BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR:-0}"
 PRE_DEPLOY_HASH=""
 NEW_HASH=""
 CODE_UPDATED=0
@@ -429,6 +435,31 @@ if [[ "${ENABLE_AUTH_CANARY}" == "1" ]]; then
   log "Authenticated canary smoke OK"
 else
   log "Authenticated canary disabled (ENABLE_AUTH_CANARY=${ENABLE_AUTH_CANARY}); skipping."
+fi
+
+DEPLOY_STAGE="backup_restore_drill"
+if [[ "${ENABLE_BACKUP_RESTORE_DRILL}" == "1" ]]; then
+  log "Backup restore drill"
+  DRILL_CMD=(
+    python3
+    "${APP_DIR}/scripts/deploy_backup_restore_drill.py"
+    --app-dir "${APP_DIR}"
+    --backup-dir "${RUNTIME_BACKUP_DIR}"
+  )
+  if [[ "${BACKUP_RESTORE_DRILL_SKIP_SQLITE_CHECK}" == "1" ]]; then
+    DRILL_CMD+=(--skip-sqlite-check)
+  fi
+  if [[ "${BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR}" == "1" ]]; then
+    DRILL_CMD+=(--keep-restore-dir)
+  fi
+
+  if ! "${DRILL_CMD[@]}"; then
+    echo "[ERROR] Backup restore drill failed." >&2
+    exit 1
+  fi
+  log "Backup restore drill OK"
+else
+  log "Backup restore drill disabled (ENABLE_BACKUP_RESTORE_DRILL=${ENABLE_BACKUP_RESTORE_DRILL}); skipping."
 fi
 
 DEPLOY_STAGE="completed"
