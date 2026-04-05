@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import TransacaoModal from "./TransacaoModal";
@@ -168,7 +168,11 @@ export default function FinanceiroPage() {
   });
   const [mensagemCobrancaModelo, setMensagemCobrancaModelo] = useState(MODELO_MENSAGEM_COBRANCA_PADRAO);
   const textareaMensagemRef = useRef<HTMLTextAreaElement | null>(null);
+  const [osHighlightId, setOsHighlightId] = useState<number | null>(null);
+  const [osHighlightUntil, setOsHighlightUntil] = useState<number>(0);
+  const highlightedRowRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -191,6 +195,27 @@ export default function FinanceiroPage() {
     filtroDataInicio,
     filtroDataFim,
   ]);
+
+  useEffect(() => {
+    const abaParam = String(searchParams.get("aba") || "").toLowerCase();
+    if (abaParam === "transacoes" || abaParam === "cobrancas" || abaParam === "ordens") {
+      setAbaAtiva(abaParam as "transacoes" | "cobrancas" | "ordens");
+    }
+
+    const osIdParam = Number(searchParams.get("os_id") || "");
+    if (Number.isFinite(osIdParam) && osIdParam > 0) {
+      setAbaAtiva("ordens");
+      setFiltroStatusOS("todos");
+      setFiltroClinicaOS("todos");
+      setFiltroServicoOS("todos");
+      setFiltroTipoHorarioOS("todos");
+      setFiltroDataInicio("");
+      setFiltroDataFim("");
+      setBusca("");
+      setOsHighlightId(osIdParam);
+      setOsHighlightUntil(Date.now() + 25000);
+    }
+  }, [searchParams]);
 
   const montarQueryString = (params: Record<string, string | number | undefined>) => {
     const query = new URLSearchParams();
@@ -510,6 +535,26 @@ export default function FinanceiroPage() {
       os.clinica?.toLowerCase().includes(termo);
     return matchStatus && matchClinica && matchServico && matchTipoHorario && matchData && matchBusca;
   });
+
+  useEffect(() => {
+    if (osHighlightId == null) return;
+    if (Date.now() >= osHighlightUntil) {
+      setOsHighlightId(null);
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      setOsHighlightId(null);
+    }, Math.max(1000, osHighlightUntil - Date.now()));
+    return () => window.clearTimeout(timeout);
+  }, [osHighlightId, osHighlightUntil]);
+
+  useEffect(() => {
+    if (abaAtiva !== "ordens" || osHighlightId == null) return;
+    const row = document.getElementById(`os-row-${osHighlightId}`);
+    if (!row) return;
+    highlightedRowRef.current = row as HTMLDivElement;
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [abaAtiva, osFiltradas, osHighlightId]);
 
   const clinicaTelefonePorId = useMemo(() => {
     const mapa = new Map<number, string>();
@@ -1362,7 +1407,15 @@ export default function FinanceiroPage() {
             ) : (
               <div className="divide-y">
                 {osFiltradas.map((os) => (
-                  <div key={os.id} className="p-4 hover:bg-gray-50">
+                  <div
+                    key={os.id}
+                    id={`os-row-${os.id}`}
+                    className={`p-4 transition-colors ${
+                      osHighlightId === os.id
+                        ? "bg-amber-50 ring-2 ring-amber-200"
+                        : "hover:bg-gray-50"
+                    }`}
+                  >
                     <div className="flex flex-col lg:flex-row lg:items-start gap-4">
                       <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-blue-100">
                         <FileText className="w-5 h-5 text-blue-600" />

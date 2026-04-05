@@ -30,6 +30,8 @@ from app.models.tutor import Tutor
 from app.models.user import User
 from app.services.auditoria_service import registrar_auditoria
 from app.services.precos_service import calcular_preco_servico
+from app.services.push_notifications import send_financeiro_push_notification
+from app.services.push_scheduler_service import cancel_pending_os_payment_reminder
 
 router = APIRouter()
 
@@ -752,7 +754,7 @@ def receber_ordem(
     if not os_row:
         raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada")
 
-    os_data, paciente_nome, _tutor_nome, _clinica_nome, servico_nome = os_row
+    os_data, paciente_nome, _tutor_nome, clinica_nome, servico_nome = os_row
     if os_data.status == "Pago":
         raise HTTPException(status_code=400, detail="OS ja esta com status Pago.")
     if os_data.status == "Cancelado":
@@ -828,6 +830,32 @@ def receber_ordem(
         },
         request=request,
     )
+
+    try:
+        send_financeiro_push_notification(
+            db,
+            action="payment_received",
+            os_id=os_data.id,
+            data={
+                "numero_os": os_data.numero_os,
+                "paciente_nome": paciente_nome,
+                "clinica_nome": clinica_nome,
+                "servico_nome": servico_nome,
+                "valor_final": f"{float(os_data.valor_final or 0):.2f}",
+                "forma_pagamento": dados.forma_pagamento,
+            },
+        )
+    except Exception as exc:
+        print(f"[financeiro-push] Falha ao enviar push de pagamento recebido: {exc}")
+    try:
+        cancel_pending_os_payment_reminder(
+            db,
+            os_id=os_data.id,
+            reason="OS recebida; lembrete de pendencia cancelado.",
+            commit=True,
+        )
+    except Exception as exc:
+        print(f"[financeiro-push] Falha ao cancelar lembrete de OS recebida: {exc}")
 
     return {
         "mensagem": "Ordem de servico recebida com sucesso.",
@@ -947,6 +975,28 @@ def deletar_ordem(
         detalhes=snapshot,
         request=request,
     )
+
+    try:
+        send_financeiro_push_notification(
+            db,
+            action="os_deleted",
+            os_id=os_id,
+            data={
+                "numero_os": snapshot.get("numero_os"),
+                "valor_final": f"{float(snapshot.get('valor_final') or 0):.2f}",
+            },
+        )
+    except Exception as exc:
+        print(f"[financeiro-push] Falha ao enviar push de OS excluida: {exc}")
+    try:
+        cancel_pending_os_payment_reminder(
+            db,
+            os_id=os_id,
+            reason="OS excluida; lembrete de pendencia cancelado.",
+            commit=True,
+        )
+    except Exception as exc:
+        print(f"[financeiro-push] Falha ao cancelar lembrete de OS excluida: {exc}")
 
     return None
 

@@ -61,6 +61,18 @@ class ConfiguracaoUsuario(Base):
     idioma = Column(String(10), default="pt-BR")
     notificacoes_email = Column(Boolean, default=True)
     notificacoes_push = Column(Boolean, default=True)
+    notificacoes_push_tipos = Column(
+        Text,
+        default="created,updated,status_changed,cancelled,deleted,os_generated,payment_received,os_deleted,payment_pending",
+    )
+    notificacoes_push_prioridade_alta_tipos = Column(
+        Text,
+        default="os_deleted,payment_pending",
+    )
+    notificacoes_push_agrupar = Column(Boolean, default=True)
+    notificacoes_push_lembrete_pendencias = Column(Boolean, default=True)
+    notificacoes_push_lembrete_horas = Column(Integer, default=6)
+    notificacoes_push_perfil = Column(String(30), default="custom")
     
     # Assinatura digital do usuário (se for veterinário)
     assinatura_nome = Column(String(255))

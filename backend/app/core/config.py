@@ -1,6 +1,9 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings
+
+ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ".env"
 
 
 class Settings(BaseSettings):
@@ -23,9 +26,16 @@ class Settings(BaseSettings):
     UPLOAD_DEDUPE_CLEANUP_RUNS_RETENTION_DAYS: int = 90
     RUNTIME_HTTP_5XX_ALERT_WINDOW_MINUTES: int = 5
     RUNTIME_HTTP_5XX_ALERT_THRESHOLD: int = 20
+    WEB_PUSH_VAPID_PUBLIC_KEY: str = ""
+    WEB_PUSH_VAPID_PRIVATE_KEY: str = ""
+    WEB_PUSH_VAPID_CLAIMS_SUB: str = "mailto:suporte@fortcordis.local"
+    WEB_PUSH_GROUP_WINDOW_SECONDS: int = 90
+    WEB_PUSH_SCHEDULER_ENABLED: bool = True
+    WEB_PUSH_SCHEDULER_POLL_SECONDS: int = 30
+    WEB_PUSH_PENDING_REMINDER_DEFAULT_HOURS: int = 6
 
     class Config:
-        env_file = ".env"
+        env_file = str(ENV_FILE_PATH)
         case_sensitive = True
 
 

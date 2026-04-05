@@ -40,3 +40,5 @@ from app.models.auditoria_evento import AuditoriaEvento
 from app.models.clinica_deslocamento import ClinicaDeslocamento
 from app.models.cep_bairro_override import CepBairroOverride
 from app.models.frase_atendimento_clinico import FraseAtendimentoClinico
+from app.models.push_subscription import PushSubscription
+from app.models.push_scheduled_notification import PushScheduledNotification

@@ -18,7 +18,7 @@ from app.db.database import get_db
 from app.models.agendamento import Agendamento
 from app.models.paciente import Paciente
 from app.models.clinica import Clinica
-from app.models.configuracao import Configuracao
+from app.models.configuracao import Configuracao, ConfiguracaoUsuario
 from app.models.servico import Servico
 from app.models.ordem_servico import OrdemServico
 from app.models.laudo import Laudo
@@ -44,6 +44,11 @@ from app.core.security import get_current_user
 from app.services.logistica_service import normalizar_perfil, obter_duracao_deslocamento
 from app.services.precos_service import calcular_preco_servico
 from app.services.auditoria_service import registrar_auditoria
+from app.services.push_notifications import (
+    send_agenda_push_notification,
+    send_financeiro_push_notification,
+)
+from app.services.push_scheduler_service import schedule_pending_os_payment_reminder
 
 router = APIRouter()
 # Horario de Brasilia (UTC-3). Evita dependencia de tzdata no Windows local.
@@ -366,11 +371,28 @@ def _validar_deslocamento_agendamento(
                 )
 
 
-def _notificar_agenda_update(action: str, agendamento_id: int, data: Optional[dict] = None) -> None:
+def _notificar_agenda_update(
+    db: Session,
+    action: str,
+    agendamento_id: int,
+    data: Optional[dict] = None,
+    actor_user_id: Optional[int] = None,
+) -> None:
     try:
         agenda_realtime_manager.publish(action=action, agendamento_id=agendamento_id, data=data)
     except Exception as exc:
         print(f"[agenda-realtime] Falha ao publicar evento: {exc}")
+
+    try:
+        send_agenda_push_notification(
+            db,
+            action=action,
+            agendamento_id=agendamento_id,
+            data=data,
+            actor_user_id=actor_user_id,
+        )
+    except Exception as exc:
+        print(f"[agenda-push] Falha ao enviar notificacao push: {exc}")
 
 
 def _texto_realtime(value: Optional[object]) -> str:
@@ -1406,6 +1428,7 @@ def criar_agendamento(
     )
 
     _notificar_agenda_update(
+        db=db,
         action="created",
         agendamento_id=db_agendamento.id,
         data=_montar_payload_realtime(
@@ -1542,13 +1565,24 @@ def atualizar_agendamento(
         request=request,
     )
 
+    acao_push_update = "updated"
+    base_push_update: Optional[dict] = None
+    if status_anterior != db_agendamento.status:
+        base_push_update = {
+            "status_anterior": status_anterior,
+            "status_novo": db_agendamento.status,
+        }
+        acao_push_update = "cancelled" if db_agendamento.status == "Cancelado" else "status_changed"
+
     _notificar_agenda_update(
-        action="updated",
+        db=db,
+        action=acao_push_update,
         agendamento_id=db_agendamento.id,
         data=_montar_payload_realtime(
             agendamento=db_agendamento,
             related=related,
             usuario=current_user,
+            base=base_push_update,
         ),
     )
 
@@ -1816,6 +1850,63 @@ def atualizar_status(
     if mensagens_adicionais:
         resposta["mensagem"] += ". " + " ".join(mensagens_adicionais)
 
+    if os_gerada and not os_reutilizada:
+        try:
+            send_financeiro_push_notification(
+                db,
+                action="os_generated",
+                os_id=int(os_gerada["id"]),
+                data={
+                    "numero_os": os_gerada.get("numero_os"),
+                    "valor_final": f"{float(os_gerada.get('valor_final') or 0):.2f}",
+                    "paciente_nome": related_status.get("paciente_nome"),
+                    "clinica_nome": related_status.get("clinica_nome"),
+                    "servico_nome": related_status.get("servico_nome"),
+                },
+            )
+        except Exception as exc:
+            print(f"[financeiro-push] Falha ao enviar push de OS gerada: {exc}")
+
+        try:
+            lembrete_horas = 6
+            preferencias_push = (
+                db.query(
+                    ConfiguracaoUsuario.notificacoes_push_lembrete_pendencias,
+                    ConfiguracaoUsuario.notificacoes_push_lembrete_horas,
+                )
+                .filter(ConfiguracaoUsuario.user_id == current_user.id)
+                .first()
+            )
+            lembrete_habilitado = True
+            if preferencias_push:
+                lembrete_habilitado = bool(
+                    True
+                    if preferencias_push.notificacoes_push_lembrete_pendencias is None
+                    else preferencias_push.notificacoes_push_lembrete_pendencias
+                )
+                lembrete_horas = int(preferencias_push.notificacoes_push_lembrete_horas or 6)
+            if lembrete_habilitado:
+                if lembrete_horas < 1:
+                    lembrete_horas = 1
+                if lembrete_horas > 168:
+                    lembrete_horas = 168
+                schedule_pending_os_payment_reminder(
+                    db,
+                    os_id=int(os_gerada["id"]),
+                    reminder_hours=lembrete_horas,
+                    data={
+                        "numero_os": os_gerada.get("numero_os"),
+                        "valor_final": f"{float(os_gerada.get('valor_final') or 0):.2f}",
+                        "paciente_nome": related_status.get("paciente_nome"),
+                        "clinica_nome": related_status.get("clinica_nome"),
+                        "servico_nome": related_status.get("servico_nome"),
+                        "lembrete_horas": str(lembrete_horas),
+                    },
+                    commit=True,
+                )
+        except Exception as exc:
+            print(f"[financeiro-push] Falha ao agendar lembrete de pendencia da OS: {exc}")
+
     if status_normalizado == "Cancelado":
         acao_log = "AGENDAMENTO_CANCELADO"
     elif status_anterior == "Realizado" and status_normalizado == "Em atendimento":
@@ -1844,8 +1935,11 @@ def atualizar_status(
         request=request,
     )
 
+    acao_push_status = "cancelled" if status_normalizado == "Cancelado" else "status_changed"
+
     _notificar_agenda_update(
-        action="status_changed",
+        db=db,
+        action=acao_push_status,
         agendamento_id=db_agendamento.id,
         data=_montar_payload_realtime(
             agendamento=db_agendamento,
@@ -1929,6 +2023,7 @@ def deletar_agendamento(
     )
 
     _notificar_agenda_update(
+        db=db,
         action="deleted",
         agendamento_id=agendamento_id,
         data=realtime_delete_payload,

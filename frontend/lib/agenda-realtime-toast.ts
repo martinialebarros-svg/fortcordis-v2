@@ -70,6 +70,14 @@ export function montarToastAgendaRealtime(payload?: AgendaRealtimePayload): Agen
     };
   }
 
+  if (payload.action === "cancelled") {
+    const statusInfo = statusAnterior || statusNovo ? `Status: ${statusAnterior || "?"} -> ${statusNovo || "Cancelado"}` : "Status: Cancelado";
+    return {
+      texto: `Agendamento${idLabel} cancelado. ${statusInfo}. ${detalhes}${detalhes && contexto ? " | " : ""}${contexto}`.trim(),
+      classe: "border-orange-200 bg-orange-50 text-orange-800",
+    };
+  }
+
   if (payload.action === "deleted") {
     return {
       texto: `Agendamento${idLabel} excluido. ${detalhes}${detalhes && contexto ? " | " : ""}${contexto}`.trim(),

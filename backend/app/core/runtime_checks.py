@@ -11,6 +11,7 @@ from app.services.runtime_observability import get_http_5xx_monitor_status
 from app.services.upload_dedupe_cleanup_service import (
     get_upload_dedupe_cleanup_worker_runtime_state,
 )
+from app.services.push_scheduler_service import get_push_scheduler_worker_runtime_state
 from migrations.runner import get_migration_status
 
 _PLACEHOLDER_SECRET_KEYS = {"", "change-me", "changeme", "secret", "default"}
@@ -86,6 +87,7 @@ def build_runtime_report() -> dict[str, Any]:
     secret_key = _check_secret_key()
     http_5xx_monitor = get_http_5xx_monitor_status()
     upload_cleanup_worker = get_upload_dedupe_cleanup_worker_runtime_state()
+    push_scheduler_worker = get_push_scheduler_worker_runtime_state()
 
     warnings: list[str] = []
     if not database["connected"]:
@@ -108,6 +110,8 @@ def build_runtime_report() -> dict[str, Any]:
         )
     elif upload_cleanup_worker.get("enabled") and not upload_cleanup_worker.get("thread_alive"):
         warnings.append("Worker de auto-cleanup dedupe habilitado, mas inativo.")
+    if push_scheduler_worker.get("enabled") and not push_scheduler_worker.get("thread_alive"):
+        warnings.append("Worker de push agendado habilitado, mas inativo.")
 
     startup_enforced_issues: list[str] = []
     if settings.REQUIRE_STRONG_SECRET_KEY and not secret_key["strong"]:
@@ -148,12 +152,17 @@ def build_runtime_report() -> dict[str, Any]:
         },
         "integrations": {
             "google_maps_configured": bool(str(settings.GOOGLE_MAPS_API_KEY or "").strip()),
+            "web_push_configured": bool(
+                str(settings.WEB_PUSH_VAPID_PUBLIC_KEY or "").strip()
+                and str(settings.WEB_PUSH_VAPID_PRIVATE_KEY or "").strip()
+            ),
             "upload_dir": settings.UPLOAD_DIR,
             "laudo_pdf_jobs_dir": laudo_pdf_jobs_dir,
         },
         "observability": {
             "http_5xx_monitor": http_5xx_monitor,
             "upload_dedupe_cleanup_worker": upload_cleanup_worker,
+            "push_scheduler_worker": push_scheduler_worker,
         },
         "warnings": warnings,
         "startup_enforced_issues": startup_enforced_issues,

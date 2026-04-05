@@ -37,7 +37,7 @@ class ConnectionManager:
         """Notifica todos os clientes sobre atualização na agenda"""
         message = {
             "type": "agenda_update",
-            "action": action,  # created, updated, deleted, status_changed
+            "action": action,  # created, updated, status_changed, cancelled, deleted
             "agendamento_id": agendamento_id,
             "data": data,
             "timestamp": str(datetime.now())
