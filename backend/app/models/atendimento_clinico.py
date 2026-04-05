@@ -89,6 +89,22 @@ class UploadDedupeMetrica(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=func.now(), index=True)
 
 
+class UploadDedupeCleanupRun(Base):
+    __tablename__ = "upload_dedupe_cleanup_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    executor = Column(String(20), nullable=False, index=True)
+    status = Column(String(20), nullable=False, index=True)
+    retention_days = Column(Integer, nullable=False)
+    cutoff_date = Column(String(10), nullable=False)
+    deleted_rows = Column(Integer, nullable=False, default=0)
+    error_message = Column(Text)
+    duration_ms = Column(Integer)
+    started_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
+    finished_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now(), index=True)
+
+
 class EvolucaoClinica(Base):
     __tablename__ = "evolucoes_clinicas"
 

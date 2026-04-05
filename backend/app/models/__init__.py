@@ -33,6 +33,7 @@ from app.models.atendimento_clinico import (
     PrescricaoClinica,
     PrescricaoItem,
     PrescricaoItemAjuste,
+    UploadDedupeCleanupRun,
     UploadDedupeMetrica,
 )
 from app.models.auditoria_evento import AuditoriaEvento
