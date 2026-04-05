@@ -2,7 +2,7 @@
 
 Data: 2026-04-04  
 Responsavel: Equipe FortCordis  
-Status: draft
+Status: done
 
 ## 1) Escopo funcional
 
