@@ -19,6 +19,10 @@ Automatizar a execucao do cleanup de metricas de dedupe para reduzir dependencia
 - RF-007: restringir `POST /api/v1/atendimentos/upload-metrics/dedupe/cleanup` e `GET /api/v1/atendimentos/upload-metrics/dedupe/cleanup/status` para usuarios admin.
 - RF-008: aplicar lock de execucao para evitar cleanup concorrente entre instancias.
 - RF-009: aplicar retencao no historico de `upload_dedupe_cleanup_runs` (padrao 90 dias).
+- RF-010: adicionar configuracao `UPLOAD_DEDUPE_METRICS_AUTOCLEAN_TIMEOUT_SECONDS` (padrao `120`, minimo `30`, maximo `600`).
+- RF-011: adicionar configuracao `UPLOAD_DEDUPE_METRICS_AUTOCLEAN_STARTUP_JITTER_SECONDS` (padrao `120`, faixa `0..300`) para espalhar execucoes no boot.
+- RF-012: adicionar configuracao `UPLOAD_DEDUPE_METRICS_CLEANUP_BATCH_SIZE` (padrao `5000`, minimo `100`) e executar cleanup em lotes.
+- RF-013: rastrear falhas consecutivas de cleanup e sinalizar alerta operacional quando atingir 3 falhas seguidas.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -27,6 +31,8 @@ Automatizar a execucao do cleanup de metricas de dedupe para reduzir dependencia
 - NFR-003 (concorrencia): evitar execucoes automaticas duplicadas na mesma janela de tempo usando lock distribuido.
 - NFR-004 (observabilidade): logs devem distinguir executor `manual` vs `automatic`.
 - NFR-005 (crescimento de dados): historico de cleanup nao pode crescer indefinidamente.
+- NFR-006 (resiliencia): execucoes longas devem interromper por timeout sem impactar disponibilidade da API.
+- NFR-007 (operabilidade): status deve permitir identificar degradacao por falhas consecutivas.
 
 ## 4) Contratos tecnicos
 
@@ -38,17 +44,20 @@ Automatizar a execucao do cleanup de metricas de dedupe para reduzir dependencia
 - Novo endpoint: `GET /api/v1/atendimentos/upload-metrics/dedupe/cleanup/status`
 - Permissao: admin.
 - Resposta status:
-- `last_run_at`, `last_success_at`, `last_status`, `last_deleted_rows`, `last_cutoff_date`, `last_error`.
+- `last_run_at`, `last_success_at`, `last_status`, `last_deleted_rows`, `last_cutoff_date`, `last_error`, `consecutive_failures`, `last_duration_ms`.
 
 ### Banco/migracoes
 
 - Nova tabela: `upload_dedupe_cleanup_runs`
-- Colunas minimas: `id`, `executor`, `status`, `retention_days`, `cutoff_date`, `deleted_rows`, `error_message`, `started_at`, `finished_at`, `created_at`.
+- Colunas minimas: `id`, `executor`, `status`, `retention_days`, `cutoff_date`, `deleted_rows`, `error_message`, `duration_ms`, `started_at`, `finished_at`, `created_at`.
 - Indices: `created_at`, `status`, `executor`.
 - Lock de execucao:
 - Postgres: `pg_try_advisory_lock` com chave fixa da rotina.
 - SQLite/local: lock em memoria por processo (best effort).
 - Retencao de historico: remover runs antigos de `upload_dedupe_cleanup_runs` (padrao 90 dias).
+- Cleanup em lotes:
+- Postgres: `DELETE ... WHERE id IN (SELECT id ... LIMIT :batch_size)` ou equivalente.
+- SQLite: estrategia equivalente por lotes para evitar transacoes longas.
 - Migracao necessaria: sim.
 
 ### Frontend
@@ -71,6 +80,10 @@ Automatizar a execucao do cleanup de metricas de dedupe para reduzir dependencia
 - CA-006: endpoints de cleanup/status retornam `403` para usuario autenticado nao-admin.
 - CA-007: em cenario multi-instancia, lock impede limpeza concorrente no mesmo instante.
 - CA-008: historico de runs aplica retencao e nao cresce indefinidamente.
+- CA-009: quando cleanup ultrapassa timeout configurado, run finaliza com erro controlado e API continua saudavel.
+- CA-010: startup aplica jitter configurado antes de tentar auto-cleanup.
+- CA-011: apos 3 falhas consecutivas, status e logs indicam alerta operacional.
+- CA-012: cleanup em lotes remove todo backlog expirado sem transacao monolitica.
 
 ## 7) Casos de borda
 
@@ -79,6 +92,8 @@ Automatizar a execucao do cleanup de metricas de dedupe para reduzir dependencia
 - CB-003: duas instancias iniciando quase ao mesmo tempo.
 - CB-004: instancia reinicia durante cleanup (run precisa fechar com `error`).
 - CB-005: usuario sem papel admin chamando endpoint tecnico.
+- CB-006: backlog muito grande de metricas expiradas.
+- CB-007: timeout muito baixo configurado por engano.
 
 ## 8) Fora de escopo
 

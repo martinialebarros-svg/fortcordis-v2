@@ -29,6 +29,9 @@ Status: draft
 - [ ] T2.3 Implementar lock de execucao (Postgres advisory lock + lock local best effort no SQLite).
 - [ ] T2.4 Restringir endpoints tecnicos de cleanup/status para admin.
 - [ ] T2.5 Criar endpoint `GET /upload-metrics/dedupe/cleanup/status`.
+- [ ] T2.6 Implementar timeout de execucao e jitter de startup configuraveis.
+- [ ] T2.7 Implementar cleanup em lotes com `batch_size` configuravel.
+- [ ] T2.8 Implementar contador de falhas consecutivas com alerta em log apos 3 falhas.
 - Criterio de conclusao: automacao, lock e status operacionais com fallback seguro.
 - Risco: corrida entre instancias no startup e durante loop periodico.
 - Rollback: desativar automacao por flag e manter endpoint manual.
@@ -39,8 +42,10 @@ Status: draft
 - [ ] T3.2 Reexecutar suites de upload/dedupe/metricas.
 - [ ] T3.3 Cobrir autorizacao admin (`403`) para endpoints tecnicos.
 - [ ] T3.4 Cobrir retencao da tabela `upload_dedupe_cleanup_runs`.
-- [ ] T3.5 Rodar lint frontend do atendimento (regressao basica).
-- Criterio de conclusao: CA-001..CA-008 cobertos por testes e smoke local.
+- [ ] T3.5 Cobrir timeout, jitter e cleanup em lotes.
+- [ ] T3.6 Cobrir alerta por falhas consecutivas (>=3).
+- [ ] T3.7 Rodar lint frontend do atendimento (regressao basica).
+- Criterio de conclusao: CA-001..CA-012 cobertos por testes e smoke local.
 - Risco: testes flakey por dependencia de relogio.
 - Rollback: congelar datas em fixtures deterministicas.
 
@@ -49,8 +54,9 @@ Status: draft
 - [ ] T4.1 Validar em stage execucao automatica no startup.
 - [ ] T4.2 Validar em stage execucao periodica sem restart (intervalo reduzido de teste).
 - [ ] T4.3 Validar em stage endpoint de status e restricao admin (`403` para nao-admin).
-- [ ] T4.4 Validar que cleanup manual continua funcional.
-- [ ] T4.5 Executar smoke em producao apos promocao e fechar `verify.md`.
+- [ ] T4.4 Validar timeout/jitter em stage com configuracao reduzida de teste.
+- [ ] T4.5 Validar que cleanup manual continua funcional.
+- [ ] T4.6 Executar smoke em producao apos promocao e fechar `verify.md`.
 - Criterio de conclusao: ciclo aprovado em stage e producao.
 - Risco: automacao rodar em horario de pico e gerar ruido operacional.
 - Rollback: desligar flag e manter rotina manual.
@@ -58,11 +64,11 @@ Status: draft
 ## 3) Plano de testes
 
 - Testes unitarios:
-- selecao de janela de execucao (intervalo), lock e persistencia de run.
+- selecao de janela de execucao (intervalo), lock, timeout, jitter e persistencia de run.
 - Testes de integracao:
-- endpoint de status e endpoint manual com historico atualizado e controle admin.
+- endpoint de status e endpoint manual com historico atualizado, controle admin e falhas consecutivas.
 - Testes manuais:
-- confirmar run automatico no startup, run periodico sem restart e run manual sob demanda.
+- confirmar run automatico no startup, run periodico sem restart, run manual sob demanda e comportamento em backlog alto.
 
 ## 4) Dependencias e bloqueios
 
