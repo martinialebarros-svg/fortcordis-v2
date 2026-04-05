@@ -523,6 +523,8 @@ def obter_hardening_readiness(
             "status": runtime_report.get("status"),
             "ready": bool(runtime_report.get("ready")),
             "warnings": runtime_report.get("warnings") or [],
+            "readiness_issues": runtime_report.get("readiness_issues") or [],
+            "observability": runtime_report.get("observability") or {},
         },
         "flags": {
             "REQUIRE_UP_TO_DATE_MIGRATIONS": bool(settings.REQUIRE_UP_TO_DATE_MIGRATIONS),

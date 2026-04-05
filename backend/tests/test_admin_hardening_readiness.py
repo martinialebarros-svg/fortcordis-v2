@@ -1,0 +1,70 @@
+import os
+import sys
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+os.chdir(BACKEND_DIR)
+sys.path.insert(0, str(BACKEND_DIR))
+
+os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
+os.environ.setdefault("SECRET_KEY", "admin-hardening-readiness-test-secret-key-1234567890")
+
+from app.api.v1.endpoints import admin
+
+
+class _FakeAdminUser:
+    id = 1
+    nome = "Admin Teste"
+
+
+class AdminHardeningReadinessTest(unittest.TestCase):
+    def test_payload_includes_runtime_observability_and_readiness_issues(self) -> None:
+        runtime_report = {
+            "status": "healthy",
+            "ready": True,
+            "warnings": [],
+            "readiness_issues": [],
+            "observability": {
+                "http_5xx_monitor": {
+                    "window_minutes": 5,
+                    "threshold": 20,
+                    "recent_5xx_count": 2,
+                    "alert_active": False,
+                    "last_5xx_at": None,
+                    "config_warnings": [],
+                },
+                "upload_dedupe_cleanup_worker": {
+                    "enabled": True,
+                    "status": "running",
+                    "thread_alive": True,
+                    "worker_started": True,
+                    "stop_signal_set": False,
+                    "poll_seconds": 60,
+                    "config_error": None,
+                },
+            },
+        }
+
+        with patch.object(admin, "build_runtime_report", return_value=runtime_report):
+            with patch.object(admin, "_avaliar_migracoes", return_value={"safe_to_enable": True, "blockers": [], "details": {}, "current_value": False}):
+                with patch.object(admin, "_avaliar_secret_key", return_value={"safe_to_enable": True, "blockers": [], "details": {}, "current_value": False}):
+                    with patch.object(admin, "_avaliar_senhas_legadas", return_value={"safe_to_disable": True, "blockers": [], "details": {}, "current_value": True}):
+                        with patch.object(admin, "_avaliar_fallback_permissoes", return_value={"safe_to_disable": True, "blockers": [], "details": {}, "current_value": True}):
+                            payload = admin.obter_hardening_readiness(
+                                current_user=_FakeAdminUser(),
+                                db=object(),
+                            )
+
+        self.assertIn("runtime", payload)
+        self.assertIn("observability", payload["runtime"])
+        self.assertIn("readiness_issues", payload["runtime"])
+        self.assertEqual(
+            payload["runtime"]["observability"]["http_5xx_monitor"]["recent_5xx_count"],
+            2,
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
