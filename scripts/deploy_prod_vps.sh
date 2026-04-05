@@ -259,4 +259,15 @@ if ! wait_http_head_ok "$PUBLIC_URL" 15 1; then
   exit 1
 fi
 
+log "Runtime observability gate"
+if ! python3 "${APP_DIR}/scripts/runtime_observability_gate.py" \
+  --health-url "http://127.0.0.1:${BACKEND_PORT}/health" \
+  --ready-url "http://127.0.0.1:${BACKEND_PORT}/ready" \
+  --timeout-seconds 8; then
+  echo "[ERROR] Runtime observability gate failed." >&2
+  print_service_diagnostics "$BACKEND_SERVICE"
+  exit 1
+fi
+log "Runtime observability gate OK"
+
 log "Deploy finished successfully (HEAD=${NEW_HASH})"
