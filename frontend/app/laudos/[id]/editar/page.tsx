@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import DashboardLayout from "../../../layout-dashboard";
 import api from "@/lib/axios";
 import { getLaudoEditPath, TIPO_LAUDO_ULTRASSOM_ABDOMINAL } from "@/lib/laudos";
@@ -243,8 +243,10 @@ interface EcocardiogramaCabecalho {
   fc: string;
 }
 
-export default function EditarLaudoPage({ params }: { params: { id: string } }) {
+export default function EditarLaudoPage() {
   const router = useRouter();
+  const routeParams = useParams<{ id?: string | string[] }>();
+  const laudoId = Array.isArray(routeParams.id) ? routeParams.id[0] : routeParams.id;
   const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [laudo, setLaudo] = useState<Laudo | null>(null);
@@ -375,7 +377,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
     }
     carregarLaudo();
     carregarClinicas();
-  }, [router, params.id]);
+  }, [router, laudoId]);
 
   useEffect(() => {
     const aorta = parseNumero(medidas["Aorta"]);
@@ -644,10 +646,11 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
       setLoading(true);
 
       // Carregar laudo
-      const respLaudo = await api.get(`/laudos/${params.id}`);
+      if (!laudoId) return;
+      const respLaudo = await api.get(`/laudos/${laudoId}`);
       const laudoData = respLaudo.data;
       if (laudoData.tipo === TIPO_LAUDO_ULTRASSOM_ABDOMINAL) {
-        router.replace(getLaudoEditPath(params.id, laudoData.tipo));
+        router.replace(getLaudoEditPath(laudoId, laudoData.tipo));
         return;
       }
       setLaudo(laudoData);
@@ -919,19 +922,20 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
         payload.medico_solicitante = medicoSolicitante;
       }
 
-      await api.put(`/laudos/${params.id}`, payload);
+      if (!laudoId) return;
+      await api.put(`/laudos/${laudoId}`, payload);
 
       // 4. Associar novas imagens ao laudo se houver
       if (imagensTemp.length > 0 && imagensTemp.some(img => img.uploaded)) {
         try {
-          await api.post(`/imagens/associar/${params.id}?session_id=${sessionId}`);
+          await api.post(`/imagens/associar/${laudoId}?session_id=${sessionId}`);
         } catch (imgError) {
           console.error("Erro ao associar imagens:", imgError);
         }
       }
 
       alert("Laudo e dados do paciente salvos com sucesso!");
-      router.push(`/laudos/${params.id}`);
+      router.push(`/laudos/${laudoId}`);
     } catch (error) {
       console.error("Erro ao salvar:", error);
       alert("Erro ao salvar. Verifique os dados e tente novamente.");
@@ -976,7 +980,7 @@ export default function EditarLaudoPage({ params }: { params: { id: string } }) 
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => router.push(`/laudos/${params.id}`)}
+              onClick={() => router.push(`/laudos/${laudoId}`)}
               className="p-2 hover:bg-gray-100 rounded-lg"
             >
               <ArrowLeft className="w-5 h-5 text-gray-600" />

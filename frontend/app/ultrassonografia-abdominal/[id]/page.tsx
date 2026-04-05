@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import {
@@ -22,12 +22,10 @@ interface ImagemPreview {
   dataUrl: string;
 }
 
-export default function VisualizarUltrassonografiaAbdominalPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default function VisualizarUltrassonografiaAbdominalPage() {
   const router = useRouter();
+  const routeParams = useParams<{ id?: string | string[] }>();
+  const laudoId = Array.isArray(routeParams.id) ? routeParams.id[0] : routeParams.id;
   const [loading, setLoading] = useState(true);
   const [laudo, setLaudo] = useState<any>(null);
   const [imagens, setImagens] = useState<ImagemPreview[]>([]);
@@ -38,15 +36,17 @@ export default function VisualizarUltrassonografiaAbdominalPage({
       router.push("/");
       return;
     }
+    if (!laudoId) return;
     carregarLaudo();
-  }, [router, params.id]);
+  }, [router, laudoId]);
 
   const carregarLaudo = async () => {
+    if (!laudoId) return;
     try {
       setLoading(true);
-      const response = await api.get(`/laudos/${params.id}`);
+      const response = await api.get(`/laudos/${laudoId}`);
       if (response.data.tipo !== TIPO_LAUDO_ULTRASSOM_ABDOMINAL) {
-        router.replace(getLaudoViewPath(params.id, response.data.tipo));
+        router.replace(getLaudoViewPath(laudoId, response.data.tipo));
         return;
       }
       setLaudo(response.data);
@@ -99,8 +99,9 @@ export default function VisualizarUltrassonografiaAbdominalPage({
   };
 
   const downloadPDF = async () => {
+    if (!laudoId) return;
     try {
-      await baixarLaudoPdf(Number(params.id), `ultrassonografia_abdominal_${params.id}.pdf`);
+      await baixarLaudoPdf(Number(laudoId), `ultrassonografia_abdominal_${laudoId}.pdf`);
     } catch (error) {
       console.error("Erro ao baixar PDF:", error);
       alert("Nao foi possivel baixar o PDF.");
@@ -156,7 +157,7 @@ export default function VisualizarUltrassonografiaAbdominalPage({
             </button>
             <button
               type="button"
-              onClick={() => router.push(getLaudoEditPath(params.id, laudo.tipo))}
+              onClick={() => router.push(getLaudoEditPath(laudoId || "", laudo.tipo))}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700"
             >
               <Edit className="w-4 h-4" />

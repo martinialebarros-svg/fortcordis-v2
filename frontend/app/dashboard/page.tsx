@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
@@ -242,34 +243,34 @@ export default function DashboardPage() {
                   <h2 className="text-lg font-semibold text-gray-900">Ações Rápidas</h2>
                 </div>
                 <div className="p-4 grid grid-cols-2 gap-3">
-                  <a
+                  <Link
                     href="/agenda"
                     className="flex flex-col items-center p-4 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
                   >
                     <Calendar className="w-8 h-8 text-blue-600 mb-2" />
                     <span className="text-sm font-medium text-blue-700">Ver Agenda</span>
-                  </a>
-                  <a
+                  </Link>
+                  <Link
                     href="/pacientes"
                     className="flex flex-col items-center p-4 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
                   >
                     <Users className="w-8 h-8 text-green-600 mb-2" />
                     <span className="text-sm font-medium text-green-700">Pacientes</span>
-                  </a>
-                  <a
+                  </Link>
+                  <Link
                     href="/clinicas"
                     className="flex flex-col items-center p-4 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
                   >
                     <Building2 className="w-8 h-8 text-purple-600 mb-2" />
                     <span className="text-sm font-medium text-purple-700">Clínicas</span>
-                  </a>
-                  <a
+                  </Link>
+                  <Link
                     href="/servicos"
                     className="flex flex-col items-center p-4 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors"
                   >
                     <Stethoscope className="w-8 h-8 text-orange-600 mb-2" />
                     <span className="text-sm font-medium text-orange-700">Serviços</span>
-                  </a>
+                  </Link>
                 </div>
               </div>
             </div>
