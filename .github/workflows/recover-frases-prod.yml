@@ -8,12 +8,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Setup SSH
-        uses: webfactory/ssh-agent@v0.8.0
-        with:
-          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+      - name: Setup SSH key
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s' "$VPS_SSH_KEY" > ~/.ssh/id_vps
+          chmod 600 ~/.ssh/id_vps
 
       - name: Add VPS to known hosts
         run: |
@@ -22,11 +26,11 @@ jobs:
 
       - name: Copy recovery script to VPS
         run: |
-          scp scripts/recover_frases_prod.py ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/recover_frases_prod.py
+          scp -i ~/.ssh/id_vps -o IdentitiesOnly=yes scripts/recover_frases_prod.py ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/recover_frases_prod.py
 
       - name: Recover frases on production VPS
         run: |
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
             set -euo pipefail
             APP_DIR="/var/www/fortcordis-v2"
             cd "$APP_DIR"

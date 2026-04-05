@@ -17,14 +17,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code (stage)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: stage
 
-      - name: Setup SSH
-        uses: webfactory/ssh-agent@v0.8.0
-        with:
-          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+      - name: Setup SSH key
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s' "$VPS_SSH_KEY" > ~/.ssh/id_vps
+          chmod 600 ~/.ssh/id_vps
 
       - name: Add VPS to known hosts
         run: |
@@ -35,7 +39,7 @@ jobs:
         env:
           APPLY: ${{ github.event.inputs.apply }}
         run: |
-          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "export APPLY='${APPLY}'; bash -s" <<'EOF'
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "export APPLY='${APPLY}'; bash -s" <<'EOF'
             set -euo pipefail
             STAGE_DIR="/var/www/fortcordis-stage"
 
