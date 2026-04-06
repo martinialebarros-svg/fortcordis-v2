@@ -6,12 +6,15 @@ dependencia de migracao de banco.
 """
 import json
 from datetime import datetime
+import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 FRASES_FILE = DATA_DIR / "frases_ultrassom_abdominal.json"
+RUNTIME_BACKUP_DIR = DATA_DIR / "runtime_backups" / "frases_ultrassom_abdominal"
+RUNTIME_BACKUP_RETENTION = 240
 
 
 def _ensure_data_dir() -> None:
@@ -26,19 +29,80 @@ def _default_payload() -> Dict[str, Any]:
     }
 
 
+def _backup_tag(value: str) -> str:
+    tag = "".join(ch.lower() if ch.isalnum() else "_" for ch in str(value or "").strip())
+    return tag.strip("_") or "update"
+
+
+def _dump_payload(payload: Dict[str, Any]) -> str:
+    return json.dumps(payload, indent=2, ensure_ascii=False)
+
+
+def _atomic_write_payload(payload: Dict[str, Any]) -> None:
+    _ensure_data_dir()
+    tmp_path = FRASES_FILE.with_suffix(f"{FRASES_FILE.suffix}.tmp")
+    tmp_path.write_text(_dump_payload(payload), encoding="utf-8")
+    tmp_path.replace(FRASES_FILE)
+
+
+def _prune_runtime_backups() -> None:
+    if not RUNTIME_BACKUP_DIR.exists():
+        return
+    snapshots = sorted(RUNTIME_BACKUP_DIR.glob("*.json"), reverse=True)
+    for stale in snapshots[RUNTIME_BACKUP_RETENTION:]:
+        try:
+            stale.unlink()
+        except OSError:
+            continue
+
+
+def _snapshot_current_file(reason: str) -> Optional[Path]:
+    if not FRASES_FILE.exists():
+        return None
+    RUNTIME_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    backup_path = RUNTIME_BACKUP_DIR / f"{stamp}__{_backup_tag(reason)}.json"
+    shutil.copy2(FRASES_FILE, backup_path)
+    _prune_runtime_backups()
+    return backup_path
+
+
+def _load_json_file(path: Path) -> Optional[Dict[str, Any]]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
+def _latest_valid_runtime_backup() -> Optional[Dict[str, Any]]:
+    if not RUNTIME_BACKUP_DIR.exists():
+        return None
+    for candidate in sorted(RUNTIME_BACKUP_DIR.glob("*.json"), reverse=True):
+        payload = _load_json_file(candidate)
+        if payload is not None:
+            return payload
+    return None
+
+
 def _load_payload() -> Dict[str, Any]:
     if not FRASES_FILE.exists():
         payload = _default_payload()
-        _save_payload(payload)
+        _atomic_write_payload(payload)
         return payload
 
-    try:
-        with open(FRASES_FILE, "r", encoding="utf-8") as file:
-            data = json.load(file)
-    except (OSError, json.JSONDecodeError):
-        data = _default_payload()
-        _save_payload(data)
-        return data
+    data = _load_json_file(FRASES_FILE)
+    if data is None:
+        _snapshot_current_file("corrupted_store")
+        recovered = _latest_valid_runtime_backup()
+        if recovered is not None:
+            _atomic_write_payload(recovered)
+            data = recovered
+        else:
+            data = _default_payload()
+            _atomic_write_payload(data)
 
     if not isinstance(data, dict):
         data = _default_payload()
@@ -50,10 +114,9 @@ def _load_payload() -> Dict[str, Any]:
     return data
 
 
-def _save_payload(payload: Dict[str, Any]) -> None:
-    _ensure_data_dir()
-    with open(FRASES_FILE, "w", encoding="utf-8") as file:
-        json.dump(payload, file, indent=2, ensure_ascii=False)
+def _save_payload(payload: Dict[str, Any], reason: str = "update") -> None:
+    _snapshot_current_file(reason)
+    _atomic_write_payload(payload)
 
 
 def _to_int(value: Any) -> Optional[int]:
@@ -133,7 +196,7 @@ def listar_frases(
 
     if _normalizar_ids(frases):
         payload["last_updated"] = datetime.now().isoformat()
-        _save_payload(payload)
+        _save_payload(payload, reason="normalize_ids")
 
     if ativo is not None:
         frases = [item for item in frases if int(item.get("ativo", 1)) == int(ativo)]
@@ -209,7 +272,7 @@ def criar_frase(data: Dict[str, Any]) -> Dict[str, Any]:
     frases.append(nova_frase)
     payload["frases"] = frases
     payload["last_updated"] = agora
-    _save_payload(payload)
+    _save_payload(payload, reason="create_phrase")
     return nova_frase
 
 
@@ -247,7 +310,7 @@ def atualizar_frase(frase_id: int, data: Dict[str, Any]) -> Optional[Dict[str, A
         frases[index] = frase
         payload["frases"] = frases
         payload["last_updated"] = frase["updated_at"]
-        _save_payload(payload)
+        _save_payload(payload, reason="update_phrase")
         return frase
 
     return None

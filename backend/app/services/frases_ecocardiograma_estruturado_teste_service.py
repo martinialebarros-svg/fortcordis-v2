@@ -3,11 +3,14 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from datetime import datetime
+import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 FRASES_FILE = DATA_DIR / "frases_ecocardiograma_estruturado_teste.json"
+RUNTIME_BACKUP_DIR = DATA_DIR / "runtime_backups" / "frases_ecocardiograma_estruturado_teste"
+RUNTIME_BACKUP_RETENTION = 240
 
 DEFAULT_ASPECTS = [
     {"key": "valva_mitral", "label": "Valva mitral", "categoria": "Valvas", "descricao": "Morfologia e funcionamento da valva mitral.", "placeholder": "Descreva espessamento, prolapso, refluxo, estenose e mobilidade da valva mitral.", "legacy_field": "valvas", "ordem": 10},
@@ -130,6 +133,74 @@ def _slugify(value: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "_" for ch in value).strip("_")
 
 
+def _backup_tag(value: str) -> str:
+    tag = "".join(ch.lower() if ch.isalnum() else "_" for ch in str(value or "").strip())
+    return tag.strip("_") or "update"
+
+
+def _json_dumps(payload: Dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def _atomic_write_store(payload: Dict[str, Any]) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_path = FRASES_FILE.with_suffix(f"{FRASES_FILE.suffix}.tmp")
+    tmp_path.write_text(_json_dumps(payload), encoding="utf-8")
+    tmp_path.replace(FRASES_FILE)
+
+
+def _prune_runtime_backups() -> None:
+    if not RUNTIME_BACKUP_DIR.exists():
+        return
+    snapshots = sorted(RUNTIME_BACKUP_DIR.glob("*.json"), reverse=True)
+    for stale in snapshots[RUNTIME_BACKUP_RETENTION:]:
+        try:
+            stale.unlink()
+        except OSError:
+            continue
+
+
+def _snapshot_current_store(reason: str) -> Optional[Path]:
+    if not FRASES_FILE.exists():
+        return None
+    RUNTIME_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    backup_path = RUNTIME_BACKUP_DIR / f"{stamp}__{_backup_tag(reason)}.json"
+    shutil.copy2(FRASES_FILE, backup_path)
+    _prune_runtime_backups()
+    return backup_path
+
+
+def _try_load_store(path: Path) -> Optional[Dict[str, Any]]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def _latest_valid_runtime_backup() -> Optional[Tuple[Path, Dict[str, Any]]]:
+    if not RUNTIME_BACKUP_DIR.exists():
+        return None
+    for candidate in sorted(RUNTIME_BACKUP_DIR.glob("*.json"), reverse=True):
+        payload = _try_load_store(candidate)
+        if payload is not None:
+            return candidate, payload
+    return None
+
+
+def _recover_store_from_runtime_backup() -> Optional[Dict[str, Any]]:
+    recovered = _latest_valid_runtime_backup()
+    if recovered is None:
+        return None
+    _snapshot_current_store("corrupted_store")
+    _, payload = recovered
+    _atomic_write_store(payload)
+    return payload
+
+
 def _build_default_store() -> Dict[str, Any]:
     next_phrase_id = 1
     aspectos: List[Dict[str, Any]] = []
@@ -170,22 +241,28 @@ def _build_default_store() -> Dict[str, Any]:
 def _ensure_store_file() -> None:
     if FRASES_FILE.exists():
         return
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    FRASES_FILE.write_text(
-        json.dumps(_build_default_store(), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    _atomic_write_store(_build_default_store())
 
 
 def _load_store() -> Dict[str, Any]:
     _ensure_store_file()
-    return json.loads(FRASES_FILE.read_text(encoding="utf-8"))
+    payload = _try_load_store(FRASES_FILE)
+    if payload is not None:
+        return payload
+
+    recovered = _recover_store_from_runtime_backup()
+    if recovered is not None:
+        return recovered
+
+    fallback = _build_default_store()
+    _atomic_write_store(fallback)
+    return fallback
 
 
-def _save_store(store: Dict[str, Any]) -> Dict[str, Any]:
+def _save_store(store: Dict[str, Any], reason: str = "update") -> Dict[str, Any]:
     store["last_updated"] = _now_iso()
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    FRASES_FILE.write_text(json.dumps(store, ensure_ascii=False, indent=2), encoding="utf-8")
+    _snapshot_current_store(reason)
+    _atomic_write_store(store)
     return store
 
 
@@ -273,9 +350,11 @@ def _normalize_store(store: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def get_payload() -> Dict[str, Any]:
-    store = _normalize_store(_load_store())
-    _save_store(store)
-    return store
+    loaded = _load_store()
+    normalized = _normalize_store(loaded)
+    if normalized != loaded:
+        return _save_store(normalized, reason="normalize")
+    return normalized
 
 
 def summarize_store(store: Dict[str, Any]) -> Dict[str, int]:
@@ -295,7 +374,7 @@ def normalize_external_store(data: Dict[str, Any]) -> Dict[str, Any]:
 
 def import_store(data: Dict[str, Any]) -> Dict[str, Any]:
     normalized = normalize_external_store(data)
-    _save_store(normalized)
+    _save_store(normalized, reason="import")
     return normalized
 
 
@@ -386,14 +465,14 @@ def save_preset(data: Dict[str, Any], preset_id: Optional[int] = None) -> Dict[s
         }
     )
     payload["presets"] = presets
-    _save_store(payload)
+    _save_store(payload, reason="save_preset")
     return target
 
 
 def delete_preset(preset_id: int) -> None:
     payload = get_payload()
     payload["presets"] = [item for item in payload.get("presets") or [] if item.get("id") != preset_id]
-    _save_store(payload)
+    _save_store(payload, reason="delete_preset")
 
 
 def create_phrase(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -422,7 +501,7 @@ def create_phrase(data: Dict[str, Any]) -> Dict[str, Any]:
     }
     frases.append(nova_frase)
     aspecto["frases"] = frases
-    _save_store(payload)
+    _save_store(payload, reason="create_phrase")
     return nova_frase
 
 
@@ -449,5 +528,5 @@ def update_phrase(frase_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
             "ativo": 1,
         }
     )
-    _save_store(payload)
+    _save_store(payload, reason="update_phrase")
     return frase

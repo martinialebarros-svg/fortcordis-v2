@@ -14,6 +14,16 @@ SPEC.loader.exec_module(DRILL)
 
 
 class DeployBackupRestoreDrillTest(unittest.TestCase):
+    def test_default_runtime_paths_include_structured_phrase_store(self) -> None:
+        self.assertIn(
+            "backend/data/frases_ecocardiograma_estruturado_teste.json",
+            DRILL.DEFAULT_RUNTIME_PATHS,
+        )
+        self.assertIn(
+            "backend/data/frases_ultrassom_abdominal.json",
+            DRILL.DEFAULT_RUNTIME_PATHS,
+        )
+
     def test_manifest_roundtrip_hash_validation(self) -> None:
         with tempfile.TemporaryDirectory() as app_dir:
             file_path = Path(app_dir) / "backend" / "data" / "frases.json"
