@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import api from "@/lib/axios";
 import { removePushSubscriptionForCurrentDevice, usePushNotifications } from "@/lib/usePushNotifications";
@@ -67,7 +67,6 @@ export default function DashboardLayout({
   const overlayCleanupRafRef = useRef<number | null>(null);
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const handledSnoozeRef = useRef<string>("");
   usePushNotifications(authChecked && Boolean(user));
 
@@ -352,7 +351,9 @@ export default function DashboardLayout({
   }, [logoUrl]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
     if (!authChecked || !user) return;
+    const searchParams = new URLSearchParams(window.location.search);
     const shouldSnooze = searchParams.get("push_snooze");
     if (shouldSnooze !== "1") return;
 
@@ -383,7 +384,7 @@ export default function DashboardLayout({
     }
 
     const limparQuerySoneca = () => {
-      const params = new URLSearchParams(searchParams.toString());
+      const params = new URLSearchParams(window.location.search);
       [
         "push_snooze",
         "push_snooze_minutes",
@@ -412,7 +413,7 @@ export default function DashboardLayout({
         limparQuerySoneca();
       }
     })();
-  }, [authChecked, pathname, router, searchParams, user]);
+  }, [authChecked, pathname, router, user]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
