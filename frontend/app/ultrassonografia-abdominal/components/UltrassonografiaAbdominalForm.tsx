@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import api from "@/lib/axios";
 import ImageUploader from "@/app/laudos/components/ImageUploader";
 import {
@@ -149,7 +149,6 @@ export default function UltrassonografiaAbdominalForm({
   laudoId?: string;
 }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(mode === "edit");
   const [saving, setSaving] = useState(false);
   const [aba, setAba] = useState<AbaAtiva>("cliente");
@@ -188,11 +187,13 @@ export default function UltrassonografiaAbdominalForm({
       data_exame: prev.data_exame || obterDataAtualIso(),
     }));
 
+    if (typeof window === "undefined") return;
+    const searchParams = new URLSearchParams(window.location.search);
     const clinicaParam = searchParams.get("clinica_id");
     if (clinicaParam) {
       setClinicaId(clinicaParam);
     }
-  }, [searchParams]);
+  }, []);
 
   useEffect(() => {
     carregarClinicas();
@@ -210,6 +211,8 @@ export default function UltrassonografiaAbdominalForm({
       return;
     }
 
+    if (typeof window === "undefined") return;
+    const searchParams = new URLSearchParams(window.location.search);
     const agendamentoParam = searchParams.get("agendamento_id");
     if (agendamentoParam) {
       const value = Number(agendamentoParam);
@@ -226,7 +229,7 @@ export default function UltrassonografiaAbdominalForm({
         void preencherDadosDoPaciente(value);
       }
     }
-  }, [mode, searchParams]);
+  }, [mode]);
 
   useEffect(() => {
     const sexo = normalizarSexoPaciente(paciente.sexo);

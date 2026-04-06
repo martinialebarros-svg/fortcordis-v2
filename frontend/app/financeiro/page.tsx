@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import TransacaoModal from "./TransacaoModal";
@@ -172,7 +172,6 @@ export default function FinanceiroPage() {
   const [osHighlightUntil, setOsHighlightUntil] = useState<number>(0);
   const highlightedRowRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -197,6 +196,8 @@ export default function FinanceiroPage() {
   ]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const searchParams = new URLSearchParams(window.location.search);
     const abaParam = String(searchParams.get("aba") || "").toLowerCase();
     if (abaParam === "transacoes" || abaParam === "cobrancas" || abaParam === "ordens") {
       setAbaAtiva(abaParam as "transacoes" | "cobrancas" | "ordens");
@@ -215,7 +216,7 @@ export default function FinanceiroPage() {
       setOsHighlightId(osIdParam);
       setOsHighlightUntil(Date.now() + 25000);
     }
-  }, [searchParams]);
+  }, []);
 
   const montarQueryString = (params: Record<string, string | number | undefined>) => {
     const query = new URLSearchParams();
