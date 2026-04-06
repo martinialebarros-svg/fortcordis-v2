@@ -46,5 +46,5 @@ jobs:
           git reset --hard "origin/${BRANCH}"
 
           echo "Running standardized production deploy script..."
-          APP_DIR="$APP_DIR" BRANCH="$BRANCH" bash scripts/deploy_prod_vps.sh
+          SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' APP_DIR="$APP_DIR" BRANCH="$BRANCH" bash scripts/deploy_prod_vps.sh
         EOF

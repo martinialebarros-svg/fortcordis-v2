@@ -45,5 +45,5 @@ jobs:
             git reset --hard "origin/${BRANCH}"
 
             echo "Running standardized stage deploy script..."
-            APP_DIR="$APP_DIR" BRANCH="$BRANCH" bash scripts/deploy_stage_vps.sh
+            SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' APP_DIR="$APP_DIR" BRANCH="$BRANCH" bash scripts/deploy_stage_vps.sh
           EOF
