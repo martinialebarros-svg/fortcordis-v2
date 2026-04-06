@@ -30,6 +30,7 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/var/www/fortcordis-v2}"
 BRANCH="${BRANCH:-main}"
+SUDO_PASSWORD="${SUDO_PASSWORD:-${VPS_SUDO_PASSWORD:-}}"
 
 BACKEND_DIR="${APP_DIR}/backend"
 FRONTEND_DIR="${APP_DIR}/frontend"
@@ -58,6 +59,27 @@ ROLLBACK_IN_PROGRESS=0
 
 log() {
   printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"
+}
+
+run_with_sudo() {
+  if ! command -v sudo >/dev/null 2>&1; then
+    "$@"
+    return $?
+  fi
+
+  if sudo -n true >/dev/null 2>&1; then
+    sudo -n "$@"
+    return $?
+  fi
+
+  if [[ -n "${SUDO_PASSWORD}" ]]; then
+    if printf '%s\n' "${SUDO_PASSWORD}" | sudo -S -p '' -v >/dev/null 2>&1; then
+      printf '%s\n' "${SUDO_PASSWORD}" | sudo -S -p '' "$@"
+      return $?
+    fi
+  fi
+
+  return 1
 }
 
 require_cmd() {
@@ -109,10 +131,8 @@ resolve_systemctl_bin() {
 
 restart_service() {
   local service="$1"
-  if command -v sudo >/dev/null 2>&1; then
-    if sudo -n "$SYSTEMCTL_BIN" restart "$service"; then
-      return 0
-    fi
+  if run_with_sudo "$SYSTEMCTL_BIN" restart "$service"; then
+    return 0
   fi
   if "$SYSTEMCTL_BIN" restart "$service"; then
     return 0
@@ -124,13 +144,12 @@ restart_service() {
 
 print_service_diagnostics() {
   local service="$1"
-  if command -v sudo >/dev/null 2>&1; then
-    sudo -n "$SYSTEMCTL_BIN" status "$service" --no-pager -l || true
-    sudo -n journalctl -u "$service" -n 120 --no-pager || true
-    return 0
+  if ! run_with_sudo "$SYSTEMCTL_BIN" status "$service" --no-pager -l; then
+    "$SYSTEMCTL_BIN" status "$service" --no-pager -l || true
   fi
-  "$SYSTEMCTL_BIN" status "$service" --no-pager -l || true
-  journalctl -u "$service" -n 120 --no-pager || true
+  if ! run_with_sudo journalctl -u "$service" -n 120 --no-pager; then
+    journalctl -u "$service" -n 120 --no-pager || true
+  fi
 }
 
 reload_nginx_if_possible() {
@@ -141,11 +160,7 @@ reload_nginx_if_possible() {
     return 0
   fi
 
-  if command -v sudo >/dev/null 2>&1; then
-    if sudo -n "$nginx_bin" -t && sudo -n "$SYSTEMCTL_BIN" reload nginx; then
-      return 0
-    fi
-    log "Skipping nginx reload (non-interactive sudo not allowed for nginx)."
+  if run_with_sudo "$nginx_bin" -t && run_with_sudo "$SYSTEMCTL_BIN" reload nginx; then
     return 0
   fi
 
@@ -234,11 +249,7 @@ rollback_deploy() {
   reload_nginx_if_possible
   if ! wait_http_head_ok "$PUBLIC_URL" 15 1; then
     echo "[ERROR] Rollback public URL check failed: $PUBLIC_URL" >&2
-    if command -v sudo >/dev/null 2>&1; then
-      sudo -n journalctl -u nginx -n 120 --no-pager || true
-    else
-      journalctl -u nginx -n 120 --no-pager || true
-    fi
+    run_with_sudo journalctl -u nginx -n 120 --no-pager || journalctl -u nginx -n 120 --no-pager || true
     return 1
   fi
 
@@ -393,11 +404,7 @@ reload_nginx_if_possible
 
 if ! wait_http_head_ok "$PUBLIC_URL" 15 1; then
   echo "[ERROR] Public URL check failed: $PUBLIC_URL" >&2
-  if command -v sudo >/dev/null 2>&1; then
-    sudo -n journalctl -u nginx -n 120 --no-pager || true
-  else
-    journalctl -u nginx -n 120 --no-pager || true
-  fi
+  run_with_sudo journalctl -u nginx -n 120 --no-pager || journalctl -u nginx -n 120 --no-pager || true
   exit 1
 fi
 
