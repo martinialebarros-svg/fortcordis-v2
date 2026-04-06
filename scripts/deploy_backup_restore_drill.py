@@ -18,6 +18,8 @@ DEFAULT_RUNTIME_PATHS = [
     "backend/data/frases.json",
     "backend/data/patologias.json",
     "backend/data/frases_ecocardiograma_estruturado_teste.json",
+    "backend/data/frases_ultrassom_abdominal.json",
+    "backend/data/atendimento_clinical_phrases.json",
 ]
 DEFAULT_SQLITE_REL_PATH = "backend/fortcordis.db"
 

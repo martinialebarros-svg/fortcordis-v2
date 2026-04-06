@@ -198,6 +198,8 @@ restore_runtime_artifacts() {
   restore_runtime_file "backend/data/frases.json"
   restore_runtime_file "backend/data/patologias.json"
   restore_runtime_file "backend/data/frases_ecocardiograma_estruturado_teste.json"
+  restore_runtime_file "backend/data/frases_ultrassom_abdominal.json"
+  restore_runtime_file "backend/data/atendimento_clinical_phrases.json"
 }
 
 rollback_deploy() {
@@ -330,6 +332,8 @@ backup_runtime_file "backend/fortcordis.db"
 backup_runtime_file "backend/data/frases.json"
 backup_runtime_file "backend/data/patologias.json"
 backup_runtime_file "backend/data/frases_ecocardiograma_estruturado_teste.json"
+backup_runtime_file "backend/data/frases_ultrassom_abdominal.json"
+backup_runtime_file "backend/data/atendimento_clinical_phrases.json"
 
 DEPLOY_STAGE="update_code"
 log "Updating code from origin/${BRANCH}"
