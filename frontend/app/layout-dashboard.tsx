@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import api from "@/lib/axios";
+import { removePushSubscriptionForCurrentDevice, usePushNotifications } from "@/lib/usePushNotifications";
 import { FortinhoProvider } from "@/components/fortinho/FortinhoProvider";
 import {
   Calendar,
@@ -66,6 +67,9 @@ export default function DashboardLayout({
   const overlayCleanupRafRef = useRef<number | null>(null);
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const handledSnoozeRef = useRef<string>("");
+  usePushNotifications(authChecked && Boolean(user));
 
   const limparBackdropsOrfaos = () => {
     if (typeof document === "undefined") return;
@@ -348,6 +352,69 @@ export default function DashboardLayout({
   }, [logoUrl]);
 
   useEffect(() => {
+    if (!authChecked || !user) return;
+    const shouldSnooze = searchParams.get("push_snooze");
+    if (shouldSnooze !== "1") return;
+
+    const minutes = Number(searchParams.get("push_snooze_minutes") || "15");
+    const safeMinutes = minutes === 30 || minutes === 60 ? minutes : 15;
+    const notificationId = String(searchParams.get("push_snooze_notification_id") || "");
+    const dedupeKey = `${notificationId}:${safeMinutes}:${pathname}`;
+    if (handledSnoozeRef.current === dedupeKey) return;
+    handledSnoozeRef.current = dedupeKey;
+
+    const payload: Record<string, any> = {
+      minutes: safeMinutes,
+      title: String(searchParams.get("push_snooze_title") || ""),
+      body: String(searchParams.get("push_snooze_body") || ""),
+      url: String(searchParams.get("push_snooze_url") || "/financeiro"),
+      module: String(searchParams.get("push_snooze_module") || "financeiro"),
+      action: String(searchParams.get("push_snooze_action") || "payment_pending"),
+      priority: String(searchParams.get("push_snooze_priority") || "normal"),
+      notification_id: notificationId,
+      resource_type: String(searchParams.get("push_snooze_resource_type") || ""),
+    };
+    const resourceIdRaw = searchParams.get("push_snooze_resource_id");
+    if (resourceIdRaw && String(resourceIdRaw).trim() !== "") {
+      const parsed = Number(resourceIdRaw);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        payload.resource_id = parsed;
+      }
+    }
+
+    const limparQuerySoneca = () => {
+      const params = new URLSearchParams(searchParams.toString());
+      [
+        "push_snooze",
+        "push_snooze_minutes",
+        "push_snooze_title",
+        "push_snooze_body",
+        "push_snooze_url",
+        "push_snooze_module",
+        "push_snooze_action",
+        "push_snooze_priority",
+        "push_snooze_notification_id",
+        "push_snooze_resource_type",
+        "push_snooze_resource_id",
+      ].forEach((key) => params.delete(key));
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname);
+    };
+
+    (async () => {
+      try {
+        await api.post("/configuracoes/usuario/push/snooze", payload);
+        alert(`Notificacao adiada por ${safeMinutes} minuto(s).`);
+      } catch (error) {
+        console.error("Erro ao agendar soneca da notificacao push:", error);
+        alert("Nao foi possivel adiar a notificacao.");
+      } finally {
+        limparQuerySoneca();
+      }
+    })();
+  }, [authChecked, pathname, router, searchParams, user]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
 
     const handle = window.setTimeout(() => {
@@ -377,7 +444,12 @@ export default function DashboardLayout({
     };
   }, [pathname]);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await removePushSubscriptionForCurrentDevice();
+    } catch {
+      // best effort
+    }
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     router.push("/");

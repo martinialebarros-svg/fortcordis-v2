@@ -1,7 +1,6 @@
 """Endpoints para configurações do sistema"""
-import base64
 from typing import Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.agenda_config import (
@@ -18,6 +17,19 @@ from app.db.database import get_db
 from app.models.user import User
 from app.models.configuracao import Configuracao, ConfiguracaoUsuario
 from app.core.security import get_current_user
+from app.services.push_notifications import (
+    deactivate_user_push_subscriptions,
+    get_default_high_priority_push_actions,
+    get_web_push_public_key,
+    get_default_agenda_push_actions,
+    is_web_push_enabled,
+    normalize_high_priority_push_actions,
+    normalize_agenda_push_actions,
+    serialize_high_priority_push_actions,
+    serialize_agenda_push_actions,
+    upsert_user_push_subscription,
+)
+from app.services.push_scheduler_service import schedule_push_snooze
 
 router = APIRouter()
 
@@ -321,17 +333,49 @@ def obter_configuracoes_usuario(
             "idioma": "pt-BR",
             "notificacoes_email": True,
             "notificacoes_push": True,
+            "notificacoes_push_tipos": get_default_agenda_push_actions(),
+            "notificacoes_push_prioridade_alta_tipos": get_default_high_priority_push_actions(),
+            "notificacoes_push_agrupar": True,
+            "notificacoes_push_lembrete_pendencias": True,
+            "notificacoes_push_lembrete_horas": 6,
+            "notificacoes_push_perfil": "custom",
             "tem_assinatura": False,
             "crmv": None,
             "especialidade": None
         }
     
+    tipos_push = normalize_agenda_push_actions(config.notificacoes_push_tipos)
+    if config.notificacoes_push_tipos is None:
+        tipos_push = get_default_agenda_push_actions()
+    tipos_prioridade_alta = normalize_high_priority_push_actions(
+        config.notificacoes_push_prioridade_alta_tipos
+    )
+    if config.notificacoes_push_prioridade_alta_tipos is None:
+        tipos_prioridade_alta = get_default_high_priority_push_actions()
+    lembrete_horas = int(config.notificacoes_push_lembrete_horas or 6)
+    if lembrete_horas < 1:
+        lembrete_horas = 1
+    if lembrete_horas > 168:
+        lembrete_horas = 168
+
     return {
         "user_id": config.user_id,
         "tema": config.tema,
         "idioma": config.idioma,
         "notificacoes_email": config.notificacoes_email,
         "notificacoes_push": config.notificacoes_push,
+        "notificacoes_push_tipos": tipos_push,
+        "notificacoes_push_prioridade_alta_tipos": tipos_prioridade_alta,
+        "notificacoes_push_agrupar": bool(
+            True if config.notificacoes_push_agrupar is None else config.notificacoes_push_agrupar
+        ),
+        "notificacoes_push_lembrete_pendencias": bool(
+            True
+            if config.notificacoes_push_lembrete_pendencias is None
+            else config.notificacoes_push_lembrete_pendencias
+        ),
+        "notificacoes_push_lembrete_horas": lembrete_horas,
+        "notificacoes_push_perfil": str(config.notificacoes_push_perfil or "custom"),
         "tem_assinatura": config.assinatura_dados is not None,
         "crmv": config.crmv,
         "especialidade": config.especialidade
@@ -354,18 +398,177 @@ def atualizar_configuracoes_usuario(
         db.add(config)
     
     campos_permitidos = [
-        "tema", "idioma", "notificacoes_email", "notificacoes_push",
+        "tema", "idioma", "notificacoes_email", "notificacoes_push", "notificacoes_push_tipos",
+        "notificacoes_push_prioridade_alta_tipos",
+        "notificacoes_push_agrupar",
+        "notificacoes_push_lembrete_pendencias",
+        "notificacoes_push_lembrete_horas",
+        "notificacoes_push_perfil",
         "crmv", "especialidade"
     ]
-    
+
+    preferencia_push_desabilitada = False
     for campo in campos_permitidos:
         if campo in dados:
-            setattr(config, campo, dados[campo])
-    
+            valor = dados[campo]
+            if campo in {"notificacoes_email", "notificacoes_push"}:
+                valor = _coerce_bool(valor)
+            if campo == "notificacoes_push_tipos":
+                valor = serialize_agenda_push_actions(valor)
+            if campo == "notificacoes_push_prioridade_alta_tipos":
+                valor = serialize_high_priority_push_actions(valor)
+            if campo in {"notificacoes_push_agrupar", "notificacoes_push_lembrete_pendencias"}:
+                valor = _coerce_bool(valor)
+            if campo == "notificacoes_push_lembrete_horas":
+                try:
+                    valor = int(valor)
+                except Exception:
+                    valor = 6
+                if valor < 1:
+                    valor = 1
+                if valor > 168:
+                    valor = 168
+            if campo == "notificacoes_push_perfil":
+                valor = str(valor or "custom").strip().lower() or "custom"
+            setattr(config, campo, valor)
+            if campo == "notificacoes_push":
+                preferencia_push_desabilitada = not bool(valor)
+
+    if preferencia_push_desabilitada:
+        deactivate_user_push_subscriptions(
+            db,
+            user_id=current_user.id,
+            commit=False,
+        )
+
     db.commit()
     db.refresh(config)
     
     return {"message": "Configurações do usuário atualizadas com sucesso"}
+
+
+@router.get("/configuracoes/usuario/push/public-key", response_model=dict)
+def obter_chave_publica_push(
+    current_user: User = Depends(get_current_user),
+):
+    """Retorna a chave publica VAPID para inscricao push no navegador."""
+    _ = current_user
+    enabled = is_web_push_enabled()
+    return {
+        "enabled": enabled,
+        "public_key": get_web_push_public_key() if enabled else None,
+    }
+
+
+@router.post("/configuracoes/usuario/push/subscribe", response_model=dict)
+def registrar_inscricao_push(
+    dados: dict,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Registra ou atualiza a inscricao push do dispositivo atual."""
+    if not is_web_push_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Push web indisponivel no servidor (VAPID nao configurado).",
+        )
+
+    subscription = dados.get("subscription")
+    if not isinstance(subscription, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Payload de inscricao push invalido.",
+        )
+
+    try:
+        upsert_user_push_subscription(
+            db,
+            user_id=current_user.id,
+            subscription_payload=subscription,
+            user_agent=request.headers.get("user-agent"),
+            commit=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    return {"message": "Inscricao push registrada com sucesso"}
+
+
+@router.post("/configuracoes/usuario/push/unsubscribe", response_model=dict)
+def remover_inscricao_push(
+    dados: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Desativa inscricao push do dispositivo atual."""
+    endpoint = str(dados.get("endpoint") or "").strip()
+    if not endpoint:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Endpoint da inscricao push nao informado.",
+        )
+
+    total_desativadas = deactivate_user_push_subscriptions(
+        db,
+        user_id=current_user.id,
+        endpoint=endpoint,
+        commit=True,
+    )
+    return {
+        "message": "Inscricao push removida com sucesso",
+        "desativadas": int(total_desativadas),
+    }
+
+
+@router.post("/configuracoes/usuario/push/snooze", response_model=dict)
+def adiar_notificacao_push(
+    dados: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Agenda reenvio da notificacao push para o usuario atual (soneca)."""
+    minutos = dados.get("minutes")
+    try:
+        minutos = int(minutos)
+    except Exception:
+        minutos = 15
+    if minutos not in {15, 30, 60}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Soneca invalida. Use 15, 30 ou 60 minutos.",
+        )
+
+    resource_id_raw = dados.get("resource_id")
+    resource_id: Optional[int] = None
+    if resource_id_raw is not None and str(resource_id_raw).strip() != "":
+        try:
+            resource_id = int(resource_id_raw)
+        except Exception:
+            resource_id = None
+
+    row = schedule_push_snooze(
+        db,
+        user_id=current_user.id,
+        minutes=minutos,
+        title=str(dados.get("title") or "").strip(),
+        body=str(dados.get("body") or "").strip(),
+        url=str(dados.get("url") or "").strip() or "/financeiro",
+        module=str(dados.get("module") or "").strip() or "financeiro",
+        action=str(dados.get("action") or "").strip() or "payment_pending",
+        resource_type=str(dados.get("resource_type") or "").strip() or None,
+        resource_id=resource_id,
+        priority=str(dados.get("priority") or "").strip() or None,
+        source_notification_id=str(dados.get("notification_id") or "").strip() or None,
+        commit=True,
+    )
+    send_at = row.send_at.isoformat() if row.send_at else None
+    return {
+        "message": "Notificacao adiada com sucesso.",
+        "id": int(row.id),
+        "minutes": int(row.snooze_minutes or minutos),
+        "send_at": send_at,
+    }
 
 
 @router.post("/configuracoes/usuario/assinatura", response_model=dict)

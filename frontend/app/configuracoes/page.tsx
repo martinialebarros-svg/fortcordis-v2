@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { requestPushSync, syncPushNotificationsNow } from "@/lib/usePushNotifications";
 import {
   AgendaExcecaoConfig,
   AgendaFeriadoConfig,
@@ -52,10 +53,111 @@ interface ConfiguracoesUsuario {
   idioma: string;
   notificacoes_email: boolean;
   notificacoes_push: boolean;
+  notificacoes_push_tipos: string[];
+  notificacoes_push_prioridade_alta_tipos: string[];
+  notificacoes_push_agrupar: boolean;
+  notificacoes_push_lembrete_pendencias: boolean;
+  notificacoes_push_lembrete_horas: number;
+  notificacoes_push_perfil: string;
   tem_assinatura: boolean;
   crmv: string;
   especialidade: string;
 }
+
+const TIPOS_PUSH_AGENDA_OPCOES: Array<{ valor: string; label: string; descricao: string }> = [
+  { valor: "created", label: "Novo agendamento", descricao: "Quando um agendamento for criado." },
+  { valor: "updated", label: "Agendamento atualizado", descricao: "Quando data, horario ou dados forem alterados." },
+  { valor: "status_changed", label: "Mudanca de status", descricao: "Quando o status mudar (confirmado, realizado etc.)." },
+  { valor: "cancelled", label: "Agendamento cancelado", descricao: "Quando o agendamento for marcado como cancelado." },
+  { valor: "deleted", label: "Agendamento excluido", descricao: "Quando um agendamento for removido." },
+];
+
+const TIPOS_PUSH_FINANCEIRO_OPCOES: Array<{ valor: string; label: string; descricao: string }> = [
+  { valor: "os_generated", label: "OS gerada", descricao: "Quando uma ordem de servico for gerada." },
+  { valor: "payment_received", label: "Pagamento recebido", descricao: "Quando uma OS for marcada como paga." },
+  { valor: "os_deleted", label: "OS excluida", descricao: "Quando uma ordem de servico for removida." },
+  { valor: "payment_pending", label: "Lembrete de pendencia", descricao: "Quando a OS segue pendente apos X horas." },
+];
+
+const TIPOS_PUSH_OPCOES = [...TIPOS_PUSH_AGENDA_OPCOES, ...TIPOS_PUSH_FINANCEIRO_OPCOES];
+const TIPOS_PUSH_VALIDOS = new Set(TIPOS_PUSH_OPCOES.map((item) => item.valor));
+const TIPOS_PUSH_PRIORIDADE_ALTA_PADRAO = ["os_deleted", "payment_pending"];
+
+interface PerfilPushPreset {
+  perfil: string;
+  titulo: string;
+  descricao: string;
+  tipos: string[];
+  alta_prioridade: string[];
+  agrupar: boolean;
+  lembrete_pendencias: boolean;
+  lembrete_horas: number;
+}
+
+const PERFIS_PUSH_PRESETS: PerfilPushPreset[] = [
+  {
+    perfil: "recepcao",
+    titulo: "Recepcao",
+    descricao: "Foco em agenda e fluxo geral de atendimento.",
+    tipos: ["created", "updated", "status_changed", "cancelled", "deleted", "os_generated"],
+    alta_prioridade: ["status_changed", "cancelled", "deleted"],
+    agrupar: true,
+    lembrete_pendencias: false,
+    lembrete_horas: 6,
+  },
+  {
+    perfil: "financeiro",
+    titulo: "Financeiro",
+    descricao: "Foco em OS, recebimentos e pendencias de pagamento.",
+    tipos: ["os_generated", "payment_received", "os_deleted", "payment_pending"],
+    alta_prioridade: ["os_deleted", "payment_pending"],
+    agrupar: true,
+    lembrete_pendencias: true,
+    lembrete_horas: 6,
+  },
+  {
+    perfil: "medico",
+    titulo: "Medico",
+    descricao: "Foco em mudancas de agenda e eventos clinicos.",
+    tipos: ["created", "updated", "status_changed", "cancelled", "deleted", "os_generated"],
+    alta_prioridade: ["status_changed", "cancelled"],
+    agrupar: false,
+    lembrete_pendencias: false,
+    lembrete_horas: 8,
+  },
+];
+
+const normalizarTiposPushAgenda = (valor: unknown): string[] => {
+  if (valor == null) {
+    return TIPOS_PUSH_OPCOES.map((item) => item.valor);
+  }
+
+  const bruto = Array.isArray(valor)
+    ? valor
+    : String(valor)
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+  const vistos = new Set<string>();
+  const normalizado: string[] = [];
+  for (const item of bruto) {
+    const chave = String(item || "").trim().toLowerCase();
+    if (!TIPOS_PUSH_VALIDOS.has(chave) || vistos.has(chave)) {
+      continue;
+    }
+    vistos.add(chave);
+    normalizado.push(chave);
+  }
+  return normalizado;
+};
+
+const normalizarTiposPrioridadeAltaPush = (valor: unknown): string[] => {
+  if (valor == null) {
+    return [...TIPOS_PUSH_PRIORIDADE_ALTA_PADRAO];
+  }
+  return normalizarTiposPushAgenda(valor);
+};
 
 interface PapelSistema {
   id: number;
@@ -150,6 +252,12 @@ export default function ConfiguracoesPage() {
     idioma: "pt-BR",
     notificacoes_email: true,
     notificacoes_push: true,
+    notificacoes_push_tipos: TIPOS_PUSH_OPCOES.map((item) => item.valor),
+    notificacoes_push_prioridade_alta_tipos: [...TIPOS_PUSH_PRIORIDADE_ALTA_PADRAO],
+    notificacoes_push_agrupar: true,
+    notificacoes_push_lembrete_pendencias: true,
+    notificacoes_push_lembrete_horas: 6,
+    notificacoes_push_perfil: "custom",
     tem_assinatura: false,
     crmv: "",
     especialidade: "",
@@ -501,7 +609,22 @@ export default function ConfiguracoesPage() {
       // Carregar configuracoes do usuario
       const respUsuario = await api.get("/configuracoes/usuario");
       if (respUsuario.data) {
-        setConfigUsuario((prev) => ({ ...prev, ...respUsuario.data }));
+        const lembreteHoras = Number(respUsuario.data?.notificacoes_push_lembrete_horas ?? 6);
+        setConfigUsuario((prev) => ({
+          ...prev,
+          ...respUsuario.data,
+          notificacoes_push_tipos: normalizarTiposPushAgenda(respUsuario.data?.notificacoes_push_tipos),
+          notificacoes_push_prioridade_alta_tipos: normalizarTiposPrioridadeAltaPush(
+            respUsuario.data?.notificacoes_push_prioridade_alta_tipos
+          ),
+          notificacoes_push_agrupar: respUsuario.data?.notificacoes_push_agrupar !== false,
+          notificacoes_push_lembrete_pendencias:
+            respUsuario.data?.notificacoes_push_lembrete_pendencias !== false,
+          notificacoes_push_lembrete_horas: Number.isFinite(lembreteHoras)
+            ? Math.min(168, Math.max(1, Math.round(lembreteHoras)))
+            : 6,
+          notificacoes_push_perfil: String(respUsuario.data?.notificacoes_push_perfil || "custom"),
+        }));
 
         // Carregar preview da assinatura do usuario se existir
         if (respUsuario.data.tem_assinatura) {
@@ -649,10 +772,116 @@ export default function ConfiguracoesPage() {
     }));
   };
 
+  const alternarTipoPushAgenda = (tipo: string) => {
+    setConfigUsuario((prev) => {
+      const atuais = normalizarTiposPushAgenda(prev.notificacoes_push_tipos);
+      const existe = atuais.includes(tipo);
+      const atualizados = existe
+        ? atuais.filter((item) => item !== tipo)
+        : [...atuais, tipo];
+
+      const ordenados = TIPOS_PUSH_AGENDA_OPCOES
+        .map((item) => item.valor)
+        .filter((item) => atualizados.includes(item));
+
+      const ordenadosFinanceiro = TIPOS_PUSH_FINANCEIRO_OPCOES
+        .map((item) => item.valor)
+        .filter((item) => atualizados.includes(item));
+
+      return {
+        ...prev,
+        notificacoes_push_tipos: [...ordenados, ...ordenadosFinanceiro],
+        notificacoes_push_perfil: "custom",
+      };
+    });
+  };
+
+  const alternarTipoPrioridadeAltaPush = (tipo: string) => {
+    setConfigUsuario((prev) => {
+      const atuais = normalizarTiposPrioridadeAltaPush(prev.notificacoes_push_prioridade_alta_tipos);
+      const existe = atuais.includes(tipo);
+      const atualizados = existe
+        ? atuais.filter((item) => item !== tipo)
+        : [...atuais, tipo];
+      const ordenados = TIPOS_PUSH_OPCOES.map((item) => item.valor).filter((item) => atualizados.includes(item));
+      return {
+        ...prev,
+        notificacoes_push_prioridade_alta_tipos: ordenados,
+        notificacoes_push_perfil: "custom",
+      };
+    });
+  };
+
+  const aplicarPerfilPush = (preset: PerfilPushPreset) => {
+    setConfigUsuario((prev) => ({
+      ...prev,
+      notificacoes_push_tipos: normalizarTiposPushAgenda(preset.tipos),
+      notificacoes_push_prioridade_alta_tipos: normalizarTiposPrioridadeAltaPush(preset.alta_prioridade),
+      notificacoes_push_agrupar: preset.agrupar,
+      notificacoes_push_lembrete_pendencias: preset.lembrete_pendencias,
+      notificacoes_push_lembrete_horas: preset.lembrete_horas,
+      notificacoes_push_perfil: preset.perfil,
+    }));
+  };
+
   const salvarConfigUsuario = async () => {
     try {
       setSalvando(true);
-      await api.put("/configuracoes/usuario", configUsuario);
+      const lembreteHoras = Number(configUsuario.notificacoes_push_lembrete_horas || 6);
+      let proximaConfig = {
+        ...configUsuario,
+        notificacoes_push_tipos: normalizarTiposPushAgenda(configUsuario.notificacoes_push_tipos),
+        notificacoes_push_prioridade_alta_tipos: normalizarTiposPrioridadeAltaPush(
+          configUsuario.notificacoes_push_prioridade_alta_tipos
+        ),
+        notificacoes_push_lembrete_horas: Number.isFinite(lembreteHoras)
+          ? Math.min(168, Math.max(1, Math.round(lembreteHoras)))
+          : 6,
+        notificacoes_push_perfil: String(configUsuario.notificacoes_push_perfil || "custom").toLowerCase(),
+      };
+
+      if (proximaConfig.notificacoes_push && proximaConfig.notificacoes_push_tipos.length === 0) {
+        alert("Selecione pelo menos um tipo de evento para notificacao push.");
+        return;
+      }
+      if (
+        proximaConfig.notificacoes_push &&
+        proximaConfig.notificacoes_push_lembrete_pendencias &&
+        (proximaConfig.notificacoes_push_lembrete_horas < 1 ||
+          proximaConfig.notificacoes_push_lembrete_horas > 168)
+      ) {
+        alert("Defina o lembrete de pendencia entre 1 e 168 horas.");
+        return;
+      }
+
+      if (proximaConfig.notificacoes_push && typeof window !== "undefined") {
+        const suportaPushWeb =
+          window.isSecureContext &&
+          "Notification" in window &&
+          "serviceWorker" in navigator &&
+          "PushManager" in window;
+
+        if (!suportaPushWeb) {
+          proximaConfig = { ...proximaConfig, notificacoes_push: false };
+          setConfigUsuario(proximaConfig);
+          alert("Este navegador/URL nao suporta push web. Use localhost ou HTTPS.");
+        } else if (Notification.permission === "default") {
+          const permissao = await Notification.requestPermission();
+          if (permissao !== "granted") {
+            proximaConfig = { ...proximaConfig, notificacoes_push: false };
+            setConfigUsuario(proximaConfig);
+            alert("Permissao de notificacoes nao concedida. Push foi desativado.");
+          }
+        } else if (Notification.permission === "denied") {
+          proximaConfig = { ...proximaConfig, notificacoes_push: false };
+          setConfigUsuario(proximaConfig);
+          alert("Notificacoes bloqueadas no navegador para este site.");
+        }
+      }
+
+      await api.put("/configuracoes/usuario", proximaConfig);
+      await syncPushNotificationsNow(false);
+      requestPushSync(proximaConfig.notificacoes_push);
       alert("ConfiguraÃ§Ãµes pessoais salvas com sucesso!");
     } catch (error) {
       alert("Erro ao salvar configuraÃ§Ãµes pessoais.");
@@ -842,7 +1071,7 @@ export default function ConfiguracoesPage() {
                   </label>
                   <input
                     type="text"
-                    value={configEmpresa.nome_empresa}
+                    value={configEmpresa.nome_empresa ?? ""}
                     onChange={(e) => setConfigEmpresa({ ...configEmpresa, nome_empresa: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                   />
@@ -854,7 +1083,7 @@ export default function ConfiguracoesPage() {
                   </label>
                   <input
                     type="email"
-                    value={configEmpresa.email}
+                    value={configEmpresa.email ?? ""}
                     onChange={(e) => setConfigEmpresa({ ...configEmpresa, email: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                   />
@@ -866,7 +1095,7 @@ export default function ConfiguracoesPage() {
                   </label>
                   <input
                     type="text"
-                    value={configEmpresa.telefone}
+                    value={configEmpresa.telefone ?? ""}
                     onChange={(e) => setConfigEmpresa({ ...configEmpresa, telefone: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                   />
@@ -878,7 +1107,7 @@ export default function ConfiguracoesPage() {
                   </label>
                   <input
                     type="text"
-                    value={configEmpresa.website}
+                    value={configEmpresa.website ?? ""}
                     onChange={(e) => setConfigEmpresa({ ...configEmpresa, website: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                   />
@@ -890,7 +1119,7 @@ export default function ConfiguracoesPage() {
                   </label>
                   <input
                     type="text"
-                    value={configEmpresa.endereco}
+                    value={configEmpresa.endereco ?? ""}
                     onChange={(e) => setConfigEmpresa({ ...configEmpresa, endereco: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                   />
@@ -902,7 +1131,7 @@ export default function ConfiguracoesPage() {
                   </label>
                   <input
                     type="text"
-                    value={configEmpresa.cidade}
+                    value={configEmpresa.cidade ?? ""}
                     onChange={(e) => setConfigEmpresa({ ...configEmpresa, cidade: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                   />
@@ -915,7 +1144,7 @@ export default function ConfiguracoesPage() {
                   <input
                     type="text"
                     maxLength={2}
-                    value={configEmpresa.estado}
+                    value={configEmpresa.estado ?? ""}
                     onChange={(e) => setConfigEmpresa({ ...configEmpresa, estado: e.target.value.toUpperCase() })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                   />
@@ -1316,7 +1545,7 @@ export default function ConfiguracoesPage() {
             <div className="bg-white rounded-lg shadow-sm border p-6">
               <h2 className="text-lg font-semibold mb-4">Texto do RodapÃ© do Laudo</h2>
               <textarea
-                value={configEmpresa.texto_rodape_laudo}
+                value={configEmpresa.texto_rodape_laudo ?? ""}
                 onChange={(e) => setConfigEmpresa({ ...configEmpresa, texto_rodape_laudo: e.target.value })}
                 rows={2}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
@@ -1341,7 +1570,7 @@ export default function ConfiguracoesPage() {
                   </label>
                   <input
                     type="text"
-                    value={configUsuario.crmv}
+                    value={configUsuario.crmv ?? ""}
                     onChange={(e) => setConfigUsuario({ ...configUsuario, crmv: e.target.value })}
                     placeholder="Ex: CE-1234"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
@@ -1357,7 +1586,7 @@ export default function ConfiguracoesPage() {
                   </label>
                   <input
                     type="text"
-                    value={configUsuario.especialidade}
+                    value={configUsuario.especialidade ?? ""}
                     onChange={(e) => setConfigUsuario({ ...configUsuario, especialidade: e.target.value })}
                     placeholder="Ex: Cardiologia VeterinÃ¡ria"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
@@ -1430,6 +1659,183 @@ export default function ConfiguracoesPage() {
                   <label htmlFor="notif_push" className="text-sm text-gray-700">
                     Receber notificaÃ§Ãµes push
                   </label>
+                </div>
+
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-600">
+                    Perfil rapido de notificacao
+                  </p>
+                  <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-3">
+                    {PERFIS_PUSH_PRESETS.map((preset) => {
+                      const selecionado =
+                        String(configUsuario.notificacoes_push_perfil || "custom").toLowerCase() === preset.perfil;
+                      return (
+                        <button
+                          key={preset.perfil}
+                          type="button"
+                          onClick={() => aplicarPerfilPush(preset)}
+                          disabled={!configUsuario.notificacoes_push}
+                          className={`rounded-lg border px-3 py-2 text-left transition ${
+                            !configUsuario.notificacoes_push
+                              ? "cursor-not-allowed opacity-60"
+                              : selecionado
+                                ? "border-teal-600 bg-teal-50"
+                                : "border-gray-200 bg-white hover:border-teal-300"
+                          }`}
+                        >
+                          <p className="text-sm font-semibold text-gray-800">{preset.titulo}</p>
+                          <p className="text-xs text-gray-500">{preset.descricao}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-600">
+                    Eventos da agenda para push
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    {TIPOS_PUSH_AGENDA_OPCOES.map((opcao) => (
+                      <label
+                        key={opcao.valor}
+                        className={`flex items-start gap-2 rounded-md px-2 py-1 ${
+                          configUsuario.notificacoes_push ? "cursor-pointer" : "cursor-not-allowed opacity-60"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={normalizarTiposPushAgenda(configUsuario.notificacoes_push_tipos).includes(opcao.valor)}
+                          disabled={!configUsuario.notificacoes_push}
+                          onChange={() => alternarTipoPushAgenda(opcao.valor)}
+                          className="mt-0.5 h-4 w-4 text-teal-600"
+                        />
+                        <span>
+                          <span className="block text-sm text-gray-800">{opcao.label}</span>
+                          <span className="block text-xs text-gray-500">{opcao.descricao}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-600">
+                    Eventos do financeiro para push
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    {TIPOS_PUSH_FINANCEIRO_OPCOES.map((opcao) => (
+                      <label
+                        key={opcao.valor}
+                        className={`flex items-start gap-2 rounded-md px-2 py-1 ${
+                          configUsuario.notificacoes_push ? "cursor-pointer" : "cursor-not-allowed opacity-60"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={normalizarTiposPushAgenda(configUsuario.notificacoes_push_tipos).includes(opcao.valor)}
+                          disabled={!configUsuario.notificacoes_push}
+                          onChange={() => alternarTipoPushAgenda(opcao.valor)}
+                          className="mt-0.5 h-4 w-4 text-teal-600"
+                        />
+                        <span>
+                          <span className="block text-sm text-gray-800">{opcao.label}</span>
+                          <span className="block text-xs text-gray-500">{opcao.descricao}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-600">
+                    Prioridade alta (item 1)
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Eventos marcados como alta prioridade usam destaque visual e alerta reforcado.
+                  </p>
+                  <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                    {TIPOS_PUSH_OPCOES.map((opcao) => (
+                      <label
+                        key={`prioridade-${opcao.valor}`}
+                        className={`flex items-start gap-2 rounded-md px-2 py-1 ${
+                          configUsuario.notificacoes_push ? "cursor-pointer" : "cursor-not-allowed opacity-60"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={normalizarTiposPrioridadeAltaPush(
+                            configUsuario.notificacoes_push_prioridade_alta_tipos
+                          ).includes(opcao.valor)}
+                          disabled={!configUsuario.notificacoes_push}
+                          onChange={() => alternarTipoPrioridadeAltaPush(opcao.valor)}
+                          className="mt-0.5 h-4 w-4 text-amber-600"
+                        />
+                        <span className="text-sm text-gray-800">{opcao.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-600">
+                    Automacoes (itens 3, 4 e 6)
+                  </p>
+                  <div className="mt-3 space-y-3">
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={configUsuario.notificacoes_push_agrupar}
+                        disabled={!configUsuario.notificacoes_push}
+                        onChange={(e) =>
+                          setConfigUsuario((prev) => ({
+                            ...prev,
+                            notificacoes_push_agrupar: e.target.checked,
+                            notificacoes_push_perfil: "custom",
+                          }))
+                        }
+                        className="h-4 w-4 text-teal-600"
+                      />
+                      Agrupar notificacoes semelhantes em sequencia (reduz spam)
+                    </label>
+
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={configUsuario.notificacoes_push_lembrete_pendencias}
+                        disabled={!configUsuario.notificacoes_push}
+                        onChange={(e) =>
+                          setConfigUsuario((prev) => ({
+                            ...prev,
+                            notificacoes_push_lembrete_pendencias: e.target.checked,
+                            notificacoes_push_perfil: "custom",
+                          }))
+                        }
+                        className="h-4 w-4 text-teal-600"
+                      />
+                      Enviar lembrete automatico de OS pendente de pagamento
+                    </label>
+
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-700">Lembrar apos</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={168}
+                        disabled={!configUsuario.notificacoes_push || !configUsuario.notificacoes_push_lembrete_pendencias}
+                        value={configUsuario.notificacoes_push_lembrete_horas}
+                        onChange={(e) =>
+                          setConfigUsuario((prev) => ({
+                            ...prev,
+                            notificacoes_push_lembrete_horas: Number(e.target.value || 6),
+                            notificacoes_push_perfil: "custom",
+                          }))
+                        }
+                        className="w-24 rounded-md border border-gray-300 px-2 py-1 text-sm"
+                      />
+                      <span className="text-sm text-gray-600">hora(s)</span>
+                    </div>
+                  </div>
                 </div>
               </div>
               

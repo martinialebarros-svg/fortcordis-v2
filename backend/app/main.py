@@ -41,6 +41,10 @@ from app.services.upload_dedupe_cleanup_service import (
     shutdown_upload_dedupe_cleanup_worker,
     start_upload_dedupe_cleanup_worker,
 )
+from app.services.push_scheduler_service import (
+    shutdown_push_scheduler_worker,
+    start_push_scheduler_worker,
+)
 from app.services.runtime_observability import record_http_status
 from app.services.xml_import_jobs import (
     restart_incomplete_xml_import_jobs,
@@ -63,6 +67,14 @@ def _ensure_financeiro_schema_compat() -> None:
         "contas_pagar": {"clinica_id": "INTEGER"},
         "contas_receber": {"clinica_id": "INTEGER"},
         "custos_frota": {"veiculo_id": "INTEGER"},
+        "configuracoes_usuario": {
+            "notificacoes_push_tipos": "TEXT",
+            "notificacoes_push_prioridade_alta_tipos": "TEXT",
+            "notificacoes_push_agrupar": "BOOLEAN",
+            "notificacoes_push_lembrete_pendencias": "BOOLEAN",
+            "notificacoes_push_lembrete_horas": "INTEGER",
+            "notificacoes_push_perfil": "VARCHAR(30)",
+        },
     }
 
     try:
@@ -94,11 +106,94 @@ def _ensure_financeiro_schema_compat() -> None:
                 TelemetriaFrotaMensal,
                 VeiculoFrota,
             )
+            from app.models.push_scheduled_notification import PushScheduledNotification
+            from app.models.push_subscription import PushSubscription
 
             CustoFrota.__table__.create(bind=conn, checkfirst=True)
             VeiculoFrota.__table__.create(bind=conn, checkfirst=True)
             TelemetriaFrotaMensal.__table__.create(bind=conn, checkfirst=True)
             ConfigRateioFrota.__table__.create(bind=conn, checkfirst=True)
+            PushSubscription.__table__.create(bind=conn, checkfirst=True)
+            PushScheduledNotification.__table__.create(bind=conn, checkfirst=True)
+            inspector = inspect(conn)
+            if "configuracoes_usuario" in inspector.get_table_names():
+                conn.execute(
+                    text(
+                        """
+                        UPDATE configuracoes_usuario
+                        SET notificacoes_push_tipos = 'created,updated,status_changed,cancelled,deleted,os_generated,payment_received,os_deleted,payment_pending'
+                        WHERE notificacoes_push_tipos IS NULL
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        UPDATE configuracoes_usuario
+                        SET notificacoes_push_tipos = TRIM(notificacoes_push_tipos) || ',cancelled'
+                        WHERE notificacoes_push_tipos IS NOT NULL
+                          AND TRIM(notificacoes_push_tipos) <> ''
+                          AND LOWER(notificacoes_push_tipos) NOT LIKE '%cancelled%'
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        UPDATE configuracoes_usuario
+                        SET notificacoes_push_tipos = TRIM(notificacoes_push_tipos) || ',payment_pending'
+                        WHERE notificacoes_push_tipos IS NOT NULL
+                          AND TRIM(notificacoes_push_tipos) <> ''
+                          AND LOWER(notificacoes_push_tipos) NOT LIKE '%payment_pending%'
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        UPDATE configuracoes_usuario
+                        SET notificacoes_push_prioridade_alta_tipos = 'os_deleted,payment_pending'
+                        WHERE notificacoes_push_prioridade_alta_tipos IS NULL
+                           OR TRIM(notificacoes_push_prioridade_alta_tipos) = ''
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        UPDATE configuracoes_usuario
+                        SET notificacoes_push_agrupar = TRUE
+                        WHERE notificacoes_push_agrupar IS NULL
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        UPDATE configuracoes_usuario
+                        SET notificacoes_push_lembrete_pendencias = TRUE
+                        WHERE notificacoes_push_lembrete_pendencias IS NULL
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        UPDATE configuracoes_usuario
+                        SET notificacoes_push_lembrete_horas = 6
+                        WHERE notificacoes_push_lembrete_horas IS NULL
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        UPDATE configuracoes_usuario
+                        SET notificacoes_push_perfil = 'custom'
+                        WHERE notificacoes_push_perfil IS NULL OR TRIM(notificacoes_push_perfil) = ''
+                        """
+                    )
+                )
     except Exception as exc:
         print(f"[schema-compat] Falha ao validar schema financeiro: {exc}")
 
@@ -168,6 +263,7 @@ def startup_schema_compatibility() -> None:
     restart_incomplete_laudo_pdf_jobs()
     restart_incomplete_xml_import_jobs()
     start_upload_dedupe_cleanup_worker()
+    start_push_scheduler_worker()
 
 
 @app.on_event("shutdown")
@@ -175,6 +271,7 @@ def shutdown_background_workers() -> None:
     shutdown_laudo_pdf_jobs()
     shutdown_xml_import_jobs()
     shutdown_upload_dedupe_cleanup_worker()
+    shutdown_push_scheduler_worker()
 
 
 # WebSocket endpoint
@@ -212,10 +309,12 @@ def _health_payload(report: dict) -> dict:
             },
             "integrations": {
                 "google_maps_configured": report["integrations"].get("google_maps_configured"),
+                "web_push_configured": report["integrations"].get("web_push_configured"),
             },
             "observability": {
                 "http_5xx_monitor": report["observability"].get("http_5xx_monitor"),
                 "upload_dedupe_cleanup_worker": report["observability"].get("upload_dedupe_cleanup_worker"),
+                "push_scheduler_worker": report["observability"].get("push_scheduler_worker"),
             },
         },
         "compatibility_modes": report["compatibility_modes"],
