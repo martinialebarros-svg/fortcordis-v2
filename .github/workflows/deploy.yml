@@ -39,6 +39,7 @@ jobs:
             exit 1
           fi
 
+          cd "$APP_DIR"
           echo "Running standardized production deploy script..."
           SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' APP_DIR="$APP_DIR" BRANCH="$BRANCH" bash scripts/deploy_prod_vps.sh
         EOF
