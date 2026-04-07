@@ -1,0 +1,53 @@
+import "dotenv/config";
+import fs from "fs/promises";
+import path from "path";
+import { Client } from "pg";
+
+async function runMigration(): Promise<void> {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required");
+  }
+
+  const sqlPath = path.resolve(__dirname, "../../migrations/init.sql");
+  const sql = await fs.readFile(sqlPath, "utf8");
+
+  const client = new Client({ connectionString: databaseUrl });
+
+  await client.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(sql);
+    await client.query("COMMIT");
+    console.log("Migration applied successfully.");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    await client.end();
+  }
+}
+
+void runMigration().catch((error: unknown) => {
+  if (error instanceof Error) {
+    console.error("Migration failed:", error.message);
+    const maybeAggregate = error as Error & { errors?: unknown[] };
+    if (Array.isArray(maybeAggregate.errors) && maybeAggregate.errors.length > 0) {
+      console.error("Inner errors:");
+      for (const inner of maybeAggregate.errors) {
+        if (inner instanceof Error) {
+          console.error(`- ${inner.name}: ${inner.message}`);
+        } else {
+          console.error("-", inner);
+        }
+      }
+    }
+    if (error.stack) {
+      console.error(error.stack);
+    }
+  } else {
+    console.error("Migration failed with non-Error object:", error);
+  }
+  process.exit(1);
+});
