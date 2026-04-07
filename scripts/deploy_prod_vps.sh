@@ -17,6 +17,11 @@ set -euo pipefail
 #   BACKEND_PORT=8000
 #   FRONTEND_PORT=3000
 #   PUBLIC_URL=https://app.fortcordis.com.br
+#   ENABLE_WHATSAPP_STAGE_BACKEND=1
+#   WHATSAPP_STAGE_BACKEND_SERVICE=fortcordis-stage-whatsapp-backend
+#   WHATSAPP_STAGE_BACKEND_PORT=3010
+#   WHATSAPP_STAGE_BACKEND_URL=http://127.0.0.1:3010
+#   ENABLE_WHATSAPP_STAGE_SMOKE=1
 #   AUTO_ROLLBACK_ON_FAILURE=1
 #   ENABLE_AUTH_CANARY=1
 #   AUTH_CANARY_TIMEOUT_SECONDS=8
@@ -42,6 +47,13 @@ BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 API_BACKEND_URL="${API_BACKEND_URL:-http://127.0.0.1:${BACKEND_PORT}}"
 PUBLIC_URL="${PUBLIC_URL:-https://app.fortcordis.com.br}"
+ENABLE_WHATSAPP_STAGE_BACKEND="${ENABLE_WHATSAPP_STAGE_BACKEND:-0}"
+WHATSAPP_STAGE_BACKEND_SERVICE="${WHATSAPP_STAGE_BACKEND_SERVICE:-fortcordis-stage-whatsapp-backend}"
+WHATSAPP_STAGE_BACKEND_PORT="${WHATSAPP_STAGE_BACKEND_PORT:-3010}"
+WHATSAPP_STAGE_BACKEND_URL="${WHATSAPP_STAGE_BACKEND_URL:-http://127.0.0.1:${WHATSAPP_STAGE_BACKEND_PORT}}"
+WHATSAPP_STAGE_BACKEND_DIR="${WHATSAPP_STAGE_BACKEND_DIR:-${APP_DIR}/whatsapp-stage-backend}"
+WHATSAPP_STAGE_BACKEND_ENV_FILE="${WHATSAPP_STAGE_BACKEND_ENV_FILE:-${WHATSAPP_STAGE_BACKEND_DIR}/.env}"
+ENABLE_WHATSAPP_STAGE_SMOKE="${ENABLE_WHATSAPP_STAGE_SMOKE:-1}"
 
 RUNTIME_BACKUP_DIR="${RUNTIME_BACKUP_DIR:-$HOME/fortcordis-runtime-backups}"
 AUTO_ROLLBACK_ON_FAILURE="${AUTO_ROLLBACK_ON_FAILURE:-1}"
@@ -56,6 +68,7 @@ NEW_HASH=""
 CODE_UPDATED=0
 DEPLOY_STAGE="bootstrap"
 ROLLBACK_IN_PROGRESS=0
+NPM_BIN="/usr/bin/npm"
 
 log() {
   printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"
@@ -171,6 +184,157 @@ reload_nginx_if_possible() {
   return 0
 }
 
+run_systemctl_command() {
+  local action="$1"
+  shift
+
+  if run_with_sudo "$SYSTEMCTL_BIN" "$action" "$@"; then
+    return 0
+  fi
+
+  "$SYSTEMCTL_BIN" "$action" "$@"
+}
+
+run_frontend_build() {
+  rm -rf .next
+  npm ci
+
+  if [[ "${ENABLE_WHATSAPP_STAGE_BACKEND}" == "1" ]]; then
+    API_BACKEND_URL="$API_BACKEND_URL" \
+      WHATSAPP_STAGE_BACKEND_URL="$WHATSAPP_STAGE_BACKEND_URL" \
+      npm run build
+    return 0
+  fi
+
+  API_BACKEND_URL="$API_BACKEND_URL" npm run build
+}
+
+read_env_file_value() {
+  local env_file="$1"
+  local key="$2"
+  local default_value="${3:-}"
+
+  if [[ ! -f "$env_file" ]]; then
+    printf '%s' "$default_value"
+    return 0
+  fi
+
+  local line
+  line="$(grep -E "^${key}=" "$env_file" | tail -n 1 || true)"
+  if [[ -z "$line" ]]; then
+    printf '%s' "$default_value"
+    return 0
+  fi
+
+  local value
+  value="${line#*=}"
+  value="$(printf '%s' "$value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  value="$(printf '%s' "$value" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")"
+  printf '%s' "$value"
+}
+
+ensure_whatsapp_stage_env_file() {
+  if [[ -f "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" ]]; then
+    return 0
+  fi
+
+  local backend_database_url
+  backend_database_url="$(read_env_file_value "${BACKEND_DIR}/.env" "DATABASE_URL" "")"
+  if [[ -z "${backend_database_url}" ]]; then
+    echo "[ERROR] Could not infer DATABASE_URL from ${BACKEND_DIR}/.env for WhatsApp stage backend." >&2
+    return 1
+  fi
+
+  mkdir -p "$(dirname "${WHATSAPP_STAGE_BACKEND_ENV_FILE}")"
+  cat > "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" <<EOF
+PORT=${WHATSAPP_STAGE_BACKEND_PORT}
+DATABASE_URL=${backend_database_url}
+WHATSAPP_ACCESS_TOKEN=stage_access_token_placeholder
+PHONE_NUMBER_ID=stage_phone_number_id
+WHATSAPP_VERIFY_TOKEN=stage_verify_token
+WHATSAPP_APP_SECRET=stage_app_secret
+NODE_ENV=production
+WEBHOOK_ALLOW_UNSIGNED=false
+EOF
+  log "Created ${WHATSAPP_STAGE_BACKEND_ENV_FILE} with stage-safe placeholders."
+}
+
+ensure_whatsapp_stage_service_unit() {
+  local unit_path="/etc/systemd/system/${WHATSAPP_STAGE_BACKEND_SERVICE}.service"
+  local temp_unit="${APP_DIR}/.tmp.${WHATSAPP_STAGE_BACKEND_SERVICE}.service"
+
+  cat > "${temp_unit}" <<EOF
+[Unit]
+Description=FortCordis WhatsApp Stage Backend
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=${WHATSAPP_STAGE_BACKEND_DIR}
+EnvironmentFile=${WHATSAPP_STAGE_BACKEND_ENV_FILE}
+Environment=NODE_ENV=production
+ExecStart=${NPM_BIN} run start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  if run_with_sudo install -m 0644 "${temp_unit}" "${unit_path}"; then
+    :
+  else
+    install -m 0644 "${temp_unit}" "${unit_path}"
+  fi
+  rm -f "${temp_unit}"
+
+  run_systemctl_command daemon-reload
+  run_systemctl_command enable "${WHATSAPP_STAGE_BACKEND_SERVICE}"
+}
+
+deploy_whatsapp_stage_backend() {
+  if [[ "${ENABLE_WHATSAPP_STAGE_BACKEND}" != "1" ]]; then
+    return 0
+  fi
+
+  if [[ ! -d "${WHATSAPP_STAGE_BACKEND_DIR}" ]]; then
+    echo "[ERROR] WhatsApp stage backend dir not found: ${WHATSAPP_STAGE_BACKEND_DIR}" >&2
+    return 1
+  fi
+
+  ensure_whatsapp_stage_env_file
+  ensure_whatsapp_stage_service_unit
+
+  log "WhatsApp stage backend: install deps + migrations"
+  cd "${WHATSAPP_STAGE_BACKEND_DIR}"
+  npm ci
+  npm run build
+  npm run migrate
+
+  restart_service "${WHATSAPP_STAGE_BACKEND_SERVICE}"
+  sleep 3
+  if ! wait_http_ok "http://127.0.0.1:${WHATSAPP_STAGE_BACKEND_PORT}/health" 25 1; then
+    echo "[ERROR] WhatsApp stage backend health check failed." >&2
+    print_service_diagnostics "${WHATSAPP_STAGE_BACKEND_SERVICE}"
+    return 1
+  fi
+  log "WhatsApp stage backend health OK"
+
+  if [[ "${ENABLE_WHATSAPP_STAGE_SMOKE}" == "1" && -f "${WHATSAPP_STAGE_BACKEND_DIR}/scripts/smoke-tests.sh" ]]; then
+    local verify_token app_secret access_token
+    verify_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "stage_verify_token")"
+    app_secret="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "stage_app_secret")"
+    access_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ACCESS_TOKEN" "stage_access_token_placeholder")"
+
+    log "WhatsApp stage backend smoke tests"
+    BASE_URL="http://127.0.0.1:${WHATSAPP_STAGE_BACKEND_PORT}" \
+      WHATSAPP_VERIFY_TOKEN="${verify_token}" \
+      WHATSAPP_APP_SECRET="${app_secret}" \
+      WHATSAPP_ACCESS_TOKEN="${access_token}" \
+      bash "${WHATSAPP_STAGE_BACKEND_DIR}/scripts/smoke-tests.sh"
+  fi
+}
+
 backup_runtime_file() {
   local rel_path="$1"
   local src="${APP_DIR}/${rel_path}"
@@ -233,9 +397,7 @@ rollback_deploy() {
   fi
 
   cd "$FRONTEND_DIR"
-  rm -rf .next
-  npm ci
-  API_BACKEND_URL="$API_BACKEND_URL" npm run build
+  run_frontend_build
   if [[ ! -f "${FRONTEND_DIR}/.next/BUILD_ID" ]]; then
     echo "[ERROR] Rollback frontend build missing .next/BUILD_ID" >&2
     return 1
@@ -307,6 +469,7 @@ require_cmd git
 require_cmd curl
 require_cmd npm
 require_cmd python3
+NPM_BIN="$(command -v npm)"
 
 SYSTEMCTL_BIN="$(resolve_systemctl_bin)"
 if [[ -z "$SYSTEMCTL_BIN" ]]; then
@@ -379,13 +542,14 @@ if ! wait_http_ok "http://127.0.0.1:${BACKEND_PORT}/health" 25 1; then
 fi
 log "Backend health OK"
 
+DEPLOY_STAGE="whatsapp_stage_backend"
+deploy_whatsapp_stage_backend
+
 DEPLOY_STAGE="frontend_build"
 log "Frontend: clean build + restart"
 cd "$FRONTEND_DIR"
 
-rm -rf .next
-npm ci
-API_BACKEND_URL="$API_BACKEND_URL" npm run build
+run_frontend_build
 
 if [[ ! -f "${FRONTEND_DIR}/.next/BUILD_ID" ]]; then
   echo "[ERROR] Frontend build missing .next/BUILD_ID" >&2
