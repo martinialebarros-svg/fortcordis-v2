@@ -24,6 +24,7 @@ const APP_ROUTE_PREFIXES = [
   "/pacientes",
   "/referencias-eco",
   "/servicos",
+  "/whatsapp-stage",
   "/ultrassonografia-abdominal",
 ];
 
