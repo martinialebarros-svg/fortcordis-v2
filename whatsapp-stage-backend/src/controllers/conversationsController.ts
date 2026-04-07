@@ -260,7 +260,7 @@ export async function claimConversation(req: Request, res: Response): Promise<vo
 
   const result = await withTransaction(async (client) => {
     const conversation = await client.query<{ id: string }>(
-      `SELECT id FROM conversations WHERE id = $1`,
+      `SELECT id FROM conversations WHERE id = $1 FOR UPDATE`,
       [conversationId]
     );
 
@@ -279,13 +279,23 @@ export async function claimConversation(req: Request, res: Response): Promise<vo
 
     await client.query(
       `
+        SELECT id
+        FROM conversation_participants
+        WHERE conversation_id = $1
+          AND left_at IS NULL
+        FOR UPDATE
+      `,
+      [conversationId]
+    );
+
+    await client.query(
+      `
         UPDATE conversation_participants
         SET left_at = now()
         WHERE conversation_id = $1
-          AND agent_id = $2
           AND left_at IS NULL
       `,
-      [conversationId, agentId]
+      [conversationId]
     );
 
     const participant = await client.query<{ id: string }>(
@@ -317,7 +327,14 @@ export async function claimConversation(req: Request, res: Response): Promise<vo
         INSERT INTO audit_logs (conversation_id, agent_id, action, payload, created_at)
         VALUES ($1, $2, 'claim', $3::jsonb, now())
       `,
-      [conversationId, agentId, JSON.stringify({ source: "api.claim" })]
+      [
+        conversationId,
+        agentId,
+        JSON.stringify({
+          source: "api.claim",
+          note: "conversation row locked with FOR UPDATE before claim"
+        })
+      ]
     );
 
     return { participantId: participant.rows[0].id };
@@ -350,13 +367,24 @@ export async function unclaimConversation(req: Request, res: Response): Promise<
 
   const result = await withTransaction(async (client) => {
     const conversation = await client.query<{ id: string; last_agent_id: string | null }>(
-      `SELECT id, last_agent_id FROM conversations WHERE id = $1`,
+      `SELECT id, last_agent_id FROM conversations WHERE id = $1 FOR UPDATE`,
       [conversationId]
     );
 
     if (conversation.rowCount === 0) {
       return { notFound: "conversation" as const };
     }
+
+    await client.query(
+      `
+        SELECT id
+        FROM conversation_participants
+        WHERE conversation_id = $1
+          AND left_at IS NULL
+        FOR UPDATE
+      `,
+      [conversationId]
+    );
 
     const participants = await client.query<{ id: string }>(
       `
@@ -390,7 +418,14 @@ export async function unclaimConversation(req: Request, res: Response): Promise<
         INSERT INTO audit_logs (conversation_id, agent_id, action, payload, created_at)
         VALUES ($1, $2, 'unclaim', $3::jsonb, now())
       `,
-      [conversationId, agentId, JSON.stringify({ source: "api.unclaim" })]
+      [
+        conversationId,
+        agentId,
+        JSON.stringify({
+          source: "api.unclaim",
+          note: "conversation row locked with FOR UPDATE before unclaim"
+        })
+      ]
     );
 
     return { affected: participants.rowCount };

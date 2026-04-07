@@ -1,19 +1,114 @@
 import axios, { AxiosError } from "axios";
 import { logger } from "../utils/logger";
 
-const GRAPH_API_BASE_URL = "https://graph.facebook.com/v17.0";
+const graphApiVersion = process.env.WHATSAPP_GRAPH_API_VERSION || "v17.0";
+const GRAPH_API_BASE_URL = `https://graph.facebook.com/${graphApiVersion}`;
 const DEFAULT_TIMEOUT_MS = 10000;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function computeBackoffWithJitter(attempt: number): number {
+  const baseMs = 300 * 2 ** (attempt - 1);
+  const jitterMs = Math.floor(Math.random() * 125);
+  return baseMs + jitterMs;
+}
+
 function shouldRetry(error: AxiosError): boolean {
-  if (error.code === "ECONNABORTED" || !error.response) {
+  const status = error.response?.status;
+
+  if (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT") {
     return true;
   }
 
-  return error.response.status >= 500;
+  if (!error.response) {
+    return true;
+  }
+
+  if (status === 429) {
+    return true;
+  }
+
+  return typeof status === "number" && status >= 500;
+}
+
+function extractMetaError(data: unknown): { code?: string; message?: string } {
+  if (!data || typeof data !== "object") {
+    return {};
+  }
+
+  const maybeError = (data as { error?: unknown }).error;
+  if (!maybeError || typeof maybeError !== "object") {
+    return {};
+  }
+
+  const codeRaw = (maybeError as { code?: unknown }).code;
+  const messageRaw = (maybeError as { message?: unknown }).message;
+
+  return {
+    code: codeRaw !== undefined ? String(codeRaw) : undefined,
+    message: typeof messageRaw === "string" ? messageRaw : undefined
+  };
+}
+
+export class WhatsAppGraphApiError extends Error {
+  status?: number;
+  code?: string;
+  responseBody?: unknown;
+  providerMessage?: string;
+  isRetryable: boolean;
+  attempt: number;
+
+  constructor(params: {
+    message: string;
+    status?: number;
+    code?: string;
+    responseBody?: unknown;
+    providerMessage?: string;
+    isRetryable: boolean;
+    attempt: number;
+  }) {
+    super(params.message);
+    this.name = "WhatsAppGraphApiError";
+    this.status = params.status;
+    this.code = params.code;
+    this.responseBody = params.responseBody;
+    this.providerMessage = params.providerMessage;
+    this.isRetryable = params.isRetryable;
+    this.attempt = params.attempt;
+  }
+
+  get response(): { status?: number; data?: unknown } | undefined {
+    if (this.status === undefined && this.responseBody === undefined) {
+      return undefined;
+    }
+
+    return {
+      status: this.status,
+      data: this.responseBody
+    };
+  }
+}
+
+function normalizeAxiosError(error: AxiosError, attempt: number): WhatsAppGraphApiError {
+  const status = error.response?.status;
+  const responseBody = error.response?.data;
+  const meta = extractMetaError(responseBody);
+  const retryable = shouldRetry(error);
+
+  const providerMessage = meta.message || (typeof error.message === "string" ? error.message : "Unknown Graph API error");
+  const message = `WhatsApp Graph API request failed${status ? ` (HTTP ${status})` : ""}: ${providerMessage}`;
+
+  return new WhatsAppGraphApiError({
+    message,
+    status,
+    code: meta.code || error.code || undefined,
+    responseBody,
+    providerMessage,
+    isRetryable: retryable,
+    attempt
+  });
 }
 
 interface SendTextMessageParams {
@@ -28,6 +123,7 @@ interface GraphMessageResponse {
   messaging_product: string;
   contacts?: Array<{ input: string; wa_id: string }>;
   messages?: Array<{ id: string }>;
+  [key: string]: unknown;
 }
 
 export async function sendWhatsAppMessageWithRetry(
@@ -65,17 +161,19 @@ export async function sendWhatsAppMessageWithRetry(
       return response.data;
     } catch (error) {
       const axiosError = error as AxiosError;
+      const normalizedError = normalizeAxiosError(axiosError, attempt);
 
-      if (attempt >= maxAttempts || !shouldRetry(axiosError)) {
-        throw error;
+      if (attempt >= maxAttempts || !normalizedError.isRetryable) {
+        throw normalizedError;
       }
 
-      const backoffMs = 300 * 2 ** (attempt - 1);
+      const backoffMs = computeBackoffWithJitter(attempt);
       logger.warn("Retrying Graph API request", {
         attempt,
         nextWaitMs: backoffMs,
-        status: axiosError.response?.status,
-        code: axiosError.code
+        status: normalizedError.status,
+        code: normalizedError.code,
+        providerMessage: normalizedError.providerMessage
       });
 
       await wait(backoffMs);

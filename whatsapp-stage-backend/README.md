@@ -1,4 +1,4 @@
-# WhatsApp Stage Backend (Node.js + TypeScript)
+ï»¿# WhatsApp Stage Backend (Node.js + TypeScript)
 
 Backend minimal para stage local, integrando com WhatsApp Cloud API (Meta), com webhook validado por assinatura, persistencia em Postgres e endpoints de conversa/agente.
 
@@ -20,16 +20,17 @@ Backend minimal para stage local, integrando com WhatsApp Cloud API (Meta), com 
 +- tsconfig.json
 +- .env.example
 +- migrations/
-¦  +- init.sql
+Â¦  +- init.sql
 +- scripts/
-¦  +- smoke-tests.sh
+Â¦  +- smoke-tests.sh
+Â¦  +- test-whatsapp-retry.ts
 +- src/
    +- app.ts
    +- index.ts
    +- controllers/
    +- services/
    +- db/
-   ¦  +- migrate.ts
+   Â¦  +- migrate.ts
    +- models/
    +- utils/
 ```
@@ -70,6 +71,15 @@ npm run dev
 
 API sobe em `http://localhost:3000` por padrao.
 
+## Robustez de webhook e mensageria
+
+- `POST /webhook` persiste evento bruto em `webhook_events` antes de processar (`payload_hash` SHA-256 do raw body).
+- Eventos duplicados sao deduplicados por `payload_hash`.
+- Processamento usa bloqueio transacional (`FOR UPDATE`) por `webhook_events.id`.
+- Mensagens inbound usam `ON CONFLICT (wa_message_id) DO NOTHING`.
+- Status inbound atualiza `messages.status` e grava historico em `message_status_events`.
+- Claim/unclaim usa transacao + lock da conversa para reduzir race conditions.
+
 ## Rodar tudo via Docker Compose (opcional)
 
 ```bash
@@ -90,16 +100,39 @@ docker-compose up -d --build
 
 ## Smoke tests
 
-O script inclui validacao de assinatura no webhook e testes basicos de fluxo:
+O script inclui:
+
+- verificacao `GET /webhook`
+- assinatura invalida (`401`)
+- webhook duplicado (idempotencia de `webhook_events` + `messages`)
+- upsert de conversa com disparos concorrentes
+- historico de status (`messages.status` + `message_status_events`)
+- claim/unclaim
+- teste auxiliar de retry/erro estruturado da Graph API (`scripts/test-whatsapp-retry.ts`)
+
+Execucao padrao:
 
 ```bash
 bash scripts/smoke-tests.sh
 ```
 
-Tambem funciona com `BASE_URL` customizado:
+Com `BASE_URL` customizado:
 
 ```bash
 BASE_URL=http://localhost:3000 bash scripts/smoke-tests.sh
+```
+
+Para habilitar o teste opcional de falha de persistencia (espera `503`):
+
+```bash
+RUN_PERSIST_FAILURE_TEST=true bash scripts/smoke-tests.sh
+```
+
+## Scripts npm
+
+```bash
+npm run smoke
+npm run test:whatsapp-retry
 ```
 
 ## Observacoes
@@ -107,3 +140,4 @@ BASE_URL=http://localhost:3000 bash scripts/smoke-tests.sh
 - `POST /webhook` exige assinatura valida por padrao.
 - Para debug local sem assinatura (nao recomendado), use `WEBHOOK_ALLOW_UNSIGNED=true` no `.env`.
 - TODO: adicionar autenticacao/ACL nos endpoints de agentes/conversas antes de producao.
+- TODO: validar constraints `NOT VALID` de `audit_logs` em janela de manutencao.
