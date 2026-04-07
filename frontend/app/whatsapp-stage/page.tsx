@@ -1,4 +1,4 @@
-"use client";
+ï»¿"use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../layout-dashboard";
@@ -280,7 +280,7 @@ export default function WhatsAppStagePage() {
     setErrorMessage(null);
 
     if (!newAgentEmail.trim()) {
-      setErrorMessage("Email do agente é obrigatório.");
+      setErrorMessage("Email do agente Ã© obrigatÃ³rio.");
       return;
     }
 
@@ -394,7 +394,7 @@ export default function WhatsAppStagePage() {
         <header className="space-y-1">
           <h1 className="text-2xl font-bold text-gray-900">WhatsApp Stage Viewer</h1>
           <p className="text-sm text-gray-600">
-            Tela temporária para visualizar e testar o backend WhatsApp em stage via rota <code>/whatsapp</code>.
+            Tela temporÃ¡ria para visualizar e testar o backend WhatsApp em stage via rota <code>/whatsapp</code>.
           </p>
         </header>
 
@@ -422,8 +422,8 @@ export default function WhatsAppStagePage() {
               onChange={(event) => setAssignedFilter(event.target.value as AssignedFilter)}
             >
               <option value="all">Todas</option>
-              <option value="assigned">Atribuídas</option>
-              <option value="unassigned">Não atribuídas</option>
+              <option value="assigned">AtribuÃ­das</option>
+              <option value="unassigned">NÃ£o atribuÃ­das</option>
             </select>
 
             <input
@@ -447,7 +447,7 @@ export default function WhatsAppStagePage() {
             <div className="border-b px-4 py-3">
               <h2 className="text-lg font-semibold text-gray-900">Conversas</h2>
               <p className="text-xs text-gray-500">
-                Página {conversationsPagination.page} de {Math.max(1, Math.ceil(conversationsPagination.total / conversationsPagination.limit))} · Total {conversationsPagination.total}
+                PÃ¡gina {conversationsPagination.page} de {Math.max(1, Math.ceil(conversationsPagination.total / conversationsPagination.limit))} Â· Total {conversationsPagination.total}
               </p>
             </div>
 
@@ -501,7 +501,7 @@ export default function WhatsAppStagePage() {
                 }
                 className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-50"
               >
-                Próxima
+                PrÃ³xima
               </button>
             </div>
           </div>
@@ -512,7 +512,7 @@ export default function WhatsAppStagePage() {
                 <h2 className="text-lg font-semibold text-gray-900">Mensagens</h2>
                 <p className="text-xs text-gray-500">
                   {selectedConversation
-                    ? `Conversa #${selectedConversation.id} · ${selectedConversation.wa_phone_number}`
+                    ? `Conversa #${selectedConversation.id} Â· ${selectedConversation.wa_phone_number}`
                     : "Selecione uma conversa"}
                 </p>
               </div>
@@ -539,8 +539,8 @@ export default function WhatsAppStagePage() {
                         </div>
                         <p className="text-sm text-gray-900 whitespace-pre-wrap">{message.body || "[sem body]"}</p>
                         <p className="mt-1 text-xs text-gray-500">
-                          {formatDateTime(message.created_at)} · tipo {message.type}
-                          {message.wa_message_id ? ` · wa_id ${message.wa_message_id}` : ""}
+                          {formatDateTime(message.created_at)} Â· tipo {message.type}
+                          {message.wa_message_id ? ` Â· wa_id ${message.wa_message_id}` : ""}
                         </p>
                       </article>
                     ))}
@@ -649,8 +649,8 @@ export default function WhatsAppStagePage() {
                   <ul className="space-y-1 text-sm text-gray-700">
                     {agents.map((agent) => (
                       <li key={agent.id}>
-                        #{agent.id} · {agent.name || "Sem nome"} · {agent.email || "sem email"} · {agent.role}
-                        {agent.active ? " · ativo" : " · inativo"}
+                        #{agent.id} Â· {agent.name || "Sem nome"} Â· {agent.email || "sem email"} Â· {agent.role}
+                        {agent.active ? " Â· ativo" : " Â· inativo"}
                       </li>
                     ))}
                   </ul>
@@ -663,3 +663,4 @@ export default function WhatsAppStagePage() {
     </DashboardLayout>
   );
 }
+
