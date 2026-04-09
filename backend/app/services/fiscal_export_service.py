@@ -4,7 +4,7 @@ import io
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -455,3 +455,261 @@ def exportar_xlsx(notas: list[NotaFiscal], db_session) -> tuple[bytes, str]:
     buffer.seek(0)
     filename = f"notas_fiscais_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     return buffer.read(), filename
+
+
+def exportar_os_csv(os_items: list[dict[str, Any]], db_session) -> tuple[bytes, str]:
+    """Exporta dados de OS para envio contabil em CSV."""
+    config = _get_configuracao(db_session)
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_ALL)
+
+    writer.writerow(
+        [
+            "Clinica",
+            "CNPJ Clinica",
+            "OS",
+            "Data Atendimento",
+            "Status OS",
+            "Servico",
+            "Paciente",
+            "Tutor",
+            "Valor Servico",
+            "Desconto",
+            "Valor Final",
+            "Cidade Clinica",
+            "UF Clinica",
+            "Telefone Clinica",
+            "Email Clinica",
+            "Prestador",
+            "Gerado Em",
+        ]
+    )
+
+    gerado_em = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for item in os_items:
+        writer.writerow(
+            [
+                item.get("clinica_nome") or "",
+                item.get("clinica_cnpj") or "",
+                item.get("numero_os") or "",
+                _format_date(item.get("data_atendimento")),
+                item.get("status_os") or "",
+                item.get("servico_nome") or "",
+                item.get("paciente_nome") or "",
+                item.get("tutor_nome") or "",
+                _format_number(item.get("valor_servico")),
+                _format_number(item.get("valor_desconto")),
+                _format_number(item.get("valor_final")),
+                item.get("clinica_cidade") or "",
+                item.get("clinica_estado") or "",
+                item.get("clinica_telefone") or "",
+                item.get("clinica_email") or "",
+                config.get("nome_empresa", ""),
+                gerado_em,
+            ]
+        )
+
+    content = output.getvalue().encode("utf-8-sig")
+    filename = f"dados_contabeis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    return content, filename
+
+
+def exportar_os_xlsx(os_items: list[dict[str, Any]], db_session) -> tuple[bytes, str]:
+    """Exporta dados de OS para envio contabil em XLSX."""
+    config = _get_configuracao(db_session)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Dados Contabeis"
+
+    headers = [
+        "Clinica",
+        "CNPJ Clinica",
+        "OS",
+        "Data Atendimento",
+        "Status OS",
+        "Servico",
+        "Paciente",
+        "Tutor",
+        "Valor Servico",
+        "Desconto",
+        "Valor Final",
+        "Cidade",
+        "UF",
+        "Telefone",
+        "Email",
+    ]
+    ws.append(headers)
+
+    header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True)
+    for col_idx in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+
+    for item in os_items:
+        ws.append(
+            [
+                item.get("clinica_nome") or "",
+                item.get("clinica_cnpj") or "",
+                item.get("numero_os") or "",
+                _format_date(item.get("data_atendimento")),
+                item.get("status_os") or "",
+                item.get("servico_nome") or "",
+                item.get("paciente_nome") or "",
+                item.get("tutor_nome") or "",
+                float(item.get("valor_servico") or 0),
+                float(item.get("valor_desconto") or 0),
+                float(item.get("valor_final") or 0),
+                item.get("clinica_cidade") or "",
+                item.get("clinica_estado") or "",
+                item.get("clinica_telefone") or "",
+                item.get("clinica_email") or "",
+            ]
+        )
+
+    for col in ws.columns:
+        max_length = 0
+        col_letter = get_column_letter(col[0].column)
+        for cell in col:
+            try:
+                if cell.value:
+                    max_length = max(max_length, len(str(cell.value)))
+            except (TypeError, AttributeError):
+                pass
+        ws.column_dimensions[col_letter].width = min(max_length + 2, 42)
+
+    ws_resumo = wb.create_sheet("Resumo")
+    total_servico = sum(float(item.get("valor_servico") or 0) for item in os_items)
+    total_desconto = sum(float(item.get("valor_desconto") or 0) for item in os_items)
+    total_final = sum(float(item.get("valor_final") or 0) for item in os_items)
+    clinicas_unicas = len({str(item.get("clinica_id") or item.get("clinica_nome") or "") for item in os_items})
+
+    ws_resumo.append(["Resumo exportacao contabil"])
+    ws_resumo.cell(row=1, column=1).font = Font(bold=True, size=14)
+    ws_resumo.append([])
+    ws_resumo.append(["Prestador", config.get("nome_empresa", "")])
+    ws_resumo.append(["Quantidade de OS", len(os_items)])
+    ws_resumo.append(["Clinicas no lote", clinicas_unicas])
+    ws_resumo.append(["Total servicos", _format_currency(total_servico)])
+    ws_resumo.append(["Total descontos", _format_currency(total_desconto)])
+    ws_resumo.append(["Total final", _format_currency(total_final)])
+    ws_resumo.append(["Gerado em", datetime.now().strftime("%d/%m/%Y %H:%M")])
+    ws_resumo.column_dimensions["A"].width = 28
+    ws_resumo.column_dimensions["B"].width = 40
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    filename = f"dados_contabeis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return buffer.read(), filename
+
+
+def exportar_os_pdf(os_items: list[dict[str, Any]], db_session) -> tuple[bytes, str]:
+    """Exporta dados de OS para envio contabil em PDF."""
+    config = _get_configuracao(db_session)
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=1.5 * cm,
+        rightMargin=1.5 * cm,
+        topMargin=1.5 * cm,
+        bottomMargin=1.5 * cm,
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "TitleContabil",
+        parent=styles["Heading1"],
+        fontSize=15,
+        alignment=1,
+        spaceAfter=6,
+    )
+    normal_style = ParagraphStyle(
+        "NormalContabil",
+        parent=styles["Normal"],
+        fontSize=9,
+        leading=12,
+    )
+
+    total_final = sum(float(item.get("valor_final") or 0) for item in os_items)
+    clinicas_unicas = len({str(item.get("clinica_id") or item.get("clinica_nome") or "") for item in os_items})
+    generated_at = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+    elements = [
+        Paragraph("DADOS FISCAIS PARA CONTABILIDADE", title_style),
+        Paragraph(
+            f"<b>Prestador:</b> {config.get('nome_empresa', 'Fort Cordis')}<br/>"
+            f"<b>Gerado em:</b> {generated_at}<br/>"
+            f"<b>Quantidade de OS:</b> {len(os_items)}<br/>"
+            f"<b>Clinicas no lote:</b> {clinicas_unicas}<br/>"
+            f"<b>Total final:</b> {_format_currency(total_final)}",
+            normal_style,
+        ),
+        Spacer(1, 0.35 * cm),
+    ]
+
+    table_data = [
+        ["Clinica", "OS", "Data", "Servico", "Status", "Valor Final"],
+    ]
+    for item in os_items:
+        table_data.append(
+            [
+                str(item.get("clinica_nome") or "-")[:36],
+                str(item.get("numero_os") or "-"),
+                _format_date(item.get("data_atendimento")),
+                str(item.get("servico_nome") or "-")[:34],
+                str(item.get("status_os") or "-"),
+                _format_currency(float(item.get("valor_final") or 0)),
+            ]
+        )
+
+    table = Table(table_data, colWidths=[5.4 * cm, 2.2 * cm, 2.2 * cm, 4.9 * cm, 2.3 * cm, 2.0 * cm])
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F2937")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("ALIGN", (5, 1), (5, -1), "RIGHT"),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#D1D5DB")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F9FAFB")]),
+            ]
+        )
+    )
+    elements.append(table)
+
+    doc.build(elements)
+    buffer.seek(0)
+    filename = f"dados_contabeis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    return buffer.read(), filename
+
+
+def _format_date(value: Any) -> str:
+    if not value:
+        return ""
+    if isinstance(value, datetime):
+        return value.strftime("%d/%m/%Y")
+    text = str(value).strip()
+    if not text:
+        return ""
+    try:
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        return datetime.fromisoformat(text).strftime("%d/%m/%Y")
+    except ValueError:
+        return text[:10]
+
+
+def _format_number(value: Any) -> str:
+    try:
+        return f"{float(value or 0):.2f}".replace(".", ",")
+    except (TypeError, ValueError):
+        return "0,00"
+
+
+def _format_currency(value: float) -> str:
+    return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")

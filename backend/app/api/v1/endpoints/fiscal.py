@@ -1,8 +1,10 @@
-"""Endpoints REST para o módulo fiscal."""
-from typing import Optional, Annotated
+"""Endpoints REST para o modulo fiscal."""
+
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
@@ -13,39 +15,40 @@ from app.schemas.fiscal import (
     NotaFiscalResponse,
     NotaFiscalUpdate,
 )
-from pydantic import BaseModel, Field
+from app.services import cnpj_consulta, fiscal_export_service
+from app.services.fiscal_service import (
+    atualizar_nota_fiscal,
+    buscar_nota_fiscal,
+    buscar_os_para_fiscal,
+    buscar_os_por_ids_para_exportacao,
+    criar_nota_fiscal,
+    excluir_nota_fiscal,
+    listar_notas_fiscais,
+    marcar_exportada,
+)
 
 
 class ExportarLoteRequest(BaseModel):
     nota_ids: list[int]
     formato: str = Field(..., pattern="^(pdf|csv|xlsx)$")
-from app.services import cnpj_consulta
-from app.services import fiscal_export_service
-from app.services.fiscal_service import (
-    atualizar_nota_fiscal,
-    buscar_nota_fiscal,
-    criar_nota_fiscal,
-    excluir_nota_fiscal,
-    listar_notas_fiscais,
-    marcar_exportada,
-    buscar_os_para_fiscal,
-)
+
+
+class ExportarOSLoteRequest(BaseModel):
+    os_ids: list[int] = Field(..., min_length=1)
+    formato: str = Field(..., pattern="^(pdf|csv|xlsx)$")
+
 
 router = APIRouter()
 
-
-# ─── Consulta CNPJ ─────────────────────────────────────────────────────────────
 
 @router.get("/consulta-cnpj/{cnpj}", response_model=CNPJConsultaResponse)
 def consultar_cnpj(cnpj: str):
     """
     Consulta dados de empresa pelo CNPJ usando a API Receita WS.
-    Retorna razão social, endereço, telefone, email, CNAE, etc.
+    Retorna razao social, endereco, telefone, email, CNAE, etc.
     """
     return cnpj_consulta.consultar_cnpj(cnpj)
 
-
-# ─── CRUD Notas Fiscais ────────────────────────────────────────────────────────
 
 @router.get("/notas-fiscais", response_model=NotaFiscalListResponse)
 def listar_notas(
@@ -59,9 +62,13 @@ def listar_notas(
 ):
     """Lista notas fiscais com filtros opcionais."""
     items, total = listar_notas_fiscais(
-        db, skip=skip, limit=limit,
-        status=status, tipo_cliente=tipo_cliente,
-        data_inicio=data_inicio, data_fim=data_fim,
+        db,
+        skip=skip,
+        limit=limit,
+        status=status,
+        tipo_cliente=tipo_cliente,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
     )
     return NotaFiscalListResponse(
         total=total,
@@ -74,7 +81,7 @@ def criar_nota(
     data: NotaFiscalCreate,
     db: Session = Depends(get_db),
 ):
-    """Cria uma nova nota fiscal. Dados são pré-preenchidos a partir de OS vinculada."""
+    """Cria uma nova nota fiscal. Dados sao pre-preenchidos a partir de OS vinculada."""
     nota = criar_nota_fiscal(db, data)
     return NotaFiscalResponse.model_validate(nota)
 
@@ -87,7 +94,7 @@ def buscar_nota(
     """Busca uma nota fiscal pelo ID."""
     nota = buscar_nota_fiscal(db, nota_id)
     if not nota:
-        raise HTTPException(status_code=404, detail="Nota fiscal não encontrada.")
+        raise HTTPException(status_code=404, detail="Nota fiscal nao encontrada.")
     return NotaFiscalResponse.model_validate(nota)
 
 
@@ -100,7 +107,7 @@ def atualizar_nota(
     """Atualiza uma nota fiscal existente."""
     nota = atualizar_nota_fiscal(db, nota_id, data)
     if not nota:
-        raise HTTPException(status_code=404, detail="Nota fiscal não encontrada.")
+        raise HTTPException(status_code=404, detail="Nota fiscal nao encontrada.")
     return NotaFiscalResponse.model_validate(nota)
 
 
@@ -111,27 +118,34 @@ def excluir_nota(
 ):
     """Exclui (cancela) uma nota fiscal."""
     if not excluir_nota_fiscal(db, nota_id):
-        raise HTTPException(status_code=404, detail="Nota fiscal não encontrada.")
+        raise HTTPException(status_code=404, detail="Nota fiscal nao encontrada.")
 
-
-# ─── OS para vinculação ───────────────────────────────────────────────────────
 
 @router.get("/os-para-fiscal")
 def listar_os_para_fiscal(
     search: Optional[str] = Query(None),
+    clinica_id: Optional[int] = Query(None),
+    data_inicio: Optional[str] = Query(None),
+    data_fim: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
     """
-    Lista OS disponíveis para vinculação a nota fiscal.
-    Para PF busca por Tutor, para PJ por Clinica.
+    Lista OS disponiveis para exportacao fiscal.
+    Permite filtrar por clinica e periodo sem restringir status da OS.
     """
-    items, total = buscar_os_para_fiscal(db, search=search, skip=skip, limit=limit)
+    items, total = buscar_os_para_fiscal(
+        db,
+        search=search,
+        clinica_id=clinica_id,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        skip=skip,
+        limit=limit,
+    )
     return {"total": total, "items": items}
 
-
-# ─── Exportação ────────────────────────────────────────────────────────────────
 
 @router.get("/notas-fiscais/{nota_id}/exportar/{formato}")
 def exportar_nota(
@@ -145,7 +159,7 @@ def exportar_nota(
     """
     nota = buscar_nota_fiscal(db, nota_id)
     if not nota:
-        raise HTTPException(status_code=404, detail="Nota fiscal não encontrada.")
+        raise HTTPException(status_code=404, detail="Nota fiscal nao encontrada.")
 
     if formato == "pdf":
         content, filename = fiscal_export_service.exportar_pdf([nota], db)
@@ -155,11 +169,8 @@ def exportar_nota(
         media_type = "text/csv; charset=utf-8"
     else:
         content, filename = fiscal_export_service.exportar_xlsx([nota], db)
-        media_type = (
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-    # Marca como exportada
     marcar_exportada(db, nota_id, formato)
 
     return StreamingResponse(
@@ -175,7 +186,7 @@ def exportar_lote(
     db: Session = Depends(get_db),
 ):
     """
-    Exporta múltiplas notas fiscais em lote no formato especificado.
+    Exporta multiplas notas fiscais em lote no formato especificado.
     Retorna arquivo para download.
     """
     notas = [buscar_nota_fiscal(db, nid) for nid in body.nota_ids]
@@ -192,13 +203,40 @@ def exportar_lote(
         media_type = "text/csv; charset=utf-8"
     else:
         content, filename = fiscal_export_service.exportar_xlsx(notas, db)
-        media_type = (
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-    # Marca todas como exportadas
     for nota in notas:
         marcar_exportada(db, nota.id, body.formato)
+
+    return StreamingResponse(
+        iter([content]),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/os/exportar-lote")
+def exportar_os_lote(
+    body: Annotated[ExportarOSLoteRequest, Body(...)],
+    db: Session = Depends(get_db),
+):
+    """
+    Exporta dados de OS para contabilidade sem gerar nota fiscal.
+    Aceita exportacao em lote com multiplas OS selecionadas.
+    """
+    os_items = buscar_os_por_ids_para_exportacao(db, body.os_ids)
+    if not os_items:
+        raise HTTPException(status_code=400, detail="Nenhuma OS valida encontrada para exportacao.")
+
+    if body.formato == "pdf":
+        content, filename = fiscal_export_service.exportar_os_pdf(os_items, db)
+        media_type = "application/pdf"
+    elif body.formato == "csv":
+        content, filename = fiscal_export_service.exportar_os_csv(os_items, db)
+        media_type = "text/csv; charset=utf-8"
+    else:
+        content, filename = fiscal_export_service.exportar_os_xlsx(os_items, db)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
     return StreamingResponse(
         iter([content]),

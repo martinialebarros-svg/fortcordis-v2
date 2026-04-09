@@ -180,14 +180,14 @@ export default function FiscalPage() {
               className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium"
             >
               <Download className="w-4 h-4" />
-              Exportar em Lote
+              Exportar Dados em Lote
             </button>
             <button
               onClick={() => router.push("/fiscal/nova")}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
             >
               <Plus className="w-4 h-4" />
-              Nova Nota Fiscal
+              Preparar Dados Fiscais
             </button>
           </div>
         </div>
@@ -271,7 +271,7 @@ export default function FiscalPage() {
                         onClick={() => router.push("/fiscal/nova")}
                         className="mt-2 text-blue-600 hover:underline text-sm"
                       >
-                        Criar a primeira nota fiscal
+                        Preparar a primeira exportacao contabil
                       </button>
                     </td>
                   </tr>
@@ -496,11 +496,11 @@ export default function FiscalPage() {
 
                 <div className="border-t pt-4 flex gap-2">
                   <button
-                    onClick={() => { setSelectedNota(null); router.push(`/fiscal/nova?editar=${selectedNota.id}`); }}
+                    onClick={() => { setSelectedNota(null); router.push("/fiscal/exportar"); }}
                     className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm"
                   >
                     <Edit className="w-4 h-4" />
-                    Editar
+                    Preparar Exportacao
                   </button>
                   <button
                     onClick={() => handleExportar(selectedNota.id, "pdf")}
