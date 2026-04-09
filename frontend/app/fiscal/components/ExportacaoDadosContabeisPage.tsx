@@ -128,6 +128,18 @@ function formatCnpj(value: string) {
     .replace(/(\d{4})(\d)/, "$1-$2");
 }
 
+function formatCpf(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  return digits
+    .replace(/^(\d{3})(\d)/, "$1.$2")
+    .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
+    .replace(/\.(\d{3})(\d)/, ".$1-$2");
+}
+
+function formatDocumento(value: string, tipo: "PF" | "PJ") {
+  return tipo === "PJ" ? formatCnpj(value) : formatCpf(value);
+}
+
 function getCurrentMonthPeriod() {
   const now = new Date();
   const year = now.getFullYear();
@@ -204,6 +216,9 @@ export default function ExportacaoDadosContabeisPage() {
   }
 
   async function handleBuscarCnpj() {
+    if (dadosTomador.tipo_cliente !== "PJ") {
+      return;
+    }
     const cnpjLimpo = dadosTomador.cliente_documento.replace(/\D/g, "");
     if (cnpjLimpo.length < 14) {
       alert("Informe um CNPJ valido para consulta.");
@@ -439,7 +454,36 @@ export default function ExportacaoDadosContabeisPage() {
           <h3 className="font-semibold text-gray-900 mb-4">Dados do Tomador para Exportacao</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Razao social *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tipo cliente</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDadosTomador((prev) => ({ ...prev, tipo_cliente: "PJ", cliente_documento: formatCnpj(prev.cliente_documento) }))}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
+                    dadosTomador.tipo_cliente === "PJ"
+                      ? "bg-blue-100 text-blue-700 border border-blue-300"
+                      : "bg-gray-50 text-gray-600 border border-gray-200"
+                  }`}
+                >
+                  Pessoa Juridica
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDadosTomador((prev) => ({ ...prev, tipo_cliente: "PF", cliente_documento: formatCpf(prev.cliente_documento) }))}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
+                    dadosTomador.tipo_cliente === "PF"
+                      ? "bg-purple-100 text-purple-700 border border-purple-300"
+                      : "bg-gray-50 text-gray-600 border border-gray-200"
+                  }`}
+                >
+                  Pessoa Fisica
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {dadosTomador.tipo_cliente === "PJ" ? "Razao social *" : "Nome *"}
+              </label>
               <input
                 type="text"
                 value={dadosTomador.cliente_nome}
@@ -448,24 +492,28 @@ export default function ExportacaoDadosContabeisPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">CNPJ *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {dadosTomador.tipo_cliente === "PJ" ? "CNPJ *" : "CPF *"}
+              </label>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={dadosTomador.cliente_documento}
                   onChange={(e) =>
-                    setDadosTomador((prev) => ({ ...prev, cliente_documento: formatCnpj(e.target.value) }))
+                    setDadosTomador((prev) => ({ ...prev, cliente_documento: formatDocumento(e.target.value, prev.tipo_cliente) }))
                   }
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="00.000.000/0001-00"
+                  placeholder={dadosTomador.tipo_cliente === "PJ" ? "00.000.000/0001-00" : "000.000.000-00"}
                 />
-                <button
-                  onClick={handleBuscarCnpj}
-                  disabled={loadingCnpj}
-                  className="px-3 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm hover:bg-blue-100 disabled:opacity-50"
-                >
-                  {loadingCnpj ? <Loader2 className="w-4 h-4 animate-spin" /> : "Buscar"}
-                </button>
+                {dadosTomador.tipo_cliente === "PJ" && (
+                  <button
+                    onClick={handleBuscarCnpj}
+                    disabled={loadingCnpj}
+                    className="px-3 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm hover:bg-blue-100 disabled:opacity-50"
+                  >
+                    {loadingCnpj ? <Loader2 className="w-4 h-4 animate-spin" /> : "Buscar"}
+                  </button>
+                )}
               </div>
             </div>
             <div className="md:col-span-2">

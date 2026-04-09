@@ -619,7 +619,7 @@ def exportar_os_pdf(
     db_session,
     dados_tomador: Optional[dict[str, Any]] = None,
 ) -> tuple[bytes, str]:
-    """Exporta dados de OS para contabilidade em PDF."""
+    """Exporta dados de OS para contabilidade em PDF com campos detalhados."""
     config = _get_configuracao(db_session)
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -634,6 +634,7 @@ def exportar_os_pdf(
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("TitleContabil", parent=styles["Heading1"], fontSize=14, alignment=1, spaceAfter=6)
     normal_style = ParagraphStyle("NormalContabil", parent=styles["Normal"], fontSize=9, leading=12)
+    section_style = ParagraphStyle("SectionContabil", parent=styles["Heading3"], fontSize=10, spaceAfter=4, textColor=colors.HexColor("#1F2937"))
 
     rows = [_build_export_row(item, config, dados_tomador=dados_tomador) for item in os_items]
     total_final = sum(float(r["valor_final"] or 0) for r in rows)
@@ -651,33 +652,54 @@ def exportar_os_pdf(
         Spacer(1, 0.3 * cm),
     ]
 
-    table_data = [["OS", "Data", "Tomador", "Servico", "Status", "Valor Final"]]
     for row in rows:
-        table_data.append(
+        tipo_cliente = str(row.get("tipo_cliente") or "PJ").upper()
+        documento_label = "CNPJ" if tipo_cliente == "PJ" else "CPF"
+        endereco_completo = _format_endereco_completo(row)
+
+        elements.append(
+            Paragraph(
+                f"OS {row.get('os_referencia', '-')} | Data {row.get('data_emissao', '-')} | Status {row.get('status_os', '-')}",
+                section_style,
+            )
+        )
+
+        info_rows: list[list[str]] = [
+            ["Razao/Nome", str(row.get("cliente_nome") or "-")],
+            [documento_label, str(row.get("cliente_documento") or "-")],
+            ["Endereco completo", endereco_completo],
+        ]
+        if tipo_cliente == "PJ":
+            info_rows.append(["Telefone", str(row.get("cliente_telefone") or "-")])
+            info_rows.append(["E-mail", str(row.get("cliente_email") or "-")])
+
+        info_rows.extend(
             [
-                str(row["os_referencia"]),
-                row["data_emissao"],
-                str(row["cliente_nome"] or "-")[:32],
-                str(row["servico_nome"] or "-")[:30],
-                row["status_os"],
-                _format_currency(float(row["valor_final"] or 0)),
+                ["Valor do servico", _format_currency(float(row.get("valor_servico") or 0))],
+                ["Atividade", str(row.get("atividade_cnae") or "-")],
+                ["Descricao do Servico", str(row.get("descricao_servico") or "-")],
             ]
         )
-    table = Table(table_data, colWidths=[2.0 * cm, 2.2 * cm, 5.8 * cm, 4.6 * cm, 2.2 * cm, 2.5 * cm])
-    table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F2937")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
-                ("ALIGN", (5, 1), (5, -1), "RIGHT"),
-                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#D1D5DB")),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F9FAFB")]),
-            ]
+
+        table = Table(info_rows, colWidths=[4.2 * cm, 12.3 * cm])
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F3F4F6")),
+                    ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                    ("FONTNAME", (1, 0), (1, -1), "Helvetica"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#D1D5DB")),
+                ]
+            )
         )
-    )
-    elements.append(table)
+        elements.append(table)
+        elements.append(Spacer(1, 0.25 * cm))
 
     doc.build(elements)
     buffer.seek(0)
@@ -794,6 +816,19 @@ def _resolve_tomador(item: dict[str, Any], dados_tomador: dict[str, Any]) -> dic
 def _join_non_empty(separator: str, values: list[Any]) -> str:
     parts = [str(v).strip() for v in values if str(v or "").strip()]
     return separator.join(parts)
+
+
+def _format_endereco_completo(row: dict[str, Any]) -> str:
+    cidade_uf = _join_non_empty("/", [row.get("cliente_cidade"), row.get("cliente_estado")])
+    return _join_non_empty(
+        ", ",
+        [
+            row.get("cliente_endereco"),
+            row.get("cliente_bairro"),
+            cidade_uf,
+            f"CEP {row.get('cliente_cep')}" if row.get("cliente_cep") else "",
+        ],
+    ) or "-"
 
 
 def _safe_float(value: Any, default: float) -> float:
