@@ -29,43 +29,83 @@ def upgrade(connection: Connection, dialect: str) -> None:
     # 2. Create notas_fiscais table
     inspector = inspect(connection)
     if "notas_fiscais" not in inspector.get_table_names():
-        connection.execute(
-            text(
-                """
-                CREATE TABLE notas_fiscais (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    numero TEXT,
-                    serie TEXT DEFAULT '1',
-                    os_id INTEGER,
-                    tipo_cliente TEXT CHECK(tipo_cliente IN ('PF','PJ')),
-                    cliente_nome TEXT,
-                    cliente_documento TEXT,
-                    cliente_endereco TEXT,
-                    cliente_bairro TEXT,
-                    cliente_cidade TEXT,
-                    cliente_estado TEXT,
-                    cliente_cep TEXT,
-                    cliente_telefone TEXT,
-                    cliente_email TEXT,
-                    valor_servico REAL DEFAULT 0,
-                    valor_desconto REAL DEFAULT 0,
-                    valor_final REAL DEFAULT 0,
-                    aliquota_iss REAL DEFAULT 5.0,
-                    valor_iss REAL DEFAULT 0,
-                    atividade_cnae TEXT,
-                    descricao_servico TEXT,
-                    observacoes TEXT,
-                    natureza_operacao TEXT DEFAULT 'Tributação no município',
-                    codigo_municipio TEXT,
-                    regime_tributario INTEGER,
-                    formato_exportado TEXT,
-                    status TEXT DEFAULT 'rascunho',
-                    created_at TEXT,
-                    updated_at TEXT
+        if dialect == "postgresql":
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE notas_fiscais (
+                        id SERIAL PRIMARY KEY,
+                        numero VARCHAR(50),
+                        serie VARCHAR(10) DEFAULT '1',
+                        os_id INTEGER,
+                        tipo_cliente VARCHAR(2) CHECK(tipo_cliente IN ('PF','PJ')),
+                        cliente_nome TEXT,
+                        cliente_documento TEXT,
+                        cliente_endereco TEXT,
+                        cliente_bairro TEXT,
+                        cliente_cidade TEXT,
+                        cliente_estado TEXT,
+                        cliente_cep TEXT,
+                        cliente_telefone TEXT,
+                        cliente_email TEXT,
+                        valor_servico NUMERIC(12,2) DEFAULT 0,
+                        valor_desconto NUMERIC(12,2) DEFAULT 0,
+                        valor_final NUMERIC(12,2) DEFAULT 0,
+                        aliquota_iss DOUBLE PRECISION DEFAULT 5.0,
+                        valor_iss NUMERIC(12,2) DEFAULT 0,
+                        atividade_cnae TEXT,
+                        descricao_servico TEXT,
+                        observacoes TEXT,
+                        natureza_operacao TEXT DEFAULT 'Tributacao no municipio',
+                        codigo_municipio TEXT,
+                        regime_tributario INTEGER,
+                        formato_exportado VARCHAR(10),
+                        status VARCHAR(20) DEFAULT 'rascunho',
+                        created_at TEXT,
+                        updated_at TEXT
+                    )
+                    """
                 )
-                """
             )
-        )
+        else:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE notas_fiscais (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        numero TEXT,
+                        serie TEXT DEFAULT '1',
+                        os_id INTEGER,
+                        tipo_cliente TEXT CHECK(tipo_cliente IN ('PF','PJ')),
+                        cliente_nome TEXT,
+                        cliente_documento TEXT,
+                        cliente_endereco TEXT,
+                        cliente_bairro TEXT,
+                        cliente_cidade TEXT,
+                        cliente_estado TEXT,
+                        cliente_cep TEXT,
+                        cliente_telefone TEXT,
+                        cliente_email TEXT,
+                        valor_servico REAL DEFAULT 0,
+                        valor_desconto REAL DEFAULT 0,
+                        valor_final REAL DEFAULT 0,
+                        aliquota_iss REAL DEFAULT 5.0,
+                        valor_iss REAL DEFAULT 0,
+                        atividade_cnae TEXT,
+                        descricao_servico TEXT,
+                        observacoes TEXT,
+                        natureza_operacao TEXT DEFAULT 'Tributacao no municipio',
+                        codigo_municipio TEXT,
+                        regime_tributario INTEGER,
+                        formato_exportado TEXT,
+                        status TEXT DEFAULT 'rascunho',
+                        created_at TEXT,
+                        updated_at TEXT
+                    )
+                    """
+                )
+            )
+
         connection.execute(
             text("CREATE INDEX IF NOT EXISTS ix_notas_fiscais_os_id ON notas_fiscais (os_id)")
         )
