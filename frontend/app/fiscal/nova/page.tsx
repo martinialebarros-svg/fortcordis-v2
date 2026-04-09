@@ -344,7 +344,7 @@ export default function NovaNotaFiscalPage() {
             ) : osSearch && !loadingOs ? (
               <div className="flex flex-col items-center py-8 text-gray-400">
                 <SearchX className="w-8 h-8 mb-2" />
-                <p className="text-sm">Nenhuma OS encontrada para "{osSearch}"</p>
+                <p className="text-sm">Nenhuma OS encontrada para &quot;{osSearch}&quot;</p>
               </div>
             ) : null}
 

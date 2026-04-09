@@ -6,6 +6,13 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import ClinicalFieldCard from "./components/ClinicalFieldCard";
 import api from "@/lib/axios";
+import { extrairIdadePaciente } from "@/lib/paciente";
+import {
+  addRacaCustomPorEspecie,
+  getRacaOptions,
+  loadRacasCustomPorEspecie,
+  saveRacasCustomPorEspecie,
+} from "@/lib/racas";
 import {
   CLINICAL_SECTION_OPTIONS,
   buildClinicalFieldConfigsWithPhraseBank,
@@ -19,6 +26,7 @@ import {
 import { buildPrescriptionSupport, suggestMedicationPresentation } from "@/lib/clinical-medication";
 import {
   AlertTriangle,
+  ArrowLeft,
   ArrowRight,
   CheckCircle2,
   ChevronLeft,
@@ -285,6 +293,51 @@ type ProtocoloPrescricao = {
   retornoDias?: string;
   orientacoesPadrao?: string;
   itens: ProtocoloPrescricaoItem[];
+};
+
+type PacienteDetalhe = {
+  id?: number | null;
+  nome: string;
+  tutor_id?: number | null;
+  tutor?: string;
+  especie?: string;
+  raca?: string;
+  sexo?: string;
+  peso_kg?: number | null;
+  idade?: string;
+  data_nascimento?: string | null;
+  microchip?: string;
+  observacoes?: string;
+};
+
+type TutorDetalhe = {
+  id?: number | null;
+  nome: string;
+  telefone?: string;
+  whatsapp?: string;
+  email?: string;
+  cpf?: string;
+  cep?: string;
+  endereco?: string;
+  numero?: string;
+  complemento?: string;
+  bairro?: string;
+  cidade?: string;
+  estado?: string;
+};
+
+type CadastroComplementar = {
+  paciente: PacienteDetalhe;
+  tutor: TutorDetalhe;
+};
+
+type PrescricaoPreset = {
+  id: string;
+  nome: string;
+  created_at: string;
+  orientacoes_gerais: string;
+  retorno_dias: string;
+  itens: PrescricaoItem[];
 };
 
 type AtendimentoResumo = {
@@ -569,6 +622,100 @@ const PROTOCOLOS_PRESCRICAO: ProtocoloPrescricao[] = [
     ],
   },
 ];
+
+const PRESCRICAO_PRESETS_STORAGE_KEY = "fortcordis:atendimento:prescricao-presets:v1";
+
+const normalizarCep = (valor: string) => valor.replace(/\D/g, "").slice(0, 8);
+const formatarCepVisual = (valor: string) => {
+  const cep = normalizarCep(valor);
+  if (cep.length <= 5) return cep;
+  return `${cep.slice(0, 5)}-${cep.slice(5)}`;
+};
+
+const emptyPacienteDetalhe = (): PacienteDetalhe => ({
+  id: null,
+  nome: "",
+  tutor_id: null,
+  tutor: "",
+  especie: "",
+  raca: "",
+  sexo: "",
+  peso_kg: null,
+  idade: "",
+  data_nascimento: "",
+  microchip: "",
+  observacoes: "",
+});
+
+const emptyTutorDetalhe = (): TutorDetalhe => ({
+  id: null,
+  nome: "",
+  telefone: "",
+  whatsapp: "",
+  email: "",
+  cpf: "",
+  cep: "",
+  endereco: "",
+  numero: "",
+  complemento: "",
+  bairro: "",
+  cidade: "",
+  estado: "",
+});
+
+const emptyCadastroComplementar = (): CadastroComplementar => ({
+  paciente: emptyPacienteDetalhe(),
+  tutor: emptyTutorDetalhe(),
+});
+
+const normalizePacienteDetalhe = (item?: Partial<PacienteDetalhe> | null): PacienteDetalhe => ({
+  ...emptyPacienteDetalhe(),
+  ...(item || {}),
+  nome: item?.nome || "",
+  tutor: item?.tutor || "",
+  especie: item?.especie || "",
+  raca: item?.raca || "",
+  sexo: item?.sexo || "",
+  peso_kg: item?.peso_kg ?? null,
+  idade: item?.idade || "",
+  data_nascimento: item?.data_nascimento || "",
+  microchip: item?.microchip || "",
+  observacoes: item?.observacoes || "",
+});
+
+const normalizeTutorDetalhe = (item?: Partial<TutorDetalhe> | null): TutorDetalhe => ({
+  ...emptyTutorDetalhe(),
+  ...(item || {}),
+  nome: item?.nome || "",
+  telefone: item?.telefone || "",
+  whatsapp: item?.whatsapp || "",
+  email: item?.email || "",
+  cpf: item?.cpf || "",
+  cep: item?.cep || "",
+  endereco: item?.endereco || "",
+  numero: item?.numero || "",
+  complemento: item?.complemento || "",
+  bairro: item?.bairro || "",
+  cidade: item?.cidade || "",
+  estado: item?.estado || "",
+});
+
+const readLocalPresets = <T,>(storageKey: string): T[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const persistLocalPresets = (storageKey: string, value: unknown) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(storageKey, JSON.stringify(value));
+};
 
 const emptyExam = (): ExameSolicitacao => ({
   catalogo_exame_id: null,
@@ -1253,6 +1400,26 @@ export default function AtendimentoPage() {
   const [exameBusca, setExameBusca] = useState("");
   const [exameFiltroRapido, setExameFiltroRapido] = useState<ExameFiltroRapido>("todos");
   const [painelExameSelecionado, setPainelExameSelecionado] = useState("");
+  const [cadastroComplementar, setCadastroComplementar] = useState<CadastroComplementar>(emptyCadastroComplementar());
+  const [carregandoCadastroComplementar, setCarregandoCadastroComplementar] = useState(false);
+  const [salvandoCadastroComplementar, setSalvandoCadastroComplementar] = useState(false);
+  const [customPaineis, setCustomPaineis] = useState<PainelExame[]>([]);
+  const [painelModalOpen, setPainelModalOpen] = useState(false);
+  const [painelModalMode, setPainelModalMode] = useState<"list" | "create" | "edit">("list");
+  const [painelEmEdicao, setPainelEmEdicao] = useState<PainelExame | null>(null);
+  const [painelFormNome, setPainelFormNome] = useState("");
+  const [painelFormCategoria, setPainelFormCategoria] = useState("");
+  const [painelFormItens, setPainelFormItens] = useState<number[]>([]);
+  const [painelFormSearch, setPainelFormSearch] = useState("");
+  const [painelFormErro, setPainelFormErro] = useState("");
+  const [prescriptionPresets, setPrescriptionPresets] = useState<PrescricaoPreset[]>([]);
+  const [nomeNovoPresetPrescricao, setNomeNovoPresetPrescricao] = useState("");
+  const [presetPrescricaoEmEdicaoId, setPresetPrescricaoEmEdicaoId] = useState<string | null>(null);
+  const [novaRacaCadastro, setNovaRacaCadastro] = useState("");
+  const [racasCustomPorEspecie, setRacasCustomPorEspecie] = useState<Record<string, string[]>>({});
+  const [racasLoaded, setRacasLoaded] = useState(false);
+  const [buscandoCepTutor, setBuscandoCepTutor] = useState(false);
+  const [statusCepTutor, setStatusCepTutor] = useState("");
 
   const [historicoPaciente, setHistoricoPaciente] = useState<HistoricoPaciente | null>(null);
   const [evolucaoForm, setEvolucaoForm] = useState({ descricao: "", sinais_vitais: "" });
@@ -1312,6 +1479,25 @@ export default function AtendimentoPage() {
   useEffect(() => {
     formRef.current = form;
   }, [form]);
+
+  useEffect(() => {
+    carregarCustomPaineis();
+    setPrescriptionPresets(readLocalPresets<PrescricaoPreset>(PRESCRICAO_PRESETS_STORAGE_KEY));
+  }, []);
+
+  useEffect(() => {
+    setRacasCustomPorEspecie(loadRacasCustomPorEspecie());
+    setRacasLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    persistLocalPresets(PRESCRICAO_PRESETS_STORAGE_KEY, prescriptionPresets);
+  }, [prescriptionPresets]);
+
+  useEffect(() => {
+    if (!racasLoaded) return;
+    saveRacasCustomPorEspecie(racasCustomPorEspecie);
+  }, [racasCustomPorEspecie, racasLoaded]);
 
   useEffect(() => {
     examUploadDraftsRef.current = examUploadDrafts;
@@ -1467,6 +1653,62 @@ export default function AtendimentoPage() {
     setExamDropActive({});
   };
 
+  const aplicarCadastroComplementar = (
+    pacienteData?: Partial<PacienteDetalhe> | null,
+    tutorData?: Partial<TutorDetalhe> | null
+  ) => {
+    setNovaRacaCadastro("");
+    setStatusCepTutor("");
+    setCadastroComplementar({
+      paciente: normalizePacienteDetalhe(pacienteData),
+      tutor: normalizeTutorDetalhe(tutorData),
+    });
+  };
+
+  const carregarCadastroComplementar = async (pacienteId: string | number) => {
+    const normalized = Number(pacienteId || 0);
+    if (!Number.isFinite(normalized) || normalized <= 0) {
+      aplicarCadastroComplementar();
+      return;
+    }
+
+    try {
+      setCarregandoCadastroComplementar(true);
+      const pacienteResponse = await api.get(`/pacientes/${normalized}`);
+      const pacienteData = pacienteResponse.data || {};
+      let tutorData = null;
+      const tutorId = Number(pacienteData?.tutor_id || 0);
+      if (Number.isFinite(tutorId) && tutorId > 0) {
+        try {
+          const tutorResponse = await api.get(`/tutores/${tutorId}`);
+          tutorData = tutorResponse.data || null;
+        } catch {
+          tutorData = null;
+        }
+      }
+      if (!tutorData) {
+        try {
+          const tutorResponse = await api.get(`/pacientes/${normalized}/tutor`);
+          tutorData = tutorResponse.data || null;
+        } catch {
+          tutorData = {
+            id: pacienteData?.tutor_id || null,
+            nome: pacienteData?.tutor || pacienteSelecionado?.tutor || "",
+          };
+        }
+      }
+      aplicarCadastroComplementar(
+        {
+          ...pacienteData,
+          tutor: pacienteData?.tutor || pacienteSelecionado?.tutor || "",
+        },
+        tutorData
+      );
+    } finally {
+      setCarregandoCadastroComplementar(false);
+    }
+  };
+
   const getDraftContext = (source: AtendimentoForm) => ({
     paciente_id: source.paciente_id || "",
     clinica_id: source.clinica_id || "",
@@ -1482,6 +1724,29 @@ export default function AtendimentoPage() {
       const currentValue = String(currentContext[field as keyof typeof currentContext] || "").trim();
       return !storedValue || !currentValue || storedValue === currentValue;
     });
+
+  const atendimentoCombinaComContexto = (
+    atendimentoResumo:
+      | Pick<AtendimentoResumo, "paciente_id" | "clinica_id" | "agendamento_id">
+      | null
+      | undefined,
+    contexto:
+      | { paciente_id?: number | string | null; clinica_id?: number | string | null; agendamento_id?: number | string | null }
+      | null
+      | undefined
+  ) => {
+    const campoCompativel = (atendimentoValor?: number | string | null, contextoValor?: number | string | null) => {
+      const atendimentoNormalizado = String(atendimentoValor || "").trim();
+      const contextoNormalizado = String(contextoValor || "").trim();
+      return !atendimentoNormalizado || !contextoNormalizado || atendimentoNormalizado === contextoNormalizado;
+    };
+
+    return (
+      campoCompativel(atendimentoResumo?.agendamento_id, contexto?.agendamento_id) &&
+      campoCompativel(atendimentoResumo?.paciente_id, contexto?.paciente_id) &&
+      campoCompativel(atendimentoResumo?.clinica_id, contexto?.clinica_id)
+    );
+  };
 
   const getClinicalFieldValue = (field: ClinicalFieldKey) => {
     switch (field) {
@@ -1606,32 +1871,44 @@ export default function AtendimentoPage() {
       }
 
       if (Number.isFinite(agendamentoId) && agendamentoId > 0) {
+        let contexto: any = null;
+
         try {
-          const existentes = await api.get(`/atendimentos?agendamento_id=${agendamentoId}&limit=1`);
-          const atendimentoExistente = existentes.data?.items?.[0];
+          const response = await api.get(`/atendimentos/contexto?agendamento_id=${agendamentoId}`);
+          contexto = response.data || {};
+        } catch (e: any) {
+          setErro(e?.response?.data?.detail || "Erro ao carregar contexto do agendamento.");
+          setContextoAplicado(true);
+          return;
+        }
+
+        try {
+          const existentes = await api.get(`/atendimentos?agendamento_id=${agendamentoId}&limit=10`);
+          const itensExistentes = Array.isArray(existentes.data?.items) ? existentes.data.items : [];
+          const atendimentoExistente = itensExistentes.find((item: AtendimentoResumo) =>
+            atendimentoCombinaComContexto(item, contexto)
+          );
           if (atendimentoExistente?.id) {
             await abrirAtendimento(atendimentoExistente.id);
             setSucesso(`Atendimento #${atendimentoExistente.id} carregado a partir da agenda.`);
             setContextoAplicado(true);
             return;
           }
+          if (itensExistentes.length > 0) {
+            setSucesso("Contexto do agendamento carregado. Um atendimento antigo inconsistente foi ignorado.");
+          }
         } catch {
-          // segue para carregar contexto do agendamento
+          // segue com a abertura a partir do contexto do agendamento
         }
 
-        try {
-          const response = await api.get(`/atendimentos/contexto?agendamento_id=${agendamentoId}`);
-          const contexto = response.data || {};
-          setForm((prev) => ({
-            ...prev,
-            paciente_id: contexto.paciente_id ? String(contexto.paciente_id) : prev.paciente_id,
-            especie: contexto.especie || prev.especie,
-            clinica_id: contexto.clinica_id ? String(contexto.clinica_id) : prev.clinica_id,
-            agendamento_id: String(agendamentoId),
-          }));
-        } catch (e: any) {
-          setErro(e?.response?.data?.detail || "Erro ao carregar contexto do agendamento.");
-        }
+        setForm((prev) => ({
+          ...prev,
+          paciente_id: contexto.paciente_id ? String(contexto.paciente_id) : prev.paciente_id,
+          especie: contexto.especie || prev.especie,
+          clinica_id: contexto.clinica_id ? String(contexto.clinica_id) : prev.clinica_id,
+          agendamento_id: String(agendamentoId),
+        }));
+        aplicarCadastroComplementar(contexto.paciente, contexto.tutor);
         setContextoAplicado(true);
         return;
       }
@@ -1775,6 +2052,43 @@ export default function AtendimentoPage() {
     if (pacienteSelecionado?.especie) return pacienteSelecionado.especie;
     return null;
   }, [form.especie, pacienteSelecionado?.especie]);
+
+  const pacienteNomeExibicao = cadastroComplementar.paciente.nome || pacienteSelecionado?.nome || "";
+  const tutorNomeExibicao = cadastroComplementar.tutor.nome || pacienteSelecionado?.tutor || "";
+  const especieRacaExibicao = [
+    cadastroComplementar.paciente.especie || especieExibicao || "",
+    cadastroComplementar.paciente.raca || pacienteSelecionado?.raca || "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const idadePacienteExibicao = extrairIdadePaciente({
+    idade: cadastroComplementar.paciente.idade,
+    data_nascimento: cadastroComplementar.paciente.data_nascimento,
+    observacoes: cadastroComplementar.paciente.observacoes,
+  });
+  const especieCadastroAtual = cadastroComplementar.paciente.especie || especieExibicao || "";
+  const opcoesRacaCadastro = useMemo(() => {
+    if (!especieCadastroAtual) return [];
+    return getRacaOptions(
+      especieCadastroAtual,
+      cadastroComplementar.paciente.raca,
+      racasCustomPorEspecie[especieCadastroAtual] || [],
+    );
+  }, [cadastroComplementar.paciente.raca, especieCadastroAtual, racasCustomPorEspecie]);
+  const cadastroComplementarPendencias = useMemo(() => {
+    const pendencias: string[] = [];
+    if (!cadastroComplementar.paciente.especie) pendencias.push("especie");
+    if (!cadastroComplementar.paciente.raca) pendencias.push("raca");
+    if (!cadastroComplementar.paciente.data_nascimento) pendencias.push("data de nascimento");
+    if (cadastroComplementar.paciente.peso_kg == null) pendencias.push("peso cadastral");
+    if (!cadastroComplementar.tutor.whatsapp) pendencias.push("whatsapp");
+    if (!cadastroComplementar.tutor.email) pendencias.push("email");
+    if (!cadastroComplementar.tutor.cpf) pendencias.push("cpf");
+    if (!cadastroComplementar.tutor.endereco) pendencias.push("endereco");
+    if (!cadastroComplementar.tutor.cidade) pendencias.push("cidade");
+    if (!cadastroComplementar.tutor.estado) pendencias.push("estado");
+    return pendencias;
+  }, [cadastroComplementar]);
 
   const painelExameAtual = useMemo(() => {
     return paineisExames.find((item) => String(item.id) === painelExameSelecionado) || null;
@@ -2122,9 +2436,11 @@ export default function AtendimentoPage() {
   useEffect(() => {
     if (!form.paciente_id) {
       setHistoricoPaciente(null);
+      aplicarCadastroComplementar();
       return;
     }
     void carregarHistoricoPaciente(form.paciente_id);
+    void carregarCadastroComplementar(form.paciente_id);
   }, [form.paciente_id]);
 
   const abrirAtendimento = async (id: number) => {
@@ -2140,6 +2456,7 @@ export default function AtendimentoPage() {
       if (d.paciente_id) {
         await carregarHistoricoPaciente(d.paciente_id);
       }
+      aplicarCadastroComplementar(d.paciente, d.tutor);
       hydratingFormRef.current = true;
       setForm(hydrated);
       setProtocoloPrescricaoSelecionado("");
@@ -2177,6 +2494,9 @@ export default function AtendimentoPage() {
     setAnexoArquivo(null);
     clearExamUploadDrafts();
     setHistoricoPaciente(null);
+    aplicarCadastroComplementar();
+    setNovaRacaCadastro("");
+    setStatusCepTutor("");
     setAutosaveState("idle");
     setAutosaveAt("");
     clearDraftStorage();
@@ -2197,7 +2517,173 @@ export default function AtendimentoPage() {
     setField("especie", paciente.especie || "");
     setPacienteBusca(paciente.nome);
     setHistoricoPaciente(null);
+    setNovaRacaCadastro("");
+    setStatusCepTutor("");
+    aplicarCadastroComplementar(
+      {
+        id: paciente.id,
+        nome: paciente.nome,
+        tutor_id: paciente.tutor_id || null,
+        tutor: paciente.tutor || "",
+        especie: paciente.especie || "",
+        raca: paciente.raca || "",
+      },
+      {
+        id: paciente.tutor_id || null,
+        nome: paciente.tutor || "",
+      }
+    );
     setMostrarPacientes(false);
+  };
+
+  const setCadastroPacienteField = (field: keyof PacienteDetalhe, value: string | number | null) => {
+    setCadastroComplementar((prev) => ({
+      ...prev,
+      paciente: {
+        ...prev.paciente,
+        [field]: value,
+      },
+    }));
+  };
+
+  const setCadastroTutorField = (field: keyof TutorDetalhe, value: string | number | null) => {
+    setCadastroComplementar((prev) => ({
+      ...prev,
+      tutor: {
+        ...prev.tutor,
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleAdicionarRacaCadastro = () => {
+    const especieAtual = (especieCadastroAtual || "").trim();
+    const racaDigitada = novaRacaCadastro.trim();
+    if (!especieAtual) {
+      setErro("Selecione a especie antes de cadastrar uma nova raca.");
+      return;
+    }
+    if (!racaDigitada) return;
+
+    const racaExistente =
+      opcoesRacaCadastro.find((item) => item.toLowerCase() === racaDigitada.toLowerCase()) || racaDigitada;
+
+    setRacasCustomPorEspecie((prev) => addRacaCustomPorEspecie(prev, especieAtual, racaDigitada));
+    setCadastroPacienteField("raca", racaExistente);
+    setNovaRacaCadastro("");
+    setErro("");
+  };
+
+  const consultarCepTutor = async () => {
+    const cep = normalizarCep(cadastroComplementar.tutor.cep || "");
+    if (cep.length !== 8) return;
+
+    try {
+      setBuscandoCepTutor(true);
+      const response = await api.get(`/clinicas/cep/${cep}`);
+      const item = response?.data?.item || {};
+      setCadastroComplementar((prev) => ({
+        ...prev,
+        tutor: {
+          ...prev.tutor,
+          cep: formatarCepVisual(item.cep || cep),
+          endereco: item.logradouro || prev.tutor.endereco || "",
+          complemento: prev.tutor.complemento || item.complemento || "",
+          bairro: item.bairro || prev.tutor.bairro || "",
+          cidade: item.cidade || prev.tutor.cidade || "",
+          estado: item.estado || prev.tutor.estado || "",
+        },
+      }));
+      setStatusCepTutor(
+        item?.bairro_origem === "aprendizado"
+          ? "CEP preenchido com bairro aprendido."
+          : "CEP preenchido pelo ViaCEP."
+      );
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || "Falha ao consultar CEP.";
+      setStatusCepTutor(String(detail));
+    } finally {
+      setBuscandoCepTutor(false);
+    }
+  };
+
+  const sincronizarPesoCadastroNaTriagem = () => {
+    const pesoCadastral = cadastroComplementar.paciente.peso_kg;
+    if (pesoCadastral == null || !Number.isFinite(Number(pesoCadastral))) {
+      setErro("Informe um peso cadastral valido antes de sincronizar.");
+      return;
+    }
+    setField("triagem", { ...form.triagem, peso: Number(pesoCadastral) });
+    setSucesso("Peso cadastral copiado para a triagem.");
+    setErro("");
+  };
+
+  const salvarCadastroComplementarAtual = async () => {
+    if (!form.paciente_id) {
+      setErro("Selecione um paciente para complementar o cadastro.");
+      return;
+    }
+
+    try {
+      setSalvandoCadastroComplementar(true);
+      const pacienteId = Number(form.paciente_id);
+      const pacientePayload = {
+        nome: cadastroComplementar.paciente.nome.trim(),
+        tutor: cadastroComplementar.tutor.nome.trim() || undefined,
+        especie: cadastroComplementar.paciente.especie || null,
+        raca: cadastroComplementar.paciente.raca || null,
+        data_nascimento: cadastroComplementar.paciente.data_nascimento || null,
+        peso_kg:
+          cadastroComplementar.paciente.peso_kg == null || Number.isNaN(Number(cadastroComplementar.paciente.peso_kg))
+            ? null
+            : Number(cadastroComplementar.paciente.peso_kg),
+      };
+
+      await api.put(`/pacientes/${pacienteId}`, pacientePayload);
+      const pacienteAtualizado = await api.get(`/pacientes/${pacienteId}`);
+      const tutorId = Number(pacienteAtualizado.data?.tutor_id || cadastroComplementar.tutor.id || 0);
+
+      if (Number.isFinite(tutorId) && tutorId > 0) {
+        await api.put(`/tutores/${tutorId}`, {
+          nome: cadastroComplementar.tutor.nome.trim() || undefined,
+          telefone: cadastroComplementar.tutor.telefone || "",
+          whatsapp: cadastroComplementar.tutor.whatsapp || "",
+          email: cadastroComplementar.tutor.email || "",
+          cpf: cadastroComplementar.tutor.cpf || "",
+          cep: cadastroComplementar.tutor.cep || "",
+          endereco: cadastroComplementar.tutor.endereco || "",
+          numero: cadastroComplementar.tutor.numero || "",
+          complemento: cadastroComplementar.tutor.complemento || "",
+          bairro: cadastroComplementar.tutor.bairro || "",
+          cidade: cadastroComplementar.tutor.cidade || "",
+          estado: cadastroComplementar.tutor.estado || "",
+        });
+      }
+
+      await carregarCadastroComplementar(pacienteId);
+      setField("especie", pacientePayload.especie || "");
+      setPacienteBusca(pacientePayload.nome || pacienteBusca);
+      setPacientes((prev) =>
+        prev.map((item) =>
+          item.id === pacienteId
+            ? {
+                ...item,
+                nome: pacientePayload.nome || item.nome,
+                tutor: cadastroComplementar.tutor.nome || item.tutor,
+                tutor_id: tutorId || item.tutor_id,
+                especie: pacientePayload.especie || item.especie,
+                raca: pacientePayload.raca || item.raca,
+              }
+            : item
+        )
+      );
+      setSucesso("Cadastro complementar salvo com sucesso.");
+      setErro("");
+    } catch (e: any) {
+      setErro(e?.response?.data?.detail || "Erro ao salvar cadastro complementar.");
+    } finally {
+      setSalvandoCadastroComplementar(false);
+    }
   };
 
   const updatePrescricaoItem = (index: number, updates: Partial<PrescricaoItem>) => {
@@ -2349,13 +2835,13 @@ export default function AtendimentoPage() {
     setPrescricaoPreviewLoading(true);
     try {
       const payload = {
-        paciente_nome: pacienteSelecionado?.nome || "",
+        paciente_nome: pacienteNomeExibicao || "",
         paciente_especie: especieExibicao || "",
-        paciente_raca: pacienteSelecionado?.raca || "",
+        paciente_raca: cadastroComplementar.paciente.raca || pacienteSelecionado?.raca || "",
         paciente_peso: form.triagem.peso || null,
         paciente_sexo: "",
-        paciente_idade: "",
-        tutor_nome: pacienteSelecionado?.tutor || "",
+        paciente_idade: idadePacienteExibicao || "",
+        tutor_nome: tutorNomeExibicao || "",
         veterinario_nome: "",
         data_atendimento: form.data_atendimento || new Date().toISOString().split("T")[0],
         orientacoes_gerais: form.prescricao_orientacoes || "",
@@ -2390,7 +2876,7 @@ export default function AtendimentoPage() {
     } finally {
       setPrescricaoPreviewLoading(false);
     }
-  }, [form, pacienteSelecionado, especieExibicao]);
+  }, [cadastroComplementar.paciente.raca, especieExibicao, form, idadePacienteExibicao, pacienteNomeExibicao, pacienteSelecionado?.raca, tutorNomeExibicao]);
 
   const abrirMedicamentoBuscaRapida = (med: Medicamento) => {
     editarMedicamento(med);
@@ -2603,6 +3089,291 @@ export default function AtendimentoPage() {
       });
       return next;
     });
+  };
+
+  const carregarCustomPaineis = async () => {
+    try {
+      const response = await api.get<PainelExame[]>("/atendimentos/paineis");
+      setCustomPaineis(response.data || []);
+    } catch {
+      setErro("Erro ao carregar paineis customizados.");
+    }
+  };
+
+  const salvarPainelExame = async (formMode: "create" | "edit" = "create") => {
+    const nome = painelFormNome.trim();
+    if (!nome) {
+      setPainelFormErro("Informe um nome para o painel.");
+      return;
+    }
+
+    const examesSelecionados = painelFormItens
+      .map((exameId) => {
+        const found = catalogoExames.find((e) => e.id === exameId);
+        return found || null;
+      })
+      .filter((e): e is NonNullable<typeof e> => e !== null);
+
+    if (formMode === "create") {
+      try {
+        const payload = {
+          nome,
+          categoria: painelFormCategoria,
+          especie_alvo: "",
+          observacoes: "",
+          itens: examesSelecionados.map((e) => ({ catalogo_exame_id: e.id, ordem: 0 })),
+        };
+        await api.post("/atendimentos/paineis", payload);
+        setSucesso(`Painel "${nome}" criado com sucesso.`);
+        await carregarCustomPaineis();
+        setPainelModalMode("list");
+        setPainelFormNome("");
+        setPainelFormCategoria("");
+        setPainelFormItens([]);
+        setPainelFormErro("");
+      } catch {
+        setPainelFormErro("Erro ao criar painel. Tente novamente.");
+      }
+    } else if (formMode === "edit" && painelEmEdicao) {
+      try {
+        const payload = {
+          nome,
+          categoria: painelFormCategoria,
+          especie_alvo: "",
+          observacoes: "",
+          ativo: 1,
+          itens: examesSelecionados.map((e) => ({ catalogo_exame_id: e.id, ordem: 0 })),
+        };
+        await api.put(`/atendimentos/paineis/${painelEmEdicao.id}`, payload);
+        setSucesso(`Painel "${nome}" atualizado com sucesso.`);
+        await carregarCustomPaineis();
+        setPainelModalMode("list");
+        setPainelFormNome("");
+        setPainelFormCategoria("");
+        setPainelFormItens([]);
+        setPainelFormErro("");
+        setPainelEmEdicao(null);
+      } catch {
+        setPainelFormErro("Erro ao atualizar painel. Tente novamente.");
+      }
+    }
+  };
+
+  const excluirPainelExame = async (painelId: number) => {
+    if (!confirm("Tem certeza que deseja excluir este painel?")) return;
+    try {
+      await api.delete(`/atendimentos/paineis/${painelId}`);
+      setSucesso("Painel removido com sucesso.");
+      await carregarCustomPaineis();
+    } catch {
+      setErro("Erro ao excluir painel. Tente novamente.");
+    }
+  };
+
+  const editarPainelExame = (painel: PainelExame) => {
+    setPainelEmEdicao(painel);
+    setPainelFormNome(painel.nome);
+    setPainelFormCategoria(painel.categoria || "");
+    setPainelFormItens(painel.itens.map((i: any) => i.catalogo_exame_id));
+    setPainelFormSearch("");
+    setPainelFormErro("");
+    setPainelModalMode("edit");
+  };
+
+  const aplicarPainel = (painel: PainelExame) => {
+    if (!painel.itens?.length) {
+      setErro(`O painel "${painel.nome}" nao tem exames definidos.`);
+      return;
+    }
+    const existentes = new Set(
+      form.exames
+        .filter((item) => (item.tipo_exame || "").trim())
+        .map((item) =>
+          [
+            item.catalogo_exame_id || "",
+            (item.tipo_exame || "").trim().toLowerCase(),
+            item.painel_exame_id || "",
+            item.prioridade || "",
+          ].join("|")
+        )
+    );
+
+    const novosExames = painel.itens
+      .map((item: any) =>
+        buildExamFromCatalog(
+          {
+            id: item.catalogo_exame_id,
+            codigo: item.codigo || "",
+            nome: item.nome || "",
+            categoria: item.categoria || "",
+            subcategoria: item.subcategoria || "",
+            especie_alvo: "",
+            prioridade_padrao: item.prioridade_padrao || "Rotina",
+            valor_padrao: item.valor_padrao || 0,
+            preparo: item.preparo || "",
+            observacoes_padrao: item.observacoes_padrao || "",
+            sinonimos: [],
+            ativo: 1,
+          },
+          painel
+        )
+      )
+      .filter((item) => {
+        const identity = [
+          item.catalogo_exame_id || "",
+          (item.tipo_exame || "").trim().toLowerCase(),
+          item.painel_exame_id || "",
+          item.prioridade || "",
+        ].join("|");
+        return !existentes.has(identity);
+      });
+
+    if (!novosExames.length) {
+      setSucesso(`Todos os exames do painel "${painel.nome}" ja estao na solicitacao.`);
+      setErro("");
+      return;
+    }
+
+    mergeExamesNoFormulario(novosExames);
+    setSucesso(`Painel "${painel.nome}" aplicado com ${novosExames.length} item(ns).`);
+    setErro("");
+  };
+
+  const salvarPresetPrescricaoAtual = () => {
+    const nome = nomeNovoPresetPrescricao.trim();
+    const itens = form.prescricao_itens
+      .filter((item) => item.medicamento_id || (item.medicamento_nome || "").trim())
+      .map((item) => ({
+        ...hydratePrescriptionItem(item),
+        id: undefined,
+        historico_ajustes: [],
+      }));
+
+    if (!nome) {
+      setErro("Informe um nome para o preset de prescricao.");
+      return;
+    }
+    if (!itens.length) {
+      setErro("Adicione pelo menos um item na prescricao antes de salvar o preset.");
+      return;
+    }
+
+    const presetAnterior = presetPrescricaoEmEdicaoId
+      ? prescriptionPresets.find((item) => item.id === presetPrescricaoEmEdicaoId)
+      : null;
+    const preset: PrescricaoPreset = {
+      id: presetAnterior?.id || `prescription-preset-${Date.now()}`,
+      nome,
+      created_at: presetAnterior?.created_at || new Date().toISOString(),
+      orientacoes_gerais: form.prescricao_orientacoes || "",
+      retorno_dias: form.prescricao_retorno_dias || "",
+      itens,
+    };
+    const nomeNormalizado = normalizarTokenPrescricao(nome);
+    setPrescriptionPresets((prev) => [
+      preset,
+      ...prev.filter(
+        (item) => item.id !== preset.id && normalizarTokenPrescricao(item.nome) !== nomeNormalizado
+      ),
+    ]);
+    setPresetPrescricaoEmEdicaoId(null);
+    setNomeNovoPresetPrescricao("");
+    setSucesso(
+      presetAnterior
+        ? `Preset de prescricao "${nome}" atualizado.`
+        : `Preset de prescricao "${nome}" salvo.`
+    );
+    setErro("");
+  };
+
+  const aplicarPresetPrescricao = (preset: PrescricaoPreset) => {
+    const pesoReferencia = normalizePeso(form.triagem.peso);
+    const itensGerados = preset.itens.map((item) => {
+      const hydrated = hydratePrescriptionItem({ ...item, id: undefined, historico_ajustes: [] });
+      const med = hydrated.medicamento_id ? medicamentos.find((entry) => entry.id === hydrated.medicamento_id) || null : null;
+      const nextItem = {
+        ...hydrated,
+        peso_referencia_kg: pesoReferencia ? String(pesoReferencia) : hydrated.peso_referencia_kg,
+      };
+      if (pesoReferencia) {
+        const presentationSuggestion =
+          med && !(nextItem.medicamento_nome || "").toLowerCase().includes("formula manipulada")
+            ? suggestMedicationPresentation(pesoReferencia, med)
+            : null;
+        const calculo = calcularDosePrescricaoItem(nextItem, med, pesoReferencia);
+        const doseCalculada = formatarDoseTextoCalculada(calculo);
+        return {
+          ...nextItem,
+          apresentacao_selecionada:
+            presentationSuggestion && !presentationSuggestion.requerManipulacao
+              ? presentationSuggestion.presentationLabel
+              : nextItem.apresentacao_selecionada,
+          dose:
+            presentationSuggestion && !presentationSuggestion.requerManipulacao && presentationSuggestion.doseAplicada
+              ? presentationSuggestion.doseAplicada
+              : (doseCalculada || nextItem.dose),
+        };
+      }
+      return nextItem;
+    });
+
+    const itensAtuaisPreenchidos = form.prescricao_itens.filter(
+      (item) =>
+        item.medicamento_id
+        || (item.medicamento_nome || "").trim()
+        || (item.dose || "").trim()
+        || (item.frequencia || "").trim()
+        || (item.duracao || "").trim()
+        || (item.instrucoes || "").trim()
+    );
+    const itensFinais = itensAtuaisPreenchidos.length === 0 ? itensGerados : [...itensAtuaisPreenchidos, ...itensGerados];
+
+    const orientacaoPreset = (preset.orientacoes_gerais || "").trim();
+    const orientacoesAtuais = (form.prescricao_orientacoes || "").trim();
+    const orientacoesFinais = orientacaoPreset
+      ? orientacoesAtuais
+        ? orientacoesAtuais.includes(orientacaoPreset)
+          ? orientacoesAtuais
+          : `${orientacoesAtuais}\n\n${orientacaoPreset}`
+        : orientacaoPreset
+      : orientacoesAtuais;
+
+    setField("prescricao_itens", itensFinais.length ? itensFinais : [emptyPrescriptionItem()]);
+    setField("prescricao_orientacoes", orientacoesFinais);
+    if (!form.prescricao_retorno_dias && preset.retorno_dias) {
+      setField("prescricao_retorno_dias", preset.retorno_dias);
+    }
+    setPrescricaoValidationErrors({});
+    setSucesso(`Preset de prescricao "${preset.nome}" aplicado.`);
+    setErro("");
+  };
+
+  const editarPresetPrescricao = (preset: PrescricaoPreset) => {
+    const itens = preset.itens.length
+      ? preset.itens.map((item) => hydratePrescriptionItem({ ...item, id: undefined, historico_ajustes: [] }))
+      : [emptyPrescriptionItem()];
+    setField("prescricao_itens", itens);
+    setField("prescricao_orientacoes", preset.orientacoes_gerais || "");
+    setField("prescricao_retorno_dias", preset.retorno_dias || "");
+    setPrescricaoValidationErrors({});
+    setNomeNovoPresetPrescricao(preset.nome);
+    setPresetPrescricaoEmEdicaoId(preset.id);
+    setWorkspacePainel("prescricao");
+    setSucesso(`Preset de prescricao "${preset.nome}" carregado para edicao.`);
+    setErro("");
+  };
+
+  const cancelarEdicaoPresetPrescricao = () => {
+    setPresetPrescricaoEmEdicaoId(null);
+    setNomeNovoPresetPrescricao("");
+  };
+
+  const removerPresetPrescricao = (presetId: string) => {
+    setPrescriptionPresets((prev) => prev.filter((item) => item.id !== presetId));
+    if (presetPrescricaoEmEdicaoId === presetId) {
+      setPresetPrescricaoEmEdicaoId(null);
+      setNomeNovoPresetPrescricao("");
+    }
   };
 
   const atualizarExame = (index: number, updates: Partial<ExameSolicitacao>) => {
@@ -2982,6 +3753,37 @@ export default function AtendimentoPage() {
       clearExamUploadDraft(index);
       clearExamDropState(index);
     }
+  };
+
+  const uploadArquivosResultadoExame = async (index: number, files: File[]) => {
+    const arquivosValidos = files.filter(Boolean);
+    if (arquivosValidos.length === 0) return;
+    const examAtual = formRef.current.exames[index];
+    if (!examAtual) return;
+    if (!(examAtual.tipo_exame || "").trim()) {
+      setErro("Informe o nome do exame antes de anexar os arquivos.");
+      return;
+    }
+
+    const exameId = await resolveExamIdForUpload(index);
+    if (!exameId) {
+      setErro("Nao foi possivel salvar o exame para anexar os arquivos.");
+      return;
+    }
+
+    for (const file of arquivosValidos) {
+      const uploadConcluido = await uploadAnexoArquivo(file, {
+        exameId,
+        tipo: "resultado_exame",
+        descricao: `Arquivo de resultado: ${examAtual.tipo_exame || "Exame"}`,
+        uploadKey: `exame-${index}`,
+      });
+      if (!uploadConcluido) {
+        break;
+      }
+    }
+    clearExamUploadDraft(index);
+    clearExamDropState(index);
   };
 
   const cancelarUploadAnexo = (uploadKey: string) => {
@@ -4418,11 +5220,11 @@ export default function AtendimentoPage() {
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3 backdrop-blur">
                 <p className="text-[11px] uppercase tracking-[0.25em] text-slate-300">Paciente</p>
-                <p className="mt-2 text-sm font-medium text-white">{pacienteSelecionado?.nome || "Nao selecionado"}</p>
+                <p className="mt-2 text-sm font-medium text-white">{pacienteNomeExibicao || "Nao selecionado"}</p>
               </div>
               <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3 backdrop-blur">
                 <p className="text-[11px] uppercase tracking-[0.25em] text-slate-300">Tutor</p>
-                <p className="mt-2 text-sm font-medium text-white">{pacienteSelecionado?.tutor || "Nao informado"}</p>
+                <p className="mt-2 text-sm font-medium text-white">{tutorNomeExibicao || "Nao informado"}</p>
               </div>
               <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3 backdrop-blur">
                 <p className="text-[11px] uppercase tracking-[0.25em] text-slate-300">Peso clinico</p>
@@ -4737,15 +5539,15 @@ export default function AtendimentoPage() {
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                       <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3">
                         <p className="text-[11px] uppercase tracking-[0.25em] text-slate-500">Paciente</p>
-                        <p className="mt-2 text-sm font-medium text-slate-900">{pacienteSelecionado?.nome || "Nao selecionado"}</p>
+                        <p className="mt-2 text-sm font-medium text-slate-900">{pacienteNomeExibicao || "Nao selecionado"}</p>
                       </div>
                       <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3">
                         <p className="text-[11px] uppercase tracking-[0.25em] text-slate-500">Tutor</p>
-                        <p className="mt-2 text-sm font-medium text-slate-900">{pacienteSelecionado?.tutor || "Nao informado"}</p>
+                        <p className="mt-2 text-sm font-medium text-slate-900">{tutorNomeExibicao || "Nao informado"}</p>
                       </div>
                       <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3">
                         <p className="text-[11px] uppercase tracking-[0.25em] text-slate-500">Especie / raca</p>
-                        <p className="mt-2 text-sm font-medium text-slate-900">{historicoPaciente ? `${historicoPaciente.paciente.especie || "-"} · ${historicoPaciente.paciente.raca || "-"}` : "Nao informadas"}</p>
+                        <p className="mt-2 text-sm font-medium text-slate-900">{especieRacaExibicao || "Nao informadas"}</p>
                       </div>
                       <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3">
                         <p className="text-[11px] uppercase tracking-[0.25em] text-slate-500">Status do caso</p>
@@ -4788,6 +5590,272 @@ export default function AtendimentoPage() {
                   </div>
                 </section>
                 ) : null}
+
+            {isConsultaWorkspace ? (
+            <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-2xl bg-amber-50 p-3">
+                        <User className="h-5 w-5 text-amber-600" />
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Antes da triagem</p>
+                        <h3 className="text-lg font-semibold text-slate-900">Complementacao cadastral</h3>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full px-3 py-1 text-xs font-medium ${
+                        cadastroComplementarPendencias.length > 0
+                          ? "bg-amber-100 text-amber-800"
+                          : "bg-emerald-100 text-emerald-700"
+                      }`}>
+                        {cadastroComplementarPendencias.length > 0
+                          ? `${cadastroComplementarPendencias.length} pendencia(s)`
+                          : "Cadastro pronto"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void salvarCadastroComplementarAtual()}
+                        disabled={!form.paciente_id || salvandoCadastroComplementar || carregandoCadastroComplementar}
+                        className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {salvandoCadastroComplementar ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                        {salvandoCadastroComplementar ? "Salvando..." : "Salvar cadastro"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {!form.paciente_id ? (
+                    <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+                      Selecione um paciente para complementar cadastro de pet e tutor antes da triagem.
+                    </div>
+                  ) : carregandoCadastroComplementar ? (
+                    <div className="flex items-center gap-3 rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-600">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Carregando dados atuais do paciente e do tutor...
+                    </div>
+                  ) : (
+                    <>
+                      <div className={`rounded-[22px] border px-4 py-4 text-sm ${
+                        cadastroComplementarPendencias.length > 0
+                          ? "border-amber-200 bg-amber-50 text-amber-900"
+                          : "border-emerald-200 bg-emerald-50 text-emerald-800"
+                      }`}>
+                        {cadastroComplementarPendencias.length > 0
+                          ? `Campos mais importantes ainda em aberto: ${cadastroComplementarPendencias.slice(0, 6).join(", ")}.`
+                          : "Os dados principais para receita, envio de medicacao e nota fiscal ja estao preenchidos."}
+                      </div>
+
+                      <div className="grid gap-4 xl:grid-cols-2">
+                        <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Paciente</p>
+                            <p className="mt-1 text-sm text-slate-600">Dados basicos do pet para seguir ao atendimento.</p>
+                          </div>
+                          <div className="mt-4 grid gap-3 md:grid-cols-2">
+                            <input
+                              value={cadastroComplementar.paciente.nome}
+                              onChange={(e) => setCadastroPacienteField("nome", e.target.value)}
+                              placeholder="Nome do pet"
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                            />
+                            <select
+                              value={cadastroComplementar.paciente.especie || ""}
+                              onChange={(e) => {
+                                setCadastroPacienteField("especie", e.target.value);
+                                setCadastroPacienteField("raca", "");
+                                setNovaRacaCadastro("");
+                              }}
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                            >
+                              <option value="">Especie</option>
+                              <option value="Canina">Canino</option>
+                              <option value="Felina">Felino</option>
+                            </select>
+                            <div className="space-y-2">
+                              <select
+                                value={cadastroComplementar.paciente.raca || ""}
+                                onChange={(e) => setCadastroPacienteField("raca", e.target.value)}
+                                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                              >
+                                <option value="">{especieCadastroAtual ? "Selecione a raca" : "Selecione a especie primeiro"}</option>
+                                {opcoesRacaCadastro.map((raca) => (
+                                  <option key={raca} value={raca}>
+                                    {raca}
+                                  </option>
+                                ))}
+                              </select>
+                              <div className="flex gap-2">
+                                <input
+                                  value={novaRacaCadastro}
+                                  onChange={(e) => setNovaRacaCadastro(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      handleAdicionarRacaCadastro();
+                                    }
+                                  }}
+                                  placeholder="Cadastrar nova raca"
+                                  className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={handleAdicionarRacaCadastro}
+                                  disabled={!novaRacaCadastro.trim()}
+                                  className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                                >
+                                  Adicionar
+                                </button>
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block px-1 text-[11px] font-medium uppercase tracking-[0.2em] text-slate-500">
+                                Data de nascimento
+                              </label>
+                              <input
+                                type="date"
+                                value={cadastroComplementar.paciente.data_nascimento || ""}
+                                onChange={(e) => setCadastroPacienteField("data_nascimento", e.target.value)}
+                                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                              />
+                            </div>
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={cadastroComplementar.paciente.peso_kg ?? ""}
+                              onChange={(e) => setCadastroPacienteField("peso_kg", e.target.value ? Number(e.target.value) : null)}
+                              placeholder="Peso cadastral (kg)"
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                            />
+                            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+                              <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Idade calculada</p>
+                              <p className="mt-1 font-medium text-slate-900">{idadePacienteExibicao || "Em aberto"}</p>
+                              <p className="mt-1 text-xs text-slate-500">Campo automatico baseado na data de nascimento.</p>
+                            </div>
+                            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+                              <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Resumo</p>
+                              <p className="mt-1 font-medium text-slate-900">{especieRacaExibicao || "Especie e raca em aberto"}</p>
+                            </div>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={sincronizarPesoCadastroNaTriagem}
+                              disabled={cadastroComplementar.paciente.peso_kg == null}
+                              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                            >
+                              <ArrowRight className="h-4 w-4" />
+                              Copiar peso para triagem
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Tutor</p>
+                            <p className="mt-1 text-sm text-slate-600">Contato, endereco para entrega e dados fiscais.</p>
+                          </div>
+                          <div className="mt-4 grid gap-3 md:grid-cols-2">
+                            <input
+                              value={cadastroComplementar.tutor.nome || ""}
+                              onChange={(e) => setCadastroTutorField("nome", e.target.value)}
+                              placeholder="Nome do tutor"
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 md:col-span-2"
+                            />
+                            <input
+                              value={cadastroComplementar.tutor.whatsapp || ""}
+                              onChange={(e) => setCadastroTutorField("whatsapp", e.target.value)}
+                              placeholder="WhatsApp"
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                            />
+                            <input
+                              value={cadastroComplementar.tutor.telefone || ""}
+                              onChange={(e) => setCadastroTutorField("telefone", e.target.value)}
+                              placeholder="Telefone"
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                            />
+                            <input
+                              value={cadastroComplementar.tutor.email || ""}
+                              onChange={(e) => setCadastroTutorField("email", e.target.value)}
+                              placeholder="Email"
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                            />
+                            <input
+                              value={cadastroComplementar.tutor.cpf || ""}
+                              onChange={(e) => setCadastroTutorField("cpf", e.target.value)}
+                              placeholder="CPF"
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                            />
+                            <div className="flex gap-2">
+                              <input
+                                value={cadastroComplementar.tutor.cep || ""}
+                                onChange={(e) => {
+                                  setCadastroTutorField("cep", formatarCepVisual(e.target.value));
+                                  setStatusCepTutor("");
+                                }}
+                                onBlur={() => void consultarCepTutor()}
+                                placeholder="CEP"
+                                className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => void consultarCepTutor()}
+                                disabled={buscandoCepTutor}
+                                className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                              >
+                                {buscandoCepTutor ? <Loader2 className="h-4 w-4 animate-spin" /> : "Buscar"}
+                              </button>
+                            </div>
+                            <input
+                              value={cadastroComplementar.tutor.endereco || ""}
+                              onChange={(e) => setCadastroTutorField("endereco", e.target.value)}
+                              placeholder="Endereco"
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                            />
+                            <input
+                              value={cadastroComplementar.tutor.numero || ""}
+                              onChange={(e) => setCadastroTutorField("numero", e.target.value)}
+                              placeholder="Numero"
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                            />
+                            <input
+                              value={cadastroComplementar.tutor.complemento || ""}
+                              onChange={(e) => setCadastroTutorField("complemento", e.target.value)}
+                              placeholder="Complemento"
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                            />
+                            <input
+                              value={cadastroComplementar.tutor.bairro || ""}
+                              onChange={(e) => setCadastroTutorField("bairro", e.target.value)}
+                              placeholder="Bairro"
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                            />
+                            <input
+                              value={cadastroComplementar.tutor.cidade || ""}
+                              onChange={(e) => setCadastroTutorField("cidade", e.target.value)}
+                              placeholder="Cidade"
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                            />
+                            <input
+                              value={cadastroComplementar.tutor.estado || ""}
+                              onChange={(e) => setCadastroTutorField("estado", e.target.value)}
+                              placeholder="Estado"
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                            />
+                            {statusCepTutor ? (
+                              <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
+                                {statusCepTutor}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+            </section>
+            ) : null}
 
             {isConsultaWorkspace ? (
             <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm space-y-4">
@@ -5281,6 +6349,255 @@ export default function AtendimentoPage() {
                     </div>
                   </div>
                 ) : null}
+
+                <div className="mt-3 rounded-[20px] border border-slate-200 bg-white px-4 py-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Seus paineis customizados</p>
+                      <p className="mt-1 text-sm text-slate-600">Gerencie paineis de exames ou salve a combinacao atual.</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPainelFormNome("");
+                          setPainelFormCategoria("");
+                          setPainelFormItens([]);
+                          setPainelFormSearch("");
+                          setPainelFormErro("");
+                          setPainelModalMode("create");
+                          setPainelEmEdicao(null);
+                          setPainelModalOpen(true);
+                        }}
+                        className="rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+                      >
+                        + Novo painel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPainelModalMode("list");
+                          setPainelModalOpen(true);
+                        }}
+                        className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                      >
+                        Gerenciar
+                      </button>
+                    </div>
+                  </div>
+                  {customPaineis.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {customPaineis.map((painel) => (
+                        <div key={painel.id} className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => aplicarPainel(painel)}
+                            className="text-sm font-medium text-slate-800"
+                          >
+                            {painel.nome}
+                          </button>
+                          <span className="text-xs text-slate-500">{painel.itens?.length || 0} item(ns)</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-sm text-slate-500">Nenhum painel customizado ainda. Clique em &quot;+&quot; Novo painel para criar.</p>
+                  )}
+                </div>
+
+                {/* Painel Management Modal */}
+                {painelModalOpen ? (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+                    <div className="relative w-full max-w-2xl max-h-[85vh] overflow-auto rounded-3xl bg-white shadow-2xl">
+                      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          {painelModalMode === "edit" ? (
+                            <button
+                              type="button"
+                              onClick={() => { setPainelModalMode("list"); setPainelFormNome(""); setPainelFormItens([]); setPainelEmEdicao(null); }}
+                              className="rounded-full bg-slate-100 p-2 hover:bg-slate-200"
+                            >
+                              <ArrowLeft className="h-4 w-4 text-slate-600" />
+                            </button>
+                          ) : null}
+                          <h3 className="text-lg font-bold text-slate-900">
+                            {painelModalMode === "create" ? "Novo painel de exames" : painelModalMode === "edit" ? `Editando: ${painelEmEdicao?.nome || ""}` : "Gerenciar paineis"}
+                          </h3>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => { setPainelModalOpen(false); setPainelModalMode("list"); }}
+                          className="rounded-full bg-slate-100 p-2 hover:bg-slate-200"
+                        >
+                          <X className="h-4 w-4 text-slate-600" />
+                        </button>
+                      </div>
+
+                      <div className="px-6 py-4">
+                        {/* List mode */}
+                        {painelModalMode === "list" ? (
+                          <div>
+                            <div className="mb-4 flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => { setPainelFormNome(""); setPainelFormCategoria(""); setPainelFormItens([]); setPainelFormSearch(""); setPainelFormErro(""); setPainelModalMode("create"); }}
+                                className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                              >
+                                + Novo painel
+                              </button>
+                            </div>
+                            {customPaineis.length === 0 ? (
+                              <p className="text-sm text-slate-500">Nenhum painel customizado. Crie seu primeiro painel.</p>
+                            ) : (
+                              <div className="space-y-2">
+                                {customPaineis.map((painel) => (
+                                  <div key={painel.id} className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3">
+                                    <div>
+                                      <p className="font-medium text-slate-900">{painel.nome}</p>
+                                      <p className="text-xs text-slate-500">{painel.categoria || "Sem categoria"} · {painel.itens?.length || 0} exame(s)</p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => editarPainelExame(painel)}
+                                        className="rounded-xl bg-sky-100 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-200"
+                                      >
+                                        Editar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => excluirPainelExame(painel.id)}
+                                        className="rounded-xl bg-rose-100 p-1.5 text-rose-600 hover:bg-rose-200"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+
+                        {/* Create / Edit mode */}
+                        {(painelModalMode === "create" || painelModalMode === "edit") ? (
+                          <div className="space-y-4">
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div>
+                                <label className="mb-1 block text-xs font-medium text-slate-600">Nome do painel *</label>
+                                <input
+                                  value={painelFormNome}
+                                  onChange={(e) => setPainelFormNome(e.target.value)}
+                                  placeholder="Ex: Cardiológico Básico"
+                                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900"
+                                />
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-xs font-medium text-slate-600">Categoria</label>
+                                <input
+                                  value={painelFormCategoria}
+                                  onChange={(e) => setPainelFormCategoria(e.target.value)}
+                                  placeholder="Ex: Cardiologia"
+                                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900"
+                                />
+                              </div>
+                            </div>
+
+                            {painelFormErro ? (
+                              <p className="text-sm text-rose-600">{painelFormErro}</p>
+                            ) : null}
+
+                            <div>
+                              <div className="mb-2 flex items-center justify-between">
+                                <label className="text-xs font-medium text-slate-600">Exames ({painelFormItens.length} selecionado(s))</label>
+                              </div>
+                              <div className="mb-2">
+                                <input
+                                  value={painelFormSearch}
+                                  onChange={(e) => setPainelFormSearch(e.target.value)}
+                                  placeholder="Buscar exame..."
+                                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900"
+                                />
+                              </div>
+                              {painelFormItens.length > 0 ? (
+                                <div className="mb-3 rounded-2xl border border-blue-200 bg-blue-50 p-3">
+                                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-blue-700">Selecionados</p>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {painelFormItens.map((exameId) => {
+                                      const exam = catalogoExames.find((e) => e.id === exameId);
+                                      if (!exam) return null;
+                                      return (
+                                        <span key={exameId} className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700">
+                                          {exam.nome}
+                                          <button
+                                            type="button"
+                                            onClick={() => setPainelFormItens((prev) => prev.filter((id) => id !== exameId))}
+                                            className="rounded-full bg-blue-200 p-0.5 hover:bg-blue-300"
+                                          >
+                                            <X className="h-3 w-3" />
+                                          </button>
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ) : null}
+                              <div className="max-h-60 overflow-auto rounded-2xl border border-slate-200">
+                                {catalogoExames
+                                  .filter((exame) =>
+                                    !painelFormItens.includes(exame.id) &&
+                                    (painelFormSearch === "" ||
+                                      exame.nome.toLowerCase().includes(painelFormSearch.toLowerCase()) ||
+                                      exame.categoria.toLowerCase().includes(painelFormSearch.toLowerCase()))
+                                  )
+                                  .slice(0, 30)
+                                  .map((exame) => (
+                                    <button
+                                      key={exame.id}
+                                      type="button"
+                                      onClick={() => setPainelFormItens((prev) => [...prev, exame.id])}
+                                      className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm hover:bg-sky-50"
+                                    >
+                                      <div>
+                                        <p className="font-medium text-slate-800">{exame.nome}</p>
+                                        <p className="text-xs text-slate-500">{exame.categoria}</p>
+                                      </div>
+                                      <Plus className="h-4 w-4 text-slate-400" />
+                                    </button>
+                                  ))}
+                                {catalogoExames.filter((exame) =>
+                                  !painelFormItens.includes(exame.id) &&
+                                  (painelFormSearch === "" ||
+                                    exame.nome.toLowerCase().includes(painelFormSearch.toLowerCase()) ||
+                                    exame.categoria.toLowerCase().includes(painelFormSearch.toLowerCase()))
+                                ).length === 0 ? (
+                                  <p className="p-4 text-center text-sm text-slate-500">Nenhum exame disponivel.</p>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+                              <button
+                                type="button"
+                                onClick={() => { setPainelModalMode("list"); setPainelFormNome(""); setPainelFormItens([]); setPainelEmEdicao(null); }}
+                                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                              >
+                                Cancelar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => salvarPainelExame(painelModalMode)}
+                                className="rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+                              >
+                                {painelModalMode === "create" ? "Criar painel" : "Salvar alteracoes"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
                 <div className="space-y-3">
@@ -5416,9 +6733,11 @@ export default function AtendimentoPage() {
                             onDrop={(event) => {
                               event.preventDefault();
                               clearExamDropState(index);
-                              const file = event.dataTransfer.files?.[0];
-                              if (file) {
-                                setExamUploadDraftFile(index, file);
+                              const files = Array.from(event.dataTransfer.files || []);
+                              if (files.length > 1) {
+                                void uploadArquivosResultadoExame(index, files);
+                              } else if (files[0]) {
+                                setExamUploadDraftFile(index, files[0]);
                               }
                             }}
                             className={`mt-3 rounded-2xl border-2 border-dashed p-4 transition ${
@@ -5430,12 +6749,15 @@ export default function AtendimentoPage() {
                             <input
                               id={examDropzoneId}
                               type="file"
+                              multiple
                               accept={ATENDIMENTO_ATTACHMENT_ACCEPT}
                               className="hidden"
                               onChange={(event) => {
-                                const file = event.target.files?.[0];
-                                if (file) {
-                                  setExamUploadDraftFile(index, file);
+                                const files = Array.from(event.target.files || []);
+                                if (files.length > 1) {
+                                  void uploadArquivosResultadoExame(index, files);
+                                } else if (files[0]) {
+                                  setExamUploadDraftFile(index, files[0]);
                                 }
                                 event.target.value = "";
                               }}
@@ -5443,7 +6765,7 @@ export default function AtendimentoPage() {
                             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                               <div>
                                 <p className="text-sm font-medium text-slate-900">Arraste e solte o arquivo aqui</p>
-                                <p className="text-xs text-slate-500">Ou selecione manualmente. Ao enviar, o exame e o atendimento sao salvos automaticamente se necessario.</p>
+                                <p className="text-xs text-slate-500">Aceita envio unico ou em lote. Ao enviar, o exame e o atendimento sao salvos automaticamente se necessario.</p>
                               </div>
                               <div className="flex flex-wrap gap-2">
                                 <label
@@ -5451,7 +6773,7 @@ export default function AtendimentoPage() {
                                   className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200"
                                 >
                                   <FileUp className="h-4 w-4" />
-                                  Selecionar arquivo
+                                  Selecionar arquivo(s)
                                 </label>
                                 <button
                                   type="button"
@@ -5802,11 +7124,11 @@ export default function AtendimentoPage() {
                   <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                     <div className="rounded-[24px] border border-white/80 bg-white/80 px-4 py-4 shadow-sm backdrop-blur">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Paciente</p>
-                      <p className="mt-2 text-lg font-semibold text-slate-950">{pacienteSelecionado?.nome || "Sem paciente"}</p>
+                      <p className="mt-2 text-lg font-semibold text-slate-950">{pacienteNomeExibicao || "Sem paciente"}</p>
                       <p className="mt-1 text-sm text-slate-500">
-                        {pacienteSelecionado ? (
-                          especieExibicao ? (
-                            `${especieExibicao}${pacienteSelecionado.raca ? ` · ${pacienteSelecionado.raca}` : ""}`
+                        {pacienteNomeExibicao ? (
+                          especieRacaExibicao ? (
+                            especieRacaExibicao
                           ) : (
                             <span className="text-amber-600">Espécie não informada</span>
                           )
@@ -6060,6 +7382,75 @@ export default function AtendimentoPage() {
                         </button>
                       ))}
                     </div>
+
+                    <div className="mt-4 rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                          <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Seus presets de prescricao</p>
+                          <p className="mt-1 text-sm text-slate-600">Salve prescricoes recorrentes completas para reaplicar com os itens e orientacoes.</p>
+                          {presetPrescricaoEmEdicaoId ? (
+                            <p className="mt-1 text-xs font-medium text-sky-700">Editando preset selecionado</p>
+                          ) : null}
+                        </div>
+                        <div className="flex w-full flex-col gap-2 lg:w-auto lg:min-w-[320px] lg:flex-row">
+                          <input
+                            value={nomeNovoPresetPrescricao}
+                            onChange={(e) => setNomeNovoPresetPrescricao(e.target.value)}
+                            placeholder="Nome do preset"
+                            className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900"
+                          />
+                          <button
+                            type="button"
+                            onClick={salvarPresetPrescricaoAtual}
+                            className="rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+                          >
+                            {presetPrescricaoEmEdicaoId ? "Atualizar preset" : "Salvar preset"}
+                          </button>
+                          {presetPrescricaoEmEdicaoId ? (
+                            <button
+                              type="button"
+                              onClick={cancelarEdicaoPresetPrescricao}
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                            >
+                              Cancelar
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {prescriptionPresets.length > 0 ? (
+                          prescriptionPresets.map((preset) => (
+                            <div key={preset.id} className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2">
+                              <button
+                                type="button"
+                                onClick={() => aplicarPresetPrescricao(preset)}
+                                className="text-sm font-medium text-slate-800"
+                              >
+                                {preset.nome}
+                              </button>
+                              <span className="text-xs text-slate-500">{preset.itens.length} item(ns)</span>
+                              <button
+                                type="button"
+                                onClick={() => editarPresetPrescricao(preset)}
+                                className="rounded-full bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-600 transition hover:bg-sky-50 hover:text-sky-700"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removerPresetPrescricao(preset.id)}
+                                className="rounded-full bg-slate-50 p-1 text-slate-500 transition hover:bg-rose-50 hover:text-rose-600"
+                                aria-label={`Remover preset ${preset.nome}`}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-slate-500">Nenhum preset salvo ainda.</p>
+                        )}
+                      </div>
+                    </div>
                   </section>
                 </div>
 
@@ -6250,7 +7641,7 @@ export default function AtendimentoPage() {
                   <div className="mt-3 space-y-2 text-sm text-slate-700">
                     <p>Status: {form.status || "Triagem"}</p>
                     <p>Prognostico: {form.diagnostico.prognostico || "Nao definido"}</p>
-                    <p>Paciente: {pacienteSelecionado?.nome || "Nao selecionado"}</p>
+                    <p>Paciente: {pacienteNomeExibicao || "Nao selecionado"}</p>
                     <p>Alertas ativos: {alertasAtivos.length}</p>
                   </div>
                 </div>
