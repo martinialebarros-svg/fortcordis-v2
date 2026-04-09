@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import {
@@ -108,7 +108,6 @@ function calcularValorFinal(vs: number, vd: number, ai: number) {
 
 export default function NovaNotaFiscalPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const [form, setForm] = useState<NotaFiscalForm>(defaultForm);
   const [osSearch, setOsSearch] = useState("");
