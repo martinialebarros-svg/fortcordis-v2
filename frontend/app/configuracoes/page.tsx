@@ -249,6 +249,11 @@ export default function ConfiguracoesPage() {
     agenda_semanal: normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL),
     agenda_feriados: [],
     agenda_excecoes: [],
+    inscricao_municipal: "",
+    inscricao_estadual: "",
+    cnae: "",
+    regime_tributario: null,
+    codigo_municipio_servico: "",
   });
 
   // ConfiguraÃ§Ãµes do usuÃ¡rio
