@@ -457,55 +457,54 @@ def exportar_xlsx(notas: list[NotaFiscal], db_session) -> tuple[bytes, str]:
     return buffer.read(), filename
 
 
-def exportar_os_csv(os_items: list[dict[str, Any]], db_session) -> tuple[bytes, str]:
-    """Exporta dados de OS para envio contabil em CSV."""
+def exportar_os_csv(
+    os_items: list[dict[str, Any]],
+    db_session,
+    dados_tomador: Optional[dict[str, Any]] = None,
+) -> tuple[bytes, str]:
+    """Exporta dados de OS para contabilidade no formato legado (CSV)."""
     config = _get_configuracao(db_session)
     output = io.StringIO()
     writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_ALL)
 
-    writer.writerow(
-        [
-            "Clinica",
-            "CNPJ Clinica",
-            "OS",
-            "Data Atendimento",
-            "Status OS",
-            "Servico",
-            "Paciente",
-            "Tutor",
-            "Valor Servico",
-            "Desconto",
-            "Valor Final",
-            "Cidade Clinica",
-            "UF Clinica",
-            "Telefone Clinica",
-            "Email Clinica",
-            "Prestador",
-            "Gerado Em",
-        ]
-    )
+    writer.writerow(_legacy_export_headers())
 
-    gerado_em = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     for item in os_items:
+        row = _build_export_row(item, config, dados_tomador=dados_tomador)
         writer.writerow(
             [
-                item.get("clinica_nome") or "",
-                item.get("clinica_cnpj") or "",
-                item.get("numero_os") or "",
-                _format_date(item.get("data_atendimento")),
-                item.get("status_os") or "",
-                item.get("servico_nome") or "",
-                item.get("paciente_nome") or "",
-                item.get("tutor_nome") or "",
-                _format_number(item.get("valor_servico")),
-                _format_number(item.get("valor_desconto")),
-                _format_number(item.get("valor_final")),
-                item.get("clinica_cidade") or "",
-                item.get("clinica_estado") or "",
-                item.get("clinica_telefone") or "",
-                item.get("clinica_email") or "",
-                config.get("nome_empresa", ""),
-                gerado_em,
+                row["numero_nf"],
+                row["serie"],
+                row["tipo_cliente"],
+                row["cliente_nome"],
+                row["cliente_documento"],
+                row["cliente_endereco"],
+                row["cliente_bairro"],
+                row["cliente_cidade"],
+                row["cliente_estado"],
+                row["cliente_cep"],
+                row["cliente_telefone"],
+                row["cliente_email"],
+                _format_number(row["valor_servico"]),
+                _format_number(row["valor_desconto"]),
+                _format_number(row["valor_final"]),
+                _format_number(row["aliquota_iss"]),
+                _format_number(row["valor_iss"]),
+                row["atividade_cnae"],
+                row["descricao_servico"],
+                row["natureza_operacao"],
+                row["municipio_servico"],
+                row["regime_tributario"],
+                row["prestador_nome"],
+                row["prestador_cnpj"],
+                row["prestador_im"],
+                row["data_emissao"],
+                str(row["os_referencia"]),
+                row["status_os"],
+                row["clinica_nome"],
+                row["paciente_nome"],
+                row["tutor_nome"],
+                row["servico_nome"],
             ]
         )
 
@@ -514,58 +513,72 @@ def exportar_os_csv(os_items: list[dict[str, Any]], db_session) -> tuple[bytes, 
     return content, filename
 
 
-def exportar_os_xlsx(os_items: list[dict[str, Any]], db_session) -> tuple[bytes, str]:
-    """Exporta dados de OS para envio contabil em XLSX."""
+def exportar_os_xlsx(
+    os_items: list[dict[str, Any]],
+    db_session,
+    dados_tomador: Optional[dict[str, Any]] = None,
+) -> tuple[bytes, str]:
+    """Exporta dados de OS para contabilidade no formato legado (XLSX)."""
     config = _get_configuracao(db_session)
     wb = Workbook()
     ws = wb.active
-    ws.title = "Dados Contabeis"
-
-    headers = [
-        "Clinica",
-        "CNPJ Clinica",
-        "OS",
-        "Data Atendimento",
-        "Status OS",
-        "Servico",
-        "Paciente",
-        "Tutor",
-        "Valor Servico",
-        "Desconto",
-        "Valor Final",
-        "Cidade",
-        "UF",
-        "Telefone",
-        "Email",
-    ]
+    ws.title = "Dados Fiscais"
+    headers = _legacy_export_headers()
     ws.append(headers)
 
     header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
     header_font = Font(color="FFFFFF", bold=True)
-    for col_idx in range(1, len(headers) + 1):
-        cell = ws.cell(row=1, column=col_idx)
+    for idx in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=idx)
         cell.fill = header_fill
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
 
+    total_servico = 0.0
+    total_desconto = 0.0
+    total_final = 0.0
+    total_iss = 0.0
+
     for item in os_items:
+        row = _build_export_row(item, config, dados_tomador=dados_tomador)
+        total_servico += float(row["valor_servico"] or 0)
+        total_desconto += float(row["valor_desconto"] or 0)
+        total_final += float(row["valor_final"] or 0)
+        total_iss += float(row["valor_iss"] or 0)
         ws.append(
             [
-                item.get("clinica_nome") or "",
-                item.get("clinica_cnpj") or "",
-                item.get("numero_os") or "",
-                _format_date(item.get("data_atendimento")),
-                item.get("status_os") or "",
-                item.get("servico_nome") or "",
-                item.get("paciente_nome") or "",
-                item.get("tutor_nome") or "",
-                float(item.get("valor_servico") or 0),
-                float(item.get("valor_desconto") or 0),
-                float(item.get("valor_final") or 0),
-                item.get("clinica_cidade") or "",
-                item.get("clinica_estado") or "",
-                item.get("clinica_telefone") or "",
-                item.get("clinica_email") or "",
+                row["numero_nf"],
+                row["serie"],
+                row["tipo_cliente"],
+                row["cliente_nome"],
+                row["cliente_documento"],
+                row["cliente_endereco"],
+                row["cliente_bairro"],
+                row["cliente_cidade"],
+                row["cliente_estado"],
+                row["cliente_cep"],
+                row["cliente_telefone"],
+                row["cliente_email"],
+                float(row["valor_servico"] or 0),
+                float(row["valor_desconto"] or 0),
+                float(row["valor_final"] or 0),
+                float(row["aliquota_iss"] or 0),
+                float(row["valor_iss"] or 0),
+                row["atividade_cnae"],
+                row["descricao_servico"],
+                row["natureza_operacao"],
+                row["municipio_servico"],
+                row["regime_tributario"],
+                row["prestador_nome"],
+                row["prestador_cnpj"],
+                row["prestador_im"],
+                row["data_emissao"],
+                str(row["os_referencia"]),
+                row["status_os"],
+                row["clinica_nome"],
+                row["paciente_nome"],
+                row["tutor_nome"],
+                row["servico_nome"],
             ]
         )
 
@@ -580,24 +593,19 @@ def exportar_os_xlsx(os_items: list[dict[str, Any]], db_session) -> tuple[bytes,
                 pass
         ws.column_dimensions[col_letter].width = min(max_length + 2, 42)
 
-    ws_resumo = wb.create_sheet("Resumo")
-    total_servico = sum(float(item.get("valor_servico") or 0) for item in os_items)
-    total_desconto = sum(float(item.get("valor_desconto") or 0) for item in os_items)
-    total_final = sum(float(item.get("valor_final") or 0) for item in os_items)
-    clinicas_unicas = len({str(item.get("clinica_id") or item.get("clinica_nome") or "") for item in os_items})
-
-    ws_resumo.append(["Resumo exportacao contabil"])
-    ws_resumo.cell(row=1, column=1).font = Font(bold=True, size=14)
-    ws_resumo.append([])
-    ws_resumo.append(["Prestador", config.get("nome_empresa", "")])
-    ws_resumo.append(["Quantidade de OS", len(os_items)])
-    ws_resumo.append(["Clinicas no lote", clinicas_unicas])
-    ws_resumo.append(["Total servicos", _format_currency(total_servico)])
-    ws_resumo.append(["Total descontos", _format_currency(total_desconto)])
-    ws_resumo.append(["Total final", _format_currency(total_final)])
-    ws_resumo.append(["Gerado em", datetime.now().strftime("%d/%m/%Y %H:%M")])
-    ws_resumo.column_dimensions["A"].width = 28
-    ws_resumo.column_dimensions["B"].width = 40
+    ws2 = wb.create_sheet("Resumo")
+    ws2.append(["RESUMO EXPORTACAO CONTABIL"])
+    ws2.cell(row=1, column=1).font = Font(bold=True, size=14)
+    ws2.append([])
+    ws2.append(["Prestador", config.get("nome_empresa", "")])
+    ws2.append(["Quantidade de OS", len(os_items)])
+    ws2.append(["Total Valor Servico", _format_currency(total_servico)])
+    ws2.append(["Total Desconto", _format_currency(total_desconto)])
+    ws2.append(["Total Valor Final", _format_currency(total_final)])
+    ws2.append(["Total ISS", _format_currency(total_iss)])
+    ws2.append(["Gerado em", datetime.now().strftime("%d/%m/%Y %H:%M")])
+    ws2.column_dimensions["A"].width = 28
+    ws2.column_dimensions["B"].width = 42
 
     buffer = io.BytesIO()
     wb.save(buffer)
@@ -606,8 +614,12 @@ def exportar_os_xlsx(os_items: list[dict[str, Any]], db_session) -> tuple[bytes,
     return buffer.read(), filename
 
 
-def exportar_os_pdf(os_items: list[dict[str, Any]], db_session) -> tuple[bytes, str]:
-    """Exporta dados de OS para envio contabil em PDF."""
+def exportar_os_pdf(
+    os_items: list[dict[str, Any]],
+    db_session,
+    dados_tomador: Optional[dict[str, Any]] = None,
+) -> tuple[bytes, str]:
+    """Exporta dados de OS para contabilidade em PDF."""
     config = _get_configuracao(db_session)
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -620,22 +632,11 @@ def exportar_os_pdf(os_items: list[dict[str, Any]], db_session) -> tuple[bytes, 
     )
 
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        "TitleContabil",
-        parent=styles["Heading1"],
-        fontSize=15,
-        alignment=1,
-        spaceAfter=6,
-    )
-    normal_style = ParagraphStyle(
-        "NormalContabil",
-        parent=styles["Normal"],
-        fontSize=9,
-        leading=12,
-    )
+    title_style = ParagraphStyle("TitleContabil", parent=styles["Heading1"], fontSize=14, alignment=1, spaceAfter=6)
+    normal_style = ParagraphStyle("NormalContabil", parent=styles["Normal"], fontSize=9, leading=12)
 
-    total_final = sum(float(item.get("valor_final") or 0) for item in os_items)
-    clinicas_unicas = len({str(item.get("clinica_id") or item.get("clinica_nome") or "") for item in os_items})
+    rows = [_build_export_row(item, config, dados_tomador=dados_tomador) for item in os_items]
+    total_final = sum(float(r["valor_final"] or 0) for r in rows)
     generated_at = datetime.now().strftime("%d/%m/%Y %H:%M")
 
     elements = [
@@ -643,30 +644,26 @@ def exportar_os_pdf(os_items: list[dict[str, Any]], db_session) -> tuple[bytes, 
         Paragraph(
             f"<b>Prestador:</b> {config.get('nome_empresa', 'Fort Cordis')}<br/>"
             f"<b>Gerado em:</b> {generated_at}<br/>"
-            f"<b>Quantidade de OS:</b> {len(os_items)}<br/>"
-            f"<b>Clinicas no lote:</b> {clinicas_unicas}<br/>"
-            f"<b>Total final:</b> {_format_currency(total_final)}",
+            f"<b>Quantidade de OS:</b> {len(rows)}<br/>"
+            f"<b>Total:</b> {_format_currency(total_final)}",
             normal_style,
         ),
-        Spacer(1, 0.35 * cm),
+        Spacer(1, 0.3 * cm),
     ]
 
-    table_data = [
-        ["Clinica", "OS", "Data", "Servico", "Status", "Valor Final"],
-    ]
-    for item in os_items:
+    table_data = [["OS", "Data", "Tomador", "Servico", "Status", "Valor Final"]]
+    for row in rows:
         table_data.append(
             [
-                str(item.get("clinica_nome") or "-")[:36],
-                str(item.get("numero_os") or "-"),
-                _format_date(item.get("data_atendimento")),
-                str(item.get("servico_nome") or "-")[:34],
-                str(item.get("status_os") or "-"),
-                _format_currency(float(item.get("valor_final") or 0)),
+                str(row["os_referencia"]),
+                row["data_emissao"],
+                str(row["cliente_nome"] or "-")[:32],
+                str(row["servico_nome"] or "-")[:30],
+                row["status_os"],
+                _format_currency(float(row["valor_final"] or 0)),
             ]
         )
-
-    table = Table(table_data, colWidths=[5.4 * cm, 2.2 * cm, 2.2 * cm, 4.9 * cm, 2.3 * cm, 2.0 * cm])
+    table = Table(table_data, colWidths=[2.0 * cm, 2.2 * cm, 5.8 * cm, 4.6 * cm, 2.2 * cm, 2.5 * cm])
     table.setStyle(
         TableStyle(
             [
@@ -686,6 +683,124 @@ def exportar_os_pdf(os_items: list[dict[str, Any]], db_session) -> tuple[bytes, 
     buffer.seek(0)
     filename = f"dados_contabeis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     return buffer.read(), filename
+
+
+def _legacy_export_headers() -> list[str]:
+    return [
+        "Numero NF",
+        "Serie",
+        "Tipo Cliente",
+        "Razao Social Tomador",
+        "CNPJ/CPF Tomador",
+        "Endereco Tomador",
+        "Bairro Tomador",
+        "Cidade Tomador",
+        "UF Tomador",
+        "CEP Tomador",
+        "Telefone Tomador",
+        "Email Tomador",
+        "Valor Servico",
+        "Desconto",
+        "Valor Final",
+        "Aliquota ISS",
+        "Valor ISS",
+        "CNAE Atividade",
+        "Descricao Servico",
+        "Natureza Operacao",
+        "Municipio Servico",
+        "Regime Tributario",
+        "Prestador Nome",
+        "Prestador CNPJ",
+        "Prestador IM",
+        "Data Emissao",
+        "OS Referencia",
+        "Status OS",
+        "Clinica",
+        "Paciente",
+        "Tutor",
+        "Servico",
+    ]
+
+
+def _build_export_row(
+    item: dict[str, Any],
+    config: dict[str, Any],
+    dados_tomador: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    tomador = _resolve_tomador(item, dados_tomador or {})
+    aliquota_iss = _safe_float(tomador.get("aliquota_iss"), 5.0)
+    valor_servico = _safe_float(item.get("valor_servico"), 0.0)
+    valor_desconto = _safe_float(item.get("valor_desconto"), 0.0)
+    valor_final = _safe_float(item.get("valor_final"), max(0.0, valor_servico - valor_desconto))
+    valor_iss = round(valor_final * (aliquota_iss / 100), 2)
+
+    data_emissao = _format_date(item.get("data_atendimento")) or datetime.now().strftime("%d/%m/%Y")
+    return {
+        "numero_nf": "",
+        "serie": "1",
+        "tipo_cliente": tomador.get("tipo_cliente", "PJ"),
+        "cliente_nome": tomador.get("cliente_nome", ""),
+        "cliente_documento": tomador.get("cliente_documento", ""),
+        "cliente_endereco": tomador.get("cliente_endereco", ""),
+        "cliente_bairro": tomador.get("cliente_bairro", ""),
+        "cliente_cidade": tomador.get("cliente_cidade", ""),
+        "cliente_estado": tomador.get("cliente_estado", ""),
+        "cliente_cep": tomador.get("cliente_cep", ""),
+        "cliente_telefone": tomador.get("cliente_telefone", ""),
+        "cliente_email": tomador.get("cliente_email", ""),
+        "valor_servico": valor_servico,
+        "valor_desconto": valor_desconto,
+        "valor_final": valor_final,
+        "aliquota_iss": aliquota_iss,
+        "valor_iss": valor_iss,
+        "atividade_cnae": tomador.get("atividade_cnae", ""),
+        "descricao_servico": tomador.get("descricao_servico") or f"{item.get('servico_nome') or 'Servico veterinario'} - OS {item.get('numero_os') or ''}",
+        "natureza_operacao": tomador.get("natureza_operacao") or "Tributacao no municipio",
+        "municipio_servico": config.get("codigo_municipio", "230440"),
+        "regime_tributario": config.get("regime_tributario", ""),
+        "prestador_nome": config.get("nome_empresa", ""),
+        "prestador_cnpj": config.get("inscricao_estadual", ""),
+        "prestador_im": config.get("inscricao_municipal", ""),
+        "data_emissao": data_emissao,
+        "os_referencia": item.get("os_id") or item.get("numero_os") or "",
+        "status_os": item.get("status_os") or "",
+        "clinica_nome": item.get("clinica_nome") or "",
+        "paciente_nome": item.get("paciente_nome") or "",
+        "tutor_nome": item.get("tutor_nome") or "",
+        "servico_nome": item.get("servico_nome") or "",
+    }
+
+
+def _resolve_tomador(item: dict[str, Any], dados_tomador: dict[str, Any]) -> dict[str, Any]:
+    endereco_base = _join_non_empty(", ", [item.get("clinica_endereco"), item.get("clinica_numero")])
+    return {
+        "tipo_cliente": dados_tomador.get("tipo_cliente") or item.get("tipo_cliente") or "PJ",
+        "cliente_nome": dados_tomador.get("cliente_nome") or item.get("cliente_nome") or item.get("clinica_nome") or "",
+        "cliente_documento": dados_tomador.get("cliente_documento") or item.get("cliente_documento") or item.get("clinica_cnpj") or "",
+        "cliente_endereco": dados_tomador.get("cliente_endereco") or endereco_base,
+        "cliente_bairro": dados_tomador.get("cliente_bairro") or item.get("clinica_bairro") or "",
+        "cliente_cidade": dados_tomador.get("cliente_cidade") or item.get("clinica_cidade") or "",
+        "cliente_estado": dados_tomador.get("cliente_estado") or item.get("clinica_estado") or "",
+        "cliente_cep": dados_tomador.get("cliente_cep") or item.get("clinica_cep") or "",
+        "cliente_telefone": dados_tomador.get("cliente_telefone") or item.get("clinica_telefone") or "",
+        "cliente_email": dados_tomador.get("cliente_email") or item.get("clinica_email") or "",
+        "atividade_cnae": dados_tomador.get("atividade_cnae") or "",
+        "descricao_servico": dados_tomador.get("descricao_servico") or "",
+        "natureza_operacao": dados_tomador.get("natureza_operacao") or "",
+        "aliquota_iss": dados_tomador.get("aliquota_iss"),
+    }
+
+
+def _join_non_empty(separator: str, values: list[Any]) -> str:
+    parts = [str(v).strip() for v in values if str(v or "").strip()]
+    return separator.join(parts)
+
+
+def _safe_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _format_date(value: Any) -> str:

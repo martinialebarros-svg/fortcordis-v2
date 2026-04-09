@@ -33,9 +33,27 @@ class ExportarLoteRequest(BaseModel):
     formato: str = Field(..., pattern="^(pdf|csv|xlsx)$")
 
 
+class DadosTomadorExportacao(BaseModel):
+    tipo_cliente: str = Field(default="PJ", pattern="^(PF|PJ)$")
+    cliente_nome: Optional[str] = None
+    cliente_documento: Optional[str] = None
+    cliente_endereco: Optional[str] = None
+    cliente_bairro: Optional[str] = None
+    cliente_cidade: Optional[str] = None
+    cliente_estado: Optional[str] = None
+    cliente_cep: Optional[str] = None
+    cliente_telefone: Optional[str] = None
+    cliente_email: Optional[str] = None
+    atividade_cnae: Optional[str] = None
+    descricao_servico: Optional[str] = None
+    natureza_operacao: Optional[str] = None
+    aliquota_iss: Optional[float] = None
+
+
 class ExportarOSLoteRequest(BaseModel):
     os_ids: list[int] = Field(..., min_length=1)
     formato: str = Field(..., pattern="^(pdf|csv|xlsx)$")
+    dados_tomador: Optional[DadosTomadorExportacao] = None
 
 
 router = APIRouter()
@@ -227,15 +245,16 @@ def exportar_os_lote(
     os_items = buscar_os_por_ids_para_exportacao(db, body.os_ids)
     if not os_items:
         raise HTTPException(status_code=400, detail="Nenhuma OS valida encontrada para exportacao.")
+    dados_tomador = body.dados_tomador.model_dump(exclude_none=True) if body.dados_tomador else None
 
     if body.formato == "pdf":
-        content, filename = fiscal_export_service.exportar_os_pdf(os_items, db)
+        content, filename = fiscal_export_service.exportar_os_pdf(os_items, db, dados_tomador=dados_tomador)
         media_type = "application/pdf"
     elif body.formato == "csv":
-        content, filename = fiscal_export_service.exportar_os_csv(os_items, db)
+        content, filename = fiscal_export_service.exportar_os_csv(os_items, db, dados_tomador=dados_tomador)
         media_type = "text/csv; charset=utf-8"
     else:
-        content, filename = fiscal_export_service.exportar_os_xlsx(os_items, db)
+        content, filename = fiscal_export_service.exportar_os_xlsx(os_items, db, dados_tomador=dados_tomador)
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
     return StreamingResponse(
