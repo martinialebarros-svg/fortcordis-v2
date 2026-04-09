@@ -637,6 +637,7 @@ def exportar_os_pdf(
     section_style = ParagraphStyle("SectionContabil", parent=styles["Heading3"], fontSize=10, spaceAfter=4, textColor=colors.HexColor("#1F2937"))
 
     rows = [_build_export_row(item, config, dados_tomador=dados_tomador) for item in os_items]
+    grouped = _group_rows_by_clinic(rows)
     total_final = sum(float(r["valor_final"] or 0) for r in rows)
     generated_at = datetime.now().strftime("%d/%m/%Y %H:%M")
 
@@ -652,54 +653,64 @@ def exportar_os_pdf(
         Spacer(1, 0.3 * cm),
     ]
 
-    for row in rows:
-        tipo_cliente = str(row.get("tipo_cliente") or "PJ").upper()
-        documento_label = "CNPJ" if tipo_cliente == "PJ" else "CPF"
-        endereco_completo = _format_endereco_completo(row)
-
+    for clinica_nome, clinic_rows in grouped.items():
+        clinic_total = sum(float(r.get("valor_servico") or 0) for r in clinic_rows)
         elements.append(
             Paragraph(
-                f"OS {row.get('os_referencia', '-')} | Data {row.get('data_emissao', '-')} | Status {row.get('status_os', '-')}",
+                f"CLINICA: {clinica_nome} | OS no periodo: {len(clinic_rows)} | Total servicos: {_format_currency(clinic_total)}",
                 section_style,
             )
         )
+        for row in clinic_rows:
+            tipo_cliente = str(row.get("tipo_cliente") or "PJ").upper()
+            documento_label = "CNPJ" if tipo_cliente == "PJ" else "CPF"
+            endereco_completo = _format_endereco_completo(row)
 
-        info_rows: list[list[str]] = [
-            ["Razao/Nome", str(row.get("cliente_nome") or "-")],
-            [documento_label, str(row.get("cliente_documento") or "-")],
-            ["Endereco completo", endereco_completo],
-        ]
-        if tipo_cliente == "PJ":
-            info_rows.append(["Telefone", str(row.get("cliente_telefone") or "-")])
-            info_rows.append(["E-mail", str(row.get("cliente_email") or "-")])
+            elements.append(
+                Paragraph(
+                    f"OS {row.get('os_referencia', '-')} | Data {row.get('data_emissao', '-')} | Status {row.get('status_os', '-')}",
+                    normal_style,
+                )
+            )
 
-        info_rows.extend(
-            [
-                ["Valor do servico", _format_currency(float(row.get("valor_servico") or 0))],
-                ["Atividade", str(row.get("atividade_cnae") or "-")],
-                ["Descricao do Servico", str(row.get("descricao_servico") or "-")],
+            info_rows: list[list[str]] = [
+                ["Razao/Nome", str(row.get("cliente_nome") or "-")],
+                [documento_label, str(row.get("cliente_documento") or "-")],
+                ["Endereco completo", endereco_completo],
             ]
-        )
+            if tipo_cliente == "PJ":
+                info_rows.append(["Telefone", str(row.get("cliente_telefone") or "-")])
+                info_rows.append(["E-mail", str(row.get("cliente_email") or "-")])
 
-        table = Table(info_rows, colWidths=[4.2 * cm, 12.3 * cm])
-        table.setStyle(
-            TableStyle(
+            info_rows.extend(
                 [
-                    ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F3F4F6")),
-                    ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-                    ("FONTNAME", (1, 0), (1, -1), "Helvetica"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 8.5),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 5),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-                    ("TOPPADDING", (0, 0), (-1, -1), 3),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-                    ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#D1D5DB")),
+                    ["Valor do servico", _format_currency(float(row.get("valor_servico") or 0))],
+                    ["Atividade", str(row.get("atividade_cnae") or "-")],
+                    ["Descricao do Servico", str(row.get("descricao_servico") or "-")],
                 ]
             )
-        )
-        elements.append(table)
-        elements.append(Spacer(1, 0.25 * cm))
+
+            table = Table(info_rows, colWidths=[4.2 * cm, 12.3 * cm])
+            table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F3F4F6")),
+                        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                        ("FONTNAME", (1, 0), (1, -1), "Helvetica"),
+                        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                        ("TOPPADDING", (0, 0), (-1, -1), 3),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#D1D5DB")),
+                    ]
+                )
+            )
+            elements.append(table)
+            elements.append(Spacer(1, 0.2 * cm))
+
+        elements.append(Spacer(1, 0.3 * cm))
 
     doc.build(elements)
     buffer.seek(0)
@@ -816,6 +827,14 @@ def _resolve_tomador(item: dict[str, Any], dados_tomador: dict[str, Any]) -> dic
 def _join_non_empty(separator: str, values: list[Any]) -> str:
     parts = [str(v).strip() for v in values if str(v or "").strip()]
     return separator.join(parts)
+
+
+def _group_rows_by_clinic(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        key = str(row.get("clinica_nome") or row.get("cliente_nome") or "Clinica sem nome")
+        grouped.setdefault(key, []).append(row)
+    return grouped
 
 
 def _format_endereco_completo(row: dict[str, Any]) -> str:

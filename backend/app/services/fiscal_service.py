@@ -183,6 +183,7 @@ def buscar_os_para_fiscal(
     db: Session,
     search: Optional[str] = None,
     clinica_id: Optional[int] = None,
+    clinica_ids: Optional[list[int]] = None,
     data_inicio: Optional[str] = None,
     data_fim: Optional[str] = None,
     skip: int = 0,
@@ -203,6 +204,8 @@ def buscar_os_para_fiscal(
 
     if clinica_id is not None:
         query = query.filter(OrdemServico.clinica_id == clinica_id)
+    if clinica_ids:
+        query = query.filter(OrdemServico.clinica_id.in_(clinica_ids))
     if data_inicio:
         query = query.filter(func.date(OrdemServico.data_atendimento) >= data_inicio)
     if data_fim:

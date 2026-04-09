@@ -54,6 +54,7 @@ class ExportarOSLoteRequest(BaseModel):
     os_ids: list[int] = Field(..., min_length=1)
     formato: str = Field(..., pattern="^(pdf|csv|xlsx)$")
     dados_tomador: Optional[DadosTomadorExportacao] = None
+    modo_multiclinica: bool = False
 
 
 router = APIRouter()
@@ -143,6 +144,7 @@ def excluir_nota(
 def listar_os_para_fiscal(
     search: Optional[str] = Query(None),
     clinica_id: Optional[int] = Query(None),
+    clinica_ids: Optional[list[int]] = Query(None),
     data_inicio: Optional[str] = Query(None),
     data_fim: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
@@ -157,6 +159,7 @@ def listar_os_para_fiscal(
         db,
         search=search,
         clinica_id=clinica_id,
+        clinica_ids=clinica_ids,
         data_inicio=data_inicio,
         data_fim=data_fim,
         skip=skip,
@@ -247,6 +250,26 @@ def exportar_os_lote(
         raise HTTPException(status_code=400, detail="Nenhuma OS valida encontrada para exportacao.")
     dados_tomador = body.dados_tomador.model_dump(exclude_none=True) if body.dados_tomador else None
 
+    if body.modo_multiclinica:
+        clinicas_invalidas = _validar_dados_clinicas_para_exportacao(os_items)
+        if clinicas_invalidas:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "Existem clinicas com dados incompletos para exportacao.",
+                    "clinicas": clinicas_invalidas,
+                },
+            )
+        if dados_tomador:
+            # No modo multiclinica os dados cadastrais do tomador vem de cada clinica.
+            # Mantemos apenas campos fiscais globais que podem ser compartilhados.
+            dados_tomador = {
+                "atividade_cnae": dados_tomador.get("atividade_cnae"),
+                "descricao_servico": dados_tomador.get("descricao_servico"),
+                "natureza_operacao": dados_tomador.get("natureza_operacao"),
+                "aliquota_iss": dados_tomador.get("aliquota_iss"),
+            }
+
     if body.formato == "pdf":
         content, filename = fiscal_export_service.exportar_os_pdf(os_items, db, dados_tomador=dados_tomador)
         media_type = "application/pdf"
@@ -262,3 +285,37 @@ def exportar_os_lote(
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def _validar_dados_clinicas_para_exportacao(os_items: list[dict]) -> list[dict]:
+    required_map = {
+        "clinica_nome": "razao/nome",
+        "clinica_cnpj": "cnpj",
+        "clinica_endereco": "logradouro",
+        "clinica_bairro": "bairro",
+        "clinica_cidade": "cidade",
+        "clinica_estado": "estado",
+        "clinica_cep": "cep",
+        "clinica_telefone": "telefone",
+        "clinica_email": "e-mail",
+    }
+    clinica_por_id: dict[str, dict] = {}
+    for item in os_items:
+        clinica_id = str(item.get("clinica_id") or item.get("clinica_nome") or "sem-clinica")
+        if clinica_id not in clinica_por_id:
+            clinica_por_id[clinica_id] = item
+
+    invalidas: list[dict] = []
+    for row in clinica_por_id.values():
+        faltando = [
+            label for key, label in required_map.items() if not str(row.get(key) or "").strip()
+        ]
+        if faltando:
+            invalidas.append(
+                {
+                    "clinica_id": row.get("clinica_id"),
+                    "clinica_nome": row.get("clinica_nome") or "Clinica sem nome",
+                    "faltando": faltando,
+                }
+            )
+    return invalidas
