@@ -43,6 +43,13 @@ class Configuracao(Base):
     agenda_feriados = Column(Text)
     agenda_excecoes = Column(Text)
     
+    # Dados fiscais (ISS / NFS-e)
+    inscricao_municipal = Column(String(50))
+    inscricao_estadual = Column(String(50))
+    cnae = Column(String(20))
+    regime_tributario = Column(Integer)  # 1=MEI, 2=Simples, 3=Lucro Presumido, 4=Lucro Real
+    codigo_municipio_servico = Column(String(20))
+
     # Auditoria
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

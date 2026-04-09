@@ -15,6 +15,7 @@ from app.api.v1.endpoints import (
     clinicas,
     configuracoes,
     financeiro,
+    fiscal,
     frases_ecocardiograma_estruturado_teste,
     frases_ultrassom_abdominal,
     imagens,
@@ -75,6 +76,13 @@ def _ensure_financeiro_schema_compat() -> None:
             "notificacoes_push_lembrete_horas": "INTEGER",
             "notificacoes_push_perfil": "VARCHAR(30)",
         },
+        "configuracoes": {
+            "inscricao_municipal": "TEXT",
+            "inscricao_estadual": "TEXT",
+            "cnae": "TEXT",
+            "regime_tributario": "INTEGER",
+            "codigo_municipio_servico": "TEXT",
+        },
     }
 
     try:
@@ -115,6 +123,11 @@ def _ensure_financeiro_schema_compat() -> None:
             ConfigRateioFrota.__table__.create(bind=conn, checkfirst=True)
             PushSubscription.__table__.create(bind=conn, checkfirst=True)
             PushScheduledNotification.__table__.create(bind=conn, checkfirst=True)
+
+            # Compat para módulo fiscal
+            from app.models.fiscal import NotaFiscal
+            NotaFiscal.__table__.create(bind=conn, checkfirst=True)
+
             inspector = inspect(conn)
             if "configuracoes_usuario" in inspector.get_table_names():
                 conn.execute(
@@ -254,6 +267,7 @@ app.include_router(referencias_eco.router, prefix="/api/v1/referencias-eco", tag
 app.include_router(atendimento.router, prefix="/api/v1/atendimentos", tags=["atendimento"])
 app.include_router(logistica.router, prefix="/api/v1/logistica", tags=["logistica"])
 app.include_router(relatorios.router, prefix="/api/v1/relatorios", tags=["relatorios"])
+app.include_router(fiscal.router, prefix="/api/v1/fiscal", tags=["fiscal"])
 
 
 @app.on_event("startup")

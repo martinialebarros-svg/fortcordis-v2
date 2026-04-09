@@ -46,6 +46,11 @@ interface ConfiguracoesSistema {
   agenda_semanal: AgendaSemanalConfig;
   agenda_feriados: AgendaFeriadoConfig[];
   agenda_excecoes: AgendaExcecaoConfig[];
+  inscricao_municipal: string;
+  inscricao_estadual: string;
+  cnae: string;
+  regime_tributario: number | null;
+  codigo_municipio_servico: string;
 }
 
 interface ConfiguracoesUsuario {
@@ -1159,6 +1164,101 @@ export default function ConfiguracoesPage() {
                 >
                   <Save className="w-4 h-4" />
                   {salvando ? "Salvando..." : "Salvar Dados da Empresa"}
+                </button>
+              </div>
+            </div>
+
+            {/* Dados Fiscais (ISS / NFS-e) */}
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-teal-600" />
+                Dados Fiscais (Prestador de Servicos)
+              </h2>
+              <p className="text-sm text-gray-500 mb-4">
+                Dados do prestador de servicos para emissao de NFS-e e calculo de ISS.
+                Necessarios para exportar notas fiscais para o contador.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Inscricao Municipal (IM)
+                  </label>
+                  <input
+                    type="text"
+                    value={configEmpresa.inscricao_municipal ?? ""}
+                    onChange={(e) => setConfigEmpresa({ ...configEmpresa, inscricao_municipal: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                    placeholder="000000000"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Inscricao Estadual (IE) / CNPJ
+                  </label>
+                  <input
+                    type="text"
+                    value={configEmpresa.inscricao_estadual ?? ""}
+                    onChange={(e) => setConfigEmpresa({ ...configEmpresa, inscricao_estadual: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                    placeholder="00.000.000/0001-00"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    CNAE (Codigo Nacional de Atividade)
+                  </label>
+                  <input
+                    type="text"
+                    value={configEmpresa.cnae ?? ""}
+                    onChange={(e) => setConfigEmpresa({ ...configEmpresa, cnae: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                    placeholder="8622-1/01 (Clinica veterinaria)"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Regime Tributario
+                  </label>
+                  <select
+                    value={configEmpresa.regime_tributario ?? ""}
+                    onChange={(e) => setConfigEmpresa({ ...configEmpresa, regime_tributario: e.target.value ? Number(e.target.value) : null })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                  >
+                    <option value="">Selecione...</option>
+                    <option value="1">1 - MEI (Microempreendedor Individual)</option>
+                    <option value="2">2 - Simples Nacional</option>
+                    <option value="3">3 - Lucro Presumido</option>
+                    <option value="4">4 - Lucro Real</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Codigo do Municipio (IBGE)
+                  </label>
+                  <input
+                    type="text"
+                    value={configEmpresa.codigo_municipio_servico ?? ""}
+                    onChange={(e) => setConfigEmpresa({ ...configEmpresa, codigo_municipio_servico: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                    placeholder="230440 (Fortaleza)"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Codigo IBGE do municipio onde o servico e prestado.</p>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <button
+                  onClick={salvarConfigEmpresa}
+                  disabled={salvando}
+                  className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" />
+                  {salvando ? "Salvando..." : "Salvar Dados Fiscais"}
                 </button>
               </div>
             </div>

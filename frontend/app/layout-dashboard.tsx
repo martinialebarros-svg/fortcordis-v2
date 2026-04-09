@@ -28,7 +28,8 @@ import {
   MessageSquare,
   Pencil,
   Check,
-  Loader2
+  Loader2,
+  Receipt
 } from "lucide-react";
 
 const menuItems = [
@@ -45,6 +46,7 @@ const menuItems = [
   { href: "/logistica", label: "Logistica", icon: MapPin },
   { href: "/financeiro", label: "Financeiro", icon: DollarSign },
   { href: "/financeiro/frota", label: "Custos Frota", icon: Car },
+  { href: "/fiscal", label: "Fiscal", icon: Receipt },
   { href: "/whatsapp-stage", label: "WhatsApp Stage", icon: MessageSquare },
   { href: "/relatorios", label: "Relatorios", icon: BarChart3 },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
