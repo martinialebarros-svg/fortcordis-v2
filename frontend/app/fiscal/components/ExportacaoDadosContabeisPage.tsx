@@ -137,6 +137,7 @@ export default function ExportacaoDadosContabeisPage() {
   const [loadingCnpj, setLoadingCnpj] = useState(false);
   const [results, setResults] = useState<OSItem[]>([]);
   const [loadingResults, setLoadingResults] = useState(false);
+  const [searchDone, setSearchDone] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [format, setFormat] = useState<ExportFormat>("xlsx");
   const [exporting, setExporting] = useState(false);
@@ -206,14 +207,41 @@ export default function ExportacaoDadosContabeisPage() {
     if (!ids.length) return alert("Selecione pelo menos uma clinica.");
     if (!dataInicio || !dataFim || dataInicio > dataFim) return alert("Periodo invalido.");
     setLoadingResults(true);
+    setSearchDone(true);
     try {
-      const params = new URLSearchParams({ data_inicio: dataInicio, data_fim: dataFim, limit: "1000" });
-      if (search.trim()) params.set("search", search.trim());
-      if (modo === "single") params.set("clinica_id", String(ids[0]));
-      else ids.forEach((id) => params.append("clinica_ids", String(id)));
-      const r = await api.get(`/fiscal/os-para-fiscal?${params.toString()}`);
-      const items = Array.isArray(r.data?.items) ? r.data.items : [];
+      const baseParams = new URLSearchParams({ data_inicio: dataInicio, data_fim: dataFim, limit: "1000" });
+      if (search.trim()) baseParams.set("search", search.trim());
+
+      let items: OSItem[] = [];
+      if (modo === "single") {
+        const params = new URLSearchParams(baseParams);
+        params.set("clinica_id", String(ids[0]));
+        const r = await api.get(`/fiscal/os-para-fiscal?${params.toString()}`);
+        items = Array.isArray(r.data?.items) ? r.data.items : [];
+      } else {
+        const responses = await Promise.all(
+          ids.map((id) => {
+            const params = new URLSearchParams(baseParams);
+            params.set("clinica_id", String(id));
+            return api.get(`/fiscal/os-para-fiscal?${params.toString()}`);
+          })
+        );
+        const byId = new Map<number, OSItem>();
+        for (const resp of responses) {
+          const rows = Array.isArray(resp.data?.items) ? resp.data.items : [];
+          for (const row of rows) byId.set(row.os_id, row);
+        }
+        items = Array.from(byId.values()).sort((a, b) => {
+          const da = a.data_atendimento ? new Date(a.data_atendimento).getTime() : 0;
+          const db = b.data_atendimento ? new Date(b.data_atendimento).getTime() : 0;
+          return db - da;
+        });
+      }
+
       setResults(items);
+      setSelected(new Set());
+    } catch {
+      setResults([]);
       setSelected(new Set());
     } finally {
       setLoadingResults(false);
@@ -341,6 +369,11 @@ export default function ExportacaoDadosContabeisPage() {
               <button onClick={exportar} disabled={!selected.size || exporting} className="w-full px-6 py-3 bg-green-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50">{exporting ? <><Loader2 className="w-5 h-5 animate-spin" />Exportando...</> : <><Download className="w-5 h-5" />Exportar {selected.size} OS em {format.toUpperCase()}</>}</button>
             </div>
           </>
+        )}
+        {!loadingResults && searchDone && results.length === 0 && (
+          <div className="bg-white rounded-xl shadow-sm p-10 text-center text-gray-500">
+            Nenhuma ordem de servico encontrada para os filtros selecionados.
+          </div>
         )}
       </div>
     </DashboardLayout>
