@@ -255,7 +255,9 @@ def _build_os_query(db: Session):
             Tutor.nome.label("tutor_nome"),
             tutor_cpf_col,
             Clinica.nome.label("clinica_nome"),
+            Clinica.razao_social.label("clinica_razao_social"),
             Clinica.cnpj.label("clinica_cnpj"),
+            Clinica.atividade_cnae.label("clinica_atividade_cnae"),
             Clinica.endereco.label("clinica_endereco"),
             Clinica.numero.label("clinica_numero"),
             Clinica.bairro.label("clinica_bairro"),
@@ -275,7 +277,7 @@ def _build_os_query(db: Session):
 
 def _serialize_os_row(row) -> dict:
     tipo_cliente = "PJ" if row.clinica_id else "PF"
-    cliente_nome = row.clinica_nome or row.tutor_nome or row.paciente_nome or ""
+    cliente_nome = row.clinica_razao_social or row.clinica_nome or row.tutor_nome or row.paciente_nome or ""
     cliente_documento = row.clinica_cnpj or row.tutor_cpf or ""
 
     return {
@@ -294,7 +296,9 @@ def _serialize_os_row(row) -> dict:
         "servico_nome": row.servico_nome or "",
         "clinica_id": row.clinica_id,
         "clinica_nome": row.clinica_nome,
+        "clinica_razao_social": row.clinica_razao_social,
         "clinica_cnpj": row.clinica_cnpj,
+        "clinica_atividade_cnae": row.clinica_atividade_cnae,
         "clinica_endereco": row.clinica_endereco,
         "clinica_numero": row.clinica_numero,
         "clinica_bairro": row.clinica_bairro,

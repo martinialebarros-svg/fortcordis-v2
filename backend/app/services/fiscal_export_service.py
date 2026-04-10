@@ -817,7 +817,7 @@ def _resolve_tomador(item: dict[str, Any], dados_tomador: dict[str, Any]) -> dic
         "cliente_cep": dados_tomador.get("cliente_cep") or item.get("clinica_cep") or "",
         "cliente_telefone": dados_tomador.get("cliente_telefone") or item.get("clinica_telefone") or "",
         "cliente_email": dados_tomador.get("cliente_email") or item.get("clinica_email") or "",
-        "atividade_cnae": dados_tomador.get("atividade_cnae") or "",
+        "atividade_cnae": dados_tomador.get("atividade_cnae") or item.get("clinica_atividade_cnae") or "",
         "descricao_servico": dados_tomador.get("descricao_servico") or "",
         "natureza_operacao": dados_tomador.get("natureza_operacao") or "",
         "aliquota_iss": dados_tomador.get("aliquota_iss"),

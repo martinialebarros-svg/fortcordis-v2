@@ -297,7 +297,6 @@ def _validar_dados_clinicas_para_exportacao(os_items: list[dict]) -> list[dict]:
         "clinica_estado": "estado",
         "clinica_cep": "cep",
         "clinica_telefone": "telefone",
-        "clinica_email": "e-mail",
     }
     clinica_por_id: dict[str, dict] = {}
     for item in os_items:

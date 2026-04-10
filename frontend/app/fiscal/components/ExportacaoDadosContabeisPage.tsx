@@ -20,9 +20,12 @@ import {
 interface ClinicaItem {
   id: number;
   nome: string;
+  razao_social?: string | null;
   cnpj?: string | null;
+  atividade_cnae?: string | null;
   endereco?: string | null;
   numero?: string | null;
+  complemento?: string | null;
   bairro?: string | null;
   cidade?: string | null;
   estado?: string | null;
@@ -114,6 +117,9 @@ function fmtCpf(v: string) {
 }
 function fmtDoc(v: string, t: "PF" | "PJ") {
   return t === "PJ" ? fmtCnpj(v) : fmtCpf(v);
+}
+function txt(v?: string | null) {
+  return String(v || "").trim();
 }
 function monthPeriod() {
   const n = new Date();
@@ -218,7 +224,7 @@ export default function ExportacaoDadosContabeisPage() {
     setTomador((p) => ({
       ...p,
       tipo_cliente: "PJ",
-      cliente_nome: c.nome || "",
+      cliente_nome: c.razao_social || c.nome || "",
       cliente_documento: c.cnpj ? fmtCnpj(c.cnpj) : "",
       cliente_endereco: endereco,
       cliente_bairro: c.bairro || "",
@@ -227,7 +233,30 @@ export default function ExportacaoDadosContabeisPage() {
       cliente_cep: c.cep || "",
       cliente_telefone: c.telefone || "",
       cliente_email: c.email || "",
+      atividade_cnae: c.atividade_cnae || p.atividade_cnae,
     }));
+  }
+
+  async function persistirDadosFiscaisDaClinica(clinica: ClinicaItem, cnpjData: CNPJData) {
+    const payload = {
+      nome: txt(clinica.nome),
+      razao_social: txt(cnpjData.razao_social) || txt(clinica.razao_social),
+      cnpj: txt(cnpjData.cnpj) ? fmtCnpj(txt(cnpjData.cnpj)) : txt(clinica.cnpj),
+      telefone: txt(cnpjData.telefone) || txt(clinica.telefone),
+      email: txt(cnpjData.email) || txt(clinica.email),
+      atividade_cnae: txt(cnpjData.cnae_principal) || txt(clinica.atividade_cnae),
+      endereco: txt(cnpjData.logradouro) || txt(clinica.endereco),
+      numero: txt(cnpjData.numero) || txt(clinica.numero),
+      complemento: txt(cnpjData.complemento) || txt(clinica.complemento),
+      bairro: txt(cnpjData.bairro) || txt(clinica.bairro),
+      cidade: txt(cnpjData.municipio) || txt(clinica.cidade),
+      estado: txt(cnpjData.uf) || txt(clinica.estado),
+      cep: txt(cnpjData.cep) || txt(clinica.cep),
+    };
+
+    const resp = await api.put(`/clinicas/${clinica.id}`, payload);
+    const updated = (resp.data || {}) as ClinicaItem;
+    setClinicas((prev) => prev.map((item) => (item.id === clinica.id ? { ...item, ...updated } : item)));
   }
 
   async function buscarCnpj() {
@@ -236,6 +265,7 @@ export default function ExportacaoDadosContabeisPage() {
     if (cnpj.length < 14) return alert("Informe um CNPJ valido para consulta.");
     setLoadingCnpj(true);
     try {
+      const clinicaSelecionada = clinicas.find((x) => String(x.id) === clinicaId);
       const r = await api.get<CNPJData>(`/fiscal/consulta-cnpj/${cnpj}`);
       const d = r.data;
       if (d.error) return alert(d.error);
@@ -253,6 +283,14 @@ export default function ExportacaoDadosContabeisPage() {
         cliente_email: d.email || "",
         atividade_cnae: d.cnae_principal || p.atividade_cnae,
       }));
+
+      if (clinicaSelecionada && modo === "single") {
+        try {
+          await persistirDadosFiscaisDaClinica(clinicaSelecionada, d);
+        } catch (err) {
+          alert(normalizeApiError(err, "Nao foi possivel salvar automaticamente os dados fiscais na clinica."));
+        }
+      }
     } finally {
       setLoadingCnpj(false);
     }
