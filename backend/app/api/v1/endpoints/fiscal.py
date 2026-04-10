@@ -148,7 +148,7 @@ def listar_os_para_fiscal(
     data_inicio: Optional[str] = Query(None),
     data_fim: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=500),
+    limit: int = Query(50, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
     """

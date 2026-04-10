@@ -78,6 +78,8 @@ interface DadosTomador {
 
 type ExportFormat = "csv" | "xlsx" | "pdf";
 type Modo = "single" | "multi";
+const FISCAL_PAGE_SIZE = 500;
+const OS_PAGE_SIZE = 500;
 
 const DEFAULT_TOMADOR: DadosTomador = {
   tipo_cliente: "PJ",
@@ -119,6 +121,21 @@ function monthPeriod() {
   const f = new Date(n.getFullYear(), n.getMonth() + 1, 0);
   const s = (d: Date) => `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, "0")}-${`${d.getDate()}`.padStart(2, "0")}`;
   return { inicio: s(i), fim: s(f) };
+}
+
+function normalizeApiError(err: any, fallback: string) {
+  const detail = err?.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    const first = detail[0];
+    if (typeof first?.msg === "string" && first.msg.trim()) return first.msg;
+    return fallback;
+  }
+  if (detail && typeof detail === "object" && typeof detail.message === "string" && detail.message.trim()) {
+    return detail.message;
+  }
+  if (typeof err?.message === "string" && err.message.trim()) return err.message;
+  return fallback;
 }
 
 export default function ExportacaoDadosContabeisPage() {
@@ -202,6 +219,81 @@ export default function ExportacaoDadosContabeisPage() {
     }
   }
 
+  async function buscarOsPorClinica(clinicaIdNumber: number): Promise<OSItem[]> {
+    const searchTerm = search.trim().toLowerCase();
+    const filtrosBase = new URLSearchParams({
+      data_inicio: dataInicio,
+      data_fim: dataFim,
+      clinica_id: String(clinicaIdNumber),
+    });
+
+    const buscarPaginadoFiscal = async () => {
+      const acc: OSItem[] = [];
+      let skip = 0;
+      while (true) {
+        const params = new URLSearchParams(filtrosBase);
+        params.set("limit", String(FISCAL_PAGE_SIZE));
+        params.set("skip", String(skip));
+        if (searchTerm) params.set("search", searchTerm);
+        const resp = await api.get(`/fiscal/os-para-fiscal?${params.toString()}`);
+        const rows = Array.isArray(resp.data?.items) ? (resp.data.items as OSItem[]) : [];
+        const total = Number(resp.data?.total || 0);
+        if (!rows.length) break;
+        acc.push(...rows);
+        if (rows.length < FISCAL_PAGE_SIZE) break;
+        if (total > 0 && acc.length >= total) break;
+        skip += FISCAL_PAGE_SIZE;
+      }
+      return acc;
+    };
+
+    const buscarPaginadoOrdens = async () => {
+      const acc: OSItem[] = [];
+      let skip = 0;
+      while (true) {
+        const params = new URLSearchParams(filtrosBase);
+        params.set("limit", String(OS_PAGE_SIZE));
+        params.set("skip", String(skip));
+        const resp = await api.get(`/ordens-servico?${params.toString()}`);
+        const rows = Array.isArray(resp.data?.items) ? resp.data.items : [];
+        if (!rows.length) break;
+        acc.push(...rows.map((item: any) => ({
+          os_id: Number(item.id),
+          numero_os: String(item.numero_os || ""),
+          data_atendimento: item.data_atendimento || null,
+          valor_final: Number(item.valor_final || 0),
+          status_os: String(item.status || ""),
+          paciente_nome: String(item.paciente || ""),
+          tutor_nome: String(item.tutor || ""),
+          servico_nome: String(item.servico || ""),
+          clinica_nome: String(item.clinica || ""),
+        })));
+        const total = Number(resp.data?.total || 0);
+        if (rows.length < OS_PAGE_SIZE) break;
+        if (total > 0 && acc.length >= total) break;
+        skip += OS_PAGE_SIZE;
+      }
+      return searchTerm
+        ? acc.filter((row) => (
+          row.numero_os?.toLowerCase().includes(searchTerm)
+          || row.paciente_nome?.toLowerCase().includes(searchTerm)
+          || row.tutor_nome?.toLowerCase().includes(searchTerm)
+          || row.servico_nome?.toLowerCase().includes(searchTerm)
+          || row.clinica_nome?.toLowerCase().includes(searchTerm)
+        ))
+        : acc;
+    };
+
+    try {
+      const fiscalItems = await buscarPaginadoFiscal();
+      if (fiscalItems.length > 0) return fiscalItems;
+    } catch (_err) {
+      // Continua para fallback da mesma fonte usada no financeiro.
+    }
+
+    return buscarPaginadoOrdens();
+  }
+
   async function buscarOs() {
     const ids = modo === "single" ? (clinicaId ? [Number(clinicaId)] : []) : Array.from(clinicasSel);
     if (!ids.length) return alert("Selecione pelo menos uma clinica.");
@@ -209,27 +301,16 @@ export default function ExportacaoDadosContabeisPage() {
     setLoadingResults(true);
     setSearchDone(true);
     try {
-      const baseParams = new URLSearchParams({ data_inicio: dataInicio, data_fim: dataFim, limit: "1000" });
-      if (search.trim()) baseParams.set("search", search.trim());
-
       let items: OSItem[] = [];
       if (modo === "single") {
-        const params = new URLSearchParams(baseParams);
-        params.set("clinica_id", String(ids[0]));
-        const r = await api.get(`/fiscal/os-para-fiscal?${params.toString()}`);
-        items = Array.isArray(r.data?.items) ? r.data.items : [];
+        items = await buscarOsPorClinica(ids[0]);
       } else {
         const responses = await Promise.all(
-          ids.map((id) => {
-            const params = new URLSearchParams(baseParams);
-            params.set("clinica_id", String(id));
-            return api.get(`/fiscal/os-para-fiscal?${params.toString()}`);
-          })
+          ids.map((id) => buscarOsPorClinica(id))
         );
         const byId = new Map<number, OSItem>();
-        for (const resp of responses) {
-          const rows = Array.isArray(resp.data?.items) ? resp.data.items : [];
-          for (const row of rows) byId.set(row.os_id, row);
+        for (const rows of responses) {
+          for (const row of rows) byId.set(Number(row.os_id), row);
         }
         items = Array.from(byId.values()).sort((a, b) => {
           const da = a.data_atendimento ? new Date(a.data_atendimento).getTime() : 0;
@@ -240,7 +321,8 @@ export default function ExportacaoDadosContabeisPage() {
 
       setResults(items);
       setSelected(new Set());
-    } catch {
+    } catch (err: any) {
+      alert(normalizeApiError(err, "Nao foi possivel carregar as ordens de servico para os filtros selecionados."));
       setResults([]);
       setSelected(new Set());
     } finally {

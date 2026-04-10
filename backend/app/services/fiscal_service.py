@@ -1,10 +1,10 @@
 """Servicos de negocio para o modulo fiscal."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, time
 from typing import Optional
 
-from sqlalchemy import func, literal, text
+from sqlalchemy import literal, text
 from sqlalchemy.orm import Session
 
 from app.models.clinica import Clinica
@@ -206,10 +206,12 @@ def buscar_os_para_fiscal(
         query = query.filter(OrdemServico.clinica_id == clinica_id)
     if clinica_ids:
         query = query.filter(OrdemServico.clinica_id.in_(clinica_ids))
-    if data_inicio:
-        query = query.filter(func.date(OrdemServico.data_atendimento) >= data_inicio)
-    if data_fim:
-        query = query.filter(func.date(OrdemServico.data_atendimento) <= data_fim)
+    dt_inicio = _parse_date_start(data_inicio)
+    dt_fim = _parse_date_end(data_fim)
+    if dt_inicio:
+        query = query.filter(OrdemServico.data_atendimento >= dt_inicio)
+    if dt_fim:
+        query = query.filter(OrdemServico.data_atendimento <= dt_fim)
 
     total = query.count()
     rows = (
@@ -309,3 +311,34 @@ def _optional_model_column(model, column_name: str, default_value: str):
     if column is None:
         return literal(default_value)
     return column
+
+
+def _parse_date_start(value: Optional[str]) -> Optional[datetime]:
+    date_obj = _parse_date(value)
+    if not date_obj:
+        return None
+    return datetime.combine(date_obj, time.min)
+
+
+def _parse_date_end(value: Optional[str]) -> Optional[datetime]:
+    date_obj = _parse_date(value)
+    if not date_obj:
+        return None
+    return datetime.combine(date_obj, time.max)
+
+
+def _parse_date(value: Optional[str]):
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(text).date()
+    except ValueError:
+        return None
