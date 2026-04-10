@@ -138,6 +138,45 @@ function normalizeApiError(err: any, fallback: string) {
   return fallback;
 }
 
+function parseJsonSafe(value: string) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+async function extractApiErrorDetail(err: any) {
+  const data = err?.response?.data;
+  if (!data) return null;
+
+  if (data instanceof Blob) {
+    const text = (await data.text()).trim();
+    if (!text) return null;
+    const parsed = parseJsonSafe(text);
+    if (parsed && typeof parsed === "object") {
+      return "detail" in parsed ? (parsed as any).detail : parsed;
+    }
+    return text;
+  }
+
+  if (typeof data === "string") {
+    const text = data.trim();
+    if (!text) return null;
+    const parsed = parseJsonSafe(text);
+    if (parsed && typeof parsed === "object") {
+      return "detail" in parsed ? (parsed as any).detail : parsed;
+    }
+    return text;
+  }
+
+  if (typeof data === "object") {
+    return "detail" in data ? data.detail : data;
+  }
+
+  return null;
+}
+
 export default function ExportacaoDadosContabeisPage() {
   const router = useRouter();
   const period = monthPeriod();
@@ -357,11 +396,20 @@ export default function ExportacaoDadosContabeisPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      if (detail?.clinicas?.length) {
-        const list = detail.clinicas.map((c: any) => `- ${c.clinica_nome}: ${c.faltando.join(", ")}`).join("\n");
-        alert(`${detail.message}\n\n${list}`);
-      } else alert(detail || "Erro ao exportar dados.");
+      const detail = await extractApiErrorDetail(err);
+      if (detail && typeof detail === "object" && Array.isArray((detail as any).clinicas) && (detail as any).clinicas.length) {
+        const message = String((detail as any).message || "Existem clinicas com dados incompletos para exportacao.");
+        const list = (detail as any).clinicas
+          .map((c: any) => `- ${c.clinica_nome || "Clinica sem nome"}: ${Array.isArray(c.faltando) ? c.faltando.join(", ") : "dados faltando"}`)
+          .join("\n");
+        alert(`${message}\n\nCampos faltando por clinica:\n${list}`);
+      } else if (typeof detail === "string" && detail.trim()) {
+        alert(detail);
+      } else if (detail && typeof detail === "object" && typeof (detail as any).message === "string" && (detail as any).message.trim()) {
+        alert((detail as any).message);
+      } else {
+        alert(normalizeApiError(err, "Erro ao exportar dados."));
+      }
     } finally {
       setExporting(false);
     }
