@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -31,6 +32,12 @@ REGIME_DESCRICOES = {
     3: "Lucro Presumido",
     4: "Lucro Real",
 }
+
+EXPORT_TIMEZONE = ZoneInfo("America/Fortaleza")
+
+
+def _now_local() -> datetime:
+    return datetime.now(EXPORT_TIMEZONE)
 
 
 def _get_configuracao(db_session) -> dict:
@@ -264,7 +271,7 @@ def exportar_pdf(notas: list[NotaFiscal], db_session) -> tuple[bytes, str]:
         elements.append(Spacer(1, 0.5 * cm))
         elements.append(
             Paragraph(
-                f"<i>Documento gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')} | "
+                f"<i>Documento gerado em {_now_local().strftime('%d/%m/%Y %H:%M')} | "
                 f"{config.get('nome_empresa', 'Fort Cordis')}</i>",
                 subtitle_style,
             )
@@ -272,7 +279,7 @@ def exportar_pdf(notas: list[NotaFiscal], db_session) -> tuple[bytes, str]:
 
     doc.build(elements)
     buffer.seek(0)
-    filename = f"notas_fiscais_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    filename = f"notas_fiscais_{_now_local().strftime('%Y%m%d_%H%M%S')}.pdf"
     return buffer.read(), filename
 
 
@@ -352,7 +359,7 @@ def exportar_csv(notas: list[NotaFiscal], db_session) -> tuple[bytes, str]:
         ])
 
     content = output.getvalue().encode("utf-8-sig")
-    filename = f"notas_fiscais_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"notas_fiscais_{_now_local().strftime('%Y%m%d_%H%M%S')}.csv"
     return content, filename
 
 
@@ -457,7 +464,7 @@ def exportar_xlsx(notas: list[NotaFiscal], db_session) -> tuple[bytes, str]:
     buffer = io.BytesIO()
     wb.save(buffer)
     buffer.seek(0)
-    filename = f"notas_fiscais_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    filename = f"notas_fiscais_{_now_local().strftime('%Y%m%d_%H%M%S')}.xlsx"
     return buffer.read(), filename
 
 
@@ -513,7 +520,7 @@ def exportar_os_csv(
         )
 
     content = output.getvalue().encode("utf-8-sig")
-    filename = f"dados_contabeis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"dados_contabeis_{_now_local().strftime('%Y%m%d_%H%M%S')}.csv"
     return content, filename
 
 
@@ -607,14 +614,14 @@ def exportar_os_xlsx(
     ws2.append(["Total Desconto", _format_currency(total_desconto)])
     ws2.append(["Total Valor Final", _format_currency(total_final)])
     ws2.append(["Total ISS", _format_currency(total_iss)])
-    ws2.append(["Gerado em", datetime.now().strftime("%d/%m/%Y %H:%M")])
+    ws2.append(["Gerado em", _now_local().strftime("%d/%m/%Y %H:%M")])
     ws2.column_dimensions["A"].width = 28
     ws2.column_dimensions["B"].width = 42
 
     buffer = io.BytesIO()
     wb.save(buffer)
     buffer.seek(0)
-    filename = f"dados_contabeis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    filename = f"dados_contabeis_{_now_local().strftime('%Y%m%d_%H%M%S')}.xlsx"
     return buffer.read(), filename
 
 
@@ -683,7 +690,7 @@ def exportar_os_pdf(
     rows = [_build_export_row(item, config, dados_tomador=dados_tomador) for item in os_items]
     grouped = _group_rows_by_clinic(rows)
     total_final = sum(float(r["valor_final"] or 0) for r in rows)
-    generated_at = datetime.now().strftime("%d/%m/%Y %H:%M")
+    generated_at = _now_local().strftime("%d/%m/%Y %H:%M")
 
     header_body_text = (
         f"<b>Prestador:</b> {config.get('nome_empresa', 'Fort Cordis')}<br/>"
@@ -787,7 +794,7 @@ def exportar_os_pdf(
         onLaterPages=lambda canvas, doc_obj: _draw_pdf_footer(canvas, doc_obj, footer_text),
     )
     buffer.seek(0)
-    filename = f"dados_contabeis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    filename = f"dados_contabeis_{_now_local().strftime('%Y%m%d_%H%M%S')}.pdf"
     return buffer.read(), filename
 
 
@@ -840,7 +847,7 @@ def _build_export_row(
     valor_final = _safe_float(item.get("valor_final"), max(0.0, valor_servico - valor_desconto))
     valor_iss = round(valor_final * (aliquota_iss / 100), 2)
 
-    data_emissao = _format_date(item.get("data_atendimento")) or datetime.now().strftime("%d/%m/%Y")
+    data_emissao = _format_date(item.get("data_atendimento")) or _now_local().strftime("%d/%m/%Y")
     return {
         "numero_nf": "",
         "serie": "1",
