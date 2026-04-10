@@ -732,55 +732,62 @@ def exportar_os_pdf(
                 section_style,
             )
         )
-        for row in clinic_rows:
-            tipo_cliente = str(row.get("tipo_cliente") or "PJ").upper()
-            documento_label = "CNPJ" if tipo_cliente == "PJ" else "CPF"
-            endereco_completo = _format_endereco_completo(row)
+        tipo_cliente = _first_non_empty_value(clinic_rows, "tipo_cliente", "PJ").upper()
+        documento_label = "CNPJ" if tipo_cliente == "PJ" else "CPF"
+        endereco_row = {
+            "cliente_endereco": _first_non_empty_value(clinic_rows, "cliente_endereco", ""),
+            "cliente_bairro": _first_non_empty_value(clinic_rows, "cliente_bairro", ""),
+            "cliente_cidade": _first_non_empty_value(clinic_rows, "cliente_cidade", ""),
+            "cliente_estado": _first_non_empty_value(clinic_rows, "cliente_estado", ""),
+            "cliente_cep": _first_non_empty_value(clinic_rows, "cliente_cep", ""),
+        }
+        endereco_completo = _format_endereco_completo(endereco_row)
+        os_resumo = _format_os_referencias(clinic_rows)
 
-            elements.append(
-                Paragraph(
-                    f"OS {row.get('os_referencia', '-')} | Data {row.get('data_emissao', '-')} | Status {row.get('status_os', '-')}",
-                    normal_style,
-                )
-            )
+        info_rows: list[list[str]] = [
+            ["OS no periodo", os_resumo],
+            ["Razao/Nome", _first_non_empty_value(clinic_rows, "cliente_nome", "-")],
+            [documento_label, _first_non_empty_value(clinic_rows, "cliente_documento", "-")],
+            ["Endereco completo", endereco_completo],
+        ]
+        if tipo_cliente == "PJ":
+            info_rows.append(["Telefone", _first_non_empty_value(clinic_rows, "cliente_telefone", "-")])
+            info_rows.append(["E-mail", _first_non_empty_value(clinic_rows, "cliente_email", "-")])
 
-            info_rows: list[list[str]] = [
-                ["Razao/Nome", str(row.get("cliente_nome") or "-")],
-                [documento_label, str(row.get("cliente_documento") or "-")],
-                ["Endereco completo", endereco_completo],
-            ]
-            if tipo_cliente == "PJ":
-                info_rows.append(["Telefone", str(row.get("cliente_telefone") or "-")])
-                info_rows.append(["E-mail", str(row.get("cliente_email") or "-")])
-
-            info_rows.extend(
+        info_rows.extend(
+            [
                 [
-                    ["Data para emissao da NF", str(row.get("data_referencia_nf") or row.get("data_emissao") or "-")],
-                    ["Valor do servico", _format_currency(float(row.get("valor_servico") or 0))],
-                    ["Atividade", str(row.get("atividade_cnae") or "-")],
-                    ["Descricao do Servico", str(row.get("descricao_servico") or "-")],
+                    "Data para emissao da NF",
+                    _first_non_empty_value(
+                        clinic_rows,
+                        "data_referencia_nf",
+                        _first_non_empty_value(clinic_rows, "data_emissao", "-"),
+                    ),
+                ],
+                ["Valor do servico", _format_currency(clinic_total)],
+                ["Atividade", _first_non_empty_value(clinic_rows, "atividade_cnae", "-")],
+                ["Descricao do Servico", _first_non_empty_value(clinic_rows, "descricao_servico", "-")],
+            ]
+        )
+
+        table = Table(info_rows, colWidths=[4.2 * cm, 12.3 * cm])
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F3F4F6")),
+                    ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                    ("FONTNAME", (1, 0), (1, -1), "Helvetica"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#D1D5DB")),
                 ]
             )
-
-            table = Table(info_rows, colWidths=[4.2 * cm, 12.3 * cm])
-            table.setStyle(
-                TableStyle(
-                    [
-                        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F3F4F6")),
-                        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-                        ("FONTNAME", (1, 0), (1, -1), "Helvetica"),
-                        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
-                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-                        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-                        ("TOPPADDING", (0, 0), (-1, -1), 3),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-                        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#D1D5DB")),
-                    ]
-                )
-            )
-            elements.append(table)
-            elements.append(Spacer(1, 0.2 * cm))
+        )
+        elements.append(table)
 
         elements.append(Spacer(1, 0.3 * cm))
 
@@ -917,6 +924,28 @@ def _group_rows_by_clinic(rows: list[dict[str, Any]]) -> dict[str, list[dict[str
         key = str(row.get("clinica_nome") or row.get("cliente_nome") or "Clinica sem nome")
         grouped.setdefault(key, []).append(row)
     return grouped
+
+
+def _first_non_empty_value(rows: list[dict[str, Any]], key: str, default: str = "") -> str:
+    for row in rows:
+        value = str(row.get(key) or "").strip()
+        if value:
+            return value
+    return default
+
+
+def _format_os_referencias(rows: list[dict[str, Any]]) -> str:
+    referencias: list[str] = []
+    vistos: set[str] = set()
+    for row in rows:
+        referencia = str(row.get("os_referencia") or "").strip()
+        if not referencia:
+            continue
+        if referencia in vistos:
+            continue
+        vistos.add(referencia)
+        referencias.append(referencia)
+    return ", ".join(referencias) if referencias else "-"
 
 
 def _format_endereco_completo(row: dict[str, Any]) -> str:
