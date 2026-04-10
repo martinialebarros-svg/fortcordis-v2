@@ -13,7 +13,8 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.lib.utils import ImageReader
+from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.models.fiscal import NotaFiscal
 from app.models.configuracao import Configuracao
@@ -42,6 +43,7 @@ def _get_configuracao(db_session) -> dict:
         "endereco": config.endereco or "",
         "telefone": config.telefone or "",
         "email": config.email or "",
+        "website": config.website or "",
         "cidade": config.cidade or "",
         "estado": config.estado or "",
         "inscricao_municipal": config.inscricao_municipal or "",
@@ -51,6 +53,8 @@ def _get_configuracao(db_session) -> dict:
             config.regime_tributario, ""
         ) if config.regime_tributario else "",
         "codigo_municipio": config.codigo_municipio_servico or "230440",  # Fortaleza
+        "mostrar_logomarca": bool(config.mostrar_logomarca) if config.mostrar_logomarca is not None else True,
+        "logomarca_dados": config.logomarca_dados,
     }
 
 
@@ -614,6 +618,46 @@ def exportar_os_xlsx(
     return buffer.read(), filename
 
 
+def _build_logo_flowable(
+    config: dict[str, Any],
+    max_width: float = 3.2 * cm,
+    max_height: float = 2.0 * cm,
+):
+    if not config.get("mostrar_logomarca", True):
+        return None
+    raw_logo = config.get("logomarca_dados")
+    if not raw_logo:
+        return None
+    try:
+        logo_io = io.BytesIO(raw_logo)
+        logo_reader = ImageReader(logo_io)
+        width, height = logo_reader.getSize()
+        if not width or not height:
+            return None
+        scale = min(max_width / float(width), max_height / float(height))
+        if scale <= 0:
+            return None
+        logo = Image(io.BytesIO(raw_logo), width=width * scale, height=height * scale)
+        logo.hAlign = "LEFT"
+        return logo
+    except Exception:
+        return None
+
+
+def _draw_pdf_footer(canvas, doc, footer_text: str):
+    canvas.saveState()
+    footer_y = 0.7 * cm
+    line_y = footer_y + 0.35 * cm
+    canvas.setStrokeColor(colors.HexColor("#D1D5DB"))
+    canvas.setLineWidth(0.5)
+    canvas.line(doc.leftMargin, line_y, A4[0] - doc.rightMargin, line_y)
+    canvas.setFont("Helvetica", 7.5)
+    canvas.setFillColor(colors.HexColor("#6B7280"))
+    canvas.drawString(doc.leftMargin, footer_y, (footer_text or "")[:150])
+    canvas.drawRightString(A4[0] - doc.rightMargin, footer_y, f"Pagina {canvas.getPageNumber()}")
+    canvas.restoreState()
+
+
 def exportar_os_pdf(
     os_items: list[dict[str, Any]],
     db_session,
@@ -641,17 +685,37 @@ def exportar_os_pdf(
     total_final = sum(float(r["valor_final"] or 0) for r in rows)
     generated_at = datetime.now().strftime("%d/%m/%Y %H:%M")
 
-    elements = [
-        Paragraph("DADOS FISCAIS PARA CONTABILIDADE", title_style),
-        Paragraph(
-            f"<b>Prestador:</b> {config.get('nome_empresa', 'Fort Cordis')}<br/>"
-            f"<b>Gerado em:</b> {generated_at}<br/>"
-            f"<b>Quantidade de OS:</b> {len(rows)}<br/>"
-            f"<b>Total:</b> {_format_currency(total_final)}",
-            normal_style,
-        ),
-        Spacer(1, 0.3 * cm),
-    ]
+    header_body_text = (
+        f"<b>Prestador:</b> {config.get('nome_empresa', 'Fort Cordis')}<br/>"
+        f"<b>Gerado em:</b> {generated_at}<br/>"
+        f"<b>Quantidade de OS:</b> {len(rows)}<br/>"
+        f"<b>Total:</b> {_format_currency(total_final)}"
+    )
+    header_text = f"<b>DADOS FISCAIS PARA CONTABILIDADE</b><br/>{header_body_text}"
+
+    elements = []
+    logo = _build_logo_flowable(config)
+    if logo:
+        header_table = Table(
+            [[logo, Paragraph(header_text, normal_style)]],
+            colWidths=[3.6 * cm, doc.width - (3.6 * cm)],
+        )
+        header_table.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]
+            )
+        )
+        elements.append(header_table)
+    else:
+        elements.append(Paragraph("DADOS FISCAIS PARA CONTABILIDADE", title_style))
+        elements.append(Paragraph(header_body_text, normal_style))
+    elements.append(Spacer(1, 0.3 * cm))
 
     for clinica_nome, clinic_rows in grouped.items():
         clinic_total = sum(float(r.get("valor_servico") or 0) for r in clinic_rows)
@@ -713,7 +777,15 @@ def exportar_os_pdf(
 
         elements.append(Spacer(1, 0.3 * cm))
 
-    doc.build(elements)
+    footer_text = "Documento gerado pelo sistema FortCordis"
+    if str(config.get("website") or "").strip():
+        footer_text = f"{footer_text} | {str(config.get('website')).strip()}"
+
+    doc.build(
+        elements,
+        onFirstPage=lambda canvas, doc_obj: _draw_pdf_footer(canvas, doc_obj, footer_text),
+        onLaterPages=lambda canvas, doc_obj: _draw_pdf_footer(canvas, doc_obj, footer_text),
+    )
     buffer.seek(0)
     filename = f"dados_contabeis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     return buffer.read(), filename
