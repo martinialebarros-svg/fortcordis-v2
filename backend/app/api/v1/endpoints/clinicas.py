@@ -29,9 +29,11 @@ router = APIRouter()
 # Schemas
 class ClinicaBase(BaseModel):
     nome: str = Field(..., min_length=2, max_length=255)
+    razao_social: Optional[str] = ""
     cnpj: Optional[str] = ""
     telefone: Optional[str] = ""
     email: Optional[str] = ""
+    atividade_cnae: Optional[str] = ""
     endereco: Optional[str] = ""
     numero: Optional[str] = ""
     complemento: Optional[str] = ""
@@ -65,9 +67,11 @@ class ClinicaUpdate(ClinicaBase):
 class ClinicaResponse(BaseModel):
     id: int
     nome: str
+    razao_social: Optional[str] = None
     cnpj: Optional[str] = None
     telefone: Optional[str] = None
     email: Optional[str] = None
+    atividade_cnae: Optional[str] = None
     endereco: Optional[str] = None
     numero: Optional[str] = None
     complemento: Optional[str] = None
@@ -194,9 +198,11 @@ def _serialize_clinica(clinica: Clinica) -> dict:
     return {
         "id": clinica.id,
         "nome": clinica.nome,
+        "razao_social": clinica.razao_social,
         "cnpj": clinica.cnpj,
         "telefone": clinica.telefone,
         "email": clinica.email,
+        "atividade_cnae": clinica.atividade_cnae,
         "endereco": clinica.endereco,
         "numero": clinica.numero,
         "complemento": clinica.complemento,
@@ -356,9 +362,11 @@ def criar_clinica(
 
         db_clinica = Clinica(
             nome=clinica.nome,
+            razao_social=clinica.razao_social,
             cnpj=clinica.cnpj,
             telefone=clinica.telefone,
             email=clinica.email,
+            atividade_cnae=clinica.atividade_cnae,
             endereco=clinica.endereco,
             numero=clinica.numero,
             complemento=clinica.complemento,
@@ -566,12 +574,16 @@ def atualizar_clinica(
     try:
         if clinica.nome is not None:
             db_clinica.nome = clinica.nome
+        if clinica.razao_social is not None:
+            db_clinica.razao_social = clinica.razao_social
         if clinica.cnpj is not None:
             db_clinica.cnpj = clinica.cnpj
         if clinica.telefone is not None:
             db_clinica.telefone = clinica.telefone
         if clinica.email is not None:
             db_clinica.email = clinica.email
+        if clinica.atividade_cnae is not None:
+            db_clinica.atividade_cnae = clinica.atividade_cnae
         if clinica.endereco is not None:
             db_clinica.endereco = clinica.endereco
         if clinica.numero is not None:

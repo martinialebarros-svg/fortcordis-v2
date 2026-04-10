@@ -83,6 +83,10 @@ def _ensure_financeiro_schema_compat() -> None:
             "regime_tributario": "INTEGER",
             "codigo_municipio_servico": "TEXT",
         },
+        "clinicas": {
+            "razao_social": "TEXT",
+            "atividade_cnae": "TEXT",
+        },
     }
 
     try:

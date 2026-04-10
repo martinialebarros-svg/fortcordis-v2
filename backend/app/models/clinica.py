@@ -8,9 +8,11 @@ class Clinica(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     nome = Column(String, nullable=False)
+    razao_social = Column(String)
     cnpj = Column(String)
     telefone = Column(String)
     email = Column(String)
+    atividade_cnae = Column(String)
     endereco = Column(String)
     numero = Column(String)
     complemento = Column(String)
