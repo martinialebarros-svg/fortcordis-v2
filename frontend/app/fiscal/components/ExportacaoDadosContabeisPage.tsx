@@ -83,6 +83,7 @@ type ExportFormat = "csv" | "xlsx" | "pdf";
 type Modo = "single" | "multi";
 const FISCAL_PAGE_SIZE = 500;
 const OS_PAGE_SIZE = 500;
+const DESC_SERVICO_PADRAO_ANTIGA = "Servicos veterinarios prestados conforme ordens de servico selecionadas.";
 
 const DEFAULT_TOMADOR: DadosTomador = {
   tipo_cliente: "PJ",
@@ -96,7 +97,7 @@ const DEFAULT_TOMADOR: DadosTomador = {
   cliente_telefone: "",
   cliente_email: "",
   atividade_cnae: "",
-  descricao_servico: "Servicos veterinarios prestados conforme ordens de servico selecionadas.",
+  descricao_servico: DESC_SERVICO_PADRAO_ANTIGA,
   natureza_operacao: "Tributacao no municipio",
   aliquota_iss: 5,
 };
@@ -120,6 +121,30 @@ function fmtDoc(v: string, t: "PF" | "PJ") {
 }
 function txt(v?: string | null) {
   return String(v || "").trim();
+}
+function isoToBrDate(v: string) {
+  const text = String(v || "").trim();
+  const parts = text.split("-");
+  if (parts.length === 3 && parts[0] && parts[1] && parts[2]) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  return text;
+}
+function descricaoServicoPeriodo(inicio: string, fim: string) {
+  if (!inicio || !fim) return "";
+  return `Servicos veterinarios prestados no periodo de ${isoToBrDate(inicio)} a ${isoToBrDate(fim)}.`;
+}
+function anyDateToBr(v: string | null) {
+  if (!v) return "";
+  const text = String(v).trim();
+  const yyyyMmDd = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (yyyyMmDd) return `${yyyyMmDd[3]}/${yyyyMmDd[2]}/${yyyyMmDd[1]}`;
+  const d = new Date(text);
+  if (!Number.isNaN(d.getTime())) return d.toLocaleDateString("pt-BR");
+  return text;
+}
+function descricaoServicoDataUnica(dataAtendimento: string | null) {
+  const data = anyDateToBr(dataAtendimento);
+  if (!data) return "";
+  return `Servicos veterinarios prestados na data de ${data}.`;
 }
 function monthPeriod() {
   const n = new Date();
@@ -203,6 +228,19 @@ export default function ExportacaoDadosContabeisPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [format, setFormat] = useState<ExportFormat>("xlsx");
   const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    const descricaoAuto = descricaoServicoPeriodo(dataInicio, dataFim);
+    if (!descricaoAuto) return;
+    setTomador((prev) => {
+      const atual = String(prev.descricao_servico || "").trim();
+      const ehDescricaoAutomaticaPeriodo = atual.startsWith("Servicos veterinarios prestados no periodo de ");
+      const ehDescricaoPadraoAntiga = !atual || atual === DESC_SERVICO_PADRAO_ANTIGA;
+      if (!ehDescricaoAutomaticaPeriodo && !ehDescricaoPadraoAntiga) return prev;
+      if (atual === descricaoAuto) return prev;
+      return { ...prev, descricao_servico: descricaoAuto };
+    });
+  }, [dataInicio, dataFim]);
 
   useEffect(() => {
     (async () => {
@@ -414,13 +452,33 @@ export default function ExportacaoDadosContabeisPage() {
     }
     setExporting(true);
     try {
+      const descricaoAuto = descricaoServicoPeriodo(dataInicio, dataFim);
+      const osSelecionadas = results.filter((row) => selected.has(row.os_id));
+      const descricaoAutoUnica = osSelecionadas.length === 1
+        ? descricaoServicoDataUnica(osSelecionadas[0].data_atendimento)
+        : "";
+      const descricaoAutoFinal = descricaoAutoUnica || descricaoAuto;
+      const descricaoAtual = String(tomador.descricao_servico || "").trim();
+      const ehDescricaoAutomaticaPeriodo = descricaoAtual.startsWith("Servicos veterinarios prestados no periodo de ");
+      const ehDescricaoAutomaticaUnica = descricaoAtual.startsWith("Servicos veterinarios prestados na data de ");
+      const ehDescricaoPadraoAntiga = !descricaoAtual || descricaoAtual === DESC_SERVICO_PADRAO_ANTIGA;
+      const descricaoFinal = (descricaoAutoFinal && (ehDescricaoAutomaticaPeriodo || ehDescricaoAutomaticaUnica || ehDescricaoPadraoAntiga))
+        ? descricaoAutoFinal
+        : descricaoAtual;
+
       const dadosTomador =
         modo === "single"
-          ? { ...tomador, aliquota_iss: Number(tomador.aliquota_iss) }
+          ? {
+              ...tomador,
+              descricao_servico: descricaoFinal,
+              data_referencia_nf: dataFim,
+              aliquota_iss: Number(tomador.aliquota_iss),
+            }
           : {
               atividade_cnae: tomador.atividade_cnae,
-              descricao_servico: tomador.descricao_servico,
+              descricao_servico: descricaoFinal,
               natureza_operacao: tomador.natureza_operacao,
+              data_referencia_nf: dataFim,
               aliquota_iss: Number(tomador.aliquota_iss),
             };
       const payload = { os_ids: Array.from(selected), formato: format, dados_tomador: dadosTomador, modo_multiclinica: modo === "multi" };

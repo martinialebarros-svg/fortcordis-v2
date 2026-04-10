@@ -48,6 +48,7 @@ class DadosTomadorExportacao(BaseModel):
     descricao_servico: Optional[str] = None
     natureza_operacao: Optional[str] = None
     aliquota_iss: Optional[float] = None
+    data_referencia_nf: Optional[str] = None
 
 
 class ExportarOSLoteRequest(BaseModel):
@@ -268,6 +269,7 @@ def exportar_os_lote(
                 "descricao_servico": dados_tomador.get("descricao_servico"),
                 "natureza_operacao": dados_tomador.get("natureza_operacao"),
                 "aliquota_iss": dados_tomador.get("aliquota_iss"),
+                "data_referencia_nf": dados_tomador.get("data_referencia_nf"),
             }
 
     if body.formato == "pdf":

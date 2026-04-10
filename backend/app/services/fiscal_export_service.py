@@ -684,6 +684,7 @@ def exportar_os_pdf(
 
             info_rows.extend(
                 [
+                    ["Data para emissao da NF", str(row.get("data_referencia_nf") or row.get("data_emissao") or "-")],
                     ["Valor do servico", _format_currency(float(row.get("valor_servico") or 0))],
                     ["Atividade", str(row.get("atividade_cnae") or "-")],
                     ["Descricao do Servico", str(row.get("descricao_servico") or "-")],
@@ -801,6 +802,7 @@ def _build_export_row(
         "paciente_nome": item.get("paciente_nome") or "",
         "tutor_nome": item.get("tutor_nome") or "",
         "servico_nome": item.get("servico_nome") or "",
+        "data_referencia_nf": _format_date(tomador.get("data_referencia_nf")) or "",
     }
 
 
@@ -821,6 +823,7 @@ def _resolve_tomador(item: dict[str, Any], dados_tomador: dict[str, Any]) -> dic
         "descricao_servico": dados_tomador.get("descricao_servico") or "",
         "natureza_operacao": dados_tomador.get("natureza_operacao") or "",
         "aliquota_iss": dados_tomador.get("aliquota_iss"),
+        "data_referencia_nf": dados_tomador.get("data_referencia_nf") or "",
     }
 
 
