@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
@@ -84,6 +84,7 @@ type Modo = "single" | "multi";
 const FISCAL_PAGE_SIZE = 500;
 const OS_PAGE_SIZE = 500;
 const DESC_SERVICO_PADRAO_ANTIGA = "Servicos veterinarios prestados conforme ordens de servico selecionadas.";
+const TOMADOR_STORAGE_PREFIX = "fiscal_tomador_clinica_v1_";
 
 const DEFAULT_TOMADOR: DadosTomador = {
   tipo_cliente: "PJ",
@@ -208,6 +209,32 @@ async function extractApiErrorDetail(err: any) {
   return null;
 }
 
+function getTomadorStorageKey(clinicaId: number): string {
+  return `${TOMADOR_STORAGE_PREFIX}${clinicaId}`;
+}
+
+function loadTomadorDraft(clinicaId: number): Partial<DadosTomador> | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(getTomadorStorageKey(clinicaId));
+    if (!raw) return null;
+    const parsed = parseJsonSafe(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed as Partial<DadosTomador>;
+  } catch {
+    return null;
+  }
+}
+
+function saveTomadorDraft(clinicaId: number, tomador: DadosTomador): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(getTomadorStorageKey(clinicaId), JSON.stringify(tomador));
+  } catch {
+    // Ignora erro de storage para nao interromper o fluxo da tela.
+  }
+}
+
 export default function ExportacaoDadosContabeisPage() {
   const router = useRouter();
   const period = monthPeriod();
@@ -228,6 +255,53 @@ export default function ExportacaoDadosContabeisPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [format, setFormat] = useState<ExportFormat>("xlsx");
   const [exporting, setExporting] = useState(false);
+  const [autosaveStatus, setAutosaveStatus] = useState("");
+  const [autosaving, setAutosaving] = useState(false);
+  const lastSavedClinicPayloadRef = useRef<Record<number, string>>({});
+
+  function buildTomadorFromClinica(clinica: ClinicaItem): DadosTomador {
+    const enderecoBase = txt(clinica.endereco);
+    const numeroBase = txt(clinica.numero);
+    const enderecoComNumero = numeroBase && enderecoBase && !enderecoBase.includes(numeroBase)
+      ? `${enderecoBase}, ${numeroBase}`
+      : (enderecoBase || numeroBase);
+    return {
+      ...DEFAULT_TOMADOR,
+      tipo_cliente: "PJ",
+      cliente_nome: txt(clinica.razao_social) || txt(clinica.nome),
+      cliente_documento: txt(clinica.cnpj) ? fmtCnpj(txt(clinica.cnpj)) : "",
+      cliente_endereco: enderecoComNumero,
+      cliente_bairro: txt(clinica.bairro),
+      cliente_cidade: txt(clinica.cidade),
+      cliente_estado: txt(clinica.estado),
+      cliente_cep: txt(clinica.cep),
+      cliente_telefone: txt(clinica.telefone),
+      cliente_email: txt(clinica.email),
+      atividade_cnae: txt(clinica.atividade_cnae),
+    };
+  }
+
+  function buildClinicaPayloadFromTomador(clinica: ClinicaItem, dados: DadosTomador) {
+    const documentoLimpo = txt(dados.cliente_documento);
+    const enderecoDigitado = txt(dados.cliente_endereco);
+    const numeroClinica = txt(clinica.numero);
+    const complementoClinica = txt(clinica.complemento);
+    return {
+      nome: txt(clinica.nome) || txt(dados.cliente_nome) || "Clinica",
+      razao_social: txt(dados.cliente_nome) || txt(clinica.razao_social),
+      cnpj: dados.tipo_cliente === "PJ" ? documentoLimpo : txt(clinica.cnpj),
+      telefone: txt(dados.cliente_telefone),
+      email: txt(dados.cliente_email),
+      atividade_cnae: txt(dados.atividade_cnae),
+      endereco: enderecoDigitado,
+      numero: numeroClinica && !enderecoDigitado.includes(numeroClinica) ? numeroClinica : "",
+      complemento: complementoClinica && !enderecoDigitado.includes(complementoClinica) ? complementoClinica : "",
+      bairro: txt(dados.cliente_bairro),
+      cidade: txt(dados.cliente_cidade),
+      estado: txt(dados.cliente_estado).toUpperCase(),
+      cep: txt(dados.cliente_cep),
+    };
+  }
 
   useEffect(() => {
     const descricaoAuto = descricaoServicoPeriodo(dataInicio, dataFim);
@@ -243,6 +317,12 @@ export default function ExportacaoDadosContabeisPage() {
   }, [dataInicio, dataFim]);
 
   useEffect(() => {
+    if (autosaving || !autosaveStatus) return;
+    const timer = window.setTimeout(() => setAutosaveStatus(""), 2200);
+    return () => window.clearTimeout(timer);
+  }, [autosaving, autosaveStatus]);
+
+  useEffect(() => {
     (async () => {
       setLoadingClinicas(true);
       try {
@@ -256,23 +336,15 @@ export default function ExportacaoDadosContabeisPage() {
 
   function onChangeClinica(v: string) {
     setClinicaId(v);
+    setAutosaveStatus("");
     const c = clinicas.find((x) => String(x.id) === v);
     if (!c) return setTomador(DEFAULT_TOMADOR);
-    const endereco = [c.endereco, c.numero].filter(Boolean).join(", ");
-    setTomador((p) => ({
-      ...p,
-      tipo_cliente: "PJ",
-      cliente_nome: c.razao_social || c.nome || "",
-      cliente_documento: c.cnpj ? fmtCnpj(c.cnpj) : "",
-      cliente_endereco: endereco,
-      cliente_bairro: c.bairro || "",
-      cliente_cidade: c.cidade || "",
-      cliente_estado: c.estado || "",
-      cliente_cep: c.cep || "",
-      cliente_telefone: c.telefone || "",
-      cliente_email: c.email || "",
-      atividade_cnae: c.atividade_cnae || p.atividade_cnae,
-    }));
+
+    const baseTomador = buildTomadorFromClinica(c);
+    const draft = loadTomadorDraft(c.id);
+    const mergedTomador: DadosTomador = { ...baseTomador, ...(draft || {}) };
+    setTomador(mergedTomador);
+    lastSavedClinicPayloadRef.current[c.id] = JSON.stringify(buildClinicaPayloadFromTomador(c, baseTomador));
   }
 
   async function persistirDadosFiscaisDaClinica(clinica: ClinicaItem, cnpjData: CNPJData) {
@@ -297,6 +369,41 @@ export default function ExportacaoDadosContabeisPage() {
     setClinicas((prev) => prev.map((item) => (item.id === clinica.id ? { ...item, ...updated } : item)));
   }
 
+  async function autoSalvarTomadorNoBlur(campo: string) {
+    if (modo !== "single" || !clinicaId) return;
+    const selectedClinicId = Number(clinicaId);
+    if (Number.isNaN(selectedClinicId)) return;
+
+    saveTomadorDraft(selectedClinicId, tomador);
+    const clinicaSelecionada = clinicas.find((x) => x.id === selectedClinicId);
+    if (!clinicaSelecionada) return;
+
+    const payload = buildClinicaPayloadFromTomador(clinicaSelecionada, tomador);
+    const assinatura = JSON.stringify(payload);
+    if (lastSavedClinicPayloadRef.current[selectedClinicId] === assinatura) return;
+
+    setAutosaving(true);
+    setAutosaveStatus(`Salvando ${campo}...`);
+    try {
+      const resp = await api.put(`/clinicas/${selectedClinicId}`, payload);
+      const updated = (resp.data || {}) as ClinicaItem;
+      setClinicas((prev) => prev.map((item) => (item.id === selectedClinicId ? { ...item, ...updated } : item)));
+      lastSavedClinicPayloadRef.current[selectedClinicId] = assinatura;
+      setAutosaveStatus("Dados salvos automaticamente.");
+    } catch (err: any) {
+      setAutosaveStatus("");
+      alert(normalizeApiError(err, `Nao foi possivel salvar automaticamente o campo "${campo}".`));
+    } finally {
+      setAutosaving(false);
+    }
+  }
+
+  function onBlurSalvar(campo: string) {
+    return () => {
+      void autoSalvarTomadorNoBlur(campo);
+    };
+  }
+
   async function buscarCnpj() {
     if (tomador.tipo_cliente !== "PJ") return;
     const cnpj = tomador.cliente_documento.replace(/\D/g, "");
@@ -308,10 +415,10 @@ export default function ExportacaoDadosContabeisPage() {
       const d = r.data;
       if (d.error) return alert(d.error);
       const e = `${d.logradouro || ""}${d.numero ? `, ${d.numero}` : ""}${d.complemento ? ` - ${d.complemento}` : ""}`.trim();
-      setTomador((p) => ({
-        ...p,
-        cliente_nome: d.razao_social || p.cliente_nome,
-        cliente_documento: d.cnpj ? fmtCnpj(d.cnpj) : p.cliente_documento,
+      const novoTomador: DadosTomador = {
+        ...tomador,
+        cliente_nome: d.razao_social || tomador.cliente_nome,
+        cliente_documento: d.cnpj ? fmtCnpj(d.cnpj) : tomador.cliente_documento,
         cliente_endereco: e,
         cliente_bairro: d.bairro || "",
         cliente_cidade: d.municipio || "",
@@ -319,12 +426,21 @@ export default function ExportacaoDadosContabeisPage() {
         cliente_cep: d.cep || "",
         cliente_telefone: d.telefone || "",
         cliente_email: d.email || "",
-        atividade_cnae: d.cnae_principal || p.atividade_cnae,
-      }));
+        atividade_cnae: d.cnae_principal || tomador.atividade_cnae,
+      };
+      setTomador(novoTomador);
+
+      const selectedClinicId = Number(clinicaId);
+      if (!Number.isNaN(selectedClinicId) && selectedClinicId > 0) {
+        saveTomadorDraft(selectedClinicId, novoTomador);
+      }
 
       if (clinicaSelecionada && modo === "single") {
         try {
           await persistirDadosFiscaisDaClinica(clinicaSelecionada, d);
+          const payloadAtualizado = buildClinicaPayloadFromTomador(clinicaSelecionada, novoTomador);
+          lastSavedClinicPayloadRef.current[clinicaSelecionada.id] = JSON.stringify(payloadAtualizado);
+          setAutosaveStatus("Dados da clinica atualizados automaticamente.");
         } catch (err) {
           alert(normalizeApiError(err, "Nao foi possivel salvar automaticamente os dados fiscais na clinica."));
         }
@@ -551,25 +667,168 @@ export default function ExportacaoDadosContabeisPage() {
 
         <div className="bg-white rounded-xl shadow-sm p-6 mb-4">
           <h3 className="font-semibold mb-3">{modo === "single" ? "Dados do Tomador" : "Parametros fiscais do lote"}</h3>
+          {modo === "single" && clinicaId && (autosaving || autosaveStatus) && (
+            <p className={`text-xs mb-3 ${autosaving ? "text-blue-700" : "text-emerald-700"}`}>
+              {autosaving ? "Salvando automaticamente..." : autosaveStatus}
+            </p>
+          )}
           {modo === "multi" && <p className="text-sm text-blue-700 bg-blue-50 rounded p-3 mb-3">No modo de varias clinicas, os dados cadastrais vem de cada clinica. Se faltar algo, o sistema solicita correcao antes de gerar.</p>}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {modo === "single" && (
               <>
-                <div><label className="block text-sm mb-1">Tipo cliente</label><div className="flex gap-2"><button type="button" onClick={() => setTomador((p) => ({ ...p, tipo_cliente: "PJ", cliente_documento: fmtCnpj(p.cliente_documento) }))} className={`px-3 py-1.5 rounded-lg text-sm ${tomador.tipo_cliente === "PJ" ? "bg-blue-100 text-blue-700 border border-blue-300" : "bg-gray-50 border border-gray-200"}`}>PJ</button><button type="button" onClick={() => setTomador((p) => ({ ...p, tipo_cliente: "PF", cliente_documento: fmtCpf(p.cliente_documento) }))} className={`px-3 py-1.5 rounded-lg text-sm ${tomador.tipo_cliente === "PF" ? "bg-purple-100 text-purple-700 border border-purple-300" : "bg-gray-50 border border-gray-200"}`}>PF</button></div></div>
-                <div><label className="block text-sm mb-1">{tomador.tipo_cliente === "PJ" ? "Razao social *" : "Nome *"}</label><input value={tomador.cliente_nome} onChange={(e) => setTomador((p) => ({ ...p, cliente_nome: e.target.value }))} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
-                <div><label className="block text-sm mb-1">{tomador.tipo_cliente === "PJ" ? "CNPJ *" : "CPF *"}</label><div className="flex gap-2"><input value={tomador.cliente_documento} onChange={(e) => setTomador((p) => ({ ...p, cliente_documento: fmtDoc(e.target.value, p.tipo_cliente) }))} className="flex-1 px-3 py-2 border rounded-lg text-sm" />{tomador.tipo_cliente === "PJ" && <button onClick={buscarCnpj} disabled={loadingCnpj} className="px-3 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm">{loadingCnpj ? <Loader2 className="w-4 h-4 animate-spin" /> : "Buscar"}</button>}</div></div>
-                <div className="md:col-span-2"><label className="block text-sm mb-1">Endereco</label><input value={tomador.cliente_endereco} onChange={(e) => setTomador((p) => ({ ...p, cliente_endereco: e.target.value }))} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
-                <div><label className="block text-sm mb-1">Bairro</label><input value={tomador.cliente_bairro} onChange={(e) => setTomador((p) => ({ ...p, cliente_bairro: e.target.value }))} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
-                <div className="grid grid-cols-3 gap-2"><input placeholder="Cidade" value={tomador.cliente_cidade} onChange={(e) => setTomador((p) => ({ ...p, cliente_cidade: e.target.value }))} className="col-span-2 px-3 py-2 border rounded-lg text-sm" /><input placeholder="UF" value={tomador.cliente_estado} onChange={(e) => setTomador((p) => ({ ...p, cliente_estado: e.target.value.toUpperCase() }))} className="px-3 py-2 border rounded-lg text-sm uppercase" maxLength={2} /></div>
-                <div><label className="block text-sm mb-1">CEP</label><input value={tomador.cliente_cep} onChange={(e) => setTomador((p) => ({ ...p, cliente_cep: e.target.value }))} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
-                <div><label className="block text-sm mb-1">Telefone</label><input value={tomador.cliente_telefone} onChange={(e) => setTomador((p) => ({ ...p, cliente_telefone: e.target.value }))} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
-                <div><label className="block text-sm mb-1">Email</label><input value={tomador.cliente_email} onChange={(e) => setTomador((p) => ({ ...p, cliente_email: e.target.value }))} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
+                <div>
+                  <label className="block text-sm mb-1">Tipo cliente</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setTomador((p) => ({ ...p, tipo_cliente: "PJ", cliente_documento: fmtCnpj(p.cliente_documento) }))}
+                      className={`px-3 py-1.5 rounded-lg text-sm ${tomador.tipo_cliente === "PJ" ? "bg-blue-100 text-blue-700 border border-blue-300" : "bg-gray-50 border border-gray-200"}`}
+                    >
+                      PJ
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTomador((p) => ({ ...p, tipo_cliente: "PF", cliente_documento: fmtCpf(p.cliente_documento) }))}
+                      className={`px-3 py-1.5 rounded-lg text-sm ${tomador.tipo_cliente === "PF" ? "bg-purple-100 text-purple-700 border border-purple-300" : "bg-gray-50 border border-gray-200"}`}
+                    >
+                      PF
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">{tomador.tipo_cliente === "PJ" ? "Razao social *" : "Nome *"}</label>
+                  <input
+                    value={tomador.cliente_nome}
+                    onChange={(e) => setTomador((p) => ({ ...p, cliente_nome: e.target.value }))}
+                    onBlur={onBlurSalvar("razao social")}
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">{tomador.tipo_cliente === "PJ" ? "CNPJ *" : "CPF *"}</label>
+                  <div className="flex gap-2">
+                    <input
+                      value={tomador.cliente_documento}
+                      onChange={(e) => setTomador((p) => ({ ...p, cliente_documento: fmtDoc(e.target.value, p.tipo_cliente) }))}
+                      onBlur={onBlurSalvar(tomador.tipo_cliente === "PJ" ? "cnpj" : "cpf")}
+                      className="flex-1 px-3 py-2 border rounded-lg text-sm"
+                    />
+                    {tomador.tipo_cliente === "PJ" && (
+                      <button onClick={buscarCnpj} disabled={loadingCnpj} className="px-3 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm">
+                        {loadingCnpj ? <Loader2 className="w-4 h-4 animate-spin" /> : "Buscar"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm mb-1">Endereco</label>
+                  <input
+                    value={tomador.cliente_endereco}
+                    onChange={(e) => setTomador((p) => ({ ...p, cliente_endereco: e.target.value }))}
+                    onBlur={onBlurSalvar("endereco")}
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Bairro</label>
+                  <input
+                    value={tomador.cliente_bairro}
+                    onChange={(e) => setTomador((p) => ({ ...p, cliente_bairro: e.target.value }))}
+                    onBlur={onBlurSalvar("bairro")}
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  />
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <input
+                    placeholder="Cidade"
+                    value={tomador.cliente_cidade}
+                    onChange={(e) => setTomador((p) => ({ ...p, cliente_cidade: e.target.value }))}
+                    onBlur={onBlurSalvar("cidade")}
+                    className="col-span-2 px-3 py-2 border rounded-lg text-sm"
+                  />
+                  <input
+                    placeholder="UF"
+                    value={tomador.cliente_estado}
+                    onChange={(e) => setTomador((p) => ({ ...p, cliente_estado: e.target.value.toUpperCase() }))}
+                    onBlur={onBlurSalvar("uf")}
+                    className="px-3 py-2 border rounded-lg text-sm uppercase"
+                    maxLength={2}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">CEP</label>
+                  <input
+                    value={tomador.cliente_cep}
+                    onChange={(e) => setTomador((p) => ({ ...p, cliente_cep: e.target.value }))}
+                    onBlur={onBlurSalvar("cep")}
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Telefone</label>
+                  <input
+                    value={tomador.cliente_telefone}
+                    onChange={(e) => setTomador((p) => ({ ...p, cliente_telefone: e.target.value }))}
+                    onBlur={onBlurSalvar("telefone")}
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Email</label>
+                  <input
+                    value={tomador.cliente_email}
+                    onChange={(e) => setTomador((p) => ({ ...p, cliente_email: e.target.value }))}
+                    onBlur={onBlurSalvar("email")}
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  />
+                </div>
               </>
             )}
-            <div><label className="block text-sm mb-1">Atividade</label><input value={tomador.atividade_cnae} onChange={(e) => setTomador((p) => ({ ...p, atividade_cnae: e.target.value }))} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
-            <div><label className="block text-sm mb-1">Aliquota ISS (%)</label><input type="number" min="0" step="0.01" value={tomador.aliquota_iss} onChange={(e) => setTomador((p) => ({ ...p, aliquota_iss: Number(e.target.value || 0) }))} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
-            <div className="md:col-span-2"><label className="block text-sm mb-1">Descricao do servico</label><input value={tomador.descricao_servico} onChange={(e) => setTomador((p) => ({ ...p, descricao_servico: e.target.value }))} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
-            <div className="md:col-span-2"><label className="block text-sm mb-1">Natureza da operacao</label><select value={tomador.natureza_operacao} onChange={(e) => setTomador((p) => ({ ...p, natureza_operacao: e.target.value }))} className="w-full px-3 py-2 border rounded-lg text-sm"><option>Tributacao no municipio</option><option>Tributacao fora do municipio</option><option>Isenta</option><option>Imune</option><option>Nao tributavel</option></select></div>
+            <div>
+              <label className="block text-sm mb-1">Atividade</label>
+              <input
+                value={tomador.atividade_cnae}
+                onChange={(e) => setTomador((p) => ({ ...p, atividade_cnae: e.target.value }))}
+                onBlur={onBlurSalvar("atividade")}
+                className="w-full px-3 py-2 border rounded-lg text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Aliquota ISS (%)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={tomador.aliquota_iss}
+                onChange={(e) => setTomador((p) => ({ ...p, aliquota_iss: Number(e.target.value || 0) }))}
+                onBlur={onBlurSalvar("aliquota ISS")}
+                className="w-full px-3 py-2 border rounded-lg text-sm"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm mb-1">Descricao do servico</label>
+              <input
+                value={tomador.descricao_servico}
+                onChange={(e) => setTomador((p) => ({ ...p, descricao_servico: e.target.value }))}
+                onBlur={onBlurSalvar("descricao do servico")}
+                className="w-full px-3 py-2 border rounded-lg text-sm"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm mb-1">Natureza da operacao</label>
+              <select
+                value={tomador.natureza_operacao}
+                onChange={(e) => setTomador((p) => ({ ...p, natureza_operacao: e.target.value }))}
+                onBlur={onBlurSalvar("natureza da operacao")}
+                className="w-full px-3 py-2 border rounded-lg text-sm"
+              >
+                <option>Tributacao no municipio</option>
+                <option>Tributacao fora do municipio</option>
+                <option>Isenta</option>
+                <option>Imune</option>
+                <option>Nao tributavel</option>
+              </select>
+            </div>
           </div>
         </div>
 
