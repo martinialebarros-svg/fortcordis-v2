@@ -16,7 +16,8 @@ from app.models import (
     user, papel, agendamento, paciente, tutor, clinica, servico,
     laudo, financeiro, frase, imagem_laudo, tabela_preco, 
     ordem_servico, referencia_eco, configuracao, auditoria_evento,
-    clinica_deslocamento, cep_bairro_override, push_subscription, push_scheduled_notification
+    clinica_deslocamento, cep_bairro_override, push_subscription, push_scheduled_notification,
+    google_maps_usage_metrica
 )
 from app.utils.frases_seed import seed_frases
 from migrations.runner import run_migrations
@@ -50,6 +51,7 @@ MODELS = [
     auditoria_evento.AuditoriaEvento,
     clinica_deslocamento.ClinicaDeslocamento,
     cep_bairro_override.CepBairroOverride,
+    google_maps_usage_metrica.GoogleMapsUsageMetrica,
 ]
 
 def criar_tabelas():
@@ -134,7 +136,7 @@ def verificar_tabelas():
         "tabelas_preco", "precos_servicos", "ordens_servico",
         "referencias_eco", "configuracoes", "configuracoes_usuario"
         , "auditoria_eventos", "clinica_deslocamentos", "cep_bairro_overrides",
-        "push_subscriptions", "push_scheduled_notifications"
+        "push_subscriptions", "push_scheduled_notifications", "google_maps_usage_metricas"
     ]
     
     todas_ok = True

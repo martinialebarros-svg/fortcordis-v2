@@ -34,6 +34,7 @@ export default function NovaClinicaPage() {
   const [loading, setLoading] = useState(false);
   const [loadingCep, setLoadingCep] = useState(false);
   const [loadingGeocode, setLoadingGeocode] = useState(false);
+  const [lastGeocodeSignature, setLastGeocodeSignature] = useState("");
   const [localizacaoConfirmada, setLocalizacaoConfirmada] = useState(false);
   const [bairroEditadoManual, setBairroEditadoManual] = useState(false);
   const [statusEndereco, setStatusEndereco] = useState("");
@@ -80,6 +81,19 @@ export default function NovaClinicaPage() {
     return `${cep.slice(0, 5)}-${cep.slice(5)}`;
   };
 
+  const assinaturaGeocode = (dados = clinica) =>
+    [
+      dados.endereco,
+      dados.numero,
+      dados.complemento,
+      dados.bairro,
+      dados.cidade,
+      dados.estado,
+      normalizarCep(dados.cep),
+    ]
+      .map((item) => String(item || "").trim().toLowerCase())
+      .join("|");
+
   const limparGeocodeCache = (mensagem?: string) => {
     setClinica((prev) => ({
       ...prev,
@@ -123,6 +137,7 @@ export default function NovaClinicaPage() {
           .filter((p) => String(p || "").trim())
           .join(", "),
     }));
+    setLastGeocodeSignature(assinaturaGeocode());
     setLocalizacaoConfirmada(true);
     setStatusEndereco("Pin manual aplicado com sucesso.");
     setShowManualPinModal(false);
@@ -163,12 +178,21 @@ export default function NovaClinicaPage() {
     }
   };
 
-  const geocodificarEndereco = async () => {
+  const geocodificarEndereco = async (force = false) => {
     if (!clinica.endereco.trim() || !clinica.numero.trim()) {
       setStatusEndereco("Preencha endereco e numero para geocodificar.");
       return;
     }
     if (!clinica.cidade.trim() || !clinica.estado.trim()) return;
+
+    const signature = assinaturaGeocode();
+    const temResultadoAtual =
+      clinica.latitude !== null &&
+      clinica.longitude !== null &&
+      (clinica.place_id.trim() !== "" || clinica.endereco_normalizado.trim() !== "");
+    if (!force && temResultadoAtual && signature === lastGeocodeSignature) {
+      return;
+    }
 
     try {
       setLoadingGeocode(true);
@@ -195,6 +219,7 @@ export default function NovaClinicaPage() {
         endereco_normalizado: item.endereco_normalizado || prev.endereco_normalizado,
       }));
       setLocalizacaoConfirmada(false);
+      setLastGeocodeSignature(signature);
       setStatusEndereco("Geocoding concluido. Confirme a localizacao no mapa.");
       if (item?.bairro_origem !== "aprendizado") {
         setBairroEditadoManual(false);
@@ -213,7 +238,7 @@ export default function NovaClinicaPage() {
       setStatusEndereco("Informe o numero para concluir o geocoding.");
       return;
     }
-    await geocodificarEndereco();
+    await geocodificarEndereco(false);
   };
 
   // Sugerir tabela de preço quando a cidade mudar
@@ -591,7 +616,7 @@ export default function NovaClinicaPage() {
                 <div className="flex flex-wrap items-center gap-2 mb-2">
                   <button
                     type="button"
-                    onClick={geocodificarEndereco}
+                    onClick={() => geocodificarEndereco(true)}
                     disabled={loadingGeocode}
                     className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
                   >
