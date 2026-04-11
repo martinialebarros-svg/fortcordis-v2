@@ -13,6 +13,7 @@ from app.services.logistica_service import (
     normalizar_perfil,
     recalcular_matriz_completa,
     recalcular_matriz_para_clinica,
+    resumir_google_maps_metricas,
     serialize_deslocamento,
     obter_ou_criar_deslocamento,
     upsert_deslocamento,
@@ -142,6 +143,20 @@ def recalcular_matriz(
     if not resultado.get("ok", False):
         raise HTTPException(status_code=404, detail="Clinica nao encontrada para recalculo.")
     return resultado
+
+
+@router.get("/google-maps/resumo")
+def obter_resumo_google_maps(
+    dias: int = Query(default=30, ge=1, le=365),
+    incluir_inativas: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return resumir_google_maps_metricas(
+        db,
+        dias=dias,
+        incluir_inativas=incluir_inativas,
+    )
 
 
 @router.put("/deslocamento/manual", status_code=status.HTTP_200_OK)

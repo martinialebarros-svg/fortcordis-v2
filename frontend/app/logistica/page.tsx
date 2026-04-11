@@ -56,6 +56,30 @@ interface ParResponse {
   item: DeslocamentoItem;
 }
 
+interface GoogleMapsResumoResponse {
+  window_days: number;
+  cache_max_age_days: number;
+  metrics_retention_days: number;
+  total_api_calls: number;
+  success_rate_percent: number;
+  status_counts: Record<string, number>;
+  operation_counts: Record<string, number>;
+  calls_by_day: Record<string, number>;
+  top_pairs: Array<{
+    origem_clinica_id: number | null;
+    destino_clinica_id: number | null;
+    calls: number;
+    last_called_at: string | null;
+  }>;
+  cache: {
+    total_rows: number;
+    fresh_rows: number;
+    stale_rows: number;
+    manual_rows: number;
+    google_rows: number;
+  };
+}
+
 const PERFIS: PerfilLogistica[] = ["comercial", "plantao"];
 
 const parseNumero = (value: string): number | null => {
@@ -97,6 +121,9 @@ export default function LogisticaPage() {
   const [recalculoLoading, setRecalculoLoading] = useState(false);
   const [recalculoMensagem, setRecalculoMensagem] = useState("");
   const [recalculoError, setRecalculoError] = useState("");
+  const [resumoLoading, setResumoLoading] = useState(false);
+  const [resumoError, setResumoError] = useState("");
+  const [googleMapsResumo, setGoogleMapsResumo] = useState<GoogleMapsResumoResponse | null>(null);
 
   const clinicaPorId = useMemo(() => {
     const map = new Map<number, string>();
@@ -107,6 +134,30 @@ export default function LogisticaPage() {
   }, [clinicas]);
 
   const nomeClinica = (id: number) => clinicaPorId.get(Number(id)) || `Clinica #${id}`;
+
+  const percentualCacheFresco = useMemo(() => {
+    const totalGoogle = Number(googleMapsResumo?.cache?.google_rows || 0);
+    const fresh = Number(googleMapsResumo?.cache?.fresh_rows || 0);
+    if (totalGoogle <= 0) return 0;
+    return Math.round((fresh / totalGoogle) * 100);
+  }, [googleMapsResumo]);
+
+  const topDiasChamadas = useMemo(() => {
+    const entries = Object.entries(googleMapsResumo?.calls_by_day || {});
+    return entries.sort((a, b) => b[0].localeCompare(a[0])).slice(0, 7);
+  }, [googleMapsResumo]);
+
+  const topOperacoes = useMemo(() => {
+    const entries = Object.entries(googleMapsResumo?.operation_counts || {});
+    return entries.sort((a, b) => b[1] - a[1]);
+  }, [googleMapsResumo]);
+
+  const formatarDataHora = (valor: string | null | undefined) => {
+    if (!valor) return "nunca";
+    const data = new Date(valor);
+    if (Number.isNaN(data.getTime())) return valor;
+    return data.toLocaleString("pt-BR");
+  };
 
   const carregarClinicas = async () => {
     try {
@@ -174,6 +225,25 @@ export default function LogisticaPage() {
     }
   };
 
+  const carregarResumoGoogleMaps = async () => {
+    try {
+      setResumoLoading(true);
+      setResumoError("");
+      const params = new URLSearchParams();
+      params.set("dias", "30");
+      params.set("incluir_inativas", incluirInativas ? "true" : "false");
+      const response = await api.get<GoogleMapsResumoResponse>(
+        `/logistica/google-maps/resumo?${params.toString()}`
+      );
+      setGoogleMapsResumo(response.data);
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail;
+      setResumoError(typeof detail === "string" ? detail : "Falha ao carregar monitoramento do Google Maps.");
+    } finally {
+      setResumoLoading(false);
+    }
+  };
+
   const consultarPar = async (recalcular: boolean) => {
     const origem = parseNumero(origemId);
     const destino = parseNumero(destinoId);
@@ -196,6 +266,7 @@ export default function LogisticaPage() {
       setManualDuracaoMin(String(response?.data?.item?.duracao_min ?? 30));
       setManualDistanciaKm(String(response?.data?.item?.distancia_km ?? 0));
       setManualObservacoes(response?.data?.item?.observacoes || "");
+      await carregarResumoGoogleMaps();
     } catch (error: any) {
       const detail = error?.response?.data?.detail;
       setConsultaError(typeof detail === "string" ? detail : "Falha ao consultar deslocamento.");
@@ -271,7 +342,7 @@ export default function LogisticaPage() {
       const totalCelulas = Number(data?.total_celulas || 0);
       const extra = totalCelulas > 0 ? ` Total de celulas: ${totalCelulas}.` : "";
       setRecalculoMensagem(`Recalculo concluido. Atualizados: ${total}. Ignorados (manual): ${skipped}.${extra}`);
-      await carregarMatriz();
+      await Promise.all([carregarMatriz(), carregarResumoGoogleMaps()]);
     } catch (error: any) {
       const detail = error?.response?.data?.detail;
       setRecalculoError(typeof detail === "string" ? detail : "Falha ao recalcular matriz.");
@@ -292,6 +363,7 @@ export default function LogisticaPage() {
   useEffect(() => {
     if (loadingClinicas) return;
     carregarMatriz();
+    carregarResumoGoogleMaps();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingClinicas, perfil, incluirInativas, origemId, destinoId]);
 
@@ -546,6 +618,122 @@ export default function LogisticaPage() {
           )}
         </div>
 
+        <div className="bg-white border rounded-lg p-4 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-amber-600" />
+                Monitoramento Google Maps
+              </h2>
+              <p className="text-sm text-gray-600">
+                Janela dos ultimos {googleMapsResumo?.window_days || 30} dias com cache de rotas e chamadas reais.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={carregarResumoGoogleMaps}
+              disabled={resumoLoading}
+              className="inline-flex items-center gap-2 px-3 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-60"
+            >
+              <RefreshCw className="w-4 h-4" />
+              {resumoLoading ? "Atualizando..." : "Atualizar monitor"}
+            </button>
+          </div>
+
+          {resumoError && (
+            <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {resumoError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Chamadas API</p>
+              <p className="text-2xl font-semibold text-slate-900">{googleMapsResumo?.total_api_calls ?? 0}</p>
+              <p className="text-xs text-slate-600">Retencao de metricas: {googleMapsResumo?.metrics_retention_days ?? 90} dias</p>
+            </div>
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+              <p className="text-xs uppercase tracking-wide text-emerald-600">Taxa de sucesso</p>
+              <p className="text-2xl font-semibold text-emerald-900">
+                {Number(googleMapsResumo?.success_rate_percent ?? 0).toFixed(1)}%
+              </p>
+              <p className="text-xs text-emerald-700">
+                {Object.entries(googleMapsResumo?.status_counts || {})
+                  .map(([status, total]) => `${status}: ${total}`)
+                  .join(" | ") || "Sem chamadas registradas"}
+              </p>
+            </div>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+              <p className="text-xs uppercase tracking-wide text-blue-600">Cache Google</p>
+              <p className="text-2xl font-semibold text-blue-900">{googleMapsResumo?.cache?.google_rows ?? 0}</p>
+              <p className="text-xs text-blue-700">
+                Frescas: {googleMapsResumo?.cache?.fresh_rows ?? 0} | Vencidas: {googleMapsResumo?.cache?.stale_rows ?? 0}
+              </p>
+            </div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <p className="text-xs uppercase tracking-wide text-amber-600">Validade</p>
+              <p className="text-2xl font-semibold text-amber-900">{percentualCacheFresco}%</p>
+              <p className="text-xs text-amber-700">
+                Expira em {googleMapsResumo?.cache_max_age_days ?? 7} dias
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            <div className="rounded-lg border p-3 space-y-2">
+              <h3 className="text-sm font-semibold text-gray-900">Operacoes cobradas</h3>
+              {topOperacoes.length === 0 ? (
+                <p className="text-sm text-gray-500">Nenhuma chamada registrada ainda.</p>
+              ) : (
+                <div className="space-y-2">
+                  {topOperacoes.map(([operacao, total]) => (
+                    <div key={operacao} className="flex items-center justify-between text-sm">
+                      <span className="text-gray-700">{operacao}</span>
+                      <span className="font-medium text-gray-900">{total}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-lg border p-3 space-y-2">
+              <h3 className="text-sm font-semibold text-gray-900">Ultimos dias com chamadas</h3>
+              {topDiasChamadas.length === 0 ? (
+                <p className="text-sm text-gray-500">Sem atividade recente registrada.</p>
+              ) : (
+                <div className="space-y-2">
+                  {topDiasChamadas.map(([dia, total]) => (
+                    <div key={dia} className="flex items-center justify-between text-sm">
+                      <span className="text-gray-700">{dia}</span>
+                      <span className="font-medium text-gray-900">{total}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-lg border p-3 space-y-2">
+              <h3 className="text-sm font-semibold text-gray-900">Pares mais consultados</h3>
+              {googleMapsResumo?.top_pairs?.length ? (
+                <div className="space-y-2">
+                  {googleMapsResumo.top_pairs.map((item, index) => (
+                    <div key={`${item.origem_clinica_id}-${item.destino_clinica_id}-${index}`} className="rounded border border-gray-200 px-2 py-2 text-sm">
+                      <p className="font-medium text-gray-900">
+                        {nomeClinica(Number(item.origem_clinica_id || 0))} -&gt;{" "}
+                        {nomeClinica(Number(item.destino_clinica_id || 0))}
+                      </p>
+                      <p className="text-gray-600">Chamadas: {item.calls}</p>
+                      <p className="text-gray-500">Ultima vez: {formatarDataHora(item.last_called_at)}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">Nenhum par consultado ainda.</p>
+              )}
+            </div>
+          </div>
+        </div>
+
         <div className="bg-white border rounded-lg overflow-hidden">
           <div className="px-4 py-3 border-b flex flex-wrap items-center gap-3">
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -617,4 +805,3 @@ export default function LogisticaPage() {
     </DashboardLayout>
   );
 }
-

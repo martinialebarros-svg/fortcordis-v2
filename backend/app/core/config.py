@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 720
     UPLOAD_DIR: str = "/opt/fortcordis/uploads"
     GOOGLE_MAPS_API_KEY: str = ""
+    GOOGLE_ROUTES_CACHE_MAX_AGE_DAYS: int = 7
+    GOOGLE_MAPS_USAGE_METRICS_RETENTION_DAYS: int = 90
     REQUIRE_STRONG_SECRET_KEY: bool = False
     REQUIRE_UP_TO_DATE_MIGRATIONS: bool = False
     ALLOW_PERMISSION_MATRIX_FALLBACK: bool = False

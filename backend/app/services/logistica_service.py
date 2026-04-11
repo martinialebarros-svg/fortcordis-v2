@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import datetime
+from collections import defaultdict
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from types import SimpleNamespace
 from typing import Iterable, Optional
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -14,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.clinica import Clinica
 from app.models.clinica_deslocamento import ClinicaDeslocamento
+from app.models.google_maps_usage_metrica import GoogleMapsUsageMetrica
 
 PERFIS_VALIDOS = {"comercial", "plantao"}
 VELOCIDADE_MEDIA_KMH = {
@@ -31,6 +34,7 @@ GOOGLE_DISTANCE_MATRIX_URL = "https://maps.googleapis.com/maps/api/distancematri
 GOOGLE_ROUTES_API_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
 GOOGLE_ROUTES_FIELD_MASK = "routes.distanceMeters,routes.duration,routes.staticDuration"
 GOOGLE_TIMEOUT_SECONDS = 8.0
+DEFAULT_METRICAS_WINDOW_DIAS = 30
 
 
 def normalizar_perfil(perfil: Optional[str]) -> str:
@@ -63,6 +67,32 @@ def _to_decimal_2(value: float) -> Decimal:
         return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     except (InvalidOperation, TypeError, ValueError):
         return Decimal("0.00")
+
+
+def _normalize_datetime(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return None
+    if getattr(value, "tzinfo", None) is not None:
+        return value.astimezone().replace(tzinfo=None)
+    return value
+
+
+def _utc_now_naive() -> datetime:
+    return datetime.utcnow()
+
+
+def _cache_max_age_days() -> int:
+    try:
+        return max(0, int(getattr(settings, "GOOGLE_ROUTES_CACHE_MAX_AGE_DAYS", 7) or 0))
+    except (TypeError, ValueError):
+        return 7
+
+
+def _metrics_retention_days() -> int:
+    try:
+        return max(1, int(getattr(settings, "GOOGLE_MAPS_USAGE_METRICS_RETENTION_DAYS", 90) or 90))
+    except (TypeError, ValueError):
+        return 90
 
 
 def _http_get_json(url: str, timeout: float = GOOGLE_TIMEOUT_SECONDS) -> dict:
@@ -173,6 +203,119 @@ def _ref_google_maps(clinica: Clinica) -> Optional[str]:
     return endereco or None
 
 
+def _row_base_datetime(row: Optional[ClinicaDeslocamento]) -> Optional[datetime]:
+    if row is None:
+        return None
+    updated = _normalize_datetime(getattr(row, "updated_at", None))
+    created = _normalize_datetime(getattr(row, "created_at", None))
+    return updated or created
+
+
+def _clinic_geocode_datetime(clinica: Optional[Clinica]) -> Optional[datetime]:
+    return _normalize_datetime(getattr(clinica, "geocode_at", None)) if clinica else None
+
+
+def _build_google_metric_context(origem: Clinica, destino: Clinica, perfil: str) -> dict:
+    return {
+        "origem_clinica_id": int(getattr(origem, "id", 0) or 0) or None,
+        "destino_clinica_id": int(getattr(destino, "id", 0) or 0) or None,
+        "perfil": normalizar_perfil(perfil),
+    }
+
+
+def _append_google_metric_event(
+    telemetry_events: Optional[list[dict]],
+    *,
+    service: str,
+    operation: str,
+    provider: str,
+    status: str,
+    context: Optional[dict] = None,
+) -> None:
+    if not isinstance(telemetry_events, list):
+        return
+    payload = {
+        "service": str(service or "").strip() or "maps",
+        "operation": str(operation or "").strip() or "unknown",
+        "provider": str(provider or "").strip() or "unknown",
+        "status": str(status or "").strip().lower() or "unknown",
+    }
+    if isinstance(context, dict):
+        payload.update(
+            {
+                "origem_clinica_id": context.get("origem_clinica_id"),
+                "destino_clinica_id": context.get("destino_clinica_id"),
+                "perfil": context.get("perfil"),
+            }
+        )
+    telemetry_events.append(payload)
+
+
+def registrar_google_maps_metricas(
+    db: Session,
+    telemetry_events: Optional[list[dict]],
+) -> int:
+    if not isinstance(telemetry_events, list) or not telemetry_events:
+        return 0
+
+    rows = []
+    for event in telemetry_events:
+        if not isinstance(event, dict):
+            continue
+        rows.append(
+            GoogleMapsUsageMetrica(
+                service=str(event.get("service") or "maps").strip() or "maps",
+                operation=str(event.get("operation") or "unknown").strip() or "unknown",
+                provider=str(event.get("provider") or "unknown").strip() or "unknown",
+                status=str(event.get("status") or "unknown").strip().lower() or "unknown",
+                origem_clinica_id=event.get("origem_clinica_id"),
+                destino_clinica_id=event.get("destino_clinica_id"),
+                perfil=str(event.get("perfil") or "").strip() or None,
+            )
+        )
+
+    if not rows:
+        return 0
+
+    db.add_all(rows)
+    return len(rows)
+
+
+def _deslocamento_esta_atual(
+    row: Optional[ClinicaDeslocamento],
+    *,
+    origem: Clinica,
+    destino: Clinica,
+) -> bool:
+    if row is None:
+        return False
+    if bool(getattr(row, "manual_override", False)):
+        return True
+
+    fonte = str(getattr(row, "fonte", "") or "").strip().lower()
+    if fonte.startswith("heuristica"):
+        origem_ref = _ref_google_maps(origem)
+        destino_ref = _ref_google_maps(destino)
+        if origem_ref and destino_ref and str(settings.GOOGLE_MAPS_API_KEY or "").strip():
+            return False
+
+    row_at = _row_base_datetime(row)
+    if row_at is None:
+        return False
+
+    cache_max_age_days = _cache_max_age_days()
+    if fonte.startswith("google_") and cache_max_age_days > 0:
+        limite = _utc_now_naive() - timedelta(days=cache_max_age_days)
+        if row_at < limite:
+            return False
+
+    for clinica_at in (_clinic_geocode_datetime(origem), _clinic_geocode_datetime(destino)):
+        if clinica_at and row_at < clinica_at:
+            return False
+
+    return True
+
+
 def _parse_duration_seconds(duration_value) -> Optional[int]:
     if duration_value is None:
         return None
@@ -193,6 +336,9 @@ def _parse_duration_seconds(duration_value) -> Optional[int]:
 def _consultar_google_routes_api_raw(
     origem_waypoint: dict,
     destino_waypoint: dict,
+    *,
+    telemetry_events: Optional[list[dict]] = None,
+    metric_context: Optional[dict] = None,
 ) -> Optional[dict]:
     api_key = str(settings.GOOGLE_MAPS_API_KEY or "").strip()
     if not api_key:
@@ -216,20 +362,52 @@ def _consultar_google_routes_api_raw(
     try:
         data = _http_post_json(GOOGLE_ROUTES_API_URL, body, headers=headers)
     except Exception:
+        _append_google_metric_event(
+            telemetry_events,
+            service="routes",
+            operation="compute_routes_pro",
+            provider="routes_api",
+            status="error",
+            context=metric_context,
+        )
         return None
 
     routes = data.get("routes") or []
     if not isinstance(routes, list) or not routes:
+        _append_google_metric_event(
+            telemetry_events,
+            service="routes",
+            operation="compute_routes_pro",
+            provider="routes_api",
+            status="empty",
+            context=metric_context,
+        )
         return None
 
     route = routes[0] or {}
     distance_meters = route.get("distanceMeters")
     if distance_meters is None:
+        _append_google_metric_event(
+            telemetry_events,
+            service="routes",
+            operation="compute_routes_pro",
+            provider="routes_api",
+            status="empty",
+            context=metric_context,
+        )
         return None
 
     try:
         distance_km = max(0.0, float(distance_meters) / 1000.0)
     except (TypeError, ValueError):
+        _append_google_metric_event(
+            telemetry_events,
+            service="routes",
+            operation="compute_routes_pro",
+            provider="routes_api",
+            status="error",
+            context=metric_context,
+        )
         return None
 
     duration_secs = _parse_duration_seconds(route.get("duration"))
@@ -245,7 +423,24 @@ def _consultar_google_routes_api_raw(
     )
 
     if duration_base_min is None and duration_traffic_min is None:
+        _append_google_metric_event(
+            telemetry_events,
+            service="routes",
+            operation="compute_routes_pro",
+            provider="routes_api",
+            status="empty",
+            context=metric_context,
+        )
         return None
+
+    _append_google_metric_event(
+        telemetry_events,
+        service="routes",
+        operation="compute_routes_pro",
+        provider="routes_api",
+        status="ok",
+        context=metric_context,
+    )
 
     return {
         "provider": "routes_api",
@@ -258,6 +453,9 @@ def _consultar_google_routes_api_raw(
 def _consultar_google_distance_matrix_raw(
     origem_ref: str,
     destino_ref: str,
+    *,
+    telemetry_events: Optional[list[dict]] = None,
+    metric_context: Optional[dict] = None,
 ) -> Optional[dict]:
     api_key = str(settings.GOOGLE_MAPS_API_KEY or "").strip()
     if not api_key or not origem_ref or not destino_ref:
@@ -280,24 +478,64 @@ def _consultar_google_distance_matrix_raw(
     try:
         data = _http_get_json(url)
     except Exception:
+        _append_google_metric_event(
+            telemetry_events,
+            service="routes",
+            operation="distance_matrix",
+            provider="distance_matrix",
+            status="error",
+            context=metric_context,
+        )
         return None
 
     status = str(data.get("status") or "").strip().upper()
     if status != "OK":
+        _append_google_metric_event(
+            telemetry_events,
+            service="routes",
+            operation="distance_matrix",
+            provider="distance_matrix",
+            status="empty",
+            context=metric_context,
+        )
         return None
 
     rows = data.get("rows") or []
     if not isinstance(rows, list) or not rows:
+        _append_google_metric_event(
+            telemetry_events,
+            service="routes",
+            operation="distance_matrix",
+            provider="distance_matrix",
+            status="empty",
+            context=metric_context,
+        )
         return None
 
     row0 = rows[0] or {}
     elements = row0.get("elements") or []
     if not isinstance(elements, list) or not elements:
+        _append_google_metric_event(
+            telemetry_events,
+            service="routes",
+            operation="distance_matrix",
+            provider="distance_matrix",
+            status="empty",
+            context=metric_context,
+        )
         return None
 
     element = elements[0] or {}
     elem_status = str(element.get("status") or "").strip().upper()
     if elem_status != "OK":
+        _append_google_metric_event(
+            telemetry_events,
+            service="routes",
+            operation="distance_matrix",
+            provider="distance_matrix",
+            status="empty",
+            context=metric_context,
+        )
         return None
 
     distance_value = ((element.get("distance") or {}).get("value"))
@@ -307,6 +545,14 @@ def _consultar_google_distance_matrix_raw(
     try:
         distance_km = max(0.0, float(distance_value) / 1000.0)
     except (TypeError, ValueError):
+        _append_google_metric_event(
+            telemetry_events,
+            service="routes",
+            operation="distance_matrix",
+            provider="distance_matrix",
+            status="error",
+            context=metric_context,
+        )
         return None
 
     duration_base_min: Optional[int] = None
@@ -323,7 +569,24 @@ def _consultar_google_distance_matrix_raw(
         duration_traffic_min = None
 
     if duration_base_min is None and duration_traffic_min is None:
+        _append_google_metric_event(
+            telemetry_events,
+            service="routes",
+            operation="distance_matrix",
+            provider="distance_matrix",
+            status="empty",
+            context=metric_context,
+        )
         return None
+
+    _append_google_metric_event(
+        telemetry_events,
+        service="routes",
+        operation="distance_matrix",
+        provider="distance_matrix",
+        status="ok",
+        context=metric_context,
+    )
 
     return {
         "provider": "distance_matrix",
@@ -339,6 +602,7 @@ def estimar_deslocamento(
     *,
     perfil: str = "comercial",
     google_cache: Optional[dict] = None,
+    telemetry_events: Optional[list[dict]] = None,
 ) -> tuple[float, int, str]:
     """Estimate travel distance/duration with Google Distance Matrix + fallback heuristics."""
     if not origem or not destino:
@@ -353,6 +617,7 @@ def estimar_deslocamento(
     destino_waypoint = _waypoint_google_routes(destino)
     origem_ref = _ref_google_maps(origem)
     destino_ref = _ref_google_maps(destino)
+    metric_context = _build_google_metric_context(origem, destino, perfil_norm)
     google_result = None
     if str(settings.GOOGLE_MAPS_API_KEY or "").strip():
         cache = google_cache if isinstance(google_cache, dict) else None
@@ -371,9 +636,19 @@ def estimar_deslocamento(
             google_result = cache.get(cache_key)
         else:
             if origem_waypoint and destino_waypoint:
-                google_result = _consultar_google_routes_api_raw(origem_waypoint, destino_waypoint)
+                google_result = _consultar_google_routes_api_raw(
+                    origem_waypoint,
+                    destino_waypoint,
+                    telemetry_events=telemetry_events,
+                    metric_context=metric_context,
+                )
             if google_result is None and origem_ref and destino_ref:
-                google_result = _consultar_google_distance_matrix_raw(origem_ref, destino_ref)
+                google_result = _consultar_google_distance_matrix_raw(
+                    origem_ref,
+                    destino_ref,
+                    telemetry_events=telemetry_events,
+                    metric_context=metric_context,
+                )
             if cache is not None:
                 cache[cache_key] = google_result
 
@@ -480,6 +755,49 @@ def upsert_deslocamento(
     return row, mudou, False
 
 
+def materializar_deslocamento_par(
+    db: Session,
+    *,
+    origem: Clinica,
+    destino: Clinica,
+    perfis: Optional[Iterable[str]] = None,
+    force_override: bool = False,
+) -> dict[str, ClinicaDeslocamento]:
+    """Resolve a route once and persist the requested profiles.
+
+    A shared in-memory Google cache lets multiple profiles reuse the same
+    upstream route lookup for the same clinic pair.
+    """
+    perfis_norm = normalizar_perfis(perfis)
+    rows: dict[str, ClinicaDeslocamento] = {}
+    google_cache: dict = {}
+    telemetry_events: list[dict] = []
+
+    for perfil in perfis_norm:
+        distancia_km, duracao_min, fonte = estimar_deslocamento(
+            origem,
+            destino,
+            perfil=perfil,
+            google_cache=google_cache,
+            telemetry_events=telemetry_events,
+        )
+        row, _changed, _skipped = upsert_deslocamento(
+            db,
+            origem_clinica_id=int(origem.id),
+            destino_clinica_id=int(destino.id),
+            perfil=perfil,
+            distancia_km=distancia_km,
+            duracao_min=duracao_min,
+            fonte=fonte,
+            force_override=force_override,
+        )
+        rows[perfil] = row
+
+    registrar_google_maps_metricas(db, telemetry_events)
+    db.commit()
+    return rows
+
+
 def recalcular_matriz_para_clinica(
     db: Session,
     clinica_id: int,
@@ -503,6 +821,20 @@ def recalcular_matriz_para_clinica(
     updated = 0
     skipped_manual = 0
     google_cache: dict = {}
+    telemetry_events: list[dict] = []
+    rows_existentes = (
+        db.query(ClinicaDeslocamento)
+        .filter(
+            ClinicaDeslocamento.perfil.in_(perfis_norm),
+            ClinicaDeslocamento.origem_clinica_id.in_(list(mapa.keys())),
+            ClinicaDeslocamento.destino_clinica_id.in_(list(mapa.keys())),
+        )
+        .all()
+    )
+    rows_map = {
+        (int(row.origem_clinica_id), int(row.destino_clinica_id), str(row.perfil or "")): row
+        for row in rows_existentes
+    }
 
     for destino in clinicas:
         pares = [(origem_principal, destino)]
@@ -511,11 +843,22 @@ def recalcular_matriz_para_clinica(
 
         for origem, destino_real in pares:
             for perfil in perfis_norm:
+                row_existente = rows_map.get((int(origem.id), int(destino_real.id), perfil))
+                if (
+                    not force_override
+                    and _deslocamento_esta_atual(
+                        row_existente,
+                        origem=origem,
+                        destino=destino_real,
+                    )
+                ):
+                    continue
                 distancia_km, duracao_min, fonte = estimar_deslocamento(
                     origem,
                     destino_real,
                     perfil=perfil,
                     google_cache=google_cache,
+                    telemetry_events=telemetry_events,
                 )
                 _row, changed, skipped = upsert_deslocamento(
                     db,
@@ -529,9 +872,11 @@ def recalcular_matriz_para_clinica(
                 )
                 if changed:
                     updated += 1
+                    rows_map[(int(origem.id), int(destino_real.id), perfil)] = _row
                 if skipped:
                     skipped_manual += 1
 
+    registrar_google_maps_metricas(db, telemetry_events)
     db.commit()
     return {
         "ok": True,
@@ -557,15 +902,43 @@ def recalcular_matriz_completa(
     updated = 0
     skipped_manual = 0
     google_cache: dict = {}
+    telemetry_events: list[dict] = []
+    clinica_ids = [int(clinica.id) for clinica in clinicas if clinica.id is not None]
+    rows_existentes = []
+    if clinica_ids:
+        rows_existentes = (
+            db.query(ClinicaDeslocamento)
+            .filter(
+                ClinicaDeslocamento.perfil.in_(perfis_norm),
+                ClinicaDeslocamento.origem_clinica_id.in_(clinica_ids),
+                ClinicaDeslocamento.destino_clinica_id.in_(clinica_ids),
+            )
+            .all()
+        )
+    rows_map = {
+        (int(row.origem_clinica_id), int(row.destino_clinica_id), str(row.perfil or "")): row
+        for row in rows_existentes
+    }
 
     for origem in clinicas:
         for destino in clinicas:
             for perfil in perfis_norm:
+                row_existente = rows_map.get((int(origem.id), int(destino.id), perfil))
+                if (
+                    not force_override
+                    and _deslocamento_esta_atual(
+                        row_existente,
+                        origem=origem,
+                        destino=destino,
+                    )
+                ):
+                    continue
                 distancia_km, duracao_min, fonte = estimar_deslocamento(
                     origem,
                     destino,
                     perfil=perfil,
                     google_cache=google_cache,
+                    telemetry_events=telemetry_events,
                 )
                 _row, changed, skipped = upsert_deslocamento(
                     db,
@@ -579,9 +952,11 @@ def recalcular_matriz_completa(
                 )
                 if changed:
                     updated += 1
+                    rows_map[(int(origem.id), int(destino.id), perfil)] = _row
                 if skipped:
                     skipped_manual += 1
 
+    registrar_google_maps_metricas(db, telemetry_events)
     db.commit()
     total_celulas = len(clinicas) * len(clinicas) * len(perfis_norm)
     return {
@@ -602,6 +977,11 @@ def obter_ou_criar_deslocamento(
     force_recalculate: bool = False,
 ) -> Optional[ClinicaDeslocamento]:
     perfil_norm = normalizar_perfil(perfil)
+    origem = db.query(Clinica).filter(Clinica.id == origem_clinica_id).first()
+    destino = db.query(Clinica).filter(Clinica.id == destino_clinica_id).first()
+    if not origem or not destino:
+        return None
+
     row = (
         db.query(ClinicaDeslocamento)
         .filter(
@@ -617,28 +997,17 @@ def obter_ou_criar_deslocamento(
     if row:
         if bool(row.manual_override):
             return row
-        if not force_recalculate:
+        if not force_recalculate and _deslocamento_esta_atual(row, origem=origem, destino=destino):
             return row
 
-    origem = db.query(Clinica).filter(Clinica.id == origem_clinica_id).first()
-    destino = db.query(Clinica).filter(Clinica.id == destino_clinica_id).first()
-    if not origem or not destino:
-        return None
-
-    distancia_km, duracao_min, fonte = estimar_deslocamento(origem, destino, perfil=perfil_norm)
-    row, _changed, skipped = upsert_deslocamento(
+    rows = materializar_deslocamento_par(
         db,
-        origem_clinica_id=origem_clinica_id,
-        destino_clinica_id=destino_clinica_id,
-        perfil=perfil_norm,
-        distancia_km=distancia_km,
-        duracao_min=duracao_min,
-        fonte=fonte,
+        origem=origem,
+        destino=destino,
+        perfis=[perfil_norm],
         force_override=force_recalculate,
     )
-    if not skipped:
-        db.commit()
-    return row
+    return rows.get(perfil_norm)
 
 
 def obter_duracao_deslocamento(
@@ -649,7 +1018,7 @@ def obter_duracao_deslocamento(
     perfil: str = "comercial",
     permitir_estimativa_fallback: bool = True,
 ) -> tuple[int, str]:
-    """Returns travel duration in minutes for a clinic pair without mutating DB."""
+    """Returns travel duration for a clinic pair and persists cache misses."""
     origem_id = int(origem_clinica_id or 0)
     destino_id = int(destino_clinica_id or 0)
     if origem_id <= 0 or destino_id <= 0:
@@ -667,19 +1036,166 @@ def obter_duracao_deslocamento(
         )
         .first()
     )
-    if row and row.duracao_min is not None:
+    origem = db.query(Clinica).filter(Clinica.id == origem_id).first()
+    destino = db.query(Clinica).filter(Clinica.id == destino_id).first()
+    if not origem or not destino:
+        return 0, "clinica_nao_encontrada"
+    if row and row.duracao_min is not None and _deslocamento_esta_atual(row, origem=origem, destino=destino):
         return max(0, int(row.duracao_min)), str(row.fonte or "matriz")
 
     if not permitir_estimativa_fallback:
         return 0, "sem_matriz"
 
-    origem = db.query(Clinica).filter(Clinica.id == origem_id).first()
-    destino = db.query(Clinica).filter(Clinica.id == destino_id).first()
-    if not origem or not destino:
-        return 0, "clinica_nao_encontrada"
+    # On the first miss, populate both operational profiles while the shared
+    # Google cache is warm. This keeps accuracy from Google Maps without paying
+    # for the same pair again on the next lookup.
+    rows = materializar_deslocamento_par(
+        db,
+        origem=origem,
+        destino=destino,
+        perfis=["comercial", "plantao"],
+    )
+    row = rows.get(perfil_norm)
+    if row and row.duracao_min is not None:
+        return max(0, int(row.duracao_min)), str(row.fonte or "matriz")
+    return 0, "sem_matriz"
 
-    _distancia_km, duracao_min, fonte = estimar_deslocamento(origem, destino, perfil=perfil_norm)
-    return max(0, int(duracao_min or 0)), fonte
+
+def resumir_google_maps_metricas(
+    db: Session,
+    *,
+    dias: int = DEFAULT_METRICAS_WINDOW_DIAS,
+    incluir_inativas: bool = False,
+) -> dict:
+    dias_norm = max(1, min(365, int(dias or DEFAULT_METRICAS_WINDOW_DIAS)))
+    inicio_janela = _utc_now_naive() - timedelta(days=dias_norm)
+
+    metricas = (
+        db.query(GoogleMapsUsageMetrica)
+        .filter(GoogleMapsUsageMetrica.created_at >= inicio_janela)
+        .order_by(GoogleMapsUsageMetrica.created_at.asc())
+        .all()
+    )
+
+    por_dia: dict[str, int] = defaultdict(int)
+    por_operacao: dict[str, int] = defaultdict(int)
+    por_status: dict[str, int] = defaultdict(int)
+    top_pares: dict[tuple[int | None, int | None], dict] = {}
+
+    total_ok = 0
+    for item in metricas:
+        created_at = _normalize_datetime(getattr(item, "created_at", None)) or _utc_now_naive()
+        dia = created_at.date().isoformat()
+        por_dia[dia] += 1
+        operacao = str(getattr(item, "operation", "") or "unknown").strip() or "unknown"
+        status = str(getattr(item, "status", "") or "unknown").strip().lower() or "unknown"
+        por_operacao[operacao] += 1
+        por_status[status] += 1
+        if status == "ok":
+            total_ok += 1
+
+        pair_key = (
+            getattr(item, "origem_clinica_id", None),
+            getattr(item, "destino_clinica_id", None),
+        )
+        pair_bucket = top_pares.setdefault(
+            pair_key,
+            {
+                "origem_clinica_id": pair_key[0],
+                "destino_clinica_id": pair_key[1],
+                "calls": 0,
+                "last_called_at": None,
+            },
+        )
+        pair_bucket["calls"] += 1
+        pair_bucket["last_called_at"] = created_at.isoformat(sep=" ")
+
+    query_clinicas = db.query(
+        Clinica.id,
+        Clinica.ativo,
+        Clinica.endereco,
+        Clinica.numero,
+        Clinica.bairro,
+        Clinica.cidade,
+        Clinica.estado,
+        Clinica.cep,
+        Clinica.place_id,
+        Clinica.latitude,
+        Clinica.longitude,
+        Clinica.geocode_at,
+    )
+    if not incluir_inativas:
+        query_clinicas = query_clinicas.filter(Clinica.ativo == True)
+    clinicas = query_clinicas.all()
+    clinicas_map = {
+        int(item.id): SimpleNamespace(
+            id=item.id,
+            endereco=item.endereco,
+            numero=item.numero,
+            bairro=item.bairro,
+            cidade=item.cidade,
+            estado=item.estado,
+            cep=item.cep,
+            place_id=item.place_id,
+            latitude=item.latitude,
+            longitude=item.longitude,
+            geocode_at=item.geocode_at,
+        )
+        for item in clinicas
+        if item and item.id is not None
+    }
+    clinica_ids = list(clinicas_map.keys())
+
+    cache_stats = {
+        "total_rows": 0,
+        "fresh_rows": 0,
+        "stale_rows": 0,
+        "manual_rows": 0,
+        "google_rows": 0,
+    }
+    if clinica_ids:
+        rows = (
+            db.query(ClinicaDeslocamento)
+            .filter(
+                ClinicaDeslocamento.origem_clinica_id.in_(clinica_ids),
+                ClinicaDeslocamento.destino_clinica_id.in_(clinica_ids),
+            )
+            .all()
+        )
+        cache_stats["total_rows"] = len(rows)
+        for row in rows:
+            origem = clinicas_map.get(int(row.origem_clinica_id or 0))
+            destino = clinicas_map.get(int(row.destino_clinica_id or 0))
+            if not origem or not destino:
+                continue
+            if bool(getattr(row, "manual_override", False)):
+                cache_stats["manual_rows"] += 1
+            fonte = str(getattr(row, "fonte", "") or "").strip().lower()
+            if fonte.startswith("google_"):
+                cache_stats["google_rows"] += 1
+            if _deslocamento_esta_atual(row, origem=origem, destino=destino):
+                cache_stats["fresh_rows"] += 1
+            else:
+                cache_stats["stale_rows"] += 1
+
+    success_rate = round((total_ok / len(metricas)) * 100.0, 2) if metricas else 0.0
+    top_pairs_sorted = sorted(
+        top_pares.values(),
+        key=lambda item: (-int(item["calls"]), str(item["last_called_at"] or "")),
+    )[:10]
+
+    return {
+        "window_days": dias_norm,
+        "cache_max_age_days": _cache_max_age_days(),
+        "metrics_retention_days": _metrics_retention_days(),
+        "total_api_calls": len(metricas),
+        "success_rate_percent": success_rate,
+        "status_counts": dict(sorted(por_status.items())),
+        "operation_counts": dict(sorted(por_operacao.items())),
+        "calls_by_day": dict(sorted(por_dia.items())),
+        "top_pairs": top_pairs_sorted,
+        "cache": cache_stats,
+    }
 
 
 def serialize_deslocamento(row: ClinicaDeslocamento) -> dict:
