@@ -6,7 +6,37 @@ on:
       - main
 
 jobs:
+  sdd-guardrail:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve diff range
+        id: diff
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.before }}"
+          HEAD_SHA="${{ github.sha }}"
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            BASE_SHA="$(git rev-parse "${HEAD_SHA}^" 2>/dev/null || true)"
+          fi
+          if [ -z "$BASE_SHA" ]; then
+            BASE_SHA="$HEAD_SHA"
+          fi
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Run SDD guardrail
+        run: |
+          python3 scripts/ci/check_sdd_guardrail.py \
+            --base-sha "${{ steps.diff.outputs.base_sha }}" \
+            --head-sha "${{ steps.diff.outputs.head_sha }}"
+
   deploy:
+    needs: sdd-guardrail
     runs-on: ubuntu-latest
 
     steps:
