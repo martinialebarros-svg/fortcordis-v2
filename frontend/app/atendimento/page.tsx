@@ -3207,8 +3207,8 @@ export default function AtendimentoPage() {
         setPainelFormCategoria("");
         setPainelFormItens([]);
         setPainelFormErro("");
-      } catch {
-        setPainelFormErro("Erro ao criar painel. Tente novamente.");
+      } catch (error: any) {
+        setPainelFormErro(await extractApiErrorMessage(error, "Erro ao criar painel. Tente novamente."));
       }
     } else if (formMode === "edit" && painelEmEdicao) {
       try {
@@ -3229,8 +3229,8 @@ export default function AtendimentoPage() {
         setPainelFormItens([]);
         setPainelFormErro("");
         setPainelEmEdicao(null);
-      } catch {
-        setPainelFormErro("Erro ao atualizar painel. Tente novamente.");
+      } catch (error: any) {
+        setPainelFormErro(await extractApiErrorMessage(error, "Erro ao atualizar painel. Tente novamente."));
       }
     }
   };

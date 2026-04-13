@@ -23,6 +23,7 @@ from app.schemas.atendimento import (
     ExameSolicitacaoPayload,
     EvolucaoPayload,
     MedicamentoPayload,
+    PainelExamePayload,
     PrescricaoItemPayload,
     PrescricaoPayload,
     PrescricaoPreviewPayload,
@@ -52,7 +53,7 @@ from app.models.atendimento_clinico import (
     PrescricaoItemAjuste,
     UploadDedupeMetrica,
 )
-from app.models.catalogo_exame import CatalogoExame, PainelExame
+from app.models.catalogo_exame import CatalogoExame, PainelExame, PainelExameItem
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao, ConfiguracaoUsuario
 from app.models.frase_atendimento_clinico import FraseAtendimentoClinico
@@ -65,7 +66,7 @@ from app.services.clinical_phrase_service import (
     clinical_phrase_to_dict,
     montar_contexto_frases_clinicas,
 )
-from app.services.exam_catalog_service import montar_contexto_catalogo_exames
+from app.services.exam_catalog_service import montar_contexto_catalogo_exames, painel_exame_to_dict
 from app.services.atendimento_upload_service import (
     AttachmentTooLargeError,
     AttachmentTypeError,
@@ -102,10 +103,114 @@ UPLOAD_DEDUPE_EVENTS_VALIDOS = {
     UPLOAD_DEDUPE_EVENT_PRECHECK,
     UPLOAD_DEDUPE_EVENT_COLLISION,
 }
+CUSTOM_PAINEL_EXAME_PREFIX = "custom_"
 
 
 def _serialize_medicamento(item: Medicamento) -> dict:
     return medication_to_dict(item)
+
+
+def _slugify_painel_exame(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii")
+    normalized = re.sub(r"[^a-zA-Z0-9]+", "-", normalized).strip("-").lower()
+    return normalized or "painel"
+
+
+def _painel_exame_e_customizado(item: PainelExame) -> bool:
+    return str(getattr(item, "codigo", "") or "").startswith(CUSTOM_PAINEL_EXAME_PREFIX)
+
+
+def _gerar_codigo_unico_painel_exame(db: Session, nome: str, *, ignore_id: Optional[int] = None) -> str:
+    base_code = f"{CUSTOM_PAINEL_EXAME_PREFIX}{_slugify_painel_exame(nome)}"
+    candidate = base_code
+    suffix = 2
+
+    while True:
+        query = db.query(PainelExame).filter(PainelExame.codigo == candidate)
+        if ignore_id is not None:
+            query = query.filter(PainelExame.id != ignore_id)
+        if query.first() is None:
+            return candidate
+        candidate = f"{base_code}-{suffix}"
+        suffix += 1
+
+
+def _carregar_itens_painel_exame(db: Session, painel_id: int) -> List[Dict[str, Any]]:
+    rows = (
+        db.query(PainelExameItem, CatalogoExame)
+        .join(CatalogoExame, CatalogoExame.id == PainelExameItem.catalogo_exame_id)
+        .filter(PainelExameItem.painel_id == painel_id)
+        .order_by(PainelExameItem.ordem.asc(), CatalogoExame.nome.asc())
+        .all()
+    )
+    return [
+        {
+            "catalogo_exame_id": exame.id,
+            "codigo": exame.codigo,
+            "nome": exame.nome,
+            "categoria": exame.categoria,
+            "subcategoria": exame.subcategoria or "",
+            "prioridade_padrao": exame.prioridade_padrao or "Rotina",
+            "valor_padrao": exame.valor_padrao or 0,
+            "preparo": exame.preparo or "",
+            "observacoes_padrao": exame.observacoes_padrao or "",
+            "ordem": item.ordem or 0,
+        }
+        for item, exame in rows
+    ]
+
+
+def _serializar_painel_exame_com_itens(db: Session, painel: PainelExame) -> Dict[str, Any]:
+    return painel_exame_to_dict(painel, _carregar_itens_painel_exame(db, painel.id))
+
+
+def _resolver_ids_catalogo_exames(db: Session, payload: PainelExamePayload) -> List[int]:
+    if not payload.itens:
+        raise HTTPException(status_code=422, detail="Selecione pelo menos um exame para o painel.")
+
+    ordered_ids: List[int] = []
+    seen_ids = set()
+    for item in payload.itens:
+        exame_id = int(item.catalogo_exame_id)
+        if exame_id in seen_ids:
+            continue
+        seen_ids.add(exame_id)
+        ordered_ids.append(exame_id)
+
+    exames_existentes = (
+        db.query(CatalogoExame.id)
+        .filter(CatalogoExame.id.in_(ordered_ids), CatalogoExame.ativo == 1)
+        .all()
+    )
+    existing_ids = {row[0] for row in exames_existentes}
+    missing_ids = [exame_id for exame_id in ordered_ids if exame_id not in existing_ids]
+    if missing_ids:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Exame(s) nao encontrado(s) no catalogo: {', '.join(map(str, missing_ids))}.",
+        )
+    return ordered_ids
+
+
+def _obter_painel_exame_customizado(db: Session, painel_id: int) -> PainelExame:
+    painel = db.query(PainelExame).filter(PainelExame.id == painel_id).first()
+    if not painel:
+        raise HTTPException(status_code=404, detail="Painel de exames nao encontrado.")
+    if not _painel_exame_e_customizado(painel):
+        raise HTTPException(status_code=403, detail="Apenas paineis customizados podem ser alterados.")
+    return painel
+
+
+def _substituir_itens_painel_exame(db: Session, painel_id: int, ordered_exam_ids: List[int]) -> None:
+    db.query(PainelExameItem).filter(PainelExameItem.painel_id == painel_id).delete(synchronize_session=False)
+    for ordem, exame_id in enumerate(ordered_exam_ids):
+        db.add(
+            PainelExameItem(
+                painel_id=painel_id,
+                catalogo_exame_id=exame_id,
+                ordem=ordem,
+            )
+        )
 
 
 def _resolver_peso_referencia(
@@ -1494,6 +1599,96 @@ def listar_catalogo_exames_atendimento(
         categoria=categoria,
         ativos=ativos,
     )
+
+
+@router.get("/paineis")
+def listar_paineis_customizados_atendimento(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    paineis = (
+        db.query(PainelExame)
+        .filter(PainelExame.ativo == 1, PainelExame.codigo.like(f"{CUSTOM_PAINEL_EXAME_PREFIX}%"))
+        .order_by(PainelExame.categoria.asc(), PainelExame.nome.asc())
+        .all()
+    )
+    return [_serializar_painel_exame_com_itens(db, painel) for painel in paineis]
+
+
+@router.post("/paineis", status_code=status.HTTP_201_CREATED)
+def criar_painel_customizado_atendimento(
+    payload: PainelExamePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    nome = (payload.nome or "").strip()
+    if not nome:
+        raise HTTPException(status_code=422, detail="Nome do painel e obrigatorio.")
+
+    ordered_exam_ids = _resolver_ids_catalogo_exames(db, payload)
+    codigo = _gerar_codigo_unico_painel_exame(db, nome)
+    now = datetime.now()
+
+    painel = PainelExame(
+        codigo=codigo,
+        nome=nome,
+        categoria=(payload.categoria or "").strip(),
+        especie_alvo=(payload.especie_alvo or "").strip(),
+        observacoes=(payload.observacoes or "").strip(),
+        ativo=1 if payload.ativo is None else int(payload.ativo),
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(painel)
+    db.flush()
+    _substituir_itens_painel_exame(db, painel.id, ordered_exam_ids)
+    db.commit()
+    db.refresh(painel)
+    return _serializar_painel_exame_com_itens(db, painel)
+
+
+@router.put("/paineis/{painel_id}")
+def atualizar_painel_customizado_atendimento(
+    painel_id: int,
+    payload: PainelExamePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    painel = _obter_painel_exame_customizado(db, painel_id)
+    nome = (payload.nome or "").strip()
+    if not nome:
+        raise HTTPException(status_code=422, detail="Nome do painel e obrigatorio.")
+
+    ordered_exam_ids = _resolver_ids_catalogo_exames(db, payload)
+    painel.codigo = _gerar_codigo_unico_painel_exame(db, nome, ignore_id=painel.id)
+    painel.nome = nome
+    painel.categoria = (payload.categoria or "").strip()
+    painel.especie_alvo = (payload.especie_alvo or "").strip()
+    painel.observacoes = (payload.observacoes or "").strip()
+    painel.ativo = 1 if payload.ativo is None else int(payload.ativo)
+    painel.updated_at = datetime.now()
+
+    _substituir_itens_painel_exame(db, painel.id, ordered_exam_ids)
+    db.commit()
+    db.refresh(painel)
+    return _serializar_painel_exame_com_itens(db, painel)
+
+
+@router.delete("/paineis/{painel_id}")
+def excluir_painel_customizado_atendimento(
+    painel_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    painel = _obter_painel_exame_customizado(db, painel_id)
+    painel.ativo = 0
+    painel.updated_at = datetime.now()
+    db.commit()
+    return {"message": "Painel removido com sucesso.", "id": painel_id}
 
 
 @router.get("/frases-clinicas")
