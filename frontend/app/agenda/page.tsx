@@ -87,6 +87,11 @@ interface ToastRealtimeData {
   agendamentoId?: number;
 }
 
+interface CarregarAgendamentosOptions {
+  includeRelated?: boolean;
+  includeResumo?: boolean;
+}
+
 type StatusType = "Agendado" | "Reservado" | "Confirmado" | "Em atendimento" | "Realizado" | "Cancelado" | "Faltou";
 type ModoVisualizacao = "lista" | "panoramica-dia" | "panoramica-semana";
 
@@ -365,7 +370,10 @@ export default function AgendaPage() {
     };
   }, []);
 
-  const carregarAgendamentos = async () => {
+  const carregarAgendamentos = async ({
+    includeRelated = true,
+    includeResumo = true,
+  }: CarregarAgendamentosOptions = {}) => {
     setLoading(true);
     try {
       let url = "/agenda";
@@ -384,12 +392,16 @@ export default function AgendaPage() {
       if (response.data?.agenda_excecoes) {
         setAgendaExcecoes(normalizarAgendaExcecoes(response.data.agenda_excecoes));
       }
-      await Promise.all([
-        carregarLaudosVinculados(items),
-        carregarOsPagasVinculadas(items),
-        carregarClinicasComEndereco(items),
-      ]);
-      await carregarResumoFinanceiro();
+      if (includeRelated) {
+        await Promise.all([
+          carregarLaudosVinculados(items),
+          carregarOsPagasVinculadas(items),
+          carregarClinicasComEndereco(items),
+        ]);
+      }
+      if (includeResumo) {
+        await carregarResumoFinanceiro();
+      }
       setErro("");
     } catch (error: any) {
       console.error("Erro ao carregar:", error);
@@ -421,7 +433,7 @@ export default function AgendaPage() {
 
       realtimeRefreshTimeoutRef.current = setTimeout(() => {
         realtimeRefreshTimeoutRef.current = null;
-        void carregarAgendamentos();
+        void carregarAgendamentos({ includeRelated: false, includeResumo: false });
       }, 700);
     },
     [carregarAgendamentos]
@@ -1236,7 +1248,7 @@ export default function AgendaPage() {
             </select>
 
             <button
-              onClick={carregarAgendamentos}
+              onClick={() => carregarAgendamentos()}
               className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />

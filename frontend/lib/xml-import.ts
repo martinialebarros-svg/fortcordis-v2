@@ -28,8 +28,14 @@ type XmlImportJobStatus = {
   dados?: DadosExameImportados | null;
 };
 
-const JOB_POLL_INTERVAL_MS = 1000;
 const JOB_POLL_TIMEOUT_MS = 30000;
+
+function getJobPollIntervalMs(attempt: number): number {
+  if (attempt <= 1) return 1200;
+  if (attempt === 2) return 1800;
+  if (attempt === 3) return 2500;
+  return 4000;
+}
 
 function getAuthHeaders(): HeadersInit {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -38,8 +44,10 @@ function getAuthHeaders(): HeadersInit {
 
 async function waitForXmlImportJob(jobId: number): Promise<XmlImportJobStatus> {
   const startedAt = Date.now();
+  let attempts = 0;
 
   while (Date.now() - startedAt < JOB_POLL_TIMEOUT_MS) {
+    attempts += 1;
     const response = await fetch(`/api/v1/xml/importar-eco/jobs/${jobId}`, {
       headers: getAuthHeaders(),
       credentials: "include",
@@ -54,7 +62,7 @@ async function waitForXmlImportJob(jobId: number): Promise<XmlImportJobStatus> {
     }
 
     await new Promise((resolve) => {
-      window.setTimeout(resolve, JOB_POLL_INTERVAL_MS);
+      window.setTimeout(resolve, getJobPollIntervalMs(attempts));
     });
   }
 
