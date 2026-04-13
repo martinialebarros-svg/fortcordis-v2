@@ -1,10 +1,9 @@
-﻿"use client";
+"use client";
 
-import Fuse from "fuse.js";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
-import ClinicalFieldCard from "./components/ClinicalFieldCard";
 import api from "@/lib/axios";
 import { extrairIdadePaciente } from "@/lib/paciente";
 import {
@@ -26,7 +25,6 @@ import {
 import { buildPrescriptionSupport, suggestMedicationPresentation } from "@/lib/clinical-medication";
 import {
   AlertTriangle,
-  ArrowLeft,
   ArrowRight,
   CheckCircle2,
   ChevronLeft,
@@ -42,24 +40,34 @@ import {
   Heart,
   History,
   ImageIcon,
-  Link2,
   Loader2,
   Paperclip,
   Pill,
   Plus,
-  Minus,
   Printer,
   RefreshCw,
   Save,
   Search,
-  Stethoscope,
-  Thermometer,
   Trash2,
   TrendingUp,
   Upload,
   User,
   X,
 } from "lucide-react";
+
+const AtendimentoBibliotecasSection = dynamic(() => import("./components/AtendimentoBibliotecasSection"));
+const AtendimentoCadastroComplementarSection = dynamic(() => import("./components/AtendimentoCadastroComplementarSection"));
+const AtendimentoConsultaOverviewSection = dynamic(() => import("./components/AtendimentoConsultaOverviewSection"));
+const AtendimentoConsultaEditorSection = dynamic(() => import("./components/AtendimentoConsultaEditorSection"));
+const AtendimentoClinicalRadarAside = dynamic(() => import("./components/AtendimentoClinicalRadarAside"));
+const AtendimentoDocumentosSection = dynamic(() => import("./components/AtendimentoDocumentosSection"));
+const AtendimentoExamesSection = dynamic(() => import("./components/AtendimentoExamesSection"));
+const AtendimentoPrescricaoAside = dynamic(() => import("./components/AtendimentoPrescricaoAside"));
+const AtendimentoPrescricaoPreview = dynamic(() => import("./components/AtendimentoPrescricaoPreview"));
+const AtendimentoPrescricaoWorkspace = dynamic(() => import("./components/AtendimentoPrescricaoWorkspace"));
+const AtendimentoTriagemSection = dynamic(() => import("./components/AtendimentoTriagemSection"));
+const AttachmentPreviewModal = dynamic(() => import("./components/AttachmentPreviewModal"), { ssr: false });
+const PainelExamesModal = dynamic(() => import("./components/PainelExamesModal"), { ssr: false });
 
 // === TIPOS ===
 
@@ -1366,6 +1374,7 @@ const mergeAutoSavedFormState = (current: AtendimentoForm, persisted: Atendiment
 
 export default function AtendimentoPage() {
   const router = useRouter();
+  const [FuseLib, setFuseLib] = useState<null | typeof import("fuse.js").default>(null);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState("");
   const [erroPopup, setErroPopup] = useState<string | null>(null);
@@ -1927,6 +1936,26 @@ export default function AtendimentoPage() {
     aplicarContexto();
   }, [loading, contextoAplicado]);
 
+  useEffect(() => {
+    let active = true;
+
+    import("fuse.js")
+      .then((module) => {
+        if (active) {
+          setFuseLib(() => module.default);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setFuseLib(null);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const carregarBase = async () => {
     try {
       setLoading(true);
@@ -1980,43 +2009,67 @@ export default function AtendimentoPage() {
 
   const pacientesFuse = useMemo(
     () =>
-      new Fuse(pacientes, {
-        keys: ["nome", "tutor"],
-        threshold: 0.35,
-        ignoreLocation: true,
-      }),
-    [pacientes]
+      FuseLib
+        ? new FuseLib(pacientes, {
+            keys: ["nome", "tutor"],
+            threshold: 0.35,
+            ignoreLocation: true,
+          })
+        : null,
+    [FuseLib, pacientes]
   );
 
   const medicamentosFuse = useMemo(
     () =>
-      new Fuse(medicamentos, {
-        keys: ["nome", "principio_ativo", "categoria", "classe_terapeutica"],
-        threshold: 0.3,
-        ignoreLocation: true,
-      }),
-    [medicamentos]
+      FuseLib
+        ? new FuseLib(medicamentos, {
+            keys: ["nome", "principio_ativo", "categoria", "classe_terapeutica"],
+            threshold: 0.3,
+            ignoreLocation: true,
+          })
+        : null,
+    [FuseLib, medicamentos]
   );
 
   const catalogoExamesFuse = useMemo(
     () =>
-      new Fuse(catalogoExames, {
-        keys: ["nome", "codigo", "categoria", "subcategoria", "sinonimos"],
-        threshold: 0.3,
-        ignoreLocation: true,
-      }),
-    [catalogoExames]
+      FuseLib
+        ? new FuseLib(catalogoExames, {
+            keys: ["nome", "codigo", "categoria", "subcategoria", "sinonimos"],
+            threshold: 0.3,
+            ignoreLocation: true,
+          })
+        : null,
+    [FuseLib, catalogoExames]
   );
 
   const pacientesFiltrados = useMemo(() => {
     const term = pacienteBusca.trim();
     if (term.length < 2) return [];
+    if (!pacientesFuse) {
+      const normalizedTerm = term.toLowerCase();
+      return pacientes
+        .filter((paciente) =>
+          [paciente.nome, paciente.tutor].some((value) =>
+            String(value || "").toLowerCase().includes(normalizedTerm)
+          )
+        )
+        .slice(0, 8);
+    }
     return pacientesFuse.search(term).map((entry) => entry.item).slice(0, 8);
   }, [pacienteBusca, pacientes, pacientesFuse]);
 
   const medFiltrados = useMemo(() => {
     const term = medBusca.trim();
     if (!term) return medicamentos;
+    if (!medicamentosFuse) {
+      const normalizedTerm = term.toLowerCase();
+      return medicamentos.filter((item) =>
+        [item.nome, item.principio_ativo, item.categoria, item.classe_terapeutica].some((value) =>
+          String(value || "").toLowerCase().includes(normalizedTerm)
+        )
+      );
+    }
     return medicamentosFuse.search(term).map((entry) => entry.item);
   }, [medicamentos, medBusca, medicamentosFuse]);
 
@@ -2033,12 +2086,35 @@ export default function AtendimentoPage() {
     if (!term) {
       return medicamentosCardiologiaLista.slice(0, 6);
     }
+    if (!medicamentosFuse) {
+      const normalizedTerm = term.toLowerCase();
+      return medicamentosCardiologiaLista
+        .filter((item) =>
+          [item.nome, item.principio_ativo, item.categoria, item.classe_terapeutica].some((value) =>
+            String(value || "").toLowerCase().includes(normalizedTerm)
+          )
+        )
+        .slice(0, 8);
+    }
     return medicamentosFuse.search(term).map((entry) => entry.item).slice(0, 8);
   }, [medicamentosCardiologiaLista, medicamentosFuse, prescricaoBuscaRapida]);
 
   const examesCatalogoFiltrados = useMemo(() => {
     const term = exameBusca.trim();
     if (!term) return catalogoExames.slice(0, 8);
+    if (!catalogoExamesFuse) {
+      const normalizedTerm = term.toLowerCase();
+      return catalogoExames
+        .filter((item) =>
+          [item.nome, item.codigo, item.categoria, item.subcategoria].some((value) =>
+            String(value || "").toLowerCase().includes(normalizedTerm)
+          ) ||
+          (Array.isArray(item.sinonimos)
+            ? item.sinonimos.some((value) => String(value || "").toLowerCase().includes(normalizedTerm))
+            : String(item.sinonimos || "").toLowerCase().includes(normalizedTerm))
+        )
+        .slice(0, 8);
+    }
     return catalogoExamesFuse.search(term).map((entry) => entry.item).slice(0, 8);
   }, [catalogoExames, exameBusca, catalogoExamesFuse]);
 
@@ -2046,7 +2122,7 @@ export default function AtendimentoPage() {
     return pacientes.find((p) => String(p.id) === form.paciente_id) || null;
   }, [pacientes, form.paciente_id]);
 
-  // Espécie unificada: prioriza form.especie (do banco) com fallback para pacienteSelecionado
+  // Esp�cie unificada: prioriza form.especie (do banco) com fallback para pacienteSelecionado
   const especieExibicao = useMemo(() => {
     if (form.especie) return form.especie;
     if (pacienteSelecionado?.especie) return pacienteSelecionado.especie;
@@ -2060,7 +2136,7 @@ export default function AtendimentoPage() {
     cadastroComplementar.paciente.raca || pacienteSelecionado?.raca || "",
   ]
     .filter(Boolean)
-    .join(" · ");
+    .join(" � ");
   const idadePacienteExibicao = extrairIdadePaciente({
     idade: cadastroComplementar.paciente.idade,
     data_nascimento: cadastroComplementar.paciente.data_nascimento,
@@ -2452,7 +2528,7 @@ export default function AtendimentoPage() {
       clearDraftStorage();
       draftRestoreRef.current = true;
 
-      // Carregar histórico do paciente
+      // Carregar hist�rico do paciente
       if (d.paciente_id) {
         await carregarHistoricoPaciente(d.paciente_id);
       }
@@ -2863,7 +2939,7 @@ export default function AtendimentoPage() {
       const pdfB64 = response.data?.pdf_base64;
       if (!pdfB64) {
         console.error("Resposta sem pdf_base64:", response.data);
-        setPrescricaoPreviewErro("Resposta inválida do servidor.");
+        setPrescricaoPreviewErro("Resposta inv�lida do servidor.");
         return;
       }
       // data URL direto no iframe funciona na maioria dos navegadores
@@ -3131,8 +3207,8 @@ export default function AtendimentoPage() {
         setPainelFormCategoria("");
         setPainelFormItens([]);
         setPainelFormErro("");
-      } catch {
-        setPainelFormErro("Erro ao criar painel. Tente novamente.");
+      } catch (error: any) {
+        setPainelFormErro(await extractApiErrorMessage(error, "Erro ao criar painel. Tente novamente."));
       }
     } else if (formMode === "edit" && painelEmEdicao) {
       try {
@@ -3153,8 +3229,8 @@ export default function AtendimentoPage() {
         setPainelFormItens([]);
         setPainelFormErro("");
         setPainelEmEdicao(null);
-      } catch {
-        setPainelFormErro("Erro ao atualizar painel. Tente novamente.");
+      } catch (error: any) {
+        setPainelFormErro(await extractApiErrorMessage(error, "Erro ao atualizar painel. Tente novamente."));
       }
     }
   };
@@ -4639,10 +4715,10 @@ export default function AtendimentoPage() {
     if (autosaveState === "saving") return "Autosave em andamento";
     if (autosaveState === "dirty") return "Alteracoes pendentes";
     if (autosaveState === "local") {
-      return autosaveAt ? `Rascunho local · ${formatDate(autosaveAt)}` : "Rascunho local";
+      return autosaveAt ? `Rascunho local � ${formatDate(autosaveAt)}` : "Rascunho local";
     }
     if (autosaveState === "saved") {
-      return autosaveAt ? `Sincronizado · ${formatDate(autosaveAt)}` : "Sincronizado";
+      return autosaveAt ? `Sincronizado � ${formatDate(autosaveAt)}` : "Sincronizado";
     }
     if (autosaveState === "error") return "Falha no autosave";
     return selecionado ? "Aguardando edicao" : "Novo caso";
@@ -4673,7 +4749,7 @@ export default function AtendimentoPage() {
   const mostrarResultadosBuscaPrescricao = Boolean(prescricaoEntradaModo || prescricaoBuscaRapida.trim());
   const removerItemPrescricao = (idx: number) => {
     if (form.prescricao_itens.length === 1) {
-      // Limpa o único item em vez de remover
+      // Limpa o �nico item em vez de remover
       setField("prescricao_itens", [emptyPrescriptionItem()]);
     } else {
       setField(
@@ -4738,7 +4814,7 @@ export default function AtendimentoPage() {
             </h3>
             <p className="mt-1 text-sm text-slate-600">
               {medicamentoSelecionado?.classe_terapeutica || "Classe nao informada"}
-              {medicamentoSelecionado?.principio_ativo ? ` · ${medicamentoSelecionado.principio_ativo}` : ""}
+              {medicamentoSelecionado?.principio_ativo ? ` � ${medicamentoSelecionado.principio_ativo}` : ""}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -4986,12 +5062,12 @@ export default function AtendimentoPage() {
                   <>
                     <p>
                       Resultado: <span className="font-semibold">{calculo.doseTotalMg.toFixed(2)} mg por dose</span>
-                      {calculo.unidade === "ml" && calculo.volumeMl ? ` · ${calculo.volumeMl.toFixed(2)} mL` : ""}
-                      {calculo.unidade === "comprimido" && calculo.comprimidos ? ` · ${calculo.comprimidos.toFixed(2)} comprimido(s)` : ""}
+                      {calculo.unidade === "ml" && calculo.volumeMl ? ` � ${calculo.volumeMl.toFixed(2)} mL` : ""}
+                      {calculo.unidade === "comprimido" && calculo.comprimidos ? ` � ${calculo.comprimidos.toFixed(2)} comprimido(s)` : ""}
                     </p>
                     <p className="mt-1 text-xs text-teal-700">
-                      Base: {calculo.doseMgKg?.toFixed(3)} mg/kg · {calculo.pesoKg?.toFixed(2)} kg
-                      {calculo.concentracao ? ` · concentracao ${calculo.concentracao}` : ""}
+                      Base: {calculo.doseMgKg?.toFixed(3)} mg/kg � {calculo.pesoKg?.toFixed(2)} kg
+                      {calculo.concentracao ? ` � concentracao ${calculo.concentracao}` : ""}
                     </p>
                   </>
                 ) : (
@@ -5084,12 +5160,12 @@ export default function AtendimentoPage() {
                         <span className="text-slate-400">{formatDate(ajuste.created_at)}</span>
                       </div>
                       <div className="mt-1 text-slate-500">
-                        {ajuste.valor_anterior || "-"} <span className="mx-1 text-slate-400">→</span> {ajuste.valor_novo || "-"}
+                        {ajuste.valor_anterior || "-"} <span className="mx-1 text-slate-400">?</span> {ajuste.valor_novo || "-"}
                       </div>
                       {(ajuste.responsavel_nome || ajuste.motivo) && (
                         <div className="mt-1 text-slate-400">
                           {ajuste.responsavel_nome && <span>{ajuste.responsavel_nome}</span>}
-                          {ajuste.responsavel_nome && ajuste.motivo && <span className="mx-1">·</span>}
+                          {ajuste.responsavel_nome && ajuste.motivo && <span className="mx-1">�</span>}
                           {ajuste.motivo && <span>{ajuste.motivo}</span>}
                         </div>
                       )}
@@ -5306,7 +5382,7 @@ export default function AtendimentoPage() {
                       <button onClick={() => abrirAtendimento(item.id)} className="w-full text-left">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="text-sm font-semibold text-slate-900">#{item.id} · {item.paciente_nome || "Paciente"}</p>
+                            <p className="text-sm font-semibold text-slate-900">#{item.id} � {item.paciente_nome || "Paciente"}</p>
                             <p className="mt-1 text-xs text-slate-500">{item.tutor_nome || "Tutor nao informado"}</p>
                           </div>
                           <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${getBadgeStatusClass(item.status)}`}>{item.status}</span>
@@ -5461,3622 +5537,366 @@ export default function AtendimentoPage() {
             <div className={workspaceGridClass}>
               <div className="space-y-6">
                 {!isPrescricaoWorkspace ? (
-                <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="flex flex-col gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="rounded-2xl bg-teal-50 p-3">
-                        <User className="h-5 w-5 text-teal-600" />
-                      </div>
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Contexto do paciente</p>
-                        <h2 className="text-lg font-semibold text-slate-900">Cabecalho clinico</h2>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                      <div className="relative md:col-span-2">
-                        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                        <input
-                          value={pacienteBusca}
-                          onChange={(e) => {
-                            setPacienteBusca(e.target.value);
-                            const nextValue = e.target.value;
-                            setMostrarPacientes(nextValue.trim().length >= 2);
-                            if (!nextValue.trim()) {
-                              setField("paciente_id", "");
-                              setMostrarPacientes(false);
-                            }
-                          }}
-                          onFocus={() => {
-                            if (pacienteDropdownBlurTimeoutRef.current) {
-                              window.clearTimeout(pacienteDropdownBlurTimeoutRef.current);
-                            }
-                            if (pacienteBusca.trim().length >= 2) {
-                              setMostrarPacientes(true);
-                            }
-                          }}
-                          onBlur={() => {
-                            if (pacienteDropdownBlurTimeoutRef.current) {
-                              window.clearTimeout(pacienteDropdownBlurTimeoutRef.current);
-                            }
-                            pacienteDropdownBlurTimeoutRef.current = window.setTimeout(() => {
-                              setMostrarPacientes(false);
-                            }, 120);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Escape") {
-                              setMostrarPacientes(false);
-                            }
-                          }}
-                          placeholder="Buscar paciente ou tutor..."
-                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-3 text-sm text-slate-900"
-                        />
-                        {pacienteDropdownAberto ? (
-                          <div className="absolute left-0 top-full z-20 mt-2 max-h-64 w-full overflow-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
-                            {pacientesFiltrados.map((paciente) => (
-                              <button
-                                key={paciente.id}
-                                type="button"
-                                onClick={() => selecionarPaciente(paciente)}
-                                className={`w-full rounded-2xl px-3 py-3 text-left transition hover:bg-teal-50 ${
-                                  String(paciente.id) === form.paciente_id ? "bg-teal-50" : ""
-                                }`}
-                              >
-                                <span className="block text-sm font-medium text-slate-900">{paciente.nome}</span>
-                                <span className="block text-xs text-slate-500">{paciente.tutor || "Tutor nao informado"}</span>
-                              </button>
-                            ))}
-                          </div>
-                        ) : null}
-                        <p className="mt-2 text-xs text-slate-500">Digite pelo menos 2 letras para buscar pacientes e tutores.</p>
-                      </div>
-                      <select value={form.clinica_id} onChange={(e) => setField("clinica_id", e.target.value)} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900"><option value="">Clinica</option>{clinicas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select>
-                      <input type="datetime-local" value={form.data_atendimento} onChange={(e) => setField("data_atendimento", e.target.value)} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900" />
-                      <input value={form.agendamento_id} onChange={(e) => setField("agendamento_id", e.target.value)} placeholder="Agendamento ID" className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400" />
-                      <select value={form.status} onChange={(e) => setField("status", e.target.value)} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900">{STATUS_ATENDIMENTO.map((status) => <option key={status} value={status}>{status}</option>)}</select>
-                    </div>
-
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                      <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.25em] text-slate-500">Paciente</p>
-                        <p className="mt-2 text-sm font-medium text-slate-900">{pacienteNomeExibicao || "Nao selecionado"}</p>
-                      </div>
-                      <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.25em] text-slate-500">Tutor</p>
-                        <p className="mt-2 text-sm font-medium text-slate-900">{tutorNomeExibicao || "Nao informado"}</p>
-                      </div>
-                      <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.25em] text-slate-500">Especie / raca</p>
-                        <p className="mt-2 text-sm font-medium text-slate-900">{especieRacaExibicao || "Nao informadas"}</p>
-                      </div>
-                      <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.25em] text-slate-500">Status do caso</p>
-                        <p className="mt-2"><span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${getBadgeStatusClass(form.status)}`}>{form.status || "Triagem"}</span></p>
-                      </div>
-                    </div>
-                  </div>
-                </section>
-                ) : null}
-
-                {!isPrescricaoWorkspace ? (
-                <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-2xl bg-rose-50 p-3">
-                      <Heart className="h-5 w-5 text-rose-500" />
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Fluxo clinico</p>
-                      <h2 className="text-lg font-semibold text-slate-900">Jornada do atendimento</h2>
-                    </div>
-                  </div>
-                  <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    {fluxoClinico.map((etapa, index) => (
-                      <button
-                        key={etapa.id}
-                        type="button"
-                        onClick={() => setWorkspacePainel(etapa.id === "exames" ? "exames" : etapa.id === "prescricao" ? "prescricao" : "consulta")}
-                        className={`rounded-[22px] border px-4 py-4 text-left transition ${etapa.concluido ? "border-emerald-200 bg-emerald-50 hover:bg-emerald-100" : "border-slate-200 bg-slate-50 hover:bg-white"}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">Etapa {index + 1}</span>
-                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${etapa.concluido ? "bg-emerald-200 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>
-                            {etapa.concluido ? "Concluida" : "Em aberto"}
-                          </span>
-                        </div>
-                        <p className="mt-3 text-base font-semibold text-slate-900">{etapa.titulo}</p>
-                        <p className="mt-1 text-sm text-slate-600">{etapa.descricao}</p>
-                      </button>
-                    ))}
-                  </div>
-                </section>
-                ) : null}
-
-            {isConsultaWorkspace ? (
-            <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex flex-col gap-4">
-                  <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="rounded-2xl bg-amber-50 p-3">
-                        <User className="h-5 w-5 text-amber-600" />
-                      </div>
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Antes da triagem</p>
-                        <h3 className="text-lg font-semibold text-slate-900">Complementacao cadastral</h3>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={`rounded-full px-3 py-1 text-xs font-medium ${
-                        cadastroComplementarPendencias.length > 0
-                          ? "bg-amber-100 text-amber-800"
-                          : "bg-emerald-100 text-emerald-700"
-                      }`}>
-                        {cadastroComplementarPendencias.length > 0
-                          ? `${cadastroComplementarPendencias.length} pendencia(s)`
-                          : "Cadastro pronto"}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => void salvarCadastroComplementarAtual()}
-                        disabled={!form.paciente_id || salvandoCadastroComplementar || carregandoCadastroComplementar}
-                        className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {salvandoCadastroComplementar ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                        {salvandoCadastroComplementar ? "Salvando..." : "Salvar cadastro"}
-                      </button>
-                    </div>
-                  </div>
-
-                  {!form.paciente_id ? (
-                    <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
-                      Selecione um paciente para complementar cadastro de pet e tutor antes da triagem.
-                    </div>
-                  ) : carregandoCadastroComplementar ? (
-                    <div className="flex items-center gap-3 rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-600">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Carregando dados atuais do paciente e do tutor...
-                    </div>
-                  ) : (
-                    <>
-                      <div className={`rounded-[22px] border px-4 py-4 text-sm ${
-                        cadastroComplementarPendencias.length > 0
-                          ? "border-amber-200 bg-amber-50 text-amber-900"
-                          : "border-emerald-200 bg-emerald-50 text-emerald-800"
-                      }`}>
-                        {cadastroComplementarPendencias.length > 0
-                          ? `Campos mais importantes ainda em aberto: ${cadastroComplementarPendencias.slice(0, 6).join(", ")}.`
-                          : "Os dados principais para receita, envio de medicacao e nota fiscal ja estao preenchidos."}
-                      </div>
-
-                      <div className="grid gap-4 xl:grid-cols-2">
-                        <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
-                          <div>
-                            <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Paciente</p>
-                            <p className="mt-1 text-sm text-slate-600">Dados basicos do pet para seguir ao atendimento.</p>
-                          </div>
-                          <div className="mt-4 grid gap-3 md:grid-cols-2">
-                            <input
-                              value={cadastroComplementar.paciente.nome}
-                              onChange={(e) => setCadastroPacienteField("nome", e.target.value)}
-                              placeholder="Nome do pet"
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                            />
-                            <select
-                              value={cadastroComplementar.paciente.especie || ""}
-                              onChange={(e) => {
-                                setCadastroPacienteField("especie", e.target.value);
-                                setCadastroPacienteField("raca", "");
-                                setNovaRacaCadastro("");
-                              }}
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                            >
-                              <option value="">Especie</option>
-                              <option value="Canina">Canino</option>
-                              <option value="Felina">Felino</option>
-                            </select>
-                            <div className="space-y-2">
-                              <select
-                                value={cadastroComplementar.paciente.raca || ""}
-                                onChange={(e) => setCadastroPacienteField("raca", e.target.value)}
-                                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                              >
-                                <option value="">{especieCadastroAtual ? "Selecione a raca" : "Selecione a especie primeiro"}</option>
-                                {opcoesRacaCadastro.map((raca) => (
-                                  <option key={raca} value={raca}>
-                                    {raca}
-                                  </option>
-                                ))}
-                              </select>
-                              <div className="flex gap-2">
-                                <input
-                                  value={novaRacaCadastro}
-                                  onChange={(e) => setNovaRacaCadastro(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      e.preventDefault();
-                                      handleAdicionarRacaCadastro();
-                                    }
-                                  }}
-                                  placeholder="Cadastrar nova raca"
-                                  className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={handleAdicionarRacaCadastro}
-                                  disabled={!novaRacaCadastro.trim()}
-                                  className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
-                                >
-                                  Adicionar
-                                </button>
-                              </div>
-                            </div>
-                            <div className="space-y-1">
-                              <label className="block px-1 text-[11px] font-medium uppercase tracking-[0.2em] text-slate-500">
-                                Data de nascimento
-                              </label>
-                              <input
-                                type="date"
-                                value={cadastroComplementar.paciente.data_nascimento || ""}
-                                onChange={(e) => setCadastroPacienteField("data_nascimento", e.target.value)}
-                                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                              />
-                            </div>
-                            <input
-                              type="number"
-                              step="0.1"
-                              value={cadastroComplementar.paciente.peso_kg ?? ""}
-                              onChange={(e) => setCadastroPacienteField("peso_kg", e.target.value ? Number(e.target.value) : null)}
-                              placeholder="Peso cadastral (kg)"
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                            />
-                            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-                              <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Idade calculada</p>
-                              <p className="mt-1 font-medium text-slate-900">{idadePacienteExibicao || "Em aberto"}</p>
-                              <p className="mt-1 text-xs text-slate-500">Campo automatico baseado na data de nascimento.</p>
-                            </div>
-                            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-                              <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Resumo</p>
-                              <p className="mt-1 font-medium text-slate-900">{especieRacaExibicao || "Especie e raca em aberto"}</p>
-                            </div>
-                          </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={sincronizarPesoCadastroNaTriagem}
-                              disabled={cadastroComplementar.paciente.peso_kg == null}
-                              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
-                            >
-                              <ArrowRight className="h-4 w-4" />
-                              Copiar peso para triagem
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
-                          <div>
-                            <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Tutor</p>
-                            <p className="mt-1 text-sm text-slate-600">Contato, endereco para entrega e dados fiscais.</p>
-                          </div>
-                          <div className="mt-4 grid gap-3 md:grid-cols-2">
-                            <input
-                              value={cadastroComplementar.tutor.nome || ""}
-                              onChange={(e) => setCadastroTutorField("nome", e.target.value)}
-                              placeholder="Nome do tutor"
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 md:col-span-2"
-                            />
-                            <input
-                              value={cadastroComplementar.tutor.whatsapp || ""}
-                              onChange={(e) => setCadastroTutorField("whatsapp", e.target.value)}
-                              placeholder="WhatsApp"
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                            />
-                            <input
-                              value={cadastroComplementar.tutor.telefone || ""}
-                              onChange={(e) => setCadastroTutorField("telefone", e.target.value)}
-                              placeholder="Telefone"
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                            />
-                            <input
-                              value={cadastroComplementar.tutor.email || ""}
-                              onChange={(e) => setCadastroTutorField("email", e.target.value)}
-                              placeholder="Email"
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                            />
-                            <input
-                              value={cadastroComplementar.tutor.cpf || ""}
-                              onChange={(e) => setCadastroTutorField("cpf", e.target.value)}
-                              placeholder="CPF"
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                            />
-                            <div className="flex gap-2">
-                              <input
-                                value={cadastroComplementar.tutor.cep || ""}
-                                onChange={(e) => {
-                                  setCadastroTutorField("cep", formatarCepVisual(e.target.value));
-                                  setStatusCepTutor("");
-                                }}
-                                onBlur={() => void consultarCepTutor()}
-                                placeholder="CEP"
-                                className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => void consultarCepTutor()}
-                                disabled={buscandoCepTutor}
-                                className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
-                              >
-                                {buscandoCepTutor ? <Loader2 className="h-4 w-4 animate-spin" /> : "Buscar"}
-                              </button>
-                            </div>
-                            <input
-                              value={cadastroComplementar.tutor.endereco || ""}
-                              onChange={(e) => setCadastroTutorField("endereco", e.target.value)}
-                              placeholder="Endereco"
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                            />
-                            <input
-                              value={cadastroComplementar.tutor.numero || ""}
-                              onChange={(e) => setCadastroTutorField("numero", e.target.value)}
-                              placeholder="Numero"
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                            />
-                            <input
-                              value={cadastroComplementar.tutor.complemento || ""}
-                              onChange={(e) => setCadastroTutorField("complemento", e.target.value)}
-                              placeholder="Complemento"
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                            />
-                            <input
-                              value={cadastroComplementar.tutor.bairro || ""}
-                              onChange={(e) => setCadastroTutorField("bairro", e.target.value)}
-                              placeholder="Bairro"
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                            />
-                            <input
-                              value={cadastroComplementar.tutor.cidade || ""}
-                              onChange={(e) => setCadastroTutorField("cidade", e.target.value)}
-                              placeholder="Cidade"
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                            />
-                            <input
-                              value={cadastroComplementar.tutor.estado || ""}
-                              onChange={(e) => setCadastroTutorField("estado", e.target.value)}
-                              placeholder="Estado"
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                            />
-                            {statusCepTutor ? (
-                              <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
-                                {statusCepTutor}
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-            </section>
-            ) : null}
-
-            {isConsultaWorkspace ? (
-            <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-gray-900 flex items-center gap-2"><Thermometer className="w-4 h-4 text-blue-600" />Triagem - Sinais Vitais</h3>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setTriagemExpandida((prev) => !prev)}
-                      className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700 hover:bg-slate-200"
-                    >
-                      {triagemExpandida ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                    </button>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" checked={form.triagem_concluida === 1} onChange={(e) => setField("triagem_concluida", e.target.checked ? 1 : 0)} className="w-4 h-4" />
-                      Triagem Concluida
-                    </label>
-                  </div>
-                </div>
-                {triagemExpandida ? (
-                <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Peso (kg)</label>
-                    <input type="number" step="0.1" value={form.triagem.peso ?? ""} onChange={(e) => setField("triagem", { ...form.triagem, peso: e.target.value ? Number(e.target.value) : null })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="0.0" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Temperatura (°C)</label>
-                    <input type="number" step="0.1" value={form.triagem.temperatura ?? ""} onChange={(e) => setField("triagem", { ...form.triagem, temperatura: e.target.value ? Number(e.target.value) : null })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="0.0" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">FC (bpm)</label>
-                    <input type="number" value={form.triagem.frequencia_cardiaca ?? ""} onChange={(e) => setField("triagem", { ...form.triagem, frequencia_cardiaca: e.target.value ? Number(e.target.value) : null })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Batimentos" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">FR (mpm)</label>
-                    <input type="number" value={form.triagem.frequencia_respiratoria ?? ""} onChange={(e) => setField("triagem", { ...form.triagem, frequencia_respiratoria: e.target.value ? Number(e.target.value) : null })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Movimentos" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Pressao Arterial</label>
-                    <input value={form.triagem.pressao_arterial} onChange={(e) => setField("triagem", { ...form.triagem, pressao_arterial: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="mmHg" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">SpO2 (%)</label>
-                    <input type="number" value={form.triagem.saturacao_oxigenio ?? ""} onChange={(e) => setField("triagem", { ...form.triagem, saturacao_oxigenio: e.target.value ? Number(e.target.value) : null })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="%" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Escore Condicao Corporal</label>
-                    <select value={form.triagem.escore_condicion_corpo ?? ""} onChange={(e) => setField("triagem", { ...form.triagem, escore_condicion_corpo: e.target.value ? Number(e.target.value) : null })} className="w-full px-3 py-2 border rounded-lg text-sm">
-                      <option value="">Selecione</option>
-                      {ESCALA_ECC.map((e) => <option key={e} value={e}>{e} - {e <= 3 ? "Magro" : e <= 5 ? "Ideal" : "Obeso"}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Mucosas</label>
-                    <select value={form.triagem.mucosas} onChange={(e) => setField("triagem", { ...form.triagem, mucosas: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm">
-                      <option value="">Selecione</option>
-                      {MUCOSAS.map((m) => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Hidratacao</label>
-                    <select value={form.triagem.hidratacao} onChange={(e) => setField("triagem", { ...form.triagem, hidratacao: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm">
-                      <option value="">Selecione</option>
-                      {HIDRATACAO.map((h) => <option key={h} value={h}>{h}</option>)}
-                    </select>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">Observacoes da Triagem</label>
-                  <textarea value={form.triagem.triagem_observacoes} onChange={(e) => setField("triagem", { ...form.triagem, triagem_observacoes: e.target.value })} rows={2} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Observacoes adicionais da triagem..." />
-                </div>
-                </>
-                ) : (
-                  <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                    Peso {form.triagem.peso ?? "-"} kg · FC {form.triagem.frequencia_cardiaca ?? "-"} bpm · FR {form.triagem.frequencia_respiratoria ?? "-"} mpm · PA {form.triagem.pressao_arterial || "-"}
-                  </div>
-                )}
-            </section>
-            ) : null}
-
-            {isConsultaWorkspace ? (
-            <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex flex-col gap-4">
-                  <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="rounded-2xl bg-teal-50 p-3">
-                        <Stethoscope className="h-5 w-5 text-teal-600" />
-                      </div>
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Editor clinico guiado</p>
-                        <h3 className="text-lg font-semibold text-slate-900">Consulta medica</h3>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                        <p className="text-[11px] uppercase tracking-[0.25em] text-slate-500">Estado da edicao</p>
-                        <p className="mt-1 font-medium text-slate-900">{autosaveLabel}</p>
-                      </div>
-                      <label className="flex items-center gap-2 rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={form.consulta_concluida === 1}
-                          onChange={(e) => setField("consulta_concluida", e.target.checked ? 1 : 0)}
-                          className="h-4 w-4"
-                        />
-                        Consulta concluida
-                      </label>
-                      {consultaEtapasCompletas ? (
-                        <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700">
-                          Marcacao automatica ativa (etapas 100%)
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 xl:grid-cols-12">
-                    <div className="xl:col-span-8 rounded-[24px] border border-slate-200 bg-gradient-to-br from-slate-50 to-white px-5 py-4">
-                      <p className="text-xs uppercase tracking-[0.25em] text-slate-500">Resumo automatico do caso</p>
-                      <p className="mt-3 text-sm leading-6 text-slate-700">{clinicalSummary.headline}</p>
-                      {clinicalSummary.highlights.length > 0 ? (
-                        <div className="mt-4 grid gap-3 md:grid-cols-2">
-                          {clinicalSummary.highlights.slice(0, 4).map((item) => (
-                            <div key={item.label} className="rounded-[20px] border border-slate-200 bg-white px-4 py-3">
-                              <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500">{item.label}</p>
-                              <p className="mt-2 text-sm text-slate-700">{item.text}</p>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <div className="xl:col-span-4 rounded-[24px] border border-slate-200 bg-slate-50 px-5 py-4">
-                      <p className="text-xs uppercase tracking-[0.25em] text-slate-500">Fechamento clinico</p>
-                      <div className="mt-4 space-y-4">
-                        <div>
-                          <label className="mb-1 block text-xs font-medium uppercase tracking-[0.2em] text-slate-500">Prognostico</label>
-                          <select
-                            value={form.diagnostico.prognostico}
-                            onChange={(e) => setField("diagnostico", { ...form.diagnostico, prognostico: e.target.value })}
-                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                          >
-                            <option value="">Selecione</option>
-                            {PROGNOSTICO.map((item) => (
-                              <option key={item} value={item}>{item}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div className="rounded-[20px] border border-slate-200 bg-white px-4 py-3">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500">Cobertura do prontuario</p>
-                          <p className="mt-2 text-2xl font-semibold text-slate-900">{clinicalSummary.completeness}%</p>
-                          <p className="mt-1 text-sm text-slate-600">do editor clinico preenchido</p>
-                        </div>
-
-                        {clinicalSummary.pending.length > 0 ? (
-                          <div className="rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3">
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-amber-700">Pendencias</p>
-                            <div className="mt-3 space-y-2 text-sm text-amber-900">
-                              {clinicalSummary.pending.map((item) => (
-                                <p key={item}>{item}</p>
-                              ))}
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="rounded-[20px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                            Consulta bem estruturada. O prontuario ja tem base suficiente para historico e retorno.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-[22px] border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.25em] text-slate-500">Etapas do editor clinico</p>
-                        <p className="mt-1 text-sm text-slate-700">Mostrando um bloco por vez para reduzir rolagem.</p>
-                      </div>
-                      <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600">
-                        {consultaEditorEtapas.find((etapa) => etapa.key === consultaEditorEtapa)?.titulo || "Anamnese e exame"}
-                      </span>
-                    </div>
-                    <div className="mt-3 grid gap-2 md:grid-cols-3">
-                      {consultaEditorEtapas.map((etapa) => {
-                        const ativa = consultaEditorEtapa === etapa.key;
-                        const restante = Math.max(etapa.total - etapa.preenchidos, 0);
-                        return (
-                          <button
-                            key={etapa.key}
-                            type="button"
-                            onClick={() => setConsultaEditorEtapa(etapa.key)}
-                            className={`rounded-2xl border px-3 py-3 text-left transition ${
-                              etapa.concluidaAuto
-                                ? ativa
-                                  ? "border-emerald-400 bg-emerald-100/80"
-                                  : "border-emerald-200 bg-emerald-50 hover:bg-emerald-100/70"
-                                : ativa
-                                  ? "border-teal-300 bg-teal-50"
-                                  : "border-slate-200 bg-white hover:bg-slate-100"
-                            }`}
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="text-sm font-semibold text-slate-900">{etapa.titulo}</p>
-                              <span
-                                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                                  etapa.concluidaAuto
-                                    ? "bg-emerald-600 text-white"
-                                    : ativa
-                                      ? "bg-teal-600 text-white"
-                                      : "bg-slate-200 text-slate-700"
-                                }`}
-                              >
-                                {etapa.percentual}%
-                              </span>
-                            </div>
-                            <p className="mt-1 text-xs text-slate-500">{etapa.descricao}</p>
-                            <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/70">
-                              <div
-                                className={`h-full rounded-full transition-all ${
-                                  etapa.concluidaAuto ? "bg-emerald-500" : "bg-teal-500"
-                                }`}
-                                style={{ width: `${etapa.percentual}%` }}
-                              />
-                            </div>
-                            <div className="mt-2 flex items-center justify-between">
-                              <p className="text-[11px] font-medium text-slate-600">
-                                {etapa.preenchidos}/{etapa.total} campos
-                              </p>
-                              <span
-                                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.15em] ${
-                                  etapa.concluidaAuto
-                                    ? "bg-emerald-200 text-emerald-800"
-                                    : "bg-amber-100 text-amber-700"
-                                }`}
-                              >
-                                {etapa.concluidaAuto ? "Concluida" : `${restante} pendente(s)`}
-                              </span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="rounded-[22px] border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.25em] text-slate-500">Campos da etapa</p>
-                        <p className="mt-1 text-sm text-slate-700">
-                          {consultaCampoAtivoConfig?.title || "Selecione um campo"}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">Atalhos: Alt + Shift + esquerda/direita para navegar e Ctrl/Cmd + Enter para avancar. Campo com texto = concluido automaticamente.</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={goToConsultaCampoAnterior}
-                          disabled={consultaCampoAtivoIndex <= 0}
-                          className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                          aria-label="Campo anterior"
-                        >
-                          <ChevronLeft className="h-4 w-4" />
-                        </button>
-                        <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600">
-                          {Math.max(consultaCampoAtivoIndex + 1, 1)}/
-                          {Math.max(consultaEditorCamposVisiveis.length, 1)}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={goToConsultaCampoProximo}
-                          disabled={consultaCampoAtivoIndex >= consultaEditorCamposVisiveis.length - 1}
-                          className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                          aria-label="Proximo campo"
-                        >
-                          <ChevronRight className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {consultaEditorCamposVisiveis.map((config) => {
-                        const value = getClinicalFieldValue(config.key);
-                        const linhas = value.trim() ? value.split("\n").length : 0;
-                        const concluido = linhas > 0;
-                        const ativo = consultaCampoAtivoConfig?.key === config.key;
-                        return (
-                          <button
-                            key={config.key}
-                            type="button"
-                            onClick={() => setConsultaCampoAtivo(config.key)}
-                            className={`rounded-xl border px-3 py-2 text-left transition ${
-                              ativo
-                                ? concluido
-                                  ? "border-emerald-300 bg-emerald-50 text-emerald-900"
-                                  : "border-teal-300 bg-teal-50 text-teal-900"
-                                : concluido
-                                  ? "border-emerald-200 bg-emerald-50/70 text-emerald-800 hover:bg-emerald-100/70"
-                                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
-                            }`}
-                          >
-                            <span className="flex items-center gap-2 text-sm font-medium">
-                              {concluido ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : null}
-                              {config.title}
-                            </span>
-                            <span
-                              className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                                concluido
-                                  ? "bg-emerald-200 text-emerald-800"
-                                  : ativo
-                                    ? "bg-teal-200 text-teal-800"
-                                    : "bg-slate-200 text-slate-600"
-                              }`}
-                            >
-                              {concluido ? `Concluido · ${linhas} linha(s)` : "Em aberto"}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {consultaCampoAtivoConfig ? (
-                    <ClinicalFieldCard
-                      key={consultaCampoAtivoConfig.key}
-                      config={consultaCampoAtivoConfig}
-                      value={getClinicalFieldValue(consultaCampoAtivoConfig.key)}
-                      onChange={(value) => setClinicalFieldValue(consultaCampoAtivoConfig.key, value)}
-                      onInsertPhrase={(text) => injectClinicalSnippet(consultaCampoAtivoConfig.key, text)}
-                      onInsertScaffold={(text) => injectClinicalSnippet(consultaCampoAtivoConfig.key, text)}
-                      onClear={() => setClinicalFieldValue(consultaCampoAtivoConfig.key, "")}
-                      textareaRef={registerClinicalTextarea(consultaCampoAtivoConfig.key)}
-                      onTextareaKeyDown={handleConsultaTextareaKeyDown}
-                      className="w-full"
-                    />
-                  ) : (
-                    <div className="rounded-[22px] border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
-                      Nenhum campo clinico disponivel para a etapa selecionada.
-                    </div>
-                  )}
-                </div>
-            </section>
-            ) : null}
-
-            {isExamesWorkspace ? (
-            <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm space-y-3">
-              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                <h2 className="font-semibold text-gray-900 flex items-center gap-2"><FileText className="w-4 h-4 text-blue-600" />Solicitacao de exames</h2>
-                <div className="flex items-center gap-2">
-                  <button type="button" onClick={imprimirSolicitacaoExames} className="text-sm px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center gap-1"><Printer className="w-4 h-4" />Imprimir</button>
-                  <button type="button" onClick={() => baixarPdfAtendimento("exames")} disabled={!hasExamRequest || salvando || Boolean(gerandoPdfTipo)} className="text-sm px-3 py-1.5 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-700 disabled:cursor-not-allowed disabled:opacity-50 flex items-center gap-1"><Download className="w-4 h-4" />{gerandoPdfTipo === "exames" ? "Gerando..." : "Gerar PDF"}</button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Solicitados</p>
-                  <p className="mt-1 text-lg font-semibold text-slate-900">{resumoExamesFluxo.solicitados}</p>
-                </div>
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-amber-700">Sem arquivo</p>
-                  <p className="mt-1 text-lg font-semibold text-amber-900">{resumoExamesFluxo.aguardando_arquivo}</p>
-                </div>
-                <div className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-sky-700">Com arquivo</p>
-                  <p className="mt-1 text-lg font-semibold text-sky-900">{resumoExamesFluxo.arquivo_anexado}</p>
-                </div>
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-emerald-700">Interpretados</p>
-                  <p className="mt-1 text-lg font-semibold text-emerald-900">{resumoExamesFluxo.interpretado}</p>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex flex-wrap gap-2">
-                  {EXAME_FILTRO_OPCOES.map((filtro) => {
-                    const ativo = exameFiltroRapido === filtro.key;
-                    return (
-                      <button
-                        key={filtro.key}
-                        type="button"
-                        onClick={() => setExameFiltroRapido(filtro.key)}
-                        className={`rounded-xl px-3 py-1.5 text-xs font-medium transition ${
-                          ativo ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                        }`}
-                      >
-                        {filtro.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={expandirTodosExames}
-                    className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200"
-                  >
-                    Expandir todos
-                  </button>
-                  <button
-                    type="button"
-                    onClick={colapsarTodosExames}
-                    className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200"
-                  >
-                    Colapsar todos
-                  </button>
-                  <button
-                    type="button"
-                    onClick={removerExamesVazios}
-                    className="rounded-xl bg-rose-100 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-200"
-                  >
-                    Remover vazios
-                  </button>
-                </div>
-              </div>
-
-              <div className="rounded-[22px] border border-slate-200 bg-slate-50 p-4">
-                <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr),260px,auto]">
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    <input
-                      value={exameBusca}
-                      onChange={(e) => setExameBusca(e.target.value)}
-                      placeholder="Buscar exame por nome, categoria ou sinonimo..."
-                      className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-11 pr-3 text-sm text-slate-900"
-                    />
-                    {exameBusca.trim() && examesCatalogoFiltrados.length > 0 ? (
-                      <div className="absolute z-10 mt-2 max-h-72 w-full overflow-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
-                        {examesCatalogoFiltrados.map((item) => (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => adicionarExameDoCatalogo(item)}
-                            className="w-full rounded-2xl px-3 py-3 text-left transition hover:bg-sky-50"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <p className="text-sm font-medium text-slate-900">{item.nome}</p>
-                                <p className="mt-1 text-xs text-slate-500">{item.categoria}{item.subcategoria ? ` · ${item.subcategoria}` : ""}</p>
-                              </div>
-                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600">Catalogo</span>
-                            </div>
-                            {item.preparo ? <p className="mt-2 text-xs text-slate-500">Preparo: {item.preparo}</p> : null}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <select
-                    value={painelExameSelecionado}
-                    onChange={(e) => setPainelExameSelecionado(e.target.value)}
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                  >
-                    <option value="">Selecionar painel de exames</option>
-                    {paineisExames.map((painel) => (
-                      <option key={painel.id} value={painel.id}>{painel.nome}</option>
-                    ))}
-                  </select>
-
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={aplicarPainelExames}
-                      disabled={!painelExameAtual}
-                      className="text-sm px-3 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      Aplicar painel
-                    </button>
-                    <button
-                      onClick={() => {
-                        const nextIndex = form.exames.length;
-                        setExameFiltroRapido("todos");
-                        setField("exames", [...form.exames, emptyExam()]);
-                        setExamesExpandidos((prev) => ({ ...prev, [nextIndex]: true }));
-                      }}
-                      className="text-sm px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 flex items-center gap-1"
-                    >
-                      <Plus className="w-4 h-4" />Exame manual
-                    </button>
-                  </div>
-                </div>
-
-                {painelExameAtual ? (
-                  <div className="mt-3 rounded-[20px] border border-blue-200 bg-blue-50 px-4 py-3">
-                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-blue-900">{painelExameAtual.nome}</p>
-                        <p className="text-xs text-blue-700">{painelExameAtual.observacoes || `${painelExameAtual.itens.length} exame(s) parametrizados.`}</p>
-                      </div>
-                      <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-blue-700">{painelExameAtual.itens.length} itens</span>
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="mt-3 rounded-[20px] border border-slate-200 bg-white px-4 py-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Seus paineis customizados</p>
-                      <p className="mt-1 text-sm text-slate-600">Gerencie paineis de exames ou salve a combinacao atual.</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPainelFormNome("");
-                          setPainelFormCategoria("");
-                          setPainelFormItens([]);
-                          setPainelFormSearch("");
-                          setPainelFormErro("");
-                          setPainelModalMode("create");
-                          setPainelEmEdicao(null);
-                          setPainelModalOpen(true);
-                        }}
-                        className="rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
-                      >
-                        + Novo painel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPainelModalMode("list");
-                          setPainelModalOpen(true);
-                        }}
-                        className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                      >
-                        Gerenciar
-                      </button>
-                    </div>
-                  </div>
-                  {customPaineis.length > 0 ? (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {customPaineis.map((painel) => (
-                        <div key={painel.id} className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                          <button
-                            type="button"
-                            onClick={() => aplicarPainel(painel)}
-                            className="text-sm font-medium text-slate-800"
-                          >
-                            {painel.nome}
-                          </button>
-                          <span className="text-xs text-slate-500">{painel.itens?.length || 0} item(ns)</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-3 text-sm text-slate-500">Nenhum painel customizado ainda. Clique em &quot;+&quot; Novo painel para criar.</p>
-                  )}
-                </div>
-
-                {/* Painel Management Modal */}
-                {painelModalOpen ? (
-                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-                    <div className="relative w-full max-w-2xl max-h-[85vh] overflow-auto rounded-3xl bg-white shadow-2xl">
-                      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          {painelModalMode === "edit" ? (
-                            <button
-                              type="button"
-                              onClick={() => { setPainelModalMode("list"); setPainelFormNome(""); setPainelFormItens([]); setPainelEmEdicao(null); }}
-                              className="rounded-full bg-slate-100 p-2 hover:bg-slate-200"
-                            >
-                              <ArrowLeft className="h-4 w-4 text-slate-600" />
-                            </button>
-                          ) : null}
-                          <h3 className="text-lg font-bold text-slate-900">
-                            {painelModalMode === "create" ? "Novo painel de exames" : painelModalMode === "edit" ? `Editando: ${painelEmEdicao?.nome || ""}` : "Gerenciar paineis"}
-                          </h3>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => { setPainelModalOpen(false); setPainelModalMode("list"); }}
-                          className="rounded-full bg-slate-100 p-2 hover:bg-slate-200"
-                        >
-                          <X className="h-4 w-4 text-slate-600" />
-                        </button>
-                      </div>
-
-                      <div className="px-6 py-4">
-                        {/* List mode */}
-                        {painelModalMode === "list" ? (
-                          <div>
-                            <div className="mb-4 flex justify-end">
-                              <button
-                                type="button"
-                                onClick={() => { setPainelFormNome(""); setPainelFormCategoria(""); setPainelFormItens([]); setPainelFormSearch(""); setPainelFormErro(""); setPainelModalMode("create"); }}
-                                className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                              >
-                                + Novo painel
-                              </button>
-                            </div>
-                            {customPaineis.length === 0 ? (
-                              <p className="text-sm text-slate-500">Nenhum painel customizado. Crie seu primeiro painel.</p>
-                            ) : (
-                              <div className="space-y-2">
-                                {customPaineis.map((painel) => (
-                                  <div key={painel.id} className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3">
-                                    <div>
-                                      <p className="font-medium text-slate-900">{painel.nome}</p>
-                                      <p className="text-xs text-slate-500">{painel.categoria || "Sem categoria"} · {painel.itens?.length || 0} exame(s)</p>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => editarPainelExame(painel)}
-                                        className="rounded-xl bg-sky-100 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-200"
-                                      >
-                                        Editar
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => excluirPainelExame(painel.id)}
-                                        className="rounded-xl bg-rose-100 p-1.5 text-rose-600 hover:bg-rose-200"
-                                      >
-                                        <Trash2 className="h-4 w-4" />
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ) : null}
-
-                        {/* Create / Edit mode */}
-                        {(painelModalMode === "create" || painelModalMode === "edit") ? (
-                          <div className="space-y-4">
-                            <div className="grid gap-3 sm:grid-cols-2">
-                              <div>
-                                <label className="mb-1 block text-xs font-medium text-slate-600">Nome do painel *</label>
-                                <input
-                                  value={painelFormNome}
-                                  onChange={(e) => setPainelFormNome(e.target.value)}
-                                  placeholder="Ex: Cardiológico Básico"
-                                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900"
-                                />
-                              </div>
-                              <div>
-                                <label className="mb-1 block text-xs font-medium text-slate-600">Categoria</label>
-                                <input
-                                  value={painelFormCategoria}
-                                  onChange={(e) => setPainelFormCategoria(e.target.value)}
-                                  placeholder="Ex: Cardiologia"
-                                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900"
-                                />
-                              </div>
-                            </div>
-
-                            {painelFormErro ? (
-                              <p className="text-sm text-rose-600">{painelFormErro}</p>
-                            ) : null}
-
-                            <div>
-                              <div className="mb-2 flex items-center justify-between">
-                                <label className="text-xs font-medium text-slate-600">Exames ({painelFormItens.length} selecionado(s))</label>
-                              </div>
-                              <div className="mb-2">
-                                <input
-                                  value={painelFormSearch}
-                                  onChange={(e) => setPainelFormSearch(e.target.value)}
-                                  placeholder="Buscar exame..."
-                                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900"
-                                />
-                              </div>
-                              {painelFormItens.length > 0 ? (
-                                <div className="mb-3 rounded-2xl border border-blue-200 bg-blue-50 p-3">
-                                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-blue-700">Selecionados</p>
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {painelFormItens.map((exameId) => {
-                                      const exam = catalogoExames.find((e) => e.id === exameId);
-                                      if (!exam) return null;
-                                      return (
-                                        <span key={exameId} className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700">
-                                          {exam.nome}
-                                          <button
-                                            type="button"
-                                            onClick={() => setPainelFormItens((prev) => prev.filter((id) => id !== exameId))}
-                                            className="rounded-full bg-blue-200 p-0.5 hover:bg-blue-300"
-                                          >
-                                            <X className="h-3 w-3" />
-                                          </button>
-                                        </span>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ) : null}
-                              <div className="max-h-60 overflow-auto rounded-2xl border border-slate-200">
-                                {catalogoExames
-                                  .filter((exame) =>
-                                    !painelFormItens.includes(exame.id) &&
-                                    (painelFormSearch === "" ||
-                                      exame.nome.toLowerCase().includes(painelFormSearch.toLowerCase()) ||
-                                      exame.categoria.toLowerCase().includes(painelFormSearch.toLowerCase()))
-                                  )
-                                  .slice(0, 30)
-                                  .map((exame) => (
-                                    <button
-                                      key={exame.id}
-                                      type="button"
-                                      onClick={() => setPainelFormItens((prev) => [...prev, exame.id])}
-                                      className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm hover:bg-sky-50"
-                                    >
-                                      <div>
-                                        <p className="font-medium text-slate-800">{exame.nome}</p>
-                                        <p className="text-xs text-slate-500">{exame.categoria}</p>
-                                      </div>
-                                      <Plus className="h-4 w-4 text-slate-400" />
-                                    </button>
-                                  ))}
-                                {catalogoExames.filter((exame) =>
-                                  !painelFormItens.includes(exame.id) &&
-                                  (painelFormSearch === "" ||
-                                    exame.nome.toLowerCase().includes(painelFormSearch.toLowerCase()) ||
-                                    exame.categoria.toLowerCase().includes(painelFormSearch.toLowerCase()))
-                                ).length === 0 ? (
-                                  <p className="p-4 text-center text-sm text-slate-500">Nenhum exame disponivel.</p>
-                                ) : null}
-                              </div>
-                            </div>
-
-                            <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
-                              <button
-                                type="button"
-                                onClick={() => { setPainelModalMode("list"); setPainelFormNome(""); setPainelFormItens([]); setPainelEmEdicao(null); }}
-                                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                              >
-                                Cancelar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => salvarPainelExame(painelModalMode)}
-                                className="rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-                              >
-                                {painelModalMode === "create" ? "Criar painel" : "Salvar alteracoes"}
-                              </button>
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-
-                <div className="space-y-3">
-                {examesVisiveis.map(({ exame, index, anexosResultado, flowStatus }) => {
-                  const exameExpandido = examesExpandidos[index] ?? index === 0;
-                  const exameUploadKey = `exame-${index}`;
-                  const exameEmUpload = uploadingAttachmentKey === exameUploadKey;
-                  const exameUploadProgress = uploadProgressByKey[exameUploadKey] ?? null;
-                  const examDropzoneId = `exame-upload-${index}`;
-                  const uploadDraft = examUploadDrafts[index] || null;
-                  const dropAtivo = examDropActive[index] || false;
-                  const flowMeta = EXAME_STATUS_META[flowStatus];
-                  return (
-                    <div key={`${index}-${exame.id || "novo"}`} className={`rounded-[22px] border p-4 ${flowMeta.cardClass}`}>
-                      <div className="flex flex-col gap-3">
-                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                          <div className="flex flex-wrap gap-2">
-                            {exame.categoria_exame ? <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-medium text-sky-700">{exame.categoria_exame}</span> : null}
-                            {exame.painel_exame_nome ? <span className="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-medium text-violet-700">{exame.painel_exame_nome}</span> : null}
-                            {exame.catalogo_exame_id ? <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-medium text-emerald-700">Catalogo</span> : null}
-                            {exame.data_solicitacao ? <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600">Solicitado em {formatDate(exame.data_solicitacao)}</span> : null}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setExamesExpandidos((prev) => {
-                                  const atual = prev[index] ?? index === 0;
-                                  return { ...prev, [index]: !atual };
-                                })
-                              }
-                              className="self-start rounded-xl bg-slate-100 px-3 py-2 text-slate-700 hover:bg-slate-200"
-                            >
-                              {exameExpandido ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                            </button>
-                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${flowMeta.chipClass}`}>
-                              {flowMeta.label}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                goLaudo({
-                                  id: selecionado,
-                                  paciente_id: Number(form.paciente_id || 0),
-                                  clinica_id: Number(form.clinica_id || 0),
-                                  agendamento_id: form.agendamento_id ? Number(form.agendamento_id) : null,
-                                })
-                              }
-                              disabled={!form.paciente_id}
-                              className="self-start rounded-xl bg-sky-100 px-3 py-2 text-sky-700 hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              <span className="inline-flex items-center gap-1"><FileText className="h-4 w-4" />Laudar</span>
-                            </button>
-                            <button
-                              onClick={() => {
-                                clearExamUploadDraft(index);
-                                clearExamDropState(index);
-                                const nextExames = form.exames.length === 1 ? form.exames : form.exames.filter((_, i) => i !== index);
-                                setField("exames", nextExames);
-                                setExamesExpandidos(() => ({ 0: true }));
-                              }}
-                              className="self-start rounded-xl bg-red-100 px-3 py-2 text-red-700 hover:bg-red-200"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-
-                        {!exameExpandido ? (
-                          <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                            {exame.tipo_exame || "Exame sem nome"} · {anexosResultado.length} arquivo(s) · {exame.resultado?.trim() ? "com interpretacao" : "sem interpretacao"}
-                          </div>
-                        ) : null}
-
-                        {exameExpandido ? (
-                        <>
-                        <div className="grid grid-cols-1 gap-2 lg:grid-cols-5">
-                          <input
-                            value={exame.tipo_exame}
-                            onChange={(e) => atualizarExame(index, { tipo_exame: e.target.value })}
-                            placeholder="Tipo de exame"
-                            className="lg:col-span-3 px-3 py-2 border rounded-lg text-sm"
-                          />
-                          <input
-                            value={exame.observacoes || ""}
-                            onChange={(e) => atualizarExame(index, { observacoes: e.target.value })}
-                            placeholder="Observacoes complementares da solicitacao (opcional)"
-                            className="lg:col-span-2 px-3 py-2 border rounded-lg text-sm"
-                          />
-                        </div>
-
-                        <div className="rounded-[16px] border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                          Data da solicitacao registrada automaticamente no atendimento.
-                          {exame.data_solicitacao ? ` Solicitado em ${formatDate(exame.data_solicitacao)}.` : ""}
-                        </div>
-
-                        <textarea
-                          value={exame.resultado || ""}
-                          onChange={(e) => atualizarExame(index, { resultado: e.target.value })}
-                          rows={3}
-                          placeholder="Interpretacao resumida do resultado (opcional)..."
-                          className="w-full px-3 py-2 border rounded-lg text-sm"
-                        />
-
-                        {exame.preparo ? (
-                          <div className="rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                            <span className="font-medium">Preparo sugerido:</span> {exame.preparo}
-                          </div>
-                        ) : null}
-
-                        <div className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
-                          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                            <div>
-                              <p className="text-sm font-semibold text-slate-900">Arquivos do exame</p>
-                              <p className="text-xs text-slate-500">PDF, JPG, JPEG, PNG e WEBP entram no prontuario e na timeline.</p>
-                            </div>
-                          </div>
-
-                          <div
-                            onDragEnter={(event) => {
-                              event.preventDefault();
-                              setExamDropActive((prev) => ({ ...prev, [index]: true }));
-                            }}
-                            onDragOver={(event) => {
-                              event.preventDefault();
-                              setExamDropActive((prev) => ({ ...prev, [index]: true }));
-                            }}
-                            onDragLeave={(event) => {
-                              event.preventDefault();
-                              if (event.currentTarget.contains(event.relatedTarget as Node)) return;
-                              clearExamDropState(index);
-                            }}
-                            onDrop={(event) => {
-                              event.preventDefault();
-                              clearExamDropState(index);
-                              const files = Array.from(event.dataTransfer.files || []);
-                              if (files.length > 1) {
-                                void uploadArquivosResultadoExame(index, files);
-                              } else if (files[0]) {
-                                setExamUploadDraftFile(index, files[0]);
-                              }
-                            }}
-                            className={`mt-3 rounded-2xl border-2 border-dashed p-4 transition ${
-                              dropAtivo
-                                ? "border-blue-300 bg-blue-50"
-                                : "border-slate-200 bg-white"
-                            }`}
-                          >
-                            <input
-                              id={examDropzoneId}
-                              type="file"
-                              multiple
-                              accept={ATENDIMENTO_ATTACHMENT_ACCEPT}
-                              className="hidden"
-                              onChange={(event) => {
-                                const files = Array.from(event.target.files || []);
-                                if (files.length > 1) {
-                                  void uploadArquivosResultadoExame(index, files);
-                                } else if (files[0]) {
-                                  setExamUploadDraftFile(index, files[0]);
-                                }
-                                event.target.value = "";
-                              }}
-                            />
-                            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                              <div>
-                                <p className="text-sm font-medium text-slate-900">Arraste e solte o arquivo aqui</p>
-                                <p className="text-xs text-slate-500">Aceita envio unico ou em lote. Ao enviar, o exame e o atendimento sao salvos automaticamente se necessario.</p>
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                <label
-                                  htmlFor={examDropzoneId}
-                                  className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200"
-                                >
-                                  <FileUp className="h-4 w-4" />
-                                  Selecionar arquivo(s)
-                                </label>
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    if (!uploadDraft) return;
-                                    await uploadArquivoResultadoExame(index, uploadDraft.file);
-                                  }}
-                                  disabled={!uploadDraft || exameEmUpload || !form.paciente_id}
-                                  className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                  {exameEmUpload ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                                  {exameEmUpload
-                                    ? typeof exameUploadProgress === "number"
-                                      ? `Enviando ${exameUploadProgress}%`
-                                      : "Enviando..."
-                                    : "Enviar agora"}
-                                </button>
-                                {exameEmUpload ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => cancelarUploadAnexo(exameUploadKey)}
-                                    className="inline-flex items-center gap-2 rounded-xl bg-red-100 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-200"
-                                  >
-                                    <X className="h-4 w-4" />
-                                    Cancelar upload
-                                  </button>
-                                ) : null}
-                              </div>
-                            </div>
-
-                            {exameEmUpload ? (
-                              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                                <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-                                  <div
-                                    className={`h-full rounded-full bg-slate-900 transition-[width] duration-200 ${
-                                      typeof exameUploadProgress === "number" ? "" : "animate-pulse"
-                                    }`}
-                                    style={{ width: `${typeof exameUploadProgress === "number" ? exameUploadProgress : 35}%` }}
-                                  />
-                                </div>
-                                <p className="mt-1 text-xs text-slate-600">
-                                  {typeof exameUploadProgress === "number"
-                                    ? `Upload do exame em andamento (${exameUploadProgress}%).`
-                                    : "Upload do exame em andamento..."}
-                                </p>
-                              </div>
-                            ) : null}
-
-                            {uploadDraft ? (
-                              <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                                <div className="flex min-w-0 items-center gap-3">
-                                  {uploadDraft.kind === "image" && uploadDraft.previewUrl ? (
-                                    <img src={uploadDraft.previewUrl} alt={uploadDraft.file.name} className="h-12 w-12 rounded-lg border border-slate-200 object-cover" />
-                                  ) : (
-                                    <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-slate-200 bg-white">
-                                      {uploadDraft.kind === "pdf" ? <FileText className="h-5 w-5 text-red-500" /> : <Paperclip className="h-5 w-5 text-slate-500" />}
-                                    </div>
-                                  )}
-                                  <div className="min-w-0">
-                                    <p className="truncate text-sm font-medium text-slate-900">{uploadDraft.file.name}</p>
-                                    <p className="text-xs text-slate-500">{formatBytes(uploadDraft.file.size)}</p>
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => clearExamUploadDraft(index)}
-                                  disabled={exameEmUpload}
-                                  className="inline-flex items-center gap-1 rounded-xl bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
-                                >
-                                  <X className="h-3.5 w-3.5" />
-                                  Remover
-                                </button>
-                              </div>
-                            ) : (
-                              <p className="mt-3 text-xs text-slate-500">Nenhum arquivo selecionado para envio.</p>
-                            )}
-                          </div>
-
-                          {!form.paciente_id ? (
-                            <p className="mt-3 text-xs text-amber-700">Selecione um paciente para habilitar o envio do arquivo.</p>
-                          ) : null}
-
-                          {anexosResultado.length > 0 ? (
-                            <div className="mt-4 space-y-2">
-                              {anexosResultado.map((anexo) => (
-                                <div key={anexo.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 md:flex-row md:items-center md:justify-between">
-                                  <div className="flex min-w-0 items-center gap-3">
-                                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50">
-                                      {resolvePreviewKind(anexo) === "image" ? (
-                                        <ImageIcon className="h-4 w-4 text-emerald-600" />
-                                      ) : resolvePreviewKind(anexo) === "pdf" ? (
-                                        <FileText className="h-4 w-4 text-red-500" />
-                                      ) : (
-                                        <Paperclip className="h-4 w-4 text-slate-500" />
-                                      )}
-                                    </div>
-                                    <div className="min-w-0">
-                                      <p className="truncate text-sm font-medium text-slate-900">{anexo.nome_original || anexo.tipo}</p>
-                                      <p className="mt-1 text-xs text-slate-500">{formatBytes(anexo.tamanho)}{anexo.created_at ? ` · ${formatDate(anexo.created_at)}` : ""}</p>
-                                    </div>
-                                  </div>
-                                  <div className="flex flex-wrap gap-2">
-                                    <button onClick={() => abrirAnexo(anexo, "preview")} className="inline-flex items-center gap-1 rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-700 hover:bg-slate-200">
-                                      {openingAttachmentId === anexo.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
-                                      Visualizar
-                                    </button>
-                                    <button onClick={() => abrirAnexo(anexo, "download")} className="inline-flex items-center gap-1 rounded-xl bg-blue-100 px-3 py-2 text-sm text-blue-700 hover:bg-blue-200">
-                                      <Download className="h-4 w-4" />
-                                      Baixar
-                                    </button>
-                                    <button onClick={() => excluirAnexo(anexo)} className="inline-flex items-center gap-1 rounded-xl bg-red-100 px-3 py-2 text-sm text-red-700 hover:bg-red-200">
-                                      <Trash2 className="h-4 w-4" />
-                                      Remover
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="mt-3 text-sm text-slate-500">Nenhum arquivo enviado para este exame.</p>
-                          )}
-                        </div>
-                        </>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                })}
-                {examesVisiveis.length === 0 ? (
-                  <div className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                    Nenhum exame encontrado para o filtro atual.
-                  </div>
-                ) : null}
-              </div>
-            </section>
-            ) : null}
-
-            {isDocumentosWorkspace ? (
-            <>
-            <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm space-y-4">
-                <h2 className="font-semibold text-gray-900 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-purple-600" />Evolucao Clinica</h2>
-                {form.evolucoes.length > 0 && (
-                  <div className="space-y-2 mb-4">
-                    <h3 className="font-medium text-sm text-gray-600">Historico de evolucoes</h3>
-                    {form.evolucoes.map((evo) => (
-                      <div key={evo.id} className="border rounded-lg p-3 bg-gray-50">
-                        <div className="flex justify-between items-start">
-                          <span className="text-xs text-gray-500">{formatDate(evo.data_evolucao)} - {evo.responsavel_nome}</span>
-                        </div>
-                        <p className="text-sm mt-1">{evo.descricao}</p>
-                        {evo.sinais_vitais && <p className="text-xs text-gray-500 mt-1">Sinais vitais: {evo.sinais_vitais}</p>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div className="border-t pt-4">
-                  <h3 className="font-medium text-sm text-gray-700 mb-2">Nova evolucao</h3>
-                  <textarea value={evolucaoForm.descricao} onChange={(e) => setEvolucaoForm({ ...evolucaoForm, descricao: e.target.value })} placeholder="Descricao da evolucao..." rows={3} className="w-full px-3 py-2 border rounded-lg text-sm mb-2" />
-                  <textarea value={evolucaoForm.sinais_vitais} onChange={(e) => setEvolucaoForm({ ...evolucaoForm, sinais_vitais: e.target.value })} placeholder="Sinais vitais (opcional)..." rows={2} className="w-full px-3 py-2 border rounded-lg text-sm mb-2" />
-                  <button onClick={async () => {
-                    if (!selecionado || !evolucaoForm.descricao.trim()) return;
-                    try {
-                      await api.post(`/atendimentos/${selecionado}/evolucoes`, evolucaoForm);
-                      setEvolucaoForm({ descricao: "", sinais_vitais: "" });
-                      await abrirAtendimento(selecionado);
-                      setSucesso("Evolucao registrada com sucesso.");
-                    } catch { setErro("Erro ao registrar evolucao."); }
-                  }} disabled={!selecionado || !evolucaoForm.descricao.trim()} className="px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 text-sm flex items-center gap-1"><Plus className="w-4 h-4" />Registrar Evolucao</button>
-                </div>
-            </section>
-
-            <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm space-y-4">
-                <h2 className="font-semibold text-gray-900 flex items-center gap-2"><Paperclip className="w-4 h-4 text-orange-600" />Anexos e Imagens</h2>
-                {anexosGerais.length > 0 ? (
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    {anexosGerais.map((anexo) => (
-                      <div key={anexo.id} className="overflow-hidden rounded-[20px] border border-slate-200 bg-slate-50 p-4">
-                        <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                          <div className="min-w-0 flex-1">
-                            <p className="break-all text-sm font-medium text-slate-900">{anexo.nome_original || anexo.tipo}</p>
-                            <p className="mt-1 text-xs text-slate-500">{anexo.descricao || anexo.tipo}</p>
-                            <p className="mt-1 text-xs text-slate-500">{formatBytes(anexo.tamanho)}{anexo.created_at ? ` · ${formatDate(anexo.created_at)}` : ""}</p>
-                          </div>
-                          <div className="flex shrink-0 flex-wrap gap-2 md:w-32 md:flex-col md:items-stretch">
-                            <button onClick={() => abrirAnexo(anexo, "preview")} className="inline-flex items-center justify-center gap-1 rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-700 hover:bg-slate-200">
-                              {openingAttachmentId === anexo.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
-                              Visualizar
-                            </button>
-                            <button onClick={() => abrirAnexo(anexo, "download")} className="inline-flex items-center justify-center gap-1 rounded-xl bg-blue-100 px-3 py-2 text-sm text-blue-700 hover:bg-blue-200">
-                              <Download className="h-4 w-4" />
-                              Baixar
-                            </button>
-                            <button onClick={() => excluirAnexo(anexo)} className="inline-flex items-center justify-center gap-1 rounded-xl bg-red-100 px-3 py-2 text-sm text-red-700 hover:bg-red-200">
-                              <Trash2 className="h-4 w-4" />
-                              Remover
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-                    Nenhum anexo geral registrado neste atendimento.
-                  </div>
-                )}
-                <div className="border-t pt-4 space-y-4">
-                  <h3 className="font-medium text-sm text-gray-700">Novo anexo</h3>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                    <select value={anexoForm.tipo} onChange={(e) => setAnexoForm({ ...anexoForm, tipo: e.target.value })} className="px-3 py-2 border rounded-lg text-sm">
-                      <option value="imagem">Imagem</option>
-                      <option value="radiografia">Radiografia</option>
-                      <option value="ultrassom">Ultrassom</option>
-                      <option value="documento">Documento</option>
-                      <option value="outro">Outro</option>
-                    </select>
-                    <input value={anexoForm.descricao} onChange={(e) => setAnexoForm({ ...anexoForm, descricao: e.target.value })} placeholder="Descricao" className="px-3 py-2 border rounded-lg text-sm" />
-                    <div className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                      <FileUp className="h-4 w-4 text-slate-400" />
-                      <input
-                        key={anexoArquivo ? `${anexoArquivo.name}-${anexoArquivo.lastModified}` : "anexo-vazio"}
-                        type="file"
-                        accept={ATENDIMENTO_ATTACHMENT_ACCEPT}
-                        onChange={(e) => setAnexoArquivo(e.target.files?.[0] || null)}
-                        className="w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:text-white"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={async () => {
-                        if (!anexoArquivo) return;
-                        await uploadAnexoArquivo(anexoArquivo, {
-                          tipo: anexoForm.tipo,
-                          descricao: anexoForm.descricao,
-                        });
-                      }}
-                      disabled={!selecionado || !anexoArquivo || uploadGeralEmAndamento}
-                      className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2 text-sm text-white hover:bg-orange-700 disabled:opacity-50"
-                    >
-                      {uploadGeralEmAndamento ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
-                      {uploadGeralEmAndamento
-                        ? typeof progressoUploadGeral === "number"
-                          ? `Enviando ${progressoUploadGeral}%`
-                          : "Enviando..."
-                        : "Enviar arquivo"}
-                    </button>
-                    {uploadGeralEmAndamento ? (
-                      <button
-                        type="button"
-                        onClick={() => cancelarUploadAnexo("geral")}
-                        className="inline-flex items-center gap-2 rounded-xl bg-red-100 px-4 py-2 text-sm text-red-700 hover:bg-red-200"
-                      >
-                        <X className="h-4 w-4" />
-                        Cancelar upload
-                      </button>
-                    ) : null}
-                    {anexoArquivo ? (
-                      <span className="inline-flex items-center rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-600">
-                        {anexoArquivo.name} · {formatBytes(anexoArquivo.size)}
-                      </span>
-                    ) : null}
-                  </div>
-
-                  {uploadGeralEmAndamento ? (
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                      <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-                        <div
-                          className={`h-full rounded-full bg-orange-600 transition-[width] duration-200 ${
-                            typeof progressoUploadGeral === "number" ? "" : "animate-pulse"
-                          }`}
-                          style={{ width: `${typeof progressoUploadGeral === "number" ? progressoUploadGeral : 35}%` }}
-                        />
-                      </div>
-                      <p className="mt-1 text-xs text-slate-600">
-                        {typeof progressoUploadGeral === "number"
-                          ? `Upload geral em andamento (${progressoUploadGeral}%).`
-                          : "Upload geral em andamento..."}
-                      </p>
-                    </div>
-                  ) : null}
-
-                  <div className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-sm font-medium text-slate-900">Adicionar link externo</p>
-                    <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr),auto]">
-                      <input value={anexoForm.url} onChange={(e) => setAnexoForm({ ...anexoForm, url: e.target.value })} placeholder="URL do arquivo" className="px-3 py-2 border rounded-lg text-sm" />
-                      <button onClick={adicionarLinkAnexo} disabled={!selecionado || !anexoForm.url.trim()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2 text-sm text-slate-700 border border-slate-200 hover:bg-slate-100 disabled:opacity-50">
-                        <Link2 className="h-4 w-4" />
-                        Adicionar link
-                      </button>
-                    </div>
-                  </div>
-                </div>
-            </section>
-            </>
-            ) : null}
-
-            {isPrescricaoWorkspace ? (
-              <section className="space-y-6">
-                <section className="overflow-hidden rounded-[30px] border border-teal-100 bg-gradient-to-br from-white via-teal-50/60 to-sky-50 p-6 shadow-sm">
-                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                    <div className="max-w-3xl">
-                      <p className="text-xs font-semibold uppercase tracking-[0.28em] text-teal-700">Prescricao FortCordis</p>
-                      <h3 className="mt-2 text-2xl font-semibold text-slate-950">Monte a receita em um fluxo unico e mais legivel</h3>
-                      <p className="mt-3 text-sm leading-6 text-slate-600">
-                        Inspirado no fluxo de prontuario da Vetsmart: escolha o tipo do item, busque o medicamento, ajuste a apresentacao e revise a dose sem depender de um painel lateral carregado.
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={`rounded-full border px-3 py-1.5 text-xs font-medium ${autosaveBadgeClass}`}>
-                        {autosaveLabel}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const willHide = prescricaoPreviewAtivo;
-                          setPrescricaoPreviewAtivo((prev) => !prev);
-                          if (willHide) {
-                            // Liberar blob URL ao esconder
-                            if (prescricaoPreviewPdf && prescricaoPreviewPdf.startsWith("blob:")) {
-                              URL.revokeObjectURL(prescricaoPreviewPdf);
-                            }
-                            setPrescricaoPreviewPdf(null);
-                            setPrescricaoPreviewErro(null);
-                          } else {
-                            setTimeout(() => gerarPreviewPdf(), 100);
-                          }
-                        }}
-                        className={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-medium transition ${
-                          prescricaoPreviewAtivo
-                            ? "border-teal-300 bg-teal-50 text-teal-700 hover:bg-teal-100"
-                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
-                        }`}
-                      >
-                        <FileText className="h-4 w-4" />
-                        {prescricaoPreviewAtivo ? "Ocultar preview" : "Preview PDF"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPrescricaoModoFoco((prev) => !prev)}
-                        className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                      >
-                        {prescricaoModoFoco ? "Lateral compacta" : "Expandir editor"}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-[24px] border border-white/80 bg-white/80 px-4 py-4 shadow-sm backdrop-blur">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Paciente</p>
-                      <p className="mt-2 text-lg font-semibold text-slate-950">{pacienteNomeExibicao || "Sem paciente"}</p>
-                      <p className="mt-1 text-sm text-slate-500">
-                        {pacienteNomeExibicao ? (
-                          especieRacaExibicao ? (
-                            especieRacaExibicao
-                          ) : (
-                            <span className="text-amber-600">Espécie não informada</span>
-                          )
-                        ) : (
-                          "Selecione um paciente"
-                        )}
-                      </p>
-                    </div>
-                    <div className="rounded-[24px] border border-white/80 bg-white/80 px-4 py-4 shadow-sm backdrop-blur">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Itens ativos</p>
-                      <p className="mt-2 text-lg font-semibold text-slate-950">{itensPrescricaoAtivos.length}</p>
-                      <p className="mt-1 text-sm text-slate-500">{medicamentosCardiologicos} item(ns) cardiologicos na biblioteca</p>
-                    </div>
-                    <div className="rounded-[24px] border border-white/80 bg-white/80 px-4 py-4 shadow-sm backdrop-blur">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Validacao</p>
-                      <p className={`mt-2 text-lg font-semibold ${prescricaoErrosCount > 0 ? "text-rose-700" : "text-emerald-700"}`}>
-                        {prescricaoErrosCount > 0 ? `${prescricaoErrosCount} pendencia(s)` : "Sem pendencias"}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-500">Campos obrigatorios: medicamento, dose, frequencia e via.</p>
-                    </div>
-                    <div className="rounded-[24px] border border-white/80 bg-white/80 px-4 py-4 shadow-sm backdrop-blur">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Peso de referencia</p>
-                      <p className="mt-2 text-lg font-semibold text-slate-950">{form.triagem.peso ? `${form.triagem.peso} kg` : "Nao informado"}</p>
-                      <p className="mt-1 text-sm text-slate-500">Base para calculo automatico e sugestao de apresentacao.</p>
-                    </div>
-                  </div>
-                </section>
-
-                <section className="grid gap-4 lg:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={() => setPrescricaoEntradaModo("manipulado")}
-                    className="group rounded-[28px] border border-amber-200 bg-gradient-to-br from-white to-amber-50 p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-700">Entrada rapida</p>
-                        <h3 className="mt-2 text-xl font-semibold text-slate-950">Adicionar formula manipulada</h3>
-                        <p className="mt-2 text-sm leading-6 text-slate-600">
-                          Crie um item livre ou use um medicamento da biblioteca como base, com possibilidade de salvar a formula depois.
-                        </p>
-                      </div>
-                      <span className="rounded-2xl bg-amber-100 p-3 text-amber-700 transition group-hover:bg-amber-200">
-                        <Pill className="h-5 w-5" />
-                      </span>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setPrescricaoEntradaModo("industrializado")}
-                    className="group rounded-[28px] border border-teal-200 bg-gradient-to-br from-white to-teal-50 p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-teal-700">Entrada rapida</p>
-                        <h3 className="mt-2 text-xl font-semibold text-slate-950">Adicionar produto industrializado</h3>
-                        <p className="mt-2 text-sm leading-6 text-slate-600">
-                          Busque na biblioteca, escolha a apresentacao e leve a recomendacao de dose direto para o item da receita.
-                        </p>
-                      </div>
-                      <span className="rounded-2xl bg-teal-100 p-3 text-teal-700 transition group-hover:bg-teal-200">
-                        <Search className="h-5 w-5" />
-                      </span>
-                    </div>
-                  </button>
-                </section>
-
-                <section className="rounded-[30px] border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Busca guiada</p>
-                      <h3 className="mt-1 text-lg font-semibold text-slate-950">
-                        {prescricaoEntradaModo === "manipulado"
-                          ? "Selecionar base para formula manipulada"
-                          : prescricaoEntradaModo === "industrializado"
-                            ? "Selecionar produto industrializado"
-                            : "Buscar medicamento ou iniciar um item manual"}
-                      </h3>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => adicionarItemPrescricaoEmBranco()}
-                        className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                      >
-                        <Plus className="h-4 w-4" />
-                        Item manual
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPrescricaoEntradaModo(null)}
-                        className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
-                      >
-                        <X className="h-4 w-4" />
-                        Fechar busca
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr),280px]">
-                    <div>
-                      <div className="relative">
-                        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                        <input
-                          value={prescricaoBuscaRapida}
-                          onChange={(e) => setPrescricaoBuscaRapida(e.target.value)}
-                          placeholder="Buscar medicamento, principio ativo, classe ou categoria..."
-                          className="w-full rounded-[22px] border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm text-slate-900 placeholder:text-slate-400 transition focus:border-teal-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-teal-100"
-                        />
-                      </div>
-
-                      <div className="mt-4 max-h-[420px] space-y-3 overflow-auto pr-1">
-                        {mostrarResultadosBuscaPrescricao ? (
-                          prescricaoBuscaResultados.length > 0 ? (
-                          prescricaoBuscaResultados.map((med) => (
-                            <div key={med.id} className="rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-4">
-                              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                                <div className="min-w-0">
-                                  <p className="text-base font-semibold text-slate-950">{med.nome}</p>
-                                  <p className="mt-1 text-sm text-slate-600">
-                                    {med.classe_terapeutica || med.categoria || "Sem classificacao"}
-                                    {med.principio_ativo ? ` · ${med.principio_ativo}` : ""}
-                                  </p>
-                                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
-                                    {med.forma_farmaceutica ? (
-                                      <span className="rounded-full bg-white px-2.5 py-1">{med.forma_farmaceutica}</span>
-                                    ) : null}
-                                    {med.especie_alvo ? (
-                                      <span className="rounded-full bg-white px-2.5 py-1">{med.especie_alvo}</span>
-                                    ) : null}
-                                    {med.parametrizado ? (
-                                      <span className="rounded-full bg-teal-100 px-2.5 py-1 text-teal-700">Parametrizado</span>
-                                    ) : null}
-                                  </div>
-                                </div>
-                                <div className="flex shrink-0 flex-wrap gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => abrirMedicamentoBuscaRapida(med)}
-                                    className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                                  >
-                                    <Eye className="h-4 w-4" />
-                                    Ver cadastro
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => selecionarMedicamentoBuscaRapida(med, prescricaoEntradaModo === "manipulado")}
-                                    className="inline-flex items-center gap-2 rounded-2xl bg-teal-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-teal-700"
-                                  >
-                                    <Plus className="h-4 w-4" />
-                                    {prescricaoEntradaModo === "manipulado" ? "Usar como formula" : "Selecionar"}
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          ))
-                        ) : (
-                          <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                            Nenhum medicamento encontrado para esta busca.
-                          </div>
-                          )
-                        ) : (
-                          <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                            Escolha um tipo de entrada acima para abrir a busca sem poluir a tela inicial da receita.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="rounded-[26px] border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Atalhos do fluxo</p>
-                      <div className="mt-4 space-y-3 text-sm text-slate-600">
-                        <p>1. Escolha o tipo do item.</p>
-                        <p>2. Busque o medicamento ou abra um item manual.</p>
-                        <p>3. Defina apresentacao, dose, frequencia e via.</p>
-                        <p>4. Revise as sugestoes e gere o PDF.</p>
-                      </div>
-                      {prescricaoEntradaModo === "manipulado" ? (
-                        <button
-                          type="button"
-                          onClick={() => adicionarItemPrescricaoEmBranco({ manipulado: true })}
-                          className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-amber-600"
-                        >
-                          <Plus className="h-4 w-4" />
-                          Nova formula em branco
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                </section>
-
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr),minmax(300px,0.95fr)]">
-                  <section className="rounded-[30px] border border-slate-200 bg-white p-5 shadow-sm">
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Instrucoes gerais do tratamento</p>
-                    <textarea
-                      value={form.prescricao_orientacoes}
-                      onChange={(e) => setField("prescricao_orientacoes", e.target.value)}
-                      placeholder="Resumo para o tutor, cuidados, horarios, retornos e observacoes gerais."
-                      rows={5}
-                      className="mt-4 w-full rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition focus:border-teal-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-teal-100"
-                    />
-                  </section>
-
-                  <section className="rounded-[30px] border border-slate-200 bg-white p-5 shadow-sm">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Contexto da prescricao</p>
-                        <p className="mt-1 text-sm text-slate-600">Data base, retorno e protocolos rapidos para acelerar a emissao.</p>
-                      </div>
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                        {form.data_atendimento ? formatDate(form.data_atendimento) : formatDate(new Date().toISOString())}
-                      </span>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Retorno (dias)</p>
-                        <input
-                          type="number"
-                          value={form.prescricao_retorno_dias}
-                          onChange={(e) => setField("prescricao_retorno_dias", e.target.value)}
-                          placeholder="Ex.: 7"
-                          className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 transition focus:border-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-100"
-                        />
-                      </div>
-                      <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Protocolo recomendado</p>
-                        <p className="mt-2 text-sm font-semibold text-slate-900">
-                          {protocoloPrescricaoRecomendado?.label || "Nenhum protocolo automatico"}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {protocoloPrescricaoSelecionadoDetalhe?.descricao || "Voce pode aplicar um protocolo rapido abaixo."}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {PROTOCOLOS_PRESCRICAO.map((protocolo) => (
-                        <button
-                          key={protocolo.key}
-                          type="button"
-                          onClick={() => aplicarProtocoloPrescricao(protocolo)}
-                          className={`rounded-2xl px-3 py-2 text-xs font-medium transition ${
-                            protocoloPrescricaoRecomendado?.key === protocolo.key || protocoloPrescricaoSelecionado === protocolo.key
-                              ? "bg-teal-600 text-white"
-                              : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                          }`}
-                        >
-                          {protocolo.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="mt-4 rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4">
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                        <div>
-                          <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Seus presets de prescricao</p>
-                          <p className="mt-1 text-sm text-slate-600">Salve prescricoes recorrentes completas para reaplicar com os itens e orientacoes.</p>
-                          {presetPrescricaoEmEdicaoId ? (
-                            <p className="mt-1 text-xs font-medium text-sky-700">Editando preset selecionado</p>
-                          ) : null}
-                        </div>
-                        <div className="flex w-full flex-col gap-2 lg:w-auto lg:min-w-[320px] lg:flex-row">
-                          <input
-                            value={nomeNovoPresetPrescricao}
-                            onChange={(e) => setNomeNovoPresetPrescricao(e.target.value)}
-                            placeholder="Nome do preset"
-                            className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900"
-                          />
-                          <button
-                            type="button"
-                            onClick={salvarPresetPrescricaoAtual}
-                            className="rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
-                          >
-                            {presetPrescricaoEmEdicaoId ? "Atualizar preset" : "Salvar preset"}
-                          </button>
-                          {presetPrescricaoEmEdicaoId ? (
-                            <button
-                              type="button"
-                              onClick={cancelarEdicaoPresetPrescricao}
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                            >
-                              Cancelar
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {prescriptionPresets.length > 0 ? (
-                          prescriptionPresets.map((preset) => (
-                            <div key={preset.id} className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2">
-                              <button
-                                type="button"
-                                onClick={() => aplicarPresetPrescricao(preset)}
-                                className="text-sm font-medium text-slate-800"
-                              >
-                                {preset.nome}
-                              </button>
-                              <span className="text-xs text-slate-500">{preset.itens.length} item(ns)</span>
-                              <button
-                                type="button"
-                                onClick={() => editarPresetPrescricao(preset)}
-                                className="rounded-full bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-600 transition hover:bg-sky-50 hover:text-sky-700"
-                              >
-                                Editar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => removerPresetPrescricao(preset.id)}
-                                className="rounded-full bg-slate-50 p-1 text-slate-500 transition hover:bg-rose-50 hover:text-rose-600"
-                                aria-label={`Remover preset ${preset.nome}`}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-sm text-slate-500">Nenhum preset salvo ainda.</p>
-                        )}
-                      </div>
-                    </div>
-                  </section>
-                </div>
-
-                {prescricaoSupport.alertasGerais.length > 0 ? (
-                  <section className="rounded-[30px] border border-amber-200 bg-amber-50 px-5 py-5 shadow-sm">
-                    <div className="flex items-center gap-3">
-                      <div className="rounded-2xl bg-amber-100 p-3">
-                        <AlertTriangle className="h-5 w-5 text-amber-700" />
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-700">Alertas de interacao</p>
-                        <h3 className="mt-1 text-lg font-semibold text-amber-950">Revise antes de fechar o receituario</h3>
-                      </div>
-                    </div>
-                    <div className="mt-4 grid gap-2">
-                      {prescricaoSupport.alertasGerais.map((alerta) => (
-                        <p
-                          key={alerta}
-                          className={`rounded-2xl border px-4 py-3 text-sm ${getAlertaPrescricaoClass(classificarAlertaPrescricao(alerta))}`}
-                        >
-                          {alerta}
-                        </p>
-                      ))}
-                    </div>
-                  </section>
-                ) : null}
-
-                <section className="space-y-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Itens da receita</p>
-                      <h3 className="mt-1 text-lg font-semibold text-slate-950">Configure cada medicamento com mais contexto visual</h3>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => adicionarItemPrescricaoEmBranco()}
-                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Adicionar item manual
-                    </button>
-                  </div>
-
-                  {prescricaoTemRascunhoInicial ? (
-                    <div className="rounded-[30px] border border-dashed border-slate-300 bg-white px-6 py-12 text-center shadow-sm">
-                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-3xl bg-teal-100 text-teal-700">
-                        <ClipboardPlus className="h-6 w-6" />
-                      </div>
-                      <h4 className="mt-4 text-xl font-semibold text-slate-950">A receita ainda esta vazia</h4>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">
-                        Comece pelos cards de entrada rapida acima ou crie um item manual para preencher do seu jeito.
-                      </p>
-                      <div className="mt-5 flex flex-wrap justify-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setPrescricaoEntradaModo("industrializado")}
-                          className="inline-flex items-center gap-2 rounded-2xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700"
-                        >
-                          <Search className="h-4 w-4" />
-                          Buscar industrializado
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => adicionarItemPrescricaoEmBranco({ manipulado: true })}
-                          className="inline-flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-800 transition hover:bg-amber-100"
-                        >
-                          <Pill className="h-4 w-4" />
-                          Criar formula manipulada
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {form.prescricao_itens.map((item, idx) => renderPrescricaoItemCard(item, idx))}
-                    </div>
-                  )}
-                </section>
-              </section>
-            ) : null}
-          </div>
-
-          {prescricaoPreviewAtivo && (
-            <section className="overflow-hidden rounded-[24px] border border-teal-200 bg-white shadow-sm">
-              <div className="flex items-center justify-between border-b border-teal-100 bg-teal-50 px-5 py-3">
-                <div className="flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-teal-600" />
-                  <p className="text-sm font-semibold text-teal-700">Preview da receita</p>
-                </div>
-                {prescricaoPreviewLoading && (
-                  <div className="flex items-center gap-2 text-xs text-teal-600">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Gerando...
-                  </div>
-                )}
-              </div>
-              <div className="bg-slate-100" style={{ height: "500px" }}>
-                {prescricaoPreviewPdf ? (
-                  <iframe
-                    src={prescricaoPreviewPdf}
-                    title="Preview da prescricao"
-                    className="h-full w-full"
-                    style={{ border: "none" }}
+                  <AtendimentoConsultaOverviewSection
+                    clinicas={clinicas}
+                    fluxoClinico={fluxoClinico}
+                    form={form}
+                    getBadgeStatusClass={getBadgeStatusClass}
+                    pacienteBusca={pacienteBusca}
+                    pacienteDropdownAberto={pacienteDropdownAberto}
+                    pacienteDropdownBlurTimeoutRef={pacienteDropdownBlurTimeoutRef}
+                    pacienteNomeExibicao={pacienteNomeExibicao}
+                    pacientesFiltrados={pacientesFiltrados}
+                    selecionarPaciente={selecionarPaciente}
+                    setField={setField}
+                    setMostrarPacientes={setMostrarPacientes}
+                    setPacienteBusca={setPacienteBusca}
+                    setWorkspacePainel={setWorkspacePainel}
+                    STATUS_ATENDIMENTO={STATUS_ATENDIMENTO}
+                    especieRacaExibicao={especieRacaExibicao}
+                    tutorNomeExibicao={tutorNomeExibicao}
                   />
-                ) : (
-                  <div className="flex h-full items-center justify-center">
-                    <div className="text-center">
-                      {form.prescricao_itens.every((item) => !(item.medicamento_nome || "").trim()) ? (
-                        <>
-                          <ClipboardPlus className="mx-auto h-10 w-10 text-slate-300" />
-                          <p className="mt-3 text-sm text-slate-400">Adicione medicamentos para ver o preview</p>
-                        </>
-                      ) : prescricaoPreviewLoading ? (
-                        <div className="flex flex-col items-center gap-2">
-                          <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
-                          <p className="text-sm text-slate-400">Gerando preview...</p>
-                        </div>
-                      ) : prescricaoPreviewErro ? (
-                        <div className="flex flex-col items-center gap-3 px-6">
-                          <AlertTriangle className="h-10 w-10 text-red-400" />
-                          <p className="text-sm font-medium text-red-600">{prescricaoPreviewErro}</p>
-                          <button
-                            type="button"
-                            onClick={() => gerarPreviewPdf()}
-                            className="rounded-lg border border-red-200 bg-white px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                          >
-                            Tentar novamente
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          <FileX className="mx-auto h-10 w-10 text-slate-300" />
-                          <p className="mt-3 text-sm text-slate-400">Preview nao disponivel</p>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </section>
-          )}
+                ) : null}
 
-          {(isPrescricaoWorkspace || showClinicalRadarAside) ? (
-          <aside
-            className={`self-start space-y-6 xl:sticky xl:max-h-[calc(100vh-2rem)] xl:overflow-auto xl:pr-1 ${
-              isPrescricaoWorkspace && prescricaoModoFoco ? "xl:top-3" : "xl:top-6"
-            }`}
-          >
-            {showClinicalRadarAside ? (
-              <>
-            <section className="rounded-[26px] border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-5 shadow-sm">
-              <div className="flex items-center gap-3">
-                <div className="rounded-2xl bg-teal-50 p-3">
-                  <FileText className="h-5 w-5 text-teal-600" />
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Radar do caso</p>
-                  <h2 className="text-lg font-semibold text-slate-900">Status rapido</h2>
-                </div>
+                {isConsultaWorkspace ? (
+                  <AtendimentoCadastroComplementarSection
+                    buscandoCepTutor={buscandoCepTutor}
+                    cadastroComplementar={cadastroComplementar}
+                    cadastroComplementarPendencias={cadastroComplementarPendencias}
+                    carregandoCadastroComplementar={carregandoCadastroComplementar}
+                    especieCadastroAtual={especieCadastroAtual}
+                    especieRacaExibicao={especieRacaExibicao}
+                    form={form}
+                    formatarCepVisual={formatarCepVisual}
+                    handleAdicionarRacaCadastro={handleAdicionarRacaCadastro}
+                    idadePacienteExibicao={idadePacienteExibicao}
+                    consultarCepTutor={consultarCepTutor}
+                    novaRacaCadastro={novaRacaCadastro}
+                    opcoesRacaCadastro={opcoesRacaCadastro}
+                    salvandoCadastroComplementar={salvandoCadastroComplementar}
+                    salvarCadastroComplementarAtual={salvarCadastroComplementarAtual}
+                    setCadastroPacienteField={setCadastroPacienteField}
+                    setCadastroTutorField={setCadastroTutorField}
+                    setNovaRacaCadastro={setNovaRacaCadastro}
+                    setStatusCepTutor={setStatusCepTutor}
+                    sincronizarPesoCadastroNaTriagem={sincronizarPesoCadastroNaTriagem}
+                    statusCepTutor={statusCepTutor}
+                  />
+                ) : null}
+
+                {isConsultaWorkspace ? (
+                  <AtendimentoTriagemSection
+                    ESCALA_ECC={ESCALA_ECC}
+                    form={form}
+                    HIDRATACAO={HIDRATACAO}
+                    MUCOSAS={MUCOSAS}
+                    setField={setField}
+                    setTriagemExpandida={setTriagemExpandida}
+                    triagemExpandida={triagemExpandida}
+                  />
+                ) : null}
+
+                {isConsultaWorkspace ? (
+                  <AtendimentoConsultaEditorSection
+                    autosaveLabel={autosaveLabel}
+                    clinicalSummary={clinicalSummary}
+                    consultaCampoAtivoConfig={consultaCampoAtivoConfig}
+                    consultaCampoAtivoIndex={consultaCampoAtivoIndex}
+                    consultaEditorCamposVisiveis={consultaEditorCamposVisiveis}
+                    consultaEditorEtapa={consultaEditorEtapa}
+                    consultaEditorEtapas={consultaEditorEtapas}
+                    consultaEtapasCompletas={consultaEtapasCompletas}
+                    form={form}
+                    getClinicalFieldValue={getClinicalFieldValue}
+                    goToConsultaCampoAnterior={goToConsultaCampoAnterior}
+                    goToConsultaCampoProximo={goToConsultaCampoProximo}
+                    handleConsultaTextareaKeyDown={handleConsultaTextareaKeyDown}
+                    injectClinicalSnippet={injectClinicalSnippet}
+                    PROGNOSTICO={PROGNOSTICO}
+                    registerClinicalTextarea={registerClinicalTextarea}
+                    setClinicalFieldValue={setClinicalFieldValue}
+                    setConsultaCampoAtivo={setConsultaCampoAtivo}
+                    setConsultaEditorEtapa={setConsultaEditorEtapa}
+                    setField={setField}
+                  />
+                ) : null}
+
+                {isExamesWorkspace ? (
+                  <AtendimentoExamesSection
+                    adicionarExameDoCatalogo={adicionarExameDoCatalogo}
+                    aplicarPainel={aplicarPainel}
+                    aplicarPainelExames={aplicarPainelExames}
+                    ATENDIMENTO_ATTACHMENT_ACCEPT={ATENDIMENTO_ATTACHMENT_ACCEPT}
+                    atualizarExame={atualizarExame}
+                    baixarPdfAtendimento={baixarPdfAtendimento}
+                    cancelarUploadAnexo={cancelarUploadAnexo}
+                    catalogoExames={catalogoExames}
+                    clearExamDropState={clearExamDropState}
+                    clearExamUploadDraft={clearExamUploadDraft}
+                    colapsarTodosExames={colapsarTodosExames}
+                    customPaineis={customPaineis}
+                    editarPainelExame={editarPainelExame}
+                    emptyExam={emptyExam}
+                    exameBusca={exameBusca}
+                    exameFiltroRapido={exameFiltroRapido}
+                    examDropActive={examDropActive}
+                    examUploadDrafts={examUploadDrafts}
+                    examesCatalogoFiltrados={examesCatalogoFiltrados}
+                    examesExpandidos={examesExpandidos}
+                    examesVisiveis={examesVisiveis}
+                    excluirAnexo={excluirAnexo}
+                    excluirPainelExame={excluirPainelExame}
+                    expandirTodosExames={expandirTodosExames}
+                    EXAME_FILTRO_OPCOES={EXAME_FILTRO_OPCOES}
+                    EXAME_STATUS_META={EXAME_STATUS_META}
+                    form={form}
+                    formatBytes={formatBytes}
+                    formatDate={formatDate}
+                    gerandoPdfTipo={gerandoPdfTipo}
+                    goLaudo={goLaudo}
+                    hasExamRequest={hasExamRequest}
+                    imprimirSolicitacaoExames={imprimirSolicitacaoExames}
+                    openingAttachmentId={openingAttachmentId}
+                    painelEmEdicao={painelEmEdicao}
+                    painelExameAtual={painelExameAtual}
+                    painelExameSelecionado={painelExameSelecionado}
+                    painelFormCategoria={painelFormCategoria}
+                    painelFormErro={painelFormErro}
+                    painelFormItens={painelFormItens}
+                    painelFormNome={painelFormNome}
+                    painelFormSearch={painelFormSearch}
+                    painelModalMode={painelModalMode}
+                    painelModalOpen={painelModalOpen}
+                    paineisExames={paineisExames}
+                    removerExamesVazios={removerExamesVazios}
+                    resolvePreviewKind={resolvePreviewKind}
+                    resumoExamesFluxo={resumoExamesFluxo}
+                    salvando={salvando}
+                    salvarPainelExame={salvarPainelExame}
+                    selecionado={selecionado}
+                    setExamDropActive={setExamDropActive}
+                    setExamUploadDraftFile={setExamUploadDraftFile}
+                    setExameFiltroRapido={setExameFiltroRapido}
+                    setExameBusca={setExameBusca}
+                    setExamesExpandidos={setExamesExpandidos}
+                    setField={setField}
+                    setPainelEmEdicao={setPainelEmEdicao}
+                    setPainelExameSelecionado={setPainelExameSelecionado}
+                    setPainelFormCategoria={setPainelFormCategoria}
+                    setPainelFormErro={setPainelFormErro}
+                    setPainelFormItens={setPainelFormItens}
+                    setPainelFormNome={setPainelFormNome}
+                    setPainelFormSearch={setPainelFormSearch}
+                    setPainelModalMode={setPainelModalMode}
+                    setPainelModalOpen={setPainelModalOpen}
+                    abrirAnexo={abrirAnexo}
+                    uploadArquivoResultadoExame={uploadArquivoResultadoExame}
+                    uploadArquivosResultadoExame={uploadArquivosResultadoExame}
+                    uploadingAttachmentKey={uploadingAttachmentKey}
+                    uploadProgressByKey={uploadProgressByKey}
+                  />
+                ) : null}
+
+                {isDocumentosWorkspace ? (
+                  <AtendimentoDocumentosSection
+                    ATENDIMENTO_ATTACHMENT_ACCEPT={ATENDIMENTO_ATTACHMENT_ACCEPT}
+                    adicionarLinkAnexo={adicionarLinkAnexo}
+                    anexosGerais={anexosGerais}
+                    anexoArquivo={anexoArquivo}
+                    anexoForm={anexoForm}
+                    abrirAnexo={abrirAnexo}
+                    cancelarUploadAnexo={cancelarUploadAnexo}
+                    evolucaoForm={evolucaoForm}
+                    excluirAnexo={excluirAnexo}
+                    formatBytes={formatBytes}
+                    formatDate={formatDate}
+                    openingAttachmentId={openingAttachmentId}
+                    progressoUploadGeral={progressoUploadGeral}
+                    selecionado={selecionado}
+                    setAnexoArquivo={setAnexoArquivo}
+                    setAnexoForm={setAnexoForm}
+                    setErro={setErro}
+                    setEvolucaoForm={setEvolucaoForm}
+                    setSucesso={setSucesso}
+                    uploadAnexoArquivo={uploadAnexoArquivo}
+                    uploadGeralEmAndamento={uploadGeralEmAndamento}
+                    abrirAtendimento={abrirAtendimento}
+                    api={api}
+                    form={form}
+                  />
+                ) : null}
+
+                {isPrescricaoWorkspace ? (
+                  <AtendimentoPrescricaoWorkspace
+                    abrirMedicamentoBuscaRapida={abrirMedicamentoBuscaRapida}
+                    adicionarItemPrescricaoEmBranco={adicionarItemPrescricaoEmBranco}
+                    aplicarPresetPrescricao={aplicarPresetPrescricao}
+                    aplicarProtocoloPrescricao={aplicarProtocoloPrescricao}
+                    autosaveBadgeClass={autosaveBadgeClass}
+                    autosaveLabel={autosaveLabel}
+                    cancelarEdicaoPresetPrescricao={cancelarEdicaoPresetPrescricao}
+                    classificarAlertaPrescricao={classificarAlertaPrescricao}
+                    editarPresetPrescricao={editarPresetPrescricao}
+                    especieRacaExibicao={especieRacaExibicao}
+                    form={form}
+                    formatDate={formatDate}
+                    gerarPreviewPdf={gerarPreviewPdf}
+                    getAlertaPrescricaoClass={getAlertaPrescricaoClass}
+                    itensPrescricaoAtivos={itensPrescricaoAtivos}
+                    medicamentosCardiologicos={medicamentosCardiologicos}
+                    mostrarResultadosBuscaPrescricao={mostrarResultadosBuscaPrescricao}
+                    nomeNovoPresetPrescricao={nomeNovoPresetPrescricao}
+                    pacienteNomeExibicao={pacienteNomeExibicao}
+                    presetPrescricaoEmEdicaoId={presetPrescricaoEmEdicaoId}
+                    prescricaoBuscaRapida={prescricaoBuscaRapida}
+                    prescricaoBuscaResultados={prescricaoBuscaResultados}
+                    prescricaoEntradaModo={prescricaoEntradaModo}
+                    prescricaoErrosCount={prescricaoErrosCount}
+                    prescricaoModoFoco={prescricaoModoFoco}
+                    prescricaoPreviewAtivo={prescricaoPreviewAtivo}
+                    prescricaoPreviewPdf={prescricaoPreviewPdf}
+                    prescricaoSupport={prescricaoSupport}
+                    prescricaoTemRascunhoInicial={prescricaoTemRascunhoInicial}
+                    prescriptionPresets={prescriptionPresets}
+                    PROTOCOLOS_PRESCRICAO={PROTOCOLOS_PRESCRICAO}
+                    protocoloPrescricaoRecomendado={protocoloPrescricaoRecomendado}
+                    protocoloPrescricaoSelecionado={protocoloPrescricaoSelecionado}
+                    protocoloPrescricaoSelecionadoDetalhe={protocoloPrescricaoSelecionadoDetalhe}
+                    removerPresetPrescricao={removerPresetPrescricao}
+                    renderPrescricaoItemCard={renderPrescricaoItemCard}
+                    salvarPresetPrescricaoAtual={salvarPresetPrescricaoAtual}
+                    selecionarMedicamentoBuscaRapida={selecionarMedicamentoBuscaRapida}
+                    setField={setField}
+                    setNomeNovoPresetPrescricao={setNomeNovoPresetPrescricao}
+                    setPrescricaoBuscaRapida={setPrescricaoBuscaRapida}
+                    setPrescricaoEntradaModo={setPrescricaoEntradaModo}
+                    setPrescricaoModoFoco={setPrescricaoModoFoco}
+                    setPrescricaoPreviewAtivo={setPrescricaoPreviewAtivo}
+                    setPrescricaoPreviewErro={setPrescricaoPreviewErro}
+                    setPrescricaoPreviewPdf={setPrescricaoPreviewPdf}
+                  />
+                ) : null}
               </div>
 
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-[20px] border border-slate-200 bg-white px-4 py-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500">Preenchimento</p>
-                  <p className="mt-3 text-3xl font-semibold text-slate-900">{clinicalSummary.completeness}%</p>
-                  <p className="mt-1 text-sm text-slate-600">{preenchimentoConsultaLabel}</p>
-                </div>
-                <div className="rounded-[20px] border border-slate-200 bg-white px-4 py-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500">Sincronizacao</p>
-                  <p className="mt-3 text-sm font-semibold text-slate-900">{autosaveLabel}</p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    {selecionado ? "Atendimento salvo em edicao continua." : "Rascunho local ate o primeiro salvamento."}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-[20px] border border-slate-200 bg-white px-4 py-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500">Fluxo clinico</p>
-                  <div className="mt-3 space-y-2 text-sm text-slate-700">
-                    <p>Queixa e anamnese: {form.queixa_principal.trim() || form.anamnese.trim() ? "em andamento" : "pendente"}</p>
-                    <p>Plano e retorno: {form.plano_terapeutico.trim() || form.retorno_recomendado.trim() ? "em andamento" : "pendente"}</p>
-                    <p>Exames solicitados: {form.exames.filter((item) => (item.tipo_exame || "").trim()).length}</p>
-                    <p>Itens prescritos: {form.prescricao_itens.filter((item) => item.medicamento_id || item.medicamento_nome.trim()).length}</p>
-                  </div>
-                </div>
-                <div className="rounded-[20px] border border-slate-200 bg-white px-4 py-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500">Fechamento</p>
-                  <div className="mt-3 space-y-2 text-sm text-slate-700">
-                    <p>Status: {form.status || "Triagem"}</p>
-                    <p>Prognostico: {form.diagnostico.prognostico || "Nao definido"}</p>
-                    <p>Paciente: {pacienteNomeExibicao || "Nao selecionado"}</p>
-                    <p>Alertas ativos: {alertasAtivos.length}</p>
-                  </div>
-                </div>
-              </div>
-
-              {clinicalSummary.pending.length > 0 ? (
-                <div className="mt-5 rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-4">
-                  <p className="text-xs uppercase tracking-[0.25em] text-amber-700">Pendencias mais proximas</p>
-                  <div className="mt-3 space-y-2 text-sm text-amber-900">
-                    {clinicalSummary.pending.slice(0, 3).map((item) => (
-                      <p key={item}>{item}</p>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-5 rounded-[22px] border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-800">
-                  O caso ja tem base suficiente para seguir para exames, prescricao e fechamento.
-                </div>
+              {prescricaoPreviewAtivo && (
+                <AtendimentoPrescricaoPreview
+                  form={form}
+                  gerarPreviewPdf={gerarPreviewPdf}
+                  prescricaoPreviewErro={prescricaoPreviewErro}
+                  prescricaoPreviewLoading={prescricaoPreviewLoading}
+                  prescricaoPreviewPdf={prescricaoPreviewPdf}
+                />
               )}
-            </section>
 
-            <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-center gap-3">
-                <div className="rounded-2xl bg-amber-50 p-3">
-                  <AlertTriangle className="h-5 w-5 text-amber-600" />
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Leitura rapida</p>
-                  <h2 className="text-lg font-semibold text-slate-900">Alertas e historico</h2>
-                </div>
-              </div>
-
-              <div className="mt-5 space-y-3">
-                {alertasAtivos.length > 0 ? (
-                  alertasAtivos.map((alerta) => (
-                    <div key={alerta.id} className={`rounded-[20px] border px-4 py-3 ${getGravidadeClass(alerta.gravidade)}`}>
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm font-semibold">{alerta.titulo}</p>
-                        <span className="rounded-full bg-white/70 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.2em]">
-                          {alerta.gravidade}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-sm">{alerta.descricao}</p>
-                    </div>
-                  ))
-                ) : (
-                  <div className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                    Nenhum alerta ativo para o paciente selecionado.
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-6 border-t border-slate-200 pt-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Ultimos contatos</p>
-                    <h3 className="mt-1 text-sm font-semibold text-slate-900">Historico recente</h3>
-                  </div>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600">
-                    {historicoPaciente?.atendimentos.length || 0} registros
-                  </span>
-                </div>
-
-                <div className="mt-4 space-y-3">
-                  {historicoPaciente?.atendimentos.slice(0, 4).map((atendimento) => (
-                    <div key={atendimento.id} className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm font-semibold text-slate-900">#{atendimento.id}</p>
-                        <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${getBadgeStatusClass(atendimento.status)}`}>
-                          {atendimento.status}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-xs text-slate-500">{formatDate(atendimento.data_atendimento)}</p>
-                      <p className="mt-2 text-sm text-slate-700">
-                        {atendimento.diagnostico_principal || atendimento.queixa_principal || "Sem resumo clinico"}
-                      </p>
-                      <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-                        <ArrowRight className="h-3.5 w-3.5" />
-                        <span>{atendimento.veterinario || "Veterinario nao informado"}</span>
-                      </div>
-                    </div>
-                  ))}
-                  {!historicoPaciente?.atendimentos.length ? (
-                    <div className="rounded-[20px] border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
-                      O historico do paciente aparecera aqui conforme novos atendimentos forem salvos.
-                    </div>
+              {(isPrescricaoWorkspace || showClinicalRadarAside) ? (
+                <aside
+                  className={`self-start space-y-6 xl:sticky xl:max-h-[calc(100vh-2rem)] xl:overflow-auto xl:pr-1 ${
+                    isPrescricaoWorkspace && prescricaoModoFoco ? "xl:top-3" : "xl:top-6"
+                  }`}
+                >
+                  {showClinicalRadarAside ? (
+                    <AtendimentoClinicalRadarAside
+                      alertasAtivos={alertasAtivos}
+                      autosaveLabel={autosaveLabel}
+                      clinicalSummary={clinicalSummary}
+                      formatDate={formatDate}
+                      form={form}
+                      getBadgeStatusClass={getBadgeStatusClass}
+                      getGravidadeClass={getGravidadeClass}
+                      historicoPaciente={historicoPaciente}
+                      pacienteNomeExibicao={pacienteNomeExibicao}
+                      preenchimentoConsultaLabel={preenchimentoConsultaLabel}
+                      selecionado={selecionado}
+                    />
                   ) : null}
-                </div>
-              </div>
-            </section>
-              </>
-            ) : null}
 
-            {isPrescricaoWorkspace ? (
-            <div className="space-y-4">
-              <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-2xl bg-teal-50 p-3">
-                    <FileText className="h-5 w-5 text-teal-600" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Salvar e conferir</p>
-                    <h2 className="text-lg font-semibold text-slate-950">Saida da prescricao</h2>
-                  </div>
-                </div>
-
-                <div className="mt-5 grid gap-2 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={() => void saveAtendimento()}
-                    disabled={salvando}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    {salvando ? "Salvando..." : "Salvar atendimento"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={imprimirPrescricao}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
-                  >
-                    <Printer className="h-4 w-4" />
-                    Imprimir
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => baixarPdfAtendimento("prescricao")}
-                    disabled={!hasPrescriptionItems || salvando || Boolean(gerandoPdfTipo)}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-teal-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Download className="h-4 w-4" />
-                    {gerandoPdfTipo === "prescricao" ? "Gerando PDF..." : "Baixar PDF"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPrescricaoModoFoco((prev) => !prev)}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
-                  >
-                    <CheckCircle2 className="h-4 w-4" />
-                    {prescricaoModoFoco ? "Desocupar lateral" : "Modo revisao"}
-                  </button>
-                </div>
-
-                <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Itens prontos</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-950">{itensPrescricaoAtivos.length}</p>
-                  </div>
-                  <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Pendencias</p>
-                    <p className={`mt-1 text-lg font-semibold ${prescricaoErrosCount > 0 ? "text-rose-700" : "text-emerald-700"}`}>
-                      {prescricaoErrosCount}
-                    </p>
-                  </div>
-                  <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Alertas gerais</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-950">{prescricaoSupport.alertasGerais.length}</p>
-                  </div>
-                  <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Retorno</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-950">{form.prescricao_retorno_dias || "Em aberto"}</p>
-                  </div>
-                </div>
-              </section>
-
-              <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-2xl bg-slate-100 p-3">
-                    <Pill className="h-5 w-5 text-slate-700" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Resumo para o documento</p>
-                    <h3 className="text-lg font-semibold text-slate-950">Conferencia rapida</h3>
-                  </div>
-                </div>
-
-                <div className="mt-5 space-y-3">
-                  {itensPrescricaoAtivos.length > 0 ? (
-                    itensPrescricaoAtivos.map((item, idx) => (
-                      <div key={`${idx}-${item.id || item.medicamento_nome}`} className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-slate-950">{item.medicamento_nome || `Item ${idx + 1}`}</p>
-                            <p className="mt-1 text-xs text-slate-500">
-                              {item.apresentacao_selecionada || (/(formula manipulada)/i.test(item.medicamento_nome || "") ? "Formula manipulada" : "Apresentacao em aberto")}
-                            </p>
-                          </div>
-                          <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600">
-                            {item.via || "Via em aberto"}
-                          </span>
-                        </div>
-                        <div className="mt-3 space-y-1 text-sm text-slate-600">
-                          <p>{item.dose || "Dose em aberto"}</p>
-                          <p>{item.frequencia || "Frequencia em aberto"}</p>
-                          <p>{item.duracao || "Duracao livre"}</p>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                      Os itens ativos aparecerao aqui conforme forem configurados na coluna principal.
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-5 rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Orientacoes gerais</p>
-                  <p className="mt-3 text-sm leading-6 text-slate-600">
-                    {form.prescricao_orientacoes.trim() || "Nenhuma orientacao geral adicionada ainda."}
-                  </p>
-                </div>
-              </section>
-
-              {prescricaoSupport.alertasGerais.length > 0 ? (
-                <section className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 shadow-sm">
-                  <div className="flex items-center gap-3">
-                    <AlertTriangle className="h-5 w-5 text-amber-700" />
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-700">Atencao antes do PDF</p>
-                      <h3 className="text-sm font-semibold text-amber-950">Interacoes e observacoes gerais</h3>
-                    </div>
-                  </div>
-                  <div className="mt-4 space-y-2">
-                    {prescricaoSupport.alertasGerais.map((alerta) => (
-                      <p
-                        key={alerta}
-                        className={`rounded-2xl border px-3 py-2 text-sm ${getAlertaPrescricaoClass(classificarAlertaPrescricao(alerta))}`}
-                      >
-                        {alerta}
-                      </p>
-                    ))}
-                  </div>
-                </section>
+                  {isPrescricaoWorkspace ? (
+                    <AtendimentoPrescricaoAside
+                      baixarPdfAtendimento={baixarPdfAtendimento}
+                      classificarAlertaPrescricao={classificarAlertaPrescricao}
+                      form={form}
+                      gerandoPdfTipo={gerandoPdfTipo}
+                      getAlertaPrescricaoClass={getAlertaPrescricaoClass}
+                      hasPrescriptionItems={hasPrescriptionItems}
+                      imprimirPrescricao={imprimirPrescricao}
+                      itensPrescricaoAtivos={itensPrescricaoAtivos}
+                      prescricaoErrosCount={prescricaoErrosCount}
+                      prescricaoModoFoco={prescricaoModoFoco}
+                      prescricaoSupport={prescricaoSupport}
+                      salvando={salvando}
+                      saveAtendimento={saveAtendimento}
+                      setPrescricaoModoFoco={setPrescricaoModoFoco}
+                    />
+                  ) : null}
+                </aside>
               ) : null}
             </div>
-            ) : null}
-
-            {false ? (
-            <section className="rounded-[26px] border border-slate-200 bg-slate-950 p-5 text-white shadow-[0_20px_60px_-35px_rgba(15,23,42,0.95)]">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-2xl bg-white/10 p-3">
-                    <Pill className="h-5 w-5 text-teal-200" />
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Receituario guiado</p>
-                    <h2 className="text-lg font-semibold text-white">Prescricao assistida</h2>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setField("prescricao_itens", [...form.prescricao_itens, emptyPrescriptionItem()])}
-                  className="rounded-2xl bg-white/10 px-3 py-2 text-xs font-medium text-white transition hover:bg-white/20"
-                >
-                  <span className="inline-flex items-center gap-2"><Plus className="h-4 w-4" />Item</span>
-                </button>
-              </div>
-
-              <div className="mt-5 flex flex-wrap gap-2">
-                <button type="button" onClick={imprimirPrescricao} className="rounded-2xl bg-white/10 px-3 py-2 text-xs font-medium text-white transition hover:bg-white/20">
-                  <span className="inline-flex items-center gap-2"><Printer className="h-4 w-4" />Imprimir</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => baixarPdfAtendimento("prescricao")}
-                  disabled={!hasPrescriptionItems || salvando || Boolean(gerandoPdfTipo)}
-                  className="rounded-2xl bg-teal-400/20 px-3 py-2 text-xs font-medium text-teal-100 transition hover:bg-teal-400/30 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <span className="inline-flex items-center gap-2"><Download className="h-4 w-4" />{gerandoPdfTipo === "prescricao" ? "Gerando..." : "PDF"}</span>
-                </button>
-              </div>
-
-              <div className="mt-4 rounded-[20px] border border-white/10 bg-white/[0.03] p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Protocolos rapidos por diagnostico</p>
-                  {protocoloPrescricaoRecomendado ? (
-                    <span className="rounded-full bg-emerald-400/20 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
-                      Recomendado: {protocoloPrescricaoRecomendado?.label}
-                    </span>
-                  ) : (
-                    <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] text-slate-300">
-                      Sem sugestao automatica
-                    </span>
-                  )}
-                </div>
-                <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr),auto]">
-                  <select
-                    value={protocoloPrescricaoSelecionado}
-                    onChange={(e) => setProtocoloPrescricaoSelecionado(e.target.value)}
-                    className="prescricao-select-dark w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
-                  >
-                    <option value="">Selecionar protocolo</option>
-                    {PROTOCOLOS_PRESCRICAO.map((protocolo) => (
-                      <option key={protocolo.key} value={protocolo.key}>
-                        {protocolo.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={aplicarProtocoloSelecionado}
-                    disabled={!protocoloPrescricaoSelecionado}
-                    className="rounded-xl bg-teal-400 px-3 py-2 text-xs font-semibold text-slate-950 transition hover:bg-teal-300 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Aplicar protocolo
-                  </button>
-                </div>
-                {protocoloPrescricaoSelecionadoDetalhe ? (
-                  <p className="mt-2 text-xs text-slate-300">
-                    {protocoloPrescricaoSelecionadoDetalhe?.descricao}
-                    {(protocoloPrescricaoSelecionadoDetalhe?.itens.length || 0) > 0
-                      ? ` · ${protocoloPrescricaoSelecionadoDetalhe?.itens.length || 0} item(ns)`
-                      : " · sem medicacao fixa"}
-                  </p>
-                ) : null}
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {PROTOCOLOS_PRESCRICAO.map((protocolo) => (
-                    <button
-                      key={protocolo.key}
-                      type="button"
-                      onClick={() => aplicarProtocoloPrescricao(protocolo)}
-                      className={`rounded-xl px-2.5 py-1 text-[11px] font-medium transition ${
-                        protocoloPrescricaoRecomendado?.key === protocolo.key
-                          ? "bg-emerald-300/20 text-emerald-200"
-                          : "bg-white/10 text-slate-200 hover:bg-white/20"
-                      }`}
-                    >
-                      {protocolo.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {prescricaoErrosCount > 0 ? (
-                <div className="mt-4 rounded-[20px] border border-rose-300/40 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
-                  <p className="font-semibold">Validacao clinica pendente</p>
-                  <p className="mt-1">
-                    Existem {prescricaoErrosCount} campo(s) obrigatorio(s) em aberto. Corrija para salvar e gerar PDF.
-                  </p>
-                </div>
-              ) : null}
-
-              <div className="mt-5 space-y-2">
-                <div className="flex items-center justify-between gap-3 rounded-[20px] border border-white/10 bg-white/5 px-4 py-3">
-                  <p className="min-w-0 text-[10px] uppercase tracking-[0.2em] text-slate-400">Peso</p>
-                  <p className="shrink-0 text-sm font-semibold text-white">{form.triagem.peso ? `${form.triagem.peso} kg` : "Nao informado"}</p>
-                </div>
-                <div className="flex items-center justify-between gap-3 rounded-[20px] border border-white/10 bg-white/5 px-4 py-3">
-                  <p className="min-w-0 text-[10px] uppercase tracking-[0.2em] text-slate-400">Biblioteca cardiologica</p>
-                  <p className="shrink-0 text-sm font-semibold text-white">{medicamentosCardiologicos} itens</p>
-                </div>
-                <div className="flex items-center justify-between gap-3 rounded-[20px] border border-white/10 bg-white/5 px-4 py-3">
-                  <p className="min-w-0 text-[10px] uppercase tracking-[0.2em] text-slate-400">Alertas de interacao</p>
-                  <p className="shrink-0 text-sm font-semibold text-white">{prescricaoSupport.alertasGerais.length}</p>
-                </div>
-              </div>
-
-              <div className="mt-5 space-y-3">
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-400">Orientacoes gerais</label>
-                  <textarea
-                    value={form.prescricao_orientacoes}
-                    onChange={(e) => setField("prescricao_orientacoes", e.target.value)}
-                    placeholder="Resumo para o tutor, cuidados, horarios e retornos."
-                    rows={3}
-                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-slate-500"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-400">Retorno (dias)</label>
-                  <input
-                    type="number"
-                    value={form.prescricao_retorno_dias}
-                    onChange={(e) => setField("prescricao_retorno_dias", e.target.value)}
-                    placeholder="Ex.: 7"
-                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-slate-500"
-                  />
-                </div>
-              </div>
-
-              {prescricaoSupport.alertasGerais.length > 0 ? (
-                <div className="mt-5 rounded-[22px] border border-amber-300/30 bg-amber-400/10 px-4 py-4">
-                  <p className="text-xs uppercase tracking-[0.25em] text-amber-200">Alertas de interacao</p>
-                  <div className="mt-3 space-y-2 text-sm text-amber-100">
-                    {prescricaoSupport.alertasGerais.map((alerta) => (
-                      <p
-                        key={alerta}
-                        className={`rounded-xl border px-3 py-2 ${getAlertaPrescricaoClass(classificarAlertaPrescricao(alerta))}`}
-                      >
-                        {alerta}
-                      </p>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="mt-5 space-y-4">
-                {form.prescricao_itens.map((item, idx) => {
-                  const itemErrors = prescricaoValidationErrors[idx] || {};
-                  const sugestao = prescricaoSupport.itens[idx];
-                  const calculo = prescricaoCalculos[idx];
-                  const isUnico = form.prescricao_itens.length === 1;
-                  const medicamentoSelecionado =
-                    item.medicamento_id != null
-                      ? medicamentos.find((entry) => entry.id === item.medicamento_id) || null
-                      : null;
-                  const apresentacoesDisponiveis = sugestao?.apresentacoes || [];
-                  const sugestaoApresentacao = sugestao?.sugestaoApresentacao || null;
-                  const inputClass = (campo?: PrescricaoCampoObrigatorio) =>
-                    `w-full rounded-2xl border px-4 py-3 text-sm text-white placeholder:text-slate-500 ${
-                      campo && itemErrors[campo]
-                        ? "border-rose-300/60 bg-rose-400/10"
-                        : "border-white/10 bg-white/5"
-                    }`;
-                  const ativo = Boolean(item.medicamento_id || (item.medicamento_nome || "").trim());
-                  return (
-                    <div key={`${idx}-${item.id || "novo"}`} className="rounded-[22px] border border-white/10 bg-white/5 p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-[11px] uppercase tracking-[0.25em] text-slate-400">Item {idx + 1}</p>
-                          <p className="mt-1 text-sm font-semibold text-white">{item.medicamento_nome || "Medicamento em definicao"}</p>
-                        </div>
-                        <button
-                          onClick={() => removerItemPrescricao(idx)}
-                          className="rounded-xl bg-red-400/15 p-2 text-red-100 transition hover:bg-red-400/25"
-                          title={isUnico ? "Limpar item" : "Remover item"}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-
-                      <div className="mt-4 space-y-2">
-                        <select
-                          value={item.medicamento_id || ""}
-                          onChange={(e) => aplicarMedicamentoNaPrescricao(idx, e.target.value ? Number(e.target.value) : null)}
-                          className={`${inputClass("medicamento_nome")} prescricao-select-dark`}
-                        >
-                          <option value="">Selecionar medicamento</option>
-                          {medicamentos.map((med) => <option key={med.id} value={med.id}>{med.nome}</option>)}
-                        </select>
-                        <input
-                          value={item.medicamento_nome}
-                          onChange={(e) => updatePrescricaoItem(idx, { medicamento_nome: e.target.value })}
-                          placeholder="Nome livre do medicamento"
-                          className={inputClass("medicamento_nome")}
-                        />
-                        {medicamentoSelecionado ? (
-                          apresentacoesDisponiveis.length > 0 ? (
-                            <select
-                              value={item.apresentacao_selecionada || ""}
-                              onChange={(e) => updatePrescricaoItem(idx, { apresentacao_selecionada: e.target.value })}
-                              className="prescricao-select-dark w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white"
-                            >
-                              <option value="">Selecionar apresentacao comercial</option>
-                              {apresentacoesDisponiveis.map((apresentacao) => (
-                                <option key={apresentacao.key} value={apresentacao.label}>
-                                  {apresentacao.label}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] px-4 py-3 text-xs text-slate-300">
-                              Sem apresentacoes comerciais estruturadas no cadastro deste medicamento.
-                            </div>
-                          )
-                        ) : null}
-                        {itemErrors.medicamento_nome ? <p className="text-xs text-rose-300">{itemErrors.medicamento_nome}</p> : null}
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => toggleFormulaManipuladaPrescricao(idx)}
-                            className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-slate-200 transition hover:bg-white/10"
-                          >
-                            {/(formula manipulada)/i.test(item.medicamento_nome || "") ? "Remover formula manipulada" : "Marcar como formula manipulada"}
-                          </button>
-                          {item.medicamento_id ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (medicamentoSelecionado) duplicarMedicamentoManipulado(medicamentoSelecionado);
-                              }}
-                              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-slate-200 transition hover:bg-white/10"
-                            >
-                              Salvar formula na biblioteca
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                        <div>
-                          <input
-                            value={item.dose}
-                            onChange={(e) => updatePrescricaoItem(idx, { dose: e.target.value })}
-                            placeholder="Dose"
-                            className={inputClass("dose")}
-                          />
-                          {itemErrors.dose ? <p className="mt-1 text-xs text-rose-300">{itemErrors.dose}</p> : null}
-                        </div>
-                        <div>
-                          <input
-                            value={item.frequencia}
-                            onChange={(e) => updatePrescricaoItem(idx, { frequencia: e.target.value })}
-                            placeholder="Frequencia"
-                            className={inputClass("frequencia")}
-                          />
-                          {itemErrors.frequencia ? <p className="mt-1 text-xs text-rose-300">{itemErrors.frequencia}</p> : null}
-                        </div>
-                        <div>
-                          <input
-                            value={item.duracao}
-                            onChange={(e) => updatePrescricaoItem(idx, { duracao: e.target.value })}
-                            placeholder="Duracao (opcional)"
-                            className={inputClass()}
-                          />
-                        </div>
-                        <div>
-                          <input
-                            value={item.via}
-                            onChange={(e) => updatePrescricaoItem(idx, { via: e.target.value })}
-                            placeholder="Via"
-                            className={inputClass("via")}
-                          />
-                          {itemErrors.via ? <p className="mt-1 text-xs text-rose-300">{itemErrors.via}</p> : null}
-                        </div>
-                      </div>
-
-                      <div className="mt-3 rounded-[20px] border border-white/10 bg-white/[0.03] p-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Calculo guiado da dose</p>
-                        <div className="mt-2 grid gap-2 sm:grid-cols-4">
-                          <input
-                            value={item.dose_mg_kg || ""}
-                            onChange={(e) => updatePrescricaoItem(idx, { dose_mg_kg: e.target.value })}
-                            placeholder="Dose mg/kg"
-                            className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-slate-500"
-                          />
-                          <input
-                            value={item.peso_referencia_kg || ""}
-                            onChange={(e) => updatePrescricaoItem(idx, { peso_referencia_kg: e.target.value })}
-                            placeholder={`Peso kg (${form.triagem.peso || "-"})`}
-                            className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-slate-500"
-                          />
-                          <select
-                            value={item.unidade_dose_calculo || "mg"}
-                            onChange={(e) =>
-                              updatePrescricaoItem(idx, {
-                                unidade_dose_calculo: e.target.value as "mg" | "ml" | "comprimido",
-                              })
-                            }
-                            className="prescricao-select-dark w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white"
-                          >
-                            <option value="mg">mg</option>
-                            <option value="ml">mL</option>
-                            <option value="comprimido">comprimido</option>
-                          </select>
-                          <input
-                            value={item.concentracao_personalizada || ""}
-                            onChange={(e) => updatePrescricaoItem(idx, { concentracao_personalizada: e.target.value })}
-                            disabled={(item.unidade_dose_calculo || "mg") === "mg"}
-                            placeholder={
-                              (item.unidade_dose_calculo || "mg") === "ml"
-                                ? "Concentracao mg/mL"
-                                : (item.unidade_dose_calculo || "mg") === "comprimido"
-                                  ? "Concentracao mg/comprimido"
-                                  : "Sem concentracao"
-                            }
-                            className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-slate-500 disabled:opacity-40"
-                          />
-                        </div>
-
-                        <div className="mt-3 rounded-xl border border-teal-300/30 bg-teal-400/10 px-3 py-2 text-xs text-teal-100">
-                          {calculo.doseTotalMg ? (
-                            <>
-                              <p>
-                                Resultado: <span className="font-semibold">{calculo.doseTotalMg.toFixed(2)} mg por dose</span>
-                                {calculo.unidade === "ml" && calculo.volumeMl ? ` · ${calculo.volumeMl.toFixed(2)} mL` : ""}
-                                {calculo.unidade === "comprimido" && calculo.comprimidos ? ` · ${calculo.comprimidos.toFixed(2)} comprimido(s)` : ""}
-                              </p>
-                              <p className="mt-1 text-teal-200">
-                                Base: {calculo.doseMgKg?.toFixed(3)} mg/kg · {calculo.pesoKg?.toFixed(2)} kg
-                                {calculo.concentracao ? ` · concentracao ${calculo.concentracao}` : ""}
-                              </p>
-                            </>
-                          ) : (
-                            <p>Informe dose (mg/kg) e peso para habilitar o calculo automatico.</p>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => aplicarCalculoNaDose(idx, calculo)}
-                            disabled={!calculo.doseTotalMg}
-                            className="mt-2 rounded-lg bg-teal-400 px-2.5 py-1.5 text-[11px] font-semibold text-slate-950 transition hover:bg-teal-300 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            Aplicar calculo na dose
-                          </button>
-                        </div>
-                      </div>
-
-                      <textarea
-                        value={item.instrucoes}
-                        onChange={(e) => updatePrescricaoItem(idx, { instrucoes: e.target.value })}
-                        placeholder="Instrucoes especificas do item"
-                        rows={2}
-                        className="mt-3 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-slate-500"
-                      />
-
-                      {sugestao?.doseSugerida ? (
-                        <div className="mt-3 rounded-[20px] border border-teal-300/30 bg-teal-400/10 px-4 py-3 text-sm text-teal-100">
-                          <p className="font-semibold">Dose sugerida automatica</p>
-                          <p className="mt-1">{sugestao.doseSugerida}</p>
-                          {sugestao.detalhe ? <p className="mt-1 text-xs text-teal-200">{sugestao.detalhe}</p> : null}
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updatePrescricaoItem(idx, {
-                                dose: item.dose || sugestao.doseSugerida,
-                              })
-                            }
-                            className="mt-3 rounded-xl bg-teal-400 px-3 py-2 text-xs font-semibold text-slate-950 transition hover:bg-teal-300"
-                          >
-                            Aplicar dose sugerida
-                          </button>
-                        </div>
-                      ) : null}
-
-                      {sugestaoApresentacao ? (
-                        <div
-                          className={`mt-3 rounded-[20px] border px-4 py-3 text-sm ${
-                            sugestaoApresentacao.requerManipulacao
-                              ? "border-amber-300/30 bg-amber-400/10 text-amber-100"
-                              : "border-sky-300/30 bg-sky-400/10 text-sky-100"
-                          }`}
-                        >
-                          <p className="font-semibold">
-                            {sugestaoApresentacao.requerManipulacao ? "Apresentacao comercial nao viavel" : "Apresentacao sugerida"}
-                          </p>
-                          <p className="mt-1">{sugestaoApresentacao.resumo}</p>
-                          {sugestaoApresentacao.detalhe ? (
-                            <p className="mt-1 text-xs text-current/80">{sugestaoApresentacao.detalhe}</p>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() => aplicarSugestaoApresentacaoNaPrescricao(idx, sugestaoApresentacao)}
-                            className={`mt-3 rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                              sugestaoApresentacao.requerManipulacao
-                                ? "bg-amber-300 text-slate-950 hover:bg-amber-200"
-                                : "bg-sky-300 text-slate-950 hover:bg-sky-200"
-                            }`}
-                          >
-                            {sugestaoApresentacao.requerManipulacao ? "Usar formula manipulada" : "Aplicar apresentacao sugerida"}
-                          </button>
-                        </div>
-                      ) : null}
-
-                      {sugestao?.alertas?.length ? (
-                        <div className="mt-3 rounded-[20px] border border-amber-300/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
-                          {sugestao.alertas.map((alerta) => (
-                            <p
-                              key={alerta}
-                              className={`mb-1 rounded-xl border px-3 py-2 last:mb-0 ${getAlertaPrescricaoClass(classificarAlertaPrescricao(alerta))}`}
-                            >
-                              {alerta}
-                            </p>
-                          ))}
-                        </div>
-                      ) : null}
-
-                      {item.historico_ajustes && item.historico_ajustes.length > 0 ? (
-                        <div className="mt-3 rounded-[20px] border border-white/10 bg-slate-900/50 px-4 py-3">
-                          <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Historico de ajustes</p>
-                          <div className="mt-3 space-y-2">
-                            {item.historico_ajustes.slice(0, 4).map((ajuste) => (
-                              <div key={ajuste.id} className="rounded-xl border border-white/5 bg-white/5 px-3 py-2 text-xs">
-                                <div className="flex items-center justify-between">
-                                  <span className="font-medium capitalize text-white">{ajuste.campo}</span>
-                                  <span className="text-slate-500">{formatDate(ajuste.created_at)}</span>
-                                </div>
-                                <div className="mt-1 text-slate-300">
-                                  {ajuste.valor_anterior || "-"} <span className="mx-1 text-slate-500">→</span> {ajuste.valor_novo || "-"}
-                                </div>
-                                {(ajuste.responsavel_nome || ajuste.motivo) && (
-                                  <div className="mt-1 text-slate-500">
-                                    {ajuste.responsavel_nome && <span>{ajuste.responsavel_nome}</span>}
-                                    {ajuste.responsavel_nome && ajuste.motivo && <span className="mx-1">·</span>}
-                                    {ajuste.motivo && <span>{ajuste.motivo}</span>}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {ativo && Object.keys(itemErrors).length > 0 ? (
-                        <div className="mt-3 rounded-xl border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
-                          Corrija os campos obrigatorios deste item para finalizar a prescricao.
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-            ) : null}
-          </aside>
-          ) : null}
-        </div>
           </div>
-        </div>
 
         {isBibliotecasWorkspace ? (
-        <>
-        <div className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm space-y-4">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <button
-              type="button"
-              onClick={() => setShowPhraseBank((prev) => !prev)}
-              className="flex items-center gap-3 text-left"
-            >
-              <div className="rounded-2xl bg-teal-50 p-3">
-                <ClipboardPlus className="h-4 w-4 text-teal-600" />
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Banco configuravel</p>
-                <h2 className="text-lg font-semibold text-slate-900">Frases clinicas do atendimento</h2>
-              </div>
-              {showPhraseBank ? <ChevronDown className="h-4 w-4 text-slate-500" /> : <ChevronRight className="h-4 w-4 text-slate-500" />}
-            </button>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => void carregarFrasesClinicas()}
-                className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <RefreshCw className="h-4 w-4" />
-                  Atualizar banco
-                </span>
-              </button>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                {clinicalPhrases.length} frase(s)
-              </span>
-            </div>
-          </div>
-
-          {showPhraseBank ? (
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <div className="space-y-3 rounded-[22px] border border-slate-200 bg-slate-50 p-4">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Secao</label>
-                  <select
-                    value={clinicalPhraseForm.secao}
-                    onChange={(e) =>
-                      setClinicalPhraseForm((prev) => ({
-                        ...prev,
-                        secao: e.target.value as ClinicalFieldKey,
-                      }))
-                    }
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                  >
-                    {CLINICAL_SECTION_OPTIONS.map((item) => (
-                      <option key={item.key} value={item.key}>{item.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Ordem</label>
-                  <input
-                    value={clinicalPhraseForm.ordem}
-                    onChange={(e) =>
-                      setClinicalPhraseForm((prev) => ({
-                        ...prev,
-                        ordem: e.target.value,
-                      }))
-                    }
-                    placeholder="10"
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Titulo</label>
-                <input
-                  value={clinicalPhraseForm.titulo}
-                  onChange={(e) =>
-                    setClinicalPhraseForm((prev) => ({
-                      ...prev,
-                      titulo: e.target.value,
-                    }))
-                  }
-                  placeholder="Ex.: Endocardiose mitral B1"
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Texto</label>
-                <textarea
-                  value={clinicalPhraseForm.texto}
-                  onChange={(e) =>
-                    setClinicalPhraseForm((prev) => ({
-                      ...prev,
-                      texto: e.target.value,
-                    }))
-                  }
-                  rows={7}
-                  placeholder="Texto da frase clinica."
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                />
-              </div>
-
-              <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={clinicalPhraseForm.ativo === 1}
-                  onChange={(e) =>
-                    setClinicalPhraseForm((prev) => ({
-                      ...prev,
-                      ativo: e.target.checked ? 1 : 0,
-                    }))
-                  }
-                  className="h-4 w-4"
-                />
-                Frase ativa
-              </label>
-
-              <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-                As frases cadastradas aqui alimentam os atalhos do editor clinico por secao.
-              </p>
-
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={saveClinicalPhrase}
-                  disabled={savingClinicalPhrase}
-                  className="rounded-2xl bg-teal-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700 disabled:opacity-50"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <Save className="h-4 w-4" />
-                    {savingClinicalPhrase ? "Salvando..." : clinicalPhraseForm.id ? "Atualizar frase" : "Salvar frase"}
-                  </span>
-                </button>
-                <button
-                  onClick={resetClinicalPhraseForm}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <Plus className="h-4 w-4" />
-                    Nova frase
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            <div className="xl:col-span-2 rounded-[22px] border border-slate-200 bg-white">
-              <div className="grid gap-3 border-b border-slate-200 p-4 md:grid-cols-[minmax(0,1fr),240px]">
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input
-                    value={clinicalPhraseSearch}
-                    onChange={(e) => setClinicalPhraseSearch(e.target.value)}
-                    placeholder="Buscar frase clinica..."
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-3 text-sm text-slate-900"
-                  />
-                </div>
-                <select
-                  value={clinicalPhraseSectionFilter}
-                  onChange={(e) => setClinicalPhraseSectionFilter((e.target.value || "") as ClinicalFieldKey | "")}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900"
-                >
-                  <option value="">Todas as secoes</option>
-                  {CLINICAL_SECTION_OPTIONS.map((item) => (
-                    <option key={item.key} value={item.key}>{item.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="max-h-[420px] overflow-auto p-4">
-                <div className="space-y-3">
-                  {clinicalPhrasesFiltered.map((item) => (
-                    <div key={item.id} className={`rounded-[22px] border px-4 py-4 ${Number(item.ativo ?? 1) === 1 ? "border-slate-200 bg-slate-50" : "border-slate-200 bg-slate-100/70 opacity-80"}`}>
-                      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-sm font-semibold text-slate-900">{item.titulo}</p>
-                            <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600">
-                              {clinicalSectionLabels[item.secao] || item.secao}
-                            </span>
-                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${Number(item.ativo ?? 1) === 1 ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
-                              {Number(item.ativo ?? 1) === 1 ? "Ativa" : "Inativa"}
-                            </span>
-                            <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-medium text-sky-700">
-                              {item.parametrizacao_origem || "manual"}
-                            </span>
-                          </div>
-                          <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{item.texto}</p>
-                        </div>
-
-                        <div className="flex shrink-0 flex-wrap gap-2">
-                          <button
-                            onClick={() => editarFraseClinica(item)}
-                            className="rounded-xl bg-sky-100 px-3 py-2 text-xs font-medium text-sky-700 transition hover:bg-sky-200"
-                          >
-                            Editar
-                          </button>
-                          <button
-                            onClick={() => void toggleClinicalPhrase(item)}
-                            className={`rounded-xl px-3 py-2 text-xs font-medium transition ${Number(item.ativo ?? 1) === 1 ? "bg-red-100 text-red-700 hover:bg-red-200" : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"}`}
-                          >
-                            {Number(item.ativo ?? 1) === 1 ? "Desativar" : "Reativar"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
-                  {clinicalPhrasesFiltered.length === 0 ? (
-                    <div className="rounded-[22px] border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">
-                      Nenhuma frase clinica encontrada para os filtros atuais.
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          </div>
-          ) : (
-            <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-              Abra este painel para cadastrar, editar e ativar frases do editor clinico.
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm space-y-3">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <button
-              type="button"
-              onClick={() => setShowMedicationBank((prev) => !prev)}
-              className="flex items-center gap-3 text-left"
-            >
-              <div className="rounded-2xl bg-teal-50 p-3">
-                <Pill className="w-4 h-4 text-teal-600" />
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Banco configuravel</p>
-                <h2 className="font-semibold text-gray-900">Banco de medicamentos</h2>
-              </div>
-              {showMedicationBank ? <ChevronDown className="h-4 w-4 text-slate-500" /> : <ChevronRight className="h-4 w-4 text-slate-500" />}
-            </button>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-              {medicamentos.length} medicamento(s)
-            </span>
-          </div>
-
-          {showMedicationBank ? (
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <div className="space-y-3 rounded-[22px] border border-slate-200 bg-slate-50 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                    {medForm.id ? "Editando medicamento" : "Novo medicamento"}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Os campos importados do HTML ficam explicitos aqui e podem ser editados antes da prescricao.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-white px-3 py-1 text-[11px] font-medium text-slate-600">
-                    {formatarOrigemMedicamento(medForm.parametrizacao_origem)}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={resetMedicationForm}
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-                  >
-                    Novo
-                  </button>
-                </div>
-              </div>
-
-              {medForm.parametrizacao_origem === "vetsmart_html" ? (
-                <p className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-800">
-                  Este registro veio de HTML salvo da Vetsmart. Apresentacoes, indicacoes, interacoes e frequencia podem ser ajustadas manualmente aqui.
-                </p>
-              ) : (
-                <p className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-800">
-                  Use esta ficha para cadastrar um medicamento proprio, ou criar uma versao reutilizavel de formula manipulada.
-                </p>
-              )}
-
-              <input
-                value={medForm.nome}
-                onChange={(e) => setMedForm((p) => ({ ...p, nome: e.target.value }))}
-                placeholder="Nome do medicamento"
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-              />
-              <input
-                value={medForm.principio_ativo}
-                onChange={(e) => setMedForm((p) => ({ ...p, principio_ativo: e.target.value }))}
-                placeholder="Principio ativo"
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-              />
-
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Apresentacoes / concentracao</label>
-                <textarea
-                  value={medForm.concentracao}
-                  onChange={(e) => setMedForm((p) => ({ ...p, concentracao: e.target.value }))}
-                  placeholder="Uma apresentacao por linha. Ex.: Pimobendan 5 mg, capsula"
-                  rows={3}
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                />
-              </div>
-
-              <div className="grid gap-2 sm:grid-cols-2">
-                <input value={medForm.forma_farmaceutica} onChange={(e) => setMedForm((p) => ({ ...p, forma_farmaceutica: e.target.value }))} placeholder="Forma farmaceutica" className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" />
-                <input value={medForm.classe_terapeutica} onChange={(e) => setMedForm((p) => ({ ...p, classe_terapeutica: e.target.value }))} placeholder="Classe terapeutica" className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" />
-                <input value={medForm.especie_alvo} onChange={(e) => setMedForm((p) => ({ ...p, especie_alvo: e.target.value }))} placeholder="Especie alvo" className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" />
-                <input value={medForm.categoria} onChange={(e) => setMedForm((p) => ({ ...p, categoria: e.target.value }))} placeholder="Categoria" className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" />
-                <input value={medForm.dose_min_mg_kg} onChange={(e) => setMedForm((p) => ({ ...p, dose_min_mg_kg: e.target.value }))} placeholder="Dose min (mg/kg)" className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" />
-                <input value={medForm.dose_max_mg_kg} onChange={(e) => setMedForm((p) => ({ ...p, dose_max_mg_kg: e.target.value }))} placeholder="Dose max (mg/kg)" className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" />
-                <input value={medForm.dose_intervalo_horas} onChange={(e) => setMedForm((p) => ({ ...p, dose_intervalo_horas: e.target.value }))} placeholder="Intervalo/frequencia (h)" className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" />
-                <input value={medForm.via_padrao} onChange={(e) => setMedForm((p) => ({ ...p, via_padrao: e.target.value }))} placeholder="Via padrao" className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" />
-                <input value={medForm.duracao_padrao} onChange={(e) => setMedForm((p) => ({ ...p, duracao_padrao: e.target.value }))} placeholder="Duracao padrao (opcional)" className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" />
-                <input value={medForm.concentracao_mg_ml} onChange={(e) => setMedForm((p) => ({ ...p, concentracao_mg_ml: e.target.value }))} placeholder="Concentracao mg/mL" className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" />
-                <input value={medForm.concentracao_mg_comprimido} onChange={(e) => setMedForm((p) => ({ ...p, concentracao_mg_comprimido: e.target.value }))} placeholder="Concentracao mg/comprimido" className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Indicacoes</label>
-                <textarea value={medForm.indicacoes} onChange={(e) => setMedForm((p) => ({ ...p, indicacoes: e.target.value }))} placeholder="Indicacoes clinicas importadas ou manuais" rows={3} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Contraindicacoes</label>
-                <textarea value={medForm.contraindicacoes} onChange={(e) => setMedForm((p) => ({ ...p, contraindicacoes: e.target.value }))} placeholder="Contraindicacoes e precaucoes" rows={3} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Interacoes medicamentosas</label>
-                <textarea value={medForm.interacoes} onChange={(e) => setMedForm((p) => ({ ...p, interacoes: e.target.value }))} placeholder="Uma interacao por linha" rows={4} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Observacao de seguranca</label>
-                <textarea value={medForm.observacao_seguranca} onChange={(e) => setMedForm((p) => ({ ...p, observacao_seguranca: e.target.value }))} placeholder="Alertas, cuidados e avisos" rows={3} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Observacoes tecnicas</label>
-                <textarea value={medForm.observacoes} onChange={(e) => setMedForm((p) => ({ ...p, observacoes: e.target.value }))} placeholder="Fonte, monitoramento, receita e notas adicionais" rows={5} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" />
-              </div>
-
-              <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-                Parametrize dose, interacoes e regras clinicas antes de automatizar receituarios em producao.
-              </p>
-
-              <div className="flex flex-wrap gap-2">
-                <button onClick={saveMedicamento} className="rounded-2xl bg-teal-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700">
-                  <span className="inline-flex items-center gap-2"><Save className="w-4 h-4" />{medForm.id ? "Atualizar medicamento" : "Salvar medicamento"}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={resetMedicationForm}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                >
-                  Limpar ficha
-                </button>
-              </div>
-            </div>
-
-            <div className="xl:col-span-2 overflow-hidden rounded-[22px] border border-slate-200 bg-white">
-              <div className="grid gap-3 border-b border-slate-200 p-3 md:grid-cols-[minmax(0,1fr),auto]">
-                <input value={medBusca} onChange={(e) => setMedBusca(e.target.value)} placeholder="Buscar medicamento..." className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900" />
-                <button
-                  type="button"
-                  onClick={() => void carregarMedicamentosBanco()}
-                  className="rounded-2xl bg-slate-100 px-4 py-3 text-xs font-medium text-slate-700 transition hover:bg-slate-200"
-                >
-                  Atualizar lista
-                </button>
-              </div>
-              <div className="max-h-[520px] overflow-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="px-3 py-3 text-left">Nome</th>
-                      <th className="px-3 py-3 text-left">Classe / origem</th>
-                      <th className="px-3 py-3 text-left">Dose base</th>
-                      <th className="px-3 py-3 text-right">Acoes</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {medFiltrados.map((med) => (
-                      <tr
-                        key={med.id}
-                        onClick={() => editarMedicamento(med)}
-                        className={`border-t transition ${medForm.id === med.id ? "bg-teal-50" : "cursor-pointer hover:bg-slate-50"}`}
-                      >
-                        <td className="px-3 py-3">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              editarMedicamento(med);
-                            }}
-                            className="text-left"
-                          >
-                            <p className="font-medium text-slate-900">{med.nome}</p>
-                            <p className="text-xs text-slate-500">{med.principio_ativo || "-"}</p>
-                          </button>
-                        </td>
-                        <td className="px-3 py-3">
-                          <p className="text-slate-800">{med.classe_terapeutica || med.categoria || "-"}</p>
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600">
-                              {formatarOrigemMedicamento(med.parametrizacao_origem)}
-                            </span>
-                            {med.parametrizado ? (
-                              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
-                                Parametrizado
-                              </span>
-                            ) : null}
-                          </div>
-                        </td>
-                        <td className="px-3 py-3">
-                          <p className="text-slate-800">
-                            {med.dose_min_mg_kg || med.dose_max_mg_kg
-                              ? `${med.dose_min_mg_kg ?? med.dose_max_mg_kg} a ${med.dose_max_mg_kg ?? med.dose_min_mg_kg} ${med.dose_unidade || "mg/kg"}`
-                              : "Nao parametrizada"}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {med.dose_intervalo_horas ? `a cada ${med.dose_intervalo_horas}h` : "Frequencia em aberto"}
-                          </p>
-                        </td>
-                        <td className="px-3 py-3">
-                          <div className="flex flex-wrap justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                editarMedicamento(med);
-                              }}
-                              className="rounded-xl bg-sky-100 px-3 py-2 text-xs font-medium text-sky-700 transition hover:bg-sky-200"
-                            >
-                              Editar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                duplicarMedicamentoManipulado(med);
-                              }}
-                              className="rounded-xl bg-violet-100 px-3 py-2 text-xs font-medium text-violet-700 transition hover:bg-violet-200"
-                            >
-                              Duplicar formula
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                adicionarMedicamentoNaPrescricao(med);
-                              }}
-                              className="rounded-xl bg-teal-100 px-3 py-2 text-xs font-medium text-teal-700 transition hover:bg-teal-200"
-                            >
-                              Prescrever
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                adicionarMedicamentoNaPrescricao(med, { manipulado: true });
-                              }}
-                              className="rounded-xl bg-amber-100 px-3 py-2 text-xs font-medium text-amber-700 transition hover:bg-amber-200"
-                            >
-                              Presc. formula
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void desativarMedicamento(med);
-                              }}
-                              className="rounded-xl bg-rose-100 px-3 py-2 text-xs font-medium text-rose-700 transition hover:bg-rose-200"
-                            >
-                              Desativar
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {medFiltrados.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="px-4 py-10 text-center text-sm text-slate-500">
-                          Nenhum medicamento encontrado para a busca atual.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-          ) : (
-            <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-              Abra este painel quando precisar parametrizar a biblioteca farmacologica.
-            </div>
-          )}
-        </div>
-        </>
+          <AtendimentoBibliotecasSection
+            CLINICAL_SECTION_OPTIONS={CLINICAL_SECTION_OPTIONS}
+            adicionarMedicamentoNaPrescricao={adicionarMedicamentoNaPrescricao}
+            carregarFrasesClinicas={carregarFrasesClinicas}
+            carregarMedicamentosBanco={carregarMedicamentosBanco}
+            clinicalPhraseForm={clinicalPhraseForm}
+            clinicalPhraseSearch={clinicalPhraseSearch}
+            clinicalPhraseSectionFilter={clinicalPhraseSectionFilter}
+            clinicalPhrases={clinicalPhrases}
+            clinicalPhrasesFiltered={clinicalPhrasesFiltered}
+            clinicalSectionLabels={clinicalSectionLabels}
+            desativarMedicamento={desativarMedicamento}
+            duplicarMedicamentoManipulado={duplicarMedicamentoManipulado}
+            editarFraseClinica={editarFraseClinica}
+            editarMedicamento={editarMedicamento}
+            formatarOrigemMedicamento={formatarOrigemMedicamento}
+            medBusca={medBusca}
+            medFiltrados={medFiltrados}
+            medForm={medForm}
+            medicamentos={medicamentos}
+            resetClinicalPhraseForm={resetClinicalPhraseForm}
+            resetMedicationForm={resetMedicationForm}
+            saveClinicalPhrase={saveClinicalPhrase}
+            saveMedicamento={saveMedicamento}
+            savingClinicalPhrase={savingClinicalPhrase}
+            setClinicalPhraseForm={setClinicalPhraseForm}
+            setClinicalPhraseSearch={setClinicalPhraseSearch}
+            setClinicalPhraseSectionFilter={setClinicalPhraseSectionFilter}
+            setMedBusca={setMedBusca}
+            setMedForm={setMedForm}
+            setShowMedicationBank={setShowMedicationBank}
+            setShowPhraseBank={setShowPhraseBank}
+            showMedicationBank={showMedicationBank}
+            showPhraseBank={showPhraseBank}
+            toggleClinicalPhrase={toggleClinicalPhrase}
+          />
         ) : null}
       </div>
       {attachmentPreview ? (
-        <div
-          data-fortcordis-overlay-safe="1"
-          className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/70 px-4 py-6"
-        >
-          <button
-            type="button"
-            aria-label="Fechar preview"
-            onClick={closeAttachmentPreview}
-            className="absolute inset-0 cursor-default"
-          />
-          <div
-            data-fortcordis-overlay-safe="1"
-            className="relative z-[121] flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl"
-          >
-            <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Preview do anexo</p>
-                <h3 className="mt-1 text-lg font-semibold text-slate-900">{attachmentPreview.title}</h3>
-                <p className="mt-1 text-sm text-slate-500">{attachmentPreview.anexo.descricao || attachmentPreview.anexo.tipo}</p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => abrirAnexo(attachmentPreview.anexo, "download")}
-                  className="inline-flex items-center gap-2 rounded-xl bg-blue-100 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-200"
-                >
-                  <Download className="h-4 w-4" />
-                  Baixar
-                </button>
-                {attachmentPreview.url ? (
-                  <button
-                    type="button"
-                    onClick={() => window.open(attachmentPreview.url, "_blank", "noopener,noreferrer")}
-                    className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200"
-                  >
-                    <ArrowRight className="h-4 w-4" />
-                    Nova aba
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={closeAttachmentPreview}
-                  className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                >
-                  <X className="h-4 w-4" />
-                  Fechar
-                </button>
-              </div>
-            </div>
-            <div className="border-b border-slate-200 bg-slate-50 px-5 py-3">
-              {attachmentPreview.kind === "image" ? (
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-white px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
-                      Imagem
-                    </span>
-                    <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600">
-                      Zoom {Math.round(attachmentImageZoom * 100)}%
-                    </span>
-                    {attachmentPreview.anexo.created_at ? (
-                      <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600">
-                        {formatDate(attachmentPreview.anexo.created_at)}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={zoomOutAttachmentImage}
-                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      <Minus className="h-4 w-4" />
-                      Reduzir
-                    </button>
-                    <button
-                      type="button"
-                      onClick={resetAttachmentImageView}
-                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                      Ajustar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={zoomInAttachmentImage}
-                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Ampliar
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-white px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
-                      PDF
-                    </span>
-                    <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600">
-                      Pagina {attachmentPdfPage}
-                    </span>
-                    <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600">
-                      Zoom {attachmentPdfZoom}%
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setAttachmentPdfPage((current) => Math.max(1, current - 1))}
-                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                      Anterior
-                    </button>
-                    <input
-                      type="number"
-                      min={1}
-                      value={attachmentPdfPage}
-                      onChange={(event) => {
-                        const nextPage = Number(event.target.value);
-                        setAttachmentPdfPage(Number.isFinite(nextPage) && nextPage > 0 ? nextPage : 1);
-                      }}
-                      className="w-20 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setAttachmentPdfPage((current) => current + 1)}
-                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      Proxima
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAttachmentPdfZoom((current) => Math.max(60, current - 10))}
-                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      <Minus className="h-4 w-4" />
-                      Zoom
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAttachmentPdfPage(1);
-                        setAttachmentPdfZoom(110);
-                      }}
-                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                      Resetar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAttachmentPdfZoom((current) => Math.min(220, current + 10))}
-                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Zoom
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="overflow-auto bg-slate-100 p-4 md:p-6">
-              {attachmentPreview.kind === "image" ? (
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-2 px-1 text-xs font-medium text-slate-500">
-                    <span className="rounded-full bg-white px-3 py-1">
-                      {attachmentImageZoom > 1 ? "Arraste a imagem para explorar o detalhe." : "Amplie para habilitar o arraste."}
-                    </span>
-                    {attachmentImageZoom > 1 ? (
-                      <button
-                        type="button"
-                        onClick={() => setAttachmentImageOffset({ x: 0, y: 0 })}
-                        className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-slate-600 hover:bg-slate-200"
-                      >
-                        <RefreshCw className="h-3.5 w-3.5" />
-                        Centralizar
-                      </button>
-                    ) : null}
-                  </div>
-                  <div
-                    onPointerDown={handleAttachmentImagePointerDown}
-                    onPointerMove={handleAttachmentImagePointerMove}
-                    onPointerUp={handleAttachmentImagePointerUp}
-                    onPointerCancel={handleAttachmentImagePointerUp}
-                    className={`flex min-h-[60vh] items-center justify-center overflow-hidden rounded-[24px] border border-slate-200 bg-white p-4 select-none touch-none ${
-                      attachmentImageZoom > 1
-                        ? attachmentImageDragging
-                          ? "cursor-grabbing"
-                          : "cursor-grab"
-                        : "cursor-default"
-                    }`}
-                  >
-                    <img
-                      src={attachmentPreview.url}
-                      alt={attachmentPreview.title}
-                      draggable={false}
-                      className="max-h-none w-auto max-w-none rounded-2xl object-contain transition-transform duration-150"
-                      style={{
-                        transform: `translate(${attachmentImageOffset.x}px, ${attachmentImageOffset.y}px) scale(${attachmentImageZoom})`,
-                        transformOrigin: "center center",
-                      }}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="overflow-auto rounded-[24px] border border-slate-200 bg-slate-100 p-3">
-                  <div
-                    className="min-w-full overflow-hidden rounded-[18px] border border-slate-200 bg-white shadow-sm"
-                    style={{
-                      width: `${Math.max(attachmentPdfZoom, 60)}%`,
-                    }}
-                  >
-                    <iframe
-                      key={`${attachmentPreview.url}-${attachmentPdfPage}`}
-                      src={buildPdfPreviewUrl(attachmentPreview)}
-                      title={attachmentPreview.title}
-                      className="h-[72vh] w-full"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <AttachmentPreviewModal
+          attachmentImageDragging={attachmentImageDragging}
+          attachmentImageOffset={attachmentImageOffset}
+          attachmentImageZoom={attachmentImageZoom}
+          attachmentPdfPage={attachmentPdfPage}
+          attachmentPdfZoom={attachmentPdfZoom}
+          attachmentPreview={attachmentPreview}
+          abrirAnexo={abrirAnexo}
+          buildPdfPreviewUrl={buildPdfPreviewUrl}
+          closeAttachmentPreview={closeAttachmentPreview}
+          formatDate={formatDate}
+          handleAttachmentImagePointerDown={handleAttachmentImagePointerDown}
+          handleAttachmentImagePointerMove={handleAttachmentImagePointerMove}
+          handleAttachmentImagePointerUp={handleAttachmentImagePointerUp}
+          resetAttachmentImageView={resetAttachmentImageView}
+          setAttachmentImageOffset={setAttachmentImageOffset}
+          setAttachmentPdfPage={setAttachmentPdfPage}
+          setAttachmentPdfZoom={setAttachmentPdfZoom}
+          zoomInAttachmentImage={zoomInAttachmentImage}
+          zoomOutAttachmentImage={zoomOutAttachmentImage}
+        />
       ) : null}
+      </div>
     </DashboardLayout>
   );
 }
+

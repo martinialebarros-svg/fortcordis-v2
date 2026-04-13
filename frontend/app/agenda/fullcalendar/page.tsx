@@ -3,14 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import dayGridPlugin from "@fullcalendar/daygrid";
-import interactionPlugin, {
-  type DateClickArg,
-  type EventResizeDoneArg,
-} from "@fullcalendar/interaction";
-import listPlugin from "@fullcalendar/list";
-import timeGridPlugin from "@fullcalendar/timegrid";
-import ptBrLocale from "@fullcalendar/core/locales/pt-br";
 import type {
   DateSelectArg,
   DatesSetArg,
@@ -19,10 +11,10 @@ import type {
   EventDropArg,
   EventInput,
 } from "@fullcalendar/core";
+import type { DateClickArg, EventResizeDoneArg } from "@fullcalendar/interaction";
 import { CalendarDays, ChevronDown, Download, FileText, RefreshCw, Stethoscope, Trash2, Wallet } from "lucide-react";
 
 import DashboardLayout from "../../layout-dashboard";
-import NovoAgendamentoModal from "../NovoAgendamentoModal";
 import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import { montarToastAgendaRealtime } from "@/lib/agenda-realtime-toast";
@@ -32,7 +24,6 @@ import {
   TIPO_LAUDO_ECOCARDIOGRAMA,
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
-import { baixarLaudoPdf } from "@/lib/laudo-pdf";
 import {
   AgendaExcecaoConfig,
   AgendaFeriadoConfig,
@@ -47,7 +38,16 @@ import {
   validarHorarioAgendamento,
 } from "@/lib/agenda-config";
 
-const FullCalendar = dynamic(() => import("@fullcalendar/react"), { ssr: false });
+const AgendaFullCalendarView = dynamic(() => import("./AgendaFullCalendarView"), {
+  ssr: false,
+  loading: () => (
+    <div className="rounded-xl border bg-white p-6 text-sm text-gray-500 shadow-sm">
+      Carregando calendario...
+    </div>
+  ),
+});
+
+const NovoAgendamentoModal = dynamic(() => import("../NovoAgendamentoModal"));
 
 interface Agendamento {
   id: number;
@@ -141,6 +141,10 @@ interface ToastRealtimeData {
   texto: string;
   classe: string;
   agendamentoId?: number;
+}
+
+interface CarregarAgendamentosOptions {
+  includeRelated?: boolean;
 }
 
 type OpcaoRecorrencia = "apenas_este" | "cada_7_dias" | "seg_a_sex" | "todos_os_dias";
@@ -700,7 +704,10 @@ export default function AgendaFullCalendarPage() {
     [laudosVinculados]
   );
 
-  const carregarAgendamentos = useCallback(async (periodo: IntervaloConsulta) => {
+  const carregarAgendamentos = useCallback(async (
+    periodo: IntervaloConsulta,
+    { includeRelated = true }: CarregarAgendamentosOptions = {}
+  ) => {
     setLoading(true);
     try {
       const pageSize = 500;
@@ -729,11 +736,13 @@ export default function AgendaFullCalendarPage() {
       }
 
       setAgendamentos(items);
-      await Promise.all([
-        carregarClinicasComEndereco(items),
-        carregarOrdensServicoVinculadas(items, periodo),
-        carregarLaudosVinculados(items),
-      ]);
+      if (includeRelated) {
+        await Promise.all([
+          carregarClinicasComEndereco(items),
+          carregarOrdensServicoVinculadas(items, periodo),
+          carregarLaudosVinculados(items),
+        ]);
+      }
       setErro("");
     } catch (error) {
       console.error("Erro ao carregar agenda FullCalendar:", error);
@@ -809,7 +818,7 @@ export default function AgendaFullCalendarPage() {
       realtimeRefreshTimeoutRef.current = setTimeout(() => {
         realtimeRefreshTimeoutRef.current = null;
         if (intervalo) {
-          void carregarAgendamentos(intervalo);
+          void carregarAgendamentos(intervalo, { includeRelated: false });
         }
       }, 700);
     },
@@ -1006,6 +1015,7 @@ export default function AgendaFullCalendarPage() {
     }
 
     try {
+      const { baixarLaudoPdf } = await import("@/lib/laudo-pdf");
       await baixarLaudoPdf(
         laudoSelecionado.id,
         `laudo_agendamento_${selecionado.id}.pdf`,
@@ -1908,17 +1918,7 @@ export default function AgendaFullCalendarPage() {
         {erro && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</div>}
 
         <div className="rounded-xl border bg-white p-2 shadow-sm md:p-4">
-          <FullCalendar
-            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin, listPlugin]}
-            initialView="dayGridMonth"
-            locales={[ptBrLocale]}
-            locale="pt-br"
-            buttonText={{ today: "Hoje", month: "Mes", week: "Semana", day: "Dia", list: "Lista" }}
-            headerToolbar={{
-              left: "prev,next today",
-              center: "title",
-              right: "dayGridMonth,timeGridWeek,timeGridDay,listWeek",
-            }}
+          <AgendaFullCalendarView
             events={eventos}
             eventContent={renderEventContent}
             datesSet={handleDatesSet}
@@ -1927,15 +1927,9 @@ export default function AgendaFullCalendarPage() {
             select={handleSelect}
             eventDrop={handleEventDrop}
             eventResize={handleEventResize}
-            nowIndicator
             businessHours={businessHours}
-            editable
-            selectable
-            eventStartEditable
-            eventDurationEditable
-            selectMirror
-            selectAllow={(selectInfo) => permiteInteracaoHorarioAgenda(selectInfo.start, selectInfo.end)}
-            eventAllow={(dropInfo) => permiteInteracaoHorarioAgenda(dropInfo.start, dropInfo.end)}
+            selectAllow={(selectInfo) => permiteInteracaoHorarioAgenda(selectInfo.start, selectInfo.end ?? selectInfo.start)}
+            eventAllow={(dropInfo) => permiteInteracaoHorarioAgenda(dropInfo.start, dropInfo.end ?? dropInfo.start)}
             eventOverlap={(stillEvent, movingEvent) => {
               const statusStill = String(
                 ((stillEvent.extendedProps?.agendamento as Agendamento | undefined)?.status || "").trim()
@@ -1951,21 +1945,12 @@ export default function AgendaFullCalendarPage() {
               );
               return statusExistente === "Cancelado";
             }}
-            allDaySlot={false}
             slotMinTime={slotMinTime}
             slotMaxTime={slotMaxTime}
-            slotDuration={duracaoSlot}
-            snapDuration={duracaoSlot}
-            slotLabelInterval={duracaoSlot}
+            duracaoSlot={duracaoSlot}
             slotLaneClassNames={slotLaneClassNames}
             slotLaneContent={slotLaneContent}
             slotLaneDidMount={slotLaneDidMount}
-            height="auto"
-            eventTimeFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
-            dayMaxEventRows={3}
-            dayMaxEvents
-            eventDisplay="block"
-            eventClassNames="cursor-pointer overflow-hidden"
           />
         </div>
 
@@ -2381,17 +2366,19 @@ export default function AgendaFullCalendarPage() {
           </div>
         )}
 
-        <NovoAgendamentoModal
-          isOpen={modalAberto}
-          onClose={fecharModal}
-          onSuccess={handleAgendamentoSuccess}
-          agendamento={agendamentoEditando}
-          defaultDate={slotSelecionado?.data}
-          defaultTime={slotSelecionado?.hora}
-          agendaSemanal={agendaSemanal}
-          agendaFeriados={agendaFeriados}
-          agendaExcecoes={agendaExcecoes}
-        />
+        {modalAberto ? (
+          <NovoAgendamentoModal
+            isOpen={modalAberto}
+            onClose={fecharModal}
+            onSuccess={handleAgendamentoSuccess}
+            agendamento={agendamentoEditando}
+            defaultDate={slotSelecionado?.data}
+            defaultTime={slotSelecionado?.hora}
+            agendaSemanal={agendaSemanal}
+            agendaFeriados={agendaFeriados}
+            agendaExcecoes={agendaExcecoes}
+          />
+        ) : null}
       </div>
     </DashboardLayout>
   );

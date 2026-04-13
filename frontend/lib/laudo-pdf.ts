@@ -8,8 +8,14 @@ type LaudoPdfJobStatus = {
   download_url?: string | null;
 };
 
-const JOB_POLL_INTERVAL_MS = 1000;
 const JOB_POLL_TIMEOUT_MS = 30000;
+
+function getJobPollIntervalMs(attempt: number): number {
+  if (attempt <= 1) return 1200;
+  if (attempt === 2) return 1800;
+  if (attempt === 3) return 2500;
+  return 4000;
+}
 
 function getAuthHeaders(): HeadersInit {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -57,8 +63,10 @@ async function downloadSynchronously(laudoId: number, fallbackFilename: string):
 
 async function waitForPdfJob(jobId: number): Promise<LaudoPdfJobStatus> {
   const startedAt = Date.now();
+  let attempts = 0;
 
   while (Date.now() - startedAt < JOB_POLL_TIMEOUT_MS) {
+    attempts += 1;
     const response = await fetch(`/api/v1/laudos/pdf-jobs/${jobId}`, {
       headers: getAuthHeaders(),
     });
@@ -72,7 +80,7 @@ async function waitForPdfJob(jobId: number): Promise<LaudoPdfJobStatus> {
     }
 
     await new Promise((resolve) => {
-      window.setTimeout(resolve, JOB_POLL_INTERVAL_MS);
+      window.setTimeout(resolve, getJobPollIntervalMs(attempts));
     });
   }
 

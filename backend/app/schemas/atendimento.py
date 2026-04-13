@@ -159,6 +159,20 @@ class ClinicalPhrasePayload(BaseModel):
     ativo: Optional[int] = 1
 
 
+class PainelExameItemPayload(BaseModel):
+    catalogo_exame_id: int = Field(..., ge=1)
+    ordem: Optional[int] = 0
+
+
+class PainelExamePayload(BaseModel):
+    nome: str = Field(..., min_length=2, max_length=255)
+    categoria: Optional[str] = ""
+    especie_alvo: Optional[str] = ""
+    observacoes: Optional[str] = ""
+    ativo: Optional[int] = 1
+    itens: List[PainelExameItemPayload] = Field(default_factory=list)
+
+
 class PrescricaoPreviewPayload(BaseModel):
     """Payload para preview em tempo real da prescricao (sem salvar no banco)."""
     paciente_nome: str = ""

@@ -21,6 +21,12 @@ export function useAgendaRealtime(
 ): UseAgendaRealtimeResult {
   const [conectado, setConectado] = useState(false);
   const [ultimoEvento, setUltimoEvento] = useState("");
+  const [paginaVisivel, setPaginaVisivel] = useState(() => {
+    if (typeof document === "undefined") {
+      return true;
+    }
+    return document.visibilityState === "visible";
+  });
   const callbackRef = useRef(onAgendaUpdate);
 
   useEffect(() => {
@@ -28,7 +34,22 @@ export function useAgendaRealtime(
   }, [onAgendaUpdate]);
 
   useEffect(() => {
-    if (!enabled || typeof window === "undefined") {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const handleVisibilityChange = () => {
+      setPaginaVisivel(document.visibilityState === "visible");
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!enabled || typeof window === "undefined" || !paginaVisivel) {
       setConectado(false);
       return;
     }
@@ -43,6 +64,7 @@ export function useAgendaRealtime(
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let abortController: AbortController | null = null;
     let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    let reconnectDelayMs = 3000;
 
     const parseEventBlock = (rawBlock: string) => {
       if (!rawBlock.trim()) return;
@@ -103,6 +125,7 @@ export function useAgendaRealtime(
           }
 
           setConectado(true);
+          reconnectDelayMs = 3000;
           const reader = response.body.getReader();
           activeReader = reader;
           const decoder = new TextDecoder("utf-8");
@@ -144,8 +167,9 @@ export function useAgendaRealtime(
         }
 
         await new Promise<void>((resolve) => {
-          reconnectTimer = setTimeout(() => resolve(), 3000);
+          reconnectTimer = setTimeout(() => resolve(), reconnectDelayMs);
         });
+        reconnectDelayMs = Math.min(reconnectDelayMs + 2000, 15000);
       }
     };
 
@@ -164,7 +188,7 @@ export function useAgendaRealtime(
         activeReader.cancel().catch(() => undefined);
       }
     };
-  }, [enabled]);
+  }, [enabled, paginaVisivel]);
 
   return { conectado, ultimoEvento };
 }
