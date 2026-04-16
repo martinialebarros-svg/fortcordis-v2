@@ -234,6 +234,7 @@ export default function AgendaPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [resumoFinanceiro, setResumoFinanceiro] = useState<ResumoFinanceiroAgenda | null>(null);
   const [carregandoResumoFinanceiro, setCarregandoResumoFinanceiro] = useState(false);
+  const [erroResumoFinanceiro, setErroResumoFinanceiro] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [mensagemRealtime, setMensagemRealtime] = useState("");
   const [toastRealtime, setToastRealtime] = useState<ToastRealtimeData | null>(null);
@@ -352,6 +353,7 @@ export default function AgendaPage() {
     if (modoVisualizacao !== "lista") {
       setResumoFinanceiro(null);
       setCarregandoResumoFinanceiro(false);
+      setErroResumoFinanceiro(false);
       return;
     }
     carregarResumoFinanceiro();
@@ -655,20 +657,24 @@ export default function AgendaPage() {
   const carregarResumoFinanceiro = async () => {
     if (!isAdmin || modoVisualizacao !== "lista") {
       setResumoFinanceiro(null);
+      setErroResumoFinanceiro(false);
       return;
     }
 
     const dataReferencia = filtroData || hojeLocal();
     setCarregandoResumoFinanceiro(true);
+    setErroResumoFinanceiro(false);
 
     try {
       const respResumo = await api.get(`/agenda/resumo-financeiro?data=${dataReferencia}`);
       setResumoFinanceiro(respResumo.data || null);
+      setErroResumoFinanceiro(false);
     } catch (error: any) {
       if (error?.response?.status !== 403) {
         console.error("Erro ao carregar resumo financeiro da agenda:", error);
       }
       setResumoFinanceiro(null);
+      setErroResumoFinanceiro(true);
     } finally {
       setCarregandoResumoFinanceiro(false);
     }
@@ -1138,10 +1144,14 @@ export default function AgendaPage() {
                   <p className="text-2xl font-bold text-emerald-600">
                     {carregandoResumoFinanceiro
                       ? "Carregando..."
+                      : erroResumoFinanceiro
+                        ? "Indisponivel"
                       : formatarMoedaBRL(resumoFinanceiro?.valor_realizado || 0)}
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
-                    {resumoFinanceiro?.qtd_realizados || 0} atendimento(s) realizado(s) em {dataResumoFinanceiroLabel}
+                    {erroResumoFinanceiro
+                      ? `Nao foi possivel carregar o resumo de ${dataResumoFinanceiroLabel}`
+                      : `${resumoFinanceiro?.qtd_realizados || 0} atendimento(s) realizado(s) em ${dataResumoFinanceiroLabel}`}
                   </p>
                 </div>
                 <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
@@ -1157,10 +1167,14 @@ export default function AgendaPage() {
                   <p className="text-2xl font-bold text-blue-600">
                     {carregandoResumoFinanceiro
                       ? "Carregando..."
+                      : erroResumoFinanceiro
+                        ? "Indisponivel"
                       : formatarMoedaBRL(resumoFinanceiro?.valor_agendado || 0)}
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
-                    {resumoFinanceiro?.qtd_agendados || 0} atendimento(s) agendado(s) em {dataResumoFinanceiroLabel}
+                    {erroResumoFinanceiro
+                      ? `Nao foi possivel carregar o resumo de ${dataResumoFinanceiroLabel}`
+                      : `${resumoFinanceiro?.qtd_agendados || 0} atendimento(s) agendado(s) em ${dataResumoFinanceiroLabel}`}
                   </p>
                 </div>
                 <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
