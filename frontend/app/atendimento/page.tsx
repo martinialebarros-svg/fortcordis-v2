@@ -1479,6 +1479,7 @@ export default function AtendimentoPage() {
   const [medBusca, setMedBusca] = useState("");
   const [medForm, setMedForm] = useState<MedicamentoForm>(emptyMedicationForm());
   const [prescricaoEntradaModo, setPrescricaoEntradaModo] = useState<"industrializado" | "manipulado" | null>(null);
+  const [prescricaoEditorManualAberto, setPrescricaoEditorManualAberto] = useState(false);
   const [prescricaoBuscaRapida, setPrescricaoBuscaRapida] = useState("");
   const [prescricaoPreviewAtivo, setPrescricaoPreviewAtivo] = useState(false);
   const [prescricaoPreviewPdf, setPrescricaoPreviewPdf] = useState<string | null>(null);
@@ -2536,6 +2537,7 @@ export default function AtendimentoPage() {
       hydratingFormRef.current = true;
       setForm(hydrated);
       setProtocoloPrescricaoSelecionado("");
+      setPrescricaoEditorManualAberto(false);
       setPrescricaoEntradaModo(null);
       setPrescricaoBuscaRapida("");
       setAnexoArquivo(null);
@@ -2565,6 +2567,7 @@ export default function AtendimentoPage() {
     setExameBusca("");
     setPainelExameSelecionado("");
     setProtocoloPrescricaoSelecionado("");
+    setPrescricaoEditorManualAberto(false);
     setPrescricaoEntradaModo(null);
     setPrescricaoBuscaRapida("");
     setAnexoArquivo(null);
@@ -2890,7 +2893,16 @@ export default function AtendimentoPage() {
       "prescricao_itens",
       primeiroItemVazio ? [itemVazio] : [...form.prescricao_itens, itemVazio]
     );
+    setPrescricaoEditorManualAberto(true);
     setWorkspacePainel("prescricao");
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        document.getElementById("prescricao-itens")?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+    }
   };
 
   const selecionarMedicamentoBuscaRapida = (med: Medicamento, manipulado = false) => {
@@ -4750,6 +4762,7 @@ export default function AtendimentoPage() {
   const removerItemPrescricao = (idx: number) => {
     if (form.prescricao_itens.length === 1) {
       // Limpa o �nico item em vez de remover
+      setPrescricaoEditorManualAberto(false);
       setField("prescricao_itens", [emptyPrescriptionItem()]);
     } else {
       setField(
@@ -4759,6 +4772,7 @@ export default function AtendimentoPage() {
     }
   };
   const prescricaoTemRascunhoInicial =
+    !prescricaoEditorManualAberto &&
     form.prescricao_itens.length === 1 &&
     isPrescriptionItemEmpty(form.prescricao_itens[0]);
   const renderPrescricaoItemCard = (item: PrescricaoItem, idx: number) => {

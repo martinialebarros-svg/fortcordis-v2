@@ -474,7 +474,7 @@ export default function AtendimentoPrescricaoWorkspace(props: AtendimentoPrescri
         </section>
       ) : null}
 
-      <section className="space-y-4">
+      <section id="prescricao-itens" className="space-y-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Itens da receita</p>
