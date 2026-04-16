@@ -213,7 +213,7 @@ export default function AgendaPage() {
   const [erro, setErro] = useState("");
   const [modoVisualizacao, setModoVisualizacao] = useState<ModoVisualizacao>("lista");
   const [filtroStatus, setFiltroStatus] = useState<string>("todos");
-  const [filtroData, setFiltroData] = useState<string>("");
+  const [filtroData, setFiltroData] = useState<string>(() => hojeLocal());
   const [busca, setBusca] = useState("");
   const [modalAberto, setModalAberto] = useState(false);
   const [agendamentoEditando, setAgendamentoEditando] = useState<Agendamento | null>(null);
@@ -262,7 +262,7 @@ export default function AgendaPage() {
     }
 
     if (modoVisualizacao === "lista") {
-      return { inicio: hojeLocal(), fim: "" };
+      return { inicio: dataBase, fim: dataBase };
     }
 
     return { inicio: "", fim: "" };
@@ -1214,7 +1214,7 @@ export default function AgendaPage() {
               <input
                 type="date"
                 value={filtroData}
-                onChange={(e) => setFiltroData(e.target.value)}
+                onChange={(e) => setFiltroData(e.target.value || hojeLocal())}
                 className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
               <button 
