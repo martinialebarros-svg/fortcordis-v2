@@ -42,11 +42,21 @@ Notas:
   - frontend: `3001`
   - backend: `8001`
   - services: `fortcordis-stage-frontend`, `fortcordis-stage-backend`
+  - Supabase org: `Fortcordis Stage`
+  - Supabase project ref: `dtguubpzjrkvqjryazjq`
 - Prod:
   - raiz: `/var/www/fortcordis-v2`
   - frontend: `3000`
   - backend: `8000`
   - services: `fortcordis-frontend`, `fortcordis-backend`
+  - Supabase org: `martinialebarros-svg's Org`
+  - Supabase project ref: `wycxoueogfxdhyouhfhw`
+
+Checklist rapido:
+
+- Antes de qualquer deploy ou manutencao sensivel, rode `python3 scripts/check_environment_matrix.py`.
+- Nunca confie apenas no nome visual do projeto no painel do Supabase.
+- Valide sempre o `project ref` do ambiente alvo.
 
 ## 1) Pre-check obrigatorio (antes da promocao)
 
@@ -82,6 +92,8 @@ PY
 Esperado:
 - `DATABASE_URL` diferente entre stage/prod (project_ref diferente)
 - `SECRET_KEY` presente nos dois
+- `PROD` usando ref `wycxoueogfxdhyouhfhw`
+- `STAGE` usando ref `dtguubpzjrkvqjryazjq`
 
 ## 2) Backup rapido (sempre antes do deploy)
 
@@ -216,3 +228,5 @@ sudo systemctl restart fortcordis-frontend
 - `health` atual do backend retorna `connected` fixo; para validar banco use `psql "$DATABASE_URL" -c "select current_user, now();"`
 - Em Supabase, prefira URL de `pooler` no VPS quando `direct` falhar por IPv6.
 - `DATABASE_URL` e `SECRET_KEY` devem ser diferentes entre stage e prod.
+- O projeto stage foi transferido para organizacao `Free`; ele pode pausar por inatividade.
+- Renomeie o projeto stage no Supabase para `fortcordis-stage` assim que possivel para evitar confusao no painel.

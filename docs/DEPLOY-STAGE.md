@@ -177,9 +177,12 @@ Se usar HTTPS (recomendado), usar certificado (ex.: Certbot) ou proxy no Cloudfl
 
 ## 5. Supabase
 
-- Pode usar o **mesmo projeto** do teste (com cuidado com dados) ou um **projeto separado** só para stage.
-- No **backend stage** (`.env` em `/var/www/fortcordis-stage/backend`), use a `DATABASE_URL` e variáveis de API do projeto Supabase escolhido.
+- O stage usa um **projeto separado** no Supabase.
+- Organizacao atual do stage: `Fortcordis Stage`.
+- Project ref atual do stage: `dtguubpzjrkvqjryazjq`.
+- No **backend stage** (`.env` em `/var/www/fortcordis-stage/backend`), use a `DATABASE_URL` e variáveis de API desse projeto.
 - No **frontend stage**, configure as variáveis de ambiente (ex.: `NEXT_PUBLIC_*`) para apontar para a API do stage (ex.: `https://stage.fortcordis.com.br/api`).
+- Como o stage está no plano `Free`, ele pode pausar por inatividade. Para testes funcionais isso é esperado.
 
 ---
 
@@ -190,7 +193,7 @@ Se usar HTTPS (recomendado), usar certificado (ex.: Certbot) ou proxy no Cloudfl
 | **GitHub** | Branch `stage`; push nela dispara o workflow **Deploy to Stage**. |
 | **VPS**    | Código em `/var/www/fortcordis-stage`, backend na 8001, front na 3001, systemd e Nginx para stage. |
 | **Cloudflare** | DNS (A/CNAME) para `stage.fortcordis.com.br` (e opcionalmente `www.stage`) apontando para a VPS. |
-| **Supabase** | Mesmo ou outro projeto; backend e front stage apontando para as URLs certas. |
+| **Supabase** | Projeto separado de stage (`dtguubpzjrkvqjryazjq`) na org `Fortcordis Stage`; backend e front stage apontando para as URLs certas. |
 
 Para subir a versão atual (já commitada) no stage:
 
