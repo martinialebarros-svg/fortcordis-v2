@@ -25,12 +25,15 @@ def _normalize_tipo_horario(tipo_horario: str) -> str:
     return "plantao" if str(tipo_horario or "").lower() == "plantao" else "comercial"
 
 
-def _is_missing_table_error(exc: Exception) -> bool:
+def _is_missing_pricing_schema_error(exc: Exception) -> bool:
     text = str(getattr(exc, "orig", exc)).lower()
     return (
         "no such table" in text
         or "does not exist" in text
         or "undefined table" in text
+        or "no such column" in text
+        or "undefined column" in text
+        or "unknown column" in text
     )
 
 
@@ -55,7 +58,13 @@ def _preco_tabela_padrao(
     preco_custom_tabela = db.query(PrecoServico).filter(
         PrecoServico.tabela_preco_id == tabela_id,
         PrecoServico.servico_id == servico.id,
-    ).first()
+    )
+    try:
+        preco_custom_tabela = preco_custom_tabela.first()
+    except (OperationalError, ProgrammingError) as exc:
+        if not _is_missing_pricing_schema_error(exc):
+            raise
+        preco_custom_tabela = None
     if preco_custom_tabela:
         field = preco_custom_tabela.preco_plantao if tipo_horario == "plantao" else preco_custom_tabela.preco_comercial
         if field is not None:
@@ -96,7 +105,7 @@ def calcular_preco_servico(
                 PrecoServicoClinica.ativo == 1,
             ).first()
         except (OperationalError, ProgrammingError) as exc:
-            if not _is_missing_table_error(exc):
+            if not _is_missing_pricing_schema_error(exc):
                 raise
             preco_clinica = None
         if preco_clinica:

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import math
 import re
 from datetime import date, datetime, timedelta, timezone
@@ -42,7 +43,7 @@ from app.core.agenda_config import (
 from app.core.agenda_realtime import agenda_realtime_manager
 from app.core.security import get_current_user
 from app.services.logistica_service import normalizar_perfil, obter_duracao_deslocamento
-from app.services.precos_service import calcular_preco_servico
+from app.services.precos_service import calcular_preco_servico, to_decimal
 from app.services.auditoria_service import registrar_auditoria
 from app.services.push_notifications import (
     send_agenda_push_notification,
@@ -51,6 +52,7 @@ from app.services.push_notifications import (
 from app.services.push_scheduler_service import schedule_pending_os_payment_reminder
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 # Horario de Brasilia (UTC-3). Evita dependencia de tzdata no Windows local.
 LOCAL_TZ = timezone(timedelta(hours=-3))
 AGENDA_STATUS_PERMITIDOS = ["Agendado", "Reservado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"]
@@ -880,14 +882,27 @@ def _calcular_previsao_agendamento(db: Session, agendamento: Agendamento) -> Dec
         return Decimal("0.00")
 
     try:
-        return calcular_preco_servico(
+        return to_decimal(calcular_preco_servico(
             db=db,
             clinica_id=agendamento.clinica_id,
             servico_id=agendamento.servico_id,
             tipo_horario="comercial",
             usar_preco_clinica=True,
+        ))
+    except HTTPException as exc:
+        logger.warning(
+            "Resumo financeiro da agenda sem preco para agendamento %s (clinica=%s, servico=%s): %s",
+            agendamento.id,
+            agendamento.clinica_id,
+            agendamento.servico_id,
+            exc.detail,
         )
-    except HTTPException:
+        return Decimal("0.00")
+    except Exception:
+        logger.exception(
+            "Resumo financeiro da agenda falhou ao calcular previsao do agendamento %s",
+            agendamento.id,
+        )
         return Decimal("0.00")
 
 
@@ -946,7 +961,7 @@ def resumo_financeiro_agenda(
     for ag in agendamentos:
         os_vinculada = mapa_os.get(ag.id)
         valor_base = (
-            Decimal(str(os_vinculada.valor_final))
+            to_decimal(os_vinculada.valor_final)
             if os_vinculada and os_vinculada.valor_final is not None
             else _calcular_previsao_agendamento(db, ag)
         )
