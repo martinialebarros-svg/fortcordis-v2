@@ -1,10 +1,10 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import api from "@/lib/axios";
-import { removePushSubscriptionForCurrentDevice, usePushNotifications } from "@/lib/usePushNotifications";
 import { FortinhoProvider } from "@/components/fortinho/FortinhoProvider";
 import {
   Calendar,
@@ -31,6 +31,19 @@ import {
   Loader2,
   Receipt
 } from "lucide-react";
+
+const PushNotificationsBootstrap = dynamic(
+  () => import("@/components/layout/PushNotificationsBootstrap"),
+  { ssr: false }
+);
+const DashboardOverlayCleanup = dynamic(
+  () => import("@/components/layout/DashboardOverlayCleanup"),
+  { ssr: false }
+);
+const DashboardPushSnoozeHandler = dynamic(
+  () => import("@/components/layout/DashboardPushSnoozeHandler"),
+  { ssr: false }
+);
 
 const menuItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -68,82 +81,8 @@ export default function DashboardLayout({
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [fortinhoHabilitado, setFortinhoHabilitado] = useState(false);
   const faviconOriginalRef = useRef<string>("/favicon.ico");
-  const overlayCleanupRafRef = useRef<number | null>(null);
   const router = useRouter();
   const pathname = usePathname();
-  const handledSnoozeRef = useRef<string>("");
-  usePushNotifications(authChecked && Boolean(user));
-
-  const limparBackdropsOrfaos = () => {
-    if (typeof document === "undefined") return;
-
-    const elementoVisivelNoViewport = (el: Element | null): boolean => {
-      if (!(el instanceof HTMLElement)) return false;
-      const style = window.getComputedStyle(el);
-      if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity || "1") === 0) {
-        return false;
-      }
-      const rect = el.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return false;
-      if (rect.bottom <= 0 || rect.right <= 0) return false;
-      if (rect.top >= window.innerHeight || rect.left >= window.innerWidth) return false;
-      return true;
-    };
-
-    const viewportArea = window.innerWidth * window.innerHeight;
-    const candidatos = Array.from(
-      document.body.querySelectorAll(
-        "div.fixed, button.fixed, [data-fortcordis-orphan-overlay-hidden='1']"
-      )
-    ) as HTMLElement[];
-
-    candidatos.forEach((elemento) => {
-      if (!elemento.isConnected) return;
-      if (elemento.dataset.fortcordisOverlaySafe === "1") return;
-      if (elemento.closest("[data-fortcordis-overlay-safe='1']")) return;
-      if (elemento === document.body || elemento === document.documentElement) return;
-
-      const className = typeof elemento.className === "string" ? elemento.className : "";
-      const style = window.getComputedStyle(elemento);
-      const rect = elemento.getBoundingClientRect();
-      const coversViewport =
-        rect.width * rect.height >= viewportArea * 0.9 &&
-        rect.top <= 0 &&
-        rect.left <= 0;
-      const candidatosDialogo = Array.from(
-        elemento.querySelectorAll(
-          "[role='dialog'], iframe, img, form, section, article, textarea, input, select, button, [data-modal-content]"
-        )
-      );
-      const hasDialogContentVisivel = candidatosDialogo.some((item) => elementoVisivelNoViewport(item));
-      const hasMeaningfulTextVisivel = Array.from(
-        elemento.querySelectorAll("h1, h2, h3, h4, h5, h6, p, span, strong, small, label, button")
-      ).some((item) => {
-        if (!elementoVisivelNoViewport(item)) return false;
-        return Boolean((item.textContent || "").trim());
-      });
-      const backgroundColor = style.backgroundColor || "";
-      const isDarkBackdrop =
-        className.includes("bg-black/50") ||
-        className.includes("bg-black bg-opacity-50") ||
-        className.includes("bg-slate-950/70") ||
-        /^rgba?\((\s*\d+\s*,){2}\s*\d+,\s*0\.[1-9]/.test(backgroundColor);
-      const looksLikeOverlay =
-        style.position === "fixed" &&
-        Number(style.zIndex || "0") >= 40 &&
-        coversViewport &&
-        (
-          className.includes("inset-0") ||
-          isDarkBackdrop
-        );
-
-      if (looksLikeOverlay && !hasDialogContentVisivel && !hasMeaningfulTextVisivel) {
-        elemento.style.display = "none";
-        elemento.style.pointerEvents = "none";
-        elemento.setAttribute("data-fortcordis-orphan-overlay-hidden", "1");
-      }
-    });
-  };
 
   const blobParaDataUrl = (blob: Blob) =>
     new Promise<string>((resolve, reject) => {
@@ -354,103 +293,9 @@ export default function DashboardLayout({
     };
   }, [logoUrl]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!authChecked || !user) return;
-    const searchParams = new URLSearchParams(window.location.search);
-    const shouldSnooze = searchParams.get("push_snooze");
-    if (shouldSnooze !== "1") return;
-
-    const minutes = Number(searchParams.get("push_snooze_minutes") || "15");
-    const safeMinutes = minutes === 30 || minutes === 60 ? minutes : 15;
-    const notificationId = String(searchParams.get("push_snooze_notification_id") || "");
-    const dedupeKey = `${notificationId}:${safeMinutes}:${pathname}`;
-    if (handledSnoozeRef.current === dedupeKey) return;
-    handledSnoozeRef.current = dedupeKey;
-
-    const payload: Record<string, any> = {
-      minutes: safeMinutes,
-      title: String(searchParams.get("push_snooze_title") || ""),
-      body: String(searchParams.get("push_snooze_body") || ""),
-      url: String(searchParams.get("push_snooze_url") || "/financeiro"),
-      module: String(searchParams.get("push_snooze_module") || "financeiro"),
-      action: String(searchParams.get("push_snooze_action") || "payment_pending"),
-      priority: String(searchParams.get("push_snooze_priority") || "normal"),
-      notification_id: notificationId,
-      resource_type: String(searchParams.get("push_snooze_resource_type") || ""),
-    };
-    const resourceIdRaw = searchParams.get("push_snooze_resource_id");
-    if (resourceIdRaw && String(resourceIdRaw).trim() !== "") {
-      const parsed = Number(resourceIdRaw);
-      if (Number.isFinite(parsed) && parsed > 0) {
-        payload.resource_id = parsed;
-      }
-    }
-
-    const limparQuerySoneca = () => {
-      const params = new URLSearchParams(window.location.search);
-      [
-        "push_snooze",
-        "push_snooze_minutes",
-        "push_snooze_title",
-        "push_snooze_body",
-        "push_snooze_url",
-        "push_snooze_module",
-        "push_snooze_action",
-        "push_snooze_priority",
-        "push_snooze_notification_id",
-        "push_snooze_resource_type",
-        "push_snooze_resource_id",
-      ].forEach((key) => params.delete(key));
-      const query = params.toString();
-      router.replace(query ? `${pathname}?${query}` : pathname);
-    };
-
-    (async () => {
-      try {
-        await api.post("/configuracoes/usuario/push/snooze", payload);
-        alert(`Notificacao adiada por ${safeMinutes} minuto(s).`);
-      } catch (error) {
-        console.error("Erro ao agendar soneca da notificacao push:", error);
-        alert("Nao foi possivel adiar a notificacao.");
-      } finally {
-        limparQuerySoneca();
-      }
-    })();
-  }, [authChecked, pathname, router, user]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const handle = window.setTimeout(() => {
-      limparBackdropsOrfaos();
-    }, 120);
-
-    const observer = new MutationObserver(() => {
-      if (overlayCleanupRafRef.current !== null) return;
-      overlayCleanupRafRef.current = window.requestAnimationFrame(() => {
-        overlayCleanupRafRef.current = null;
-        limparBackdropsOrfaos();
-      });
-    });
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-    });
-
-    return () => {
-      window.clearTimeout(handle);
-      if (overlayCleanupRafRef.current !== null) {
-        window.cancelAnimationFrame(overlayCleanupRafRef.current);
-        overlayCleanupRafRef.current = null;
-      }
-      observer.disconnect();
-    };
-  }, [pathname]);
-
   const handleLogout = async () => {
     try {
+      const { removePushSubscriptionForCurrentDevice } = await import("@/lib/usePushNotifications");
       await removePushSubscriptionForCurrentDevice();
     } catch {
       // best effort
@@ -478,6 +323,9 @@ export default function DashboardLayout({
 
   const dashboardContent = (
     <div className="min-h-screen bg-gray-50">
+        <PushNotificationsBootstrap enabled={authChecked && Boolean(user)} />
+        <DashboardPushSnoozeHandler enabled={authChecked && Boolean(user)} />
+        <DashboardOverlayCleanup />
         {/* Header mobile */}
         <div className="lg:hidden bg-white border-b px-4 py-3 flex justify-between items-center">
           <div className="flex items-center gap-2 min-w-0">

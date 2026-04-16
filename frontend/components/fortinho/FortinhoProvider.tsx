@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import {
   createContext,
   useCallback,
@@ -10,7 +11,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import FortinhoMascot, { type FortinhoGesture, type FortinhoMood } from "@/components/FortinhoMascot";
+import { type FortinhoGesture, type FortinhoMood } from "@/components/FortinhoMascot";
 
 interface FortinhoNotifyOptions {
   title?: string;
@@ -78,6 +79,9 @@ const FALLBACK_CONTEXT: FortinhoContextValue = {
 };
 
 const FortinhoContext = createContext<FortinhoContextValue>(FALLBACK_CONTEXT);
+const FortinhoOverlay = dynamic(() => import("@/components/fortinho/FortinhoOverlay"), {
+  ssr: false,
+});
 
 export function useFortinho(): FortinhoContextValue {
   return useContext(FortinhoContext);
@@ -165,72 +169,25 @@ export function FortinhoProvider({ children }: { children: ReactNode }) {
     <FortinhoContext.Provider value={contextValue}>
       {children}
 
-      {!oculto && (
-        <div
-          className="fixed bottom-4 right-4 z-[90] flex w-[238px] flex-col items-end"
-          data-fortcordis-overlay-safe="1"
-        >
-          <button
-            type="button"
-            onClick={() => setOculto(true)}
-            className="mb-2 pointer-events-auto rounded-full border border-rose-300 bg-white px-2 py-1 text-[11px] font-medium text-rose-700 shadow-sm hover:bg-rose-50"
-          >
-            Ocultar Fortinho
-          </button>
-
-          <div className="pointer-events-auto">
-            <FortinhoMascot
-              mood={moodAtual}
-              gesture={gestoAtual}
-              message={mensagemAtual}
-              className="origin-bottom-right scale-[0.84] md:scale-100"
-            />
-          </div>
-
-          {current?.kind === "confirm" && (
-            <div className="pointer-events-auto mt-2 w-full rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
-              <p className="mb-2 text-xs text-slate-600">Como devemos seguir?</p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => shiftQueue(false)}
-                  className="rounded-xl border border-slate-300 px-2 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  {current.cancelLabel}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => shiftQueue(true)}
-                  className="rounded-xl border border-rose-600 bg-rose-600 px-2 py-2 text-xs font-semibold text-white hover:bg-rose-700"
-                >
-                  {current.confirmLabel}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {current?.kind === "notice" && current.sticky && (
-            <button
-              type="button"
-              onClick={() => shiftQueue(false)}
-              className="pointer-events-auto mt-2 w-full rounded-xl border border-rose-300 bg-white px-3 py-2 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-50"
-            >
-              Entendi
-            </button>
-          )}
-        </div>
-      )}
-
-      {oculto && (
-        <button
-          type="button"
-          onClick={() => setOculto(false)}
-          data-fortcordis-overlay-safe="1"
-          className="fixed bottom-4 right-4 z-[90] rounded-full border border-rose-300 bg-white px-3 py-2 text-xs font-semibold text-rose-700 shadow-md hover:bg-rose-50"
-        >
-          Mostrar Fortinho
-        </button>
-      )}
+      <FortinhoOverlay
+        hidden={oculto}
+        message={mensagemAtual}
+        mood={moodAtual}
+        gesture={gestoAtual}
+        confirmState={
+          current?.kind === "confirm"
+            ? {
+                confirmLabel: current.confirmLabel,
+                cancelLabel: current.cancelLabel,
+              }
+            : null
+        }
+        stickyNotice={current?.kind === "notice" && current.sticky}
+        onHide={() => setOculto(true)}
+        onShow={() => setOculto(false)}
+        onDismiss={() => shiftQueue(false)}
+        onConfirm={() => shiftQueue(true)}
+      />
     </FortinhoContext.Provider>
   );
 }
