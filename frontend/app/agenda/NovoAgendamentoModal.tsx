@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, User, Building, Calendar, Clock, Sparkles } from "lucide-react";
+import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check } from "lucide-react";
 import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import {
@@ -110,6 +110,37 @@ interface PacienteOption {
   raca?: string;
 }
 
+interface ClinicaOption {
+  id: number;
+  nome: string;
+  endereco?: string | null;
+  numero?: string | null;
+  complemento?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
+  cep?: string | null;
+}
+
+interface SearchableSelectOption {
+  value: string;
+  label: string;
+  description?: string;
+  searchText?: string;
+}
+
+interface SearchableSelectProps {
+  value: string;
+  onChange: (value: string) => void;
+  options: SearchableSelectOption[];
+  placeholder: string;
+  searchPlaceholder: string;
+  emptyText: string;
+  clearLabel?: string;
+  disabled?: boolean;
+  showSelectedDescription?: boolean;
+}
+
 interface FormDataAgenda {
   tutor_id: string;
   paciente_id: string;
@@ -174,6 +205,56 @@ const buildInitialAnimalForm = (tutorId = ""): NovoAnimalForm => ({
   observacoes: "",
 });
 
+const normalizeSearchText = (value?: string | null): string =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+const matchesSearch = (value: string, query: string): boolean => {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return true;
+
+  const normalizedValue = normalizeSearchText(value);
+  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  return tokens.every((token) => normalizedValue.includes(token));
+};
+
+const formatarEnderecoClinica = (clinica?: ClinicaOption | null): string => {
+  if (!clinica) return "";
+
+  const enderecoLinha = [
+    clinica.endereco,
+    clinica.numero,
+    clinica.complemento,
+  ]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join(", ");
+
+  const regiaoLinha = [
+    clinica.bairro,
+    [clinica.cidade, clinica.estado].map((item) => String(item || "").trim()).filter(Boolean).join("/"),
+    clinica.cep,
+  ]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join(" - ");
+
+  return [enderecoLinha, regiaoLinha].filter(Boolean).join(" - ");
+};
+
+const formatarResumoPaciente = (paciente: PacienteOption): string => {
+  const detalhes = [
+    paciente.tutor ? `Tutor: ${paciente.tutor}` : "",
+    paciente.especie || "",
+    paciente.raca || "",
+  ].filter(Boolean);
+
+  return detalhes.join(" - ");
+};
+
 const rotularFonteDeslocamento = (fonte?: string | null): string => {
   const valor = String(fonte || "").trim().toLowerCase();
   if (!valor) return "Fonte nao informada";
@@ -195,6 +276,170 @@ const resumirDeslocamentoSugestao = (item: SugestaoHorarioItem): string => {
   return `Fonte do deslocamento: ${fontesUnicas.join(" + ")}.`;
 };
 
+function SearchableSelect({
+  value,
+  onChange,
+  options,
+  placeholder,
+  searchPlaceholder,
+  emptyText,
+  clearLabel = "Selecione...",
+  disabled = false,
+  showSelectedDescription = false,
+}: SearchableSelectProps) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const selectedOption = options.find((option) => option.value === value) || null;
+  const filteredOptions = options.filter((option) =>
+    matchesSearch(
+      [option.label, option.description || "", option.searchText || ""].filter(Boolean).join(" "),
+      search
+    )
+  );
+
+  useEffect(() => {
+    if (!open) {
+      setSearch("");
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (wrapperRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const timer = window.setTimeout(() => {
+      inputRef.current?.focus();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [open]);
+
+  const selecionar = (nextValue: string) => {
+    onChange(nextValue);
+    setOpen(false);
+    setSearch("");
+  };
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((prev) => !prev)}
+        className={`flex w-full items-center justify-between gap-3 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left transition focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+          disabled ? "cursor-not-allowed bg-gray-100 text-gray-400" : "hover:border-gray-400"
+        }`}
+        aria-expanded={open}
+      >
+        <span className="min-w-0 flex-1">
+          <span className={`block truncate ${selectedOption ? "text-gray-900" : "text-gray-500"}`}>
+            {selectedOption?.label || placeholder}
+          </span>
+          {showSelectedDescription && selectedOption?.description ? (
+            <span className="mt-0.5 block truncate text-xs text-gray-500">
+              {selectedOption.description}
+            </span>
+          ) : null}
+        </span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-gray-500 transition ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 right-0 z-30 mt-1 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl">
+          <div className="border-b border-gray-100 p-2">
+            <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+              <Search className="h-4 w-4 shrink-0 text-gray-400" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={search}
+                autoComplete="off"
+                onChange={(event) => setSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setOpen(false);
+                    return;
+                  }
+
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    if (filteredOptions.length === 1) {
+                      selecionar(filteredOptions[0].value);
+                    }
+                  }
+                }}
+                placeholder={searchPlaceholder}
+                className="w-full bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400"
+              />
+            </div>
+          </div>
+
+          <div className="max-h-72 overflow-y-auto py-1">
+            <button
+              type="button"
+              onClick={() => selecionar("")}
+              className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition hover:bg-blue-50 ${
+                !value ? "bg-blue-50 text-blue-700" : "text-gray-700"
+              }`}
+            >
+              <span className="truncate">{clearLabel}</span>
+              {!value ? <Check className="h-4 w-4 shrink-0" /> : null}
+            </button>
+
+            {filteredOptions.length === 0 ? (
+              <div className="px-3 py-4 text-sm text-gray-500">{emptyText}</div>
+            ) : (
+              filteredOptions.map((option) => {
+                const isSelected = option.value === value;
+
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => selecionar(option.value)}
+                    className={`flex w-full items-start justify-between gap-3 px-3 py-2 text-left transition hover:bg-blue-50 ${
+                      isSelected ? "bg-blue-50 text-blue-700" : "text-gray-900"
+                    }`}
+                    title={option.description || option.label}
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">{option.label}</span>
+                      {option.description ? (
+                        <span className={`mt-0.5 block text-xs leading-4 ${isSelected ? "text-blue-600" : "text-gray-500"}`}>
+                          {option.description}
+                        </span>
+                      ) : null}
+                    </span>
+                    {isSelected ? <Check className="mt-0.5 h-4 w-4 shrink-0" /> : null}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function NovoAgendamentoModal({ 
   isOpen, 
   onClose, 
@@ -210,7 +455,7 @@ export default function NovoAgendamentoModal({
   const [loading, setLoading] = useState(false);
   const [pacientes, setPacientes] = useState<PacienteOption[]>([]);
   const [tutores, setTutores] = useState<TutorOption[]>([]);
-  const [clinicas, setClinicas] = useState<any[]>([]);
+  const [clinicas, setClinicas] = useState<ClinicaOption[]>([]);
   const [servicos, setServicos] = useState<any[]>([]);
   const [tabelasPreco, setTabelasPreco] = useState<{ id: number; nome: string }[]>(TABELA_PRECO_PADRAO);
   const [tutorSelecionado, setTutorSelecionado] = useState<string>("");
@@ -754,6 +999,33 @@ export default function NovoAgendamentoModal({
     ? pacientes.filter((paciente) => String(paciente.tutor_id || "") === formData.tutor_id)
     : pacientes;
 
+  const tutorOptions: SearchableSelectOption[] = tutores.map((tutor) => ({
+    value: tutor.id.toString(),
+    label: tutor.nome,
+    description: tutor.telefone ? `Telefone: ${tutor.telefone}` : undefined,
+    searchText: [tutor.nome, tutor.telefone || ""].filter(Boolean).join(" "),
+  }));
+
+  const pacienteOptions: SearchableSelectOption[] = pacientesFiltradosPorTutor.map((paciente) => ({
+    value: paciente.id.toString(),
+    label: paciente.nome,
+    description: formatarResumoPaciente(paciente) || undefined,
+    searchText: [paciente.nome, paciente.tutor || "", paciente.especie || "", paciente.raca || ""]
+      .filter(Boolean)
+      .join(" "),
+  }));
+
+  const clinicaOptions: SearchableSelectOption[] = clinicas.map((clinica) => {
+    const endereco = formatarEnderecoClinica(clinica) || "Endereco nao cadastrado";
+
+    return {
+      value: clinica.id.toString(),
+      label: clinica.nome,
+      description: endereco,
+      searchText: [clinica.nome, endereco].filter(Boolean).join(" "),
+    };
+  });
+
   const obterDuracaoServicoSelecionado = (): number => {
     const servicoSelecionado = servicos.find((s) => s.id?.toString() === formData.servico_id);
     const duracaoMinutos = Number.parseInt(
@@ -1189,18 +1461,15 @@ export default function NovoAgendamentoModal({
               Tutor {permiteSemPacienteTutor ? "(opcional para reserva)" : "*"}
             </label>
             <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
-              <select
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              <SearchableSelect
                 value={formData.tutor_id}
-                onChange={(e) => handleTutorChange(e.target.value)}
-              >
-                <option value="">Selecione...</option>
-                {tutores.map((tutor) => (
-                  <option key={tutor.id} value={tutor.id.toString()}>
-                    {tutor.nome}
-                  </option>
-                ))}
-              </select>
+                onChange={handleTutorChange}
+                options={tutorOptions}
+                placeholder="Selecione..."
+                searchPlaceholder="Buscar tutor por nome ou telefone..."
+                emptyText="Nenhum tutor encontrado."
+                clearLabel="Selecione..."
+              />
               <button
                 type="button"
                 onClick={abrirModalTutor}
@@ -1218,19 +1487,19 @@ export default function NovoAgendamentoModal({
               {permiteSemPacienteTutor ? "Animal (opcional para reserva)" : "Animal *"}
             </label>
             <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
-              <select
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              <SearchableSelect
                 value={formData.paciente_id}
-                onChange={(e) => handlePacienteChange(e.target.value)}
-              >
-                <option value="">Selecione...</option>
-                {pacientesFiltradosPorTutor.map((p) => (
-                  <option key={p.id} value={p.id.toString()}>
-                    {p.nome}
-                    {!formData.tutor_id && p.tutor ? ` - Tutor: ${p.tutor}` : ""}
-                  </option>
-                ))}
-              </select>
+                onChange={handlePacienteChange}
+                options={pacienteOptions}
+                placeholder="Selecione..."
+                searchPlaceholder="Buscar animal ou tutor..."
+                emptyText={
+                  formData.tutor_id
+                    ? "Nenhum animal encontrado para este tutor."
+                    : "Nenhum animal encontrado."
+                }
+                clearLabel="Selecione..."
+              />
               <button
                 type="button"
                 onClick={abrirModalAnimal}
@@ -1255,18 +1524,16 @@ export default function NovoAgendamentoModal({
               <Building className="w-4 h-4 inline mr-1" />
               Clínica
             </label>
-            <select
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            <SearchableSelect
               value={formData.clinica_id}
-              onChange={(e) => handleClinicaChange(e.target.value)}
-            >
-              <option value="">Selecione...</option>
-              {clinicas.map((c) => (
-                <option key={c.id} value={c.id.toString()}>
-                  {c.nome}
-                </option>
-              ))}
-            </select>
+              onChange={handleClinicaChange}
+              options={clinicaOptions}
+              placeholder="Selecione..."
+              searchPlaceholder="Buscar clinica ou endereco..."
+              emptyText="Nenhuma clinica encontrada."
+              clearLabel="Selecione..."
+              showSelectedDescription
+            />
             {mensagemProximidade && (
               <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
                 <strong>Assistente inteligente:</strong> {mensagemProximidade}
