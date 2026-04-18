@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import date, datetime
 from io import BytesIO
 import json
 import os
@@ -110,6 +111,23 @@ def _parse_data_exame(value: Any) -> Optional[datetime]:
                 return datetime.strptime(value, "%Y-%m-%d")
             except ValueError:
                 return None
+    return None
+
+
+def _parse_filtro_data(value: Optional[str]) -> Optional[date]:
+    if value is None:
+        return None
+
+    texto = str(value).strip()
+    if not texto:
+        return None
+
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(texto, fmt).date()
+        except ValueError:
+            continue
+
     return None
 
 
@@ -695,6 +713,8 @@ def listar_laudos(
     paciente_id: Optional[int] = None,
     tipo: Optional[str] = None,
     status: Optional[str] = None,
+    search: Optional[str] = None,
+    data: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
@@ -715,7 +735,17 @@ def listar_laudos(
                 return str(value)
         return str(value)
     
-    query = db.query(Laudo)
+    query = (
+        db.query(
+            Laudo,
+            Paciente.nome.label("paciente_nome"),
+            Tutor.nome.label("tutor_nome"),
+            Clinica.nome.label("clinica_nome"),
+        )
+        .outerjoin(Paciente, Laudo.paciente_id == Paciente.id)
+        .outerjoin(Tutor, Paciente.tutor_id == Tutor.id)
+        .outerjoin(Clinica, Laudo.clinic_id == Clinica.id)
+    )
     
     if paciente_id:
         query = query.filter(Laudo.paciente_id == paciente_id)
@@ -723,37 +753,59 @@ def listar_laudos(
         query = query.filter(Laudo.tipo == tipo)
     if status:
         query = query.filter(Laudo.status == status)
+
+    data_filtro = _parse_filtro_data(data)
+    if data_filtro:
+        query = query.filter(
+            or_(
+                func.date(Laudo.data_exame) == data_filtro,
+                func.date(Laudo.data_laudo) == data_filtro,
+            )
+        )
+
+    termos_busca = [termo for termo in re.split(r"\s+", (search or "").strip()) if termo]
+    for termo_bruto in termos_busca:
+        data_termo = _parse_filtro_data(termo_bruto)
+        if data_termo:
+            query = query.filter(
+                or_(
+                    func.date(Laudo.data_exame) == data_termo,
+                    func.date(Laudo.data_laudo) == data_termo,
+                )
+            )
+            continue
+
+        termo = f"%{termo_bruto}%"
+        termo_key = f"%{_gerar_nome_key(termo_bruto)}%"
+        query = query.filter(
+            or_(
+                func.coalesce(Laudo.titulo, "").ilike(termo),
+                func.coalesce(Laudo.tipo, "").ilike(termo),
+                func.coalesce(Laudo.status, "").ilike(termo),
+                func.coalesce(Laudo.medico_solicitante, "").ilike(termo),
+                func.coalesce(Paciente.nome, "").ilike(termo),
+                func.coalesce(Tutor.nome, "").ilike(termo),
+                func.coalesce(Clinica.nome, "").ilike(termo),
+                func.coalesce(Paciente.nome_key, "").ilike(termo_key),
+                func.coalesce(Tutor.nome_key, "").ilike(termo_key),
+            )
+        )
     
     total = query.count()
     # Ordena por recência real para evitar "sumiço" em bases com sequência de ID legada/desalinhada.
-    items = query.order_by(
+    rows = query.order_by(
         Laudo.created_at.desc(),
         Laudo.data_laudo.desc(),
         Laudo.id.desc(),
     ).offset(skip).limit(limit).all()
     
-    # Enriquecer com dados do paciente e tutor
     resultado = []
-    for laudo in items:
-        paciente = db.query(Paciente).filter(Paciente.id == laudo.paciente_id).first()
-        
-        tutor_nome = None
-        if paciente and paciente.tutor_id:
-            tutor = db.query(Tutor).filter(Tutor.id == paciente.tutor_id).first()
-            if tutor:
-                tutor_nome = tutor.nome
-        
-        clinica_nome = None
-        if laudo.clinic_id:
-            clinica = db.query(Clinica).filter(Clinica.id == laudo.clinic_id).first()
-            if clinica:
-                clinica_nome = clinica.nome
-        
+    for laudo, paciente_nome, tutor_nome, clinica_nome in rows:
         resultado.append({
             "id": laudo.id,
             "paciente_id": laudo.paciente_id,
             "agendamento_id": laudo.agendamento_id,
-            "paciente_nome": paciente.nome if paciente else "Desconhecido",
+            "paciente_nome": paciente_nome or "Desconhecido",
             "paciente_tutor": tutor_nome or "",
             "clinica": clinica_nome or laudo.medico_solicitante or "",
             "clinic_id": laudo.clinic_id,
