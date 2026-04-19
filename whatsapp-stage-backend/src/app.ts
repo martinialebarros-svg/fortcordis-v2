@@ -9,6 +9,7 @@ import {
 import { createAgent, listAgents } from "./controllers/agentsController";
 import { receiveWebhook, verifyWebhook } from "./controllers/webhookController";
 import { logger } from "./utils/logger";
+import { requireApiAuth } from "./middleware/auth";
 
 const app = express();
 
@@ -27,7 +28,10 @@ app.get("/health", (_req: Request, res: Response) => {
 app.get("/webhook", verifyWebhook);
 app.post("/webhook", receiveWebhook);
 
-// TODO: add authentication and ACL for agent endpoints before production.
+// Conversations/agents are protected: valid app token or internal automation token.
+app.use("/conversations", requireApiAuth);
+app.use("/agents", requireApiAuth);
+
 app.get("/conversations", asyncHandler(listConversations));
 app.get("/conversations/:id/messages", asyncHandler(listConversationMessages));
 app.post("/conversations/:id/messages", asyncHandler(sendConversationMessage));

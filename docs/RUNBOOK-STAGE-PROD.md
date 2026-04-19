@@ -20,8 +20,15 @@ bash scripts/promote_stage_to_main.sh
 ### 2) VPS Stage: deploy padronizado
 
 ```bash
-cd /var/www/fortcordis-v2
+cd /var/www/fortcordis-stage
 bash scripts/deploy_stage_vps.sh
+```
+
+Preflight WhatsApp stage (recomendado):
+
+```bash
+cd /var/www/fortcordis-stage
+RUN_SMOKE=1 bash scripts/whatsapp_stage_preflight.sh
 ```
 
 ### 3) VPS Prod: deploy padronizado
