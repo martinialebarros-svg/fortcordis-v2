@@ -15,6 +15,7 @@
 - RO-002: deploy stage deve rodar smoke WhatsApp por padrao.
 - RO-003: deve existir script de preflight para validar env, health, gate de auth e smoke opcional.
 - RO-004: runbook stage/prod deve incluir passo explicito do preflight WhatsApp.
+- RO-005: deploy deve autocorrigir placeholders legados no `.env` do WhatsApp stage sem sobrescrever valores reais.
 
 ## Criterios de aceitacao
 

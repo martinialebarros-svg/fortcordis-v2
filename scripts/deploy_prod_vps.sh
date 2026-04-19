@@ -237,6 +237,31 @@ read_env_file_value() {
   printf '%s' "$value"
 }
 
+is_env_placeholder_value() {
+  local value="$1"
+  local normalized
+  normalized="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+
+  if [[ -z "$normalized" ]]; then
+    return 0
+  fi
+
+  case "$normalized" in
+    "<"*">")
+      return 0
+      ;;
+    *placeholder*)
+      return 0
+      ;;
+    stage_access_token_placeholder|stage_phone_number_id|stage_verify_token|stage_app_secret)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 upsert_env_key() {
   local env_file="$1"
   local key="$2"
@@ -284,14 +309,44 @@ set_env_key_if_blank() {
   upsert_env_key "$env_file" "$key" "$default_value"
 }
 
+set_env_key_if_blank_or_placeholder() {
+  local env_file="$1"
+  local key="$2"
+  local default_value="${3:-}"
+  local current_value
+
+  current_value="$(read_env_file_value "$env_file" "$key" "")"
+  if [[ -n "$current_value" ]] && ! is_env_placeholder_value "$current_value"; then
+    return 0
+  fi
+
+  upsert_env_key "$env_file" "$key" "$default_value"
+}
+
 ensure_whatsapp_stage_env_file() {
-  local generated_internal_token current_internal_token_before current_internal_token_after
+  local generated_internal_token generated_verify_token generated_app_secret
+  local default_access_token default_phone_number_id
+  local current_internal_token_before current_internal_token_after
   generated_internal_token="$(
     python3 - <<'PY'
 import secrets
 print(secrets.token_hex(24))
 PY
   )"
+  generated_verify_token="$(
+    python3 - <<'PY'
+import secrets
+print("stage_verify_" + secrets.token_hex(8))
+PY
+  )"
+  generated_app_secret="$(
+    python3 - <<'PY'
+import secrets
+print(secrets.token_hex(24))
+PY
+  )"
+  default_access_token="stage_access_token_not_configured"
+  default_phone_number_id="000000000000000"
 
   if [[ ! -f "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" ]]; then
     local backend_database_url
@@ -305,10 +360,10 @@ PY
     cat > "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" <<EOF
 PORT=${WHATSAPP_STAGE_BACKEND_PORT}
 DATABASE_URL=${backend_database_url}
-WHATSAPP_ACCESS_TOKEN=stage_access_token_placeholder
-PHONE_NUMBER_ID=stage_phone_number_id
-WHATSAPP_VERIFY_TOKEN=stage_verify_token
-WHATSAPP_APP_SECRET=stage_app_secret
+WHATSAPP_ACCESS_TOKEN=${default_access_token}
+PHONE_NUMBER_ID=${default_phone_number_id}
+WHATSAPP_VERIFY_TOKEN=${generated_verify_token}
+WHATSAPP_APP_SECRET=${generated_app_secret}
 NODE_ENV=production
 WEBHOOK_ALLOW_UNSIGNED=false
 API_BACKEND_URL=${API_BACKEND_URL}
@@ -322,11 +377,15 @@ EOF
 
   current_internal_token_before="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "")"
 
-  set_env_key_if_blank "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "API_BACKEND_URL" "${API_BACKEND_URL}"
-  set_env_key_if_blank "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_API_AUTH_ENABLED" "true"
-  set_env_key_if_blank "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ALLOWED_PAPEIS" "${WHATSAPP_DEFAULT_ALLOWED_PAPEIS}"
-  set_env_key_if_blank "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_WRITE_ALLOWED_PAPEIS" "${WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS}"
-  set_env_key_if_blank "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "${generated_internal_token}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "API_BACKEND_URL" "${API_BACKEND_URL}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_API_AUTH_ENABLED" "true"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ALLOWED_PAPEIS" "${WHATSAPP_DEFAULT_ALLOWED_PAPEIS}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_WRITE_ALLOWED_PAPEIS" "${WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "${generated_internal_token}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ACCESS_TOKEN" "${default_access_token}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "PHONE_NUMBER_ID" "${default_phone_number_id}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "${generated_verify_token}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "${generated_app_secret}"
 
   current_internal_token_after="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "")"
   if [[ -z "${current_internal_token_before}" && -n "${current_internal_token_after}" ]]; then

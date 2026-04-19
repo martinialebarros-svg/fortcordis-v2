@@ -15,6 +15,7 @@
 - Observacao: tentativa de deploy manual via SSH local falhou em `systemctl restart` por falta de sudo nao interativo.
   - Impacto: deploy manual local nao finalizado.
   - Mitigacao: deploy oficial deve ocorrer pelo workflow GitHub Actions com secrets.
+- Novo criterio operacional validado em codigo: `deploy_prod_vps.sh` agora trata placeholders legados como configuracao invalida e aplica defaults seguros automaticamente.
 
 ## Status dos criterios de aceitacao
 
