@@ -323,6 +323,22 @@ set_env_key_if_blank_or_placeholder() {
   upsert_env_key "$env_file" "$key" "$default_value"
 }
 
+replace_env_key_if_exact_match() {
+  local env_file="$1"
+  local key="$2"
+  local expected_value="${3:-}"
+  local replacement_value="${4:-}"
+  local current_value
+
+  current_value="$(read_env_file_value "$env_file" "$key" "")"
+  if [[ "$current_value" != "$expected_value" ]]; then
+    return 0
+  fi
+
+  upsert_env_key "$env_file" "$key" "$replacement_value"
+  log "Auto-healed legacy WhatsApp stage placeholder: ${key}"
+}
+
 ensure_whatsapp_stage_env_file() {
   local generated_internal_token generated_verify_token generated_app_secret
   local default_access_token default_phone_number_id
@@ -376,6 +392,12 @@ EOF
   fi
 
   current_internal_token_before="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "")"
+
+  # Handle exact legacy placeholder values first, then keep generic fallback below.
+  replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ACCESS_TOKEN" "stage_access_token_placeholder" "${default_access_token}"
+  replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "PHONE_NUMBER_ID" "stage_phone_number_id" "${default_phone_number_id}"
+  replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "stage_verify_token" "${generated_verify_token}"
+  replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "stage_app_secret" "${generated_app_secret}"
 
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "API_BACKEND_URL" "${API_BACKEND_URL}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_API_AUTH_ENABLED" "true"

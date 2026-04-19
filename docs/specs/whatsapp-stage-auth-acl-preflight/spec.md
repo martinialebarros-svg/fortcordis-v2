@@ -16,6 +16,7 @@
 - RO-003: deve existir script de preflight para validar env, health, gate de auth e smoke opcional.
 - RO-004: runbook stage/prod deve incluir passo explicito do preflight WhatsApp.
 - RO-005: deploy deve autocorrigir placeholders legados no `.env` do WhatsApp stage sem sobrescrever valores reais.
+- RO-006: deploy deve autocorrigir placeholders legados exatos (`stage_*`) de forma deterministica no `.env` do WhatsApp stage antes dos fallbacks genericos.
 
 ## Criterios de aceitacao
 

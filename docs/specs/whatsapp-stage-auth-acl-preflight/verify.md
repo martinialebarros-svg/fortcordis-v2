@@ -16,6 +16,7 @@
   - Impacto: deploy manual local nao finalizado.
   - Mitigacao: deploy oficial deve ocorrer pelo workflow GitHub Actions com secrets.
 - Novo criterio operacional validado em codigo: `deploy_prod_vps.sh` agora trata placeholders legados como configuracao invalida e aplica defaults seguros automaticamente.
+- Robustez adicional: `deploy_prod_vps.sh` agora auto-corrige placeholders legados exatos (`stage_access_token_placeholder`, `stage_phone_number_id`, `stage_verify_token`, `stage_app_secret`) antes da etapa generica de fallback.
 
 ## Status dos criterios de aceitacao
 
