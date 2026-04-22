@@ -120,6 +120,37 @@ def _minutos_entre(inicio: datetime, fim: datetime) -> int:
     return int((fim - inicio).total_seconds() // 60)
 
 
+def _obter_duracao_deslocamento_cacheado(
+    db: Session,
+    *,
+    origem_clinica_id: Optional[int],
+    destino_clinica_id: Optional[int],
+    perfil: str,
+    permitir_estimativa_fallback: bool = True,
+    cache: Optional[dict[tuple[int, int, str, bool], tuple[int, str]]] = None,
+) -> tuple[int, str]:
+    perfil_norm = normalizar_perfil(perfil)
+    chave = (
+        int(origem_clinica_id or 0),
+        int(destino_clinica_id or 0),
+        perfil_norm,
+        bool(permitir_estimativa_fallback),
+    )
+    if isinstance(cache, dict) and chave in cache:
+        return cache[chave]
+
+    resultado = obter_duracao_deslocamento(
+        db,
+        origem_clinica_id=origem_clinica_id,
+        destino_clinica_id=destino_clinica_id,
+        perfil=perfil_norm,
+        permitir_estimativa_fallback=permitir_estimativa_fallback,
+    )
+    if isinstance(cache, dict):
+        cache[chave] = resultado
+    return resultado
+
+
 def _nome_clinica_por_id(db: Session, clinica_id: Optional[int]) -> str:
     if not clinica_id:
         return "Clinica nao informada"
@@ -294,6 +325,7 @@ def _validar_deslocamento_agendamento(
     perfil_norm = normalizar_perfil(perfil_deslocamento)
     clinica_atual = _nome_clinica_por_id(db, agendamento.clinica_id)
     cache_clinicas: dict[int, Optional[Clinica]] = {}
+    cache_duracoes: dict[tuple[int, int, str, bool], tuple[int, str]] = {}
 
     def _get_clinica(clinica_id: Optional[int]) -> Optional[Clinica]:
         cid = int(clinica_id or 0)
@@ -311,12 +343,13 @@ def _validar_deslocamento_agendamento(
     if anterior and anterior.get("clinica_id"):
         clinica_anterior_obj = _get_clinica(anterior.get("clinica_id"))
         if _clinica_tem_localizacao_confiavel(clinica_anterior_obj):
-            duracao_prev, fonte_prev = obter_duracao_deslocamento(
+            duracao_prev, fonte_prev = _obter_duracao_deslocamento_cacheado(
                 db,
                 origem_clinica_id=anterior.get("clinica_id"),
                 destino_clinica_id=agendamento.clinica_id,
                 perfil=perfil_norm,
                 permitir_estimativa_fallback=True,
+                cache=cache_duracoes,
             )
             folga_prev = _minutos_entre(anterior["fim"], inicio_dt)
             if duracao_prev > 0 and folga_prev < duracao_prev:
@@ -343,12 +376,13 @@ def _validar_deslocamento_agendamento(
     if proximo and proximo.get("clinica_id"):
         clinica_proxima_obj = _get_clinica(proximo.get("clinica_id"))
         if _clinica_tem_localizacao_confiavel(clinica_proxima_obj):
-            duracao_next, fonte_next = obter_duracao_deslocamento(
+            duracao_next, fonte_next = _obter_duracao_deslocamento_cacheado(
                 db,
                 origem_clinica_id=agendamento.clinica_id,
                 destino_clinica_id=proximo.get("clinica_id"),
                 perfil=perfil_norm,
                 permitir_estimativa_fallback=True,
+                cache=cache_duracoes,
             )
             folga_next = _minutos_entre(fim_dt, proximo["inicio"])
             if duracao_next > 0 and folga_next < duracao_next:
@@ -1105,6 +1139,7 @@ def sugerir_horarios_agenda(
     )
     perfil_norm = normalizar_perfil(payload.perfil_deslocamento)
     intervalo_minutos = max(5, int(payload.intervalo_minutos))
+    cache_duracoes: dict[tuple[int, int, str, bool], tuple[int, str]] = {}
 
     sugestoes: list[dict] = []
     inicio_candidato = janela_inicio
@@ -1131,11 +1166,12 @@ def sugerir_horarios_agenda(
         fonte_next = "indefinido"
 
         if anterior and anterior.get("clinica_id"):
-            tempo_prev, fonte_prev = obter_duracao_deslocamento(
+            tempo_prev, fonte_prev = _obter_duracao_deslocamento_cacheado(
                 db,
                 origem_clinica_id=anterior.get("clinica_id"),
                 destino_clinica_id=payload.clinica_id,
                 perfil=perfil_norm,
+                cache=cache_duracoes,
             )
             folga_prev = _minutos_entre(anterior["fim"], inicio_candidato)
             if folga_prev < tempo_prev:
@@ -1143,11 +1179,12 @@ def sugerir_horarios_agenda(
                 continue
 
         if proximo and proximo.get("clinica_id"):
-            tempo_next, fonte_next = obter_duracao_deslocamento(
+            tempo_next, fonte_next = _obter_duracao_deslocamento_cacheado(
                 db,
                 origem_clinica_id=payload.clinica_id,
                 destino_clinica_id=proximo.get("clinica_id"),
                 perfil=perfil_norm,
+                cache=cache_duracoes,
             )
             folga_next = _minutos_entre(fim_candidato, proximo["inicio"])
             if folga_next < tempo_next:
@@ -1255,6 +1292,7 @@ def sugerir_agendamento_proximo(
         agendamento_id_excluir=payload.ignorar_agendamento_id,
     )
     perfil_norm = normalizar_perfil(payload.perfil_deslocamento)
+    cache_duracoes: dict[tuple[int, int, str, bool], tuple[int, str]] = {}
     melhor_item: Optional[dict] = None
     melhor_tempo: Optional[int] = None
     melhor_rank = None
@@ -1281,11 +1319,12 @@ def sugerir_agendamento_proximo(
                 continue
             duracao_min, fonte = 0, "mesma_clinica"
         else:
-            duracao_min, fonte = obter_duracao_deslocamento(
+            duracao_min, fonte = _obter_duracao_deslocamento_cacheado(
                 db,
                 origem_clinica_id=payload.clinica_id,
                 destino_clinica_id=clinica_item_id,
                 perfil=perfil_norm,
+                cache=cache_duracoes,
             )
         if duracao_min <= 0:
             if clinica_item_id != payload.clinica_id:

@@ -42,6 +42,16 @@ load_env_file "${PROJECT_ROOT}/.env"
 BASE_URL="${BASE_URL:-http://localhost:3000}"
 RUN_GRAPH_RETRY_TEST="${RUN_GRAPH_RETRY_TEST:-true}"
 RUN_PERSIST_FAILURE_TEST="${RUN_PERSIST_FAILURE_TEST:-false}"
+API_AUTH_BEARER_TOKEN="${API_AUTH_BEARER_TOKEN:-}"
+WHATSAPP_INTERNAL_API_TOKEN="${WHATSAPP_INTERNAL_API_TOKEN:-}"
+
+AUTH_HEADER_ARGS=()
+if [[ -n "${API_AUTH_BEARER_TOKEN}" ]]; then
+  AUTH_HEADER_ARGS+=( -H "Authorization: Bearer ${API_AUTH_BEARER_TOKEN}" )
+fi
+if [[ -n "${WHATSAPP_INTERNAL_API_TOKEN}" ]]; then
+  AUTH_HEADER_ARGS+=( -H "X-WhatsApp-Internal-Token: ${WHATSAPP_INTERNAL_API_TOKEN}" )
+fi
 
 if [[ -z "${WHATSAPP_VERIFY_TOKEN:-}" ]]; then
   echo "Set WHATSAPP_VERIFY_TOKEN before running smoke tests."
@@ -210,6 +220,10 @@ request_json_with_body() {
   local -a args
   args=( -sS -o "${HTTP_BODY_FILE}" -w "%{http_code}" -X "${method}" "${url}" )
 
+  if [[ "${#AUTH_HEADER_ARGS[@]}" -gt 0 ]]; then
+    args+=( "${AUTH_HEADER_ARGS[@]}" )
+  fi
+
   if [[ -n "${payload}" ]]; then
     args+=( -H "Content-Type: application/json" -d "${payload}" )
   fi
@@ -231,6 +245,10 @@ request_json_status_only() {
   response_file="$(mktemp)"
   local -a args
   args=( -sS -o "${response_file}" -w "%{http_code}" -X "${method}" "${url}" )
+
+  if [[ "${#AUTH_HEADER_ARGS[@]}" -gt 0 ]]; then
+    args+=( "${AUTH_HEADER_ARGS[@]}" )
+  fi
 
   if [[ -n "${payload}" ]]; then
     args+=( -H "Content-Type: application/json" -d "${payload}" )

@@ -22,6 +22,8 @@ set -euo pipefail
 #   WHATSAPP_STAGE_BACKEND_PORT=3010
 #   WHATSAPP_STAGE_BACKEND_URL=http://127.0.0.1:3010
 #   ENABLE_WHATSAPP_STAGE_SMOKE=1
+#   WHATSAPP_DEFAULT_ALLOWED_PAPEIS=admin,recepcao,veterinario,cardiologista
+#   WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS=admin,recepcao,veterinario,cardiologista
 #   AUTO_ROLLBACK_ON_FAILURE=1
 #   ENABLE_AUTH_CANARY=1
 #   AUTH_CANARY_TIMEOUT_SECONDS=8
@@ -54,6 +56,8 @@ WHATSAPP_STAGE_BACKEND_URL="${WHATSAPP_STAGE_BACKEND_URL:-http://127.0.0.1:${WHA
 WHATSAPP_STAGE_BACKEND_DIR="${WHATSAPP_STAGE_BACKEND_DIR:-${APP_DIR}/whatsapp-stage-backend}"
 WHATSAPP_STAGE_BACKEND_ENV_FILE="${WHATSAPP_STAGE_BACKEND_ENV_FILE:-${WHATSAPP_STAGE_BACKEND_DIR}/.env}"
 ENABLE_WHATSAPP_STAGE_SMOKE="${ENABLE_WHATSAPP_STAGE_SMOKE:-1}"
+WHATSAPP_DEFAULT_ALLOWED_PAPEIS="${WHATSAPP_DEFAULT_ALLOWED_PAPEIS:-admin,recepcao,veterinario,cardiologista}"
+WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS="${WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS:-${WHATSAPP_DEFAULT_ALLOWED_PAPEIS}}"
 
 RUNTIME_BACKUP_DIR="${RUNTIME_BACKUP_DIR:-$HOME/fortcordis-runtime-backups}"
 AUTO_ROLLBACK_ON_FAILURE="${AUTO_ROLLBACK_ON_FAILURE:-1}"
@@ -233,30 +237,182 @@ read_env_file_value() {
   printf '%s' "$value"
 }
 
-ensure_whatsapp_stage_env_file() {
-  if [[ -f "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" ]]; then
+is_env_placeholder_value() {
+  local value="$1"
+  local normalized
+  normalized="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+
+  if [[ -z "$normalized" ]]; then
     return 0
   fi
 
-  local backend_database_url
-  backend_database_url="$(read_env_file_value "${BACKEND_DIR}/.env" "DATABASE_URL" "")"
-  if [[ -z "${backend_database_url}" ]]; then
-    echo "[ERROR] Could not infer DATABASE_URL from ${BACKEND_DIR}/.env for WhatsApp stage backend." >&2
+  case "$normalized" in
+    "<"*">")
+      return 0
+      ;;
+    *placeholder*)
+      return 0
+      ;;
+    stage_access_token_placeholder|stage_phone_number_id|stage_verify_token|stage_app_secret)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+upsert_env_key() {
+  local env_file="$1"
+  local key="$2"
+  local value="${3:-}"
+  local temp_file
+
+  if [[ ! -f "$env_file" ]]; then
     return 1
   fi
 
-  mkdir -p "$(dirname "${WHATSAPP_STAGE_BACKEND_ENV_FILE}")"
-  cat > "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" <<EOF
+  temp_file="$(mktemp)"
+  awk -v k="$key" -v v="$value" '
+    BEGIN { replaced = 0 }
+    {
+      if ($0 ~ ("^" k "=")) {
+        if (replaced == 0) {
+          print k "=" v
+          replaced = 1
+        }
+      } else {
+        print $0
+      }
+    }
+    END {
+      if (replaced == 0) {
+        print k "=" v
+      }
+    }
+  ' "$env_file" > "$temp_file"
+
+  mv "$temp_file" "$env_file"
+}
+
+set_env_key_if_blank() {
+  local env_file="$1"
+  local key="$2"
+  local default_value="${3:-}"
+  local current_value
+
+  current_value="$(read_env_file_value "$env_file" "$key" "")"
+  if [[ -n "$current_value" ]]; then
+    return 0
+  fi
+
+  upsert_env_key "$env_file" "$key" "$default_value"
+}
+
+set_env_key_if_blank_or_placeholder() {
+  local env_file="$1"
+  local key="$2"
+  local default_value="${3:-}"
+  local current_value
+
+  current_value="$(read_env_file_value "$env_file" "$key" "")"
+  if [[ -n "$current_value" ]] && ! is_env_placeholder_value "$current_value"; then
+    return 0
+  fi
+
+  upsert_env_key "$env_file" "$key" "$default_value"
+}
+
+replace_env_key_if_exact_match() {
+  local env_file="$1"
+  local key="$2"
+  local expected_value="${3:-}"
+  local replacement_value="${4:-}"
+  local current_value
+
+  current_value="$(read_env_file_value "$env_file" "$key" "")"
+  if [[ "$current_value" != "$expected_value" ]]; then
+    return 0
+  fi
+
+  upsert_env_key "$env_file" "$key" "$replacement_value"
+  log "Auto-healed legacy WhatsApp stage placeholder: ${key}"
+}
+
+ensure_whatsapp_stage_env_file() {
+  local generated_internal_token generated_verify_token generated_app_secret
+  local default_access_token default_phone_number_id
+  local current_internal_token_before current_internal_token_after
+  generated_internal_token="$(
+    python3 - <<'PY'
+import secrets
+print(secrets.token_hex(24))
+PY
+  )"
+  generated_verify_token="$(
+    python3 - <<'PY'
+import secrets
+print("stage_verify_" + secrets.token_hex(8))
+PY
+  )"
+  generated_app_secret="$(
+    python3 - <<'PY'
+import secrets
+print(secrets.token_hex(24))
+PY
+  )"
+  default_access_token="stage_access_token_not_configured"
+  default_phone_number_id="000000000000000"
+
+  if [[ ! -f "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" ]]; then
+    local backend_database_url
+    backend_database_url="$(read_env_file_value "${BACKEND_DIR}/.env" "DATABASE_URL" "")"
+    if [[ -z "${backend_database_url}" ]]; then
+      echo "[ERROR] Could not infer DATABASE_URL from ${BACKEND_DIR}/.env for WhatsApp stage backend." >&2
+      return 1
+    fi
+
+    mkdir -p "$(dirname "${WHATSAPP_STAGE_BACKEND_ENV_FILE}")"
+    cat > "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" <<EOF
 PORT=${WHATSAPP_STAGE_BACKEND_PORT}
 DATABASE_URL=${backend_database_url}
-WHATSAPP_ACCESS_TOKEN=stage_access_token_placeholder
-PHONE_NUMBER_ID=stage_phone_number_id
-WHATSAPP_VERIFY_TOKEN=stage_verify_token
-WHATSAPP_APP_SECRET=stage_app_secret
+WHATSAPP_ACCESS_TOKEN=${default_access_token}
+PHONE_NUMBER_ID=${default_phone_number_id}
+WHATSAPP_VERIFY_TOKEN=${generated_verify_token}
+WHATSAPP_APP_SECRET=${generated_app_secret}
 NODE_ENV=production
 WEBHOOK_ALLOW_UNSIGNED=false
+API_BACKEND_URL=${API_BACKEND_URL}
+WHATSAPP_API_AUTH_ENABLED=true
+WHATSAPP_ALLOWED_PAPEIS=${WHATSAPP_DEFAULT_ALLOWED_PAPEIS}
+WHATSAPP_WRITE_ALLOWED_PAPEIS=${WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS}
+WHATSAPP_INTERNAL_API_TOKEN=${generated_internal_token}
 EOF
-  log "Created ${WHATSAPP_STAGE_BACKEND_ENV_FILE} with stage-safe placeholders."
+    log "Created ${WHATSAPP_STAGE_BACKEND_ENV_FILE} with stage-safe placeholders."
+  fi
+
+  current_internal_token_before="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "")"
+
+  # Handle exact legacy placeholder values first, then keep generic fallback below.
+  replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ACCESS_TOKEN" "stage_access_token_placeholder" "${default_access_token}"
+  replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "PHONE_NUMBER_ID" "stage_phone_number_id" "${default_phone_number_id}"
+  replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "stage_verify_token" "${generated_verify_token}"
+  replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "stage_app_secret" "${generated_app_secret}"
+
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "API_BACKEND_URL" "${API_BACKEND_URL}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_API_AUTH_ENABLED" "true"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ALLOWED_PAPEIS" "${WHATSAPP_DEFAULT_ALLOWED_PAPEIS}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_WRITE_ALLOWED_PAPEIS" "${WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "${generated_internal_token}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ACCESS_TOKEN" "${default_access_token}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "PHONE_NUMBER_ID" "${default_phone_number_id}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "${generated_verify_token}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "${generated_app_secret}"
+
+  current_internal_token_after="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "")"
+  if [[ -z "${current_internal_token_before}" && -n "${current_internal_token_after}" ]]; then
+    log "Generated WHATSAPP_INTERNAL_API_TOKEN for ${WHATSAPP_STAGE_BACKEND_ENV_FILE}."
+  fi
 }
 
 ensure_whatsapp_stage_service_unit() {
@@ -321,16 +477,18 @@ deploy_whatsapp_stage_backend() {
   log "WhatsApp stage backend health OK"
 
   if [[ "${ENABLE_WHATSAPP_STAGE_SMOKE}" == "1" && -f "${WHATSAPP_STAGE_BACKEND_DIR}/scripts/smoke-tests.sh" ]]; then
-    local verify_token app_secret access_token
+    local verify_token app_secret access_token internal_api_token
     verify_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "stage_verify_token")"
     app_secret="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "stage_app_secret")"
     access_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ACCESS_TOKEN" "stage_access_token_placeholder")"
+    internal_api_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "")"
 
     log "WhatsApp stage backend smoke tests"
     BASE_URL="http://127.0.0.1:${WHATSAPP_STAGE_BACKEND_PORT}" \
       WHATSAPP_VERIFY_TOKEN="${verify_token}" \
       WHATSAPP_APP_SECRET="${app_secret}" \
       WHATSAPP_ACCESS_TOKEN="${access_token}" \
+      WHATSAPP_INTERNAL_API_TOKEN="${internal_api_token}" \
       bash "${WHATSAPP_STAGE_BACKEND_DIR}/scripts/smoke-tests.sh"
   fi
 }

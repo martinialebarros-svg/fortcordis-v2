@@ -67,12 +67,28 @@ interface AgentsResponse {
   data: Agent[];
 }
 
+function getAuthHeaders(): Record<string, string> {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  const token = window.localStorage.getItem("token");
+  if (!token) {
+    return {};
+  }
+
+  return {
+    Authorization: `Bearer ${token}`,
+  };
+}
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<ApiResult<T>> {
   const response = await fetch(url, {
     cache: "no-store",
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...getAuthHeaders(),
       ...(init?.headers || {}),
     },
   });

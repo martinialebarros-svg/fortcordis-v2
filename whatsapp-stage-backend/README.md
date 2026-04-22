@@ -27,6 +27,7 @@ Backend minimal para stage local, integrando com WhatsApp Cloud API (Meta), com 
 +- src/
    +- app.ts
    +- index.ts
+   +- middleware/
    +- controllers/
    +- services/
    +- db/
@@ -98,6 +99,18 @@ docker-compose up -d --build
 - `GET /agents`
 - `POST /agents`
 
+## Autenticacao e ACL
+
+- Rotas protegidas: `/conversations*` e `/agents*`.
+- A API aceita `Authorization: Bearer <token>` e valida o usuario no backend principal via `GET ${API_BACKEND_URL}/api/v1/auth/me`.
+- Opcionalmente, automacoes podem usar `X-WhatsApp-Internal-Token` quando `WHATSAPP_INTERNAL_API_TOKEN` estiver configurado.
+- ACL por papel (opcional):
+- `WHATSAPP_ALLOWED_PAPEIS` para leituras (`GET/HEAD/OPTIONS`).
+- `WHATSAPP_WRITE_ALLOWED_PAPEIS` para escritas (`POST/PUT/PATCH/DELETE`).
+- Se listas vazias, qualquer usuario autenticado pode acessar.
+- Recomendacao stage/producao: `admin,recepcao,veterinario,cardiologista`.
+- No deploy VPS padrao do projeto, `WHATSAPP_INTERNAL_API_TOKEN` e ACL defaults sao preenchidos automaticamente se estiverem em branco.
+
 ## Smoke tests
 
 O script inclui:
@@ -128,6 +141,16 @@ Para habilitar o teste opcional de falha de persistencia (espera `503`):
 RUN_PERSIST_FAILURE_TEST=true bash scripts/smoke-tests.sh
 ```
 
+Para smoke com auth habilitada, passe um dos metodos:
+
+```bash
+API_AUTH_BEARER_TOKEN="<jwt>" bash scripts/smoke-tests.sh
+```
+
+```bash
+WHATSAPP_INTERNAL_API_TOKEN="<internal_token>" bash scripts/smoke-tests.sh
+```
+
 ## Scripts npm
 
 ```bash
@@ -139,5 +162,4 @@ npm run test:whatsapp-retry
 
 - `POST /webhook` exige assinatura valida por padrao.
 - Para debug local sem assinatura (nao recomendado), use `WEBHOOK_ALLOW_UNSIGNED=true` no `.env`.
-- TODO: adicionar autenticacao/ACL nos endpoints de agentes/conversas antes de producao.
 - TODO: validar constraints `NOT VALID` de `audit_logs` em janela de manutencao.
