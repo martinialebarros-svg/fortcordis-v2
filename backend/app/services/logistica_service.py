@@ -11,6 +11,7 @@ from typing import Iterable, Optional
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -93,6 +94,10 @@ def _metrics_retention_days() -> int:
         return max(1, int(getattr(settings, "GOOGLE_MAPS_USAGE_METRICS_RETENTION_DAYS", 90) or 90))
     except (TypeError, ValueError):
         return 90
+
+
+def _force_refresh_heuristica_com_api_key() -> bool:
+    return bool(getattr(settings, "LOGISTICA_FORCE_REFRESH_HEURISTICA_COM_API_KEY", False))
 
 
 def _http_get_json(url: str, timeout: float = GOOGLE_TIMEOUT_SECONDS) -> dict:
@@ -296,7 +301,12 @@ def _deslocamento_esta_atual(
     if fonte.startswith("heuristica"):
         origem_ref = _ref_google_maps(origem)
         destino_ref = _ref_google_maps(destino)
-        if origem_ref and destino_ref and str(settings.GOOGLE_MAPS_API_KEY or "").strip():
+        if (
+            _force_refresh_heuristica_com_api_key()
+            and origem_ref
+            and destino_ref
+            and str(settings.GOOGLE_MAPS_API_KEY or "").strip()
+        ):
             return False
 
     row_at = _row_base_datetime(row)
@@ -1059,6 +1069,182 @@ def obter_duracao_deslocamento(
     if row and row.duracao_min is not None:
         return max(0, int(row.duracao_min)), str(row.fonte or "matriz")
     return 0, "sem_matriz"
+
+
+def resumir_cobertura_matriz_deslocamentos(
+    db: Session,
+    *,
+    incluir_inativas: bool = False,
+) -> dict:
+    """Read-only snapshot: persisted matrix rows (Google vs heuristics) vs clinic geolocation.
+
+    Rows are counted only when both endpoints belong to the clinic scope (same rule as /matriz).
+    """
+    query_clinicas = db.query(Clinica)
+    if not incluir_inativas:
+        query_clinicas = query_clinicas.filter(Clinica.ativo == True)
+    clinicas = query_clinicas.order_by(Clinica.id.asc()).all()
+    clinica_ids = [int(c.id) for c in clinicas if c.id is not None]
+    n = len(clinica_ids)
+    perfis_operacionais = len(normalizar_perfis(None))
+    celulas_teoricas = n * n * perfis_operacionais if n else 0
+
+    tem_place_id = 0
+    tem_latlng = 0
+    sem_endereco_texto = 0
+    for c in clinicas:
+        if str(getattr(c, "place_id", "") or "").strip():
+            tem_place_id += 1
+        lat = _safe_float(getattr(c, "latitude", None))
+        lng = _safe_float(getattr(c, "longitude", None))
+        if lat is not None and lng is not None:
+            tem_latlng += 1
+        if not _endereco_texto_clinica(c):
+            sem_endereco_texto += 1
+
+    if not clinica_ids:
+        return {
+            "escopo": {
+                "incluir_inativas": bool(incluir_inativas),
+                "total_clinicas": 0,
+                "clinica_ids": [],
+            },
+            "clinicas_localizacao": {
+                "com_place_id": 0,
+                "com_latitude_longitude": 0,
+                "sem_endereco_texto_minimo": 0,
+            },
+            "matriz": {
+                "perfis_operacionais": perfis_operacionais,
+                "celulas_teoricas": 0,
+                "linhas_no_escopo": 0,
+                "celulas_sem_linha_estimadas": 0,
+                "por_bucket": {},
+                "por_fonte_top": [],
+                "amostra_heuristica": [],
+            },
+            "contexto": {
+                "google_maps_api_key_configurada": bool(str(settings.GOOGLE_MAPS_API_KEY or "").strip()),
+                "cache_max_age_days": _cache_max_age_days(),
+                "force_refresh_heuristica_com_api_key": _force_refresh_heuristica_com_api_key(),
+            },
+        }
+
+    fonte_lower = func.lower(func.coalesce(ClinicaDeslocamento.fonte, ""))
+    bucket_expr = case(
+        (ClinicaDeslocamento.manual_override == True, "manual_ou_override"),
+        (fonte_lower == "manual", "manual_ou_override"),
+        (fonte_lower.like("google%"), "google_api"),
+        (fonte_lower.like("heuristica%"), "heuristica_local"),
+        else_="outros",
+    )
+
+    escopo_rows = (
+        db.query(bucket_expr.label("bucket"), func.count(ClinicaDeslocamento.id))
+        .filter(
+            ClinicaDeslocamento.origem_clinica_id.in_(clinica_ids),
+            ClinicaDeslocamento.destino_clinica_id.in_(clinica_ids),
+        )
+        .group_by(bucket_expr)
+        .all()
+    )
+    por_bucket: dict[str, int] = {str(row[0]): int(row[1]) for row in escopo_rows}
+
+    fonte_rows = (
+        db.query(
+            ClinicaDeslocamento.fonte,
+            ClinicaDeslocamento.perfil,
+            func.count(ClinicaDeslocamento.id),
+        )
+        .filter(
+            ClinicaDeslocamento.origem_clinica_id.in_(clinica_ids),
+            ClinicaDeslocamento.destino_clinica_id.in_(clinica_ids),
+        )
+        .group_by(ClinicaDeslocamento.fonte, ClinicaDeslocamento.perfil)
+        .order_by(func.count(ClinicaDeslocamento.id).desc())
+        .limit(40)
+        .all()
+    )
+    por_fonte_top = [
+        {"fonte": r[0], "perfil": str(r[1] or ""), "linhas": int(r[2])}
+        for r in fonte_rows
+    ]
+
+    linhas_no_escopo = sum(por_bucket.values())
+    celulas_sem_linha = max(0, celulas_teoricas - linhas_no_escopo)
+
+    amostra = (
+        db.query(
+            ClinicaDeslocamento.origem_clinica_id,
+            ClinicaDeslocamento.destino_clinica_id,
+            ClinicaDeslocamento.perfil,
+            ClinicaDeslocamento.fonte,
+        )
+        .filter(
+            ClinicaDeslocamento.origem_clinica_id.in_(clinica_ids),
+            ClinicaDeslocamento.destino_clinica_id.in_(clinica_ids),
+            fonte_lower.like("heuristica%"),
+            ClinicaDeslocamento.manual_override == False,
+        )
+        .order_by(
+            ClinicaDeslocamento.origem_clinica_id,
+            ClinicaDeslocamento.destino_clinica_id,
+            ClinicaDeslocamento.perfil,
+        )
+        .limit(40)
+        .all()
+    )
+    amostra_heuristica = [
+        {
+            "origem_clinica_id": int(r[0]),
+            "destino_clinica_id": int(r[1]),
+            "perfil": str(r[2] or ""),
+            "fonte": str(r[3] or ""),
+        }
+        for r in amostra
+    ]
+
+    linhas_fora_escopo: Optional[int] = None
+    if not incluir_inativas:
+        linhas_fora_escopo = int(
+            db.query(func.count(ClinicaDeslocamento.id))
+            .filter(
+                or_(
+                    ClinicaDeslocamento.origem_clinica_id.notin_(clinica_ids),
+                    ClinicaDeslocamento.destino_clinica_id.notin_(clinica_ids),
+                )
+            )
+            .scalar()
+            or 0
+        )
+
+    return {
+        "escopo": {
+            "incluir_inativas": bool(incluir_inativas),
+            "total_clinicas": n,
+            "clinica_ids": clinica_ids,
+        },
+        "clinicas_localizacao": {
+            "com_place_id": tem_place_id,
+            "com_latitude_longitude": tem_latlng,
+            "sem_endereco_texto_minimo": sem_endereco_texto,
+        },
+        "matriz": {
+            "perfis_operacionais": perfis_operacionais,
+            "celulas_teoricas": celulas_teoricas,
+            "linhas_no_escopo": linhas_no_escopo,
+            "celulas_sem_linha_estimadas": celulas_sem_linha,
+            "por_bucket": por_bucket,
+            "por_fonte_top": por_fonte_top,
+            "amostra_heuristica": amostra_heuristica,
+        },
+        "contexto": {
+            "google_maps_api_key_configurada": bool(str(settings.GOOGLE_MAPS_API_KEY or "").strip()),
+            "cache_max_age_days": _cache_max_age_days(),
+            "force_refresh_heuristica_com_api_key": _force_refresh_heuristica_com_api_key(),
+            "linhas_fora_escopo_clinicas_ativas": linhas_fora_escopo,
+        },
+    }
 
 
 def resumir_google_maps_metricas(
