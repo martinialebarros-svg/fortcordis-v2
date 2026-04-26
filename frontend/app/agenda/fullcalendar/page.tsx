@@ -19,6 +19,7 @@ import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import { montarToastAgendaRealtime } from "@/lib/agenda-realtime-toast";
 import { useAgendaRealtime, type AgendaRealtimePayload } from "@/lib/useAgendaRealtime";
+import { montarWazeDestinoClinica } from "@/lib/waze";
 import {
   getLaudoEditPath,
   TIPO_LAUDO_ECOCARDIOGRAMA,
@@ -115,9 +116,14 @@ interface ClinicaEndereco {
   id: number;
   nome?: string | null;
   endereco?: string | null;
+  numero?: string | null;
+  bairro?: string | null;
   cidade?: string | null;
   estado?: string | null;
   cep?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  endereco_normalizado?: string | null;
 }
 
 interface OrdemServicoResumo {
@@ -513,31 +519,15 @@ export default function AgendaFullCalendarPage() {
     };
   }, []);
 
-  const montarEnderecoClinica = useCallback((clinica: ClinicaEndereco | null | undefined): string => {
-    if (!clinica) return "";
-
-    const partes = [
-      String(clinica.endereco || "").trim(),
-      String(clinica.cidade || "").trim(),
-      String(clinica.estado || "").trim(),
-      String(clinica.cep || "").trim(),
-    ].filter((parte) => Boolean(parte));
-
-    return partes.join(", ");
-  }, []);
-
-  const montarWazeWebUrl = useCallback((enderecoClinica: string): string => {
-    const destino = String(enderecoClinica || "").trim();
-    if (!destino) return "";
-    return `https://waze.com/ul?q=${encodeURIComponent(destino)}&navigate=yes`;
+  const montarWazeWebUrl = useCallback((clinica: ClinicaEndereco | null | undefined): string => {
+    return montarWazeDestinoClinica(clinica)?.webUrl || "";
   }, []);
 
   const wazeSelecionadoUrl = useMemo(() => {
     if (!selecionado) return "";
     const clinica = clinicasEndereco[Number(selecionado.clinica_id)];
-    const endereco = montarEnderecoClinica(clinica);
-    return montarWazeWebUrl(endereco);
-  }, [clinicasEndereco, montarEnderecoClinica, montarWazeWebUrl, selecionado]);
+    return montarWazeWebUrl(clinica);
+  }, [clinicasEndereco, montarWazeWebUrl, selecionado]);
 
   const carregarClinicasComEndereco = useCallback(async (items: Agendamento[]) => {
     const idsClinica = Array.from(
@@ -568,9 +558,14 @@ export default function AgendaFullCalendarPage() {
           id: clinicaId,
           nome: clinica?.nome || null,
           endereco: clinica?.endereco || null,
+          numero: clinica?.numero || null,
+          bairro: clinica?.bairro || null,
           cidade: clinica?.cidade || null,
           estado: clinica?.estado || null,
           cep: clinica?.cep || null,
+          latitude: Number.isFinite(Number(clinica?.latitude)) ? Number(clinica.latitude) : null,
+          longitude: Number.isFinite(Number(clinica?.longitude)) ? Number(clinica.longitude) : null,
+          endereco_normalizado: clinica?.endereco_normalizado || null,
         };
       }
 
@@ -1634,8 +1629,7 @@ export default function AgendaFullCalendarPage() {
         text: "#111827",
       };
       const clinica = clinicasEndereco[Number(ag.clinica_id)];
-      const enderecoClinica = montarEnderecoClinica(clinica);
-      const wazeUrl = montarWazeWebUrl(enderecoClinica);
+      const wazeUrl = montarWazeWebUrl(clinica);
 
       lista.push({
         id: String(ag.id),
@@ -1653,7 +1647,7 @@ export default function AgendaFullCalendarPage() {
     }
 
     return lista;
-  }, [agendamentos, clinicasEndereco, filtroStatus, montarEnderecoClinica, montarWazeWebUrl]);
+  }, [agendamentos, clinicasEndereco, filtroStatus, montarWazeWebUrl]);
 
   const handleEventClick = useCallback((arg: EventClickArg) => {
     const agendamento = arg.event.extendedProps.agendamento as Agendamento | undefined;

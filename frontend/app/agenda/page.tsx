@@ -24,6 +24,7 @@ import {
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
 import { baixarLaudoPdf as baixarLaudoPdfUtil } from "@/lib/laudo-pdf";
+import { montarWazeDestinoClinica } from "@/lib/waze";
 import { 
   Calendar, Clock, User, Building, Plus, RefreshCw, X, Trash2,
   CheckCircle2, PlayCircle, CheckCircle, XCircle, AlertCircle,
@@ -67,9 +68,14 @@ interface ClinicaEndereco {
   id: number;
   nome?: string | null;
   endereco?: string | null;
+  numero?: string | null;
+  bairro?: string | null;
   cidade?: string | null;
   estado?: string | null;
   cep?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  endereco_normalizado?: string | null;
 }
 
 interface ResumoFinanceiroAgenda {
@@ -641,9 +647,14 @@ export default function AgendaPage() {
           id: clinicaId,
           nome: clinica?.nome || null,
           endereco: clinica?.endereco || null,
+          numero: clinica?.numero || null,
+          bairro: clinica?.bairro || null,
           cidade: clinica?.cidade || null,
           estado: clinica?.estado || null,
           cep: clinica?.cep || null,
+          latitude: Number.isFinite(Number(clinica?.latitude)) ? Number(clinica.latitude) : null,
+          longitude: Number.isFinite(Number(clinica?.longitude)) ? Number(clinica.longitude) : null,
+          endereco_normalizado: clinica?.endereco_normalizado || null,
         };
       }
 
@@ -680,46 +691,30 @@ export default function AgendaPage() {
     }
   };
 
-  const montarEnderecoClinica = (clinica: ClinicaEndereco | null | undefined): string => {
-    if (!clinica) return "";
-
-    const partes = [
-      String(clinica.endereco || "").trim(),
-      String(clinica.cidade || "").trim(),
-      String(clinica.estado || "").trim(),
-      String(clinica.cep || "").trim(),
-    ].filter((parte) => Boolean(parte));
-
-    return partes.join(", ");
-  };
-
-  const abrirWazeParaClinica = (enderecoClinica: string, nomeClinica?: string | null) => {
-    const destino = String(enderecoClinica || "").trim();
+  const abrirWazeParaClinica = (clinica: ClinicaEndereco | null | undefined, nomeClinica?: string | null) => {
+    const destino = montarWazeDestinoClinica(clinica);
     if (!destino) {
-      alert(`A clinica ${nomeClinica || ""} nao possui endereco cadastrado.`);
+      alert(`A clinica ${nomeClinica || ""} nao possui endereco ou coordenadas cadastradas.`);
       return;
     }
 
-    const query = encodeURIComponent(destino);
-    const appUrl = `waze://?q=${query}&navigate=yes`;
-    const webUrl = `https://waze.com/ul?q=${query}&navigate=yes`;
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
 
     if (isMobile) {
       const startedAt = Date.now();
-      window.location.href = appUrl;
+      window.location.href = destino.appUrl;
 
       window.setTimeout(() => {
         const elapsed = Date.now() - startedAt;
         const appProvavelmenteAberto = document.visibilityState === "hidden";
         if (!appProvavelmenteAberto && elapsed < 2200) {
-          window.location.href = webUrl;
+          window.location.href = destino.webUrl;
         }
       }, 1200);
       return;
     }
 
-    window.open(webUrl, "_blank", "noopener,noreferrer");
+    window.open(destino.webUrl, "_blank", "noopener,noreferrer");
   };
 
   const atualizarStatus = async (id: number, novoStatus: StatusType, tipoHorarioParam?: "comercial" | "plantao") => {
@@ -1317,8 +1312,7 @@ export default function AgendaPage() {
                 const laudoUltrassom = obterLaudoVinculado(ag.id, TIPO_LAUDO_ULTRASSOM_ABDOMINAL);
                 const osPaga = osPagasVinculadas[ag.id];
                 const clinicaComEndereco = ag.clinica_id ? clinicasEndereco[ag.clinica_id] : undefined;
-                const enderecoClinica = montarEnderecoClinica(clinicaComEndereco);
-                const podeAbrirWaze = Boolean(enderecoClinica);
+                const podeAbrirWaze = Boolean(montarWazeDestinoClinica(clinicaComEndereco));
                 
                 return (
                   <div key={ag.id} className="p-5 hover:bg-gray-50 transition-colors">
@@ -1439,7 +1433,7 @@ export default function AgendaPage() {
                         </button>
 
                         <button
-                          onClick={() => abrirWazeParaClinica(enderecoClinica, ag.clinica)}
+                          onClick={() => abrirWazeParaClinica(clinicaComEndereco, ag.clinica)}
                           disabled={!podeAbrirWaze}
                           className={`px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center gap-1 ${
                             podeAbrirWaze
