@@ -12,6 +12,7 @@ Status: done
 | CA-002 | aceitacao | UI adicionada em `AtendimentoDocumentosSection` e endpoint `PUT /documentos/{id}` | ok |
 | CA-003 | aceitacao | Teste `test_pdf_documento_clinico_usa_layout_pdf` | ok |
 | CA-004 | aceitacao | Endpoints de CRUD/reativacao de templates e UI de template, com edicao focada no formulario | ok |
+| CA-005 | regressao | Testes `test_documento_usa_tutor_atual_do_paciente_quando_atendimento_tem_tutor_antigo` e `test_pdf_atualiza_rascunho_de_template_sem_edicao_para_tutor_atual` | ok |
 
 ## 2) Testes automatizados executados
 
@@ -29,7 +30,7 @@ npm run lint
 ```
 
 Resumo dos resultados:
-- Backend: 8 testes focados passaram; compileall passou.
+- Backend: 10 testes focados passaram; compileall passou.
 - Frontend: `npx tsc --noEmit` passou; ESLint dos arquivos alterados passou, incluindo o ajuste do botao de editar template.
 - Lint global: `npm run lint` falhou em `frontend/public/sw.js` por `@next/next/no-assign-module-variable`, fora do escopo desta alteracao.
 

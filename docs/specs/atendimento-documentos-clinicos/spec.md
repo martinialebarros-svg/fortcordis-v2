@@ -15,6 +15,7 @@ Adicionar ao modulo de atendimento uma area de documentos clinicos com templates
 - RF-003: Substituir variaveis de contexto como `{{paciente_nome}}`, `{{tutor_nome}}`, `{{veterinario_nome}}`, `{{crmv}}` e dados clinicos do atendimento.
 - RF-004: Salvar documentos editados no prontuario do atendimento.
 - RF-005: Gerar PDF do documento com cabecalho, logomarca, assinatura e rodape do FortCordis.
+- RF-006: `{{tutor_nome}}` deve refletir o tutor atual vinculado ao paciente, mesmo quando o atendimento foi criado antes da alteracao do cadastro.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -65,6 +66,7 @@ Adicionar ao modulo de atendimento uma area de documentos clinicos com templates
 - CB-001: Template inativo nao deve gerar novo documento.
 - CB-002: Documento sem titulo ou corpo deve ser rejeitado.
 - CB-003: Variavel desconhecida deve permanecer no texto para revisao manual.
+- CB-004: Rascunhos criados por template e ainda nao editados podem ser re-renderizados com contexto atual ao gerar PDF; documentos ja emitidos ou editados manualmente preservam o texto salvo.
 
 ## 8) Fora de escopo
 

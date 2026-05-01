@@ -505,10 +505,90 @@ def _obter_documento_atendimento_ou_404(
 def _carregar_contexto_entidades_documento(
     db: Session,
     atendimento: AtendimentoClinico,
+    *,
+    preferir_tutor_paciente: bool = True,
 ) -> tuple[Optional[Paciente], Optional[Tutor], Optional[Clinica]]:
     paciente = db.query(Paciente).filter(Paciente.id == atendimento.paciente_id).first()
-    tutor = db.query(Tutor).filter(Tutor.id == atendimento.tutor_id).first() if atendimento.tutor_id else None
+
+    tutor_id = None
+    if preferir_tutor_paciente and paciente and paciente.tutor_id:
+        tutor_id = paciente.tutor_id
+    elif atendimento.tutor_id:
+        tutor_id = atendimento.tutor_id
+
+    tutor = db.query(Tutor).filter(Tutor.id == tutor_id).first() if tutor_id else None
+    if not tutor and preferir_tutor_paciente and atendimento.tutor_id and atendimento.tutor_id != tutor_id:
+        tutor = db.query(Tutor).filter(Tutor.id == atendimento.tutor_id).first()
+
     clinica = db.query(Clinica).filter(Clinica.id == atendimento.clinica_id).first() if atendimento.clinica_id else None
+    return paciente, tutor, clinica
+
+
+def _renderizar_template_documento_para_atendimento(
+    db: Session,
+    atendimento: AtendimentoClinico,
+    template: DocumentoAtendimentoTemplate,
+    branding: Dict[str, Any],
+    *,
+    preferir_tutor_paciente: bool = True,
+) -> tuple[str, str, Optional[Paciente], Optional[Tutor], Optional[Clinica]]:
+    paciente, tutor, clinica = _carregar_contexto_entidades_documento(
+        db,
+        atendimento,
+        preferir_tutor_paciente=preferir_tutor_paciente,
+    )
+    contexto = _montar_contexto_template_documento(atendimento, paciente, tutor, clinica, branding)
+    titulo = _renderizar_template_documento(template.titulo_padrao or "", contexto)
+    corpo = _renderizar_template_documento(template.corpo_template or "", contexto)
+    return titulo, corpo, paciente, tutor, clinica
+
+
+def _texto_documento_inalterado(value: str, rendered_value: str) -> bool:
+    return (value or "").strip() == (rendered_value or "").strip()
+
+
+def _atualizar_documento_template_se_contexto_mudou(
+    db: Session,
+    atendimento: AtendimentoClinico,
+    documento: DocumentoAtendimento,
+    branding: Dict[str, Any],
+) -> tuple[Optional[Paciente], Optional[Tutor], Optional[Clinica]]:
+    paciente, tutor, clinica = _carregar_contexto_entidades_documento(db, atendimento)
+    if not documento.template_id or (documento.status or "").lower() == "emitido":
+        return paciente, tutor, clinica
+
+    template = db.query(DocumentoAtendimentoTemplate).filter(DocumentoAtendimentoTemplate.id == documento.template_id).first()
+    if not template:
+        return paciente, tutor, clinica
+
+    titulo_atual, corpo_atual, paciente, tutor, clinica = _renderizar_template_documento_para_atendimento(
+        db,
+        atendimento,
+        template,
+        branding,
+        preferir_tutor_paciente=True,
+    )
+    titulo_original, corpo_original, *_ = _renderizar_template_documento_para_atendimento(
+        db,
+        atendimento,
+        template,
+        branding,
+        preferir_tutor_paciente=False,
+    )
+
+    if (
+        _texto_documento_inalterado(documento.titulo, titulo_original)
+        and _texto_documento_inalterado(documento.corpo, corpo_original)
+        and (
+            not _texto_documento_inalterado(documento.titulo, titulo_atual)
+            or not _texto_documento_inalterado(documento.corpo, corpo_atual)
+        )
+    ):
+        documento.titulo = titulo_atual.strip()
+        documento.corpo = corpo_atual.strip()
+        documento.updated_at = datetime.now()
+        db.flush()
+
     return paciente, tutor, clinica
 
 
@@ -2648,9 +2728,14 @@ def gerar_pdf_documento_atendimento(
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
 
-    documento = _obter_documento_atendimento_ou_404(db, atendimento_id, documento_id)
-    paciente, tutor, clinica = _carregar_contexto_entidades_documento(db, atendimento)
     branding = _obter_branding_pdf_documento(db, current_user)
+    documento = _obter_documento_atendimento_ou_404(db, atendimento_id, documento_id)
+    paciente, tutor, clinica = _atualizar_documento_template_se_contexto_mudou(
+        db,
+        atendimento,
+        documento,
+        branding,
+    )
     pdf_bytes = _gerar_pdf_documento_atendimento_bytes(
         atendimento,
         paciente,

@@ -116,6 +116,99 @@ class AtendimentoDocumentosTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_documento_usa_tutor_atual_do_paciente_quando_atendimento_tem_tutor_antigo(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            atendimento_item, paciente, tutor_antigo, _ = self._seed_atendimento(db)
+            tutor_atual = Tutor(nome="Joana Atualizada", ativo=1)
+            db.add(tutor_atual)
+            db.flush()
+            paciente.tutor_id = tutor_atual.id
+            atendimento_item.tutor_id = tutor_antigo.id
+            db.commit()
+            db.refresh(atendimento_item)
+
+            template = atendimento.criar_template_documento_atendimento(
+                DocumentoTemplatePayload(
+                    nome="Declaracao tutor atual",
+                    tipo="declaracao",
+                    titulo_padrao="Declaracao de {{paciente_nome}}",
+                    corpo_template="Tutor atual: {{tutor_nome}}.",
+                ),
+                db=db,
+                current_user=self.user,
+            )
+
+            documento = atendimento.criar_documento_atendimento(
+                atendimento_item.id,
+                DocumentoAtendimentoCreatePayload(template_id=template["id"]),
+                db=db,
+                current_user=self.user,
+            )
+
+            self.assertIn("Tutor atual: Joana Atualizada.", documento["corpo"])
+            self.assertNotIn("Maria Tutora", documento["corpo"])
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_pdf_atualiza_rascunho_de_template_sem_edicao_para_tutor_atual(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            atendimento_item, paciente, tutor_antigo, _ = self._seed_atendimento(db)
+            template_payload = atendimento.criar_template_documento_atendimento(
+                DocumentoTemplatePayload(
+                    nome="Autorizacao tutor atual",
+                    tipo="autorizacao",
+                    titulo_padrao="Autorizacao {{tutor_nome}}",
+                    corpo_template="Responsavel: {{tutor_nome}}.",
+                ),
+                db=db,
+                current_user=self.user,
+            )
+
+            documento = DocumentoAtendimento(
+                atendimento_id=atendimento_item.id,
+                template_id=template_payload["id"],
+                titulo="Autorizacao Maria Tutora",
+                corpo="Responsavel: Maria Tutora.",
+                status="rascunho",
+                criado_por_id=self.user.id,
+                criado_por_nome=self.user.nome,
+            )
+            db.add(documento)
+            db.commit()
+            db.refresh(documento)
+
+            tutor_atual = Tutor(nome="Joana Atualizada", ativo=1)
+            db.add(tutor_atual)
+            db.flush()
+            paciente.tutor_id = tutor_atual.id
+            atendimento_item.tutor_id = tutor_antigo.id
+            db.commit()
+            db.refresh(documento)
+
+            atendimento._atualizar_documento_template_se_contexto_mudou(
+                db,
+                atendimento_item,
+                documento,
+                {
+                    "nome_veterinario": self.user.nome,
+                    "crmv": "",
+                    "logomarca_bytes": None,
+                    "assinatura_bytes": None,
+                    "texto_rodape": None,
+                },
+            )
+
+            self.assertEqual(documento.titulo, "Autorizacao Joana Atualizada")
+            self.assertEqual(documento.corpo, "Responsavel: Joana Atualizada.")
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_pdf_documento_clinico_usa_layout_pdf(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
