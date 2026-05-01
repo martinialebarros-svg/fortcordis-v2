@@ -78,6 +78,40 @@ class AnexoAtendimento(Base):
     created_at = Column(DateTime(timezone=True), default=func.now())
 
 
+class DocumentoAtendimentoTemplate(Base):
+    __tablename__ = "documentos_atendimento_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String(255), nullable=False, index=True)
+    tipo = Column(String(80), nullable=False, default="documento", index=True)
+    titulo_padrao = Column(String(255), nullable=False)
+    corpo_template = Column(Text, nullable=False)
+    ativo = Column(Integer, nullable=False, default=1, index=True)
+    ordem = Column(Integer, nullable=False, default=0)
+    criado_por_id = Column(Integer)
+    criado_por_nome = Column(String)
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class DocumentoAtendimento(Base):
+    __tablename__ = "documentos_atendimento"
+
+    id = Column(Integer, primary_key=True, index=True)
+    atendimento_id = Column(Integer, nullable=False, index=True)
+    template_id = Column(Integer, nullable=True, index=True)
+    titulo = Column(String(255), nullable=False)
+    corpo = Column(Text, nullable=False)
+    status = Column(String(40), nullable=False, default="rascunho", index=True)
+    criado_por_id = Column(Integer)
+    criado_por_nome = Column(String)
+    emitido_at = Column(DateTime(timezone=True))
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 class UploadDedupeMetrica(Base):
     __tablename__ = "upload_dedupe_metricas"
 

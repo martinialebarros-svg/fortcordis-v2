@@ -20,6 +20,9 @@ from app.schemas.atendimento import (
     AtendimentoUpdatePayload,
     ClinicalPhrasePayload,
     DiagnosticoPayload,
+    DocumentoAtendimentoCreatePayload,
+    DocumentoAtendimentoUpdatePayload,
+    DocumentoTemplatePayload,
     ExameSolicitacaoPayload,
     EvolucaoPayload,
     MedicamentoPayload,
@@ -46,6 +49,8 @@ from app.models.atendimento_clinico import (
     AlertaClinico,
     AnexoAtendimento,
     AtendimentoClinico,
+    DocumentoAtendimento,
+    DocumentoAtendimentoTemplate,
     EvolucaoClinica,
     Medicamento,
     PrescricaoClinica,
@@ -358,6 +363,20 @@ def _nome_arquivo_limpo(raw: str, fallback: str) -> str:
     return cleaned or fallback
 
 
+def _formatar_data_curta(value: Any) -> str:
+    if not value:
+        return ""
+    if isinstance(value, datetime):
+        return value.strftime("%d/%m/%Y")
+    try:
+        parsed = _parse_datetime(str(value))
+        if parsed:
+            return parsed.strftime("%d/%m/%Y")
+    except Exception:
+        pass
+    return str(value)
+
+
 def _pdf_escape(value: Any) -> str:
     if value is None:
         return ""
@@ -424,6 +443,252 @@ def _obter_branding_pdf_documento(
         "assinatura_bytes": assinatura_bytes,
         "texto_rodape": texto_rodape,
     }
+
+
+def _serializar_template_documento(template: DocumentoAtendimentoTemplate) -> dict:
+    return {
+        "id": template.id,
+        "nome": template.nome,
+        "tipo": template.tipo or "documento",
+        "titulo_padrao": template.titulo_padrao or "",
+        "corpo_template": template.corpo_template or "",
+        "ativo": template.ativo,
+        "ordem": template.ordem or 0,
+        "criado_por_id": template.criado_por_id,
+        "criado_por_nome": template.criado_por_nome or "",
+        "created_at": _to_iso(template.created_at),
+        "updated_at": _to_iso(template.updated_at),
+    }
+
+
+def _serializar_documento_atendimento(documento: DocumentoAtendimento) -> dict:
+    return {
+        "id": documento.id,
+        "atendimento_id": documento.atendimento_id,
+        "template_id": documento.template_id,
+        "titulo": documento.titulo or "",
+        "corpo": documento.corpo or "",
+        "status": documento.status or "rascunho",
+        "criado_por_id": documento.criado_por_id,
+        "criado_por_nome": documento.criado_por_nome or "",
+        "emitido_at": _to_iso(documento.emitido_at),
+        "created_at": _to_iso(documento.created_at),
+        "updated_at": _to_iso(documento.updated_at),
+    }
+
+
+def _obter_template_documento_ou_404(db: Session, template_id: int) -> DocumentoAtendimentoTemplate:
+    template = db.query(DocumentoAtendimentoTemplate).filter(DocumentoAtendimentoTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template de documento nao encontrado.")
+    return template
+
+
+def _obter_documento_atendimento_ou_404(
+    db: Session,
+    atendimento_id: int,
+    documento_id: int,
+) -> DocumentoAtendimento:
+    documento = (
+        db.query(DocumentoAtendimento)
+        .filter(
+            DocumentoAtendimento.id == documento_id,
+            DocumentoAtendimento.atendimento_id == atendimento_id,
+        )
+        .first()
+    )
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento do atendimento nao encontrado.")
+    return documento
+
+
+def _carregar_contexto_entidades_documento(
+    db: Session,
+    atendimento: AtendimentoClinico,
+) -> tuple[Optional[Paciente], Optional[Tutor], Optional[Clinica]]:
+    paciente = db.query(Paciente).filter(Paciente.id == atendimento.paciente_id).first()
+    tutor = db.query(Tutor).filter(Tutor.id == atendimento.tutor_id).first() if atendimento.tutor_id else None
+    clinica = db.query(Clinica).filter(Clinica.id == atendimento.clinica_id).first() if atendimento.clinica_id else None
+    return paciente, tutor, clinica
+
+
+def _montar_contexto_template_documento(
+    atendimento: AtendimentoClinico,
+    paciente: Optional[Paciente],
+    tutor: Optional[Tutor],
+    clinica: Optional[Clinica],
+    branding: Dict[str, Any],
+) -> Dict[str, str]:
+    peso = _resolver_peso_referencia(atendimento, paciente)
+    data_atendimento = atendimento.data_atendimento if isinstance(atendimento.data_atendimento, datetime) else None
+    return {
+        "atendimento_id": str(atendimento.id),
+        "data_atendimento": _formatar_data_curta(data_atendimento or atendimento.data_atendimento),
+        "data_atendimento_hora": _formatar_data_hora(data_atendimento or atendimento.data_atendimento),
+        "data_emissao": datetime.now().strftime("%d/%m/%Y"),
+        "paciente_nome": paciente.nome if paciente else "",
+        "especie": paciente.especie if paciente else (atendimento.especie or ""),
+        "raca": paciente.raca if paciente else "",
+        "sexo": normalizar_sexo_paciente(paciente.sexo if paciente else ""),
+        "idade": extrair_idade_paciente(
+            paciente.nascimento if paciente else None,
+            paciente.observacoes if paciente else None,
+        ),
+        "peso": f"{peso:.1f} kg" if peso is not None else "",
+        "tutor_nome": tutor.nome if tutor else "",
+        "clinica_nome": clinica.nome if clinica else "",
+        "veterinario_nome": branding.get("nome_veterinario") or atendimento.criado_por_nome or "",
+        "crmv": branding.get("crmv") or "",
+        "queixa_principal": atendimento.queixa_principal or "",
+        "anamnese": atendimento.anamnese or "",
+        "exame_fisico": atendimento.exame_fisico or "",
+        "dados_clinicos": atendimento.dados_clinicos or "",
+        "diagnostico_principal": atendimento.diagnostico_principal or "",
+        "diagnostico_secundario": atendimento.diagnostico_secundario or "",
+        "diagnostico_diferencial": atendimento.diagnostico_diferencial or "",
+        "plano_terapeutico": atendimento.plano_terapeutico or "",
+        "retorno_recomendado": atendimento.retorno_recomendado or "",
+        "motivo_retorno": atendimento.motivo_retorno or "",
+        "observacoes": atendimento.observacoes or "",
+    }
+
+
+def _renderizar_template_documento(template_text: str, contexto: Dict[str, str]) -> str:
+    def substituir(match: re.Match[str]) -> str:
+        chave = match.group(1).strip()
+        if chave in contexto:
+            return str(contexto[chave] or "")
+        return match.group(0)
+
+    return re.sub(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}", substituir, template_text or "")
+
+
+def _montar_dados_pdf_documento(
+    atendimento: AtendimentoClinico,
+    paciente: Optional[Paciente],
+    tutor: Optional[Tutor],
+    clinica: Optional[Clinica],
+    nome_veterinario: str,
+) -> Dict[str, Any]:
+    peso = _resolver_peso_referencia(atendimento, paciente)
+    return {
+        "paciente": {
+            "nome": paciente.nome if paciente else "N/A",
+            "especie": paciente.especie if paciente else (atendimento.especie or ""),
+            "raca": paciente.raca if paciente else "",
+            "sexo": normalizar_sexo_paciente(paciente.sexo if paciente else ""),
+            "idade": extrair_idade_paciente(
+                paciente.nascimento if paciente else None,
+                paciente.observacoes if paciente else None,
+            ),
+            "peso": f"{peso:.1f}" if peso is not None else "",
+            "tutor": tutor.nome if tutor else "",
+            "solicitante": atendimento.criado_por_nome or nome_veterinario or "",
+            "data_exame": _formatar_data_curta(atendimento.data_atendimento),
+        },
+        "clinica": clinica.nome if clinica else "",
+    }
+
+
+def _gerar_pdf_documento_atendimento_bytes(
+    atendimento: AtendimentoClinico,
+    paciente: Optional[Paciente],
+    tutor: Optional[Tutor],
+    clinica: Optional[Clinica],
+    documento: DocumentoAtendimento,
+    *,
+    nome_veterinario: str = "",
+    crmv: str = "",
+    logomarca_bytes: Optional[bytes] = None,
+    assinatura_bytes: Optional[bytes] = None,
+    texto_rodape: Optional[str] = None,
+) -> bytes:
+    styles = create_pdf_styles()
+    corpo_style = ParagraphStyle(
+        "DocumentoAtendimentoCorpo",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=10.8,
+        leading=16,
+        textColor=colors.HexColor("#111827"),
+        spaceAfter=0,
+    )
+    dados_pdf = _montar_dados_pdf_documento(
+        atendimento,
+        paciente,
+        tutor,
+        clinica,
+        nome_veterinario,
+    )
+
+    temp_files: List[str] = []
+    try:
+        temp_logo_path = None
+        temp_assinatura_path = None
+        if logomarca_bytes:
+            temp_logo = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            temp_logo.write(logomarca_bytes)
+            temp_logo.close()
+            temp_logo_path = temp_logo.name
+            temp_files.append(temp_logo_path)
+        if assinatura_bytes:
+            temp_assinatura = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            temp_assinatura.write(assinatura_bytes)
+            temp_assinatura.close()
+            temp_assinatura_path = temp_assinatura.name
+            temp_files.append(temp_assinatura_path)
+
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            leftMargin=15 * mm,
+            rightMargin=15 * mm,
+            topMargin=15 * mm,
+            bottomMargin=15 * mm,
+            title=documento.titulo or f"Documento - Atendimento {atendimento.id}",
+        )
+
+        story: List[Any] = []
+        story.extend(
+            criar_cabecalho(
+                dados_pdf,
+                temp_logo_path=temp_logo_path,
+                titulo_principal=(documento.titulo or "Documento Clinico").upper(),
+                mostrar_linha_ritmo=False,
+                label_data_exame="Data",
+            )
+        )
+
+        blocos = [bloco.strip() for bloco in re.split(r"\n\s*\n", documento.corpo or "") if bloco.strip()]
+        if not blocos:
+            blocos = ["Sem conteudo registrado."]
+        for bloco in blocos:
+            story.append(Paragraph(_texto_pdf_html(bloco, ""), corpo_style))
+            story.append(Spacer(1, 4 * mm))
+
+        if nome_veterinario:
+            story.extend(
+                criar_secao_assinatura(
+                    nome_veterinario,
+                    crmv=crmv,
+                    temp_assinatura_path=temp_assinatura_path,
+                )
+            )
+
+        def add_footer(canvas_obj, pdf_doc):
+            footer_todas_paginas(canvas_obj, pdf_doc, texto_rodape)
+
+        doc.build(story, onFirstPage=add_footer, onLaterPages=add_footer)
+        pdf = buffer.getvalue()
+        buffer.close()
+        return pdf
+    finally:
+        for temp_file in temp_files:
+            try:
+                os.unlink(temp_file)
+            except OSError:
+                pass
 
 
 def _autenticar_usuario_pdf(
@@ -1407,6 +1672,13 @@ def _montar_detalhe_atendimento(
         if anexo.exame_id:
             anexos_por_exame[anexo.exame_id].append(_serialize_anexo(anexo))
 
+    documentos = (
+        db.query(DocumentoAtendimento)
+        .filter(DocumentoAtendimento.atendimento_id == atendimento.id)
+        .order_by(DocumentoAtendimento.updated_at.desc(), DocumentoAtendimento.created_at.desc(), DocumentoAtendimento.id.desc())
+        .all()
+    )
+
     return {
         "id": atendimento.id,
         "paciente_id": atendimento.paciente_id,
@@ -1479,6 +1751,7 @@ def _montar_detalhe_atendimento(
             for e in evolucoes
         ],
         "anexos": [_serialize_anexo(a) for a in anexos],
+        "documentos": [_serializar_documento_atendimento(documento) for documento in documentos],
     }
 
 
@@ -1828,6 +2101,266 @@ def restaurar_frase_clinica_atendimento(
     return clinical_phrase_to_dict(frase)
 
 
+@router.get("/documentos/templates")
+def listar_templates_documentos_atendimento(
+    include_inactive: int = 0,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    query = db.query(DocumentoAtendimentoTemplate)
+    if not include_inactive:
+        query = query.filter(DocumentoAtendimentoTemplate.ativo == 1)
+    if search:
+        termo = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                DocumentoAtendimentoTemplate.nome.ilike(termo),
+                DocumentoAtendimentoTemplate.tipo.ilike(termo),
+                DocumentoAtendimentoTemplate.titulo_padrao.ilike(termo),
+            )
+        )
+
+    templates = (
+        query.order_by(
+            DocumentoAtendimentoTemplate.ordem.asc(),
+            DocumentoAtendimentoTemplate.nome.asc(),
+        )
+        .all()
+    )
+    return {"templates": [_serializar_template_documento(template) for template in templates]}
+
+
+@router.post("/documentos/templates", status_code=status.HTTP_201_CREATED)
+def criar_template_documento_atendimento(
+    payload: DocumentoTemplatePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    nome = (payload.nome or "").strip()
+    titulo = (payload.titulo_padrao or "").strip()
+    corpo = (payload.corpo_template or "").strip()
+    if not nome or not titulo or not corpo:
+        raise HTTPException(status_code=422, detail="Preencha nome, titulo e corpo do template.")
+
+    existente = (
+        db.query(DocumentoAtendimentoTemplate)
+        .filter(DocumentoAtendimentoTemplate.nome == nome)
+        .first()
+    )
+    if existente:
+        raise HTTPException(status_code=409, detail="Ja existe um template com esse nome.")
+
+    template = DocumentoAtendimentoTemplate(
+        nome=nome,
+        tipo=(payload.tipo or "documento").strip() or "documento",
+        titulo_padrao=titulo,
+        corpo_template=corpo,
+        ativo=1 if payload.ativo is None else int(payload.ativo),
+        ordem=payload.ordem or 0,
+        criado_por_id=current_user.id,
+        criado_por_nome=current_user.nome,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    db.add(template)
+    db.commit()
+    db.refresh(template)
+    return _serializar_template_documento(template)
+
+
+@router.put("/documentos/templates/{template_id}")
+def atualizar_template_documento_atendimento(
+    template_id: int,
+    payload: DocumentoTemplatePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    template = _obter_template_documento_ou_404(db, template_id)
+    nome = (payload.nome or "").strip()
+    titulo = (payload.titulo_padrao or "").strip()
+    corpo = (payload.corpo_template or "").strip()
+    if not nome or not titulo or not corpo:
+        raise HTTPException(status_code=422, detail="Preencha nome, titulo e corpo do template.")
+
+    duplicado = (
+        db.query(DocumentoAtendimentoTemplate)
+        .filter(
+            DocumentoAtendimentoTemplate.id != template_id,
+            DocumentoAtendimentoTemplate.nome == nome,
+        )
+        .first()
+    )
+    if duplicado:
+        raise HTTPException(status_code=409, detail="Ja existe um template com esse nome.")
+
+    template.nome = nome
+    template.tipo = (payload.tipo or "documento").strip() or "documento"
+    template.titulo_padrao = titulo
+    template.corpo_template = corpo
+    template.ativo = 1 if payload.ativo is None else int(payload.ativo)
+    template.ordem = payload.ordem or 0
+    template.updated_at = datetime.now()
+
+    db.commit()
+    db.refresh(template)
+    return _serializar_template_documento(template)
+
+
+@router.delete("/documentos/templates/{template_id}")
+def desativar_template_documento_atendimento(
+    template_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    template = _obter_template_documento_ou_404(db, template_id)
+    template.ativo = 0
+    template.updated_at = datetime.now()
+    db.commit()
+    return {"message": "Template de documento desativado com sucesso.", "id": template_id}
+
+
+@router.post("/documentos/templates/{template_id}/restaurar")
+def restaurar_template_documento_atendimento(
+    template_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    template = _obter_template_documento_ou_404(db, template_id)
+    template.ativo = 1
+    template.updated_at = datetime.now()
+    db.commit()
+    db.refresh(template)
+    return _serializar_template_documento(template)
+
+
+@router.get("/{atendimento_id}/documentos")
+def listar_documentos_atendimento(
+    atendimento_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    if not atendimento:
+        raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+
+    documentos = (
+        db.query(DocumentoAtendimento)
+        .filter(DocumentoAtendimento.atendimento_id == atendimento_id)
+        .order_by(DocumentoAtendimento.updated_at.desc(), DocumentoAtendimento.created_at.desc(), DocumentoAtendimento.id.desc())
+        .all()
+    )
+    return {"documentos": [_serializar_documento_atendimento(documento) for documento in documentos]}
+
+
+@router.post("/{atendimento_id}/documentos", status_code=status.HTTP_201_CREATED)
+def criar_documento_atendimento(
+    atendimento_id: int,
+    payload: DocumentoAtendimentoCreatePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    if not atendimento:
+        raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+
+    paciente, tutor, clinica = _carregar_contexto_entidades_documento(db, atendimento)
+    branding = _obter_branding_pdf_documento(db, current_user)
+    contexto = _montar_contexto_template_documento(atendimento, paciente, tutor, clinica, branding)
+
+    template = None
+    titulo_base = ""
+    corpo_base = ""
+    if payload.template_id:
+        template = _obter_template_documento_ou_404(db, payload.template_id)
+        if template.ativo != 1:
+            raise HTTPException(status_code=422, detail="Template inativo nao pode gerar novo documento.")
+        titulo_base = _renderizar_template_documento(template.titulo_padrao or "", contexto)
+        corpo_base = _renderizar_template_documento(template.corpo_template or "", contexto)
+
+    titulo = (payload.titulo or "").strip() or titulo_base
+    corpo = (payload.corpo or "").strip() or corpo_base
+    if not titulo or not corpo:
+        raise HTTPException(status_code=422, detail="Informe um template ativo ou preencha titulo e corpo do documento.")
+
+    documento = DocumentoAtendimento(
+        atendimento_id=atendimento.id,
+        template_id=template.id if template else None,
+        titulo=titulo,
+        corpo=corpo,
+        status="rascunho",
+        criado_por_id=current_user.id,
+        criado_por_nome=current_user.nome,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    db.add(documento)
+    atendimento.updated_at = datetime.now()
+    db.commit()
+    db.refresh(documento)
+    return _serializar_documento_atendimento(documento)
+
+
+@router.put("/{atendimento_id}/documentos/{documento_id}")
+def atualizar_documento_atendimento(
+    atendimento_id: int,
+    documento_id: int,
+    payload: DocumentoAtendimentoUpdatePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    if not atendimento:
+        raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+
+    documento = _obter_documento_atendimento_ou_404(db, atendimento_id, documento_id)
+    data = payload.model_dump(exclude_unset=True)
+    if "titulo" in data:
+        titulo = (data["titulo"] or "").strip()
+        if not titulo:
+            raise HTTPException(status_code=422, detail="Titulo do documento e obrigatorio.")
+        documento.titulo = titulo
+    if "corpo" in data:
+        corpo = (data["corpo"] or "").strip()
+        if not corpo:
+            raise HTTPException(status_code=422, detail="Corpo do documento e obrigatorio.")
+        documento.corpo = corpo
+    if "status" in data and data["status"] is not None:
+        status_doc = (data["status"] or "").strip().lower()
+        if status_doc not in {"rascunho", "emitido", "arquivado"}:
+            raise HTTPException(status_code=422, detail="Status de documento invalido.")
+        documento.status = status_doc
+
+    documento.updated_at = datetime.now()
+    atendimento.updated_at = datetime.now()
+    db.commit()
+    db.refresh(documento)
+    return _serializar_documento_atendimento(documento)
+
+
+@router.delete("/{atendimento_id}/documentos/{documento_id}")
+def excluir_documento_atendimento(
+    atendimento_id: int,
+    documento_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    documento = _obter_documento_atendimento_ou_404(db, atendimento_id, documento_id)
+    db.delete(documento)
+    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    if atendimento:
+        atendimento.updated_at = datetime.now()
+    db.commit()
+    return {"message": "Documento removido com sucesso.", "id": documento_id}
+
+
 @router.get("/contexto")
 def obter_contexto_agendamento(
     agendamento_id: int = Query(..., ge=1),
@@ -2103,6 +2636,49 @@ def gerar_pdf_solicitacao_exames(
     )
 
 
+@router.get("/{atendimento_id}/documentos/{documento_id}/pdf")
+def gerar_pdf_documento_atendimento(
+    atendimento_id: int,
+    documento_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    current_user = _autenticar_usuario_pdf(request, db)
+    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
+    if not atendimento:
+        raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+
+    documento = _obter_documento_atendimento_ou_404(db, atendimento_id, documento_id)
+    paciente, tutor, clinica = _carregar_contexto_entidades_documento(db, atendimento)
+    branding = _obter_branding_pdf_documento(db, current_user)
+    pdf_bytes = _gerar_pdf_documento_atendimento_bytes(
+        atendimento,
+        paciente,
+        tutor,
+        clinica,
+        documento,
+        nome_veterinario=branding["nome_veterinario"],
+        crmv=branding["crmv"],
+        logomarca_bytes=branding["logomarca_bytes"],
+        assinatura_bytes=branding["assinatura_bytes"],
+        texto_rodape=branding["texto_rodape"],
+    )
+
+    documento.status = "emitido"
+    documento.emitido_at = datetime.now()
+    documento.updated_at = datetime.now()
+    db.commit()
+
+    paciente_nome = _nome_arquivo_limpo(paciente.nome if paciente else "", f"paciente_{atendimento.paciente_id}")
+    titulo = _nome_arquivo_limpo(documento.titulo or "", f"documento_{documento.id}")
+    filename = f"{titulo}_atendimento_{atendimento.id}_{paciente_nome}.pdf"
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def criar_atendimento(
     payload: AtendimentoCreatePayload,
@@ -2277,6 +2853,10 @@ def excluir_atendimento(
         for item in itens:
             db.delete(item)
         db.delete(prescricao)
+
+    documentos = db.query(DocumentoAtendimento).filter(DocumentoAtendimento.atendimento_id == atendimento_id).all()
+    for documento in documentos:
+        db.delete(documento)
 
     db.delete(atendimento)
     db.commit()
@@ -3225,4 +3805,3 @@ def timeline_paciente(
         },
         "timeline": _montar_timeline_paciente(db, paciente_id),
     }
-

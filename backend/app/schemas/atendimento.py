@@ -77,6 +77,27 @@ class AnexoPayload(BaseModel):
     exame_id: Optional[int] = None
 
 
+class DocumentoTemplatePayload(BaseModel):
+    nome: str = Field(..., min_length=2, max_length=255)
+    tipo: str = Field(default="documento", max_length=80)
+    titulo_padrao: str = Field(..., min_length=2, max_length=255)
+    corpo_template: str = Field(..., min_length=2)
+    ativo: Optional[int] = 1
+    ordem: Optional[int] = 0
+
+
+class DocumentoAtendimentoCreatePayload(BaseModel):
+    template_id: Optional[int] = None
+    titulo: Optional[str] = Field(default="", max_length=255)
+    corpo: Optional[str] = ""
+
+
+class DocumentoAtendimentoUpdatePayload(BaseModel):
+    titulo: Optional[str] = Field(default=None, max_length=255)
+    corpo: Optional[str] = None
+    status: Optional[str] = Field(default=None, max_length=40)
+
+
 class AlertaPayload(BaseModel):
     tipo: str = Field(..., max_length=50)
     titulo: str

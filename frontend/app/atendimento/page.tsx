@@ -114,6 +114,50 @@ type Anexo = {
   created_at?: string;
 };
 
+type DocumentoAtendimentoTemplate = {
+  id: number;
+  nome: string;
+  tipo: string;
+  titulo_padrao: string;
+  corpo_template: string;
+  ativo: number;
+  ordem: number;
+  criado_por_nome?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type DocumentoAtendimento = {
+  id: number;
+  atendimento_id: number;
+  template_id?: number | null;
+  titulo: string;
+  corpo: string;
+  status: string;
+  criado_por_nome?: string;
+  emitido_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type DocumentoAtendimentoForm = {
+  id: number | null;
+  template_id: number | null;
+  titulo: string;
+  corpo: string;
+  status: string;
+};
+
+type DocumentoTemplateForm = {
+  id: number | null;
+  nome: string;
+  tipo: string;
+  titulo_padrao: string;
+  corpo_template: string;
+  ordem: string;
+  ativo: number;
+};
+
 type AttachmentPreview = {
   anexo: Anexo;
   url: string;
@@ -461,6 +505,7 @@ type AtendimentoForm = {
   prescricao_itens: PrescricaoItem[];
   evolucoes: Evolucao[];
   anexos: Anexo[];
+  documentos: DocumentoAtendimento[];
 };
 
 // === CONSTANTES ===
@@ -758,6 +803,42 @@ const emptyPrescriptionItem = (): PrescricaoItem => ({
   peso_referencia_kg: "",
   unidade_dose_calculo: "mg",
   concentracao_personalizada: "",
+});
+
+const emptyDocumentoAtendimentoForm = (): DocumentoAtendimentoForm => ({
+  id: null,
+  template_id: null,
+  titulo: "",
+  corpo: "",
+  status: "rascunho",
+});
+
+const emptyDocumentoTemplateForm = (): DocumentoTemplateForm => ({
+  id: null,
+  nome: "",
+  tipo: "documento",
+  titulo_padrao: "",
+  corpo_template: "",
+  ordem: "",
+  ativo: 1,
+});
+
+const hydrateDocumentoForm = (item?: Partial<DocumentoAtendimento> | null): DocumentoAtendimentoForm => ({
+  id: item?.id ?? null,
+  template_id: item?.template_id ?? null,
+  titulo: item?.titulo || "",
+  corpo: item?.corpo || "",
+  status: item?.status || "rascunho",
+});
+
+const hydrateDocumentoTemplateForm = (item?: Partial<DocumentoAtendimentoTemplate> | null): DocumentoTemplateForm => ({
+  id: item?.id ?? null,
+  nome: item?.nome || "",
+  tipo: item?.tipo || "documento",
+  titulo_padrao: item?.titulo_padrao || "",
+  corpo_template: item?.corpo_template || "",
+  ordem: item?.ordem != null ? String(item.ordem) : "",
+  ativo: Number(item?.ativo ?? 1),
 });
 
 const isPrescriptionItemEmpty = (item?: Partial<PrescricaoItem> | null) => {
@@ -1078,6 +1159,7 @@ const emptyForm = (): AtendimentoForm => ({
   prescricao_itens: [emptyPrescriptionItem()],
   evolucoes: [],
   anexos: [],
+  documentos: [],
 });
 
 const emptyClinicalPhraseForm = (): ClinicalPhraseForm => ({
@@ -1197,6 +1279,7 @@ const hydrateFormFromDetail = (d: any): AtendimentoForm => ({
   prescricao_itens: d.prescricao?.itens?.length ? d.prescricao.itens.map(hydratePrescriptionItem) : [emptyPrescriptionItem()],
   evolucoes: d.evolucoes || [],
   anexos: d.anexos || [],
+  documentos: d.documentos || [],
 });
 
 const sanitizeDraftForm = (raw: Partial<AtendimentoForm> | null | undefined): AtendimentoForm => ({
@@ -1215,6 +1298,7 @@ const sanitizeDraftForm = (raw: Partial<AtendimentoForm> | null | undefined): At
   prescricao_itens: raw?.prescricao_itens?.length ? raw.prescricao_itens.map(hydratePrescriptionItem) : [emptyPrescriptionItem()],
   evolucoes: raw?.evolucoes || [],
   anexos: raw?.anexos || [],
+  documentos: raw?.documentos || [],
 });
 
 const buildAtendimentoPayload = (form: AtendimentoForm) => {
@@ -1400,6 +1484,7 @@ export default function AtendimentoPage() {
   const [catalogoExames, setCatalogoExames] = useState<CatalogoExame[]>([]);
   const [paineisExames, setPaineisExames] = useState<PainelExame[]>([]);
   const [clinicalPhrases, setClinicalPhrases] = useState<ClinicalPhraseRecord[]>([]);
+  const [documentTemplates, setDocumentTemplates] = useState<DocumentoAtendimentoTemplate[]>([]);
 
   const [busca, setBusca] = useState("");
   const [statusFiltro, setStatusFiltro] = useState("");
@@ -1434,6 +1519,13 @@ export default function AtendimentoPage() {
   const [evolucaoForm, setEvolucaoForm] = useState({ descricao: "", sinais_vitais: "" });
   const [anexoForm, setAnexoForm] = useState({ tipo: "imagem", descricao: "", url: "" });
   const [anexoArquivo, setAnexoArquivo] = useState<File | null>(null);
+  const [documentoTemplateSelecionado, setDocumentoTemplateSelecionado] = useState("");
+  const [documentoClinicoForm, setDocumentoClinicoForm] = useState<DocumentoAtendimentoForm>(emptyDocumentoAtendimentoForm());
+  const [documentoTemplateForm, setDocumentoTemplateForm] = useState<DocumentoTemplateForm>(emptyDocumentoTemplateForm());
+  const [showDocumentoTemplateEditor, setShowDocumentoTemplateEditor] = useState(false);
+  const [salvandoDocumentoClinico, setSalvandoDocumentoClinico] = useState(false);
+  const [salvandoDocumentoTemplate, setSalvandoDocumentoTemplate] = useState(false);
+  const [gerandoDocumentoPdfId, setGerandoDocumentoPdfId] = useState<number | null>(null);
   const [uploadingAttachmentKey, setUploadingAttachmentKey] = useState<string | null>(null);
   const [uploadProgressByKey, setUploadProgressByKey] = useState<Record<string, number | null>>({});
   const [openingAttachmentId, setOpeningAttachmentId] = useState<number | null>(null);
@@ -1492,6 +1584,7 @@ export default function AtendimentoPage() {
 
   useEffect(() => {
     carregarCustomPaineis();
+    carregarDocumentoTemplates();
     setPrescriptionPresets(readLocalPresets<PrescricaoPreset>(PRESCRICAO_PRESETS_STORAGE_KEY));
   }, []);
 
@@ -2540,6 +2633,8 @@ export default function AtendimentoPage() {
       setPrescricaoEditorManualAberto(false);
       setPrescricaoEntradaModo(null);
       setPrescricaoBuscaRapida("");
+      setDocumentoTemplateSelecionado("");
+      setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
       setAnexoArquivo(null);
       clearExamUploadDrafts();
       lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(hydrated);
@@ -2570,6 +2665,8 @@ export default function AtendimentoPage() {
     setPrescricaoEditorManualAberto(false);
     setPrescricaoEntradaModo(null);
     setPrescricaoBuscaRapida("");
+    setDocumentoTemplateSelecionado("");
+    setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
     setAnexoArquivo(null);
     clearExamUploadDrafts();
     setHistoricoPaciente(null);
@@ -4062,6 +4159,237 @@ export default function AtendimentoPage() {
     }
   };
 
+  const carregarDocumentoTemplates = async () => {
+    try {
+      const response = await api.get("/atendimentos/documentos/templates?include_inactive=1");
+      setDocumentTemplates(response.data?.templates || []);
+      return response.data?.templates || [];
+    } catch (e: any) {
+      setErro(e?.response?.data?.detail || "Erro ao carregar templates de documentos.");
+      return [];
+    }
+  };
+
+  const mergeDocumentoClinico = (documento: DocumentoAtendimento) => {
+    setForm((current) => ({
+      ...current,
+      documentos: [documento, ...current.documentos.filter((item) => item.id !== documento.id)],
+    }));
+  };
+
+  const removerDocumentoClinicoDoFormulario = (documentoId: number) => {
+    setForm((current) => ({
+      ...current,
+      documentos: current.documentos.filter((item) => item.id !== documentoId),
+    }));
+  };
+
+  const obterAtendimentoIdParaDocumento = async () => {
+    const currentSnapshot = serializeAtendimentoSnapshot(formRef.current);
+    let atendimentoId = selecionado;
+    if (!atendimentoId || currentSnapshot !== lastPersistedSnapshotRef.current || autosaveState === "error") {
+      atendimentoId = await saveAtendimento("manual");
+    }
+    return atendimentoId;
+  };
+
+  const selecionarDocumentoClinico = (documento: DocumentoAtendimento) => {
+    setDocumentoClinicoForm(hydrateDocumentoForm(documento));
+    setDocumentoTemplateSelecionado(documento.template_id ? String(documento.template_id) : "");
+    setErro("");
+  };
+
+  const novoDocumentoClinicoLivre = () => {
+    setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
+    setDocumentoTemplateSelecionado("");
+    setErro("");
+  };
+
+  const criarDocumentoClinicoDeTemplate = async () => {
+    if (!documentoTemplateSelecionado) {
+      setErro("Selecione um template de documento.");
+      return null;
+    }
+
+    const atendimentoId = await obterAtendimentoIdParaDocumento();
+    if (!atendimentoId) return null;
+
+    try {
+      setSalvandoDocumentoClinico(true);
+      const response = await api.post(`/atendimentos/${atendimentoId}/documentos`, {
+        template_id: Number(documentoTemplateSelecionado),
+      });
+      const documento = response.data as DocumentoAtendimento;
+      mergeDocumentoClinico(documento);
+      setDocumentoClinicoForm(hydrateDocumentoForm(documento));
+      setSucesso("Documento criado a partir do template.");
+      setErro("");
+      return documento;
+    } catch (e: any) {
+      setErro(e?.response?.data?.detail || "Erro ao criar documento.");
+      return null;
+    } finally {
+      setSalvandoDocumentoClinico(false);
+    }
+  };
+
+  const salvarDocumentoClinico = async (options?: { quiet?: boolean }) => {
+    const titulo = documentoClinicoForm.titulo.trim();
+    const corpo = documentoClinicoForm.corpo.trim();
+    if (!titulo || !corpo) {
+      setErro("Preencha titulo e corpo do documento.");
+      return null;
+    }
+
+    const atendimentoId = await obterAtendimentoIdParaDocumento();
+    if (!atendimentoId) return null;
+
+    try {
+      setSalvandoDocumentoClinico(true);
+      const payload = {
+        template_id: documentoClinicoForm.template_id || undefined,
+        titulo,
+        corpo,
+        status: documentoClinicoForm.status || "rascunho",
+      };
+      const response = documentoClinicoForm.id
+        ? await api.put(`/atendimentos/${atendimentoId}/documentos/${documentoClinicoForm.id}`, payload)
+        : await api.post(`/atendimentos/${atendimentoId}/documentos`, payload);
+      const documento = response.data as DocumentoAtendimento;
+      mergeDocumentoClinico(documento);
+      setDocumentoClinicoForm(hydrateDocumentoForm(documento));
+      if (!options?.quiet) {
+        setSucesso("Documento salvo com sucesso.");
+      }
+      setErro("");
+      return documento;
+    } catch (e: any) {
+      setErro(e?.response?.data?.detail || "Erro ao salvar documento.");
+      return null;
+    } finally {
+      setSalvandoDocumentoClinico(false);
+    }
+  };
+
+  const baixarPdfDocumentoClinico = async (documento?: DocumentoAtendimento) => {
+    let documentoParaPdf: DocumentoAtendimento | null = documento || null;
+    const editandoMesmoDocumento = documentoParaPdf && documentoClinicoForm.id === documentoParaPdf.id;
+    if (!documentoParaPdf || editandoMesmoDocumento) {
+      documentoParaPdf = await salvarDocumentoClinico({ quiet: true });
+    }
+    if (!documentoParaPdf?.id) return;
+
+    try {
+      setGerandoDocumentoPdfId(documentoParaPdf.id);
+      const response = await api.get(
+        `/atendimentos/${documentoParaPdf.atendimento_id}/documentos/${documentoParaPdf.id}/pdf`,
+        { responseType: "blob" }
+      );
+      const filename = parseDownloadFilename(
+        response.headers?.["content-disposition"],
+        `documento_atendimento_${documentoParaPdf.atendimento_id}_${documentoParaPdf.id}.pdf`
+      );
+      const blob = new Blob([response.data], { type: "application/pdf" });
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+
+      const emitido = {
+        ...documentoParaPdf,
+        status: "emitido",
+        emitido_at: new Date().toISOString(),
+      };
+      mergeDocumentoClinico(emitido);
+      if (documentoClinicoForm.id === documentoParaPdf.id) {
+        setDocumentoClinicoForm(hydrateDocumentoForm(emitido));
+      }
+      setSucesso("PDF do documento gerado com sucesso.");
+      setErro("");
+    } catch (e: any) {
+      setErro(await extractApiErrorMessage(e, "Falha ao gerar o PDF do documento."));
+    } finally {
+      setGerandoDocumentoPdfId(null);
+    }
+  };
+
+  const excluirDocumentoClinico = async (documento: DocumentoAtendimento) => {
+    if (!confirm(`Remover o documento "${documento.titulo}"?`)) return;
+    try {
+      await api.delete(`/atendimentos/${documento.atendimento_id}/documentos/${documento.id}`);
+      removerDocumentoClinicoDoFormulario(documento.id);
+      if (documentoClinicoForm.id === documento.id) {
+        setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
+      }
+      setSucesso("Documento removido com sucesso.");
+      setErro("");
+    } catch (e: any) {
+      setErro(e?.response?.data?.detail || "Erro ao remover documento.");
+    }
+  };
+
+  const editarDocumentoTemplate = (template: DocumentoAtendimentoTemplate) => {
+    setDocumentoTemplateForm(hydrateDocumentoTemplateForm(template));
+    setShowDocumentoTemplateEditor(true);
+  };
+
+  const resetDocumentoTemplateForm = () => {
+    setDocumentoTemplateForm(emptyDocumentoTemplateForm());
+  };
+
+  const salvarDocumentoTemplate = async () => {
+    if (!documentoTemplateForm.nome.trim() || !documentoTemplateForm.titulo_padrao.trim() || !documentoTemplateForm.corpo_template.trim()) {
+      setErro("Preencha nome, titulo e corpo do template.");
+      return;
+    }
+
+    try {
+      setSalvandoDocumentoTemplate(true);
+      const payload = {
+        nome: documentoTemplateForm.nome,
+        tipo: documentoTemplateForm.tipo || "documento",
+        titulo_padrao: documentoTemplateForm.titulo_padrao,
+        corpo_template: documentoTemplateForm.corpo_template,
+        ordem: documentoTemplateForm.ordem ? Number(documentoTemplateForm.ordem) : 0,
+        ativo: documentoTemplateForm.ativo,
+      };
+      if (documentoTemplateForm.id) {
+        await api.put(`/atendimentos/documentos/templates/${documentoTemplateForm.id}`, payload);
+        setSucesso("Template de documento atualizado.");
+      } else {
+        await api.post("/atendimentos/documentos/templates", payload);
+        setSucesso("Template de documento criado.");
+      }
+      await carregarDocumentoTemplates();
+      resetDocumentoTemplateForm();
+      setErro("");
+    } catch (e: any) {
+      setErro(e?.response?.data?.detail || "Erro ao salvar template de documento.");
+    } finally {
+      setSalvandoDocumentoTemplate(false);
+    }
+  };
+
+  const toggleDocumentoTemplate = async (template: DocumentoAtendimentoTemplate) => {
+    try {
+      if (Number(template.ativo ?? 1) === 1) {
+        await api.delete(`/atendimentos/documentos/templates/${template.id}`);
+        setSucesso("Template de documento desativado.");
+      } else {
+        await api.post(`/atendimentos/documentos/templates/${template.id}/restaurar`);
+        setSucesso("Template de documento reativado.");
+      }
+      await carregarDocumentoTemplates();
+      setErro("");
+    } catch (e: any) {
+      setErro(e?.response?.data?.detail || "Erro ao alterar template de documento.");
+    }
+  };
+
   const carregarMedicamentosBanco = async () => {
     try {
       const response = await api.get("/atendimentos/medicamentos/banco?limit=500");
@@ -4501,7 +4829,7 @@ export default function AtendimentoPage() {
   const totalExamesSolicitados = form.exames.filter((item) => (item.tipo_exame || "").trim()).length;
   const totalPrescricaoItens = form.prescricao_itens.filter((item) => item.medicamento_id || item.medicamento_nome.trim()).length;
   const totalAnexosExame = form.exames.reduce((acc, exame) => acc + (exame.anexos_resultado?.length || 0), 0);
-  const totalAnexosDocumento = anexosGerais.length + totalAnexosExame;
+  const totalAnexosDocumento = anexosGerais.length + totalAnexosExame + form.documentos.length;
   const workspaceCards: Array<{ key: WorkspacePainel; titulo: string; resumo: string; badge: string }> = [
     {
       key: "consulta",
@@ -4524,7 +4852,7 @@ export default function AtendimentoPage() {
     {
       key: "documentos",
       titulo: "Documentos",
-      resumo: "Evolucao e anexos",
+      resumo: "Modelos, evolucao e anexos",
       badge: `${totalAnexosDocumento}`,
     },
     {
@@ -5720,18 +6048,39 @@ export default function AtendimentoPage() {
                     anexoForm={anexoForm}
                     abrirAnexo={abrirAnexo}
                     cancelarUploadAnexo={cancelarUploadAnexo}
+                    baixarPdfDocumentoClinico={baixarPdfDocumentoClinico}
+                    criarDocumentoClinicoDeTemplate={criarDocumentoClinicoDeTemplate}
+                    documentTemplates={documentTemplates}
+                    documentoClinicoForm={documentoClinicoForm}
+                    documentoTemplateForm={documentoTemplateForm}
+                    documentoTemplateSelecionado={documentoTemplateSelecionado}
+                    editarDocumentoTemplate={editarDocumentoTemplate}
                     evolucaoForm={evolucaoForm}
+                    excluirDocumentoClinico={excluirDocumentoClinico}
                     excluirAnexo={excluirAnexo}
                     formatBytes={formatBytes}
                     formatDate={formatDate}
+                    gerandoDocumentoPdfId={gerandoDocumentoPdfId}
+                    novoDocumentoClinicoLivre={novoDocumentoClinicoLivre}
                     openingAttachmentId={openingAttachmentId}
                     progressoUploadGeral={progressoUploadGeral}
                     selecionado={selecionado}
                     setAnexoArquivo={setAnexoArquivo}
                     setAnexoForm={setAnexoForm}
+                    setDocumentoClinicoForm={setDocumentoClinicoForm}
+                    setDocumentoTemplateForm={setDocumentoTemplateForm}
+                    setDocumentoTemplateSelecionado={setDocumentoTemplateSelecionado}
                     setErro={setErro}
                     setEvolucaoForm={setEvolucaoForm}
+                    setShowDocumentoTemplateEditor={setShowDocumentoTemplateEditor}
                     setSucesso={setSucesso}
+                    showDocumentoTemplateEditor={showDocumentoTemplateEditor}
+                    salvandoDocumentoClinico={salvandoDocumentoClinico}
+                    salvandoDocumentoTemplate={salvandoDocumentoTemplate}
+                    salvarDocumentoClinico={salvarDocumentoClinico}
+                    salvarDocumentoTemplate={salvarDocumentoTemplate}
+                    selecionarDocumentoClinico={selecionarDocumentoClinico}
+                    toggleDocumentoTemplate={toggleDocumentoTemplate}
                     uploadAnexoArquivo={uploadAnexoArquivo}
                     uploadGeralEmAndamento={uploadGeralEmAndamento}
                     abrirAtendimento={abrirAtendimento}
@@ -5913,4 +6262,3 @@ export default function AtendimentoPage() {
     </DashboardLayout>
   );
 }
-

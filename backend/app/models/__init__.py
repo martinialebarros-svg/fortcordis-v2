@@ -28,6 +28,8 @@ from app.models.atendimento_clinico import (
     AnexoAtendimento,
     AlertaClinico,
     AtendimentoClinico,
+    DocumentoAtendimento,
+    DocumentoAtendimentoTemplate,
     EvolucaoClinica,
     Medicamento,
     PrescricaoClinica,
