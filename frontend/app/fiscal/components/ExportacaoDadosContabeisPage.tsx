@@ -32,6 +32,8 @@ interface ClinicaItem {
   cep?: string | null;
   telefone?: string | null;
   email?: string | null;
+  qtd_os?: number;
+  valor_total?: number;
 }
 interface ClinicaListResponse {
   items: ClinicaItem[];
@@ -82,7 +84,6 @@ interface DadosTomador {
 type ExportFormat = "csv" | "xlsx" | "pdf";
 type Modo = "single" | "multi";
 const FISCAL_PAGE_SIZE = 500;
-const OS_PAGE_SIZE = 500;
 const DESC_SERVICO_PADRAO_ANTIGA = "Servicos veterinarios prestados conforme ordens de servico selecionadas.";
 const TOMADOR_STORAGE_PREFIX = "fiscal_tomador_clinica_v1_";
 
@@ -324,15 +325,36 @@ export default function ExportacaoDadosContabeisPage() {
 
   useEffect(() => {
     (async () => {
+      setResults([]);
+      setSelected(new Set());
+      setSearchDone(false);
+      if (!dataInicio || !dataFim || dataInicio > dataFim) {
+        setClinicas([]);
+        setClinicasSel(new Set());
+        setLoadingClinicas(false);
+        return;
+      }
       setLoadingClinicas(true);
       try {
-        const r = await api.get<ClinicaListResponse>("/clinicas?limit=500");
-        setClinicas(Array.isArray(r.data?.items) ? r.data.items : []);
+        const params = new URLSearchParams({ data_inicio: dataInicio, data_fim: dataFim });
+        const r = await api.get<ClinicaListResponse>(`/fiscal/clinicas-com-os?${params.toString()}`);
+        const items = Array.isArray(r.data?.items) ? r.data.items : [];
+        setClinicas(items);
+        setClinicaId((current) => {
+          if (!current || items.some((item) => String(item.id) === current)) return current;
+          setTomador(DEFAULT_TOMADOR);
+          return "";
+        });
       } finally {
         setLoadingClinicas(false);
       }
     })();
-  }, []);
+  }, [dataInicio, dataFim]);
+
+  useEffect(() => {
+    if (modo !== "multi") return;
+    setClinicasSel(new Set(clinicas.map((clinica) => clinica.id)));
+  }, [clinicas, modo]);
 
   function onChangeClinica(v: string) {
     setClinicaId(v);
@@ -450,79 +472,29 @@ export default function ExportacaoDadosContabeisPage() {
     }
   }
 
-  async function buscarOsPorClinica(clinicaIdNumber: number): Promise<OSItem[]> {
+  async function buscarOsFiscalPorClinicas(clinicaIds: number[]): Promise<OSItem[]> {
     const searchTerm = search.trim().toLowerCase();
-    const filtrosBase = new URLSearchParams({
-      data_inicio: dataInicio,
-      data_fim: dataFim,
-      clinica_id: String(clinicaIdNumber),
-    });
-
-    const buscarPaginadoFiscal = async () => {
-      const acc: OSItem[] = [];
-      let skip = 0;
-      while (true) {
-        const params = new URLSearchParams(filtrosBase);
-        params.set("limit", String(FISCAL_PAGE_SIZE));
-        params.set("skip", String(skip));
-        if (searchTerm) params.set("search", searchTerm);
-        const resp = await api.get(`/fiscal/os-para-fiscal?${params.toString()}`);
-        const rows = Array.isArray(resp.data?.items) ? (resp.data.items as OSItem[]) : [];
-        const total = Number(resp.data?.total || 0);
-        if (!rows.length) break;
-        acc.push(...rows);
-        if (rows.length < FISCAL_PAGE_SIZE) break;
-        if (total > 0 && acc.length >= total) break;
-        skip += FISCAL_PAGE_SIZE;
-      }
-      return acc;
-    };
-
-    const buscarPaginadoOrdens = async () => {
-      const acc: OSItem[] = [];
-      let skip = 0;
-      while (true) {
-        const params = new URLSearchParams(filtrosBase);
-        params.set("limit", String(OS_PAGE_SIZE));
-        params.set("skip", String(skip));
-        const resp = await api.get(`/ordens-servico?${params.toString()}`);
-        const rows = Array.isArray(resp.data?.items) ? resp.data.items : [];
-        if (!rows.length) break;
-        acc.push(...rows.map((item: any) => ({
-          os_id: Number(item.id),
-          numero_os: String(item.numero_os || ""),
-          data_atendimento: item.data_atendimento || null,
-          valor_final: Number(item.valor_final || 0),
-          status_os: String(item.status || ""),
-          paciente_nome: String(item.paciente || ""),
-          tutor_nome: String(item.tutor || ""),
-          servico_nome: String(item.servico || ""),
-          clinica_nome: String(item.clinica || ""),
-        })));
-        const total = Number(resp.data?.total || 0);
-        if (rows.length < OS_PAGE_SIZE) break;
-        if (total > 0 && acc.length >= total) break;
-        skip += OS_PAGE_SIZE;
-      }
-      return searchTerm
-        ? acc.filter((row) => (
-          row.numero_os?.toLowerCase().includes(searchTerm)
-          || row.paciente_nome?.toLowerCase().includes(searchTerm)
-          || row.tutor_nome?.toLowerCase().includes(searchTerm)
-          || row.servico_nome?.toLowerCase().includes(searchTerm)
-          || row.clinica_nome?.toLowerCase().includes(searchTerm)
-        ))
-        : acc;
-    };
-
-    try {
-      const fiscalItems = await buscarPaginadoFiscal();
-      if (fiscalItems.length > 0) return fiscalItems;
-    } catch (_err) {
-      // Continua para fallback da mesma fonte usada no financeiro.
+    const acc: OSItem[] = [];
+    let skip = 0;
+    while (true) {
+      const params = new URLSearchParams({
+        data_inicio: dataInicio,
+        data_fim: dataFim,
+        limit: String(FISCAL_PAGE_SIZE),
+        skip: String(skip),
+      });
+      for (const id of clinicaIds) params.append("clinica_ids", String(id));
+      if (searchTerm) params.set("search", searchTerm);
+      const resp = await api.get(`/fiscal/os-para-fiscal?${params.toString()}`);
+      const rows = Array.isArray(resp.data?.items) ? (resp.data.items as OSItem[]) : [];
+      const total = Number(resp.data?.total || 0);
+      if (!rows.length) break;
+      acc.push(...rows);
+      if (rows.length < FISCAL_PAGE_SIZE) break;
+      if (total > 0 && acc.length >= total) break;
+      skip += FISCAL_PAGE_SIZE;
     }
-
-    return buscarPaginadoOrdens();
+    return acc;
   }
 
   async function buscarOs() {
@@ -532,24 +504,7 @@ export default function ExportacaoDadosContabeisPage() {
     setLoadingResults(true);
     setSearchDone(true);
     try {
-      let items: OSItem[] = [];
-      if (modo === "single") {
-        items = await buscarOsPorClinica(ids[0]);
-      } else {
-        const responses = await Promise.all(
-          ids.map((id) => buscarOsPorClinica(id))
-        );
-        const byId = new Map<number, OSItem>();
-        for (const rows of responses) {
-          for (const row of rows) byId.set(Number(row.os_id), row);
-        }
-        items = Array.from(byId.values()).sort((a, b) => {
-          const da = a.data_atendimento ? new Date(a.data_atendimento).getTime() : 0;
-          const db = b.data_atendimento ? new Date(b.data_atendimento).getTime() : 0;
-          return db - da;
-        });
-      }
-
+      const items = await buscarOsFiscalPorClinicas(ids);
       setResults(items);
       setSelected(new Set());
     } catch (err: any) {
@@ -645,7 +600,7 @@ export default function ExportacaoDadosContabeisPage() {
           </div>
           {modo === "single" ? (
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="md:col-span-2"><label className="block text-sm mb-1">Clinica *</label><select value={clinicaId} onChange={(e) => onChangeClinica(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" disabled={loadingClinicas}><option value="">{loadingClinicas ? "Carregando..." : "Selecione"}</option>{clinicas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></div>
+              <div className="md:col-span-2"><label className="block text-sm mb-1">Clinica *</label><select value={clinicaId} onChange={(e) => onChangeClinica(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" disabled={loadingClinicas}><option value="">{loadingClinicas ? "Carregando..." : clinicas.length ? "Selecione" : "Nenhuma clinica com OS no periodo"}</option>{clinicas.map((c) => <option key={c.id} value={c.id}>{c.nome} ({Number(c.qtd_os || 0)} OS - {fmtMoney(Number(c.valor_total || 0))})</option>)}</select></div>
               <div><label className="block text-sm mb-1">Data inicio *</label><input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
               <div><label className="block text-sm mb-1">Data fim *</label><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
             </div>
@@ -653,8 +608,8 @@ export default function ExportacaoDadosContabeisPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="md:col-span-2">
                 <label className="block text-sm mb-1">Clinicas *</label>
-                <div className="max-h-40 overflow-auto border rounded-lg p-2 space-y-1">{clinicas.map((c) => <label key={c.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={clinicasSel.has(c.id)} onChange={() => setClinicasSel((s) => { const n = new Set(s); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; })} />{c.nome}</label>)}</div>
-                <p className="text-xs text-gray-500 mt-1">{clinicasSel.size} selecionada(s)</p>
+                <div className="max-h-40 overflow-auto border rounded-lg p-2 space-y-1">{loadingClinicas ? <p className="text-sm text-gray-500 px-1 py-2">Carregando...</p> : clinicas.length ? clinicas.map((c) => <label key={c.id} className="flex items-center justify-between gap-3 text-sm"><span className="flex items-center gap-2"><input type="checkbox" checked={clinicasSel.has(c.id)} onChange={() => setClinicasSel((s) => { const n = new Set(s); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; })} />{c.nome}</span><span className="text-xs text-gray-500">{Number(c.qtd_os || 0)} OS | {fmtMoney(Number(c.valor_total || 0))}</span></label>) : <p className="text-sm text-gray-500 px-1 py-2">Nenhuma clinica com OS no periodo.</p>}</div>
+                <p className="text-xs text-gray-500 mt-1">{clinicasSel.size} de {clinicas.length} selecionada(s)</p>
               </div>
               <div className="space-y-3"><div><label className="block text-sm mb-1">Data inicio *</label><input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" /></div><div><label className="block text-sm mb-1">Data fim *</label><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" /></div></div>
             </div>

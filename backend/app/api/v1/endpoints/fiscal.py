@@ -18,6 +18,7 @@ from app.schemas.fiscal import (
 from app.services import cnpj_consulta, fiscal_export_service
 from app.services.fiscal_service import (
     atualizar_nota_fiscal,
+    buscar_clinicas_com_os,
     buscar_nota_fiscal,
     buscar_os_para_fiscal,
     buscar_os_por_ids_para_exportacao,
@@ -68,6 +69,20 @@ def consultar_cnpj(cnpj: str):
     Retorna razao social, endereco, telefone, email, CNAE, etc.
     """
     return cnpj_consulta.consultar_cnpj(cnpj)
+
+
+@router.get("/clinicas-com-os")
+def listar_clinicas_com_os(
+    data_inicio: str = Query(...),
+    data_fim: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    """Lista clinicas ativas que tiveram OS com data de atendimento no periodo."""
+    try:
+        items = buscar_clinicas_com_os(db, data_inicio=data_inicio, data_fim=data_fim)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return {"total": len(items), "items": items}
 
 
 @router.get("/notas-fiscais", response_model=NotaFiscalListResponse)

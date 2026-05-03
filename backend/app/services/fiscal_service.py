@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, time
 from typing import Optional
 
-from sqlalchemy import literal, text
+from sqlalchemy import func, literal, text
 from sqlalchemy.orm import Session
 
 from app.models.clinica import Clinica
@@ -177,6 +177,85 @@ def marcar_exportada(
     db.commit()
     db.refresh(nota)
     return nota
+
+
+def buscar_clinicas_com_os(
+    db: Session,
+    data_inicio: str,
+    data_fim: str,
+) -> list[dict]:
+    """Lista clinicas ativas que tiveram OS por data de atendimento no periodo."""
+    dt_inicio = _parse_date_start(data_inicio)
+    dt_fim = _parse_date_end(data_fim)
+    if not dt_inicio or not dt_fim:
+        raise ValueError("Periodo invalido.")
+    if dt_inicio > dt_fim:
+        raise ValueError("data_inicio nao pode ser maior que data_fim.")
+
+    rows = (
+        db.query(
+            Clinica.id,
+            Clinica.nome,
+            Clinica.razao_social,
+            Clinica.cnpj,
+            Clinica.telefone,
+            Clinica.email,
+            Clinica.atividade_cnae,
+            Clinica.endereco,
+            Clinica.numero,
+            Clinica.complemento,
+            Clinica.bairro,
+            Clinica.cidade,
+            Clinica.estado,
+            Clinica.cep,
+            func.count(OrdemServico.id).label("qtd_os"),
+            func.coalesce(func.sum(OrdemServico.valor_final), 0).label("valor_total"),
+        )
+        .join(OrdemServico, OrdemServico.clinica_id == Clinica.id)
+        .filter(Clinica.ativo == True)
+        .filter(OrdemServico.data_atendimento >= dt_inicio)
+        .filter(OrdemServico.data_atendimento <= dt_fim)
+        .group_by(
+            Clinica.id,
+            Clinica.nome,
+            Clinica.razao_social,
+            Clinica.cnpj,
+            Clinica.telefone,
+            Clinica.email,
+            Clinica.atividade_cnae,
+            Clinica.endereco,
+            Clinica.numero,
+            Clinica.complemento,
+            Clinica.bairro,
+            Clinica.cidade,
+            Clinica.estado,
+            Clinica.cep,
+        )
+        .order_by(Clinica.nome.asc())
+        .all()
+    )
+
+    return [
+        {
+            "id": row.id,
+            "nome": row.nome,
+            "razao_social": row.razao_social,
+            "cnpj": row.cnpj,
+            "telefone": row.telefone,
+            "email": row.email,
+            "atividade_cnae": row.atividade_cnae,
+            "endereco": row.endereco,
+            "numero": row.numero,
+            "complemento": row.complemento,
+            "bairro": row.bairro,
+            "cidade": row.cidade,
+            "estado": row.estado,
+            "cep": row.cep,
+            "qtd_os": int(row.qtd_os or 0),
+            "valor_total": float(row.valor_total or 0),
+        }
+        for row in rows
+    ]
 
 
 def buscar_os_para_fiscal(
