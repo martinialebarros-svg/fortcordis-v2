@@ -9,6 +9,7 @@ import { Building2, Search, Plus, MapPin, Phone, Edit2 } from "lucide-react";
 interface Clinica {
   id: number;
   nome: string;
+  razao_social?: string | null;
   cnpj?: string;
   telefone?: string;
   email?: string;
@@ -41,9 +42,13 @@ export default function ClinicasPage() {
     }
   };
 
-  const clinicasFiltradas = clinicas.filter((c) =>
-    c.nome.toLowerCase().includes(busca.toLowerCase())
-  );
+  const clinicasFiltradas = clinicas.filter((c) => {
+    const termo = busca.toLowerCase();
+    return (
+      c.nome.toLowerCase().includes(termo) ||
+      (c.razao_social || "").toLowerCase().includes(termo)
+    );
+  });
 
   return (
     <DashboardLayout>
@@ -114,6 +119,11 @@ export default function ClinicasPage() {
                     onClick={() => router.push(`/clinicas/${clinica.id}`)}
                   >
                     <h3 className="font-medium text-gray-900">{clinica.nome}</h3>
+                    {clinica.razao_social && (
+                      <p className="text-sm text-gray-500 mt-1">
+                        Razão social: {clinica.razao_social}
+                      </p>
+                    )}
                     {clinica.endereco && (
                       <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
                         <MapPin className="w-3 h-3" />

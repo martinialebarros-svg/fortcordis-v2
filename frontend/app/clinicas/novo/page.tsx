@@ -45,6 +45,7 @@ export default function NovaClinicaPage() {
   
   const [clinica, setClinica] = useState({
     nome: "",
+    razao_social: "",
     cnpj: "",
     telefone: "",
     email: "",
@@ -332,7 +333,7 @@ export default function NovaClinicaPage() {
 
   const handleSalvar = async () => {
     if (!clinica.nome.trim()) {
-      alert("Digite o nome da clínica");
+      alert("Digite o nome fantasia da clínica");
       return;
     }
 
@@ -345,6 +346,8 @@ export default function NovaClinicaPage() {
     try {
       const payload = {
         ...clinica,
+        nome: clinica.nome.trim(),
+        razao_social: clinica.razao_social.trim(),
         cep: normalizarCep(clinica.cep),
         bairro_manual: bairroEditadoManual,
         tabela_preco_id: parseInt(clinica.tabela_preco_id.toString()),
@@ -411,9 +414,9 @@ export default function NovaClinicaPage() {
             </h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="md:col-span-2">
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nome da Clínica *
+                  Nome Fantasia *
                 </label>
                 <input
                   type="text"
@@ -421,6 +424,19 @@ export default function NovaClinicaPage() {
                   onChange={(e) => setClinica({...clinica, nome: e.target.value})}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   placeholder="Ex: Clínica Veterinária ABC"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Razão Social
+                </label>
+                <input
+                  type="text"
+                  value={clinica.razao_social}
+                  onChange={(e) => setClinica({...clinica, razao_social: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  placeholder="Ex: Clínica Veterinária ABC LTDA"
                 />
               </div>
               

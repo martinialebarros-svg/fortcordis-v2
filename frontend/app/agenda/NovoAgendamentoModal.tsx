@@ -146,6 +146,7 @@ interface FormDataAgenda {
   paciente_id: string;
   clinica_id: string;
   clinica_nova_nome: string;
+  clinica_nova_razao_social: string;
   clinica_nova_tabela_preco_id: string;
   servico_id: string;
   data: string;
@@ -178,6 +179,7 @@ const buildInitialFormData = (defaultDate?: string, defaultTime?: string): FormD
   paciente_id: "",
   clinica_id: "",
   clinica_nova_nome: "",
+  clinica_nova_razao_social: "",
   clinica_nova_tabela_preco_id: "1",
   servico_id: "",
   data: defaultDate || "",
@@ -624,6 +626,7 @@ export default function NovoAgendamentoModal({
           : "",
       clinica_id: agendamento.clinica_id?.toString() || "",
       clinica_nova_nome: "",
+      clinica_nova_razao_social: "",
       clinica_nova_tabela_preco_id: "1",
       servico_id: agendamento.servico_id?.toString() || "",
       data,
@@ -951,6 +954,7 @@ export default function NovoAgendamentoModal({
       ...prev,
       clinica_id: clinicaId,
       clinica_nova_nome: clinicaId ? "" : prev.clinica_nova_nome,
+      clinica_nova_razao_social: clinicaId ? "" : prev.clinica_nova_razao_social,
     }));
   };
 
@@ -1356,6 +1360,7 @@ export default function NovoAgendamentoModal({
       if (!Number.isFinite(clinicaId) && (formData.clinica_nova_nome || "").trim()) {
         const respostaClinica = await api.post("/clinicas", {
           nome: (formData.clinica_nova_nome || "").trim(),
+          razao_social: (formData.clinica_nova_razao_social || "").trim(),
           cnpj: "",
           telefone: "",
           email: "",
@@ -1541,13 +1546,20 @@ export default function NovoAgendamentoModal({
             )}
 
             {!formData.clinica_id && (
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
                 <input
                   type="text"
                   value={formData.clinica_nova_nome}
                   onChange={(e) => setFormData({ ...formData, clinica_nova_nome: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="Nome da clinica (cadastro rapido)"
+                  placeholder="Nome fantasia (cadastro rápido)"
+                />
+                <input
+                  type="text"
+                  value={formData.clinica_nova_razao_social}
+                  onChange={(e) => setFormData({ ...formData, clinica_nova_razao_social: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Razão social"
                 />
                 <select
                   value={formData.clinica_nova_tabela_preco_id}
