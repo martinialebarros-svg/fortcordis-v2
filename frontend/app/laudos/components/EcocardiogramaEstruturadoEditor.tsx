@@ -3,13 +3,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 
-import api from "@/lib/axios";
 import {
   type AspectoEcoEstruturadoTeste,
   type PayloadEcoEstruturadoTeste,
   type PresetEcoEstruturadoTeste,
   ordenarAspectos,
 } from "@/lib/ecocardiograma-estruturado-teste";
+import {
+  aplicarPresetEcoEstruturadoTeste,
+  atualizarFraseEcoEstruturadoTeste,
+  carregarBancoEcoEstruturadoTeste,
+  criarFraseEcoEstruturadoTeste,
+  excluirPresetEcoEstruturadoTeste,
+  salvarPresetEcoEstruturadoTeste,
+} from "@/lib/frases-ecocardiograma-estruturado-teste-api";
 import {
   type EcocardiogramaEstruturadoPersistido,
   normalizarEcocardiogramaEstruturado,
@@ -210,8 +217,7 @@ export default function EcocardiogramaEstruturadoEditor({
       } else {
         setLoading(true);
       }
-      const response = await api.get("/frases-ecocardiograma-estruturado-teste");
-      setPayload(response.data);
+      setPayload(await carregarBancoEcoEstruturadoTeste());
     } catch (err: any) {
       setError(
         err?.response?.data?.detail ||
@@ -445,15 +451,13 @@ export default function EcocardiogramaEstruturadoEditor({
     try {
       setAplicandoPreset(true);
       setError("");
-      const response = await api.post(
-        `/frases-ecocardiograma-estruturado-teste/presets/${presetSelecionadoId}/aplicar`
-      );
+      const responseData = await aplicarPresetEcoEstruturadoTeste(presetSelecionadoId);
 
-      const textos = response.data?.textos || {};
-      const preset = response.data?.preset || {};
+      const textos = responseData?.textos || {};
+      const preset = responseData?.preset || {};
       const selecoesResolvidas: Array<{ aspecto?: string; frase_id?: number | string | null }> =
-        Array.isArray(response.data?.selecoes_resolvidas)
-        ? response.data.selecoes_resolvidas
+        Array.isArray(responseData?.selecoes_resolvidas)
+        ? responseData.selecoes_resolvidas
         : [];
       setFraseSelecionadaPorAspecto(
         selecoesResolvidas.reduce((acc: Record<string, string>, selecao) => {
@@ -630,8 +634,7 @@ export default function EcocardiogramaEstruturadoEditor({
 
     try {
       setAtualizandoPresetSelecionado(true);
-      await api.put(
-        `/frases-ecocardiograma-estruturado-teste/presets/${presetAtual.id}`,
+      await salvarPresetEcoEstruturadoTeste(
         {
           label: presetAtual.label || "",
           key: presetAtual.key || "",
@@ -641,7 +644,8 @@ export default function EcocardiogramaEstruturadoEditor({
           tags: presetAtual.tags || [],
           ordem: presetAtual.ordem,
           selecoes: selecoesPayload,
-        }
+        },
+        presetAtual.id
       );
       await carregarPayload(true);
       const presetTextosAtualizados = Object.entries(estado.textos).reduce<Record<string, string>>(
@@ -719,15 +723,9 @@ export default function EcocardiogramaEstruturadoEditor({
       };
 
       if (presetForm.id) {
-        await api.put(
-          `/frases-ecocardiograma-estruturado-teste/presets/${presetForm.id}`,
-          payloadPreset
-        );
+        await salvarPresetEcoEstruturadoTeste(payloadPreset, presetForm.id);
       } else {
-        await api.post(
-          "/frases-ecocardiograma-estruturado-teste/presets",
-          payloadPreset
-        );
+        await salvarPresetEcoEstruturadoTeste(payloadPreset);
       }
 
       await carregarPayload(true);
@@ -751,9 +749,7 @@ export default function EcocardiogramaEstruturadoEditor({
     try {
       setError("");
       setHint("");
-      await api.delete(
-        `/frases-ecocardiograma-estruturado-teste/presets/${presetAtual.id}`
-      );
+      await excluirPresetEcoEstruturadoTeste(Number(presetAtual.id));
       await carregarPayload(true);
       if (presetForm.id === presetAtual.id) {
         setPresetFormAberto(false);
@@ -903,11 +899,13 @@ export default function EcocardiogramaEstruturadoEditor({
         setError("");
         setHint("");
       }
-      await api.put(`/frases-ecocardiograma-estruturado-teste/frases/${frase.id}`, {
+      await atualizarFraseEcoEstruturadoTeste(Number(frase.id), {
         aspecto: aspecto.key,
         titulo: String(frase.titulo || "").trim(),
         texto: textoAtual,
         tags: Array.isArray(frase.tags) ? frase.tags : [],
+        patologias: Array.isArray(frase.patologias) ? frase.patologias : [],
+        ordem: frase.ordem,
       });
 
       atualizarTextoFraseNoPayloadLocal(aspecto.key, Number(frase.id), textoAtual);
@@ -1026,13 +1024,13 @@ export default function EcocardiogramaEstruturadoEditor({
       setSalvandoNovaFraseAspecto(aspecto.key);
       setError("");
       setHint("");
-      const response = await api.post("/frases-ecocardiograma-estruturado-teste/frases", {
+      const responseData = await criarFraseEcoEstruturadoTeste({
         aspecto: aspecto.key,
         titulo,
         texto: textoAtual,
         tags: normalizarTagsInput(String(tagsInformadas || "")),
       });
-      const novaFraseId = String(response.data?.id || "").trim();
+      const novaFraseId = String(responseData?.id || "").trim();
       await carregarPayload(true);
       if (novaFraseId) {
         setFraseSelecionadaPorAspecto((prev) => ({

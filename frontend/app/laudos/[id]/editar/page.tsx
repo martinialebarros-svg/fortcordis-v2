@@ -15,7 +15,8 @@ import XmlUploader from "../../components/XmlUploader";
 import ImageHeaderUploader from "../../components/ImageHeaderUploader";
 import ImageUploader from "../../components/ImageUploader";
 import EcocardiogramaEstruturadoEditor from "../../components/EcocardiogramaEstruturadoEditor";
-import { ArrowLeft, Save, User, Activity, Heart, BookOpen, Settings, Image as ImageIcon, Minus, Plus } from "lucide-react";
+import EcocardiogramaEstruturadoBiblioteca from "../../components/EcocardiogramaEstruturadoBiblioteca";
+import { ArrowLeft, Save, User, Activity, Heart, BookOpen, Settings, Image as ImageIcon, Minus, Plus, FolderOpen } from "lucide-react";
 import { ReferenciaComparison } from "../../components/ReferenciaComparison";
 import {
   criarEcocardiogramaEstruturadoInicial,
@@ -253,7 +254,7 @@ export default function EditarLaudoPage() {
   const [paciente, setPaciente] = useState<Paciente | null>(null);
 
   // Abas
-  const [aba, setAba] = useState<"paciente" | "medidas" | "qualitativa" | "imagens" | "pressao" | "referencias">("paciente");
+  const [aba, setAba] = useState<"paciente" | "medidas" | "qualitativa" | "biblioteca" | "imagens" | "pressao" | "referencias">("paciente");
 
   // Form state
   const [titulo, setTitulo] = useState("");
@@ -1079,6 +1080,17 @@ export default function EditarLaudoPage() {
                   Qualitativa
                 </button>
                 <button
+                  onClick={() => setAba("biblioteca")}
+                  className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
+                    aba === "biblioteca"
+                      ? "text-teal-600 border-b-2 border-teal-600"
+                      : "text-gray-600 hover:text-gray-800"
+                  }`}
+                >
+                  <FolderOpen className="w-4 h-4" />
+                  Biblioteca
+                </button>
+                <button
                   onClick={() => setAba("imagens")}
                   className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
                     aba === "imagens"
@@ -1673,6 +1685,10 @@ export default function EditarLaudoPage() {
                   </div>
                 )}
 
+                {aba === "biblioteca" && (
+                  <EcocardiogramaEstruturadoBiblioteca />
+                )}
+
                 {aba === "imagens" && (
                   <div className="space-y-4">
                     <div className="flex justify-between items-center mb-4">
@@ -1934,4 +1950,3 @@ export default function EditarLaudoPage() {
     </DashboardLayout>
   );
 }
-

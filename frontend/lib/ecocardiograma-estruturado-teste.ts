@@ -3,6 +3,8 @@ export interface FraseEcoEstruturadoTeste {
   titulo: string;
   texto: string;
   tags?: string[];
+  patologias?: string[];
+  ordem?: number;
   ativo?: number;
 }
 

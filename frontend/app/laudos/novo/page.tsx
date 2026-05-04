@@ -14,7 +14,8 @@ import XmlUploader from "../components/XmlUploader";
 import ImageHeaderUploader from "../components/ImageHeaderUploader";
 import ImageUploader from "../components/ImageUploader";
 import EcocardiogramaEstruturadoEditor from "../components/EcocardiogramaEstruturadoEditor";
-import { Save, ArrowLeft, Heart, User, Activity, BookOpen, Settings, Image as ImageIcon, Minus, Plus } from "lucide-react";
+import EcocardiogramaEstruturadoBiblioteca from "../components/EcocardiogramaEstruturadoBiblioteca";
+import { Save, ArrowLeft, Heart, User, Activity, BookOpen, Settings, Image as ImageIcon, Minus, Plus, FolderOpen } from "lucide-react";
 import { ReferenciaComparison } from "../components/ReferenciaComparison";
 import {
   criarEcocardiogramaEstruturadoInicial,
@@ -253,7 +254,7 @@ type DetalhadoState = Record<string, Record<string, string>>;
 export default function NovoLaudoPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [aba, setAba] = useState<"paciente" | "medidas" | "qualitativa" | "imagens" | "pressao" | "referencias">("paciente");
+  const [aba, setAba] = useState<"paciente" | "medidas" | "qualitativa" | "biblioteca" | "imagens" | "pressao" | "referencias">("paciente");
   
   // Dados do paciente
   const [paciente, setPaciente] = useState({
@@ -1001,6 +1002,17 @@ export default function NovoLaudoPage() {
                   Qualitativa
                 </button>
                 <button
+                  onClick={() => setAba("biblioteca")}
+                  className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
+                    aba === "biblioteca"
+                      ? "text-teal-600 border-b-2 border-teal-600"
+                      : "text-gray-600 hover:text-gray-800"
+                  }`}
+                >
+                  <FolderOpen className="w-4 h-4" />
+                  Biblioteca
+                </button>
+                <button
                   onClick={() => setAba("imagens")}
                   className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
                     aba === "imagens"
@@ -1550,6 +1562,10 @@ export default function NovoLaudoPage() {
                       />
                     </div>
                   </div>
+                )}
+
+                {aba === "biblioteca" && (
+                  <EcocardiogramaEstruturadoBiblioteca />
                 )}
 
                 {aba === "imagens" && (

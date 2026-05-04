@@ -160,16 +160,189 @@ class FrasesEcocardiogramaEstruturadoTesteServiceTest(unittest.TestCase):
                 service.delete_preset(int(created["id"]))
 
                 payload_after_delete = service.get_payload()
-                self.assertFalse(
-                    any(
-                        preset["id"] == created["id"]
-                        for preset in payload_after_delete.get("presets") or []
-                    )
+                deleted = next(
+                    preset
+                    for preset in payload_after_delete.get("presets") or []
+                    if preset["id"] == created["id"]
                 )
+                self.assertEqual(deleted["ativo"], 0)
 
                 backup_names = [path.name for path in sorted(runtime_backup_dir.glob("*.json"))]
                 self.assertTrue(any("__save_preset" in name for name in backup_names))
                 self.assertTrue(any("__delete_preset" in name for name in backup_names))
+            finally:
+                service.DATA_DIR = original_data_dir
+                service.FRASES_FILE = original_frases_file
+                service.RUNTIME_BACKUP_DIR = original_runtime_backup_dir
+
+    def test_normalize_adds_phrase_pathologies_and_order(self) -> None:
+        payload = service.normalize_external_store(
+            {
+                "version": "1.0",
+                "mode": "teste",
+                "aspectos": [
+                    {
+                        "key": "conclusao",
+                        "frases": [
+                            {
+                                "id": 55,
+                                "titulo": "Conclusao legado",
+                                "texto": "Texto legado sem novos metadados.",
+                                "tags": ["normal"],
+                                "ativo": 1,
+                            }
+                        ],
+                    }
+                ],
+                "presets": [],
+            }
+        )
+
+        conclusao = next(item for item in payload["aspectos"] if item["key"] == "conclusao")
+        frase = conclusao["frases"][0]
+        self.assertEqual(frase["patologias"], [])
+        self.assertEqual(frase["ordem"], 10)
+
+    def test_renaming_phrase_updates_preset_reference_title(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            frases_file = data_dir / "frases_ecocardiograma_estruturado_teste.json"
+            runtime_backup_dir = data_dir / "runtime_backups" / "frases_ecocardiograma_estruturado_teste"
+
+            original_data_dir = service.DATA_DIR
+            original_frases_file = service.FRASES_FILE
+            original_runtime_backup_dir = service.RUNTIME_BACKUP_DIR
+            try:
+                service.DATA_DIR = data_dir
+                service.FRASES_FILE = frases_file
+                service.RUNTIME_BACKUP_DIR = runtime_backup_dir
+
+                payload = service.get_payload()
+                mitral = next(item for item in payload["aspectos"] if item["key"] == "valva_mitral")
+                frase = mitral["frases"][0]
+                preset = service.save_preset(
+                    {
+                        "label": "Preset renomear frase",
+                        "selecoes": [
+                            {
+                                "aspecto": "valva_mitral",
+                                "frase_id": frase["id"],
+                                "frase_titulo": frase["titulo"],
+                            }
+                        ],
+                    }
+                )
+
+                service.update_phrase(
+                    int(frase["id"]),
+                    {
+                        "aspecto": "valva_mitral",
+                        "titulo": "Mitral normal renomeada",
+                        "texto": frase["texto"],
+                    },
+                )
+
+                updated = service.get_payload()
+                preset_updated = next(item for item in updated["presets"] if item["id"] == preset["id"])
+                self.assertEqual(preset_updated["selecoes"][0]["frase_titulo"], "Mitral normal renomeada")
+            finally:
+                service.DATA_DIR = original_data_dir
+                service.FRASES_FILE = original_frases_file
+                service.RUNTIME_BACKUP_DIR = original_runtime_backup_dir
+
+    def test_moving_phrase_updates_preset_selection_aspect(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            frases_file = data_dir / "frases_ecocardiograma_estruturado_teste.json"
+            runtime_backup_dir = data_dir / "runtime_backups" / "frases_ecocardiograma_estruturado_teste"
+
+            original_data_dir = service.DATA_DIR
+            original_frases_file = service.FRASES_FILE
+            original_runtime_backup_dir = service.RUNTIME_BACKUP_DIR
+            try:
+                service.DATA_DIR = data_dir
+                service.FRASES_FILE = frases_file
+                service.RUNTIME_BACKUP_DIR = runtime_backup_dir
+
+                payload = service.get_payload()
+                mitral = next(item for item in payload["aspectos"] if item["key"] == "valva_mitral")
+                frase = mitral["frases"][0]
+                preset = service.save_preset(
+                    {
+                        "label": "Preset mover frase",
+                        "selecoes": [
+                            {
+                                "aspecto": "valva_mitral",
+                                "frase_id": frase["id"],
+                                "frase_titulo": frase["titulo"],
+                            }
+                        ],
+                    }
+                )
+
+                service.update_phrase(
+                    int(frase["id"]),
+                    {
+                        "aspecto": "valva_mitral",
+                        "novo_aspecto": "valva_aortica",
+                        "titulo": "Frase mitral movida",
+                        "texto": frase["texto"],
+                    },
+                )
+
+                updated = service.get_payload()
+                preset_updated = next(item for item in updated["presets"] if item["id"] == preset["id"])
+                self.assertEqual(preset_updated["selecoes"][0]["aspecto"], "valva_aortica")
+                aortica = next(item for item in updated["aspectos"] if item["key"] == "valva_aortica")
+                self.assertTrue(any(item["id"] == frase["id"] for item in aortica["frases"]))
+            finally:
+                service.DATA_DIR = original_data_dir
+                service.FRASES_FILE = original_frases_file
+                service.RUNTIME_BACKUP_DIR = original_runtime_backup_dir
+
+    def test_duplicate_and_restore_phrase_and_preset_generate_backups(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            frases_file = data_dir / "frases_ecocardiograma_estruturado_teste.json"
+            runtime_backup_dir = data_dir / "runtime_backups" / "frases_ecocardiograma_estruturado_teste"
+
+            original_data_dir = service.DATA_DIR
+            original_frases_file = service.FRASES_FILE
+            original_runtime_backup_dir = service.RUNTIME_BACKUP_DIR
+            try:
+                service.DATA_DIR = data_dir
+                service.FRASES_FILE = frases_file
+                service.RUNTIME_BACKUP_DIR = runtime_backup_dir
+
+                payload = service.get_payload()
+                mitral = next(item for item in payload["aspectos"] if item["key"] == "valva_mitral")
+                frase = mitral["frases"][0]
+                cloned_phrase = service.duplicate_phrase(
+                    int(frase["id"]),
+                    {"aspecto": "valva_mitral", "titulo": "Clone mitral"},
+                )
+                service.set_phrase_active(int(cloned_phrase["id"]), {"aspecto": "valva_mitral"}, ativo=0)
+                restored_phrase = service.set_phrase_active(
+                    int(cloned_phrase["id"]), {"aspecto": "valva_mitral"}, ativo=1
+                )
+
+                preset = service.save_preset(
+                    {
+                        "label": "Preset duplicavel",
+                        "selecoes": [{"aspecto": "valva_mitral", "frase_id": frase["id"]}],
+                    }
+                )
+                cloned_preset = service.duplicate_preset(int(preset["id"]), {"label": "Clone preset"})
+                service.delete_preset(int(cloned_preset["id"]))
+                restored_preset = service.restore_preset(int(cloned_preset["id"]))
+
+                self.assertEqual(restored_phrase["ativo"], 1)
+                self.assertEqual(restored_preset["ativo"], 1)
+                backup_names = [path.name for path in sorted(runtime_backup_dir.glob("*.json"))]
+                self.assertTrue(any("__duplicate_phrase" in name for name in backup_names))
+                self.assertTrue(any("__restore_phrase" in name for name in backup_names))
+                self.assertTrue(any("__duplicate_preset" in name for name in backup_names))
+                self.assertTrue(any("__restore_preset" in name for name in backup_names))
             finally:
                 service.DATA_DIR = original_data_dir
                 service.FRASES_FILE = original_frases_file

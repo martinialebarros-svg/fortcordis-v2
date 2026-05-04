@@ -133,6 +133,32 @@ def _slugify(value: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "_" for ch in value).strip("_")
 
 
+def _normalize_string_list(value: Any) -> List[str]:
+    if isinstance(value, str):
+        raw_items = value.split(",")
+    elif isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = []
+
+    items: List[str] = []
+    seen = set()
+    for item in raw_items:
+        normalized = str(item or "").strip()
+        key = normalized.casefold()
+        if normalized and key not in seen:
+            items.append(normalized)
+            seen.add(key)
+    return items
+
+
+def _to_int(value: Any, fallback: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
 def _backup_tag(value: str) -> str:
     tag = "".join(ch.lower() if ch.isalnum() else "_" for ch in str(value or "").strip())
     return tag.strip("_") or "update"
@@ -213,6 +239,8 @@ def _build_default_store() -> Dict[str, Any]:
                     "titulo": str(frase.get("titulo") or "").strip(),
                     "texto": str(frase.get("texto") or "").strip(),
                     "tags": list(frase.get("tags") or []),
+                    "patologias": [],
+                    "ordem": next_phrase_id * 10,
                     "ativo": 1,
                 }
             )
@@ -266,6 +294,22 @@ def _save_store(store: Dict[str, Any], reason: str = "update") -> Dict[str, Any]
     return store
 
 
+def _iter_phrase_locations(payload: Dict[str, Any]):
+    for aspecto in payload.get("aspectos") or []:
+        for frase in aspecto.get("frases") or []:
+            yield aspecto, frase
+
+
+def _next_phrase_id(payload: Dict[str, Any]) -> int:
+    ids = [_to_int(frase.get("id")) for _, frase in _iter_phrase_locations(payload)]
+    return max(ids + [0]) + 1
+
+
+def _next_preset_id(payload: Dict[str, Any]) -> int:
+    ids = [_to_int(preset.get("id")) for preset in payload.get("presets") or []]
+    return max(ids + [0]) + 1
+
+
 def _normalize_store(store: Dict[str, Any]) -> Dict[str, Any]:
     normalized = _build_default_store()
     normalized.update(
@@ -283,7 +327,7 @@ def _normalize_store(store: Dict[str, Any]) -> Dict[str, Any]:
         incoming = aspect_index.get(default_aspect["key"], {})
         frases_in = incoming.get("frases") or []
         frases_out = []
-        for frase in frases_in:
+        for index, frase in enumerate(frases_in, start=1):
             titulo = str(frase.get("titulo") or "").strip()
             texto = str(frase.get("texto") or "").strip()
             if not titulo or not texto:
@@ -297,8 +341,10 @@ def _normalize_store(store: Dict[str, Any]) -> Dict[str, Any]:
                     "id": frase_id,
                     "titulo": titulo,
                     "texto": texto,
-                    "tags": list(frase.get("tags") or []),
-                    "ativo": 1 if int(frase.get("ativo", 1)) else 0,
+                    "tags": _normalize_string_list(frase.get("tags")),
+                    "patologias": _normalize_string_list(frase.get("patologias")),
+                    "ordem": _to_int(frase.get("ordem"), index * 10),
+                    "ativo": 1 if _to_int(frase.get("ativo"), 1) else 0,
                 }
             )
         aspecto_out = dict(default_aspect)
@@ -337,9 +383,9 @@ def _normalize_store(store: Dict[str, Any]) -> Dict[str, Any]:
                 "patologia": str(preset.get("patologia") or "").strip(),
                 "grau": str(preset.get("grau") or "").strip(),
                 "descricao": str(preset.get("descricao") or "").strip(),
-                "tags": list(preset.get("tags") or []),
-                "ordem": int(preset.get("ordem") or (next_preset_id * 10)),
-                "ativo": 1 if int(preset.get("ativo", 1)) else 0,
+                "tags": _normalize_string_list(preset.get("tags")),
+                "ordem": _to_int(preset.get("ordem"), next_preset_id * 10),
+                "ativo": 1 if _to_int(preset.get("ativo"), 1) else 0,
                 "selecoes": selecoes,
             }
         )
@@ -380,6 +426,31 @@ def import_store(data: Dict[str, Any]) -> Dict[str, Any]:
 
 def _find_aspect(payload: Dict[str, Any], aspecto_key: str) -> Optional[Dict[str, Any]]:
     return next((item for item in payload.get("aspectos") or [] if item.get("key") == aspecto_key), None)
+
+
+def _find_phrase_location(
+    payload: Dict[str, Any],
+    aspecto_key: str,
+    frase_id: int,
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    aspecto = _find_aspect(payload, aspecto_key)
+    if not aspecto:
+        return None, None
+    frase = next((item for item in aspecto.get("frases") or [] if item.get("id") == frase_id), None)
+    return aspecto, frase
+
+
+def _ensure_unique_phrase_title(
+    aspecto: Dict[str, Any],
+    titulo: str,
+    ignore_phrase_id: Optional[int] = None,
+) -> None:
+    titulo_normalizado = titulo.casefold()
+    for item in aspecto.get("frases") or []:
+        if ignore_phrase_id is not None and item.get("id") == ignore_phrase_id:
+            continue
+        if str(item.get("titulo") or "").strip().casefold() == titulo_normalizado:
+            raise ValueError("Ja existe uma frase com esse titulo neste aspecto.")
 
 
 def _find_phrase(
@@ -448,19 +519,23 @@ def save_preset(data: Dict[str, Any], preset_id: Optional[int] = None) -> Dict[s
 
     target = next((item for item in presets if item.get("id") == preset_id), None) if preset_id else None
     if target is None:
-        target = {"id": max([int(item.get("id") or 0) for item in presets] + [0]) + 1}
+        target = {"id": _next_preset_id(payload)}
         presets.append(target)
+
+    label = str(data.get("label") or "").strip()
+    if not label:
+        raise ValueError("Informe o nome do preset.")
 
     target.update(
         {
             "key": str(data.get("key") or _slugify(str(data.get("label") or ""))).strip(),
-            "label": str(data.get("label") or "").strip(),
+            "label": label,
             "patologia": str(data.get("patologia") or "").strip(),
             "grau": str(data.get("grau") or "").strip(),
             "descricao": str(data.get("descricao") or "").strip(),
-            "tags": list(data.get("tags") or []),
-            "ordem": int(data.get("ordem") or ((target["id"]) * 10)),
-            "ativo": 1,
+            "tags": _normalize_string_list(data.get("tags")),
+            "ordem": _to_int(data.get("ordem"), _to_int(target.get("id")) * 10),
+            "ativo": 1 if _to_int(data.get("ativo"), 1) else 0,
             "selecoes": selecoes,
         }
     )
@@ -471,8 +546,39 @@ def save_preset(data: Dict[str, Any], preset_id: Optional[int] = None) -> Dict[s
 
 def delete_preset(preset_id: int) -> None:
     payload = get_payload()
-    payload["presets"] = [item for item in payload.get("presets") or [] if item.get("id") != preset_id]
+    preset = next((item for item in payload.get("presets") or [] if item.get("id") == preset_id), None)
+    if not preset:
+        raise KeyError("Preset nao encontrado.")
+    preset["ativo"] = 0
     _save_store(payload, reason="delete_preset")
+
+
+def restore_preset(preset_id: int) -> Dict[str, Any]:
+    payload = get_payload()
+    preset = next((item for item in payload.get("presets") or [] if item.get("id") == preset_id), None)
+    if not preset:
+        raise KeyError("Preset nao encontrado.")
+    preset["ativo"] = 1
+    _save_store(payload, reason="restore_preset")
+    return preset
+
+
+def duplicate_preset(preset_id: int, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    payload = get_payload()
+    source = next((item for item in payload.get("presets") or [] if item.get("id") == preset_id), None)
+    if not source:
+        raise KeyError("Preset nao encontrado.")
+
+    data = data or {}
+    clone = deepcopy(source)
+    clone["id"] = _next_preset_id(payload)
+    clone["label"] = str(data.get("label") or f"{source.get('label', 'Preset')} copia").strip()
+    clone["key"] = str(data.get("key") or _slugify(clone["label"])).strip()
+    clone["ordem"] = _to_int(data.get("ordem"), _to_int(source.get("ordem"), clone["id"] * 10) + 1)
+    clone["ativo"] = 1
+    payload["presets"] = list(payload.get("presets") or []) + [clone]
+    _save_store(payload, reason="duplicate_preset")
+    return clone
 
 
 def create_phrase(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -488,16 +594,16 @@ def create_phrase(data: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("Titulo e texto da frase sao obrigatorios.")
 
     frases = aspecto.get("frases") or []
-    titulo_normalizado = titulo.casefold()
-    if any(str(item.get("titulo") or "").strip().casefold() == titulo_normalizado for item in frases):
-        raise ValueError("Ja existe uma frase com esse titulo neste aspecto.")
+    _ensure_unique_phrase_title(aspecto, titulo)
 
     nova_frase = {
-        "id": max([int(item.get("id") or 0) for item in frases] + [0]) + 1,
+        "id": _next_phrase_id(payload),
         "titulo": titulo,
         "texto": texto,
-        "tags": list(data.get("tags") or []),
-        "ativo": 1,
+        "tags": _normalize_string_list(data.get("tags")),
+        "patologias": _normalize_string_list(data.get("patologias")),
+        "ordem": _to_int(data.get("ordem"), (len(frases) + 1) * 10),
+        "ativo": 1 if _to_int(data.get("ativo"), 1) else 0,
     }
     frases.append(nova_frase)
     aspecto["frases"] = frases
@@ -508,25 +614,129 @@ def create_phrase(data: Dict[str, Any]) -> Dict[str, Any]:
 def update_phrase(frase_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
     payload = get_payload()
     aspecto_key = str(data.get("aspecto") or "").strip()
-    aspecto = _find_aspect(payload, aspecto_key)
+    aspecto, frase = _find_phrase_location(payload, aspecto_key, frase_id)
     if not aspecto:
         raise KeyError("Aspecto nao encontrado.")
-    frase = next((item for item in aspecto.get("frases") or [] if item.get("id") == frase_id), None)
     if not frase:
         raise KeyError("Frase nao encontrada.")
+
+    novo_aspecto_key = str(data.get("novo_aspecto") or aspecto_key).strip()
+    novo_aspecto = _find_aspect(payload, novo_aspecto_key)
+    if not novo_aspecto:
+        raise KeyError("Aspecto de destino nao encontrado.")
 
     titulo = str(data.get("titulo") or frase.get("titulo") or "").strip()
     texto = str(data.get("texto") or frase.get("texto") or "").strip()
     if not titulo or not texto:
         raise ValueError("Titulo e texto da frase sao obrigatorios.")
+    _ensure_unique_phrase_title(novo_aspecto, titulo, ignore_phrase_id=frase_id)
 
     frase.update(
         {
             "titulo": titulo,
             "texto": texto,
-            "tags": list(data.get("tags") or frase.get("tags") or []),
-            "ativo": 1,
+            "tags": _normalize_string_list(data.get("tags", frase.get("tags"))),
+            "patologias": _normalize_string_list(data.get("patologias", frase.get("patologias"))),
+            "ordem": _to_int(data.get("ordem"), _to_int(frase.get("ordem"), 0)),
+            "ativo": 1 if _to_int(data.get("ativo"), _to_int(frase.get("ativo"), 1)) else 0,
         }
     )
+
+    if novo_aspecto_key != aspecto_key:
+        aspecto["frases"] = [item for item in aspecto.get("frases") or [] if item.get("id") != frase_id]
+        novo_frases = list(novo_aspecto.get("frases") or [])
+        novo_frases.append(frase)
+        novo_aspecto["frases"] = novo_frases
+
+    _sync_phrase_references(
+        payload,
+        frase_id=frase_id,
+        old_aspecto=aspecto_key,
+        new_aspecto=novo_aspecto_key,
+        new_titulo=titulo,
+    )
     _save_store(payload, reason="update_phrase")
+    return frase
+
+
+def _sync_phrase_references(
+    payload: Dict[str, Any],
+    frase_id: int,
+    old_aspecto: str,
+    new_aspecto: str,
+    new_titulo: str,
+) -> None:
+    for preset in payload.get("presets") or []:
+        selecoes = list(preset.get("selecoes") or [])
+        updated: List[Dict[str, Any]] = []
+        for selecao in selecoes:
+            matches = (
+                str(selecao.get("aspecto") or "").strip() == old_aspecto
+                and _to_int(selecao.get("frase_id"), -1) == frase_id
+            )
+            if not matches:
+                updated.append(selecao)
+                continue
+
+            if new_aspecto != old_aspecto and any(
+                str(item.get("aspecto") or "").strip() == new_aspecto
+                and item is not selecao
+                for item in selecoes
+            ):
+                continue
+
+            next_selecao = dict(selecao)
+            next_selecao["aspecto"] = new_aspecto
+            next_selecao["frase_id"] = frase_id
+            next_selecao["frase_titulo"] = new_titulo
+            updated.append(next_selecao)
+        preset["selecoes"] = updated
+
+
+def duplicate_phrase(frase_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+    payload = get_payload()
+    aspecto_key = str(data.get("aspecto") or "").strip()
+    aspecto, frase = _find_phrase_location(payload, aspecto_key, frase_id)
+    if not aspecto:
+        raise KeyError("Aspecto nao encontrado.")
+    if not frase:
+        raise KeyError("Frase nao encontrada.")
+
+    destino_key = str(data.get("novo_aspecto") or aspecto_key).strip()
+    destino = _find_aspect(payload, destino_key)
+    if not destino:
+        raise KeyError("Aspecto de destino nao encontrado.")
+
+    titulo = str(data.get("titulo") or f"{frase.get('titulo', 'Frase')} copia").strip()
+    texto = str(data.get("texto") or frase.get("texto") or "").strip()
+    if not titulo or not texto:
+        raise ValueError("Titulo e texto da frase sao obrigatorios.")
+    _ensure_unique_phrase_title(destino, titulo)
+
+    frases_destino = list(destino.get("frases") or [])
+    clone = {
+        "id": _next_phrase_id(payload),
+        "titulo": titulo,
+        "texto": texto,
+        "tags": _normalize_string_list(data.get("tags", frase.get("tags"))),
+        "patologias": _normalize_string_list(data.get("patologias", frase.get("patologias"))),
+        "ordem": _to_int(data.get("ordem"), (len(frases_destino) + 1) * 10),
+        "ativo": 1,
+    }
+    frases_destino.append(clone)
+    destino["frases"] = frases_destino
+    _save_store(payload, reason="duplicate_phrase")
+    return clone
+
+
+def set_phrase_active(frase_id: int, data: Dict[str, Any], ativo: int) -> Dict[str, Any]:
+    payload = get_payload()
+    aspecto_key = str(data.get("aspecto") or "").strip()
+    aspecto, frase = _find_phrase_location(payload, aspecto_key, frase_id)
+    if not aspecto:
+        raise KeyError("Aspecto nao encontrado.")
+    if not frase:
+        raise KeyError("Frase nao encontrada.")
+    frase["ativo"] = 1 if ativo else 0
+    _save_store(payload, reason="restore_phrase" if ativo else "delete_phrase")
     return frase
