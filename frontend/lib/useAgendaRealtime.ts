@@ -77,7 +77,7 @@ export function useAgendaRealtime(
         }
       }
 
-      if (eventType !== "agenda_update") {
+      if (eventType !== "agenda_update" && eventType !== "connected") {
         return;
       }
 
@@ -88,7 +88,9 @@ export function useAgendaRealtime(
 
       try {
         const payload = JSON.parse(rawData) as AgendaRealtimePayload;
-        if (payload.action) {
+        if (eventType === "connected") {
+          setUltimoEvento("connected");
+        } else if (payload.action) {
           setUltimoEvento(payload.action);
         }
         callbackRef.current(payload);
