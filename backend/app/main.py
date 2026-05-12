@@ -38,6 +38,7 @@ from app.core.csrf import (
     is_trusted_origin,
     should_protect_request,
 )
+from app.core.security_headers import build_security_headers
 from app.core.security import get_current_websocket_user
 from app.core.websocket import manager
 from app.db.database import engine, get_db
@@ -280,26 +281,38 @@ app.add_middleware(
 )
 
 
+def _append_security_headers(path: str, response):
+    for header_name, header_value in build_security_headers(path).items():
+        response.headers[header_name] = header_value
+    return response
+
+
 @app.middleware("http")
 async def enforce_csrf_for_cookie_session(request: Request, call_next):
     if not settings.CSRF_PROTECTION_ENABLED:
-        return await call_next(request)
+        response = await call_next(request)
+        return _append_security_headers(request.url.path, response)
 
     path = request.url.path
     has_session_cookie = bool(request.cookies.get(settings.AUTH_COOKIE_NAME))
     if not should_protect_request(path, request.method, has_session_cookie):
-        return await call_next(request)
+        response = await call_next(request)
+        return _append_security_headers(path, response)
 
     csrf_cookie = request.cookies.get(settings.CSRF_COOKIE_NAME)
     csrf_header = request.headers.get(settings.CSRF_HEADER_NAME)
     if has_valid_csrf_token_pair(csrf_header, csrf_cookie):
-        return await call_next(request)
+        response = await call_next(request)
+        return _append_security_headers(path, response)
 
     sec_fetch_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
     if sec_fetch_site == "cross-site":
-        return JSONResponse(
-            status_code=403,
-            content={"detail": "CSRF: origem nao confiavel."},
+        return _append_security_headers(
+            path,
+            JSONResponse(
+                status_code=403,
+                content={"detail": "CSRF: origem nao confiavel."},
+            ),
         )
 
     request_origin = f"{request.url.scheme}://{request.url.netloc}"
@@ -312,7 +325,8 @@ async def enforce_csrf_for_cookie_session(request: Request, call_next):
         request_origin=request_origin,
     )
     if trusted_origin:
-        return await call_next(request)
+        response = await call_next(request)
+        return _append_security_headers(path, response)
 
     # Compatibilidade: em alguns proxies internos os headers de origem podem ser omitidos.
     # Ainda assim bloqueamos o sinal explicito de cross-site acima.
@@ -321,16 +335,21 @@ async def enforce_csrf_for_cookie_session(request: Request, call_next):
         "same-site",
         "none",
     }:
-        return await call_next(request)
+        response = await call_next(request)
+        return _append_security_headers(path, response)
 
-    return JSONResponse(
-        status_code=403,
-        content={"detail": "CSRF: token ausente/invalido."},
+    return _append_security_headers(
+        path,
+        JSONResponse(
+            status_code=403,
+            content={"detail": "CSRF: token ausente/invalido."},
+        ),
     )
 
 
 @app.middleware("http")
 async def monitor_runtime_http_status(request: Request, call_next):
+    path = request.url.path
     try:
         response = await call_next(request)
     except Exception:
@@ -344,7 +363,7 @@ async def monitor_runtime_http_status(request: Request, call_next):
         record_http_status(response.status_code)
     except Exception:
         logger.exception("Falha ao registrar status HTTP no monitor de runtime.")
-    return response
+    return _append_security_headers(path, response)
 
 # Rotas REST
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])

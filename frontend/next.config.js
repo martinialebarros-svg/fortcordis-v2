@@ -6,9 +6,41 @@ const withBundleAnalyzer = require("@next/bundle-analyzer")({
 const path = require("path")
 const apiBackend = process.env.API_BACKEND_URL || 'http://127.0.0.1:8000'
 const whatsappStageBackend = process.env.WHATSAPP_STAGE_BACKEND_URL
+const appContentSecurityPolicy = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data: https:",
+  "style-src 'self' 'unsafe-inline' https:",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:",
+  "connect-src 'self' https: wss: ws:",
+].join('; ')
 
 const nextConfig = {
   outputFileTracingRoot: path.resolve(__dirname),
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: appContentSecurityPolicy,
+          },
+          {
+            key: 'X-Frame-Options',
+            value: 'DENY',
+          },
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+        ],
+      },
+    ]
+  },
   async rewrites() {
     const rewrites = [
       {
