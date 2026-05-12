@@ -26,6 +26,7 @@ Registrar e validar hardening de seguranca no backend cobrindo:
 - RF-008: login deve definir cookie de sessao `HttpOnly` para autenticacao.
 - RF-009: backend deve aceitar autenticacao por `Bearer` ou cookie de sessao durante transicao.
 - RF-010: endpoint de logout deve invalidar cookie de sessao no cliente.
+- RF-011: deploy da `stage` deve forcar `APP_ENV=stage` e `AUTH_COOKIE_SECURE=true` para evitar emissao de cookie inseguro.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -54,6 +55,7 @@ Registrar e validar hardening de seguranca no backend cobrindo:
 - `backend/app/core/config.py`: adiciona `APP_ENV` e `ENFORCE_STRONG_SECRET_KEY_IN_PRODUCTION`.
 - `backend/app/core/runtime_checks.py`: fail-fast de `SECRET_KEY` em producao.
 - `backend/start_server.py`: bloqueio quando `SECRET_KEY` ausente em producao.
+- `scripts/deploy_prod_vps.sh`: em deploy com `BRANCH=stage`, garante `APP_ENV=stage` e `AUTH_COOKIE_SECURE=true` no `backend/.env`.
 
 ### Documentacao operacional
 
@@ -74,6 +76,7 @@ Registrar e validar hardening de seguranca no backend cobrindo:
 - CA-005: runbook de rotacao de chave disponivel no repositorio.
 - CA-006: login cria cookie de sessao `HttpOnly` e sessoes autenticadas funcionam sem header manual.
 - CA-007: logout remove cookie de sessao e exige novo login.
+- CA-008: cookie de sessao em `stage` deve ser emitido com flag `Secure`.
 
 ## 7) Casos de borda
 

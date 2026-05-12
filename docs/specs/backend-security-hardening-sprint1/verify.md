@@ -15,6 +15,7 @@ Status: done
 | CA-005 | aceitacao | Runbook criado em `backend/docs/SECRET_KEY_ROTATION_RUNBOOK.md`. | ok |
 | CA-006 | aceitacao | `POST /auth/login` define cookie de sessao `HttpOnly`; frontend usa `withCredentials`/`credentials: include`. | ok |
 | CA-007 | aceitacao | `POST /auth/logout` remove cookie e `layout-dashboard` valida sessao por `/auth/me`. | ok |
+| CA-008 | aceitacao | Deploy de `stage` reforca `APP_ENV=stage` e `AUTH_COOKIE_SECURE=true` no `backend/.env`. | ok |
 
 ## 2) Testes automatizados executados
 
@@ -33,6 +34,7 @@ Resumo dos resultados:
   - `python3 -m py_compile` em `auth.py`, `security.py`, `atendimento.py` e teste de PDF auth: ok.
   - `npx eslint` nos arquivos frontend alterados de auth/cookie: ok.
   - Suite Python completa nao executada neste ambiente por ausencia de dependencias (`fastapi`/`pytest`).
+  - Hardening operacional stage: `scripts/deploy_prod_vps.sh` atualizado para aplicar env de cookie seguro antes do restart do backend em `BRANCH=stage`.
 
 ## 3) Testes manuais recomendados
 

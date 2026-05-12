@@ -323,6 +323,24 @@ set_env_key_if_blank_or_placeholder() {
   upsert_env_key "$env_file" "$key" "$default_value"
 }
 
+ensure_backend_stage_cookie_security() {
+  local backend_env_file="${BACKEND_DIR}/.env"
+
+  if [[ "${BRANCH}" != "stage" ]]; then
+    return 0
+  fi
+
+  if [[ ! -f "${backend_env_file}" ]]; then
+    echo "[ERROR] Backend env file not found: ${backend_env_file}" >&2
+    return 1
+  fi
+
+  upsert_env_key "${backend_env_file}" "APP_ENV" "stage"
+  upsert_env_key "${backend_env_file}" "AUTH_COOKIE_SECURE" "true"
+  set_env_key_if_blank "${backend_env_file}" "AUTH_COOKIE_SAMESITE" "lax"
+  log "Stage backend cookie security env ensured (APP_ENV=stage, AUTH_COOKIE_SECURE=true)."
+}
+
 replace_env_key_if_exact_match() {
   local env_file="$1"
   local key="$2"
@@ -670,6 +688,8 @@ git log --oneline -n 1
 DEPLOY_STAGE="backend_setup"
 log "Backend: install deps + migrations"
 cd "$BACKEND_DIR"
+
+ensure_backend_stage_cookie_security
 
 if [[ ! -x "${BACKEND_DIR}/venv/bin/python" ]]; then
   log "Creating backend venv"
