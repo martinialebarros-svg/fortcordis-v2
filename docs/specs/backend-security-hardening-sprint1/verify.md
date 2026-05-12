@@ -16,6 +16,7 @@ Status: done
 | CA-006 | aceitacao | `POST /auth/login` define cookie de sessao `HttpOnly`; frontend usa `withCredentials`/`credentials: include`. | ok |
 | CA-007 | aceitacao | `POST /auth/logout` remove cookie e `layout-dashboard` valida sessao por `/auth/me`. | ok |
 | CA-008 | aceitacao | Deploy de `stage` reforca `APP_ENV=stage` e `AUTH_COOKIE_SECURE=true` no `backend/.env`. | ok |
+| CA-009 | aceitacao | Login/logout passam a avaliar HTTPS via `X-Forwarded-Proto`/scheme para emitir cookie com `Secure=true` atras de proxy. | ok |
 
 ## 2) Testes automatizados executados
 
@@ -35,6 +36,7 @@ Resumo dos resultados:
   - `npx eslint` nos arquivos frontend alterados de auth/cookie: ok.
   - Suite Python completa nao executada neste ambiente por ausencia de dependencias (`fastapi`/`pytest`).
   - Hardening operacional stage: `scripts/deploy_prod_vps.sh` atualizado para aplicar env de cookie seguro antes do restart do backend em `BRANCH=stage`.
+  - Hardening app auth: `backend/app/api/v1/endpoints/auth.py` atualizado para fallback de `Secure` baseado em HTTPS/proxy.
 
 ## 3) Testes manuais recomendados
 

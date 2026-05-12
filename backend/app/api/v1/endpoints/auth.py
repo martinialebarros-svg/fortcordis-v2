@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from jose import jwt
@@ -17,18 +17,33 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 _BCRYPT_PREFIXES = ("$2a$", "$2b$", "$2y$", "$2$")
 
 
-def _is_cookie_secure() -> bool:
+def _request_uses_https(request: Request | None = None) -> bool:
+    if request is None:
+        return False
+
+    forwarded_proto = (request.headers.get("x-forwarded-proto") or "").strip().lower()
+    if forwarded_proto:
+        first_value = forwarded_proto.split(",")[0].strip()
+        if first_value == "https":
+            return True
+
+    return (request.url.scheme or "").strip().lower() == "https"
+
+
+def _is_cookie_secure(request: Request | None = None) -> bool:
     if settings.AUTH_COOKIE_SECURE:
         return True
-    return settings.APP_ENV.lower() in {"production", "staging", "stage"}
+    if settings.APP_ENV.lower() in {"production", "staging", "stage"}:
+        return True
+    return _request_uses_https(request)
 
 
-def _set_auth_cookie(response: Response, token: str) -> None:
+def _set_auth_cookie(response: Response, token: str, request: Request | None = None) -> None:
     response.set_cookie(
         key=settings.AUTH_COOKIE_NAME,
         value=token,
         httponly=True,
-        secure=_is_cookie_secure(),
+        secure=_is_cookie_secure(request),
         samesite=settings.AUTH_COOKIE_SAMESITE,
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         path=settings.AUTH_COOKIE_PATH,
@@ -36,12 +51,12 @@ def _set_auth_cookie(response: Response, token: str) -> None:
     )
 
 
-def _clear_auth_cookie(response: Response) -> None:
+def _clear_auth_cookie(response: Response, request: Request | None = None) -> None:
     response.delete_cookie(
         key=settings.AUTH_COOKIE_NAME,
         path=settings.AUTH_COOKIE_PATH,
         domain=settings.AUTH_COOKIE_DOMAIN,
-        secure=_is_cookie_secure(),
+        secure=_is_cookie_secure(request),
         samesite=settings.AUTH_COOKIE_SAMESITE,
     )
 
@@ -67,6 +82,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 
 @router.post("/login", response_model=Token)
 def login(
+    request: Request,
     response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
@@ -105,7 +121,7 @@ def login(
     user.ultimo_acesso = datetime.now()
     db.commit()
 
-    _set_auth_cookie(response, access_token)
+    _set_auth_cookie(response, access_token, request)
     
     return {
         "access_token": access_token,
@@ -118,8 +134,8 @@ def login(
 
 
 @router.post("/logout")
-def logout(response: Response):
-    _clear_auth_cookie(response)
+def logout(request: Request, response: Response):
+    _clear_auth_cookie(response, request)
     return {"success": True}
 
 @router.get("/me", response_model=UserResponse)
