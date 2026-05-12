@@ -9,7 +9,7 @@ from app.db.database import get_db
 from app.models.papel_permissao import PapelPermissao
 from app.models.user import User
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 # Prefixos de API para mapeamento da matriz de permissões.
 _MODULE_BY_PATH_PREFIX = [
@@ -102,6 +102,28 @@ def _user_has_matrix_permission(db: Session, user: User, module: str, action: st
     return any(getattr(registro, action, 0) == 1 for registro in registros)
 
 
+def _extract_bearer_token(authorization: str | None) -> str:
+    if not authorization:
+        return ""
+    raw = authorization.strip()
+    if raw.lower().startswith("bearer "):
+        return raw[7:].strip()
+    return ""
+
+
+def get_request_token(request: Request, bearer_token: str | None = None) -> str:
+    token = (bearer_token or "").strip()
+    if token:
+        return token
+
+    token = _extract_bearer_token(request.headers.get("Authorization"))
+    if token:
+        return token
+
+    cookie_token = request.cookies.get(settings.AUTH_COOKIE_NAME, "")
+    return cookie_token.strip()
+
+
 def _authorize_request_by_matrix(request: Request, db: Session, user: User) -> None:
     path = _normalize_path(request.url.path)
 
@@ -131,7 +153,7 @@ def _authorize_request_by_matrix(request: Request, db: Session, user: User) -> N
 
 def get_current_user(
     request: Request,
-    token: str = Depends(oauth2_scheme),
+    token: str | None = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
     credentials_exception = HTTPException(
@@ -139,8 +161,12 @@ def get_current_user(
         detail="Credenciais invalidas",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    request_token = get_request_token(request, token)
+    if not request_token:
+        raise credentials_exception
+
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(request_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         email: str = payload.get("sub")
         if email is None:
             raise credentials_exception

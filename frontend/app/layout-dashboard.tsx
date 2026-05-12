@@ -200,40 +200,37 @@ export default function DashboardLayout({
   };
 
   useEffect(() => {
-    try {
-      const userData = localStorage.getItem("user");
-      const token = localStorage.getItem("token");
+    let cancelado = false;
 
-      if (!userData || !token) {
-        localStorage.removeItem("user");
-        localStorage.removeItem("token");
-        redirecionarParaLogin();
-        return;
-      }
-
-      let parsedUser: any = null;
+    const validarSessao = async () => {
       try {
-        parsedUser = JSON.parse(userData);
-      } catch (parseError) {
-        console.error("Valor invalido em localStorage.user:", parseError);
-        localStorage.removeItem("user");
-        localStorage.removeItem("token");
-        redirecionarParaLogin();
-        return;
-      }
+        const meResponse = await api.get("/auth/me");
+        if (cancelado) {
+          return;
+        }
 
-      if (!parsedUser || typeof parsedUser !== "object") {
-        localStorage.removeItem("user");
+        const currentUser = meResponse.data;
+        setUser(currentUser);
+        localStorage.setItem("user", JSON.stringify(currentUser));
+        await carregarBranding();
+      } catch (error) {
+        if (cancelado) {
+          return;
+        }
         localStorage.removeItem("token");
+        localStorage.removeItem("user");
         redirecionarParaLogin();
-        return;
+      } finally {
+        if (!cancelado) {
+          setAuthChecked(true);
+        }
       }
+    };
 
-      setUser(parsedUser);
-      carregarBranding();
-    } finally {
-      setAuthChecked(true);
-    }
+    void validarSessao();
+    return () => {
+      cancelado = true;
+    };
   }, [router]);
 
   useEffect(() => {
@@ -294,6 +291,11 @@ export default function DashboardLayout({
   }, [logoUrl]);
 
   const handleLogout = async () => {
+    try {
+      await api.post("/auth/logout");
+    } catch {
+      // best effort
+    }
     try {
       const { removePushSubscriptionForCurrentDevice } = await import("@/lib/usePushNotifications");
       await removePushSubscriptionForCurrentDevice();
@@ -498,4 +500,3 @@ export default function DashboardLayout({
     dashboardContent
   );
 }
-

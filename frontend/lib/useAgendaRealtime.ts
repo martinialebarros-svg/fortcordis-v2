@@ -54,12 +54,6 @@ export function useAgendaRealtime(
       return;
     }
 
-    const token = localStorage.getItem("token");
-    if (!token) {
-      setConectado(false);
-      return;
-    }
-
     let cancelado = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let abortController: AbortController | null = null;
@@ -112,12 +106,12 @@ export function useAgendaRealtime(
           const response = await fetch("/api/v1/agenda/stream", {
             method: "GET",
             headers: {
-              Authorization: `Bearer ${token}`,
               Accept: "text/event-stream",
               "Cache-Control": "no-cache",
             },
             signal: abortController.signal,
             cache: "no-store",
+            credentials: "include",
           });
 
           if (!response.ok || !response.body) {

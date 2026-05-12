@@ -37,11 +37,6 @@ function getJobPollIntervalMs(attempt: number): number {
   return 4000;
 }
 
-function getAuthHeaders(): HeadersInit {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 async function waitForXmlImportJob(jobId: number): Promise<XmlImportJobStatus> {
   const startedAt = Date.now();
   let attempts = 0;
@@ -49,7 +44,6 @@ async function waitForXmlImportJob(jobId: number): Promise<XmlImportJobStatus> {
   while (Date.now() - startedAt < JOB_POLL_TIMEOUT_MS) {
     attempts += 1;
     const response = await fetch(`/api/v1/xml/importar-eco/jobs/${jobId}`, {
-      headers: getAuthHeaders(),
       credentials: "include",
     });
     if (!response.ok) {
@@ -75,7 +69,6 @@ async function importSynchronously(file: File): Promise<DadosExameImportados> {
 
   const response = await fetch("/api/v1/xml/importar-eco", {
     method: "POST",
-    headers: getAuthHeaders(),
     body: formData,
     credentials: "include",
   });
@@ -103,7 +96,6 @@ export async function importarXmlEco(file: File): Promise<DadosExameImportados> 
   try {
     const response = await fetch("/api/v1/xml/importar-eco/jobs", {
       method: "POST",
-      headers: getAuthHeaders(),
       body: formData,
       credentials: "include",
     });

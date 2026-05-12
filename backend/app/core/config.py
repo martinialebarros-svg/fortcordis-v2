@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     ENFORCE_STRONG_SECRET_KEY_IN_PRODUCTION: bool = True
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 720
+    AUTH_COOKIE_NAME: str = "fortcordis_session"
+    AUTH_COOKIE_PATH: str = "/"
+    AUTH_COOKIE_SAMESITE: str = "lax"
+    AUTH_COOKIE_SECURE: bool = False
+    AUTH_COOKIE_DOMAIN: str | None = None
     UPLOAD_DIR: str = "/opt/fortcordis/uploads"
     GOOGLE_MAPS_API_KEY: str = ""
     GOOGLE_ROUTES_CACHE_MAX_AGE_DAYS: int = 7

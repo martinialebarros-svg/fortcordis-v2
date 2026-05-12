@@ -13,11 +13,6 @@ const ALLOWED_EXTENSIONS = [
   ".tiff",
 ];
 
-function getAuthHeaders(): HeadersInit {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 function hasAllowedImageExtension(filename: string): boolean {
   const lower = (filename || "").toLowerCase();
   return ALLOWED_EXTENSIONS.some((ext) => lower.endsWith(ext));
@@ -33,7 +28,6 @@ export async function importarCabecalhoPorImagem(file: File): Promise<DadosExame
 
   const response = await fetch("/api/v1/xml/importar-cabecalho-imagem", {
     method: "POST",
-    headers: getAuthHeaders(),
     body: formData,
     credentials: "include",
   });
@@ -53,4 +47,3 @@ export async function importarCabecalhoPorImagem(file: File): Promise<DadosExame
 
   return payload.dados as DadosExameImportados;
 }
-

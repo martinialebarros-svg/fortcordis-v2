@@ -24,8 +24,10 @@ export default function LoginPage() {
 
       const response = await axios.post(`${API_URL}/auth/login`, formData, {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        withCredentials: true,
       });
 
+      // Compatibilidade temporaria: alguns fluxos ainda leem token do localStorage.
       localStorage.setItem("token", response.data.access_token);
       localStorage.setItem(
         "user",

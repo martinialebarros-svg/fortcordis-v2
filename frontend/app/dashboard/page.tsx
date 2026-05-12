@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import {
@@ -47,16 +46,10 @@ export default function DashboardPage() {
   });
   const [agendamentosHoje, setAgendamentosHoje] = useState<AgendamentoHoje[]>([]);
   const [loading, setLoading] = useState(true);
-  const router = useRouter();
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      router.push("/");
-      return;
-    }
     carregarDados();
-  }, [router]);
+  }, []);
 
   const carregarDados = async () => {
     try {

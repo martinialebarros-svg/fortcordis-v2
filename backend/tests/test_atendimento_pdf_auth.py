@@ -42,10 +42,18 @@ class _FakeDB:
         return _FakeQuery(None)
 
 
-def _make_request(*, authorization: str | None = None, query_string: str = "") -> Request:
+def _make_request(
+    *,
+    authorization: str | None = None,
+    query_string: str = "",
+    cookie_token: str | None = None,
+) -> Request:
     headers = []
     if authorization:
         headers.append((b"authorization", authorization.encode("utf-8")))
+    if cookie_token:
+        cookie_header = f"{settings.AUTH_COOKIE_NAME}={cookie_token}"
+        headers.append((b"cookie", cookie_header.encode("utf-8")))
     scope = {
         "type": "http",
         "method": "GET",
@@ -99,7 +107,7 @@ class AtendimentoPdfAuthTest(unittest.TestCase):
         self.assertIn("Nao use access_token na URL", str(ctx.exception.detail))
         self.assertEqual(authorize_mock.call_count, 0)
 
-    def test_requires_bearer_header(self) -> None:
+    def test_requires_auth_credentials(self) -> None:
         request = _make_request()
         db = _FakeDB(self.active_user)
 
@@ -108,6 +116,17 @@ class AtendimentoPdfAuthTest(unittest.TestCase):
 
         self.assertEqual(ctx.exception.status_code, 401)
         self.assertEqual(ctx.exception.headers.get("WWW-Authenticate"), "Bearer")
+
+    def test_returns_user_for_valid_cookie(self) -> None:
+        token = self._make_token(self.active_user.email)
+        request = _make_request(cookie_token=token)
+        db = _FakeDB(self.active_user)
+
+        with patch.object(atendimento, "_authorize_request_by_matrix") as authorize_mock:
+            result = atendimento._autenticar_usuario_pdf(request, db)
+
+        self.assertIs(result, self.active_user)
+        self.assertEqual(authorize_mock.call_count, 1)
 
     def test_rejects_invalid_bearer(self) -> None:
         request = _make_request(authorization="Bearer token-invalido")

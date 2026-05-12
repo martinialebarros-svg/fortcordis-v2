@@ -42,7 +42,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import _authorize_request_by_matrix, get_current_user
+from app.core.security import _authorize_request_by_matrix, get_current_user, get_request_token
 from app.db.database import get_db
 from app.models.agendamento import Agendamento
 from app.models.atendimento_clinico import (
@@ -781,8 +781,7 @@ def _autenticar_usuario_pdf(
             detail="Nao use access_token na URL. Use Authorization: Bearer <token>.",
         )
 
-    auth_header = request.headers.get("Authorization", "")
-    token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
+    token = get_request_token(request)
 
     if not token:
         raise HTTPException(

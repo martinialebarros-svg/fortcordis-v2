@@ -17,11 +17,6 @@ function getJobPollIntervalMs(attempt: number): number {
   return 4000;
 }
 
-function getAuthHeaders(): HeadersInit {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 function extractFilename(contentDisposition: string | null, fallback: string): string {
   const match = contentDisposition?.match(/filename="?([^";\s]+)"?/);
   return match?.[1] || fallback;
@@ -49,14 +44,14 @@ async function triggerBrowserDownload(response: Response, fallbackFilename: stri
 
 async function downloadFromUrl(url: string, fallbackFilename: string): Promise<void> {
   const response = await fetch(url, {
-    headers: getAuthHeaders(),
+    credentials: "include",
   });
   await triggerBrowserDownload(response, fallbackFilename);
 }
 
 async function downloadSynchronously(laudoId: number, fallbackFilename: string): Promise<void> {
   const response = await fetch(`/api/v1/laudos/${laudoId}/pdf`, {
-    headers: getAuthHeaders(),
+    credentials: "include",
   });
   await triggerBrowserDownload(response, fallbackFilename);
 }
@@ -68,7 +63,7 @@ async function waitForPdfJob(jobId: number): Promise<LaudoPdfJobStatus> {
   while (Date.now() - startedAt < JOB_POLL_TIMEOUT_MS) {
     attempts += 1;
     const response = await fetch(`/api/v1/laudos/pdf-jobs/${jobId}`, {
-      headers: getAuthHeaders(),
+      credentials: "include",
     });
     if (!response.ok) {
       throw new Error("Nao foi possivel consultar o PDF em processamento.");
@@ -94,7 +89,7 @@ export async function baixarLaudoPdf(
   try {
     const response = await fetch(`/api/v1/laudos/${laudoId}/pdf-jobs`, {
       method: "POST",
-      headers: getAuthHeaders(),
+      credentials: "include",
     });
     if (!response.ok) {
       throw new Error("Nao foi possivel iniciar a geracao assincrona do PDF.");

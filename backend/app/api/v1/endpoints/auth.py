@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from jose import JWTError, jwt
+from jose import jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from typing import Optional
@@ -14,8 +14,36 @@ from app.core.security import get_current_user
 
 router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 _BCRYPT_PREFIXES = ("$2a$", "$2b$", "$2y$", "$2$")
+
+
+def _is_cookie_secure() -> bool:
+    if settings.AUTH_COOKIE_SECURE:
+        return True
+    return settings.APP_ENV.lower() in {"production", "staging", "stage"}
+
+
+def _set_auth_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=settings.AUTH_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        secure=_is_cookie_secure(),
+        samesite=settings.AUTH_COOKIE_SAMESITE,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path=settings.AUTH_COOKIE_PATH,
+        domain=settings.AUTH_COOKIE_DOMAIN,
+    )
+
+
+def _clear_auth_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=settings.AUTH_COOKIE_NAME,
+        path=settings.AUTH_COOKIE_PATH,
+        domain=settings.AUTH_COOKIE_DOMAIN,
+        secure=_is_cookie_secure(),
+        samesite=settings.AUTH_COOKIE_SAMESITE,
+    )
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifica senha apenas com hash bcrypt (sem fallback legado em texto plano)."""
@@ -38,7 +66,11 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 @router.post("/login", response_model=Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(
+    response: Response,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
     user = db.query(User).filter(User.email == form_data.username).first()
     
     if not user:
@@ -72,6 +104,8 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     
     user.ultimo_acesso = datetime.now()
     db.commit()
+
+    _set_auth_cookie(response, access_token)
     
     return {
         "access_token": access_token,
@@ -81,6 +115,12 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         "email": user.email,
         "papeis": papeis_nomes
     }
+
+
+@router.post("/logout")
+def logout(response: Response):
+    _clear_auth_cookie(response)
+    return {"success": True}
 
 @router.get("/me", response_model=UserResponse)
 def read_users_me(current_user: User = Depends(get_current_user)):
