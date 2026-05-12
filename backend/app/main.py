@@ -215,10 +215,57 @@ def _ensure_financeiro_schema_compat() -> None:
         print(f"[schema-compat] Falha ao validar schema financeiro: {exc}")
 
 
+def _resolve_cors_allow_origins() -> list[str]:
+    """
+    Resolve origens permitidas para CORS.
+
+    Suporta:
+    - JSON array em CORS_ALLOW_ORIGINS (ex.: ["https://app.exemplo.com"])
+    - Lista separada por virgula (ex.: https://a.com,https://b.com)
+    """
+    raw_value = (os.getenv("CORS_ALLOW_ORIGINS") or "").strip()
+    if not raw_value:
+        # Default seguro para desenvolvimento local.
+        return ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+    origins: list[str] = []
+    if raw_value.startswith("["):
+        try:
+            parsed = json.loads(raw_value)
+            if isinstance(parsed, list):
+                origins = [str(item).strip() for item in parsed if str(item).strip()]
+            else:
+                logger.warning(
+                    "CORS_ALLOW_ORIGINS em JSON invalido (nao e lista). "
+                    "Aplicando parser por virgula."
+                )
+        except json.JSONDecodeError:
+            logger.warning(
+                "CORS_ALLOW_ORIGINS com JSON invalido. Aplicando parser por virgula."
+            )
+
+    if not origins:
+        origins = [item.strip() for item in raw_value.split(",") if item.strip()]
+
+    # Remove duplicados preservando ordem.
+    deduped: list[str] = []
+    for origin in origins:
+        if origin not in deduped:
+            deduped.append(origin)
+    return deduped
+
+
+cors_allow_origins = _resolve_cors_allow_origins()
+cors_has_wildcard = any(origin == "*" for origin in cors_allow_origins)
+if cors_has_wildcard:
+    logger.warning(
+        "CORS_ALLOW_ORIGINS contem '*'. Cookies/credenciais via CORS foram desabilitados."
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_allow_origins,
+    allow_credentials=not cors_has_wildcard,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["Content-Disposition"],

@@ -12,7 +12,18 @@ if not os.environ.get('DATABASE_URL'):
         os.environ['DATABASE_URL'] = 'sqlite:///./fortcordis.db'
 
 if not os.environ.get('SECRET_KEY'):
-    os.environ['SECRET_KEY'] = 'change-me-in-production'
+    app_env = (
+        os.environ.get("APP_ENV")
+        or os.environ.get("ENVIRONMENT")
+        or os.environ.get("ENV")
+        or "development"
+    ).strip().lower()
+    if app_env in {"prod", "production"}:
+        raise RuntimeError(
+            "SECRET_KEY ausente em ambiente de producao. "
+            "Defina uma chave forte via variavel de ambiente."
+        )
+    os.environ['SECRET_KEY'] = 'dev-only-insecure-secret-change-me'
 
 from app.main import app
 import uvicorn

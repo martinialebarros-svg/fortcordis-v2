@@ -27,6 +27,8 @@ _MODULE_BY_PATH_PREFIX = [
     ("/api/v1/frases", "frases"),
     ("/api/v1/referencias-eco", "referencias_eco"),
     ("/api/v1/financeiro", "financeiro"),
+    ("/api/v1/fiscal", "fiscal"),
+    ("/api/v1/relatorios", "relatorios"),
     ("/api/v1/tabelas-preco", "financeiro"),
     ("/api/v1/ordens-servico", "ordens_servico"),
     ("/api/v1/configuracoes", "configuracoes"),

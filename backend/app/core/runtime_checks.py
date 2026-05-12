@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from sqlalchemy import text
@@ -16,6 +17,18 @@ from migrations.runner import get_migration_status
 
 _PLACEHOLDER_SECRET_KEYS = {"", "change-me", "changeme", "secret", "default"}
 _MIN_SECRET_KEY_LENGTH = 32
+
+
+def _is_production_environment() -> bool:
+    env = str(
+        settings.APP_ENV
+        or os.getenv("APP_ENV")
+        or os.getenv("ENVIRONMENT")
+        or os.getenv("ENV")
+        or os.getenv("FASTAPI_ENV")
+        or ""
+    ).strip().lower()
+    return env in {"prod", "production"}
 
 
 def _check_database() -> dict[str, Any]:
@@ -114,6 +127,15 @@ def build_runtime_report() -> dict[str, Any]:
         warnings.append("Worker de push agendado habilitado, mas inativo.")
 
     startup_enforced_issues: list[str] = []
+    if (
+        settings.ENFORCE_STRONG_SECRET_KEY_IN_PRODUCTION
+        and _is_production_environment()
+        and not secret_key["strong"]
+    ):
+        startup_enforced_issues.append(
+            "APP_ENV=production exige SECRET_KEY forte e nao padrao."
+        )
+
     if settings.REQUIRE_STRONG_SECRET_KEY and not secret_key["strong"]:
         startup_enforced_issues.append(
             "REQUIRE_STRONG_SECRET_KEY ativo, mas a SECRET_KEY nao atende ao minimo esperado."
@@ -149,6 +171,13 @@ def build_runtime_report() -> dict[str, Any]:
         "compatibility_modes": {
             "allow_permission_matrix_fallback": bool(settings.ALLOW_PERMISSION_MATRIX_FALLBACK),
             "allow_legacy_plain_passwords": bool(settings.ALLOW_LEGACY_PLAIN_PASSWORDS),
+        },
+        "environment": {
+            "app_env": str(settings.APP_ENV or "").strip() or "development",
+            "is_production": _is_production_environment(),
+            "enforce_strong_secret_key_in_production": bool(
+                settings.ENFORCE_STRONG_SECRET_KEY_IN_PRODUCTION
+            ),
         },
         "integrations": {
             "google_maps_configured": bool(str(settings.GOOGLE_MAPS_API_KEY or "").strip()),

@@ -8,7 +8,9 @@ ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ".env"
 
 class Settings(BaseSettings):
     DATABASE_URL: str
+    APP_ENV: str = "development"
     SECRET_KEY: str = "change-me"
+    ENFORCE_STRONG_SECRET_KEY_IN_PRODUCTION: bool = True
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 720
     UPLOAD_DIR: str = "/opt/fortcordis/uploads"

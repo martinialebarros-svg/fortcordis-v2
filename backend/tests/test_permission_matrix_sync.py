@@ -18,7 +18,7 @@ os.environ.setdefault(
 from app.api.v1.endpoints.admin import PERMISSION_MODULE_CODES, _sync_permission_matrix
 from app.api.v1.endpoints.auth import verify_password
 from app.core.config import Settings
-from app.core.security import _user_has_matrix_permission
+from app.core.security import _resolve_module_from_path, _user_has_matrix_permission
 from app.db.database import SessionLocal
 
 
@@ -51,12 +51,20 @@ class PermissionMatrixSyncTest(unittest.TestCase):
 
         self.assertFalse(settings.ALLOW_LEGACY_PLAIN_PASSWORDS)
 
-    def test_plain_text_password_is_rejected_when_legacy_mode_is_disabled(self) -> None:
-        with patch("app.api.v1.endpoints.auth.settings.ALLOW_LEGACY_PLAIN_PASSWORDS", False):
+    def test_plain_text_password_is_rejected_even_with_legacy_flag_enabled(self) -> None:
+        with patch("app.api.v1.endpoints.auth.settings.ALLOW_LEGACY_PLAIN_PASSWORDS", True):
             self.assertFalse(verify_password("senha123", "senha123"))
 
     def test_logistica_is_registered_as_permission_module(self) -> None:
         self.assertIn("logistica", PERMISSION_MODULE_CODES)
+
+    def test_fiscal_and_relatorios_are_registered_as_permission_modules(self) -> None:
+        self.assertIn("fiscal", PERMISSION_MODULE_CODES)
+        self.assertIn("relatorios", PERMISSION_MODULE_CODES)
+
+    def test_security_path_mapping_includes_fiscal_and_relatorios(self) -> None:
+        self.assertEqual(_resolve_module_from_path("/api/v1/fiscal/notas-fiscais"), "fiscal")
+        self.assertEqual(_resolve_module_from_path("/api/v1/relatorios/controle"), "relatorios")
 
     def test_logistica_requires_explicit_permission_when_module_row_is_missing(self) -> None:
         user = SimpleNamespace(papeis=[SimpleNamespace(id=2)])

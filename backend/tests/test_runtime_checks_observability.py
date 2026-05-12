@@ -67,6 +67,60 @@ class RuntimeChecksObservabilityTest(unittest.TestCase):
         self.assertIn("erro(s) HTTP 5xx", joined_warnings)
         self.assertIn("worker de auto-cleanup dedupe habilitado, mas inativo".lower(), joined_warnings.lower())
 
+    def test_production_requires_strong_secret_key_by_default(self) -> None:
+        with patch.object(runtime_checks.settings, "APP_ENV", "production"):
+            with patch.object(runtime_checks.settings, "ENFORCE_STRONG_SECRET_KEY_IN_PRODUCTION", True):
+                with patch.object(
+                    runtime_checks,
+                    "_check_database",
+                    return_value={"connected": True, "status": "connected", "error": None},
+                ):
+                    with patch.object(
+                        runtime_checks,
+                        "_check_migrations",
+                        return_value={
+                            "tracking_table_exists": True,
+                            "pending_count": 0,
+                            "warnings": [],
+                        },
+                    ):
+                        with patch.object(
+                            runtime_checks,
+                            "_check_secret_key",
+                            return_value={"configured": True, "strong": False, "warning": "fraca"},
+                        ):
+                            report = runtime_checks.build_runtime_report()
+
+        self.assertFalse(report["ready"])
+        joined_issues = " | ".join(report["startup_enforced_issues"])
+        self.assertIn("APP_ENV=production exige SECRET_KEY forte", joined_issues)
+
+    def test_non_production_does_not_fail_without_strong_secret_by_default(self) -> None:
+        with patch.object(runtime_checks.settings, "APP_ENV", "development"):
+            with patch.object(runtime_checks.settings, "ENFORCE_STRONG_SECRET_KEY_IN_PRODUCTION", True):
+                with patch.object(
+                    runtime_checks,
+                    "_check_database",
+                    return_value={"connected": True, "status": "connected", "error": None},
+                ):
+                    with patch.object(
+                        runtime_checks,
+                        "_check_migrations",
+                        return_value={
+                            "tracking_table_exists": True,
+                            "pending_count": 0,
+                            "warnings": [],
+                        },
+                    ):
+                        with patch.object(
+                            runtime_checks,
+                            "_check_secret_key",
+                            return_value={"configured": True, "strong": False, "warning": "fraca"},
+                        ):
+                            report = runtime_checks.build_runtime_report()
+
+        self.assertTrue(report["ready"])
+
 
 if __name__ == "__main__":
     unittest.main()

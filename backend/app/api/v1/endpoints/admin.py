@@ -33,6 +33,8 @@ PERMISSION_MODULES = [
     {"codigo": "frases", "nome": "Frases"},
     {"codigo": "referencias_eco", "nome": "Referencias eco"},
     {"codigo": "financeiro", "nome": "Financeiro"},
+    {"codigo": "fiscal", "nome": "Fiscal"},
+    {"codigo": "relatorios", "nome": "Relatorios"},
     {"codigo": "ordens_servico", "nome": "Ordens de servico"},
     {"codigo": "atendimento_clinico", "nome": "Atendimento clinico"},
     {"codigo": "configuracoes", "nome": "Configuracoes"},
@@ -527,6 +529,10 @@ def obter_hardening_readiness(
             "observability": runtime_report.get("observability") or {},
         },
         "flags": {
+            "APP_ENV": str(settings.APP_ENV or "").strip() or "development",
+            "ENFORCE_STRONG_SECRET_KEY_IN_PRODUCTION": bool(
+                settings.ENFORCE_STRONG_SECRET_KEY_IN_PRODUCTION
+            ),
             "REQUIRE_UP_TO_DATE_MIGRATIONS": bool(settings.REQUIRE_UP_TO_DATE_MIGRATIONS),
             "REQUIRE_STRONG_SECRET_KEY": bool(settings.REQUIRE_STRONG_SECRET_KEY),
             "ALLOW_LEGACY_PLAIN_PASSWORDS": bool(settings.ALLOW_LEGACY_PLAIN_PASSWORDS),

@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.core.security import get_current_user
 from app.db.database import get_db
 from app.schemas.fiscal import (
     CNPJConsultaResponse,
@@ -59,7 +60,7 @@ class ExportarOSLoteRequest(BaseModel):
     modo_multiclinica: bool = False
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 @router.get("/consulta-cnpj/{cnpj}", response_model=CNPJConsultaResponse)
