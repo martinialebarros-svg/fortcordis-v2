@@ -1181,7 +1181,7 @@ export default function ConfiguracoesPage() {
               </h2>
               <p className="text-sm text-gray-500 mb-4">
                 Dados do prestador de servicos para emissao de NFS-e e calculo de ISS.
-                Necessarios para exportar notas fiscais para o contador.
+                Necessarios para exportar relatorios contabeis para o contador.
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2418,4 +2418,3 @@ export default function ConfiguracoesPage() {
     </DashboardLayout>
   );
 }
-

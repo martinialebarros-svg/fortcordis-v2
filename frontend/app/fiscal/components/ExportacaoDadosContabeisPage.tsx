@@ -590,13 +590,18 @@ export default function ExportacaoDadosContabeisPage() {
       <div className="p-6 max-w-6xl mx-auto">
         <div className="flex items-center gap-3 mb-6">
           <button onClick={() => router.back()} className="p-2 hover:bg-gray-100 rounded-lg"><ArrowLeft className="w-5 h-5 text-gray-600" /></button>
-          <div><h1 className="text-2xl font-bold text-gray-900">Preparar Dados Fiscais para Contabilidade</h1></div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Exportacao Fiscal para Contabilidade</h1>
+            <p className="text-sm text-gray-500">
+              Consolide servicos por periodo e clinica para envio ao setor contabil.
+            </p>
+          </div>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm p-6 mb-4">
           <div className="flex gap-2 mb-4">
             <button type="button" onClick={() => setModo("single")} className={`px-3 py-1.5 rounded-lg text-sm font-medium ${modo === "single" ? "bg-blue-100 text-blue-700 border border-blue-300" : "bg-gray-50 text-gray-600 border border-gray-200"}`}>Uma clinica</button>
-            <button type="button" onClick={() => { if (clinicaId) setClinicasSel((s) => new Set([...s, Number(clinicaId)])); setModo("multi"); }} className={`px-3 py-1.5 rounded-lg text-sm font-medium ${modo === "multi" ? "bg-blue-100 text-blue-700 border border-blue-300" : "bg-gray-50 text-gray-600 border border-gray-200"}`}>Varias clinicas</button>
+            <button type="button" onClick={() => { if (clinicaId) setClinicasSel((s) => new Set([...s, Number(clinicaId)])); setModo("multi"); }} className={`px-3 py-1.5 rounded-lg text-sm font-medium ${modo === "multi" ? "bg-blue-100 text-blue-700 border border-blue-300" : "bg-gray-50 text-gray-600 border border-gray-200"}`}>Multiclinica</button>
           </div>
           {modo === "single" ? (
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -615,19 +620,19 @@ export default function ExportacaoDadosContabeisPage() {
             </div>
           )}
           <div className="mt-3 flex gap-2">
-            <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && buscarOs()} placeholder="Buscar por OS, paciente, tutor ou servico" className="flex-1 px-3 py-2 border rounded-lg text-sm" />
-            <button onClick={buscarOs} disabled={loadingResults} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-2">{loadingResults ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}Buscar OS</button>
+            <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && buscarOs()} placeholder="Filtrar OS por numero, paciente, tutor ou servico" className="flex-1 px-3 py-2 border rounded-lg text-sm" />
+            <button onClick={buscarOs} disabled={loadingResults} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-2">{loadingResults ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}Consolidar periodo</button>
           </div>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm p-6 mb-4">
-          <h3 className="font-semibold mb-3">{modo === "single" ? "Dados do Tomador" : "Parametros fiscais do lote"}</h3>
+          <h3 className="font-semibold mb-3">{modo === "single" ? "Dados do tomador (clinica selecionada)" : "Parametros fiscais do lote"}</h3>
           {modo === "single" && clinicaId && (autosaving || autosaveStatus) && (
             <p className={`text-xs mb-3 ${autosaving ? "text-blue-700" : "text-emerald-700"}`}>
               {autosaving ? "Salvando automaticamente..." : autosaveStatus}
             </p>
           )}
-          {modo === "multi" && <p className="text-sm text-blue-700 bg-blue-50 rounded p-3 mb-3">No modo de varias clinicas, os dados cadastrais vem de cada clinica. Se faltar algo, o sistema solicita correcao antes de gerar.</p>}
+          {modo === "multi" && <p className="text-sm text-blue-700 bg-blue-50 rounded p-3 mb-3">No modo multiclinica, os dados cadastrais vem de cada clinica. Se faltar algum dado, o sistema sinaliza antes de exportar.</p>}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {modo === "single" && (
               <>
@@ -803,10 +808,10 @@ export default function ExportacaoDadosContabeisPage() {
             </div>
 
             <div className="bg-white rounded-xl shadow-sm p-6">
-              <h3 className="font-semibold mb-3 flex items-center gap-2"><Download className="w-4 h-4 text-green-600" />Exportar lote</h3>
+              <h3 className="font-semibold mb-3 flex items-center gap-2"><Download className="w-4 h-4 text-green-600" />Exportar relatorio contabil</h3>
               <div className="flex gap-3 mb-4">{[{ id: "csv", label: "CSV", icon: File }, { id: "xlsx", label: "Excel", icon: FileSpreadsheet }, { id: "pdf", label: "PDF", icon: FileText }].map((f) => <button key={f.id} onClick={() => setFormat(f.id as ExportFormat)} className={`flex items-center gap-2 p-3 rounded-lg border-2 ${format === f.id ? "border-blue-500 bg-blue-50" : "border-gray-200"}`}><f.icon className="w-4 h-4" />{f.label}</button>)}</div>
-              <div className="bg-blue-50 rounded-lg p-3 flex items-start gap-2 mb-4"><AlertCircle className="w-4 h-4 text-blue-600 mt-0.5" /><p className="text-sm text-blue-700">No modo de varias clinicas, o PDF e separado por clinica. Se alguma clinica estiver incompleta, o sistema informa os campos faltantes.</p></div>
-              <button onClick={exportar} disabled={!selected.size || exporting} className="w-full px-6 py-3 bg-green-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50">{exporting ? <><Loader2 className="w-5 h-5 animate-spin" />Exportando...</> : <><Download className="w-5 h-5" />Exportar {selected.size} OS em {format.toUpperCase()}</>}</button>
+              <div className="bg-blue-50 rounded-lg p-3 flex items-start gap-2 mb-4"><AlertCircle className="w-4 h-4 text-blue-600 mt-0.5" /><p className="text-sm text-blue-700">No modo multiclinica, o PDF e separado por clinica. Se houver cadastro incompleto, o sistema informa os campos faltantes antes da exportacao.</p></div>
+              <button onClick={exportar} disabled={!selected.size || exporting} className="w-full px-6 py-3 bg-green-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50">{exporting ? <><Loader2 className="w-5 h-5 animate-spin" />Exportando...</> : <><Download className="w-5 h-5" />Exportar relatorio de {selected.size} OS em {format.toUpperCase()}</>}</button>
             </div>
           </>
         )}
