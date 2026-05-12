@@ -2,10 +2,11 @@ import json
 import os
 import logging
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
+from sqlalchemy.orm import Session
 
 from app.api.v1.endpoints import (
     admin,
@@ -37,8 +38,9 @@ from app.core.csrf import (
     is_trusted_origin,
     should_protect_request,
 )
+from app.core.security import get_current_websocket_user
 from app.core.websocket import manager
-from app.db.database import engine
+from app.db.database import engine, get_db
 from app.models import user, papel, agendamento
 from app.services.laudo_pdf_jobs import (
     restart_incomplete_laudo_pdf_jobs,
@@ -396,7 +398,12 @@ def shutdown_background_workers() -> None:
 
 # WebSocket endpoint
 @app.websocket("/ws/{client_id}")
-async def websocket_endpoint(websocket: WebSocket, client_id: str):
+async def websocket_endpoint(
+    websocket: WebSocket,
+    client_id: str,
+    db: Session = Depends(get_db),
+):
+    get_current_websocket_user(websocket, db)
     await manager.connect(websocket, client_id)
     try:
         while True:

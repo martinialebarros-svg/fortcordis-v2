@@ -1,4 +1,4 @@
-from fastapi import HTTPException, Depends, Request, status
+from fastapi import HTTPException, Depends, Request, WebSocket, WebSocketException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.exc import OperationalError, ProgrammingError
@@ -124,6 +124,27 @@ def get_request_token(request: Request, bearer_token: str | None = None) -> str:
     return cookie_token.strip()
 
 
+def get_websocket_token(websocket: WebSocket) -> str:
+    token = _extract_bearer_token(websocket.headers.get("Authorization"))
+    if token:
+        return token
+
+    cookie_token = websocket.cookies.get(settings.AUTH_COOKIE_NAME, "")
+    return cookie_token.strip()
+
+
+def _decode_token_and_load_user(db: Session, token: str) -> User:
+    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    email: str = payload.get("sub")
+    if email is None:
+        raise JWTError("sub ausente")
+
+    user = db.query(User).filter(User.email == email).first()
+    if user is None:
+        raise JWTError("usuario nao encontrado")
+    return user
+
+
 def _authorize_request_by_matrix(request: Request, db: Session, user: User) -> None:
     path = _normalize_path(request.url.path)
 
@@ -166,16 +187,10 @@ def get_current_user(
         raise credentials_exception
 
     try:
-        payload = jwt.decode(request_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
-            raise credentials_exception
+        user = _decode_token_and_load_user(db, request_token)
     except JWTError:
         raise credentials_exception
 
-    user = db.query(User).filter(User.email == email).first()
-    if user is None:
-        raise credentials_exception
     if user.ativo != 1:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -183,6 +198,30 @@ def get_current_user(
         )
 
     _authorize_request_by_matrix(request, db, user)
+    return user
+
+
+def get_current_websocket_user(websocket: WebSocket, db: Session) -> User:
+    token = get_websocket_token(websocket)
+    if not token:
+        raise WebSocketException(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="Credenciais invalidas",
+        )
+
+    try:
+        user = _decode_token_and_load_user(db, token)
+    except JWTError:
+        raise WebSocketException(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="Credenciais invalidas",
+        )
+
+    if user.ativo != 1:
+        raise WebSocketException(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="Usuario inativo",
+        )
     return user
 
 
