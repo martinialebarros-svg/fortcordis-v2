@@ -5,6 +5,7 @@ from datetime import datetime, time
 from typing import Optional
 
 from sqlalchemy import func, literal, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.clinica import Clinica
@@ -16,6 +17,7 @@ from app.models.tutor import Tutor
 from app.schemas.fiscal import NotaFiscalCreate, NotaFiscalUpdate
 
 logger = logging.getLogger(__name__)
+_MAX_NUMERO_GENERATION_ATTEMPTS = 5
 
 
 def _now_str() -> str:
@@ -52,44 +54,69 @@ def _gerar_numero(db: Session) -> str:
     return f"NFO-{ano}-{proximo:05d}"
 
 
+def _is_unique_numero_violation(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "uq_notas_fiscais_numero" in message or "notas_fiscais.numero" in message
+
+
 def criar_nota_fiscal(db: Session, data: NotaFiscalCreate) -> NotaFiscal:
     """Cria uma nova nota fiscal a partir dos dados fornecidos."""
     valor_final, valor_iss = _calcular_valores(
         data.valor_servico, data.valor_desconto, data.aliquota_iss
     )
-    numero = _gerar_numero(db)
+    last_exc: Exception | None = None
 
-    nota = NotaFiscal(
-        numero=numero,
-        serie="1",
-        os_id=data.os_id,
-        tipo_cliente=data.tipo_cliente,
-        cliente_nome=data.cliente_nome,
-        cliente_documento=data.cliente_documento,
-        cliente_endereco=data.cliente_endereco or "",
-        cliente_bairro=data.cliente_bairro or "",
-        cliente_cidade=data.cliente_cidade or "",
-        cliente_estado=data.cliente_estado or "",
-        cliente_cep=data.cliente_cep or "",
-        cliente_telefone=data.cliente_telefone or "",
-        cliente_email=data.cliente_email or "",
-        valor_servico=data.valor_servico,
-        valor_desconto=data.valor_desconto,
-        valor_final=valor_final,
-        aliquota_iss=data.aliquota_iss,
-        valor_iss=valor_iss,
-        atividade_cnae=data.atividade_cnae or "",
-        descricao_servico=data.descricao_servico or "",
-        observacoes=data.observacoes or "",
-        natureza_operacao=data.natureza_operacao,
-        status="rascunho",
-        created_at=_now_str(),
-    )
-    db.add(nota)
-    db.commit()
-    db.refresh(nota)
-    logger.info("[Fiscal] Nota fiscal criada: %s", nota.numero)
-    return nota
+    for attempt in range(1, _MAX_NUMERO_GENERATION_ATTEMPTS + 1):
+        numero = _gerar_numero(db)
+        nota = NotaFiscal(
+            numero=numero,
+            serie="1",
+            os_id=data.os_id,
+            tipo_cliente=data.tipo_cliente,
+            cliente_nome=data.cliente_nome,
+            cliente_documento=data.cliente_documento,
+            cliente_endereco=data.cliente_endereco or "",
+            cliente_bairro=data.cliente_bairro or "",
+            cliente_cidade=data.cliente_cidade or "",
+            cliente_estado=data.cliente_estado or "",
+            cliente_cep=data.cliente_cep or "",
+            cliente_telefone=data.cliente_telefone or "",
+            cliente_email=data.cliente_email or "",
+            valor_servico=data.valor_servico,
+            valor_desconto=data.valor_desconto,
+            valor_final=valor_final,
+            aliquota_iss=data.aliquota_iss,
+            valor_iss=valor_iss,
+            atividade_cnae=data.atividade_cnae or "",
+            descricao_servico=data.descricao_servico or "",
+            observacoes=data.observacoes or "",
+            natureza_operacao=data.natureza_operacao,
+            status="rascunho",
+            created_at=_now_str(),
+        )
+        db.add(nota)
+        try:
+            db.flush()
+            db.commit()
+            db.refresh(nota)
+            logger.info("[Fiscal] Nota fiscal criada: %s", nota.numero)
+            return nota
+        except IntegrityError as exc:
+            db.rollback()
+            if _is_unique_numero_violation(exc):
+                last_exc = exc
+                logger.warning(
+                    "[Fiscal] Colisao de numero fiscal (%s). Tentativa %s/%s.",
+                    numero,
+                    attempt,
+                    _MAX_NUMERO_GENERATION_ATTEMPTS,
+                )
+                continue
+            raise
+
+    raise ValueError(
+        "Nao foi possivel gerar numero fiscal unico apos multiplas tentativas."
+    ) from last_exc
 
 
 def atualizar_nota_fiscal(

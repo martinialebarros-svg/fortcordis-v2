@@ -13,7 +13,7 @@ class NotaFiscal(Base):
     __tablename__ = "notas_fiscais"
 
     id = Column(Integer, primary_key=True, index=True)
-    numero = Column(String(50))
+    numero = Column(String(50), unique=True)
     serie = Column(String(10), default="1")
     os_id = Column(Integer)
 

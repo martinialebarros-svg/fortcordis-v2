@@ -118,7 +118,10 @@ def criar_nota(
     db: Session = Depends(get_db),
 ):
     """Cria uma nova nota fiscal. Dados sao pre-preenchidos a partir de OS vinculada."""
-    nota = criar_nota_fiscal(db, data)
+    try:
+        nota = criar_nota_fiscal(db, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     return NotaFiscalResponse.model_validate(nota)
 
 
