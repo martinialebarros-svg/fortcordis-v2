@@ -1,6 +1,6 @@
 # Spec - backend-security-hardening-sprint1
 
-Data: 2026-05-11  
+Data: 2026-05-12  
 Responsavel: Codex  
 Status: done
 
@@ -12,6 +12,7 @@ Registrar e validar hardening de seguranca no backend cobrindo:
 - Matriz de autorizacao cobrindo `fiscal` e `relatorios`.
 - Remocao de fallback legado de senha em texto plano.
 - Fail-fast para `SECRET_KEY` fraca em producao e runbook de rotacao.
+- Migracao de sessao para cookie `HttpOnly` com suporte transitorio a `Bearer`.
 
 ## 2) Requisitos funcionais (RF)
 
@@ -22,6 +23,9 @@ Registrar e validar hardening de seguranca no backend cobrindo:
 - RF-005: matriz de permissao deve mapear caminhos `/api/v1/relatorios/*` para modulo `relatorios`.
 - RF-006: login nao deve aceitar senha em texto plano, mesmo com flag legada ativa.
 - RF-007: em `APP_ENV=production`, `SECRET_KEY` fraca/default deve impedir startup quando enforcement estiver ativo.
+- RF-008: login deve definir cookie de sessao `HttpOnly` para autenticacao.
+- RF-009: backend deve aceitar autenticacao por `Bearer` ou cookie de sessao durante transicao.
+- RF-010: endpoint de logout deve invalidar cookie de sessao no cliente.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -40,6 +44,9 @@ Registrar e validar hardening de seguranca no backend cobrindo:
 ### Auth
 
 - `backend/app/api/v1/endpoints/auth.py`: `verify_password` valida apenas hashes bcrypt.
+- `backend/app/api/v1/endpoints/auth.py`: `POST /auth/login` define cookie de sessao e `POST /auth/logout` remove cookie.
+- `backend/app/core/security.py`: `get_current_user` aceita token via `Bearer` ou cookie de sessao.
+- `backend/app/api/v1/endpoints/atendimento.py`: autenticacao de PDF aceita cookie para evitar quebra de download.
 
 ### Runtime/Config
 
@@ -65,6 +72,8 @@ Registrar e validar hardening de seguranca no backend cobrindo:
 - CA-003: senha em texto plano e rejeitada no login.
 - CA-004: em producao com `SECRET_KEY` fraca, startup falha com erro explicito.
 - CA-005: runbook de rotacao de chave disponivel no repositorio.
+- CA-006: login cria cookie de sessao `HttpOnly` e sessoes autenticadas funcionam sem header manual.
+- CA-007: logout remove cookie de sessao e exige novo login.
 
 ## 7) Casos de borda
 
@@ -74,5 +83,4 @@ Registrar e validar hardening de seguranca no backend cobrindo:
 
 ## 8) Fora de escopo
 
-- Migracao de token para cookie HttpOnly/SameSite (`FOR-18`).
 - Protecao CSRF (`FOR-19`).
