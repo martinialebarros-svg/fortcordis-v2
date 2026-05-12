@@ -5,6 +5,7 @@ from jose import jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from typing import Optional
+import secrets
 
 from app.db.database import get_db
 from app.models.user import User
@@ -51,6 +52,19 @@ def _set_auth_cookie(response: Response, token: str, request: Request | None = N
     )
 
 
+def _set_csrf_cookie(response: Response, csrf_token: str, request: Request | None = None) -> None:
+    response.set_cookie(
+        key=settings.CSRF_COOKIE_NAME,
+        value=csrf_token,
+        httponly=False,
+        secure=_is_cookie_secure(request),
+        samesite=settings.AUTH_COOKIE_SAMESITE,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path=settings.AUTH_COOKIE_PATH,
+        domain=settings.AUTH_COOKIE_DOMAIN,
+    )
+
+
 def _clear_auth_cookie(response: Response, request: Request | None = None) -> None:
     response.delete_cookie(
         key=settings.AUTH_COOKIE_NAME,
@@ -59,6 +73,17 @@ def _clear_auth_cookie(response: Response, request: Request | None = None) -> No
         secure=_is_cookie_secure(request),
         samesite=settings.AUTH_COOKIE_SAMESITE,
     )
+
+
+def _clear_csrf_cookie(response: Response, request: Request | None = None) -> None:
+    response.delete_cookie(
+        key=settings.CSRF_COOKIE_NAME,
+        path=settings.AUTH_COOKIE_PATH,
+        domain=settings.AUTH_COOKIE_DOMAIN,
+        secure=_is_cookie_secure(request),
+        samesite=settings.AUTH_COOKIE_SAMESITE,
+    )
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifica senha apenas com hash bcrypt (sem fallback legado em texto plano)."""
@@ -122,6 +147,7 @@ def login(
     db.commit()
 
     _set_auth_cookie(response, access_token, request)
+    _set_csrf_cookie(response, secrets.token_urlsafe(32), request)
     
     return {
         "access_token": access_token,
@@ -136,6 +162,7 @@ def login(
 @router.post("/logout")
 def logout(request: Request, response: Response):
     _clear_auth_cookie(response, request)
+    _clear_csrf_cookie(response, request)
     return {"success": True}
 
 @router.get("/me", response_model=UserResponse)

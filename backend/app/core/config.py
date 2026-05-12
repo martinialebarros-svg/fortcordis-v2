@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     AUTH_COOKIE_SAMESITE: str = "lax"
     AUTH_COOKIE_SECURE: bool = False
     AUTH_COOKIE_DOMAIN: str | None = None
+    CSRF_PROTECTION_ENABLED: bool = True
+    CSRF_COOKIE_NAME: str = "fortcordis_csrf"
+    CSRF_HEADER_NAME: str = "x-csrf-token"
+    CSRF_TRUST_SAME_SITE_FETCH_METADATA: bool = True
     UPLOAD_DIR: str = "/opt/fortcordis/uploads"
     GOOGLE_MAPS_API_KEY: str = ""
     GOOGLE_ROUTES_CACHE_MAX_AGE_DAYS: int = 7

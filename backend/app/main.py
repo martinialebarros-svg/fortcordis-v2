@@ -31,6 +31,12 @@ from app.api.v1.endpoints import (
     xml_import,
 )
 from app.core.runtime_checks import build_runtime_report, validate_startup_or_raise
+from app.core.config import settings
+from app.core.csrf import (
+    has_valid_csrf_token_pair,
+    is_trusted_origin,
+    should_protect_request,
+)
 from app.core.websocket import manager
 from app.db.database import engine
 from app.models import user, papel, agendamento
@@ -270,6 +276,55 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Content-Disposition"],
 )
+
+
+@app.middleware("http")
+async def enforce_csrf_for_cookie_session(request: Request, call_next):
+    if not settings.CSRF_PROTECTION_ENABLED:
+        return await call_next(request)
+
+    path = request.url.path
+    has_session_cookie = bool(request.cookies.get(settings.AUTH_COOKIE_NAME))
+    if not should_protect_request(path, request.method, has_session_cookie):
+        return await call_next(request)
+
+    csrf_cookie = request.cookies.get(settings.CSRF_COOKIE_NAME)
+    csrf_header = request.headers.get(settings.CSRF_HEADER_NAME)
+    if has_valid_csrf_token_pair(csrf_header, csrf_cookie):
+        return await call_next(request)
+
+    sec_fetch_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
+    if sec_fetch_site == "cross-site":
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "CSRF: origem nao confiavel."},
+        )
+
+    request_origin = f"{request.url.scheme}://{request.url.netloc}"
+    origin = request.headers.get("origin")
+    referer = request.headers.get("referer")
+    trusted_origin = is_trusted_origin(
+        origin=origin,
+        referer=referer,
+        allowed_origins=set(cors_allow_origins),
+        request_origin=request_origin,
+    )
+    if trusted_origin:
+        return await call_next(request)
+
+    # Compatibilidade: em alguns proxies internos os headers de origem podem ser omitidos.
+    # Ainda assim bloqueamos o sinal explicito de cross-site acima.
+    if settings.CSRF_TRUST_SAME_SITE_FETCH_METADATA and sec_fetch_site in {
+        "same-origin",
+        "same-site",
+        "none",
+    }:
+        return await call_next(request)
+
+    return JSONResponse(
+        status_code=403,
+        content={"detail": "CSRF: token ausente/invalido."},
+    )
 
 
 @app.middleware("http")
