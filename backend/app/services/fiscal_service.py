@@ -5,7 +5,7 @@ from datetime import datetime, time
 from typing import Optional
 
 from sqlalchemy import func, literal, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.models.clinica import Clinica
@@ -33,6 +33,39 @@ def _calcular_valores(valor_servico: float, valor_desconto: float, aliquota_iss:
 
 def _gerar_numero(db: Session) -> str:
     """Gera proximo numero sequencial de NF no formato NFO-YYYY-NNNNN."""
+    try:
+        return _gerar_numero_por_sequencia(db)
+    except (ProgrammingError, OperationalError) as exc:
+        # Compatibilidade para ambientes sem migracao FOR-23 aplicada.
+        db.rollback()
+        if _is_missing_sequence_table_error(exc):
+            return _gerar_numero_legado(db)
+        raise
+
+
+def _gerar_numero_por_sequencia(db: Session) -> str:
+    ano = datetime.now().year
+    now = _now_str()
+    row = db.execute(
+        text(
+            """
+            INSERT INTO fiscal_numero_sequencias (ano, ultimo_numero, updated_at)
+            VALUES (:ano, 1, :updated_at)
+            ON CONFLICT (ano) DO UPDATE
+            SET
+                ultimo_numero = ultimo_numero + 1,
+                updated_at = :updated_at
+            RETURNING ultimo_numero
+            """
+        ),
+        {"ano": ano, "updated_at": now},
+    ).fetchone()
+    if not row or row[0] is None:
+        raise RuntimeError("Falha ao obter proximo numero fiscal da sequencia.")
+    return f"NFO-{ano}-{int(row[0]):05d}"
+
+
+def _gerar_numero_legado(db: Session) -> str:
     ano = datetime.now().year
     result = db.execute(
         text(
@@ -52,6 +85,15 @@ def _gerar_numero(db: Session) -> str:
         proximo = 1
 
     return f"NFO-{ano}-{proximo:05d}"
+
+
+def _is_missing_sequence_table_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "fiscal_numero_sequencias" in message and (
+        "does not exist" in message
+        or "undefinedtable" in message
+        or "no such table" in message
+    )
 
 
 def _is_unique_numero_violation(exc: Exception) -> bool:

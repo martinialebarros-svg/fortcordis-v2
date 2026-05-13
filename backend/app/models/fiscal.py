@@ -55,3 +55,11 @@ class NotaFiscal(Base):
     # Auditoria
     created_at = Column(Text, default=_now_str)
     updated_at = Column(Text)
+
+
+class FiscalNumeroSequencia(Base):
+    __tablename__ = "fiscal_numero_sequencias"
+
+    ano = Column(Integer, primary_key=True)
+    ultimo_numero = Column(Integer, nullable=False, default=0)
+    updated_at = Column(Text, default=_now_str)

@@ -138,8 +138,9 @@ def _ensure_financeiro_schema_compat() -> None:
             PushScheduledNotification.__table__.create(bind=conn, checkfirst=True)
 
             # Compat para módulo fiscal
-            from app.models.fiscal import NotaFiscal
+            from app.models.fiscal import FiscalNumeroSequencia, NotaFiscal
             NotaFiscal.__table__.create(bind=conn, checkfirst=True)
+            FiscalNumeroSequencia.__table__.create(bind=conn, checkfirst=True)
 
             inspector = inspect(conn)
             if "configuracoes_usuario" in inspector.get_table_names():
