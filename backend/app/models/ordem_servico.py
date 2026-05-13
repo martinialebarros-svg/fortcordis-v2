@@ -1,5 +1,5 @@
 """Modelo para Ordens de Serviço"""
-from sqlalchemy import Column, Integer, String, DateTime, Text, Numeric, ForeignKey
+from sqlalchemy import Column, DateTime, Index, Integer, Numeric, String, Text
 from sqlalchemy.sql import func
 from app.db.database import Base
 
@@ -7,6 +7,13 @@ from app.db.database import Base
 class OrdemServico(Base):
     """Ordem de Serviço gerada a partir de um agendamento realizado"""
     __tablename__ = "ordens_servico"
+    __table_args__ = (
+        Index("ix_ordens_servico_status_data_atendimento_id", "status", "data_atendimento", "id"),
+        Index("ix_ordens_servico_clinica_status_data_id", "clinica_id", "status", "data_atendimento", "id"),
+        Index("ix_ordens_servico_servico_status_data_id", "servico_id", "status", "data_atendimento", "id"),
+        Index("ix_ordens_servico_criado_por_status_data_id", "criado_por_id", "status", "data_atendimento", "id"),
+        Index("ix_ordens_servico_agendamento_status_id", "agendamento_id", "status", "id"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     numero_os = Column(String(50), unique=True, nullable=False)

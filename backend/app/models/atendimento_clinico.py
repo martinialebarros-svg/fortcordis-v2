@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Float, Integer, String, Text
+from sqlalchemy import Column, DateTime, Float, Index, Integer, String, Text
 from sqlalchemy.sql import func
 
 from app.db.database import Base
@@ -6,6 +6,12 @@ from app.db.database import Base
 
 class AtendimentoClinico(Base):
     __tablename__ = "atendimentos_clinicos"
+    __table_args__ = (
+        Index("ix_atendimentos_clinicos_data_atendimento_id", "data_atendimento", "id"),
+        Index("ix_atendimentos_clinicos_clinica_data_id", "clinica_id", "data_atendimento", "id"),
+        Index("ix_atendimentos_clinicos_status_data_id", "status", "data_atendimento", "id"),
+        Index("ix_atendimentos_clinicos_agendamento_data_id", "agendamento_id", "data_atendimento", "id"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     paciente_id = Column(Integer, nullable=False, index=True)

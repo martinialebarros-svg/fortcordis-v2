@@ -1,9 +1,16 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text
+from sqlalchemy import Column, DateTime, Index, Integer, String, Text
 from sqlalchemy.sql import func
 from app.db.database import Base
 
 class Agendamento(Base):
     __tablename__ = "agendamentos"
+    __table_args__ = (
+        Index("ix_agendamentos_data_inicio_id", "data", "inicio", "id"),
+        Index("ix_agendamentos_data_status_inicio_id", "data", "status", "inicio", "id"),
+        Index("ix_agendamentos_data_clinica_inicio_id", "data", "clinica_id", "inicio", "id"),
+        Index("ix_agendamentos_data_servico_inicio_id", "data", "servico_id", "inicio", "id"),
+        Index("ix_agendamentos_data_criado_por_inicio_id", "data", "criado_por_id", "inicio", "id"),
+    )
     
     id = Column(Integer, primary_key=True, index=True)
     paciente_id = Column(Integer, nullable=True)
