@@ -860,6 +860,24 @@ def _serialize_agendamento(
         "created_at": str(agendamento.created_at) if agendamento.created_at else None,
     }
 
+
+def _query_agendamentos_com_relacionados(db: Session):
+    return (
+        db.query(
+            Agendamento,
+            Paciente.nome.label("paciente_nome"),
+            Clinica.nome.label("clinica_nome"),
+            Servico.nome.label("servico_nome"),
+            Tutor.nome.label("tutor_nome"),
+            Tutor.telefone.label("tutor_telefone"),
+        )
+        .outerjoin(Paciente, Agendamento.paciente_id == Paciente.id)
+        .outerjoin(Clinica, Agendamento.clinica_id == Clinica.id)
+        .outerjoin(Servico, Agendamento.servico_id == Servico.id)
+        .outerjoin(Tutor, Paciente.tutor_id == Tutor.id)
+    )
+
+
 @router.get("", response_model=AgendamentoLista)
 def listar_agendamentos(
     data_inicio: Optional[str] = None,
@@ -878,17 +896,7 @@ def listar_agendamentos(
     current_user: User = Depends(get_current_user)
 ):
     """Lista agendamentos com filtros e nomes dos relacionados"""
-    query = db.query(
-        Agendamento,
-        Paciente.nome.label("paciente_nome"),
-        Clinica.nome.label("clinica_nome"),
-        Servico.nome.label("servico_nome"),
-        Tutor.nome.label("tutor_nome"),
-        Tutor.telefone.label("tutor_telefone"),
-    ).outerjoin(Paciente, Agendamento.paciente_id == Paciente.id)\
-     .outerjoin(Clinica, Agendamento.clinica_id == Clinica.id)\
-     .outerjoin(Servico, Agendamento.servico_id == Servico.id)\
-     .outerjoin(Tutor, Paciente.tutor_id == Tutor.id)
+    query = _query_agendamentos_com_relacionados(db)
 
     # Filtra por coluna data (YYYY-MM-DD) para evitar drift de timezone entre navegador e servidor.
     data_inicio_filtro = _extract_date_filter(data_inicio)
@@ -1107,8 +1115,23 @@ def agendamentos_hoje(
 ):
     """Lista agendamentos de hoje"""
     hoje_str = datetime.now().strftime("%Y-%m-%d")
-    agendamentos = db.query(Agendamento).filter(Agendamento.data == hoje_str).all()
-    items = [_serialize_agendamento(agendamento) for agendamento in agendamentos]
+    results = (
+        _query_agendamentos_com_relacionados(db)
+        .filter(Agendamento.data == hoje_str)
+        .order_by(Agendamento.inicio.asc(), Agendamento.id.asc())
+        .all()
+    )
+    items = [
+        _serialize_agendamento(
+            agendamento,
+            paciente_nome=paciente_nome,
+            clinica_nome=clinica_nome,
+            servico_nome=servico_nome,
+            tutor_nome=tutor_nome,
+            tutor_telefone=tutor_telefone,
+        )
+        for agendamento, paciente_nome, clinica_nome, servico_nome, tutor_nome, tutor_telefone in results
+    ]
     return {"total": len(items), "items": items}
 
 
