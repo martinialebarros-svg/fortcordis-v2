@@ -72,6 +72,8 @@ def _upgrade_postgres(connection: Connection, table_name: str, columns: dict) ->
         column_meta = columns.get(column_name)
         if not column_meta or _is_datetime_like(column_meta):
             continue
+        # Bases legadas podem ter defaults textuais (ex.: NOW()::text) que impedem cast direto.
+        connection.execute(text(f"ALTER TABLE {table_name} ALTER COLUMN {column_name} DROP DEFAULT"))
         connection.execute(
             text(
                 f"""
