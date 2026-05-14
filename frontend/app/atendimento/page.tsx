@@ -677,6 +677,7 @@ const PROTOCOLOS_PRESCRICAO: ProtocoloPrescricao[] = [
 ];
 
 const PRESCRICAO_PRESETS_STORAGE_KEY = "fortcordis:atendimento:prescricao-presets:v1";
+const ATENDIMENTOS_LIST_LIMIT = 30;
 
 const normalizarCep = (valor: string) => valor.replace(/\D/g, "").slice(0, 8);
 const formatarCepVisual = (valor: string) => {
@@ -1488,6 +1489,11 @@ export default function AtendimentoPage() {
 
   const [busca, setBusca] = useState("");
   const [statusFiltro, setStatusFiltro] = useState("");
+  const [clinicaFiltro, setClinicaFiltro] = useState("");
+  const [dataInicioFiltro, setDataInicioFiltro] = useState("");
+  const [dataFimFiltro, setDataFimFiltro] = useState("");
+  const [paginaLista, setPaginaLista] = useState(1);
+  const [totalLista, setTotalLista] = useState(0);
   const [selecionado, setSelecionado] = useState<number | null>(null);
   const [form, setForm] = useState<AtendimentoForm>(emptyForm());
   const [pacienteBusca, setPacienteBusca] = useState("");
@@ -2066,7 +2072,7 @@ export default function AtendimentoPage() {
       setCatalogoExames(re.data?.exames || []);
       setPaineisExames(re.data?.paineis || []);
       setClinicalPhrases(rf.data?.frases || []);
-      await carregarLista();
+      await carregarLista(1);
     } catch (e: any) {
       setErro(e?.response?.data?.detail || "Erro ao carregar dados de atendimento.");
     } finally {
@@ -2074,32 +2080,62 @@ export default function AtendimentoPage() {
     }
   };
 
-  const carregarLista = async () => {
+  const carregarLista = async (
+    page: number = paginaLista,
+    filtrosOverride?: {
+      busca?: string;
+      status?: string;
+      clinicaId?: string;
+      dataInicio?: string;
+      dataFim?: string;
+    }
+  ) => {
     try {
       const params = new URLSearchParams();
-      params.append("limit", "300");
-      if (statusFiltro) params.append("status", statusFiltro);
-      if (busca.trim()) params.append("search", busca.trim());
+      const safePage = Number.isFinite(page) && page > 0 ? page : 1;
+      const buscaAtual = filtrosOverride?.busca ?? busca;
+      const statusAtual = filtrosOverride?.status ?? statusFiltro;
+      const clinicaAtual = filtrosOverride?.clinicaId ?? clinicaFiltro;
+      const dataInicioAtual = filtrosOverride?.dataInicio ?? dataInicioFiltro;
+      const dataFimAtual = filtrosOverride?.dataFim ?? dataFimFiltro;
+      params.append("limit", String(ATENDIMENTOS_LIST_LIMIT));
+      params.append("skip", String((safePage - 1) * ATENDIMENTOS_LIST_LIMIT));
+      if (statusAtual) params.append("status", statusAtual);
+      if (buscaAtual.trim()) params.append("search", buscaAtual.trim());
+      if (clinicaAtual) params.append("clinica_id", clinicaAtual);
+      if (dataInicioAtual) params.append("data_inicio", `${dataInicioAtual}T00:00:00`);
+      if (dataFimAtual) params.append("data_fim", `${dataFimAtual}T23:59:59`);
       const response = await api.get(`/atendimentos?${params.toString()}`);
       setLista(response.data?.items || []);
+      setTotalLista(Number(response.data?.total || 0));
+      setPaginaLista(safePage);
     } catch (e: any) {
       setErro(e?.response?.data?.detail || "Erro ao listar atendimentos.");
     }
   };
 
-  const filtered = useMemo(() => {
-    const term = busca.toLowerCase().trim();
-    return lista.filter((item) => {
-      if (statusFiltro && item.status !== statusFiltro) return false;
-      if (!term) return true;
-      return (
-        (item.paciente_nome || "").toLowerCase().includes(term) ||
-        (item.tutor_nome || "").toLowerCase().includes(term) ||
-        (item.clinica_nome || "").toLowerCase().includes(term) ||
-        (item.diagnostico || "").toLowerCase().includes(term)
-      );
+  const filtered = useMemo(() => lista, [lista]);
+  const totalPaginasLista = Math.max(1, Math.ceil(totalLista / ATENDIMENTOS_LIST_LIMIT));
+
+  const aplicarFiltrosLista = async () => {
+    await carregarLista(1);
+  };
+
+  const limparFiltrosLista = async () => {
+    const vazio = "";
+    setBusca(vazio);
+    setStatusFiltro(vazio);
+    setClinicaFiltro(vazio);
+    setDataInicioFiltro(vazio);
+    setDataFimFiltro(vazio);
+    await carregarLista(1, {
+      busca: vazio,
+      status: vazio,
+      clinicaId: vazio,
+      dataInicio: vazio,
+      dataFim: vazio,
     });
-  }, [lista, busca, statusFiltro]);
+  };
 
   const pacientesFuse = useMemo(
     () =>
@@ -3666,7 +3702,7 @@ export default function AtendimentoPage() {
           });
         }
         setSucesso(selecionado ? "Atendimento atualizado com sucesso." : "Atendimento criado com sucesso.");
-        await carregarLista();
+        await carregarLista(paginaLista);
         if (hydrated.paciente_id) {
           await carregarHistoricoPaciente(hydrated.paciente_id);
         }
@@ -3727,7 +3763,7 @@ export default function AtendimentoPage() {
     try {
       await api.delete(`/atendimentos/${id}`);
       if (selecionado === id) novoAtendimento();
-      await carregarLista();
+      await carregarLista(paginaLista);
       setSucesso("Atendimento excluido com sucesso.");
     } catch (e: any) {
       setErro(e?.response?.data?.detail || "Erro ao excluir atendimento.");
@@ -5046,7 +5082,7 @@ export default function AtendimentoPage() {
     setExamesExpandidos({ 0: true });
   };
 
-  const atendimentosVisiveis = filtered.slice(0, 12);
+  const atendimentosVisiveis = filtered;
   const timelineGrupos = historicoPaciente?.timeline || [];
   const alertasAtivos = historicoPaciente?.alertas || [];
   const medicamentosCardiologicos = medicamentosCardiologiaLista.length;
@@ -5702,20 +5738,71 @@ export default function AtendimentoPage() {
                     <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Painel de casos</p>
                     <h2 className="mt-1 text-lg font-semibold text-slate-900">Atendimentos recentes</h2>
                   </div>
-                  <button onClick={carregarLista} className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200">
+                  <button onClick={() => carregarLista(paginaLista)} className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200">
                     <span className="inline-flex items-center gap-2"><RefreshCw className="h-4 w-4" />Atualizar</span>
                   </button>
                 </div>
 
                 <div className="mt-4 grid grid-cols-1 gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <input
+                      type="date"
+                      value={dataInicioFiltro}
+                      onChange={(e) => setDataInicioFiltro(e.target.value)}
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900"
+                    />
+                    <input
+                      type="date"
+                      value={dataFimFiltro}
+                      onChange={(e) => setDataFimFiltro(e.target.value)}
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900"
+                    />
+                  </div>
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar atendimento..." className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-2 pl-10 pr-3 text-sm text-slate-900" />
+                    <input
+                      value={busca}
+                      onChange={(e) => setBusca(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          void aplicarFiltrosLista();
+                        }
+                      }}
+                      placeholder="Buscar animal, tutor, clinica ou diagnostico..."
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-2 pl-10 pr-3 text-sm text-slate-900"
+                    />
                   </div>
-                  <select value={statusFiltro} onChange={(e) => setStatusFiltro(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900">
-                    <option value="">Todos os status</option>
-                    {STATUS_ATENDIMENTO.map((status) => <option key={status} value={status}>{status}</option>)}
-                  </select>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <select value={clinicaFiltro} onChange={(e) => setClinicaFiltro(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900">
+                      <option value="">Todas as clinicas</option>
+                      {clinicas.map((item) => (
+                        <option key={item.id} value={String(item.id)}>{item.nome}</option>
+                      ))}
+                    </select>
+                    <select value={statusFiltro} onChange={(e) => setStatusFiltro(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900">
+                      <option value="">Todos os status</option>
+                      {STATUS_ATENDIMENTO.map((status) => <option key={status} value={status}>{status}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void aplicarFiltrosLista()}
+                      className="rounded-2xl bg-slate-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
+                    >
+                      Aplicar filtros
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void limparFiltrosLista()}
+                      className="rounded-2xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200"
+                    >
+                      Limpar
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    {totalLista} atendimento(s) encontrado(s) | Pagina {paginaLista} de {totalPaginasLista}
+                  </p>
                 </div>
 
                 <div className="mt-4 max-h-[380px] space-y-3 overflow-auto pr-1">
@@ -5739,6 +5826,24 @@ export default function AtendimentoPage() {
                     </div>
                   ))}
                   {atendimentosVisiveis.length === 0 ? <div className="rounded-[22px] border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">Nenhum atendimento encontrado.</div> : null}
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void carregarLista(paginaLista - 1)}
+                    disabled={paginaLista <= 1}
+                    className="rounded-2xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <span className="inline-flex items-center gap-2"><ChevronLeft className="h-4 w-4" />Pagina anterior</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void carregarLista(paginaLista + 1)}
+                    disabled={paginaLista >= totalPaginasLista}
+                    className="rounded-2xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <span className="inline-flex items-center gap-2">Proxima pagina<ChevronRight className="h-4 w-4" /></span>
+                  </button>
                 </div>
               </section>
 
