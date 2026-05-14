@@ -78,6 +78,11 @@ interface ClinicaEndereco {
   endereco_normalizado?: string | null;
 }
 
+interface FiltroOption {
+  id: number;
+  nome: string;
+}
+
 interface ResumoFinanceiroAgenda {
   data_inicio: string;
   data_fim: string;
@@ -220,6 +225,12 @@ export default function AgendaPage() {
   const [modoVisualizacao, setModoVisualizacao] = useState<ModoVisualizacao>("lista");
   const [filtroStatus, setFiltroStatus] = useState<string>("todos");
   const [filtroData, setFiltroData] = useState<string>(() => hojeLocal());
+  const [filtroPeriodoInicio, setFiltroPeriodoInicio] = useState<string>(() => hojeLocal());
+  const [filtroPeriodoFim, setFiltroPeriodoFim] = useState<string>(() => hojeLocal());
+  const [filtroPacienteNome, setFiltroPacienteNome] = useState("");
+  const [filtroTutorNome, setFiltroTutorNome] = useState("");
+  const [filtroClinicaId, setFiltroClinicaId] = useState<string>("todos");
+  const [filtroServicoId, setFiltroServicoId] = useState<string>("todos");
   const [busca, setBusca] = useState("");
   const [modalAberto, setModalAberto] = useState(false);
   const [agendamentoEditando, setAgendamentoEditando] = useState<Agendamento | null>(null);
@@ -244,6 +255,8 @@ export default function AgendaPage() {
   const [authChecked, setAuthChecked] = useState(false);
   const [mensagemRealtime, setMensagemRealtime] = useState("");
   const [toastRealtime, setToastRealtime] = useState<ToastRealtimeData | null>(null);
+  const [opcoesClinicas, setOpcoesClinicas] = useState<FiltroOption[]>([]);
+  const [opcoesServicos, setOpcoesServicos] = useState<FiltroOption[]>([]);
   const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastRealtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
@@ -264,16 +277,21 @@ export default function AgendaPage() {
       return { inicio: dataBase, fim: dataBase };
     }
 
+    if (modoVisualizacao === "lista") {
+      const inicioPeriodo = filtroPeriodoInicio || dataBase;
+      const fimPeriodo = filtroPeriodoFim || inicioPeriodo;
+      if (inicioPeriodo <= fimPeriodo) {
+        return { inicio: inicioPeriodo, fim: fimPeriodo };
+      }
+      return { inicio: fimPeriodo, fim: inicioPeriodo };
+    }
+
     if (filtroData) {
       return { inicio: filtroData, fim: filtroData };
     }
 
-    if (modoVisualizacao === "lista") {
-      return { inicio: dataBase, fim: dataBase };
-    }
-
     return { inicio: "", fim: "" };
-  }, [filtroData, modoVisualizacao]);
+  }, [filtroData, filtroPeriodoFim, filtroPeriodoInicio, modoVisualizacao]);
 
   const usuarioEhAdmin = () => {
     if (typeof window === "undefined") return false;
@@ -338,6 +356,41 @@ export default function AgendaPage() {
     }
   };
 
+  const carregarOpcoesFiltros = async () => {
+    try {
+      const [respClinicas, respServicos] = await Promise.all([
+        api.get("/clinicas?limit=1000"),
+        api.get("/servicos?limit=1000"),
+      ]);
+
+      const clinicas = Array.isArray(respClinicas.data?.items) ? respClinicas.data.items : [];
+      const servicos = Array.isArray(respServicos.data?.items) ? respServicos.data.items : [];
+
+      const clinicasNormalizadas = clinicas
+        .map((item: any) => ({
+          id: Number(item?.id),
+          nome: String(item?.nome || "").trim(),
+        }))
+        .filter((item: FiltroOption) => Number.isFinite(item.id) && item.id > 0 && item.nome.length > 0)
+        .sort((a: FiltroOption, b: FiltroOption) => a.nome.localeCompare(b.nome, "pt-BR"));
+
+      const servicosNormalizados = servicos
+        .map((item: any) => ({
+          id: Number(item?.id),
+          nome: String(item?.nome || "").trim(),
+        }))
+        .filter((item: FiltroOption) => Number.isFinite(item.id) && item.id > 0 && item.nome.length > 0)
+        .sort((a: FiltroOption, b: FiltroOption) => a.nome.localeCompare(b.nome, "pt-BR"));
+
+      setOpcoesClinicas(clinicasNormalizadas);
+      setOpcoesServicos(servicosNormalizados);
+    } catch (error) {
+      console.error("Erro ao carregar opcoes de filtros da agenda:", error);
+      setOpcoesClinicas([]);
+      setOpcoesServicos([]);
+    }
+  };
+
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
@@ -347,6 +400,7 @@ export default function AgendaPage() {
     setIsAdmin(usuarioEhAdmin());
     setAuthChecked(true);
     carregarAgendamentos();
+    carregarOpcoesFiltros();
   }, [router, periodoConsulta.inicio, periodoConsulta.fim]);
 
   useEffect(() => {
@@ -384,11 +438,27 @@ export default function AgendaPage() {
   }: CarregarAgendamentosOptions = {}) => {
     setLoading(true);
     try {
-      let url = "/agenda";
+      const params = new URLSearchParams();
       if (periodoConsulta.inicio && periodoConsulta.fim) {
-        url += `?data_inicio=${periodoConsulta.inicio}&data_fim=${periodoConsulta.fim}`;
+        params.append("data_inicio", periodoConsulta.inicio);
+        params.append("data_fim", periodoConsulta.fim);
       }
-      const response = await api.get(url);
+      if (filtroClinicaId !== "todos") {
+        params.append("clinica_id", filtroClinicaId);
+      }
+      if (filtroServicoId !== "todos") {
+        params.append("servico_id", filtroServicoId);
+      }
+      const pacienteNome = filtroPacienteNome.trim();
+      if (pacienteNome) {
+        params.append("paciente_nome", pacienteNome);
+      }
+      const tutorNome = filtroTutorNome.trim();
+      if (tutorNome) {
+        params.append("tutor_nome", tutorNome);
+      }
+
+      const response = await api.get(`/agenda?${params.toString()}`);
       const items = response.data.items || [];
       setAgendamentos(items);
       if (response.data?.agenda_semanal) {
@@ -1023,6 +1093,19 @@ export default function AgendaPage() {
     setFiltroData(toDateInput(data));
   };
 
+  const limparFiltrosAgenda = () => {
+    const hoje = hojeLocal();
+    setFiltroStatus("todos");
+    setBusca("");
+    setFiltroPacienteNome("");
+    setFiltroTutorNome("");
+    setFiltroClinicaId("todos");
+    setFiltroServicoId("todos");
+    setFiltroPeriodoInicio(hoje);
+    setFiltroPeriodoFim(hoje);
+    setFiltroData(hoje);
+  };
+
   const formatarDataHoraAgendamento = (ag: Agendamento) => {
     if (ag.data && ag.hora) {
       const [ano, mes, dia] = String(ag.data).split("-");
@@ -1037,6 +1120,11 @@ export default function AgendaPage() {
   const handleAgendamentoSuccess = async (agendamentoCriado?: { data?: string | null }) => {
     setSlotSelecionado(null);
     const dataCriada = agendamentoCriado?.data || "";
+    if (dataCriada && modoVisualizacao === "lista") {
+      setFiltroPeriodoInicio(dataCriada);
+      setFiltroPeriodoFim(dataCriada);
+      return;
+    }
     if (dataCriada && dataCriada !== filtroData) {
       setFiltroData(dataCriada);
       return;
@@ -1191,7 +1279,8 @@ export default function AgendaPage() {
         )}
 
         <div className="bg-white p-4 rounded-lg shadow-sm border mb-6">
-          <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col xl:flex-row gap-3 xl:items-center">
             <div className="flex items-center bg-gray-100 rounded-lg p-1">
               <button
                 onClick={() => setModoVisualizacao("lista")}
@@ -1212,57 +1301,145 @@ export default function AgendaPage() {
                 Panoramica Semana
               </button>
             </div>
-            {/* Navegação de data */}
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={() => navegarData(modoVisualizacao === "panoramica-semana" ? -7 : -1)}
-                className="p-2 hover:bg-gray-100 rounded-lg"
+              {modoVisualizacao === "lista" ? (
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">De</span>
+                    <input
+                      type="date"
+                      value={filtroPeriodoInicio}
+                      onChange={(e) => setFiltroPeriodoInicio(e.target.value || hojeLocal())}
+                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Ate</span>
+                    <input
+                      type="date"
+                      value={filtroPeriodoFim}
+                      onChange={(e) => setFiltroPeriodoFim(e.target.value || filtroPeriodoInicio || hojeLocal())}
+                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => navegarData(modoVisualizacao === "panoramica-semana" ? -7 : -1)}
+                    className="p-2 hover:bg-gray-100 rounded-lg"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                  <input
+                    type="date"
+                    value={filtroData}
+                    onChange={(e) => setFiltroData(e.target.value || hojeLocal())}
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button 
+                    onClick={() => navegarData(modoVisualizacao === "panoramica-semana" ? 7 : 1)}
+                    className="p-2 hover:bg-gray-100 rounded-lg"
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
+                </div>
+              )}
+
+              {/* Busca local rápida */}
+              <div className="flex-1 relative min-w-[220px]">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Busca local nos resultados..."
+                  value={busca}
+                  onChange={(e) => setBusca(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Filtro status */}
+              <select
+                value={filtroStatus}
+                onChange={(e) => setFiltroStatus(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-              <input
-                type="date"
-                value={filtroData}
-                onChange={(e) => setFiltroData(e.target.value || hojeLocal())}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              />
-              <button 
-                onClick={() => navegarData(modoVisualizacao === "panoramica-semana" ? 7 : 1)}
-                className="p-2 hover:bg-gray-100 rounded-lg"
+                <option value="todos">Todos os status</option>
+                {STATUS_LIST.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+
+              <button
+                onClick={() => carregarAgendamentos()}
+                className="flex items-center justify-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
               >
-                <ChevronRight className="w-5 h-5" />
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                Atualizar
               </button>
             </div>
 
-            {/* Busca */}
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <input
-                type="text"
-                placeholder="Buscar paciente, tutor ou serviço..."
-                value={busca}
-                onChange={(e) => setBusca(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+            {modoVisualizacao === "lista" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                <input
+                  type="text"
+                  placeholder="Filtrar por animal"
+                  value={filtroPacienteNome}
+                  onChange={(e) => setFiltroPacienteNome(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="text"
+                  placeholder="Filtrar por tutor"
+                  value={filtroTutorNome}
+                  onChange={(e) => setFiltroTutorNome(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+                <select
+                  value={filtroClinicaId}
+                  onChange={(e) => setFiltroClinicaId(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="todos">Todas as clinicas</option>
+                  {opcoesClinicas.map((clinica) => (
+                    <option key={clinica.id} value={String(clinica.id)}>
+                      {clinica.nome}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={filtroServicoId}
+                  onChange={(e) => setFiltroServicoId(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="todos">Todos os servicos</option>
+                  {opcoesServicos.map((servico) => (
+                    <option key={servico.id} value={String(servico.id)}>
+                      {servico.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-            {/* Filtro status */}
-            <select
-              value={filtroStatus}
-              onChange={(e) => setFiltroStatus(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="todos">Todos os status</option>
-              {STATUS_LIST.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-
-            <button
-              onClick={() => carregarAgendamentos()}
-              className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              Atualizar
-            </button>
+            {modoVisualizacao === "lista" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => carregarAgendamentos()}
+                  className="px-3 py-1.5 text-sm text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg"
+                >
+                  Aplicar filtros
+                </button>
+                <button
+                  type="button"
+                  onClick={limparFiltrosAgenda}
+                  className="px-3 py-1.5 text-sm text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg"
+                >
+                  Limpar filtros
+                </button>
+                <span className="text-xs text-gray-500">
+                  Periodo ativo: {periodoConsulta.inicio} ate {periodoConsulta.fim}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Chips de status */}
