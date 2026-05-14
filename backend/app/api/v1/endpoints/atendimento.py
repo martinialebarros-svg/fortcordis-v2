@@ -37,7 +37,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from sqlalchemy import or_, text
+from sqlalchemy import func, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -1900,19 +1900,38 @@ def listar_atendimentos(
         .all()
     )
 
+    atendimento_ids = [atendimento.id for atendimento, *_ in rows]
+    exames_por_atendimento: Dict[int, int] = {}
+    prescricoes_atendimento_ids = set()
+    if atendimento_ids:
+        exames_por_atendimento = {
+            int(atendimento_id): int(total_exames)
+            for atendimento_id, total_exames in (
+                db.query(
+                    Exame.atendimento_id,
+                    func.count(Exame.id),
+                )
+                .filter(Exame.atendimento_id.in_(atendimento_ids))
+                .group_by(Exame.atendimento_id)
+                .all()
+            )
+            if atendimento_id is not None
+        }
+        prescricoes_atendimento_ids = {
+            int(atendimento_id)
+            for atendimento_id, in (
+                db.query(PrescricaoClinica.atendimento_id)
+                .filter(PrescricaoClinica.atendimento_id.in_(atendimento_ids))
+                .distinct()
+                .all()
+            )
+            if atendimento_id is not None
+        }
+
     items = []
     for atendimento, paciente_nome, tutor_nome, clinica_nome in rows:
-        total_exames = (
-            db.query(Exame.id)
-            .filter(Exame.atendimento_id == atendimento.id)
-            .count()
-        )
-        prescricao_existe = (
-            db.query(PrescricaoClinica.id)
-            .filter(PrescricaoClinica.atendimento_id == atendimento.id)
-            .first()
-            is not None
-        )
+        total_exames = exames_por_atendimento.get(atendimento.id, 0)
+        prescricao_existe = atendimento.id in prescricoes_atendimento_ids
         items.append(
             {
                 "id": atendimento.id,
