@@ -19,6 +19,7 @@ Normalizar `created_at/updated_at` legados de `pacientes` e `tutores` para fluxo
 - RT-001: suporte a PostgreSQL com conversão de tipo textual para timestamp.
 - RT-002: suporte a SQLite com normalização textual compatível e idempotente.
 - RT-003: manter compatibilidade de execução com bases antigas sem quebrar leitura/escrita.
+- RT-004: migração em PostgreSQL deve remover defaults textuais legados antes de `ALTER COLUMN ... TYPE TIMESTAMP`.
 
 ## Criterios de aceitacao
 

@@ -18,3 +18,9 @@ Status: done
 - `backend/venv/bin/python -m unittest backend/tests/test_people_datetime_normalization_migration.py`
 - `backend/venv/bin/python -m unittest backend/tests/test_agenda_busca_periodo_filtros.py`
 - `backend/venv/bin/python -m unittest backend/tests/test_agenda_resumo_financeiro.py`
+- `python3 scripts/ci/check_sdd_guardrail.py --base-sha 4678cb6ce2844d82f0fb0afe7d1b7a363eb7f135 --head-sha HEAD`
+
+## Ajuste pós-deploy
+
+- Corrigido fallback de migração PostgreSQL para cenários com default textual legado em `created_at`:
+  - remoção explícita de default antes do cast de tipo para timestamp.
