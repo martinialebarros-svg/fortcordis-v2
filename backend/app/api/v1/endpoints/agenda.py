@@ -11,7 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -546,6 +546,20 @@ def _coerce_datetime(value) -> Optional[datetime]:
     return None
 
 
+def _normalize_text_filter(value: Optional[str]) -> Optional[str]:
+    raw = " ".join(str(value or "").split())
+    return raw.strip() or None
+
+
+def _build_contains_pattern(value: str) -> str:
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+    return f"%{escaped}%"
+
+
 def _fill_data_hora_from_inicio(agendamento: Agendamento) -> None:
     inicio_dt = _coerce_datetime(agendamento.inicio)
     if inicio_dt is None:
@@ -852,7 +866,12 @@ def listar_agendamentos(
     data_fim: Optional[str] = None,
     status: Optional[str] = None,
     clinica_id: Optional[int] = None,
+    servico_id: Optional[int] = None,
     paciente_id: Optional[int] = None,
+    paciente_nome: Optional[str] = None,
+    tutor_nome: Optional[str] = None,
+    clinica_nome: Optional[str] = None,
+    servico_nome: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
@@ -882,8 +901,50 @@ def listar_agendamentos(
         query = query.filter(Agendamento.status == status)
     if clinica_id:
         query = query.filter(Agendamento.clinica_id == clinica_id)
+    if servico_id:
+        query = query.filter(Agendamento.servico_id == servico_id)
     if paciente_id:
         query = query.filter(Agendamento.paciente_id == paciente_id)
+
+    paciente_nome_filtro = _normalize_text_filter(paciente_nome)
+    if paciente_nome_filtro:
+        pattern = _build_contains_pattern(paciente_nome_filtro)
+        query = query.filter(
+            or_(
+                Paciente.nome.ilike(pattern, escape="\\"),
+                Agendamento.paciente.ilike(pattern, escape="\\"),
+            )
+        )
+
+    tutor_nome_filtro = _normalize_text_filter(tutor_nome)
+    if tutor_nome_filtro:
+        pattern = _build_contains_pattern(tutor_nome_filtro)
+        query = query.filter(
+            or_(
+                Tutor.nome.ilike(pattern, escape="\\"),
+                Agendamento.tutor.ilike(pattern, escape="\\"),
+            )
+        )
+
+    clinica_nome_filtro = _normalize_text_filter(clinica_nome)
+    if clinica_nome_filtro:
+        pattern = _build_contains_pattern(clinica_nome_filtro)
+        query = query.filter(
+            or_(
+                Clinica.nome.ilike(pattern, escape="\\"),
+                Agendamento.clinica.ilike(pattern, escape="\\"),
+            )
+        )
+
+    servico_nome_filtro = _normalize_text_filter(servico_nome)
+    if servico_nome_filtro:
+        pattern = _build_contains_pattern(servico_nome_filtro)
+        query = query.filter(
+            or_(
+                Servico.nome.ilike(pattern, escape="\\"),
+                Agendamento.servico.ilike(pattern, escape="\\"),
+            )
+        )
 
     total = query.count()
     results = query.order_by(Agendamento.inicio.asc(), Agendamento.id.asc()).offset(skip).limit(limit).all()
