@@ -1,11 +1,6 @@
-from datetime import datetime
-
-from sqlalchemy import Column, Integer, Text
+from sqlalchemy import Column, DateTime, Integer, Text
+from sqlalchemy.sql import func
 from app.db.database import Base
-
-
-def _legacy_now_str() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 class Tutor(Base):
@@ -18,5 +13,5 @@ class Tutor(Base):
     whatsapp = Column(Text)
     email = Column(Text)
     ativo = Column(Integer)
-    created_at = Column(Text, default=_legacy_now_str)
-    updated_at = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())

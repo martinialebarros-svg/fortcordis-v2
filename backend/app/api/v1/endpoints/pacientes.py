@@ -31,8 +31,8 @@ def _gerar_nome_key(nome: Optional[str]) -> str:
     return texto
 
 
-def _legacy_now_str() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def _legacy_now_dt() -> datetime:
+    return datetime.utcnow()
 
 
 def _filtro_paciente_ativo():
@@ -64,9 +64,9 @@ def _ensure_tutores_timestamp_columns(db: Session) -> None:
     alteracoes: list[str] = []
 
     if "created_at" not in colunas:
-        alteracoes.append('ALTER TABLE "tutores" ADD COLUMN created_at TEXT')
+        alteracoes.append('ALTER TABLE "tutores" ADD COLUMN created_at DATETIME')
     if "updated_at" not in colunas:
-        alteracoes.append('ALTER TABLE "tutores" ADD COLUMN updated_at TEXT')
+        alteracoes.append('ALTER TABLE "tutores" ADD COLUMN updated_at DATETIME')
 
     if not alteracoes:
         return
@@ -100,7 +100,7 @@ def _obter_ou_criar_tutor(db: Session, tutor_nome_raw: Optional[str]) -> Optiona
         email="",
         telefone="",
         ativo=1,
-        created_at=_legacy_now_str(),
+        created_at=_legacy_now_dt(),
     )
     db.add(tutor)
 
@@ -291,7 +291,7 @@ def criar_paciente(
         paciente_existente.nascimento = paciente.data_nascimento
         paciente_existente.microchip = paciente.microchip
         paciente_existente.observacoes = paciente.observacoes
-        paciente_existente.updated_at = _legacy_now_str()
+        paciente_existente.updated_at = _legacy_now_dt()
 
         db.commit()
         db.refresh(paciente_existente)
@@ -320,7 +320,7 @@ def criar_paciente(
             microchip=paciente.microchip,
             observacoes=paciente.observacoes,
             ativo=1,
-            created_at=_legacy_now_str(),
+            created_at=_legacy_now_dt(),
         )
 
         db.add(db_paciente)
@@ -404,7 +404,7 @@ def atualizar_paciente(
     db_paciente.nascimento = paciente.data_nascimento
     db_paciente.microchip = paciente.microchip
     db_paciente.observacoes = paciente.observacoes
-    db_paciente.updated_at = _legacy_now_str()
+    db_paciente.updated_at = _legacy_now_dt()
 
     db.commit()
     db.refresh(db_paciente)
@@ -460,7 +460,7 @@ def deletar_paciente(
     referencias = _contar_referencias_paciente(db, paciente_id)
     if referencias:
         db_paciente.ativo = 0
-        db_paciente.updated_at = _legacy_now_str()
+        db_paciente.updated_at = _legacy_now_dt()
         db.commit()
         return {
             "message": "Paciente removido com sucesso (desativado por possuir historico vinculado)",
@@ -483,7 +483,7 @@ def deletar_paciente(
             raise HTTPException(status_code=404, detail="Paciente nao encontrado")
 
         db_paciente.ativo = 0
-        db_paciente.updated_at = _legacy_now_str()
+        db_paciente.updated_at = _legacy_now_dt()
         db.commit()
         return {
             "message": "Paciente removido com sucesso (desativado por integridade de dados)",

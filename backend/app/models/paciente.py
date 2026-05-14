@@ -1,11 +1,6 @@
-from datetime import datetime
-
-from sqlalchemy import Column, Float, Integer, Text
+from sqlalchemy import Column, DateTime, Float, Integer, Text
+from sqlalchemy.sql import func
 from app.db.database import Base
-
-
-def _legacy_now_str() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 class Paciente(Base):
@@ -23,5 +18,5 @@ class Paciente(Base):
     microchip = Column(Text)
     observacoes = Column(Text)
     ativo = Column(Integer)
-    created_at = Column(Text, default=_legacy_now_str)
-    updated_at = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())

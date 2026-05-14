@@ -69,8 +69,8 @@ def _gerar_nome_key(nome: Optional[str]) -> str:
     return texto
 
 
-def _legacy_now_str() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def _legacy_now_dt() -> datetime:
+    return datetime.utcnow()
 
 
 def _to_float_or_none(value: Any) -> Optional[float]:
@@ -568,7 +568,7 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
                 nome_key=tutor_nome_key,
                 telefone=paciente.get("telefone", ""),
                 ativo=1,
-                created_at=_legacy_now_str(),
+                created_at=_legacy_now_dt(),
             )
             db.add(tutor)
             try:
@@ -633,7 +633,7 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
             houve_alteracao = True
 
         if houve_alteracao:
-            db_paciente.updated_at = _legacy_now_str()
+            db_paciente.updated_at = _legacy_now_dt()
 
     paciente_id = paciente.get("id")
     if paciente_id not in (None, ""):
@@ -687,7 +687,7 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
         tutor_id=tutor_id,
         observacoes=observacoes if observacoes else None,
         ativo=1,
-        created_at=_legacy_now_str(),
+        created_at=_legacy_now_dt(),
     )
     db.add(novo_paciente)
     try:
@@ -1945,5 +1945,4 @@ def deletar_exame(
     db.commit()
     
     return {"message": "Exame removido com sucesso"}
-
 

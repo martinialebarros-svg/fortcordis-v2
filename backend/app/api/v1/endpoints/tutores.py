@@ -28,8 +28,8 @@ def _gerar_nome_key(nome: Optional[str]) -> str:
     return texto
 
 
-def _legacy_now_str() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def _legacy_now_dt() -> datetime:
+    return datetime.utcnow()
 
 
 class TutorCreate(BaseModel):
@@ -100,7 +100,7 @@ def criar_tutor(
         whatsapp=tutor.whatsapp or tutor.telefone,
         email=tutor.email,
         ativo=1,
-        created_at=_legacy_now_str(),
+        created_at=_legacy_now_dt(),
     )
 
     db.add(novo_tutor)
