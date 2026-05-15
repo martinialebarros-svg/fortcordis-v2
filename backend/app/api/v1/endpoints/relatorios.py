@@ -4,6 +4,7 @@ import csv
 import math
 from io import BytesIO, StringIO
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -185,7 +186,7 @@ def _estimar_distancia_duracao_local(
 def _selecionar_clinica_base(
     clinica_base_id: Optional[int],
     clinica_map: dict[int, Clinica],
-    agendamentos_periodo: list[Agendamento],
+    agendamentos_periodo: list[Any],
     clinicas_ativas: list[Clinica],
 ) -> tuple[Optional[int], Optional[str], str]:
     if clinica_base_id and clinica_base_id in clinica_map:
@@ -211,6 +212,45 @@ def _selecionar_clinica_base(
         return int(base.id), str(base.nome or f"Clinica #{base.id}"), "primeira_clinica_ativa"
 
     return None, None, "indefinida"
+
+
+@dataclass(slots=True)
+class _AgendamentoAgregado:
+    id: int
+    clinica_id: Optional[int]
+    servico_id: Optional[int]
+    status: Optional[str]
+    inicio: Optional[datetime]
+    fim: Optional[datetime]
+    created_at: Optional[datetime]
+
+
+def _carregar_agendamentos_periodo_enxuto(query_agendamentos) -> list[_AgendamentoAgregado]:
+    rows = (
+        query_agendamentos.with_entities(
+            Agendamento.id,
+            Agendamento.clinica_id,
+            Agendamento.servico_id,
+            Agendamento.status,
+            Agendamento.inicio,
+            Agendamento.fim,
+            Agendamento.created_at,
+        )
+        .order_by(Agendamento.inicio.asc(), Agendamento.id.asc())
+        .all()
+    )
+    return [
+        _AgendamentoAgregado(
+            id=int(row.id),
+            clinica_id=int(row.clinica_id) if row.clinica_id is not None else None,
+            servico_id=int(row.servico_id) if row.servico_id is not None else None,
+            status=row.status,
+            inicio=row.inicio,
+            fim=row.fim,
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
 
 
 def _sum_transacoes(
@@ -362,7 +402,7 @@ def relatorio_controle_gerencial(
         else:
             query_agendamentos = query_agendamentos.filter(Agendamento.id == -1)
 
-    agendamentos_periodo = query_agendamentos.order_by(Agendamento.inicio.asc(), Agendamento.id.asc()).all()
+    agendamentos_periodo = _carregar_agendamentos_periodo_enxuto(query_agendamentos)
 
     clinica_ids_financeiro: Optional[list[int]] = None
     if clinica_id:
