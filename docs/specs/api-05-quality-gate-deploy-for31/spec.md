@@ -21,9 +21,11 @@ Adicionar quality gate obrigatório nos workflows de deploy para `stage` e `main
 - RT-003: rodar build do frontend com `npm run build`.
 - RT-004: manter `deploy-stage`/`deploy` dependentes de `needs: [quality-gate, sdd-guardrail]`.
 - RT-005: corrigir falha de lint pré-existente em `frontend/public/sw.js` para viabilizar o gate.
+- RT-006: garantir que testes de matriz de permissões executem em banco SQLite limpo no CI sem depender de schema pré-existente.
 
 ## Criterios de aceitacao
 
 - CA-001: workflows `.github/workflows/deploy-stage.yml` e `.github/workflows/deploy.yml` possuem job `quality-gate`.
 - CA-002: deploy fica bloqueado quando qualquer etapa de test/lint/build falhar.
 - CA-003: validação local de test/lint/build executa com sucesso.
+- CA-004: teste `test_permission_matrix_sync_supports_safe_logistica_dry_run` passa em ambiente CI com banco sem tabelas pré-criadas.
