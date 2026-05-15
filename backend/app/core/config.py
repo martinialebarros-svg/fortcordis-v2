@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     UPLOAD_DEDUPE_CLEANUP_RUNS_RETENTION_DAYS: int = 90
     RUNTIME_HTTP_5XX_ALERT_WINDOW_MINUTES: int = 5
     RUNTIME_HTTP_5XX_ALERT_THRESHOLD: int = 20
+    RUNTIME_HTTP_LATENCY_WINDOW_MINUTES: int = 30
+    RUNTIME_HTTP_LATENCY_MAX_SAMPLES_PER_ENDPOINT: int = 2000
+    RUNTIME_HTTP_LATENCY_PRIORITY_ENDPOINTS: str = (
+        "/api/v1/agenda,/api/v1/atendimentos,/api/v1/relatorios,/api/v1/fiscal,/api/v1/logistica"
+    )
     WEB_PUSH_VAPID_PUBLIC_KEY: str = ""
     WEB_PUSH_VAPID_PRIVATE_KEY: str = ""
     WEB_PUSH_VAPID_CLAIMS_SUB: str = "mailto:suporte@fortcordis.local"

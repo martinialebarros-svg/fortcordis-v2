@@ -8,7 +8,10 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.db.database import engine
 from app.services.laudo_pdf_jobs import get_laudo_pdf_storage_dir
-from app.services.runtime_observability import get_http_5xx_monitor_status
+from app.services.runtime_observability import (
+    get_http_5xx_monitor_status,
+    get_http_latency_monitor_status,
+)
 from app.services.upload_dedupe_cleanup_service import (
     get_upload_dedupe_cleanup_worker_runtime_state,
 )
@@ -99,6 +102,7 @@ def build_runtime_report() -> dict[str, Any]:
     migrations = _check_migrations()
     secret_key = _check_secret_key()
     http_5xx_monitor = get_http_5xx_monitor_status()
+    http_latency_monitor = get_http_latency_monitor_status()
     upload_cleanup_worker = get_upload_dedupe_cleanup_worker_runtime_state()
     push_scheduler_worker = get_push_scheduler_worker_runtime_state()
 
@@ -110,6 +114,8 @@ def build_runtime_report() -> dict[str, Any]:
         warnings.append(secret_key["warning"])
     for monitor_warning in http_5xx_monitor.get("config_warnings") or []:
         warnings.append(f"Monitor runtime 5xx: {monitor_warning}")
+    for monitor_warning in http_latency_monitor.get("config_warnings") or []:
+        warnings.append(f"Monitor runtime latencia: {monitor_warning}")
     if http_5xx_monitor.get("alert_active"):
         warnings.append(
             "Alerta operacional: "
@@ -190,6 +196,7 @@ def build_runtime_report() -> dict[str, Any]:
         },
         "observability": {
             "http_5xx_monitor": http_5xx_monitor,
+            "http_latency_monitor": http_latency_monitor,
             "upload_dedupe_cleanup_worker": upload_cleanup_worker,
             "push_scheduler_worker": push_scheduler_worker,
         },

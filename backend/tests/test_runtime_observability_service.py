@@ -59,6 +59,68 @@ class RuntimeObservabilityServiceTest(unittest.TestCase):
         self.assertEqual(payload["threshold"], 20)
         self.assertGreaterEqual(len(payload["config_warnings"]), 1)
 
+    def test_http_latency_monitor_tracks_p95_and_p99_for_priority_endpoint(self) -> None:
+        with patch.object(
+            runtime_observability.settings,
+            "RUNTIME_HTTP_LATENCY_PRIORITY_ENDPOINTS",
+            "/api/v1/agenda,/api/v1/atendimentos,/api/v1/relatorios,/api/v1/fiscal,/api/v1/logistica",
+        ):
+            runtime_observability.record_http_request(
+                path="/api/v1/agenda",
+                status_code=200,
+                duration_ms=10,
+            )
+            runtime_observability.record_http_request(
+                path="/api/v1/agenda/123",
+                status_code=200,
+                duration_ms=100,
+            )
+            runtime_observability.record_http_request(
+                path="/api/v1/agenda",
+                status_code=503,
+                duration_ms=250,
+            )
+
+        payload = runtime_observability.get_http_latency_monitor_status()
+        agenda = payload["endpoints"]["/api/v1/agenda"]
+        self.assertEqual(agenda["request_count"], 3)
+        self.assertEqual(agenda["error_5xx_count"], 1)
+        self.assertEqual(agenda["p95_ms"], 250.0)
+        self.assertEqual(agenda["p99_ms"], 250.0)
+        self.assertIsNotNone(agenda["last_seen_at"])
+
+    def test_http_latency_monitor_ignores_non_priority_endpoint(self) -> None:
+        with patch.object(
+            runtime_observability.settings,
+            "RUNTIME_HTTP_LATENCY_PRIORITY_ENDPOINTS",
+            "/api/v1/agenda,/api/v1/atendimentos,/api/v1/relatorios,/api/v1/fiscal,/api/v1/logistica",
+        ):
+            runtime_observability.record_http_request(
+                path="/api/v1/pacientes",
+                status_code=200,
+                duration_ms=30,
+            )
+
+        payload = runtime_observability.get_http_latency_monitor_status()
+        for endpoint in payload["priority_endpoints"]:
+            self.assertEqual(payload["endpoints"][endpoint]["request_count"], 0)
+
+    def test_http_latency_monitor_prunes_old_events_by_window(self) -> None:
+        with patch.object(runtime_observability.settings, "RUNTIME_HTTP_LATENCY_WINDOW_MINUTES", 1):
+            with patch("app.services.runtime_observability.time.monotonic", return_value=1000.0):
+                runtime_observability.record_http_request(
+                    path="/api/v1/agenda",
+                    status_code=200,
+                    duration_ms=50,
+                )
+            with patch("app.services.runtime_observability.time.monotonic", return_value=1065.0):
+                payload = runtime_observability.get_http_latency_monitor_status()
+
+        agenda = payload["endpoints"]["/api/v1/agenda"]
+        self.assertEqual(agenda["request_count"], 0)
+        self.assertIsNone(agenda["p95_ms"])
+        self.assertIsNone(agenda["p99_ms"])
+
 
 if __name__ == "__main__":
     unittest.main()

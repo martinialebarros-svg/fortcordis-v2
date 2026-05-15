@@ -1,6 +1,7 @@
 import json
 import os
 import logging
+import time
 
 from fastapi import Depends, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -55,7 +56,7 @@ from app.services.push_scheduler_service import (
     shutdown_push_scheduler_worker,
     start_push_scheduler_worker,
 )
-from app.services.runtime_observability import record_http_status
+from app.services.runtime_observability import record_http_request
 from app.services.xml_import_jobs import (
     restart_incomplete_xml_import_jobs,
     shutdown_xml_import_jobs,
@@ -351,19 +352,26 @@ async def enforce_csrf_for_cookie_session(request: Request, call_next):
 @app.middleware("http")
 async def monitor_runtime_http_status(request: Request, call_next):
     path = request.url.path
+    start_monotonic = time.monotonic()
     try:
         response = await call_next(request)
     except Exception:
+        elapsed_ms = (time.monotonic() - start_monotonic) * 1000.0
         try:
-            record_http_status(500)
+            record_http_request(path=path, status_code=500, duration_ms=elapsed_ms)
         except Exception:
-            logger.exception("Falha ao registrar erro 5xx no monitor de runtime.")
+            logger.exception("Falha ao registrar erro 5xx/latencia no monitor de runtime.")
         raise
 
+    elapsed_ms = (time.monotonic() - start_monotonic) * 1000.0
     try:
-        record_http_status(response.status_code)
+        record_http_request(
+            path=path,
+            status_code=response.status_code,
+            duration_ms=elapsed_ms,
+        )
     except Exception:
-        logger.exception("Falha ao registrar status HTTP no monitor de runtime.")
+        logger.exception("Falha ao registrar status/latencia HTTP no monitor de runtime.")
     return _append_security_headers(path, response)
 
 # Rotas REST
@@ -460,6 +468,7 @@ def _health_payload(report: dict) -> dict:
             },
             "observability": {
                 "http_5xx_monitor": report["observability"].get("http_5xx_monitor"),
+                "http_latency_monitor": report["observability"].get("http_latency_monitor"),
                 "upload_dedupe_cleanup_worker": report["observability"].get("upload_dedupe_cleanup_worker"),
                 "push_scheduler_worker": report["observability"].get("push_scheduler_worker"),
             },

@@ -61,6 +61,7 @@ class RuntimeChecksObservabilityTest(unittest.TestCase):
 
         self.assertIn("observability", report)
         self.assertIn("http_5xx_monitor", report["observability"])
+        self.assertIn("http_latency_monitor", report["observability"])
         self.assertIn("upload_dedupe_cleanup_worker", report["observability"])
         self.assertTrue(report["ready"])
         joined_warnings = " | ".join(report["warnings"])
