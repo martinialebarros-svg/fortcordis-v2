@@ -954,7 +954,8 @@ def listar_agendamentos(
             )
         )
 
-    total = query.count()
+    # Conta apenas ids para reduzir custo do COUNT em consultas com joins opcionais.
+    total = query.with_entities(Agendamento.id).order_by(None).count()
     results = query.order_by(Agendamento.inicio.asc(), Agendamento.id.asc()).offset(skip).limit(limit).all()
 
     items = [

@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -219,6 +219,136 @@ class AgendaBuscaPeriodoFiltrosTest(unittest.TestCase):
             self.assertEqual(len(resultado["items"]), 1)
             self.assertEqual(resultado["items"][0]["id"], ag_match.id)
             self.assertEqual(resultado["items"][0]["status"], "Realizado")
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_paginacao_por_periodo_e_estavel_sem_duplicidade(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            base = self._seed_base(db)
+            horarios = [
+                "08:00",
+                "08:00",
+                "09:30",
+                "10:00",
+                "10:00",
+                "11:45",
+            ]
+
+            ids_criados = []
+            for hora in horarios:
+                ag = self._criar_agendamento(
+                    db,
+                    data="2026-07-18",
+                    hora=hora,
+                    status="Agendado",
+                    paciente_id=base["paciente_1"].id,
+                    clinica_id=base["clinica_1"].id,
+                    servico_id=base["servico_1"].id,
+                )
+                ids_criados.append(ag.id)
+
+            pagina_1 = agenda.listar_agendamentos(
+                data_inicio="2026-07-01",
+                data_fim="2026-07-31",
+                skip=0,
+                limit=2,
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+            pagina_2 = agenda.listar_agendamentos(
+                data_inicio="2026-07-01",
+                data_fim="2026-07-31",
+                skip=2,
+                limit=2,
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+            pagina_3 = agenda.listar_agendamentos(
+                data_inicio="2026-07-01",
+                data_fim="2026-07-31",
+                skip=4,
+                limit=2,
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+
+            self.assertEqual(pagina_1["total"], 6)
+            self.assertEqual(pagina_2["total"], 6)
+            self.assertEqual(pagina_3["total"], 6)
+
+            ids_paginados = [item["id"] for item in pagina_1["items"] + pagina_2["items"] + pagina_3["items"]]
+            self.assertEqual(len(ids_paginados), 6)
+            self.assertEqual(len(set(ids_paginados)), 6)
+
+            mapa_inicio = {
+                item["id"]: item["inicio"]
+                for item in pagina_1["items"] + pagina_2["items"] + pagina_3["items"]
+            }
+            ordem_esperada = sorted(ids_criados, key=lambda ag_id: (mapa_inicio[ag_id], ag_id))
+            self.assertEqual(ids_paginados, ordem_esperada)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_busca_periodo_com_filtros_combinados_mantem_custo_constante_de_queries(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        statements = []
+
+        def _capture_sql(_conn, _cursor, statement, _parameters, _context, _executemany):
+            statements.append(statement.lower())
+
+        event.listen(engine, "before_cursor_execute", _capture_sql)
+        try:
+            base = self._seed_base(db)
+            self._criar_agendamento(
+                db,
+                data="2026-07-10",
+                hora="08:15",
+                status="Confirmado",
+                paciente_id=base["paciente_1"].id,
+                clinica_id=base["clinica_1"].id,
+                servico_id=base["servico_1"].id,
+            )
+            self._criar_agendamento(
+                db,
+                data="2026-07-11",
+                hora="11:00",
+                status="Confirmado",
+                paciente_id=base["paciente_1"].id,
+                clinica_id=base["clinica_1"].id,
+                servico_id=base["servico_1"].id,
+            )
+            statements.clear()
+
+            resultado = agenda.listar_agendamentos(
+                data_inicio="2026-07-01",
+                data_fim="2026-07-31",
+                status="Confirmado",
+                clinica_id=base["clinica_1"].id,
+                servico_id=base["servico_1"].id,
+                tutor_nome="Maria",
+                skip=0,
+                limit=50,
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+        finally:
+            event.remove(engine, "before_cursor_execute", _capture_sql)
+
+        try:
+            self.assertEqual(resultado["total"], 2)
+            self.assertEqual(len(resultado["items"]), 2)
+
+            select_statements = [sql for sql in statements if "select" in sql]
+            self.assertLessEqual(
+                len(select_statements),
+                5,
+                msg=f"Esperado custo constante de queries (sem N+1), obtido: {len(select_statements)}",
+            )
         finally:
             db.close()
             engine.dispose()
