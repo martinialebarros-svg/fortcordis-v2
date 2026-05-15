@@ -20,6 +20,8 @@ from app.api.v1.endpoints.auth import verify_password
 from app.core.config import Settings
 from app.core.security import _resolve_module_from_path, _user_has_matrix_permission
 from app.db.database import SessionLocal
+from app.models.papel import Papel
+from app.models.papel_permissao import PapelPermissao
 
 
 class PermissionMatrixSyncTest(unittest.TestCase):
@@ -93,6 +95,9 @@ class PermissionMatrixSyncTest(unittest.TestCase):
     def test_permission_matrix_sync_supports_safe_logistica_dry_run(self) -> None:
         db = SessionLocal()
         try:
+            bind = db.get_bind()
+            Papel.__table__.create(bind=bind, checkfirst=True)
+            PapelPermissao.__table__.create(bind=bind, checkfirst=True)
             result = _sync_permission_matrix(
                 db,
                 modules={"logistica"},
