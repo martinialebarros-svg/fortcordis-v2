@@ -54,7 +54,7 @@ self.addEventListener("push", function (event) {
   }
 
   var payloadData = payload && payload.data && typeof payload.data === "object" ? payload.data : {};
-  var module = String(payloadData.module || "");
+  var moduleName = String(payloadData.module || "");
   var action = String(payloadData.action || "");
   var resourceType = String(payloadData.resource_type || "");
   var resourceId = payloadData.resource_id == null ? null : payloadData.resource_id;
@@ -91,7 +91,7 @@ self.addEventListener("push", function (event) {
       url: url,
       notification_id: notificationId,
       stack_notifications: stackNotifications,
-      module: module,
+      module: moduleName,
       action: action,
       resource_type: resourceType,
       resource_id: resourceId,
