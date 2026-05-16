@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from uuid import uuid4
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -45,6 +46,22 @@ def _safe_int(value: Any, default: int) -> int:
         return int(value)
     except Exception:
         return default
+
+
+def _is_postgres(db: Session) -> bool:
+    bind = db.get_bind()
+    return bool(bind and bind.dialect.name == "postgresql")
+
+
+def _scheduler_distributed_lock_enabled() -> bool:
+    return bool(settings.WEB_PUSH_SCHEDULER_DISTRIBUTED_LOCK_ENABLED)
+
+
+def _scheduler_distributed_lock_key() -> int:
+    parsed = _safe_int(settings.WEB_PUSH_SCHEDULER_DISTRIBUTED_LOCK_KEY, 80433001)
+    if parsed <= 0:
+        return 80433001
+    return parsed
 
 
 def _clamp_hours(value: Any) -> int:
@@ -261,6 +278,39 @@ def _reschedule_row(row: PushScheduledNotification, *, minutes: int, error: str)
     row.updated_at = now
 
 
+def _try_acquire_pg_scheduler_lock(db: Session, *, lock_key: int) -> bool:
+    row = db.execute(
+        text("SELECT pg_try_advisory_lock(:lock_key) AS locked"),
+        {"lock_key": lock_key},
+    ).fetchone()
+    if not row:
+        return False
+    if hasattr(row, "_mapping"):
+        return bool(row._mapping.get("locked"))
+    return bool(row[0])
+
+
+def _release_pg_scheduler_lock(db: Session, *, lock_key: int) -> None:
+    db.execute(
+        text("SELECT pg_advisory_unlock(:lock_key)"),
+        {"lock_key": lock_key},
+    )
+
+
+def _fetch_next_due_row(db: Session, *, now: datetime) -> Optional[PushScheduledNotification]:
+    query = (
+        db.query(PushScheduledNotification)
+        .filter(
+            PushScheduledNotification.status == PUSH_SCHEDULE_STATUS_PENDING,
+            PushScheduledNotification.send_at <= now,
+        )
+        .order_by(PushScheduledNotification.send_at.asc(), PushScheduledNotification.id.asc())
+    )
+    if _is_postgres(db):
+        query = query.with_for_update(skip_locked=True)
+    return query.first()
+
+
 def _process_pending_os_row(db: Session, row: PushScheduledNotification) -> None:
     from app.models.clinica import Clinica
     from app.models.ordem_servico import OrdemServico
@@ -392,24 +442,28 @@ def run_push_scheduler_due_once(*, limit: int = 50) -> dict[str, int]:
         return {"processed": 0, "sent": 0, "cancelled": 0, "errors": 0}
 
     db = SessionLocal()
+    pg_lock_key: Optional[int] = None
+    pg_lock_acquired = False
     sent = 0
     cancelled = 0
     errors = 0
     processed = 0
     try:
-        now = _utc_now()
-        due_rows = (
-            db.query(PushScheduledNotification)
-            .filter(
-                PushScheduledNotification.status == PUSH_SCHEDULE_STATUS_PENDING,
-                PushScheduledNotification.send_at <= now,
-            )
-            .order_by(PushScheduledNotification.send_at.asc(), PushScheduledNotification.id.asc())
-            .limit(max(1, int(limit)))
-            .all()
-        )
+        if _scheduler_distributed_lock_enabled() and _is_postgres(db):
+            pg_lock_key = _scheduler_distributed_lock_key()
+            pg_lock_acquired = _try_acquire_pg_scheduler_lock(db, lock_key=pg_lock_key)
+            if not pg_lock_acquired:
+                logger.info(
+                    "Worker de push agendado ignorou ciclo: lock distribuido ocupado (key=%s).",
+                    pg_lock_key,
+                )
+                return {"processed": 0, "sent": 0, "cancelled": 0, "errors": 0}
 
-        for row in due_rows:
+        max_rows = max(1, int(limit))
+        while processed < max_rows:
+            row = _fetch_next_due_row(db, now=_utc_now())
+            if row is None:
+                break
             processed += 1
             try:
                 if row.kind == PUSH_SCHEDULE_KIND_PENDING_OS:
@@ -441,6 +495,11 @@ def run_push_scheduler_due_once(*, limit: int = 50) -> dict[str, int]:
             "errors": errors,
         }
     finally:
+        if pg_lock_key is not None and pg_lock_acquired:
+            try:
+                _release_pg_scheduler_lock(db, lock_key=pg_lock_key)
+            except Exception:
+                logger.exception("Falha ao liberar lock distribuido do scheduler de push.")
         db.close()
         _SCHEDULER_RUN_LOCK.release()
 
@@ -469,6 +528,11 @@ def _scheduler_worker_main() -> None:
 
 
 def get_push_scheduler_worker_runtime_state() -> dict[str, Any]:
+    distributed_lock_enabled = _scheduler_distributed_lock_enabled()
+    distributed_lock_mode = "disabled"
+    if distributed_lock_enabled:
+        distributed_lock_mode = "postgres_advisory_lock"
+
     with _SCHEDULER_LOCK:
         thread = _SCHEDULER_THREAD
         thread_alive = bool(thread and thread.is_alive())
@@ -490,6 +554,11 @@ def get_push_scheduler_worker_runtime_state() -> dict[str, Any]:
         "worker_started": worker_started,
         "stop_signal_set": stop_signal_set,
         "poll_seconds": _worker_poll_seconds(),
+        "distributed_lock": {
+            "enabled": distributed_lock_enabled,
+            "mode": distributed_lock_mode,
+            "lock_key": _scheduler_distributed_lock_key() if distributed_lock_enabled else None,
+        },
     }
 
 
