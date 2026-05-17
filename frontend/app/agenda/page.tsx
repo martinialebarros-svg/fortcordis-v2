@@ -417,7 +417,16 @@ export default function AgendaPage() {
       return;
     }
     carregarResumoFinanceiro();
-  }, [isAdmin, modoVisualizacao, filtroData]);
+  }, [
+    isAdmin,
+    modoVisualizacao,
+    periodoConsulta.inicio,
+    periodoConsulta.fim,
+    filtroClinicaId,
+    filtroServicoId,
+    filtroPacienteNome,
+    filtroTutorNome,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -742,12 +751,31 @@ export default function AgendaPage() {
       return;
     }
 
-    const dataReferencia = filtroData || hojeLocal();
+    const inicio = periodoConsulta.inicio || filtroData || hojeLocal();
+    const fim = periodoConsulta.fim || inicio;
     setCarregandoResumoFinanceiro(true);
     setErroResumoFinanceiro(false);
 
     try {
-      const respResumo = await api.get(`/agenda/resumo-financeiro?data=${dataReferencia}`);
+      const params = new URLSearchParams();
+      params.append("data_inicio", inicio);
+      params.append("data_fim", fim);
+      if (filtroClinicaId !== "todos") {
+        params.append("clinica_id", filtroClinicaId);
+      }
+      if (filtroServicoId !== "todos") {
+        params.append("servico_id", filtroServicoId);
+      }
+      const pacienteNome = filtroPacienteNome.trim();
+      if (pacienteNome) {
+        params.append("paciente_nome", pacienteNome);
+      }
+      const tutorNome = filtroTutorNome.trim();
+      if (tutorNome) {
+        params.append("tutor_nome", tutorNome);
+      }
+
+      const respResumo = await api.get(`/agenda/resumo-financeiro?${params.toString()}`);
       setResumoFinanceiro(respResumo.data || null);
       setErroResumoFinanceiro(false);
     } catch (error: any) {
@@ -1133,7 +1161,14 @@ export default function AgendaPage() {
   };
 
   const dataResumoFinanceiro = filtroData || hojeLocal();
-  const dataResumoFinanceiroLabel = parseDateInput(dataResumoFinanceiro).toLocaleDateString("pt-BR");
+  const resumoPeriodoInicio = periodoConsulta.inicio || dataResumoFinanceiro;
+  const resumoPeriodoFim = periodoConsulta.fim || resumoPeriodoInicio;
+  const resumoInicioLabel = parseDateInput(resumoPeriodoInicio).toLocaleDateString("pt-BR");
+  const resumoFimLabel = parseDateInput(resumoPeriodoFim).toLocaleDateString("pt-BR");
+  const resumoPeriodoEhDia = resumoPeriodoInicio === resumoPeriodoFim;
+  const dataResumoFinanceiroLabel = resumoPeriodoEhDia
+    ? resumoInicioLabel
+    : `${resumoInicioLabel} a ${resumoFimLabel}`;
 
   return (
     <DashboardLayout>
@@ -1223,7 +1258,9 @@ export default function AgendaPage() {
             <div className="bg-white p-4 rounded-lg border shadow-sm">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Realizado no dia</p>
+                  <p className="text-sm text-gray-500">
+                    {resumoPeriodoEhDia ? "Realizado no dia" : "Realizado no período"}
+                  </p>
                   <p className="text-2xl font-bold text-emerald-600">
                     {carregandoResumoFinanceiro
                       ? "Carregando..."
@@ -1246,7 +1283,9 @@ export default function AgendaPage() {
             <div className="bg-white p-4 rounded-lg border shadow-sm">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Previsao do agendado</p>
+                  <p className="text-sm text-gray-500">
+                    {resumoPeriodoEhDia ? "Previsao do agendado" : "Previsao do agendado no período"}
+                  </p>
                   <p className="text-2xl font-bold text-blue-600">
                     {carregandoResumoFinanceiro
                       ? "Carregando..."

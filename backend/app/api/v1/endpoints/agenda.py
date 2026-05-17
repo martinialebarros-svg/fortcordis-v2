@@ -1064,6 +1064,11 @@ def resumo_financeiro_agenda(
     data: Optional[str] = None,
     data_inicio: Optional[str] = None,
     data_fim: Optional[str] = None,
+    clinica_id: Optional[int] = None,
+    servico_id: Optional[int] = None,
+    paciente_id: Optional[int] = None,
+    paciente_nome: Optional[str] = None,
+    tutor_nome: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -1084,11 +1089,20 @@ def resumo_financeiro_agenda(
     if not fim:
         fim = inicio
 
-    agendamentos = (
-        db.query(Agendamento)
-        .filter(Agendamento.data >= inicio, Agendamento.data <= fim)
-        .all()
+    query_agendamentos = _aplicar_filtros_lista_agenda(
+        db.query(Agendamento),
+        data_inicio=inicio,
+        data_fim=fim,
+        status=None,
+        clinica_id=clinica_id,
+        servico_id=servico_id,
+        paciente_id=paciente_id,
+        paciente_nome=paciente_nome,
+        tutor_nome=tutor_nome,
+        clinica_nome=None,
+        servico_nome=None,
     )
+    agendamentos = query_agendamentos.all()
 
     ids_agendamento = [ag.id for ag in agendamentos]
     mapa_os: dict[int, OrdemServico] = {}

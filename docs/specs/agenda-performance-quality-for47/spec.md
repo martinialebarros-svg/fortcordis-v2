@@ -5,6 +5,7 @@
 - RF-02: suportar filtros combinados de periodo, status, clinica, servico, paciente e tutor.
 - RF-03: manter ordenacao estavel por `inicio ASC, id ASC`.
 - RF-04: manter paginacao consistente (`skip`/`limit`) sem duplicacao ou perda de itens entre paginas.
+- RF-05: resumo financeiro da agenda deve respeitar periodo e filtros operacionais ativos (clinica, servico, paciente/tutor).
 
 ## Requisitos nao funcionais
 - RNF-01: evitar N+1 em relacoes (`paciente`, `tutor`, `clinica`, `servico`).
@@ -12,4 +13,3 @@
   1. consulta de IDs paginados e total com filtros;
   2. hidratacao dos relacionados apenas para IDs da pagina.
 - RNF-03: manter custo de queries constante sob filtros combinados.
-
