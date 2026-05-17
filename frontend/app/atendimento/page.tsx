@@ -4213,11 +4213,11 @@ export default function AtendimentoPage() {
     }));
   };
 
-  const removerDocumentoClinicoDoFormulario = (documentoId: number) => {
-    setForm((current) => ({
-      ...current,
-      documentos: current.documentos.filter((item) => item.id !== documentoId),
-    }));
+  const recarregarDocumentosAtendimento = async (atendimentoId: number) => {
+    const response = await api.get(`/atendimentos/${atendimentoId}/documentos`);
+    const documentos = (response.data?.documentos || []) as DocumentoAtendimento[];
+    setForm((current) => ({ ...current, documentos }));
+    return documentos;
   };
 
   const obterAtendimentoIdParaDocumento = async () => {
@@ -4257,10 +4257,12 @@ export default function AtendimentoPage() {
       });
       const documento = response.data as DocumentoAtendimento;
       mergeDocumentoClinico(documento);
-      setDocumentoClinicoForm(hydrateDocumentoForm(documento));
+      const documentosAtualizados = await recarregarDocumentosAtendimento(atendimentoId);
+      const documentoPersistido = documentosAtualizados.find((item) => item.id === documento.id) || documento;
+      setDocumentoClinicoForm(hydrateDocumentoForm(documentoPersistido));
       setSucesso("Documento criado a partir do template.");
       setErro("");
-      return documento;
+      return documentoPersistido;
     } catch (e: any) {
       setErro(e?.response?.data?.detail || "Erro ao criar documento.");
       return null;
@@ -4293,12 +4295,14 @@ export default function AtendimentoPage() {
         : await api.post(`/atendimentos/${atendimentoId}/documentos`, payload);
       const documento = response.data as DocumentoAtendimento;
       mergeDocumentoClinico(documento);
-      setDocumentoClinicoForm(hydrateDocumentoForm(documento));
+      const documentosAtualizados = await recarregarDocumentosAtendimento(atendimentoId);
+      const documentoPersistido = documentosAtualizados.find((item) => item.id === documento.id) || documento;
+      setDocumentoClinicoForm(hydrateDocumentoForm(documentoPersistido));
       if (!options?.quiet) {
         setSucesso("Documento salvo com sucesso.");
       }
       setErro("");
-      return documento;
+      return documentoPersistido;
     } catch (e: any) {
       setErro(e?.response?.data?.detail || "Erro ao salvar documento.");
       return null;
@@ -4341,8 +4345,10 @@ export default function AtendimentoPage() {
         emitido_at: new Date().toISOString(),
       };
       mergeDocumentoClinico(emitido);
+      const documentosAtualizados = await recarregarDocumentosAtendimento(documentoParaPdf.atendimento_id);
+      const documentoPersistido = documentosAtualizados.find((item) => item.id === documentoParaPdf.id) || emitido;
       if (documentoClinicoForm.id === documentoParaPdf.id) {
-        setDocumentoClinicoForm(hydrateDocumentoForm(emitido));
+        setDocumentoClinicoForm(hydrateDocumentoForm(documentoPersistido));
       }
       setSucesso("PDF do documento gerado com sucesso.");
       setErro("");
@@ -4357,7 +4363,7 @@ export default function AtendimentoPage() {
     if (!confirm(`Remover o documento "${documento.titulo}"?`)) return;
     try {
       await api.delete(`/atendimentos/${documento.atendimento_id}/documentos/${documento.id}`);
-      removerDocumentoClinicoDoFormulario(documento.id);
+      await recarregarDocumentosAtendimento(documento.atendimento_id);
       if (documentoClinicoForm.id === documento.id) {
         setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
       }
