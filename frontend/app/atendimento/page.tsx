@@ -686,6 +686,61 @@ const formatarCepVisual = (valor: string) => {
   return `${cep.slice(0, 5)}-${cep.slice(5)}`;
 };
 
+const parseIdadeInformadaParaMeses = (valor: string): number | null => {
+  const texto = String(valor || "").trim();
+  if (!texto) return null;
+
+  const normalizado = texto
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(",", ".")
+    .replace(/\s+/g, " ");
+
+  const numeroIsolado = /^(\d+(?:\.\d+)?)$/.exec(normalizado);
+  if (numeroIsolado) {
+    const anos = Number(numeroIsolado[1]);
+    if (!Number.isFinite(anos) || anos < 0) return null;
+    return Math.max(0, Math.round(anos * 12));
+  }
+
+  let mesesTotais = 0;
+  let encontrouAlgum = false;
+
+  const anosRegex = /(\d+(?:\.\d+)?)\s*(?:a|ano|anos)\b/g;
+  for (const match of normalizado.matchAll(anosRegex)) {
+    const anos = Number(match[1]);
+    if (!Number.isFinite(anos) || anos < 0) continue;
+    mesesTotais += Math.round(anos * 12);
+    encontrouAlgum = true;
+  }
+
+  const mesesRegex = /(\d+(?:\.\d+)?)\s*(?:m|mes|meses)\b/g;
+  for (const match of normalizado.matchAll(mesesRegex)) {
+    const meses = Number(match[1]);
+    if (!Number.isFinite(meses) || meses < 0) continue;
+    mesesTotais += Math.round(meses);
+    encontrouAlgum = true;
+  }
+
+  if (!encontrouAlgum) return null;
+  return Math.max(0, mesesTotais);
+};
+
+const calcularDataNascimentoEstimadaPorIdade = (idadeInformada: string): string | null => {
+  const meses = parseIdadeInformadaParaMeses(idadeInformada);
+  if (meses == null) return null;
+
+  const base = new Date();
+  const nascimentoEstimado = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+  nascimentoEstimado.setMonth(nascimentoEstimado.getMonth() - meses);
+
+  const ano = nascimentoEstimado.getFullYear();
+  const mes = String(nascimentoEstimado.getMonth() + 1).padStart(2, "0");
+  const dia = String(nascimentoEstimado.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+};
+
 const emptyPacienteDetalhe = (): PacienteDetalhe => ({
   id: null,
   nome: "",
@@ -2753,7 +2808,15 @@ export default function AtendimentoPage() {
       ...prev,
       paciente: {
         ...prev.paciente,
-        [field]: value,
+        ...(field === "idade"
+          ? {
+              idade: String(value ?? ""),
+              data_nascimento:
+                calcularDataNascimentoEstimadaPorIdade(String(value ?? "")) ||
+                prev.paciente.data_nascimento ||
+                "",
+            }
+          : { [field]: value }),
       },
     }));
   };

@@ -12,3 +12,4 @@
 10. Atualizar endpoints de criação/PDF de documentos para consumir service mantendo contrato.
 11. Executar testes focados de painéis, frases clínicas e documentos para validar não-regressão.
 12. Publicar evidências no verify.
+13. Ajustar card de complementação cadastral para aceitar idade informada e estimar data de nascimento automaticamente.

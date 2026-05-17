@@ -13,6 +13,7 @@
 - RF-10: mover lógica de contexto/renderização de templates de documentos para service dedicado.
 - RF-11: manter fluxo de criação/PDF de documentos sem alteração de comportamento.
 - RF-12: garantir sincronização da lista de documentos no frontend após criar/salvar/emitir PDF/excluir.
+- RF-13: permitir entrada de idade informada no card de complementação cadastral e estimar automaticamente a data de nascimento.
 
 ## Requisitos não funcionais
 - RNF-01: refactor sem regressão funcional nas rotas de painéis customizados.

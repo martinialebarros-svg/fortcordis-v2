@@ -14,4 +14,5 @@
 5. Endpoints de documentos de atendimento (listar/atualizar/excluir) continuam operando sem mudança de contrato.
 6. Fluxo de criação/PDF de documentos continua operando sem mudança de comportamento.
 7. Lista de documentos no frontend permanece consistente após criar/salvar/emitir PDF/excluir.
-8. Refactor isolado sem impacto em arquivos não relacionados.
+8. Complementação cadastral permite idade informada e preenche data de nascimento estimada automaticamente.
+9. Refactor isolado sem impacto em arquivos não relacionados.
