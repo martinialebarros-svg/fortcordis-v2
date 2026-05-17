@@ -5817,8 +5817,8 @@ export default function AtendimentoPage() {
           </div>
         </section>
 
-        <div className={isPrescricaoWorkspace ? "grid grid-cols-1 gap-6" : "grid grid-cols-1 gap-6 xl:grid-cols-12"}>
-          {!isPrescricaoWorkspace ? (
+        <div className={isPrescricaoWorkspace || isBibliotecasWorkspace ? "grid grid-cols-1 gap-6" : "grid grid-cols-1 gap-6 xl:grid-cols-12"}>
+          {!isPrescricaoWorkspace && !isBibliotecasWorkspace ? (
           <div className="self-start xl:col-span-3">
             <div className="space-y-6 xl:sticky xl:top-6">
               <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
@@ -6069,7 +6069,7 @@ export default function AtendimentoPage() {
           </div>
           ) : null}
 
-          <div className={isPrescricaoWorkspace ? "" : "xl:col-span-9"}>
+          <div className={isPrescricaoWorkspace || isBibliotecasWorkspace ? "" : "xl:col-span-9"}>
             <div className={workspaceGridClass}>
               <div className="space-y-6">
                 {!isPrescricaoWorkspace ? (

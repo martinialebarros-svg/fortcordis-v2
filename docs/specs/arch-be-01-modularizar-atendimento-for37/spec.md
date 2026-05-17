@@ -19,6 +19,7 @@
 - RF-16: tornar salvamento do cadastro complementar resiliente a falha pontual no update do tutor.
 - RF-17: persistir e reidratar campos complementares do tutor (cpf, cep, endereco, numero, complemento, bairro, cidade, estado) no backend para evitar perda dos dados após salvar.
 - RF-18: ajustar responsividade da aba Bibliotecas para evitar cards estreitos e sobreposição de controles no banco de frases/medicamentos.
+- RF-19: no workspace Bibliotecas, ocultar a coluna lateral de casos e exibir os bancos em largura principal completa.
 
 ## Requisitos não funcionais
 - RNF-01: refactor sem regressão funcional nas rotas de painéis customizados.

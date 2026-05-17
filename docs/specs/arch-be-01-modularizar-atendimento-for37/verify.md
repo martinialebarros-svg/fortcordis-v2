@@ -24,3 +24,4 @@
 13. Campos complementares do tutor permanecem salvos e retornam no reload do cadastro complementar.
 14. Refactor isolado sem impacto em arquivos não relacionados.
 15. Aba Bibliotecas mantém layout legível sem sobreposição de badges/ações em largura intermediária.
+16. Workspace Bibliotecas ocupa coluna principal completa, sem herdar compressão da sidebar de casos.
