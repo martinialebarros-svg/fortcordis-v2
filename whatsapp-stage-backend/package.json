@@ -12,7 +12,8 @@
     "start": "node dist/index.js",
     "migrate": "ts-node src/db/migrate.ts",
     "smoke": "bash scripts/smoke-tests.sh",
-    "test:whatsapp-retry": "ts-node scripts/test-whatsapp-retry.ts"
+    "test:whatsapp-retry": "ts-node scripts/test-whatsapp-retry.ts",
+    "test:auth-policy": "ts-node --transpile-only scripts/test-auth-policy.ts"
   },
   "dependencies": {
     "axios": "^1.8.4",

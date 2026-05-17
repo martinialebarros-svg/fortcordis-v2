@@ -104,6 +104,8 @@ docker-compose up -d --build
 - Rotas protegidas: `/conversations*` e `/agents*`.
 - A API aceita `Authorization: Bearer <token>` e valida o usuario no backend principal via `GET ${API_BACKEND_URL}/api/v1/auth/me`.
 - Opcionalmente, automacoes podem usar `X-WhatsApp-Internal-Token` quando `WHATSAPP_INTERNAL_API_TOKEN` estiver configurado.
+- Guardrail de producao: se `NODE_ENV/APP_ENV` indicar producao e `WHATSAPP_API_AUTH_ENABLED=false`, o processo falha no startup por padrao.
+- Override excepcional: `WHATSAPP_ENFORCE_AUTH_IN_PRODUCTION=false` (nao recomendado).
 - ACL por papel (opcional):
 - `WHATSAPP_ALLOWED_PAPEIS` para leituras (`GET/HEAD/OPTIONS`).
 - `WHATSAPP_WRITE_ALLOWED_PAPEIS` para escritas (`POST/PUT/PATCH/DELETE`).

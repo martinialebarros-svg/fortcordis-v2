@@ -1,5 +1,6 @@
 import "dotenv/config";
 import app from "./app";
+import { assertWhatsAppAuthPolicyOrThrow } from "./middleware/auth";
 import { closeDbPool, ensureDbConnection } from "./services/dbService";
 import { logger } from "./utils/logger";
 
@@ -42,6 +43,7 @@ function errorToMeta(error: unknown): Record<string, unknown> {
 }
 
 async function start(): Promise<void> {
+  assertWhatsAppAuthPolicyOrThrow();
   await ensureDbConnection();
 
   app.listen(port, () => {

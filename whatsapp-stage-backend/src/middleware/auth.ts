@@ -15,6 +15,13 @@ interface CoreApiUser {
   papeis?: CoreApiRole[];
 }
 
+interface AuthRuntimePolicy {
+  environment: string;
+  isProduction: boolean;
+  authEnabled: boolean;
+  enforceAuthInProduction: boolean;
+}
+
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) {
     return fallback;
@@ -30,6 +37,39 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   }
 
   return fallback;
+}
+
+function normalizeEnvironment(value: string | undefined): string {
+  return (value || "").trim().toLowerCase();
+}
+
+function isProductionEnvironment(env: NodeJS.ProcessEnv): boolean {
+  const candidates = [
+    normalizeEnvironment(env.NODE_ENV),
+    normalizeEnvironment(env.APP_ENV),
+    normalizeEnvironment(env.ENVIRONMENT),
+    normalizeEnvironment(env.ENV)
+  ];
+  return candidates.some((item) => item === "production" || item === "prod");
+}
+
+export function buildAuthRuntimePolicy(env: NodeJS.ProcessEnv = process.env): AuthRuntimePolicy {
+  const isProduction = isProductionEnvironment(env);
+  const authEnabled = parseBoolean(env.WHATSAPP_API_AUTH_ENABLED, isProduction);
+  const enforceAuthInProduction = parseBoolean(env.WHATSAPP_ENFORCE_AUTH_IN_PRODUCTION, true);
+  const environment =
+    normalizeEnvironment(env.APP_ENV) ||
+    normalizeEnvironment(env.ENVIRONMENT) ||
+    normalizeEnvironment(env.ENV) ||
+    normalizeEnvironment(env.NODE_ENV) ||
+    "development";
+
+  return {
+    environment,
+    isProduction,
+    authEnabled,
+    enforceAuthInProduction
+  };
 }
 
 function parseRoles(value: string | undefined): Set<string> {
@@ -89,14 +129,21 @@ function isAllowedByRoles(userRoles: Set<string>, requiredRoles: Set<string>): b
 }
 
 const apiBackendUrl = (process.env.API_BACKEND_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
-const authEnabled = parseBoolean(
-  process.env.WHATSAPP_API_AUTH_ENABLED,
-  process.env.NODE_ENV === "production"
-);
+const authPolicy = buildAuthRuntimePolicy(process.env);
+const authEnabled = authPolicy.authEnabled;
 const allowedRoles = parseRoles(process.env.WHATSAPP_ALLOWED_PAPEIS);
 const writeAllowedRoles = parseRoles(process.env.WHATSAPP_WRITE_ALLOWED_PAPEIS);
 const internalApiToken = (process.env.WHATSAPP_INTERNAL_API_TOKEN || "").trim();
 let warnedAuthDisabled = false;
+
+export function assertWhatsAppAuthPolicyOrThrow(env: NodeJS.ProcessEnv = process.env): void {
+  const policy = buildAuthRuntimePolicy(env);
+  if (policy.isProduction && policy.enforceAuthInProduction && !policy.authEnabled) {
+    throw new Error(
+      "Unsafe WhatsApp auth policy: WHATSAPP_API_AUTH_ENABLED=false em ambiente de producao."
+    );
+  }
+}
 
 async function fetchCurrentUser(authorizationHeader: string): Promise<CoreApiUser> {
   const response = await axios.get<CoreApiUser>(`${apiBackendUrl}/api/v1/auth/me`, {
@@ -114,7 +161,7 @@ export async function requireApiAuth(req: Request, res: Response, next: NextFunc
     if (!warnedAuthDisabled) {
       warnedAuthDisabled = true;
       logger.warn("WhatsApp API auth is disabled for protected routes", {
-        nodeEnv: process.env.NODE_ENV ?? "undefined"
+        environment: authPolicy.environment
       });
     }
 
