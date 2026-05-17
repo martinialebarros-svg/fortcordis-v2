@@ -73,3 +73,7 @@ Se houver falha:
 1. Corrigir env em `/var/www/fortcordis-stage/whatsapp-stage-backend/.env`.
 2. Reiniciar service `fortcordis-stage-whatsapp-backend`.
 3. Reexecutar `RUN_SMOKE=1 bash scripts/whatsapp_stage_preflight.sh`.
+
+Para tratamento de incidente em producao/stage (API, auth, webhook, backlog), consultar:
+
+- `docs/WHATSAPP-INCIDENT-RUNBOOK.md`

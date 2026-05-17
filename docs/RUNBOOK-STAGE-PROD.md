@@ -31,6 +31,13 @@ cd /var/www/fortcordis-stage
 RUN_SMOKE=1 bash scripts/whatsapp_stage_preflight.sh
 ```
 
+Incidente operacional WhatsApp (API/auth/webhook/cleanup):
+
+```bash
+# Referencia de resposta operacional
+cat docs/WHATSAPP-INCIDENT-RUNBOOK.md
+```
+
 ### 3) VPS Prod: deploy padronizado
 
 ```bash

@@ -28,6 +28,8 @@ Para orientacoes de deploy e runbook:
 
 - `README-DEPLOY.md`
 - `docs/RUNBOOK-STAGE-PROD.md`
+- `docs/WHATSAPP-STAGE-PREFLIGHT.md`
+- `docs/WHATSAPP-INCIDENT-RUNBOOK.md`
 
 ## Fluxo SDD (Spec Driven Development)
 
