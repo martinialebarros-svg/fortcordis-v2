@@ -80,6 +80,7 @@ API sobe em `http://localhost:3000` por padrao.
 - Mensagens inbound usam `ON CONFLICT (wa_message_id) DO NOTHING`.
 - Status inbound atualiza `messages.status` e grava historico em `message_status_events`.
 - Claim/unclaim usa transacao + lock da conversa para reduzir race conditions.
+- Cleanup automatico de `webhook_events` com janela de retencao configuravel e metrica de execucao em `webhook_event_cleanup_runs`.
 
 ## Rodar tudo via Docker Compose (opcional)
 
@@ -89,6 +90,7 @@ docker-compose up -d --build
 
 ## Endpoints principais
 
+- `GET /health` (inclui estado do worker de cleanup em `observability.webhookEventsCleanup`)
 - `GET /webhook` (verificacao Meta)
 - `POST /webhook` (mensagens/status/contacts com `X-Hub-Signature-256`)
 - `GET /conversations`
@@ -164,4 +166,9 @@ npm run test:whatsapp-retry
 
 - `POST /webhook` exige assinatura valida por padrao.
 - Para debug local sem assinatura (nao recomendado), use `WEBHOOK_ALLOW_UNSIGNED=true` no `.env`.
+- Retencao de eventos webhook:
+  - `WHATSAPP_WEBHOOK_EVENTS_CLEANUP_ENABLED` (default `true`)
+  - `WHATSAPP_WEBHOOK_EVENTS_RETENTION_DAYS` (default `30`)
+  - `WHATSAPP_WEBHOOK_EVENTS_CLEANUP_INTERVAL_MINUTES` (default `60`)
+  - `WHATSAPP_WEBHOOK_EVENTS_CLEANUP_BATCH_SIZE` (default `2000`)
 - TODO: validar constraints `NOT VALID` de `audit_logs` em janela de manutencao.

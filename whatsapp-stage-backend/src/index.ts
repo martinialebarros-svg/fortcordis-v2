@@ -2,6 +2,10 @@ import "dotenv/config";
 import app from "./app";
 import { assertWhatsAppAuthPolicyOrThrow } from "./middleware/auth";
 import { closeDbPool, ensureDbConnection } from "./services/dbService";
+import {
+  shutdownWebhookEventsCleanupWorker,
+  startWebhookEventsCleanupWorker
+} from "./services/webhookEventsCleanupService";
 import { logger } from "./utils/logger";
 
 const requiredEnvVars = [
@@ -45,14 +49,34 @@ function errorToMeta(error: unknown): Record<string, unknown> {
 async function start(): Promise<void> {
   assertWhatsAppAuthPolicyOrThrow();
   await ensureDbConnection();
+  startWebhookEventsCleanupWorker();
 
   app.listen(port, () => {
     logger.info(`WhatsApp stage backend running on port ${port}`);
   });
 }
 
+function setupProcessSignalHandlers(): void {
+  const shutdown = async (signal: string) => {
+    logger.info(`Received ${signal}, shutting down WhatsApp stage backend.`);
+    shutdownWebhookEventsCleanupWorker();
+    await closeDbPool();
+    process.exit(0);
+  };
+
+  process.once("SIGINT", () => {
+    void shutdown("SIGINT");
+  });
+  process.once("SIGTERM", () => {
+    void shutdown("SIGTERM");
+  });
+}
+
+setupProcessSignalHandlers();
+
 void start().catch(async (error: Error) => {
   logger.error("Failed to start server", errorToMeta(error));
+  shutdownWebhookEventsCleanupWorker();
   await closeDbPool();
   process.exit(1);
 });

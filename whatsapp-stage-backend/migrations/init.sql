@@ -84,6 +84,20 @@ CREATE TABLE IF NOT EXISTS webhook_events (
   CONSTRAINT webhook_events_payload_hash_key UNIQUE (payload_hash)
 );
 
+-- webhook_event_cleanup_runs
+CREATE TABLE IF NOT EXISTS webhook_event_cleanup_runs (
+  id BIGSERIAL PRIMARY KEY,
+  executor VARCHAR(20) NOT NULL,
+  status VARCHAR(20) NOT NULL,
+  retention_days INTEGER NOT NULL,
+  deleted_rows INTEGER NOT NULL DEFAULT 0,
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  error_message TEXT,
+  started_at TIMESTAMPTZ NOT NULL,
+  finished_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- normalize duplicated conversations by phone (preserve oldest row)
 WITH ranked_phone AS (
   SELECT
@@ -428,3 +442,7 @@ CREATE INDEX IF NOT EXISTS idx_webhook_events_status_received_at
   ON webhook_events(processing_status, received_at);
 CREATE INDEX IF NOT EXISTS idx_webhook_events_received_at_desc
   ON webhook_events(received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_webhook_event_cleanup_runs_created_at_desc
+  ON webhook_event_cleanup_runs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_webhook_event_cleanup_runs_status_created_at
+  ON webhook_event_cleanup_runs(status, created_at DESC);

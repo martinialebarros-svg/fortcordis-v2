@@ -8,6 +8,7 @@ import {
 } from "./controllers/conversationsController";
 import { createAgent, listAgents } from "./controllers/agentsController";
 import { receiveWebhook, verifyWebhook } from "./controllers/webhookController";
+import { getWebhookEventsCleanupRuntimeState } from "./services/webhookEventsCleanupService";
 import { logger } from "./utils/logger";
 import { requireApiAuth } from "./middleware/auth";
 
@@ -22,7 +23,12 @@ app.use(
 );
 
 app.get("/health", (_req: Request, res: Response) => {
-  res.json({ status: "ok" });
+  res.json({
+    status: "ok",
+    observability: {
+      webhookEventsCleanup: getWebhookEventsCleanupRuntimeState()
+    }
+  });
 });
 
 app.get("/webhook", verifyWebhook);
