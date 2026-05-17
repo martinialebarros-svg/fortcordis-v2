@@ -13,4 +13,5 @@
 4. Endpoints de templates de documentos continuam operando sem mudança de contrato.
 5. Endpoints de documentos de atendimento (listar/atualizar/excluir) continuam operando sem mudança de contrato.
 6. Fluxo de criação/PDF de documentos continua operando sem mudança de comportamento.
-7. Refactor isolado sem impacto em arquivos não relacionados.
+7. Lista de documentos no frontend permanece consistente após criar/salvar/emitir PDF/excluir.
+8. Refactor isolado sem impacto em arquivos não relacionados.
