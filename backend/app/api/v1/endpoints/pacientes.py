@@ -442,6 +442,14 @@ def obter_tutor_paciente(
         "telefone": tutor.telefone,
         "whatsapp": tutor.whatsapp,
         "email": tutor.email,
+        "cpf": tutor.cpf,
+        "cep": tutor.cep,
+        "endereco": tutor.endereco,
+        "numero": tutor.numero,
+        "complemento": tutor.complemento,
+        "bairro": tutor.bairro,
+        "cidade": tutor.cidade,
+        "estado": tutor.estado,
     }
 
 

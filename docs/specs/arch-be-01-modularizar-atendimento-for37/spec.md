@@ -17,6 +17,7 @@
 - RF-14: aplicar máscara de CPF no card de complementação cadastral (formato 000.000.000-00).
 - RF-15: corrigir sobreposição visual no bloco de raça/idade e ajustar textos corrompidos na UI de atendimento/bibliotecas.
 - RF-16: tornar salvamento do cadastro complementar resiliente a falha pontual no update do tutor.
+- RF-17: persistir e reidratar campos complementares do tutor (cpf, cep, endereco, numero, complemento, bairro, cidade, estado) no backend para evitar perda dos dados após salvar.
 
 ## Requisitos não funcionais
 - RNF-01: refactor sem regressão funcional nas rotas de painéis customizados.

@@ -5,6 +5,7 @@
 - `cd backend && venv/bin/python -m unittest tests/test_exam_catalog_service.py`
 - `cd backend && venv/bin/python -m unittest tests/test_clinical_phrase_service.py`
 - `cd backend && venv/bin/python -m unittest tests/test_atendimento_documentos.py`
+- `cd backend && venv/bin/python -m unittest tests/test_tutor_complementar_persistencia.py`
 
 ## Criterios
 1. Endpoints de painéis customizados continuam operando sem mudança de contrato.
@@ -19,4 +20,5 @@
 10. Bloco de raça/idade não apresenta sobreposição de botões/campos em viewport desktop.
 11. Textos da UI de atendimento/bibliotecas não apresentam caracteres corrompidos.
 12. Salvar cadastro complementar permanece funcional mesmo com falha não crítica no update de tutor.
-13. Refactor isolado sem impacto em arquivos não relacionados.
+13. Campos complementares do tutor permanecem salvos e retornam no reload do cadastro complementar.
+14. Refactor isolado sem impacto em arquivos não relacionados.

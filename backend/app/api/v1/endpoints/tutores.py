@@ -37,6 +37,14 @@ class TutorCreate(BaseModel):
     telefone: Optional[str] = None
     whatsapp: Optional[str] = None
     email: Optional[str] = None
+    cpf: Optional[str] = None
+    cep: Optional[str] = None
+    endereco: Optional[str] = None
+    numero: Optional[str] = None
+    complemento: Optional[str] = None
+    bairro: Optional[str] = None
+    cidade: Optional[str] = None
+    estado: Optional[str] = None
 
 
 class TutorUpdate(BaseModel):
@@ -44,6 +52,14 @@ class TutorUpdate(BaseModel):
     telefone: Optional[str] = None
     whatsapp: Optional[str] = None
     email: Optional[str] = None
+    cpf: Optional[str] = None
+    cep: Optional[str] = None
+    endereco: Optional[str] = None
+    numero: Optional[str] = None
+    complemento: Optional[str] = None
+    bairro: Optional[str] = None
+    cidade: Optional[str] = None
+    estado: Optional[str] = None
 
 
 @router.get("")
@@ -99,6 +115,14 @@ def criar_tutor(
         telefone=tutor.telefone,
         whatsapp=tutor.whatsapp or tutor.telefone,
         email=tutor.email,
+        cpf=tutor.cpf,
+        cep=tutor.cep,
+        endereco=tutor.endereco,
+        numero=tutor.numero,
+        complemento=tutor.complemento,
+        bairro=tutor.bairro,
+        cidade=tutor.cidade,
+        estado=tutor.estado,
         ativo=1,
         created_at=_legacy_now_dt(),
     )
@@ -144,7 +168,15 @@ def obter_tutor(
         "nome": tutor.nome,
         "telefone": tutor.telefone,
         "whatsapp": tutor.whatsapp,
-        "email": tutor.email
+        "email": tutor.email,
+        "cpf": tutor.cpf,
+        "cep": tutor.cep,
+        "endereco": tutor.endereco,
+        "numero": tutor.numero,
+        "complemento": tutor.complemento,
+        "bairro": tutor.bairro,
+        "cidade": tutor.cidade,
+        "estado": tutor.estado,
     }
 
 
@@ -170,6 +202,22 @@ def atualizar_tutor(
         db_tutor.whatsapp = tutor.whatsapp
     if tutor.email is not None:
         db_tutor.email = tutor.email
+    if tutor.cpf is not None:
+        db_tutor.cpf = tutor.cpf
+    if tutor.cep is not None:
+        db_tutor.cep = tutor.cep
+    if tutor.endereco is not None:
+        db_tutor.endereco = tutor.endereco
+    if tutor.numero is not None:
+        db_tutor.numero = tutor.numero
+    if tutor.complemento is not None:
+        db_tutor.complemento = tutor.complemento
+    if tutor.bairro is not None:
+        db_tutor.bairro = tutor.bairro
+    if tutor.cidade is not None:
+        db_tutor.cidade = tutor.cidade
+    if tutor.estado is not None:
+        db_tutor.estado = tutor.estado
 
     db.commit()
     db.refresh(db_tutor)
