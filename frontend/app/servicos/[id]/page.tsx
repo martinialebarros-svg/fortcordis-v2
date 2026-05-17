@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import { extractApiErrorMessageSync } from "@/lib/api-error";
 import { Save, ArrowLeft, Wrench, Trash2, AlertTriangle, MapPin, Clock, DollarSign, Sun, Moon } from "lucide-react";
 
 interface Precos {
@@ -69,7 +70,7 @@ export default function EditarServicoPage() {
       });
     } catch (error) {
       console.error("Erro ao carregar servico:", error);
-      alert("Erro ao carregar dados do servico");
+      alert(extractApiErrorMessageSync(error, "Erro ao carregar dados do serviço."));
       router.push("/servicos");
     } finally {
       setLoading(false);
@@ -113,9 +114,9 @@ export default function EditarServicoPage() {
       await api.put(`/servicos/${servicoId}`, payload);
       alert("Serviço atualizado com sucesso!");
       router.push("/servicos");
-    } catch (error: any) {
+    } catch (error) {
       console.error("Erro ao salvar servico:", error);
-      alert("Erro ao atualizar serviço: " + (error.response?.data?.detail || error.message));
+      alert(`Erro ao atualizar serviço: ${extractApiErrorMessageSync(error, "Falha ao atualizar serviço.")}`);
     } finally {
       setSaving(false);
     }
@@ -128,7 +129,7 @@ export default function EditarServicoPage() {
       router.push("/servicos");
     } catch (error) {
       console.error("Erro ao excluir servico:", error);
-      alert("Erro ao excluir serviço");
+      alert(extractApiErrorMessageSync(error, "Erro ao excluir serviço."));
     }
   };
 

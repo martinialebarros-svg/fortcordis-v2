@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import { extractApiErrorMessageSync } from "@/lib/api-error";
 import { Save, ArrowLeft, Wrench, MapPin, Clock, DollarSign, Sun, Moon } from "lucide-react";
 
 interface Precos {
@@ -87,9 +88,9 @@ export default function NovoServicoPage() {
       await api.post("/servicos", payload);
       alert("Serviço cadastrado com sucesso!");
       router.push("/servicos");
-    } catch (error: any) {
+    } catch (error) {
       console.error("Erro ao salvar serviço:", error);
-      alert("Erro ao cadastrar serviço: " + (error.response?.data?.detail || error.message));
+      alert(`Erro ao cadastrar serviço: ${extractApiErrorMessageSync(error, "Falha ao cadastrar serviço.")}`);
     } finally {
       setLoading(false);
     }

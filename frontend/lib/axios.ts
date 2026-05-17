@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { extractApiErrorMessage } from './api-error';
 
 const SAFE_METHODS = new Set(['get', 'head', 'options', 'trace']);
 
@@ -51,7 +52,12 @@ api.interceptors.request.use(
 // Interceptor para tratamento de erros de autenticação
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const normalizedMessage = await extractApiErrorMessage(error, "Erro de comunicacao com o servidor.");
+    if (error && typeof error === "object") {
+      (error as { userMessage?: string }).userMessage = normalizedMessage;
+    }
+
     if (error.response?.status === 401) {
       // Sessao expirada/invalidada.
       if (typeof window !== 'undefined') {

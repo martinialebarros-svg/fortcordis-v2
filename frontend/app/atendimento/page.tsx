@@ -5,7 +5,18 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { extractApiErrorMessage, extractApiErrorMessageSync } from "@/lib/api-error";
 import { extrairIdadePaciente } from "@/lib/paciente";
+import {
+  ATENDIMENTOS_LIST_LIMIT,
+  PRESCRICAO_PRESETS_STORAGE_KEY,
+  calcularDataNascimentoEstimadaPorIdade,
+  formatarCepVisual,
+  formatarCpfVisual,
+  normalizarCep,
+  normalizarCpf,
+} from "@/lib/atendimento-cadastro";
+import { PROTOCOLOS_PRESCRICAO } from "@/lib/atendimento-prescricao-protocolos";
 import {
   addRacaCustomPorEspecie,
   getRacaOptions,
@@ -326,27 +337,6 @@ type PrescricaoCalculo = {
   comprimidos: number | null;
 };
 
-type ProtocoloPrescricaoItem = {
-  nomeFallback: string;
-  keywords: string[];
-  doseMgKg?: number;
-  frequencia: string;
-  duracao: string;
-  via?: string;
-  instrucoes?: string;
-  unidadeCalculo?: "mg" | "ml" | "comprimido";
-};
-
-type ProtocoloPrescricao = {
-  key: string;
-  label: string;
-  descricao: string;
-  gatilhos: string[];
-  retornoDias?: string;
-  orientacoesPadrao?: string;
-  itens: ProtocoloPrescricaoItem[];
-};
-
 type PacienteDetalhe = {
   id?: number | null;
   nome: string;
@@ -570,184 +560,6 @@ const CONSULTA_EDITOR_ETAPAS: Array<{
     campos: ["plano_terapeutico", "retorno_recomendado", "motivo_retorno", "observacoes"],
   },
 ];
-
-const PROTOCOLOS_PRESCRICAO: ProtocoloPrescricao[] = [
-  {
-    key: "endocardiose_b1",
-    label: "Endocardiose B1",
-    descricao: "Monitorizacao sem terapia agressiva inicial.",
-    gatilhos: ["b1", "endocardiose b1", "dmvm b1", "endocardiose mitral b1"],
-    retornoDias: "120",
-    orientacoesPadrao:
-      "Manter acompanhamento clinico e ecocardiografico periodico. Registrar tosse, intolerancia ao exercicio e FR em repouso.",
-    itens: [],
-  },
-  {
-    key: "endocardiose_b2",
-    label: "Endocardiose B2",
-    descricao: "Suporte cardiaco precoce com remodelamento.",
-    gatilhos: ["b2", "endocardiose b2", "dmvm b2", "remodelamento atrial"],
-    retornoDias: "30",
-    orientacoesPadrao:
-      "Reavaliar com ECO e aferir FR em repouso diariamente. Ajustar terapia se houver progressao clinica.",
-    itens: [
-      {
-        nomeFallback: "Pimobendan",
-        keywords: ["pimobendan", "vetmedin"],
-        doseMgKg: 0.25,
-        frequencia: "a cada 12h",
-        duracao: "uso continuo",
-        via: "Oral",
-        instrucoes: "Administrar em jejum quando possivel.",
-      },
-      {
-        nomeFallback: "Benazepril",
-        keywords: ["benazepril"],
-        doseMgKg: 0.5,
-        frequencia: "a cada 24h",
-        duracao: "uso continuo",
-        via: "Oral",
-        instrucoes: "Monitorar creatinina e pressao arterial.",
-      },
-    ],
-  },
-  {
-    key: "icc_compensada",
-    label: "ICC compensada",
-    descricao: "Controle de congestao e remodelamento.",
-    gatilhos: ["icc", "insuficiencia cardiaca", "congestao", "edema pulmonar"],
-    retornoDias: "7",
-    orientacoesPadrao:
-      "Monitorar FR em repouso, apetite e tolerancia ao exercicio. Retorno imediato se dispneia ou piora clinica.",
-    itens: [
-      {
-        nomeFallback: "Furosemida",
-        keywords: ["furosemida", "furosemide"],
-        doseMgKg: 2,
-        frequencia: "a cada 12h",
-        duracao: "7 dias e reavaliar",
-        via: "Oral",
-        instrucoes: "Ajustar conforme congestao e funcao renal.",
-      },
-      {
-        nomeFallback: "Pimobendan",
-        keywords: ["pimobendan", "vetmedin"],
-        doseMgKg: 0.25,
-        frequencia: "a cada 12h",
-        duracao: "uso continuo",
-        via: "Oral",
-      },
-      {
-        nomeFallback: "Espironolactona",
-        keywords: ["espironolactona", "spironolactone"],
-        doseMgKg: 2,
-        frequencia: "a cada 24h",
-        duracao: "uso continuo",
-        via: "Oral",
-      },
-    ],
-  },
-  {
-    key: "hipertensao_sistemica",
-    label: "HAS sistemica",
-    descricao: "Controle pressorico com revisao seriada.",
-    gatilhos: ["hipertensao", "has", "pressao arterial elevada"],
-    retornoDias: "14",
-    orientacoesPadrao:
-      "Aferir pressao arterial em ambiente calmo e registrar media de medidas sequenciais.",
-    itens: [
-      {
-        nomeFallback: "Amlodipina",
-        keywords: ["amlodipina", "amlodipine"],
-        doseMgKg: 0.15,
-        frequencia: "a cada 24h",
-        duracao: "uso continuo",
-        via: "Oral",
-      },
-      {
-        nomeFallback: "Benazepril",
-        keywords: ["benazepril"],
-        doseMgKg: 0.5,
-        frequencia: "a cada 24h",
-        duracao: "uso continuo",
-        via: "Oral",
-      },
-    ],
-  },
-];
-
-const PRESCRICAO_PRESETS_STORAGE_KEY = "fortcordis:atendimento:prescricao-presets:v1";
-const ATENDIMENTOS_LIST_LIMIT = 30;
-
-const normalizarCep = (valor: string) => valor.replace(/\D/g, "").slice(0, 8);
-const formatarCepVisual = (valor: string) => {
-  const cep = normalizarCep(valor);
-  if (cep.length <= 5) return cep;
-  return `${cep.slice(0, 5)}-${cep.slice(5)}`;
-};
-const normalizarCpf = (valor: string) => valor.replace(/\D/g, "").slice(0, 11);
-const formatarCpfVisual = (valor: string) => {
-  const cpf = normalizarCpf(valor);
-  if (cpf.length <= 3) return cpf;
-  if (cpf.length <= 6) return `${cpf.slice(0, 3)}.${cpf.slice(3)}`;
-  if (cpf.length <= 9) return `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6)}`;
-  return `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}`;
-};
-
-const parseIdadeInformadaParaMeses = (valor: string): number | null => {
-  const texto = String(valor || "").trim();
-  if (!texto) return null;
-
-  const normalizado = texto
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(",", ".")
-    .replace(/\s+/g, " ");
-
-  const numeroIsolado = /^(\d+(?:\.\d+)?)$/.exec(normalizado);
-  if (numeroIsolado) {
-    const anos = Number(numeroIsolado[1]);
-    if (!Number.isFinite(anos) || anos < 0) return null;
-    return Math.max(0, Math.round(anos * 12));
-  }
-
-  let mesesTotais = 0;
-  let encontrouAlgum = false;
-
-  const anosRegex = /(\d+(?:\.\d+)?)\s*(?:a|ano|anos)\b/g;
-  for (const match of normalizado.matchAll(anosRegex)) {
-    const anos = Number(match[1]);
-    if (!Number.isFinite(anos) || anos < 0) continue;
-    mesesTotais += Math.round(anos * 12);
-    encontrouAlgum = true;
-  }
-
-  const mesesRegex = /(\d+(?:\.\d+)?)\s*(?:m|mes|meses)\b/g;
-  for (const match of normalizado.matchAll(mesesRegex)) {
-    const meses = Number(match[1]);
-    if (!Number.isFinite(meses) || meses < 0) continue;
-    mesesTotais += Math.round(meses);
-    encontrouAlgum = true;
-  }
-
-  if (!encontrouAlgum) return null;
-  return Math.max(0, mesesTotais);
-};
-
-const calcularDataNascimentoEstimadaPorIdade = (idadeInformada: string): string | null => {
-  const meses = parseIdadeInformadaParaMeses(idadeInformada);
-  if (meses == null) return null;
-
-  const base = new Date();
-  const nascimentoEstimado = new Date(base.getFullYear(), base.getMonth(), base.getDate());
-  nascimentoEstimado.setMonth(nascimentoEstimado.getMonth() - meses);
-
-  const ano = nascimentoEstimado.getFullYear();
-  const mes = String(nascimentoEstimado.getMonth() + 1).padStart(2, "0");
-  const dia = String(nascimentoEstimado.getDate()).padStart(2, "0");
-  return `${ano}-${mes}-${dia}`;
-};
 
 const emptyPacienteDetalhe = (): PacienteDetalhe => ({
   id: null,
@@ -993,44 +805,6 @@ const parseDownloadFilename = (contentDisposition: string | undefined, fallback:
   }
   const plainMatch = contentDisposition.match(/filename\s*=\s*"?([^";]+)"?/i);
   if (plainMatch?.[1]) return plainMatch[1].trim();
-  return fallback;
-};
-
-const extractApiErrorMessage = async (error: any, fallback: string) => {
-  const directDetail = error?.response?.data?.detail;
-  if (typeof directDetail === "string" && directDetail.trim()) {
-    return directDetail.trim();
-  }
-
-  const rawData = error?.response?.data;
-  if (typeof rawData === "string" && rawData.trim()) {
-    try {
-      const parsed = JSON.parse(rawData);
-      if (typeof parsed?.detail === "string" && parsed.detail.trim()) {
-        return parsed.detail.trim();
-      }
-    } catch {
-      return rawData.trim();
-    }
-  }
-
-  if (typeof Blob !== "undefined" && rawData instanceof Blob) {
-    try {
-      const text = (await rawData.text()).trim();
-      if (!text) return fallback;
-      try {
-        const parsed = JSON.parse(text);
-        if (typeof parsed?.detail === "string" && parsed.detail.trim()) {
-          return parsed.detail.trim();
-        }
-      } catch {
-        return text;
-      }
-    } catch {
-      return fallback;
-    }
-  }
-
   return fallback;
 };
 
@@ -2049,7 +1823,7 @@ export default function AtendimentoPage() {
           const response = await api.get(`/atendimentos/contexto?agendamento_id=${agendamentoId}`);
           contexto = response.data || {};
         } catch (e: any) {
-          setErro(e?.response?.data?.detail || "Erro ao carregar contexto do agendamento.");
+          setErro(extractApiErrorMessageSync(e, "Erro ao carregar contexto do agendamento."));
           setContextoAplicado(true);
           return;
         }
@@ -2137,7 +1911,7 @@ export default function AtendimentoPage() {
       setClinicalPhrases(rf.data?.frases || []);
       await carregarLista(1);
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao carregar dados de atendimento.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao carregar dados de atendimento."));
     } finally {
       setLoading(false);
     }
@@ -2173,7 +1947,7 @@ export default function AtendimentoPage() {
       setTotalLista(Number(response.data?.total || 0));
       setPaginaLista(safePage);
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao listar atendimentos.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao listar atendimentos."));
     }
   };
 
@@ -2746,7 +2520,7 @@ export default function AtendimentoPage() {
       }
       setErro("");
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao abrir atendimento.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao abrir atendimento."));
     }
   };
 
@@ -2883,7 +2657,7 @@ export default function AtendimentoPage() {
           : "CEP preenchido pelo ViaCEP."
       );
     } catch (error: any) {
-      const detail = error?.response?.data?.detail || error?.message || "Falha ao consultar CEP.";
+      const detail = extractApiErrorMessageSync(error, "Falha ao consultar CEP.");
       setStatusCepTutor(String(detail));
     } finally {
       setBuscandoCepTutor(false);
@@ -2975,7 +2749,7 @@ export default function AtendimentoPage() {
       setSucesso("Cadastro complementar salvo com sucesso.");
       setErro("");
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao salvar cadastro complementar.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao salvar cadastro complementar."));
     } finally {
       setSalvandoCadastroComplementar(false);
     }
@@ -3175,7 +2949,7 @@ export default function AtendimentoPage() {
     } catch (err: any) {
       console.error("Erro ao gerar preview PDF:", err);
       setPrescricaoPreviewPdf(null);
-      const msg = err?.response?.data?.detail || err?.message || "Erro ao gerar preview.";
+      const msg = extractApiErrorMessageSync(err, "Erro ao gerar preview.");
       setPrescricaoPreviewErro(msg);
     } finally {
       setPrescricaoPreviewLoading(false);
@@ -3802,7 +3576,7 @@ export default function AtendimentoPage() {
       if (mode === "autosave") {
         setAutosaveState("error");
       } else {
-        setErro(e?.response?.data?.detail || "Erro ao salvar atendimento.");
+        setErro(extractApiErrorMessageSync(e, "Erro ao salvar atendimento."));
       }
       return null;
     } finally {
@@ -3849,7 +3623,7 @@ export default function AtendimentoPage() {
       await carregarLista(paginaLista);
       setSucesso("Atendimento excluido com sucesso.");
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao excluir atendimento.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao excluir atendimento."));
     }
   };
 
@@ -4179,7 +3953,7 @@ export default function AtendimentoPage() {
         setErro("");
         return false;
       }
-      setErro(e?.response?.data?.detail || "Erro ao enviar arquivo.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao enviar arquivo."));
       return false;
     } finally {
       setUploadingAttachmentKey(null);
@@ -4208,7 +3982,7 @@ export default function AtendimentoPage() {
       setSucesso("Link anexado com sucesso.");
       setErro("");
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao adicionar link do anexo.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao adicionar link do anexo."));
     }
   };
 
@@ -4242,7 +4016,7 @@ export default function AtendimentoPage() {
           window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60_000);
         }
       } catch (e: any) {
-        setErro(e?.response?.data?.detail || "Erro ao abrir anexo.");
+        setErro(extractApiErrorMessageSync(e, "Erro ao abrir anexo."));
       } finally {
         setOpeningAttachmentId(null);
       }
@@ -4274,7 +4048,7 @@ export default function AtendimentoPage() {
       setSucesso("Anexo removido com sucesso.");
       setErro("");
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao excluir anexo.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao excluir anexo."));
     }
   };
 
@@ -4284,7 +4058,7 @@ export default function AtendimentoPage() {
       setDocumentTemplates(response.data?.templates || []);
       return response.data?.templates || [];
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao carregar templates de documentos.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao carregar templates de documentos."));
       return [];
     }
   };
@@ -4347,7 +4121,7 @@ export default function AtendimentoPage() {
       setErro("");
       return documentoPersistido;
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao criar documento.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao criar documento."));
       return null;
     } finally {
       setSalvandoDocumentoClinico(false);
@@ -4387,7 +4161,7 @@ export default function AtendimentoPage() {
       setErro("");
       return documentoPersistido;
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao salvar documento.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao salvar documento."));
       return null;
     } finally {
       setSalvandoDocumentoClinico(false);
@@ -4453,7 +4227,7 @@ export default function AtendimentoPage() {
       setSucesso("Documento removido com sucesso.");
       setErro("");
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao remover documento.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao remover documento."));
     }
   };
 
@@ -4493,7 +4267,7 @@ export default function AtendimentoPage() {
       resetDocumentoTemplateForm();
       setErro("");
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao salvar template de documento.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao salvar template de documento."));
     } finally {
       setSalvandoDocumentoTemplate(false);
     }
@@ -4511,7 +4285,7 @@ export default function AtendimentoPage() {
       await carregarDocumentoTemplates();
       setErro("");
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao alterar template de documento.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao alterar template de documento."));
     }
   };
 
@@ -4522,7 +4296,7 @@ export default function AtendimentoPage() {
       setMedicamentos(items);
       return items;
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao atualizar banco de medicamentos.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao atualizar banco de medicamentos."));
       return [];
     }
   };
@@ -4569,7 +4343,7 @@ export default function AtendimentoPage() {
       setSucesso("Medicamento desativado com sucesso.");
       setErro("");
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao desativar medicamento.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao desativar medicamento."));
     }
   };
 
@@ -4604,7 +4378,7 @@ export default function AtendimentoPage() {
       resetMedicationForm();
       setErro("");
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao salvar medicamento.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao salvar medicamento."));
     }
   };
 
@@ -4656,7 +4430,7 @@ export default function AtendimentoPage() {
       resetClinicalPhraseForm();
       setErro("");
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao salvar frase clinica.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao salvar frase clinica."));
     } finally {
       setSavingClinicalPhrase(false);
     }
@@ -4674,7 +4448,7 @@ export default function AtendimentoPage() {
       await carregarFrasesClinicas();
       setErro("");
     } catch (e: any) {
-      setErro(e?.response?.data?.detail || "Erro ao atualizar status da frase clinica.");
+      setErro(extractApiErrorMessageSync(e, "Erro ao atualizar status da frase clinica."));
     }
   };
 

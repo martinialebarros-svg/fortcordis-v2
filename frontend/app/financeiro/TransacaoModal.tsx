@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { X, DollarSign, Calendar, FileText, Tag, CreditCard } from "lucide-react";
-import axios from "axios";
+import api from "@/lib/axios";
+import { extractApiErrorMessageSync } from "@/lib/api-error";
 
 interface TransacaoModalProps {
   isOpen: boolean;
@@ -122,10 +123,7 @@ export default function TransacaoModal({ isOpen, onClose, onSuccess, transacao }
 
   const carregarPacientes = async () => {
     try {
-      const token = localStorage.getItem("token");
-      const response = await axios.get("/api/v1/pacientes/", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await api.get("/pacientes?limit=1000");
       setPacientes(response.data.items || []);
     } catch (error) {
       console.error("Erro ao carregar pacientes:", error);
@@ -146,8 +144,6 @@ export default function TransacaoModal({ isOpen, onClose, onSuccess, transacao }
     setLoading(true);
 
     try {
-      const token = localStorage.getItem("token");
-      
       const valor = parseFloat(formData.valor);
       const desconto = parseFloat(formData.desconto) || 0;
       
@@ -168,20 +164,16 @@ export default function TransacaoModal({ isOpen, onClose, onSuccess, transacao }
       };
 
       if (isEditando) {
-        await axios.put(`/api/v1/financeiro/transacoes/${transacao.id}`, payload, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        await api.put(`/financeiro/transacoes/${transacao.id}`, payload);
       } else {
-        await axios.post("/api/v1/financeiro/transacoes", payload, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        await api.post("/financeiro/transacoes", payload);
       }
 
       onSuccess();
       onClose();
-    } catch (error: any) {
+    } catch (error) {
       console.error("Erro ao salvar transação:", error);
-      alert("Erro ao salvar transação: " + (error.response?.data?.detail || error.message));
+      alert(`Erro ao salvar transação: ${extractApiErrorMessageSync(error, "Falha ao salvar transação.")}`);
     } finally {
       setLoading(false);
     }
