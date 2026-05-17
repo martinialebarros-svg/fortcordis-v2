@@ -205,6 +205,16 @@ curl -I https://stage.fortcordis.com.br
 4. Criar laudo
 5. Baixar PDF do laudo
 
+### 4.4 Regressao de seguranca (recomendado)
+
+```bash
+bash scripts/security_regression_smoke.sh
+```
+
+Referencia completa:
+
+- `docs/SECURITY-REGRESSION-CHECKLIST.md`
+
 Se falhar:
 
 ```bash
