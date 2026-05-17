@@ -72,6 +72,14 @@ from app.services.atendimento.clinical_phrase_crud_service import (
     desativar_frase_clinica,
     restaurar_frase_clinica,
 )
+from app.services.atendimento.document_template_crud_service import (
+    atualizar_template_documento,
+    criar_template_documento,
+    desativar_template_documento,
+    listar_templates_documento,
+    obter_template_documento_ou_404,
+    restaurar_template_documento,
+)
 from app.services.exam_catalog_service import montar_contexto_catalogo_exames
 from app.services.atendimento.painel_service import (
     CUSTOM_PAINEL_EXAME_PREFIX,
@@ -350,22 +358,6 @@ def _obter_branding_pdf_documento(
     }
 
 
-def _serializar_template_documento(template: DocumentoAtendimentoTemplate) -> dict:
-    return {
-        "id": template.id,
-        "nome": template.nome,
-        "tipo": template.tipo or "documento",
-        "titulo_padrao": template.titulo_padrao or "",
-        "corpo_template": template.corpo_template or "",
-        "ativo": template.ativo,
-        "ordem": template.ordem or 0,
-        "criado_por_id": template.criado_por_id,
-        "criado_por_nome": template.criado_por_nome or "",
-        "created_at": _to_iso(template.created_at),
-        "updated_at": _to_iso(template.updated_at),
-    }
-
-
 def _serializar_documento_atendimento(documento: DocumentoAtendimento) -> dict:
     return {
         "id": documento.id,
@@ -380,13 +372,6 @@ def _serializar_documento_atendimento(documento: DocumentoAtendimento) -> dict:
         "created_at": _to_iso(documento.created_at),
         "updated_at": _to_iso(documento.updated_at),
     }
-
-
-def _obter_template_documento_ou_404(db: Session, template_id: int) -> DocumentoAtendimentoTemplate:
-    template = db.query(DocumentoAtendimentoTemplate).filter(DocumentoAtendimentoTemplate.id == template_id).first()
-    if not template:
-        raise HTTPException(status_code=404, detail="Template de documento nao encontrado.")
-    return template
 
 
 def _obter_documento_atendimento_ou_404(
@@ -2034,27 +2019,11 @@ def listar_templates_documentos_atendimento(
     current_user: User = Depends(get_current_user),
 ):
     _ = current_user
-    query = db.query(DocumentoAtendimentoTemplate)
-    if not include_inactive:
-        query = query.filter(DocumentoAtendimentoTemplate.ativo == 1)
-    if search:
-        termo = f"%{search.strip()}%"
-        query = query.filter(
-            or_(
-                DocumentoAtendimentoTemplate.nome.ilike(termo),
-                DocumentoAtendimentoTemplate.tipo.ilike(termo),
-                DocumentoAtendimentoTemplate.titulo_padrao.ilike(termo),
-            )
-        )
-
-    templates = (
-        query.order_by(
-            DocumentoAtendimentoTemplate.ordem.asc(),
-            DocumentoAtendimentoTemplate.nome.asc(),
-        )
-        .all()
+    return listar_templates_documento(
+        db,
+        include_inactive=include_inactive,
+        search=search,
     )
-    return {"templates": [_serializar_template_documento(template) for template in templates]}
 
 
 @router.post("/documentos/templates", status_code=status.HTTP_201_CREATED)
@@ -2063,36 +2032,12 @@ def criar_template_documento_atendimento(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    nome = (payload.nome or "").strip()
-    titulo = (payload.titulo_padrao or "").strip()
-    corpo = (payload.corpo_template or "").strip()
-    if not nome or not titulo or not corpo:
-        raise HTTPException(status_code=422, detail="Preencha nome, titulo e corpo do template.")
-
-    existente = (
-        db.query(DocumentoAtendimentoTemplate)
-        .filter(DocumentoAtendimentoTemplate.nome == nome)
-        .first()
-    )
-    if existente:
-        raise HTTPException(status_code=409, detail="Ja existe um template com esse nome.")
-
-    template = DocumentoAtendimentoTemplate(
-        nome=nome,
-        tipo=(payload.tipo or "documento").strip() or "documento",
-        titulo_padrao=titulo,
-        corpo_template=corpo,
-        ativo=1 if payload.ativo is None else int(payload.ativo),
-        ordem=payload.ordem or 0,
+    return criar_template_documento(
+        db,
+        payload,
         criado_por_id=current_user.id,
         criado_por_nome=current_user.nome,
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
     )
-    db.add(template)
-    db.commit()
-    db.refresh(template)
-    return _serializar_template_documento(template)
 
 
 @router.put("/documentos/templates/{template_id}")
@@ -2103,35 +2048,7 @@ def atualizar_template_documento_atendimento(
     current_user: User = Depends(get_current_user),
 ):
     _ = current_user
-    template = _obter_template_documento_ou_404(db, template_id)
-    nome = (payload.nome or "").strip()
-    titulo = (payload.titulo_padrao or "").strip()
-    corpo = (payload.corpo_template or "").strip()
-    if not nome or not titulo or not corpo:
-        raise HTTPException(status_code=422, detail="Preencha nome, titulo e corpo do template.")
-
-    duplicado = (
-        db.query(DocumentoAtendimentoTemplate)
-        .filter(
-            DocumentoAtendimentoTemplate.id != template_id,
-            DocumentoAtendimentoTemplate.nome == nome,
-        )
-        .first()
-    )
-    if duplicado:
-        raise HTTPException(status_code=409, detail="Ja existe um template com esse nome.")
-
-    template.nome = nome
-    template.tipo = (payload.tipo or "documento").strip() or "documento"
-    template.titulo_padrao = titulo
-    template.corpo_template = corpo
-    template.ativo = 1 if payload.ativo is None else int(payload.ativo)
-    template.ordem = payload.ordem or 0
-    template.updated_at = datetime.now()
-
-    db.commit()
-    db.refresh(template)
-    return _serializar_template_documento(template)
+    return atualizar_template_documento(db, template_id, payload)
 
 
 @router.delete("/documentos/templates/{template_id}")
@@ -2141,11 +2058,7 @@ def desativar_template_documento_atendimento(
     current_user: User = Depends(get_current_user),
 ):
     _ = current_user
-    template = _obter_template_documento_ou_404(db, template_id)
-    template.ativo = 0
-    template.updated_at = datetime.now()
-    db.commit()
-    return {"message": "Template de documento desativado com sucesso.", "id": template_id}
+    return desativar_template_documento(db, template_id)
 
 
 @router.post("/documentos/templates/{template_id}/restaurar")
@@ -2155,12 +2068,7 @@ def restaurar_template_documento_atendimento(
     current_user: User = Depends(get_current_user),
 ):
     _ = current_user
-    template = _obter_template_documento_ou_404(db, template_id)
-    template.ativo = 1
-    template.updated_at = datetime.now()
-    db.commit()
-    db.refresh(template)
-    return _serializar_template_documento(template)
+    return restaurar_template_documento(db, template_id)
 
 
 @router.get("/{atendimento_id}/documentos")
@@ -2202,7 +2110,7 @@ def criar_documento_atendimento(
     titulo_base = ""
     corpo_base = ""
     if payload.template_id:
-        template = _obter_template_documento_ou_404(db, payload.template_id)
+        template = obter_template_documento_ou_404(db, payload.template_id)
         if template.ativo != 1:
             raise HTTPException(status_code=422, detail="Template inativo nao pode gerar novo documento.")
         titulo_base = _renderizar_template_documento(template.titulo_padrao or "", contexto)

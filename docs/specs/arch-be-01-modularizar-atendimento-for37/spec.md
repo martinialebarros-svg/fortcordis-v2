@@ -6,6 +6,8 @@
 - RF-03: manter suporte à geração de código único, validação de catálogo e serialização de itens.
 - RF-04: mover lógica CRUD de frases clínicas para service dedicado.
 - RF-05: manter respostas e códigos HTTP dos endpoints de `/frases-clinicas*` sem alteração de contrato.
+- RF-06: mover lógica CRUD de templates de documentos para service dedicado.
+- RF-07: manter respostas e códigos HTTP dos endpoints de `/documentos/templates*` sem alteração de contrato.
 
 ## Requisitos não funcionais
 - RNF-01: refactor sem regressão funcional nas rotas de painéis customizados.

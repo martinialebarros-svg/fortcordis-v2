@@ -4,5 +4,7 @@
 2. Atualizar endpoints para consumir service mantendo assinatura e fluxo existentes.
 3. Extrair CRUD de frases clínicas para `app/services/atendimento/clinical_phrase_crud_service.py`.
 4. Atualizar endpoints de frases clínicas para consumir service mantendo contrato.
-5. Executar testes focados de painéis e frases clínicas para validar não-regressão.
-6. Publicar evidências no verify.
+5. Extrair CRUD de templates para `app/services/atendimento/document_template_crud_service.py`.
+6. Atualizar endpoints de templates para consumir service mantendo contrato.
+7. Executar testes focados de painéis, frases clínicas e documentos para validar não-regressão.
+8. Publicar evidências no verify.
