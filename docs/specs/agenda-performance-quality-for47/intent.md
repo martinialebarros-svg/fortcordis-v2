@@ -1,16 +1,14 @@
-# Intent - agenda-performance-quality-for47
+# FOR-47 AG-03 Performance e qualidade da busca de agenda por periodo
 
-Data: 2026-05-15  
+Data: 2026-05-17  
 Responsavel: Codex  
-Status: done
+Status: em progresso
 
 ## Problema
 
-Com a busca de agenda por periodo ja implementada, precisamos garantir qualidade operacional:
-- paginacao estavel em cenarios com muitos registros;
-- ausencia de duplicidade/salto entre paginas;
-- custo de consulta previsivel em filtros combinados comuns.
+Com filtros avancados por periodo, a listagem da Agenda precisava reduzir custo de consulta em janelas amplas sem perder estabilidade de paginacao e sem regressao funcional.
 
 ## Objetivo
 
-Elevar confiabilidade do endpoint de listagem da agenda em periodo, com validacao automatizada de desempenho funcional (sem N+1) e consistencia de ordenacao/paginacao.
+Melhorar o plano de execucao da listagem para operar em custo constante (sem N+1), preservando ordenacao deterministica e resultados consistentes entre paginas com filtros combinados.
+

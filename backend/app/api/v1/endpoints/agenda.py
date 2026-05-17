@@ -11,7 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_
+from sqlalchemy import exists, func, or_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -878,26 +878,20 @@ def _query_agendamentos_com_relacionados(db: Session):
     )
 
 
-@router.get("", response_model=AgendamentoLista)
-def listar_agendamentos(
-    data_inicio: Optional[str] = None,
-    data_fim: Optional[str] = None,
-    status: Optional[str] = None,
-    clinica_id: Optional[int] = None,
-    servico_id: Optional[int] = None,
-    paciente_id: Optional[int] = None,
-    paciente_nome: Optional[str] = None,
-    tutor_nome: Optional[str] = None,
-    clinica_nome: Optional[str] = None,
-    servico_nome: Optional[str] = None,
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+def _aplicar_filtros_lista_agenda(
+    query,
+    *,
+    data_inicio: Optional[str],
+    data_fim: Optional[str],
+    status: Optional[str],
+    clinica_id: Optional[int],
+    servico_id: Optional[int],
+    paciente_id: Optional[int],
+    paciente_nome: Optional[str],
+    tutor_nome: Optional[str],
+    clinica_nome: Optional[str],
+    servico_nome: Optional[str],
 ):
-    """Lista agendamentos com filtros e nomes dos relacionados"""
-    query = _query_agendamentos_com_relacionados(db)
-
     # Filtra por coluna data (YYYY-MM-DD) para evitar drift de timezone entre navegador e servidor.
     data_inicio_filtro = _extract_date_filter(data_inicio)
     data_fim_filtro = _extract_date_filter(data_fim)
@@ -919,8 +913,10 @@ def listar_agendamentos(
         pattern = _build_contains_pattern(paciente_nome_filtro)
         query = query.filter(
             or_(
-                Paciente.nome.ilike(pattern, escape="\\"),
                 Agendamento.paciente.ilike(pattern, escape="\\"),
+                exists().where(Paciente.id == Agendamento.paciente_id).where(
+                    Paciente.nome.ilike(pattern, escape="\\")
+                ),
             )
         )
 
@@ -929,8 +925,11 @@ def listar_agendamentos(
         pattern = _build_contains_pattern(tutor_nome_filtro)
         query = query.filter(
             or_(
-                Tutor.nome.ilike(pattern, escape="\\"),
                 Agendamento.tutor.ilike(pattern, escape="\\"),
+                exists()
+                .where(Paciente.id == Agendamento.paciente_id)
+                .where(Paciente.tutor_id == Tutor.id)
+                .where(Tutor.nome.ilike(pattern, escape="\\")),
             )
         )
 
@@ -939,8 +938,10 @@ def listar_agendamentos(
         pattern = _build_contains_pattern(clinica_nome_filtro)
         query = query.filter(
             or_(
-                Clinica.nome.ilike(pattern, escape="\\"),
                 Agendamento.clinica.ilike(pattern, escape="\\"),
+                exists().where(Clinica.id == Agendamento.clinica_id).where(
+                    Clinica.nome.ilike(pattern, escape="\\")
+                ),
             )
         )
 
@@ -949,14 +950,62 @@ def listar_agendamentos(
         pattern = _build_contains_pattern(servico_nome_filtro)
         query = query.filter(
             or_(
-                Servico.nome.ilike(pattern, escape="\\"),
                 Agendamento.servico.ilike(pattern, escape="\\"),
+                exists().where(Servico.id == Agendamento.servico_id).where(
+                    Servico.nome.ilike(pattern, escape="\\")
+                ),
             )
         )
 
-    # Conta apenas ids para reduzir custo do COUNT em consultas com joins opcionais.
-    total = query.with_entities(Agendamento.id).order_by(None).count()
-    results = query.order_by(Agendamento.inicio.asc(), Agendamento.id.asc()).offset(skip).limit(limit).all()
+    return query
+
+
+@router.get("", response_model=AgendamentoLista)
+def listar_agendamentos(
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    status: Optional[str] = None,
+    clinica_id: Optional[int] = None,
+    servico_id: Optional[int] = None,
+    paciente_id: Optional[int] = None,
+    paciente_nome: Optional[str] = None,
+    tutor_nome: Optional[str] = None,
+    clinica_nome: Optional[str] = None,
+    servico_nome: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Lista agendamentos com filtros e nomes dos relacionados"""
+    query_ids = _aplicar_filtros_lista_agenda(
+        db.query(Agendamento.id),
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        status=status,
+        clinica_id=clinica_id,
+        servico_id=servico_id,
+        paciente_id=paciente_id,
+        paciente_nome=paciente_nome,
+        tutor_nome=tutor_nome,
+        clinica_nome=clinica_nome,
+        servico_nome=servico_nome,
+    )
+
+    total = query_ids.order_by(None).count()
+    ids_paginados = [
+        row[0]
+        for row in query_ids.order_by(Agendamento.inicio.asc(), Agendamento.id.asc()).offset(skip).limit(limit).all()
+    ]
+
+    results = []
+    if ids_paginados:
+        results = (
+            _query_agendamentos_com_relacionados(db)
+            .filter(Agendamento.id.in_(ids_paginados))
+            .order_by(Agendamento.inicio.asc(), Agendamento.id.asc())
+            .all()
+        )
 
     items = [
         _serialize_agendamento(

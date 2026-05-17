@@ -107,7 +107,20 @@ class AgendaNPlusOneTest(unittest.TestCase):
                 and "join servicos" in sql
                 and "join tutores" in sql
             ]
-            self.assertGreaterEqual(len(joined_selects), 2)
+            self.assertGreaterEqual(len(joined_selects), 1)
+
+            count_sem_joins = [
+                sql
+                for sql in statements
+                if "select count" in sql
+                and "from agendamentos" in sql
+                and "join" not in sql
+            ]
+            self.assertGreaterEqual(
+                len(count_sem_joins),
+                1,
+                msg="COUNT da lista deve ocorrer sem joins para reduzir custo em períodos amplos.",
+            )
 
             lazy_related_selects = [
                 sql

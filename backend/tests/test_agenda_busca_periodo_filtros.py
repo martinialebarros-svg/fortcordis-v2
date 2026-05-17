@@ -346,7 +346,7 @@ class AgendaBuscaPeriodoFiltrosTest(unittest.TestCase):
             select_statements = [sql for sql in statements if "select" in sql]
             self.assertLessEqual(
                 len(select_statements),
-                5,
+                6,
                 msg=f"Esperado custo constante de queries (sem N+1), obtido: {len(select_statements)}",
             )
         finally:

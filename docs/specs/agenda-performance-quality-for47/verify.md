@@ -1,18 +1,13 @@
-# Verify - agenda-performance-quality-for47
-
-Data: 2026-05-15  
-Responsavel: Codex  
-Status: done
-
-## Matriz de rastreabilidade
-
-| ID | Evidencia | Status |
-| --- | --- | --- |
-| CA-001 | `test_paginacao_por_periodo_e_estavel_sem_duplicidade` em `backend/tests/test_agenda_busca_periodo_filtros.py`. | ok |
-| CA-002 | `test_busca_periodo_com_filtros_combinados_mantem_custo_constante_de_queries` em `backend/tests/test_agenda_busca_periodo_filtros.py`. | ok |
-| CA-003 | Execucao da suite de testes focada da agenda por periodo com sucesso. | ok |
+# Verificacao
 
 ## Validacoes executadas
+- `cd backend && venv/bin/python -m unittest tests/test_agenda_n_plus_one.py`
+- `cd backend && venv/bin/python -m unittest tests/test_agenda_busca_periodo_filtros.py`
 
-- `cd backend && ./venv/bin/python -m unittest backend/tests/test_agenda_busca_periodo_filtros.py`
-- `cd backend && ./venv/bin/python -m unittest backend/tests/test_agenda_n_plus_one.py`
+## Criterios
+1. Listagem de agenda continua retornando total + itens com contrato inalterado.
+2. Filtros de periodo e combinacoes (status/clinica/servico/tutor/paciente) permanecem funcionais.
+3. Paginacao por `skip`/`limit` continua estavel e sem duplicidade.
+4. Consulta nao executa N+1 para dados relacionados.
+5. Custo de queries permanece constante no cenario de filtros combinados.
+
