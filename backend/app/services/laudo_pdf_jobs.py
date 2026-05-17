@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from threading import Lock
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -105,6 +106,26 @@ def get_cached_laudo_pdf_job(
     return None
 
 
+def _get_active_laudo_pdf_job(
+    db: Session,
+    *,
+    laudo_id: int,
+    requested_by_id: int,
+    cache_key: str,
+) -> LaudoPdfJob | None:
+    return (
+        db.query(LaudoPdfJob)
+        .filter(
+            LaudoPdfJob.laudo_id == laudo_id,
+            LaudoPdfJob.requested_by_id == requested_by_id,
+            LaudoPdfJob.cache_key == cache_key,
+            LaudoPdfJob.status.in_([JOB_STATUS_PENDING, JOB_STATUS_PROCESSING]),
+        )
+        .order_by(LaudoPdfJob.id.desc())
+        .first()
+    )
+
+
 def _write_pdf_file(job_id: int, cache_key: str, pdf_bytes: bytes) -> str:
     storage_dir = get_laudo_pdf_storage_dir()
     target_path = os.path.join(storage_dir, f"laudo_{job_id}_{cache_key[:12]}.pdf")
@@ -201,8 +222,22 @@ def enqueue_laudo_pdf_job(db: Session, laudo_id: int, requested_by_id: int) -> d
         tentativas=0,
     )
     db.add(job)
-    db.commit()
-    db.refresh(job)
+    try:
+        db.commit()
+        db.refresh(job)
+    except IntegrityError:
+        db.rollback()
+        existing = _get_active_laudo_pdf_job(
+            db,
+            laudo_id=laudo_id,
+            requested_by_id=requested_by_id,
+            cache_key=cache_key,
+        )
+        if existing:
+            if existing.status == JOB_STATUS_PENDING:
+                submit_laudo_pdf_job(existing.id)
+            return serialize_laudo_pdf_job(existing)
+        raise
 
     submit_laudo_pdf_job(job.id)
     return serialize_laudo_pdf_job(job)

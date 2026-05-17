@@ -13,6 +13,7 @@ class XmlImportJob(Base):
 
     arquivo_nome = Column(String(255))
     arquivo_caminho = Column(String(500))
+    conteudo_hash = Column(String(64), index=True)
     resultado_json = Column(Text)
     erro = Column(Text)
     tentativas = Column(Integer, nullable=False, default=0)

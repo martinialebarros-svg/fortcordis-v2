@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import tempfile
@@ -10,6 +11,7 @@ from datetime import datetime, timedelta
 from threading import Lock
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -120,6 +122,37 @@ def serialize_xml_import_job(job: XmlImportJob) -> dict[str, Any]:
     return _build_payload(job)
 
 
+def _compute_xml_content_hash(xml_content: bytes) -> str:
+    return hashlib.sha256(xml_content).hexdigest()
+
+
+def _get_cached_xml_import_job(
+    db: Session,
+    *,
+    requested_by_id: int,
+    conteudo_hash: str,
+) -> XmlImportJob | None:
+    jobs = (
+        db.query(XmlImportJob)
+        .filter(
+            XmlImportJob.requested_by_id == requested_by_id,
+            XmlImportJob.conteudo_hash == conteudo_hash,
+        )
+        .order_by(XmlImportJob.id.desc())
+        .all()
+    )
+
+    for job in jobs:
+        if job.status == JOB_STATUS_COMPLETED and _parse_result_json(job.resultado_json):
+            return job
+
+    for job in jobs:
+        if job.status in {JOB_STATUS_PENDING, JOB_STATUS_PROCESSING}:
+            return job
+
+    return None
+
+
 def _write_xml_file(job_id: int, filename: str, xml_content: bytes) -> str:
     storage_dir = get_xml_import_storage_dir()
     safe_name = os.path.splitext(normalize_xml_filename(filename))[0]
@@ -207,17 +240,42 @@ def enqueue_xml_import_job(
 ) -> dict[str, Any]:
     normalized_filename = validate_xml_import_filename(filename)
     validate_xml_import_size(xml_content)
+    conteudo_hash = _compute_xml_content_hash(xml_content)
+
+    existing = _get_cached_xml_import_job(
+        db,
+        requested_by_id=requested_by_id,
+        conteudo_hash=conteudo_hash,
+    )
+    if existing:
+        if existing.status == JOB_STATUS_PENDING:
+            submit_xml_import_job(existing.id)
+        return serialize_xml_import_job(existing)
 
     job = XmlImportJob(
         requested_by_id=requested_by_id,
         status=JOB_STATUS_PENDING,
         arquivo_nome=normalized_filename,
+        conteudo_hash=conteudo_hash,
         erro=None,
         tentativas=0,
     )
     db.add(job)
-    db.commit()
-    db.refresh(job)
+    try:
+        db.commit()
+        db.refresh(job)
+    except IntegrityError:
+        db.rollback()
+        existing = _get_cached_xml_import_job(
+            db,
+            requested_by_id=requested_by_id,
+            conteudo_hash=conteudo_hash,
+        )
+        if existing:
+            if existing.status == JOB_STATUS_PENDING:
+                submit_xml_import_job(existing.id)
+            return serialize_xml_import_job(existing)
+        raise
 
     try:
         job.arquivo_caminho = _write_xml_file(job.id, normalized_filename, xml_content)
