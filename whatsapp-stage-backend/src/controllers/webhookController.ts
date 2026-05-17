@@ -232,7 +232,14 @@ async function handleContacts(value: WebhookChangeValue, client: PoolClient): Pr
         INSERT INTO audit_logs (conversation_id, action, payload, created_at)
         VALUES ($1, 'contact_update', $2::jsonb, now())
       `,
-      [conversation.id, JSON.stringify({ source: "webhook.contacts", contact })]
+      [
+        conversation.id,
+        JSON.stringify({
+          source: "webhook.contacts",
+          wa_id: contact.wa_id ?? null,
+          profile_name: contact.profile?.name ?? null
+        })
+      ]
     );
   }
 }

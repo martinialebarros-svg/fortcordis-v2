@@ -81,6 +81,7 @@ API sobe em `http://localhost:3000` por padrao.
 - Status inbound atualiza `messages.status` e grava historico em `message_status_events`.
 - Claim/unclaim usa transacao + lock da conversa para reduzir race conditions.
 - Cleanup automatico de `webhook_events` com janela de retencao configuravel e metrica de execucao em `webhook_event_cleanup_runs`.
+- Logs com redacao de campos sensiveis (token/authorization/secret/signature/payload) e truncamento de metadados extensos.
 
 ## Rodar tudo via Docker Compose (opcional)
 
