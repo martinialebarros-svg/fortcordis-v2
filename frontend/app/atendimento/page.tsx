@@ -16,7 +16,11 @@ import {
   normalizarCep,
   normalizarCpf,
 } from "@/lib/atendimento-cadastro";
-import { PROTOCOLOS_PRESCRICAO } from "@/lib/atendimento-prescricao-protocolos";
+import {
+  PROTOCOLOS_PRESCRICAO,
+  type ProtocoloPrescricao,
+  type ProtocoloPrescricaoItem,
+} from "@/lib/atendimento-prescricao-protocolos";
 import {
   addRacaCustomPorEspecie,
   getRacaOptions,
