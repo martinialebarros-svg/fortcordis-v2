@@ -14,6 +14,9 @@
 - RF-11: manter fluxo de criação/PDF de documentos sem alteração de comportamento.
 - RF-12: garantir sincronização da lista de documentos no frontend após criar/salvar/emitir PDF/excluir.
 - RF-13: permitir entrada de idade informada no card de complementação cadastral e estimar automaticamente a data de nascimento.
+- RF-14: aplicar máscara de CPF no card de complementação cadastral (formato 000.000.000-00).
+- RF-15: corrigir sobreposição visual no bloco de raça/idade e ajustar textos corrompidos na UI de atendimento/bibliotecas.
+- RF-16: tornar salvamento do cadastro complementar resiliente a falha pontual no update do tutor.
 
 ## Requisitos não funcionais
 - RNF-01: refactor sem regressão funcional nas rotas de painéis customizados.

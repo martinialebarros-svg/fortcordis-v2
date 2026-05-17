@@ -685,6 +685,14 @@ const formatarCepVisual = (valor: string) => {
   if (cep.length <= 5) return cep;
   return `${cep.slice(0, 5)}-${cep.slice(5)}`;
 };
+const normalizarCpf = (valor: string) => valor.replace(/\D/g, "").slice(0, 11);
+const formatarCpfVisual = (valor: string) => {
+  const cpf = normalizarCpf(valor);
+  if (cpf.length <= 3) return cpf;
+  if (cpf.length <= 6) return `${cpf.slice(0, 3)}.${cpf.slice(3)}`;
+  if (cpf.length <= 9) return `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6)}`;
+  return `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}`;
+};
 
 const parseIdadeInformadaParaMeses = (valor: string): number | null => {
   const texto = String(valor || "").trim();
@@ -2307,7 +2315,7 @@ export default function AtendimentoPage() {
     return pacientes.find((p) => String(p.id) === form.paciente_id) || null;
   }, [pacientes, form.paciente_id]);
 
-  // Esp�cie unificada: prioriza form.especie (do banco) com fallback para pacienteSelecionado
+  // Especie unificada: prioriza form.especie (do banco) com fallback para pacienteSelecionado
   const especieExibicao = useMemo(() => {
     if (form.especie) return form.especie;
     if (pacienteSelecionado?.especie) return pacienteSelecionado.especie;
@@ -2321,7 +2329,7 @@ export default function AtendimentoPage() {
     cadastroComplementar.paciente.raca || pacienteSelecionado?.raca || "",
   ]
     .filter(Boolean)
-    .join(" � ");
+    .join(" - ");
   const idadePacienteExibicao = extrairIdadePaciente({
     idade: cadastroComplementar.paciente.idade,
     data_nascimento: cadastroComplementar.paciente.data_nascimento,
@@ -2713,7 +2721,7 @@ export default function AtendimentoPage() {
       clearDraftStorage();
       draftRestoreRef.current = true;
 
-      // Carregar hist�rico do paciente
+      // Carregar historico do paciente
       if (d.paciente_id) {
         await carregarHistoricoPaciente(d.paciente_id);
       }
@@ -2826,7 +2834,7 @@ export default function AtendimentoPage() {
       ...prev,
       tutor: {
         ...prev.tutor,
-        [field]: value,
+        ...(field === "cpf" ? { cpf: formatarCpfVisual(String(value ?? "")) } : { [field]: value }),
       },
     }));
   };
@@ -2916,23 +2924,35 @@ export default function AtendimentoPage() {
 
       await api.put(`/pacientes/${pacienteId}`, pacientePayload);
       const pacienteAtualizado = await api.get(`/pacientes/${pacienteId}`);
-      const tutorId = Number(pacienteAtualizado.data?.tutor_id || cadastroComplementar.tutor.id || 0);
+      let tutorId = Number(pacienteAtualizado.data?.tutor_id || cadastroComplementar.tutor.id || 0);
+      if (!Number.isFinite(tutorId) || tutorId <= 0) {
+        try {
+          const tutorAtual = await api.get(`/pacientes/${pacienteId}/tutor`);
+          tutorId = Number(tutorAtual.data?.id || 0);
+        } catch {
+          tutorId = 0;
+        }
+      }
 
       if (Number.isFinite(tutorId) && tutorId > 0) {
-        await api.put(`/tutores/${tutorId}`, {
-          nome: cadastroComplementar.tutor.nome.trim() || undefined,
-          telefone: cadastroComplementar.tutor.telefone || "",
-          whatsapp: cadastroComplementar.tutor.whatsapp || "",
-          email: cadastroComplementar.tutor.email || "",
-          cpf: cadastroComplementar.tutor.cpf || "",
-          cep: cadastroComplementar.tutor.cep || "",
-          endereco: cadastroComplementar.tutor.endereco || "",
-          numero: cadastroComplementar.tutor.numero || "",
-          complemento: cadastroComplementar.tutor.complemento || "",
-          bairro: cadastroComplementar.tutor.bairro || "",
-          cidade: cadastroComplementar.tutor.cidade || "",
-          estado: cadastroComplementar.tutor.estado || "",
-        });
+        try {
+          await api.put(`/tutores/${tutorId}`, {
+            nome: cadastroComplementar.tutor.nome.trim() || undefined,
+            telefone: cadastroComplementar.tutor.telefone || "",
+            whatsapp: cadastroComplementar.tutor.whatsapp || "",
+            email: cadastroComplementar.tutor.email || "",
+            cpf: normalizarCpf(cadastroComplementar.tutor.cpf || ""),
+            cep: cadastroComplementar.tutor.cep || "",
+            endereco: cadastroComplementar.tutor.endereco || "",
+            numero: cadastroComplementar.tutor.numero || "",
+            complemento: cadastroComplementar.tutor.complemento || "",
+            bairro: cadastroComplementar.tutor.bairro || "",
+            cidade: cadastroComplementar.tutor.cidade || "",
+            estado: cadastroComplementar.tutor.estado || "",
+          });
+        } catch (tutorError) {
+          console.error("Falha ao atualizar tutor no cadastro complementar", tutorError);
+        }
       }
 
       await carregarCadastroComplementar(pacienteId);
@@ -3147,7 +3167,7 @@ export default function AtendimentoPage() {
       const pdfB64 = response.data?.pdf_base64;
       if (!pdfB64) {
         console.error("Resposta sem pdf_base64:", response.data);
-        setPrescricaoPreviewErro("Resposta inv�lida do servidor.");
+        setPrescricaoPreviewErro("Resposta invalida do servidor.");
         return;
       }
       // data URL direto no iframe funciona na maioria dos navegadores
@@ -5160,10 +5180,10 @@ export default function AtendimentoPage() {
     if (autosaveState === "saving") return "Autosave em andamento";
     if (autosaveState === "dirty") return "Alteracoes pendentes";
     if (autosaveState === "local") {
-      return autosaveAt ? `Rascunho local � ${formatDate(autosaveAt)}` : "Rascunho local";
+      return autosaveAt ? `Rascunho local - ${formatDate(autosaveAt)}` : "Rascunho local";
     }
     if (autosaveState === "saved") {
-      return autosaveAt ? `Sincronizado � ${formatDate(autosaveAt)}` : "Sincronizado";
+      return autosaveAt ? `Sincronizado - ${formatDate(autosaveAt)}` : "Sincronizado";
     }
     if (autosaveState === "error") return "Falha no autosave";
     return selecionado ? "Aguardando edicao" : "Novo caso";
@@ -5194,7 +5214,7 @@ export default function AtendimentoPage() {
   const mostrarResultadosBuscaPrescricao = Boolean(prescricaoEntradaModo || prescricaoBuscaRapida.trim());
   const removerItemPrescricao = (idx: number) => {
     if (form.prescricao_itens.length === 1) {
-      // Limpa o �nico item em vez de remover
+      // Limpa o unico item em vez de remover
       setPrescricaoEditorManualAberto(false);
       setField("prescricao_itens", [emptyPrescriptionItem()]);
     } else {
@@ -5261,7 +5281,7 @@ export default function AtendimentoPage() {
             </h3>
             <p className="mt-1 text-sm text-slate-600">
               {medicamentoSelecionado?.classe_terapeutica || "Classe nao informada"}
-              {medicamentoSelecionado?.principio_ativo ? ` � ${medicamentoSelecionado.principio_ativo}` : ""}
+              {medicamentoSelecionado?.principio_ativo ? ` - ${medicamentoSelecionado.principio_ativo}` : ""}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -5509,12 +5529,12 @@ export default function AtendimentoPage() {
                   <>
                     <p>
                       Resultado: <span className="font-semibold">{calculo.doseTotalMg.toFixed(2)} mg por dose</span>
-                      {calculo.unidade === "ml" && calculo.volumeMl ? ` � ${calculo.volumeMl.toFixed(2)} mL` : ""}
-                      {calculo.unidade === "comprimido" && calculo.comprimidos ? ` � ${calculo.comprimidos.toFixed(2)} comprimido(s)` : ""}
+                      {calculo.unidade === "ml" && calculo.volumeMl ? ` - ${calculo.volumeMl.toFixed(2)} mL` : ""}
+                      {calculo.unidade === "comprimido" && calculo.comprimidos ? ` - ${calculo.comprimidos.toFixed(2)} comprimido(s)` : ""}
                     </p>
                     <p className="mt-1 text-xs text-teal-700">
-                      Base: {calculo.doseMgKg?.toFixed(3)} mg/kg � {calculo.pesoKg?.toFixed(2)} kg
-                      {calculo.concentracao ? ` � concentracao ${calculo.concentracao}` : ""}
+                      Base: {calculo.doseMgKg?.toFixed(3)} mg/kg - {calculo.pesoKg?.toFixed(2)} kg
+                      {calculo.concentracao ? ` - concentracao ${calculo.concentracao}` : ""}
                     </p>
                   </>
                 ) : (
@@ -5612,7 +5632,7 @@ export default function AtendimentoPage() {
                       {(ajuste.responsavel_nome || ajuste.motivo) && (
                         <div className="mt-1 text-slate-400">
                           {ajuste.responsavel_nome && <span>{ajuste.responsavel_nome}</span>}
-                          {ajuste.responsavel_nome && ajuste.motivo && <span className="mx-1">�</span>}
+                          {ajuste.responsavel_nome && ajuste.motivo && <span className="mx-1">-</span>}
                           {ajuste.motivo && <span>{ajuste.motivo}</span>}
                         </div>
                       )}
@@ -5880,7 +5900,7 @@ export default function AtendimentoPage() {
                       <button onClick={() => abrirAtendimento(item.id)} className="w-full text-left">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="text-sm font-semibold text-slate-900">#{item.id} � {item.paciente_nome || "Paciente"}</p>
+                            <p className="text-sm font-semibold text-slate-900">#{item.id} - {item.paciente_nome || "Paciente"}</p>
                             <p className="mt-1 text-xs text-slate-500">{item.tutor_nome || "Tutor nao informado"}</p>
                           </div>
                           <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${getBadgeStatusClass(item.status)}`}>{item.status}</span>

@@ -114,7 +114,7 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
                     <option value="Canina">Canino</option>
                     <option value="Felina">Felino</option>
                   </select>
-                  <div className="space-y-2">
+                  <div className="space-y-2 md:col-span-2">
                     <select
                       value={cadastroComplementar.paciente.raca || ""}
                       onChange={(e) => setCadastroPacienteField("raca", e.target.value)}
@@ -127,7 +127,7 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
                         </option>
                       ))}
                     </select>
-                    <div className="flex gap-2">
+                    <div className="flex min-w-0 gap-2">
                       <input
                         value={novaRacaCadastro}
                         onChange={(e) => setNovaRacaCadastro(e.target.value)}
@@ -138,13 +138,13 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
                           }
                         }}
                         placeholder="Cadastrar nova raca"
-                        className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                        className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
                       />
                       <button
                         type="button"
                         onClick={handleAdicionarRacaCadastro}
                         disabled={!novaRacaCadastro.trim()}
-                        className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                        className="shrink-0 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
                       >
                         Adicionar
                       </button>
@@ -243,6 +243,8 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
                     value={cadastroComplementar.tutor.cpf || ""}
                     onChange={(e) => setCadastroTutorField("cpf", e.target.value)}
                     placeholder="CPF"
+                    inputMode="numeric"
+                    maxLength={14}
                     className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
                   />
                   <div className="flex gap-2">

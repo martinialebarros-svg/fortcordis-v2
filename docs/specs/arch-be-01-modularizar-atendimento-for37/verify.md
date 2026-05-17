@@ -15,4 +15,8 @@
 6. Fluxo de criação/PDF de documentos continua operando sem mudança de comportamento.
 7. Lista de documentos no frontend permanece consistente após criar/salvar/emitir PDF/excluir.
 8. Complementação cadastral permite idade informada e preenche data de nascimento estimada automaticamente.
-9. Refactor isolado sem impacto em arquivos não relacionados.
+9. Campo CPF aplica máscara visual e evita entrada sem formatação.
+10. Bloco de raça/idade não apresenta sobreposição de botões/campos em viewport desktop.
+11. Textos da UI de atendimento/bibliotecas não apresentam caracteres corrompidos.
+12. Salvar cadastro complementar permanece funcional mesmo com falha não crítica no update de tutor.
+13. Refactor isolado sem impacto em arquivos não relacionados.

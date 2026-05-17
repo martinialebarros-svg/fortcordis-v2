@@ -13,3 +13,6 @@
 11. Executar testes focados de painéis, frases clínicas e documentos para validar não-regressão.
 12. Publicar evidências no verify.
 13. Ajustar card de complementação cadastral para aceitar idade informada e estimar data de nascimento automaticamente.
+14. Aplicar máscara de CPF e ajustar layout do card para evitar sobreposição de controles.
+15. Corrigir textos corrompidos na UI do atendimento (inclui área de bibliotecas/prescrição).
+16. Endurecer fluxo de salvar cadastro complementar para não falhar por update parcial de tutor.
