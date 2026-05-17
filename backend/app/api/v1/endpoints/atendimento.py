@@ -87,6 +87,12 @@ from app.services.atendimento.document_crud_service import (
     obter_documento_atendimento_ou_404 as obter_documento_atendimento_ou_404_service,
     serializar_documento_atendimento as serializar_documento_atendimento_service,
 )
+from app.services.atendimento.document_context_service import (
+    atualizar_documento_template_se_contexto_mudou as atualizar_documento_template_se_contexto_mudou_service,
+    carregar_contexto_entidades_documento as carregar_contexto_entidades_documento_service,
+    montar_contexto_template_documento as montar_contexto_template_documento_service,
+    renderizar_template_documento as renderizar_template_documento_service,
+)
 from app.services.exam_catalog_service import montar_contexto_catalogo_exames
 from app.services.atendimento.painel_service import (
     CUSTOM_PAINEL_EXAME_PREFIX,
@@ -365,145 +371,18 @@ def _obter_branding_pdf_documento(
     }
 
 
-def _carregar_contexto_entidades_documento(
-    db: Session,
-    atendimento: AtendimentoClinico,
-    *,
-    preferir_tutor_paciente: bool = True,
-) -> tuple[Optional[Paciente], Optional[Tutor], Optional[Clinica]]:
-    paciente = db.query(Paciente).filter(Paciente.id == atendimento.paciente_id).first()
-
-    tutor_id = None
-    if preferir_tutor_paciente and paciente and paciente.tutor_id:
-        tutor_id = paciente.tutor_id
-    elif atendimento.tutor_id:
-        tutor_id = atendimento.tutor_id
-
-    tutor = db.query(Tutor).filter(Tutor.id == tutor_id).first() if tutor_id else None
-    if not tutor and preferir_tutor_paciente and atendimento.tutor_id and atendimento.tutor_id != tutor_id:
-        tutor = db.query(Tutor).filter(Tutor.id == atendimento.tutor_id).first()
-
-    clinica = db.query(Clinica).filter(Clinica.id == atendimento.clinica_id).first() if atendimento.clinica_id else None
-    return paciente, tutor, clinica
-
-
-def _renderizar_template_documento_para_atendimento(
-    db: Session,
-    atendimento: AtendimentoClinico,
-    template: DocumentoAtendimentoTemplate,
-    branding: Dict[str, Any],
-    *,
-    preferir_tutor_paciente: bool = True,
-) -> tuple[str, str, Optional[Paciente], Optional[Tutor], Optional[Clinica]]:
-    paciente, tutor, clinica = _carregar_contexto_entidades_documento(
-        db,
-        atendimento,
-        preferir_tutor_paciente=preferir_tutor_paciente,
-    )
-    contexto = _montar_contexto_template_documento(atendimento, paciente, tutor, clinica, branding)
-    titulo = _renderizar_template_documento(template.titulo_padrao or "", contexto)
-    corpo = _renderizar_template_documento(template.corpo_template or "", contexto)
-    return titulo, corpo, paciente, tutor, clinica
-
-
-def _texto_documento_inalterado(value: str, rendered_value: str) -> bool:
-    return (value or "").strip() == (rendered_value or "").strip()
-
-
 def _atualizar_documento_template_se_contexto_mudou(
     db: Session,
     atendimento: AtendimentoClinico,
     documento: DocumentoAtendimento,
     branding: Dict[str, Any],
 ) -> tuple[Optional[Paciente], Optional[Tutor], Optional[Clinica]]:
-    paciente, tutor, clinica = _carregar_contexto_entidades_documento(db, atendimento)
-    if not documento.template_id or (documento.status or "").lower() == "emitido":
-        return paciente, tutor, clinica
-
-    template = db.query(DocumentoAtendimentoTemplate).filter(DocumentoAtendimentoTemplate.id == documento.template_id).first()
-    if not template:
-        return paciente, tutor, clinica
-
-    titulo_atual, corpo_atual, paciente, tutor, clinica = _renderizar_template_documento_para_atendimento(
+    return atualizar_documento_template_se_contexto_mudou_service(
         db,
         atendimento,
-        template,
+        documento,
         branding,
-        preferir_tutor_paciente=True,
     )
-    titulo_original, corpo_original, *_ = _renderizar_template_documento_para_atendimento(
-        db,
-        atendimento,
-        template,
-        branding,
-        preferir_tutor_paciente=False,
-    )
-
-    if (
-        _texto_documento_inalterado(documento.titulo, titulo_original)
-        and _texto_documento_inalterado(documento.corpo, corpo_original)
-        and (
-            not _texto_documento_inalterado(documento.titulo, titulo_atual)
-            or not _texto_documento_inalterado(documento.corpo, corpo_atual)
-        )
-    ):
-        documento.titulo = titulo_atual.strip()
-        documento.corpo = corpo_atual.strip()
-        documento.updated_at = datetime.now()
-        db.flush()
-
-    return paciente, tutor, clinica
-
-
-def _montar_contexto_template_documento(
-    atendimento: AtendimentoClinico,
-    paciente: Optional[Paciente],
-    tutor: Optional[Tutor],
-    clinica: Optional[Clinica],
-    branding: Dict[str, Any],
-) -> Dict[str, str]:
-    peso = _resolver_peso_referencia(atendimento, paciente)
-    data_atendimento = atendimento.data_atendimento if isinstance(atendimento.data_atendimento, datetime) else None
-    return {
-        "atendimento_id": str(atendimento.id),
-        "data_atendimento": _formatar_data_curta(data_atendimento or atendimento.data_atendimento),
-        "data_atendimento_hora": _formatar_data_hora(data_atendimento or atendimento.data_atendimento),
-        "data_emissao": datetime.now().strftime("%d/%m/%Y"),
-        "paciente_nome": paciente.nome if paciente else "",
-        "especie": paciente.especie if paciente else (atendimento.especie or ""),
-        "raca": paciente.raca if paciente else "",
-        "sexo": normalizar_sexo_paciente(paciente.sexo if paciente else ""),
-        "idade": extrair_idade_paciente(
-            paciente.nascimento if paciente else None,
-            paciente.observacoes if paciente else None,
-        ),
-        "peso": f"{peso:.1f} kg" if peso is not None else "",
-        "tutor_nome": tutor.nome if tutor else "",
-        "clinica_nome": clinica.nome if clinica else "",
-        "veterinario_nome": branding.get("nome_veterinario") or atendimento.criado_por_nome or "",
-        "crmv": branding.get("crmv") or "",
-        "queixa_principal": atendimento.queixa_principal or "",
-        "anamnese": atendimento.anamnese or "",
-        "exame_fisico": atendimento.exame_fisico or "",
-        "dados_clinicos": atendimento.dados_clinicos or "",
-        "diagnostico_principal": atendimento.diagnostico_principal or "",
-        "diagnostico_secundario": atendimento.diagnostico_secundario or "",
-        "diagnostico_diferencial": atendimento.diagnostico_diferencial or "",
-        "plano_terapeutico": atendimento.plano_terapeutico or "",
-        "retorno_recomendado": atendimento.retorno_recomendado or "",
-        "motivo_retorno": atendimento.motivo_retorno or "",
-        "observacoes": atendimento.observacoes or "",
-    }
-
-
-def _renderizar_template_documento(template_text: str, contexto: Dict[str, str]) -> str:
-    def substituir(match: re.Match[str]) -> str:
-        chave = match.group(1).strip()
-        if chave in contexto:
-            return str(contexto[chave] or "")
-        return match.group(0)
-
-    return re.sub(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}", substituir, template_text or "")
 
 
 def _montar_dados_pdf_documento(
@@ -2068,9 +1947,9 @@ def criar_documento_atendimento(
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
 
-    paciente, tutor, clinica = _carregar_contexto_entidades_documento(db, atendimento)
+    paciente, tutor, clinica = carregar_contexto_entidades_documento_service(db, atendimento)
     branding = _obter_branding_pdf_documento(db, current_user)
-    contexto = _montar_contexto_template_documento(atendimento, paciente, tutor, clinica, branding)
+    contexto = montar_contexto_template_documento_service(atendimento, paciente, tutor, clinica, branding)
 
     template = None
     titulo_base = ""
@@ -2079,8 +1958,8 @@ def criar_documento_atendimento(
         template = obter_template_documento_ou_404(db, payload.template_id)
         if template.ativo != 1:
             raise HTTPException(status_code=422, detail="Template inativo nao pode gerar novo documento.")
-        titulo_base = _renderizar_template_documento(template.titulo_padrao or "", contexto)
-        corpo_base = _renderizar_template_documento(template.corpo_template or "", contexto)
+        titulo_base = renderizar_template_documento_service(template.titulo_padrao or "", contexto)
+        corpo_base = renderizar_template_documento_service(template.corpo_template or "", contexto)
 
     titulo = (payload.titulo or "").strip() or titulo_base
     corpo = (payload.corpo or "").strip() or corpo_base
@@ -2426,7 +2305,7 @@ def gerar_pdf_documento_atendimento(
 
     branding = _obter_branding_pdf_documento(db, current_user)
     documento = obter_documento_atendimento_ou_404_service(db, atendimento_id, documento_id)
-    paciente, tutor, clinica = _atualizar_documento_template_se_contexto_mudou(
+    paciente, tutor, clinica = atualizar_documento_template_se_contexto_mudou_service(
         db,
         atendimento,
         documento,

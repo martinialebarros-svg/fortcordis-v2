@@ -12,4 +12,5 @@
 3. Endpoints de frases clínicas continuam operando sem mudança de contrato.
 4. Endpoints de templates de documentos continuam operando sem mudança de contrato.
 5. Endpoints de documentos de atendimento (listar/atualizar/excluir) continuam operando sem mudança de contrato.
-6. Refactor isolado sem impacto em arquivos não relacionados.
+6. Fluxo de criação/PDF de documentos continua operando sem mudança de comportamento.
+7. Refactor isolado sem impacto em arquivos não relacionados.
