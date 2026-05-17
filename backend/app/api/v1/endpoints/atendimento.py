@@ -80,6 +80,13 @@ from app.services.atendimento.document_template_crud_service import (
     obter_template_documento_ou_404,
     restaurar_template_documento,
 )
+from app.services.atendimento.document_crud_service import (
+    atualizar_documento_atendimento as atualizar_documento_atendimento_service,
+    excluir_documento_atendimento as excluir_documento_atendimento_service,
+    listar_documentos_atendimento as listar_documentos_atendimento_service,
+    obter_documento_atendimento_ou_404 as obter_documento_atendimento_ou_404_service,
+    serializar_documento_atendimento as serializar_documento_atendimento_service,
+)
 from app.services.exam_catalog_service import montar_contexto_catalogo_exames
 from app.services.atendimento.painel_service import (
     CUSTOM_PAINEL_EXAME_PREFIX,
@@ -356,40 +363,6 @@ def _obter_branding_pdf_documento(
         "assinatura_bytes": assinatura_bytes,
         "texto_rodape": texto_rodape,
     }
-
-
-def _serializar_documento_atendimento(documento: DocumentoAtendimento) -> dict:
-    return {
-        "id": documento.id,
-        "atendimento_id": documento.atendimento_id,
-        "template_id": documento.template_id,
-        "titulo": documento.titulo or "",
-        "corpo": documento.corpo or "",
-        "status": documento.status or "rascunho",
-        "criado_por_id": documento.criado_por_id,
-        "criado_por_nome": documento.criado_por_nome or "",
-        "emitido_at": _to_iso(documento.emitido_at),
-        "created_at": _to_iso(documento.created_at),
-        "updated_at": _to_iso(documento.updated_at),
-    }
-
-
-def _obter_documento_atendimento_ou_404(
-    db: Session,
-    atendimento_id: int,
-    documento_id: int,
-) -> DocumentoAtendimento:
-    documento = (
-        db.query(DocumentoAtendimento)
-        .filter(
-            DocumentoAtendimento.id == documento_id,
-            DocumentoAtendimento.atendimento_id == atendimento_id,
-        )
-        .first()
-    )
-    if not documento:
-        raise HTTPException(status_code=404, detail="Documento do atendimento nao encontrado.")
-    return documento
 
 
 def _carregar_contexto_entidades_documento(
@@ -1720,7 +1693,7 @@ def _montar_detalhe_atendimento(
             for e in evolucoes
         ],
         "anexos": [_serialize_anexo(a) for a in anexos],
-        "documentos": [_serializar_documento_atendimento(documento) for documento in documentos],
+        "documentos": [serializar_documento_atendimento_service(documento) for documento in documentos],
     }
 
 
@@ -2081,14 +2054,7 @@ def listar_documentos_atendimento(
     atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
-
-    documentos = (
-        db.query(DocumentoAtendimento)
-        .filter(DocumentoAtendimento.atendimento_id == atendimento_id)
-        .order_by(DocumentoAtendimento.updated_at.desc(), DocumentoAtendimento.created_at.desc(), DocumentoAtendimento.id.desc())
-        .all()
-    )
-    return {"documentos": [_serializar_documento_atendimento(documento) for documento in documentos]}
+    return listar_documentos_atendimento_service(db, atendimento_id)
 
 
 @router.post("/{atendimento_id}/documentos", status_code=status.HTTP_201_CREATED)
@@ -2136,7 +2102,7 @@ def criar_documento_atendimento(
     atendimento.updated_at = datetime.now()
     db.commit()
     db.refresh(documento)
-    return _serializar_documento_atendimento(documento)
+    return serializar_documento_atendimento_service(documento)
 
 
 @router.put("/{atendimento_id}/documentos/{documento_id}")
@@ -2151,30 +2117,13 @@ def atualizar_documento_atendimento(
     atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
-
-    documento = _obter_documento_atendimento_ou_404(db, atendimento_id, documento_id)
-    data = payload.model_dump(exclude_unset=True)
-    if "titulo" in data:
-        titulo = (data["titulo"] or "").strip()
-        if not titulo:
-            raise HTTPException(status_code=422, detail="Titulo do documento e obrigatorio.")
-        documento.titulo = titulo
-    if "corpo" in data:
-        corpo = (data["corpo"] or "").strip()
-        if not corpo:
-            raise HTTPException(status_code=422, detail="Corpo do documento e obrigatorio.")
-        documento.corpo = corpo
-    if "status" in data and data["status"] is not None:
-        status_doc = (data["status"] or "").strip().lower()
-        if status_doc not in {"rascunho", "emitido", "arquivado"}:
-            raise HTTPException(status_code=422, detail="Status de documento invalido.")
-        documento.status = status_doc
-
-    documento.updated_at = datetime.now()
-    atendimento.updated_at = datetime.now()
-    db.commit()
-    db.refresh(documento)
-    return _serializar_documento_atendimento(documento)
+    return atualizar_documento_atendimento_service(
+        db,
+        atendimento,
+        atendimento_id,
+        documento_id,
+        payload,
+    )
 
 
 @router.delete("/{atendimento_id}/documentos/{documento_id}")
@@ -2185,13 +2134,7 @@ def excluir_documento_atendimento(
     current_user: User = Depends(get_current_user),
 ):
     _ = current_user
-    documento = _obter_documento_atendimento_ou_404(db, atendimento_id, documento_id)
-    db.delete(documento)
-    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
-    if atendimento:
-        atendimento.updated_at = datetime.now()
-    db.commit()
-    return {"message": "Documento removido com sucesso.", "id": documento_id}
+    return excluir_documento_atendimento_service(db, atendimento_id, documento_id)
 
 
 @router.get("/contexto")
@@ -2482,7 +2425,7 @@ def gerar_pdf_documento_atendimento(
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
 
     branding = _obter_branding_pdf_documento(db, current_user)
-    documento = _obter_documento_atendimento_ou_404(db, atendimento_id, documento_id)
+    documento = obter_documento_atendimento_ou_404_service(db, atendimento_id, documento_id)
     paciente, tutor, clinica = _atualizar_documento_template_se_contexto_mudou(
         db,
         atendimento,

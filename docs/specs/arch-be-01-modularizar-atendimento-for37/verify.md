@@ -11,4 +11,5 @@
 2. Regras de validação de catálogo e geração de código permanecem válidas.
 3. Endpoints de frases clínicas continuam operando sem mudança de contrato.
 4. Endpoints de templates de documentos continuam operando sem mudança de contrato.
-5. Refactor isolado sem impacto em arquivos não relacionados.
+5. Endpoints de documentos de atendimento (listar/atualizar/excluir) continuam operando sem mudança de contrato.
+6. Refactor isolado sem impacto em arquivos não relacionados.

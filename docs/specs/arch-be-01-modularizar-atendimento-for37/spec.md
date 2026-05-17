@@ -8,6 +8,8 @@
 - RF-05: manter respostas e códigos HTTP dos endpoints de `/frases-clinicas*` sem alteração de contrato.
 - RF-06: mover lógica CRUD de templates de documentos para service dedicado.
 - RF-07: manter respostas e códigos HTTP dos endpoints de `/documentos/templates*` sem alteração de contrato.
+- RF-08: mover lógica CRUD de documentos de atendimento (listar, atualizar, excluir + serialização/getter) para service dedicado.
+- RF-09: manter respostas e códigos HTTP dos endpoints de `/documentos*` sem alteração de contrato.
 
 ## Requisitos não funcionais
 - RNF-01: refactor sem regressão funcional nas rotas de painéis customizados.
