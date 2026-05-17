@@ -6,6 +6,7 @@
 - `cd backend && venv/bin/python -m unittest tests/test_clinical_phrase_service.py`
 - `cd backend && venv/bin/python -m unittest tests/test_atendimento_documentos.py`
 - `cd backend && venv/bin/python -m unittest tests/test_tutor_complementar_persistencia.py`
+- `cd frontend && npx eslint app/atendimento/components/AtendimentoBibliotecasSection.tsx`
 
 ## Criterios
 1. Endpoints de painéis customizados continuam operando sem mudança de contrato.
@@ -22,3 +23,4 @@
 12. Salvar cadastro complementar permanece funcional mesmo com falha não crítica no update de tutor.
 13. Campos complementares do tutor permanecem salvos e retornam no reload do cadastro complementar.
 14. Refactor isolado sem impacto em arquivos não relacionados.
+15. Aba Bibliotecas mantém layout legível sem sobreposição de badges/ações em largura intermediária.

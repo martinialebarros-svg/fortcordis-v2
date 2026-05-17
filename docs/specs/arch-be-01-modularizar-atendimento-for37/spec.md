@@ -18,6 +18,7 @@
 - RF-15: corrigir sobreposição visual no bloco de raça/idade e ajustar textos corrompidos na UI de atendimento/bibliotecas.
 - RF-16: tornar salvamento do cadastro complementar resiliente a falha pontual no update do tutor.
 - RF-17: persistir e reidratar campos complementares do tutor (cpf, cep, endereco, numero, complemento, bairro, cidade, estado) no backend para evitar perda dos dados após salvar.
+- RF-18: ajustar responsividade da aba Bibliotecas para evitar cards estreitos e sobreposição de controles no banco de frases/medicamentos.
 
 ## Requisitos não funcionais
 - RNF-01: refactor sem regressão funcional nas rotas de painéis customizados.
