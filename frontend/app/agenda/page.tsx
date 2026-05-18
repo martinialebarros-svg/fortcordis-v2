@@ -29,7 +29,7 @@ import { montarGoogleMapsDestinoClinica, montarWazeDestinoClinica } from "@/lib/
 import { 
   Calendar, Clock, User, Building, Plus, RefreshCw, X, Trash2,
   CheckCircle2, PlayCircle, CheckCircle, XCircle, AlertCircle,
-  Search, ChevronDown, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2, DollarSign, MapPin
+  Search, ChevronDown, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2, DollarSign, MapPin, Wallet
 } from "lucide-react";
 import NovoAgendamentoModal from "./NovoAgendamentoModal";
 
@@ -60,9 +60,12 @@ interface LaudoVinculado {
 
 type LaudosVinculadosPorAgendamento = Record<number, Record<string, LaudoVinculado>>;
 
-interface OrdemServicoPagamento {
-  os_id: number;
+interface OrdemServicoResumo {
+  id: number;
+  agendamento_id: number;
   numero_os: string;
+  status: string;
+  valor_final: number;
 }
 
 interface ClinicaEndereco {
@@ -279,7 +282,11 @@ export default function AgendaPage() {
   const [tipoHorario, setTipoHorario] = useState<"comercial" | "plantao">("comercial");
   const [osGerada, setOsGerada] = useState<{ numero_os: string; valor_final: number } | null>(null);
   const [laudosVinculados, setLaudosVinculados] = useState<LaudosVinculadosPorAgendamento>({});
-  const [osPagasVinculadas, setOsPagasVinculadas] = useState<Record<number, OrdemServicoPagamento>>({});
+  const [ordensServicoPorAgendamento, setOrdensServicoPorAgendamento] = useState<Record<number, OrdemServicoResumo>>({});
+  const [modalPagamentoAberto, setModalPagamentoAberto] = useState(false);
+  const [formaPagamento, setFormaPagamento] = useState<"dinheiro" | "pix" | "cartao" | "transferencia">("dinheiro");
+  const [agendamentoPagamentoId, setAgendamentoPagamentoId] = useState<number | null>(null);
+  const [recebendoPagamentoId, setRecebendoPagamentoId] = useState<number | null>(null);
   const [clinicasEndereco, setClinicasEndereco] = useState<Record<number, ClinicaEndereco>>({});
   const [agendaSemanal, setAgendaSemanal] = useState<AgendaSemanalConfig>(() =>
     normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL)
@@ -556,7 +563,7 @@ export default function AgendaPage() {
       if (includeRelated) {
         await Promise.all([
           carregarLaudosVinculados(items),
-          carregarOsPagasVinculadas(items),
+          carregarOrdensServicoVinculadas(items),
           carregarClinicasComEndereco(items),
         ]);
       }
@@ -718,16 +725,15 @@ export default function AgendaPage() {
     }
   };
 
-  const carregarOsPagasVinculadas = async (items: Agendamento[]) => {
+  const carregarOrdensServicoVinculadas = async (items: Agendamento[]) => {
     const idsAgendamento = new Set(items.map((item) => item.id));
     if (idsAgendamento.size === 0) {
-      setOsPagasVinculadas({});
+      setOrdensServicoPorAgendamento({});
       return;
     }
 
     try {
       const params = new URLSearchParams();
-      params.append("status", "Pago");
       params.append("limit", "2000");
 
       if (periodoConsulta.inicio && periodoConsulta.fim) {
@@ -738,15 +744,10 @@ export default function AgendaPage() {
       const respOs = await api.get(`/ordens-servico?${params.toString()}`);
       const listaOs = respOs.data?.items || [];
 
-      const mapa: Record<number, OrdemServicoPagamento> = {};
+      const mapa: Record<number, OrdemServicoResumo> = {};
       for (const os of listaOs) {
         const agendamentoId = Number(os?.agendamento_id);
         if (!Number.isFinite(agendamentoId) || !idsAgendamento.has(agendamentoId)) {
-          continue;
-        }
-
-        const statusOs = String(os?.status || "").trim().toLowerCase();
-        if (statusOs !== "pago") {
           continue;
         }
 
@@ -756,18 +757,21 @@ export default function AgendaPage() {
         }
 
         const anterior = mapa[agendamentoId];
-        if (!anterior || osId > anterior.os_id) {
+        if (!anterior || osId > anterior.id) {
           mapa[agendamentoId] = {
-            os_id: osId,
+            id: osId,
+            agendamento_id: agendamentoId,
             numero_os: String(os?.numero_os || ""),
+            status: String(os?.status || ""),
+            valor_final: Number(os?.valor_final || 0),
           };
         }
       }
 
-      setOsPagasVinculadas(mapa);
+      setOrdensServicoPorAgendamento(mapa);
     } catch (error) {
-      console.error("Erro ao carregar status de pagamento das OS:", error);
-      setOsPagasVinculadas({});
+      console.error("Erro ao carregar ordens de servico vinculadas aos agendamentos:", error);
+      setOrdensServicoPorAgendamento({});
     }
   };
 
@@ -906,6 +910,58 @@ export default function AgendaPage() {
     }
 
     window.open(destino, "_blank", "noopener,noreferrer");
+  };
+
+  const abrirRecebimentoPagamentoModal = (agendamentoId: number) => {
+    const osVinculada = ordensServicoPorAgendamento[agendamentoId];
+    if (!osVinculada) {
+      setErro("Este agendamento nao possui ordem de servico vinculada para recebimento.");
+      return;
+    }
+
+    if (String(osVinculada.status || "").trim().toLowerCase() === "pago") {
+      setErro("");
+      return;
+    }
+
+    setErro("");
+    setFormaPagamento("dinheiro");
+    setAgendamentoPagamentoId(agendamentoId);
+    setModalPagamentoAberto(true);
+  };
+
+  const confirmarRecebimentoPagamento = async () => {
+    if (!agendamentoPagamentoId) return;
+    const osVinculada = ordensServicoPorAgendamento[agendamentoPagamentoId];
+    if (!osVinculada) {
+      setErro("Este agendamento nao possui ordem de servico vinculada para recebimento.");
+      setModalPagamentoAberto(false);
+      setAgendamentoPagamentoId(null);
+      return;
+    }
+
+    try {
+      setRecebendoPagamentoId(agendamentoPagamentoId);
+      setErro("");
+      await api.patch(`/ordens-servico/${osVinculada.id}/receber`, {
+        forma_pagamento: formaPagamento,
+      });
+
+      setModalPagamentoAberto(false);
+      setAgendamentoPagamentoId(null);
+      await carregarAgendamentos();
+    } catch (error: any) {
+      console.error("Erro ao receber pagamento da OS na agenda:", error);
+      const detail = error?.response?.data?.detail;
+      const detailTexto = Array.isArray(detail)
+        ? detail.map((item: any) => item?.msg || item?.message || JSON.stringify(item)).join("; ")
+        : typeof detail === "string"
+          ? detail
+          : detail?.message || "";
+      setErro(detailTexto || "Nao foi possivel registrar o recebimento desta OS.");
+    } finally {
+      setRecebendoPagamentoId(null);
+    }
   };
 
   const atualizarStatus = async (id: number, novoStatus: StatusType, tipoHorarioParam?: "comercial" | "plantao") => {
@@ -1715,7 +1771,8 @@ export default function AgendaPage() {
                 const laudoPronto = podeBaixarLaudo(laudoVinculado?.status);
                 const laudoEco = obterLaudoVinculado(ag.id, TIPO_LAUDO_ECOCARDIOGRAMA);
                 const laudoUltrassom = obterLaudoVinculado(ag.id, TIPO_LAUDO_ULTRASSOM_ABDOMINAL);
-                const osPaga = osPagasVinculadas[ag.id];
+                const osVinculada = ordensServicoPorAgendamento[ag.id];
+                const osPaga = String(osVinculada?.status || "").trim().toLowerCase() === "pago";
                 const clinicaComEndereco = ag.clinica_id ? clinicasEndereco[ag.clinica_id] : undefined;
                 const podeAbrirWaze = Boolean(montarWazeDestinoClinica(clinicaComEndereco));
                 const podeAbrirGoogleMaps = Boolean(montarGoogleMapsDestinoClinica(clinicaComEndereco));
@@ -1737,7 +1794,7 @@ export default function AgendaPage() {
                           {osPaga && (
                             <span
                               className="px-3 py-1 rounded-full text-xs font-medium border flex items-center gap-1 bg-emerald-50 text-emerald-700 border-emerald-200"
-                              title={osPaga.numero_os ? `OS ${osPaga.numero_os} ja recebida no financeiro` : "OS recebida no financeiro"}
+                              title={osVinculada?.numero_os ? `OS ${osVinculada.numero_os} ja recebida no financeiro` : "OS recebida no financeiro"}
                             >
                               <CheckCircle2 className="w-3 h-3" />
                               Pago
@@ -1820,6 +1877,30 @@ export default function AgendaPage() {
 
                         {/* Separador */}
                         {proximosStatus.length > 0 && <div className="w-px h-8 bg-gray-300 mx-1" />}
+
+                        {osVinculada && (
+                          <button
+                            onClick={() => abrirRecebimentoPagamentoModal(ag.id)}
+                            disabled={osPaga || recebendoPagamentoId === ag.id}
+                            className={`px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center gap-1 ${
+                              osPaga
+                                ? "text-emerald-700 bg-emerald-50 border border-emerald-200 cursor-not-allowed"
+                                : "text-orange-700 hover:text-orange-900 hover:bg-orange-50 border border-orange-200"
+                            }`}
+                            title={
+                              osPaga
+                                ? `OS ${osVinculada.numero_os || osVinculada.id} ja paga`
+                                : `Receber OS ${osVinculada.numero_os || osVinculada.id}`
+                            }
+                          >
+                            {recebendoPagamentoId === ag.id ? (
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Wallet className="w-4 h-4" />
+                            )}
+                            {osPaga ? "Pago" : "Receber"}
+                          </button>
+                        )}
 
                         {/* Editar */}
                         <button
@@ -2181,6 +2262,57 @@ export default function AgendaPage() {
                     <CheckCircle className="w-4 h-4" />
                   )}
                   Confirmar Realizado
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {modalPagamentoAberto && agendamentoPagamentoId !== null && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="mx-4 w-full max-w-md rounded-lg bg-white p-6">
+              <h3 className="text-lg font-semibold text-gray-900">Receber pagamento</h3>
+              <p className="mt-1 text-sm text-gray-600">
+                Confirme a forma de pagamento da OS vinculada ao agendamento.
+              </p>
+
+              <label className="mt-4 block text-sm font-medium text-gray-700">Forma de pagamento</label>
+              <select
+                value={formaPagamento}
+                onChange={(event) =>
+                  setFormaPagamento(event.target.value as "dinheiro" | "pix" | "cartao" | "transferencia")
+                }
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              >
+                <option value="dinheiro">Dinheiro</option>
+                <option value="pix">PIX</option>
+                <option value="cartao">Cartao</option>
+                <option value="transferencia">Transferencia</option>
+              </select>
+
+              <div className="mt-6 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModalPagamentoAberto(false);
+                    setAgendamentoPagamentoId(null);
+                  }}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmarRecebimentoPagamento}
+                  disabled={recebendoPagamentoId === agendamentoPagamentoId}
+                  className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {recebendoPagamentoId === agendamentoPagamentoId ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Wallet className="h-4 w-4" />
+                  )}
+                  Confirmar recebimento
                 </button>
               </div>
             </div>
