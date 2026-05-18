@@ -269,6 +269,53 @@ const minutosParaHoraComSegundos = (minutos: number): string => {
   return `${String(horas).padStart(2, "0")}:${String(mins).padStart(2, "0")}:00`;
 };
 
+const somarMinutosHHMM = (hora: string, minutosAdicionar: number): string => {
+  const [hhRaw = "0", mmRaw = "0"] = String(hora || "00:00").split(":");
+  const hh = Number.parseInt(hhRaw, 10);
+  const mm = Number.parseInt(mmRaw, 10);
+  const base = (Number.isFinite(hh) ? hh : 0) * 60 + (Number.isFinite(mm) ? mm : 0);
+  const total = Math.max(0, Math.min((24 * 60) - 1, base + Math.max(1, minutosAdicionar)));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+};
+
+const usuarioEhAdmin = () => {
+  if (typeof window === "undefined") return false;
+
+  const userData = localStorage.getItem("user");
+  const token = localStorage.getItem("token");
+
+  try {
+    if (userData) {
+      const user = JSON.parse(userData);
+      const papeisUser: unknown[] = Array.isArray(user?.papeis) ? user.papeis : [];
+      if (papeisUser.some((papel: unknown) => String(papel || "").trim().toLowerCase() === "admin")) {
+        return true;
+      }
+    }
+
+    if (token) {
+      const partes = token.split(".");
+      if (partes.length >= 2) {
+        const base64Url = partes[1];
+        const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+        const normalizado = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+        const payloadStr = atob(normalizado);
+        const payload = JSON.parse(payloadStr);
+        const papeisToken: unknown[] = Array.isArray(payload?.papeis) ? payload.papeis : [];
+        if (papeisToken.some((papel: unknown) => String(papel || "").trim().toLowerCase() === "admin")) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+};
+
 const adicionarDias = (data: Date, dias: number): Date => {
   const copia = new Date(data);
   copia.setDate(copia.getDate() + dias);
@@ -406,6 +453,7 @@ const extrairConflitoDeslocamento = (error: any): ConflitoDeslocamentoDetail | n
 export default function AgendaFullCalendarPage() {
   const fortinho = useFortinho();
   const [authChecked, setAuthChecked] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [intervalo, setIntervalo] = useState<IntervaloConsulta | null>(null);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [clinicasEndereco, setClinicasEndereco] = useState<Record<number, ClinicaEndereco>>({});
@@ -503,6 +551,7 @@ export default function AgendaFullCalendarPage() {
       router.push("/");
       return;
     }
+    setIsAdmin(usuarioEhAdmin());
     setAuthChecked(true);
   }, [router]);
 
@@ -1133,6 +1182,68 @@ export default function AgendaFullCalendarPage() {
     [carregarAgendamentos, intervalo]
   );
 
+  const abrirExcecaoNoSlotAdmin = useCallback(
+    async (dataIso: string, hora: string, duracaoMin: number) => {
+      if (!isAdmin) {
+        setErro("Apenas administradores podem abrir excecao de agenda.");
+        return false;
+      }
+
+      const confirmado = window.confirm(
+        `Abrir excecao de agenda em ${dataIso} às ${hora} para permitir agendamento?`
+      );
+      if (!confirmado) {
+        return false;
+      }
+
+      const fim = somarMinutosHHMM(hora, Math.max(30, duracaoMin));
+      const excecaoExistente = agendaExcecoes.find((item) => item.data === dataIso);
+
+      let inicioExcecao = hora;
+      let fimExcecao = fim;
+      if (excecaoExistente?.ativo) {
+        inicioExcecao = excecaoExistente.inicio < hora ? excecaoExistente.inicio : hora;
+        fimExcecao = excecaoExistente.fim > fim ? excecaoExistente.fim : fim;
+      }
+
+      const payloadExcecoes = normalizarAgendaExcecoes([
+        ...agendaExcecoes.filter((item) => item.data !== dataIso),
+        {
+          data: dataIso,
+          ativo: true,
+          inicio: inicioExcecao,
+          fim: fimExcecao,
+          motivo: "Abertura rapida via slot do FullCalendar",
+        },
+      ]);
+
+      try {
+        setSalvandoAgendaDia(true);
+        setErro("");
+        await api.put("/configuracoes", { agenda_excecoes: payloadExcecoes });
+        setAgendaExcecoes(payloadExcecoes);
+        setDataControleAgenda(dataIso);
+        setMensagemStatus(`Excecao aberta em ${dataIso} (${inicioExcecao} - ${fimExcecao}).`);
+        return true;
+      } catch (error: any) {
+        if (error?.response?.status === 403) {
+          setErro("Sem permissao para abrir excecao de agenda.");
+        } else {
+          setErro(
+            extrairMensagemErroApi(
+              error?.response?.data?.detail,
+              "Nao foi possivel abrir excecao para este horario."
+            )
+          );
+        }
+        return false;
+      } finally {
+        setSalvandoAgendaDia(false);
+      }
+    },
+    [agendaExcecoes, isAdmin]
+  );
+
   const executarAcaoStatus = useCallback(
     (acao: AcaoStatus) => {
       if (!selecionado) return;
@@ -1661,7 +1772,7 @@ export default function AgendaFullCalendarPage() {
   }, []);
 
   const handleDateClick = useCallback(
-    (arg: DateClickArg) => {
+    async (arg: DateClickArg) => {
       const inicio = new Date(arg.date);
       if (arg.allDay) {
         const jornada = obterJornadaDia(toDateInput(inicio), agendaSemanal, agendaFeriados, agendaExcecoes);
@@ -1671,6 +1782,16 @@ export default function AgendaFullCalendarPage() {
       const fim = new Date(inicio.getTime() + duracaoSlotMinutos * 60000);
       const validacaoHorario = validarHorarioNaAgenda(inicio, fim);
       if (!validacaoHorario.valido) {
+        if (isAdmin) {
+          const dataIso = toDateInput(inicio);
+          const horaIso = toTimeInput(inicio);
+          const abriu = await abrirExcecaoNoSlotAdmin(dataIso, horaIso, duracaoSlotMinutos);
+          if (abriu) {
+            setErro("");
+            abrirModalCriacao(inicio, false);
+          }
+          return;
+        }
         setErro(validacaoHorario.motivo || "Agenda fechada para este horario.");
         return;
       }
@@ -1681,11 +1802,21 @@ export default function AgendaFullCalendarPage() {
       setErro("");
       abrirModalCriacao(inicio, false);
     },
-    [agendaExcecoes, agendaFeriados, agendaSemanal, abrirModalCriacao, duracaoSlotMinutos, existeConflitoSlot, validarHorarioNaAgenda]
+    [
+      agendaExcecoes,
+      agendaFeriados,
+      agendaSemanal,
+      abrirExcecaoNoSlotAdmin,
+      abrirModalCriacao,
+      duracaoSlotMinutos,
+      existeConflitoSlot,
+      isAdmin,
+      validarHorarioNaAgenda,
+    ]
   );
 
   const handleSelect = useCallback(
-    (arg: DateSelectArg) => {
+    async (arg: DateSelectArg) => {
       const inicio = new Date(arg.start);
       if (arg.allDay) {
         const jornada = obterJornadaDia(toDateInput(inicio), agendaSemanal, agendaFeriados, agendaExcecoes);
@@ -1699,6 +1830,16 @@ export default function AgendaFullCalendarPage() {
           : new Date(inicio.getTime() + duracaoSlotMinutos * 60000);
       const validacaoHorario = validarHorarioNaAgenda(inicio, fim);
       if (!validacaoHorario.valido) {
+        if (isAdmin) {
+          const dataIso = toDateInput(inicio);
+          const horaIso = toTimeInput(inicio);
+          const abriu = await abrirExcecaoNoSlotAdmin(dataIso, horaIso, duracaoSlotMinutos);
+          if (abriu) {
+            setErro("");
+            abrirModalCriacao(inicio, false);
+          }
+          return;
+        }
         setErro(validacaoHorario.motivo || "Agenda fechada para este horario.");
         return;
       }
@@ -1709,7 +1850,17 @@ export default function AgendaFullCalendarPage() {
       setErro("");
       abrirModalCriacao(inicio, false);
     },
-    [agendaExcecoes, agendaFeriados, agendaSemanal, abrirModalCriacao, duracaoSlotMinutos, existeConflitoSlot, validarHorarioNaAgenda]
+    [
+      agendaExcecoes,
+      agendaFeriados,
+      agendaSemanal,
+      abrirExcecaoNoSlotAdmin,
+      abrirModalCriacao,
+      duracaoSlotMinutos,
+      existeConflitoSlot,
+      isAdmin,
+      validarHorarioNaAgenda,
+    ]
   );
 
   const handleEventDrop = useCallback(
@@ -1863,21 +2014,27 @@ export default function AgendaFullCalendarPage() {
               className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             />
 
-            <button
-              onClick={alternarAberturaAgendaDia}
-              disabled={salvandoAgendaDia}
-              className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                jornadaDataControle.fechado
-                  ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                  : "bg-amber-500 text-white hover:bg-amber-600"
-              }`}
-            >
-              {salvandoAgendaDia
-                ? "Salvando..."
-                : jornadaDataControle.fechado
-                  ? "Abrir data"
-                  : "Fechar data"}
-            </button>
+            {isAdmin ? (
+              <button
+                onClick={alternarAberturaAgendaDia}
+                disabled={salvandoAgendaDia}
+                className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                  jornadaDataControle.fechado
+                    ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                    : "bg-amber-500 text-white hover:bg-amber-600"
+                }`}
+              >
+                {salvandoAgendaDia
+                  ? "Salvando..."
+                  : jornadaDataControle.fechado
+                    ? "Abrir data"
+                    : "Fechar data"}
+              </button>
+            ) : (
+              <span className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                Somente admin pode abrir/fechar agenda
+              </span>
+            )}
 
             <button
               onClick={() => intervalo && carregarAgendamentos(intervalo)}

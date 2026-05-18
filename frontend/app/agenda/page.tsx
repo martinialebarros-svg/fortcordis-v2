@@ -129,6 +129,17 @@ const toTimeInput = (date: Date) => {
   return `${hora}:${minuto}`;
 };
 
+const somarMinutosHHMM = (hora: string, minutosAdicionar: number): string => {
+  const [hhRaw = "0", mmRaw = "0"] = String(hora || "00:00").split(":");
+  const hh = Number.parseInt(hhRaw, 10);
+  const mm = Number.parseInt(mmRaw, 10);
+  const base = (Number.isFinite(hh) ? hh : 0) * 60 + (Number.isFinite(mm) ? mm : 0);
+  const total = Math.max(0, Math.min((24 * 60) - 1, base + Math.max(1, minutosAdicionar)));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+};
+
 const parseApiDateTime = (value?: string | null): Date | null => {
   if (!value) return null;
 
@@ -1070,6 +1081,58 @@ export default function AgendaPage() {
     return dt.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
   };
 
+  const abrirExcecaoNoSlotAdmin = async (data: string, hora: string) => {
+    if (!isAdmin) {
+      setErro("Apenas administradores podem abrir excecao de agenda.");
+      return false;
+    }
+
+    const confirmado = window.confirm(
+      `Abrir excecao de agenda em ${data} às ${hora} para permitir agendamento?`
+    );
+    if (!confirmado) {
+      return false;
+    }
+
+    const fim = somarMinutosHHMM(hora, 30);
+    const excecaoExistente = agendaExcecoes.find((item) => item.data === data);
+
+    let inicioExcecao = hora;
+    let fimExcecao = fim;
+    if (excecaoExistente?.ativo) {
+      inicioExcecao = excecaoExistente.inicio < hora ? excecaoExistente.inicio : hora;
+      fimExcecao = excecaoExistente.fim > fim ? excecaoExistente.fim : fim;
+    }
+
+    const payloadExcecoes = normalizarAgendaExcecoes([
+      ...agendaExcecoes.filter((item) => item.data !== data),
+      {
+        data,
+        ativo: true,
+        inicio: inicioExcecao,
+        fim: fimExcecao,
+        motivo: "Abertura rapida via slot da agenda",
+      },
+    ]);
+
+    try {
+      setLoading(true);
+      await api.put("/configuracoes", { agenda_excecoes: payloadExcecoes });
+      setAgendaExcecoes(payloadExcecoes);
+      setErro("");
+      return true;
+    } catch (error: any) {
+      if (error?.response?.status === 403) {
+        setErro("Sem permissao para abrir excecao de agenda.");
+      } else {
+        setErro("Nao foi possivel abrir excecao para este horario.");
+      }
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const abrirNovoNoHorario = (data: string, hora: string) => {
     const jornada = jornadaPanoramicaPorDia.get(data);
     if (!jornada || !slotDentroDaJornada(hora, jornada)) {
@@ -1781,6 +1844,27 @@ export default function AgendaPage() {
                     const slotDisponivel = jornadaDia ? slotDentroDaJornada(slot, jornadaDia) : false;
 
                     if (itens.length === 0 && !slotDisponivel) {
+                      if (isAdmin) {
+                        return (
+                          <button
+                            key={chave}
+                            type="button"
+                            onClick={async () => {
+                              const abriu = await abrirExcecaoNoSlotAdmin(dia, slot);
+                              if (!abriu) return;
+                              setAgendamentoEditando(null);
+                              setSlotSelecionado({ data: dia, hora: slot });
+                              setModalAberto(true);
+                            }}
+                            className="border-b border-r px-2 py-2 text-left bg-amber-50 hover:bg-amber-100 text-amber-700 transition-colors"
+                            title={jornadaDia?.motivo || "Agenda fechada"}
+                          >
+                            <div className="text-xs font-semibold">Agenda fechada</div>
+                            <div className="text-[11px]">Abrir excecao</div>
+                          </button>
+                        );
+                      }
+
                       return (
                         <div
                           key={chave}
