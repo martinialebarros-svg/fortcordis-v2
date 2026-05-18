@@ -12,14 +12,14 @@ import type {
   EventInput,
 } from "@fullcalendar/core";
 import type { DateClickArg, EventResizeDoneArg } from "@fullcalendar/interaction";
-import { CalendarDays, ChevronDown, Download, FileText, RefreshCw, Stethoscope, Trash2, Wallet } from "lucide-react";
+import { CalendarDays, ChevronDown, Download, FileText, MapPin, RefreshCw, Stethoscope, Trash2, Wallet } from "lucide-react";
 
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import { montarToastAgendaRealtime } from "@/lib/agenda-realtime-toast";
 import { useAgendaRealtime, type AgendaRealtimePayload } from "@/lib/useAgendaRealtime";
-import { montarWazeDestinoClinica } from "@/lib/waze";
+import { montarGoogleMapsDestinoClinica, montarWazeDestinoClinica } from "@/lib/waze";
 import {
   getLaudoEditPath,
   TIPO_LAUDO_ECOCARDIOGRAMA,
@@ -572,11 +572,21 @@ export default function AgendaFullCalendarPage() {
     return montarWazeDestinoClinica(clinica)?.webUrl || "";
   }, []);
 
+  const montarGoogleMapsWebUrl = useCallback((clinica: ClinicaEndereco | null | undefined): string => {
+    return montarGoogleMapsDestinoClinica(clinica) || "";
+  }, []);
+
   const wazeSelecionadoUrl = useMemo(() => {
     if (!selecionado) return "";
     const clinica = clinicasEndereco[Number(selecionado.clinica_id)];
     return montarWazeWebUrl(clinica);
   }, [clinicasEndereco, montarWazeWebUrl, selecionado]);
+
+  const googleMapsSelecionadoUrl = useMemo(() => {
+    if (!selecionado) return "";
+    const clinica = clinicasEndereco[Number(selecionado.clinica_id)];
+    return montarGoogleMapsWebUrl(clinica);
+  }, [clinicasEndereco, montarGoogleMapsWebUrl, selecionado]);
 
   const carregarClinicasComEndereco = useCallback(async (items: Agendamento[]) => {
     const idsClinica = Array.from(
@@ -2204,6 +2214,19 @@ export default function AgendaFullCalendarPage() {
                         loading="lazy"
                       />
                       Waze
+                    </a>
+                  )}
+
+                  {googleMapsSelecionadoUrl && (
+                    <a
+                      href={googleMapsSelecionadoUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                      title="Abrir rota no Google Maps"
+                    >
+                      <MapPin className="h-3.5 w-3.5" />
+                      Maps
                     </a>
                   )}
 

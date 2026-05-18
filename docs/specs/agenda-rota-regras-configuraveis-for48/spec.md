@@ -15,6 +15,8 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - RF-003: sugestao de proximidade deve retornar politica aplicada (dias preferenciais, sinalizacao de distancia/frequencia e override por clinica).
 - RF-004: UI de Configuracoes deve permitir editar base, thresholds, politicas e overrides por clinica.
 - RF-005: em slots fechados da agenda, apenas perfil `admin` pode abrir excecao diretamente pelo clique no slot (agenda normal e fullcalendar), com confirmacao explicita.
+- RF-006: estado de agenda fechada/janela especial deve ficar explicito tambem na visao Lista da agenda para todo o periodo selecionado.
+- RF-007: acoes de navegacao para clinica devem oferecer Waze e Google Maps nas interfaces de agenda.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -22,6 +24,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - NFR-002 (seguranca/permissoes): reaproveitar permissoes existentes de configuracoes; sem ampliacao de superficie publica.
 - NFR-003 (observabilidade): erros de conflito manter codigo semantico `CONFLITO_DESLOCAMENTO` com detalhes de diagnostico.
 - NFR-004 (seguranca/permissoes): usuarios nao-admin nao podem executar abertura rapida de excecao; interface deve manter estado de bloqueio para papeis sem permissao.
+- NFR-005 (ux operacional): sinalizacao de fechamento precisa ser visivel sem clique em slot para reduzir risco de agendamento indevido.
 
 ## 4) Contratos tecnicos
 
@@ -42,7 +45,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 
 - Telas afetadas: `Configuracoes > Funcionamento da Agenda`, `Agenda` e `Agenda FullCalendar`.
 - Estados de UI: leitura/escrita, formularios de thresholds/politicas, lista dinamica de overrides e fluxo de abertura rapida de excecao para `admin`.
-- Regras de exibicao/erro: manter modo somente leitura para perfis sem permissao de configuracao e manter slots fechados sem acao para perfis nao-admin.
+- Regras de exibicao/erro: manter modo somente leitura para perfis sem permissao de configuracao, manter slots fechados sem acao para perfis nao-admin e exibir alertas de agenda fechada/janela especial no modo Lista.
 
 ## 5) Compatibilidade e rollout
 
@@ -56,6 +59,8 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - CA-002: agendamento com insercao claramente ineficiente retorna conflito com dados de desvio.
 - CA-003: painel de configuracoes expõe edicao de regras e overrides por clinica.
 - CA-004: ao clicar em slot fechado, `admin` consegue abrir excecao e seguir para criacao de agendamento; nao-admin permanece bloqueado.
+- CA-005: visao Lista mostra claramente dias fechados e janelas especiais dentro do periodo aplicado.
+- CA-006: agenda normal e fullcalendar exibem opcao de abrir rota no Google Maps alem do Waze.
 
 ## 7) Casos de borda
 

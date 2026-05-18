@@ -12,9 +12,12 @@ Status: in-progress
 | CA-002 | aceitacao | validação em `agenda.py` com `CONFLITO_DESLOCAMENTO` e `desvio_insercao_min` | ok |
 | CA-003 | aceitacao | seção "Regras de rota e oferta" em `frontend/app/configuracoes/page.tsx` | ok |
 | CA-004 | aceitacao | clique em slot fechado abre excecao somente para `admin` em `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
+| CA-005 | aceitacao | modo Lista exibe alertas de "Agenda fechada" e "Janela especial" por data no periodo filtrado | ok |
+| CA-006 | aceitacao | botoes de rota para Google Maps adicionados em `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
 | NFR-001 | nao funcional | cache de deslocamento por request mantido | ok |
 | NFR-002 | nao funcional | sem novos endpoints publicos; usa permissao de configuracoes existente | ok |
 | NFR-004 | nao funcional | perfis nao-admin sem acao de abertura rapida de excecao em slot fechado | ok |
+| NFR-005 | nao funcional | secretaria visualiza fechamento/horario especial sem depender de clique em slot | ok |
 
 ## 2) Testes automatizados executados
 
@@ -29,13 +32,13 @@ python3 -m py_compile backend/app/api/v1/endpoints/agenda.py \
 
 # frontend
 cd frontend && npx eslint app/configuracoes/page.tsx lib/agenda-route-rules.ts
-cd frontend && npx eslint app/agenda/page.tsx app/agenda/fullcalendar/page.tsx
+cd frontend && npx eslint app/agenda/page.tsx app/agenda/fullcalendar/page.tsx lib/waze.ts
 cd frontend && npx tsc --noEmit
 ```
 
 Resumo dos resultados:
 - Backend: ok (py_compile).
-- Frontend: ok (eslint + tsc), incluindo validacao das duas telas de agenda.
+- Frontend: ok (eslint + tsc), incluindo validacao das duas telas de agenda e helper de navegacao.
 - Observacao: `pytest` nao disponivel no ambiente local desta execucao.
 
 ## 3) Testes manuais
@@ -44,6 +47,8 @@ Resumo dos resultados:
 - Cenario 2: validar sugestao de proximidade para clinica distante/baixa frequencia.
 - Cenario 3: validar bloqueio de insercao com desvio acima do limite.
 - Cenario 4: em slot fechado, validar abertura de excecao por `admin` com confirmacao e bloqueio para nao-admin.
+- Cenario 5: no modo Lista, aplicar periodo e validar exibicao de alertas de agenda fechada/janela especial.
+- Cenario 6: validar abertura de rota por Waze e Google Maps nas acoes da agenda e no drawer do FullCalendar.
 
 ## 4) Regressao e riscos residuais
 

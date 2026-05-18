@@ -78,3 +78,18 @@ export const montarWazeDestinoClinica = (
     tipo: "endereco",
   };
 };
+
+export const montarGoogleMapsDestinoClinica = (
+  clinica?: WazeDestinoClinica | null
+): string | null => {
+  const coordenadas = coordenadasValidas(clinica);
+  if (coordenadas) {
+    const destino = `${formatarCoordenada(coordenadas.lat)},${formatarCoordenada(coordenadas.lng)}`;
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destino)}`;
+  }
+
+  const endereco = montarEnderecoClinicaWaze(clinica);
+  if (!endereco) return null;
+
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(endereco)}`;
+};

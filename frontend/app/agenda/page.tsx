@@ -15,6 +15,7 @@ import {
   normalizarAgendaExcecoes,
   normalizarAgendaFeriados,
   normalizarAgendaSemanal,
+  obterExcecaoData,
   obterJornadaDia,
   slotDentroDaJornada,
 } from "@/lib/agenda-config";
@@ -24,11 +25,11 @@ import {
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
 import { baixarLaudoPdf as baixarLaudoPdfUtil } from "@/lib/laudo-pdf";
-import { montarWazeDestinoClinica } from "@/lib/waze";
+import { montarGoogleMapsDestinoClinica, montarWazeDestinoClinica } from "@/lib/waze";
 import { 
   Calendar, Clock, User, Building, Plus, RefreshCw, X, Trash2,
   CheckCircle2, PlayCircle, CheckCircle, XCircle, AlertCircle,
-  Search, ChevronDown, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2, DollarSign
+  Search, ChevronDown, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2, DollarSign, MapPin
 } from "lucide-react";
 import NovoAgendamentoModal from "./NovoAgendamentoModal";
 
@@ -101,6 +102,14 @@ interface ToastRealtimeData {
 interface CarregarAgendamentosOptions {
   includeRelated?: boolean;
   includeResumo?: boolean;
+}
+
+interface AgendaListaStatusDia {
+  data: string;
+  tipo: "fechada" | "janela-especial";
+  inicio: string;
+  fim: string;
+  motivo: string;
 }
 
 type StatusType = "Agendado" | "Reservado" | "Confirmado" | "Em atendimento" | "Realizado" | "Cancelado" | "Faltou";
@@ -225,6 +234,24 @@ const gerarSlots = (inicioMinutos = 7 * 60, fimMinutos = 20 * 60, intervaloMinut
   return slots;
 };
 
+const gerarDatasNoPeriodo = (inicioIso: string, fimIso: string, limiteDias = 93): string[] => {
+  if (!inicioIso || !fimIso) return [];
+  const inicio = parseDateInput(inicioIso);
+  const fim = parseDateInput(fimIso);
+  if (Number.isNaN(inicio.getTime()) || Number.isNaN(fim.getTime())) return [];
+
+  const cursor = inicio <= fim ? new Date(inicio) : new Date(fim);
+  const limite = inicio <= fim ? fim : inicio;
+  const datas: string[] = [];
+
+  while (cursor <= limite && datas.length < limiteDias) {
+    datas.push(toDateInput(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return datas;
+};
+
 const hojeLocal = () => {
   return toDateInput(new Date());
 };
@@ -303,6 +330,42 @@ export default function AgendaPage() {
 
     return { inicio: "", fim: "" };
   }, [filtroData, filtroPeriodoFim, filtroPeriodoInicio, modoVisualizacao]);
+
+  const alertasAgendaLista = useMemo<AgendaListaStatusDia[]>(() => {
+    if (modoVisualizacao !== "lista") return [];
+    const diasPeriodo = gerarDatasNoPeriodo(periodoConsulta.inicio, periodoConsulta.fim);
+    if (diasPeriodo.length === 0) return [];
+
+    const alertas: AgendaListaStatusDia[] = [];
+
+    for (const dataIso of diasPeriodo) {
+      const jornada = obterJornadaDia(dataIso, agendaSemanal, agendaFeriados, agendaExcecoes);
+      const excecao = obterExcecaoData(dataIso, agendaExcecoes);
+
+      if (jornada.fechado) {
+        alertas.push({
+          data: dataIso,
+          tipo: "fechada",
+          inicio: jornada.inicio,
+          fim: jornada.fim,
+          motivo: jornada.motivo || "Agenda fechada",
+        });
+        continue;
+      }
+
+      if (excecao?.ativo) {
+        alertas.push({
+          data: dataIso,
+          tipo: "janela-especial",
+          inicio: jornada.inicio,
+          fim: jornada.fim,
+          motivo: excecao.motivo || "Janela especial de atendimento",
+        });
+      }
+    }
+
+    return alertas;
+  }, [agendaExcecoes, agendaFeriados, agendaSemanal, modoVisualizacao, periodoConsulta.fim, periodoConsulta.inicio]);
 
   const usuarioEhAdmin = () => {
     if (typeof window === "undefined") return false;
@@ -824,6 +887,25 @@ export default function AgendaPage() {
     }
 
     window.open(destino.webUrl, "_blank", "noopener,noreferrer");
+  };
+
+  const abrirGoogleMapsParaClinica = (
+    clinica: ClinicaEndereco | null | undefined,
+    nomeClinica?: string | null
+  ) => {
+    const destino = montarGoogleMapsDestinoClinica(clinica);
+    if (!destino) {
+      alert(`A clinica ${nomeClinica || ""} nao possui endereco ou coordenadas cadastradas.`);
+      return;
+    }
+
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+    if (isMobile) {
+      window.location.href = destino;
+      return;
+    }
+
+    window.open(destino, "_blank", "noopener,noreferrer");
   };
 
   const atualizarStatus = async (id: number, novoStatus: StatusType, tipoHorarioParam?: "comercial" | "plantao") => {
@@ -1542,6 +1624,50 @@ export default function AgendaPage() {
                 </span>
               </div>
             )}
+
+            {modoVisualizacao === "lista" && (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">
+                    Estado da agenda no periodo
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    {periodoConsulta.inicio} ate {periodoConsulta.fim}
+                  </span>
+                </div>
+
+                {alertasAgendaLista.length === 0 ? (
+                  <p className="text-sm text-emerald-700">
+                    Sem fechamentos ou janelas especiais no periodo selecionado.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {alertasAgendaLista.map((alerta) => {
+                      const dataLabel = parseDateInput(alerta.data).toLocaleDateString("pt-BR", {
+                        weekday: "short",
+                        day: "2-digit",
+                        month: "2-digit",
+                      });
+                      const fechado = alerta.tipo === "fechada";
+                      return (
+                        <div
+                          key={`${alerta.data}-${alerta.tipo}`}
+                          className={`rounded-lg border px-2.5 py-1.5 text-xs ${
+                            fechado
+                              ? "border-red-200 bg-red-50 text-red-700"
+                              : "border-amber-200 bg-amber-50 text-amber-700"
+                          }`}
+                          title={alerta.motivo}
+                        >
+                          <strong className="mr-1">{dataLabel}</strong>
+                          {fechado ? "Agenda fechada" : "Janela especial"} ({alerta.inicio} as {alerta.fim})
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Chips de status */}
@@ -1592,6 +1718,7 @@ export default function AgendaPage() {
                 const osPaga = osPagasVinculadas[ag.id];
                 const clinicaComEndereco = ag.clinica_id ? clinicasEndereco[ag.clinica_id] : undefined;
                 const podeAbrirWaze = Boolean(montarWazeDestinoClinica(clinicaComEndereco));
+                const podeAbrirGoogleMaps = Boolean(montarGoogleMapsDestinoClinica(clinicaComEndereco));
                 
                 return (
                   <div key={ag.id} className="p-5 hover:bg-gray-50 transition-colors">
@@ -1732,6 +1859,24 @@ export default function AgendaPage() {
                             loading="lazy"
                           />
                           Waze
+                        </button>
+
+                        <button
+                          onClick={() => abrirGoogleMapsParaClinica(clinicaComEndereco, ag.clinica)}
+                          disabled={!podeAbrirGoogleMaps}
+                          className={`px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center gap-1 ${
+                            podeAbrirGoogleMaps
+                              ? "text-indigo-700 hover:text-indigo-900 hover:bg-indigo-50"
+                              : "text-gray-400 bg-gray-50 cursor-not-allowed"
+                          }`}
+                          title={
+                            podeAbrirGoogleMaps
+                              ? `Abrir Google Maps para ${ag.clinica || "clinica"}`
+                              : "Clinica sem endereco cadastrado"
+                          }
+                        >
+                          <MapPin className="h-4 w-4" />
+                          Maps
                         </button>
 
                         <details className="relative">
