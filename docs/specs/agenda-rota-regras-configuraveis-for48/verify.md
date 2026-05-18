@@ -11,8 +11,10 @@ Status: in-progress
 | CA-001 | aceitacao | `PUT/GET /configuracoes` e `GET /agenda/configuracao` com `agenda_rota_regras` | ok |
 | CA-002 | aceitacao | validação em `agenda.py` com `CONFLITO_DESLOCAMENTO` e `desvio_insercao_min` | ok |
 | CA-003 | aceitacao | seção "Regras de rota e oferta" em `frontend/app/configuracoes/page.tsx` | ok |
+| CA-004 | aceitacao | clique em slot fechado abre excecao somente para `admin` em `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
 | NFR-001 | nao funcional | cache de deslocamento por request mantido | ok |
 | NFR-002 | nao funcional | sem novos endpoints publicos; usa permissao de configuracoes existente | ok |
+| NFR-004 | nao funcional | perfis nao-admin sem acao de abertura rapida de excecao em slot fechado | ok |
 
 ## 2) Testes automatizados executados
 
@@ -27,12 +29,13 @@ python3 -m py_compile backend/app/api/v1/endpoints/agenda.py \
 
 # frontend
 cd frontend && npx eslint app/configuracoes/page.tsx lib/agenda-route-rules.ts
+cd frontend && npx eslint app/agenda/page.tsx app/agenda/fullcalendar/page.tsx
 cd frontend && npx tsc --noEmit
 ```
 
 Resumo dos resultados:
 - Backend: ok (py_compile).
-- Frontend: ok (eslint + tsc).
+- Frontend: ok (eslint + tsc), incluindo validacao das duas telas de agenda.
 - Observacao: `pytest` nao disponivel no ambiente local desta execucao.
 
 ## 3) Testes manuais
@@ -40,6 +43,7 @@ Resumo dos resultados:
 - Cenario 1: editar e salvar regras de rota em Configuracoes.
 - Cenario 2: validar sugestao de proximidade para clinica distante/baixa frequencia.
 - Cenario 3: validar bloqueio de insercao com desvio acima do limite.
+- Cenario 4: em slot fechado, validar abertura de excecao por `admin` com confirmacao e bloqueio para nao-admin.
 
 ## 4) Regressao e riscos residuais
 

@@ -14,12 +14,14 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - RF-002: sugestao de horarios deve considerar limiares de margem segura, desvio maximo de insercao e preferencia por clinicas proximas da base no fim de rota.
 - RF-003: sugestao de proximidade deve retornar politica aplicada (dias preferenciais, sinalizacao de distancia/frequencia e override por clinica).
 - RF-004: UI de Configuracoes deve permitir editar base, thresholds, politicas e overrides por clinica.
+- RF-005: em slots fechados da agenda, apenas perfil `admin` pode abrir excecao diretamente pelo clique no slot (agenda normal e fullcalendar), com confirmacao explicita.
 
 ## 3) Requisitos nao funcionais (NFR)
 
 - NFR-001 (performance): manter fluxo de sugestao com cache local de duracoes por request.
 - NFR-002 (seguranca/permissoes): reaproveitar permissoes existentes de configuracoes; sem ampliacao de superficie publica.
 - NFR-003 (observabilidade): erros de conflito manter codigo semantico `CONFLITO_DESLOCAMENTO` com detalhes de diagnostico.
+- NFR-004 (seguranca/permissoes): usuarios nao-admin nao podem executar abertura rapida de excecao; interface deve manter estado de bloqueio para papeis sem permissao.
 
 ## 4) Contratos tecnicos
 
@@ -38,9 +40,9 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 
 ### Frontend
 
-- Telas afetadas: `Configuracoes > Funcionamento da Agenda`.
-- Estados de UI: leitura/escrita, formularios de thresholds/politicas, lista dinamica de overrides.
-- Regras de exibicao/erro: manter modo somente leitura para perfis sem permissao de configuracao.
+- Telas afetadas: `Configuracoes > Funcionamento da Agenda`, `Agenda` e `Agenda FullCalendar`.
+- Estados de UI: leitura/escrita, formularios de thresholds/politicas, lista dinamica de overrides e fluxo de abertura rapida de excecao para `admin`.
+- Regras de exibicao/erro: manter modo somente leitura para perfis sem permissao de configuracao e manter slots fechados sem acao para perfis nao-admin.
 
 ## 5) Compatibilidade e rollout
 
@@ -53,6 +55,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - CA-001: salvar configuracoes persiste e retorna `agenda_rota_regras` sem quebrar os campos antigos.
 - CA-002: agendamento com insercao claramente ineficiente retorna conflito com dados de desvio.
 - CA-003: painel de configuracoes expõe edicao de regras e overrides por clinica.
+- CA-004: ao clicar em slot fechado, `admin` consegue abrir excecao e seguir para criacao de agendamento; nao-admin permanece bloqueado.
 
 ## 7) Casos de borda
 
