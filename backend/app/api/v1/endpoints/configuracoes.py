@@ -13,6 +13,10 @@ from app.core.agenda_config import (
     normalizar_agenda_semanal,
     serializar_json,
 )
+from app.core.agenda_route_rules import (
+    carregar_agenda_rota_regras,
+    normalizar_agenda_rota_regras,
+)
 from app.db.database import get_db
 from app.models.user import User
 from app.models.configuracao import Configuracao, ConfiguracaoUsuario
@@ -75,6 +79,7 @@ def obter_configuracoes(
         agenda_semanal = carregar_agenda_semanal(getattr(config, "agenda_semanal", None))
         agenda_feriados = carregar_agenda_feriados(getattr(config, "agenda_feriados", None))
         agenda_excecoes = carregar_agenda_excecoes(getattr(config, "agenda_excecoes", None))
+        agenda_rota_regras = carregar_agenda_rota_regras(getattr(config, "agenda_rota_regras", None))
         
         return {
             "id": config.id,
@@ -98,6 +103,7 @@ def obter_configuracoes(
             "agenda_semanal": agenda_semanal,
             "agenda_feriados": agenda_feriados,
             "agenda_excecoes": agenda_excecoes,
+            "agenda_rota_regras": agenda_rota_regras,
             "created_at": config.created_at.isoformat() if config.created_at else None,
             "updated_at": config.updated_at.isoformat() if config.updated_at else None,
         }
@@ -121,7 +127,7 @@ def atualizar_configuracoes(
         "website", "texto_cabecalho_laudo", "texto_rodape_laudo",
         "mostrar_logomarca", "mostrar_assinatura", "fortinho_habilitado",
         "horario_comercial_inicio", "horario_comercial_fim", "dias_trabalho",
-        "agenda_semanal", "agenda_feriados", "agenda_excecoes",
+        "agenda_semanal", "agenda_feriados", "agenda_excecoes", "agenda_rota_regras",
     ]
 
     if "fortinho_habilitado" in dados and not current_user.tem_papel("admin"):
@@ -145,6 +151,9 @@ def atualizar_configuracoes(
             elif campo == "agenda_excecoes":
                 agenda_excecoes_normalizadas = normalizar_agenda_excecoes(dados[campo])
                 setattr(config, campo, serializar_json(agenda_excecoes_normalizadas))
+            elif campo == "agenda_rota_regras":
+                agenda_rota_regras_normalizadas = normalizar_agenda_rota_regras(dados[campo])
+                setattr(config, campo, serializar_json(agenda_rota_regras_normalizadas))
             else:
                 setattr(config, campo, dados[campo])
 

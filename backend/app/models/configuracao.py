@@ -42,6 +42,7 @@ class Configuracao(Base):
     agenda_semanal = Column(Text)
     agenda_feriados = Column(Text)
     agenda_excecoes = Column(Text)
+    agenda_rota_regras = Column(Text)
     
     # Dados fiscais (ISS / NFS-e)
     inscricao_municipal = Column(String(50))

@@ -16,6 +16,14 @@ import {
   normalizarAgendaSemanal,
 } from "@/lib/agenda-config";
 import {
+  AgendaRotaClinicOverrideConfig,
+  AgendaRotaRegrasConfig,
+  DEFAULT_AGENDA_ROTA_REGRAS,
+  formatarDiasAFrenteInput,
+  normalizarAgendaRotaRegras,
+  normalizarDiasAFrente,
+} from "@/lib/agenda-route-rules";
+import {
   Settings,
   Building2,
   UserCircle,
@@ -46,6 +54,7 @@ interface ConfiguracoesSistema {
   agenda_semanal: AgendaSemanalConfig;
   agenda_feriados: AgendaFeriadoConfig[];
   agenda_excecoes: AgendaExcecaoConfig[];
+  agenda_rota_regras: AgendaRotaRegrasConfig;
   inscricao_municipal: string;
   inscricao_estadual: string;
   cnae: string;
@@ -249,6 +258,7 @@ export default function ConfiguracoesPage() {
     agenda_semanal: normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL),
     agenda_feriados: [],
     agenda_excecoes: [],
+    agenda_rota_regras: normalizarAgendaRotaRegras(DEFAULT_AGENDA_ROTA_REGRAS),
     inscricao_municipal: "",
     inscricao_estadual: "",
     cnae: "",
@@ -317,6 +327,208 @@ export default function ConfiguracoesPage() {
     ativo: true,
     papeis: [],
   });
+
+  const atualizarRegraRotaBase = (
+    campo: keyof AgendaRotaRegrasConfig["base"],
+    valor: string
+  ) => {
+    setConfigEmpresa((prev) => {
+      const regras = prev.agenda_rota_regras || normalizarAgendaRotaRegras(DEFAULT_AGENDA_ROTA_REGRAS);
+      let nextValue: string | number | null = valor;
+      if (campo === "lat" || campo === "lng") {
+        if (!valor.trim()) {
+          nextValue = null;
+        } else {
+          const parsed = Number.parseFloat(valor.replace(",", "."));
+          nextValue = Number.isFinite(parsed) ? parsed : null;
+        }
+      }
+      return {
+        ...prev,
+        agenda_rota_regras: {
+          ...regras,
+          base: {
+            ...regras.base,
+            [campo]: nextValue,
+          },
+        },
+      };
+    });
+  };
+
+  const atualizarRegraRotaThreshold = (
+    campo: keyof AgendaRotaRegrasConfig["thresholds"],
+    valor: number
+  ) => {
+    setConfigEmpresa((prev) => {
+      const regras = prev.agenda_rota_regras || normalizarAgendaRotaRegras(DEFAULT_AGENDA_ROTA_REGRAS);
+      return {
+        ...prev,
+        agenda_rota_regras: {
+          ...regras,
+          thresholds: {
+            ...regras.thresholds,
+            [campo]: Number.isFinite(valor) ? valor : 0,
+          },
+        },
+      };
+    });
+  };
+
+  const atualizarRegraRotaOfferDias = (
+    campo:
+      | "default_first_offer_days_ahead"
+      | "distant_low_frequency_first_offer_days_ahead"
+      | "emergency_first_offer_days_ahead",
+    valor: string
+  ) => {
+    setConfigEmpresa((prev) => {
+      const regras = prev.agenda_rota_regras || normalizarAgendaRotaRegras(DEFAULT_AGENDA_ROTA_REGRAS);
+      const fallback = regras.offer_policy[campo];
+      return {
+        ...prev,
+        agenda_rota_regras: {
+          ...regras,
+          offer_policy: {
+            ...regras.offer_policy,
+            [campo]: normalizarDiasAFrente(valor, fallback),
+          },
+        },
+      };
+    });
+  };
+
+  const atualizarRegraRotaOfferBool = (
+    campo: "allow_d2_if_anchor_exists",
+    valor: boolean
+  ) => {
+    setConfigEmpresa((prev) => {
+      const regras = prev.agenda_rota_regras || normalizarAgendaRotaRegras(DEFAULT_AGENDA_ROTA_REGRAS);
+      return {
+        ...prev,
+        agenda_rota_regras: {
+          ...regras,
+          offer_policy: {
+            ...regras.offer_policy,
+            [campo]: valor,
+          },
+        },
+      };
+    });
+  };
+
+  const atualizarRegraRotaPolicy = (
+    campo: keyof AgendaRotaRegrasConfig["route_policy"],
+    valor: string | number | boolean
+  ) => {
+    setConfigEmpresa((prev) => {
+      const regras = prev.agenda_rota_regras || normalizarAgendaRotaRegras(DEFAULT_AGENDA_ROTA_REGRAS);
+      return {
+        ...prev,
+        agenda_rota_regras: {
+          ...regras,
+          route_policy: {
+            ...regras.route_policy,
+            [campo]: valor,
+          },
+        },
+      };
+    });
+  };
+
+  const atualizarRegraRotaFallback = (
+    campo: keyof AgendaRotaRegrasConfig["fallback_policy"],
+    valor: number | boolean
+  ) => {
+    setConfigEmpresa((prev) => {
+      const regras = prev.agenda_rota_regras || normalizarAgendaRotaRegras(DEFAULT_AGENDA_ROTA_REGRAS);
+      return {
+        ...prev,
+        agenda_rota_regras: {
+          ...regras,
+          fallback_policy: {
+            ...regras.fallback_policy,
+            [campo]: valor,
+          },
+        },
+      };
+    });
+  };
+
+  const adicionarOverrideRota = () => {
+    setConfigEmpresa((prev) => {
+      const regras = prev.agenda_rota_regras || normalizarAgendaRotaRegras(DEFAULT_AGENDA_ROTA_REGRAS);
+      const novo: AgendaRotaClinicOverrideConfig = {
+        clinic_name: "",
+        force_days_ahead: [...regras.offer_policy.distant_low_frequency_first_offer_days_ahead],
+        prefer_only_when_anchor_exists: true,
+        notes: "",
+      };
+      return {
+        ...prev,
+        agenda_rota_regras: {
+          ...regras,
+          clinic_overrides: [...(regras.clinic_overrides || []), novo],
+        },
+      };
+    });
+  };
+
+  const removerOverrideRota = (index: number) => {
+    setConfigEmpresa((prev) => {
+      const regras = prev.agenda_rota_regras || normalizarAgendaRotaRegras(DEFAULT_AGENDA_ROTA_REGRAS);
+      return {
+        ...prev,
+        agenda_rota_regras: {
+          ...regras,
+          clinic_overrides: (regras.clinic_overrides || []).filter((_, i) => i !== index),
+        },
+      };
+    });
+  };
+
+  const atualizarOverrideRota = (
+    index: number,
+    campo: keyof AgendaRotaClinicOverrideConfig,
+    valor: string | boolean
+  ) => {
+    setConfigEmpresa((prev) => {
+      const regras = prev.agenda_rota_regras || normalizarAgendaRotaRegras(DEFAULT_AGENDA_ROTA_REGRAS);
+      const overrides = [...(regras.clinic_overrides || [])];
+      if (!overrides[index]) return prev;
+      if (campo === "force_days_ahead") {
+        overrides[index] = {
+          ...overrides[index],
+          force_days_ahead: normalizarDiasAFrente(
+            valor,
+            regras.offer_policy.distant_low_frequency_first_offer_days_ahead
+          ),
+        };
+      } else if (campo === "prefer_only_when_anchor_exists") {
+        overrides[index] = {
+          ...overrides[index],
+          prefer_only_when_anchor_exists: Boolean(valor),
+        };
+      } else if (campo === "clinic_name") {
+        overrides[index] = {
+          ...overrides[index],
+          clinic_name: String(valor ?? ""),
+        };
+      } else {
+        overrides[index] = {
+          ...overrides[index],
+          notes: String(valor ?? ""),
+        };
+      }
+      return {
+        ...prev,
+        agenda_rota_regras: {
+          ...regras,
+          clinic_overrides: overrides,
+        },
+      };
+    });
+  };
 
   const usuarioEhAdmin = () => {
     if (typeof window === "undefined") return false;
@@ -579,6 +791,7 @@ export default function ConfiguracoesPage() {
             agenda_semanal: normalizarAgendaSemanal(respEmpresa.data?.agenda_semanal),
             agenda_feriados: normalizarAgendaFeriados(respEmpresa.data?.agenda_feriados),
             agenda_excecoes: normalizarAgendaExcecoes(respEmpresa.data?.agenda_excecoes),
+            agenda_rota_regras: normalizarAgendaRotaRegras(respEmpresa.data?.agenda_rota_regras),
           }));
 
           // Carregar preview da logomarca se existir
@@ -611,6 +824,7 @@ export default function ConfiguracoesPage() {
           agenda_semanal: normalizarAgendaSemanal(respAgenda.data?.agenda_semanal),
           agenda_feriados: normalizarAgendaFeriados(respAgenda.data?.agenda_feriados),
           agenda_excecoes: normalizarAgendaExcecoes(respAgenda.data?.agenda_excecoes),
+          agenda_rota_regras: normalizarAgendaRotaRegras(respAgenda.data?.agenda_rota_regras),
         }));
       } catch (errorAgenda) {
         console.error("Erro ao carregar funcionamento da agenda:", errorAgenda);
@@ -682,6 +896,7 @@ export default function ConfiguracoesPage() {
         agenda_semanal: normalizarAgendaSemanal(configEmpresa.agenda_semanal),
         agenda_feriados: normalizarAgendaFeriados(configEmpresa.agenda_feriados),
         agenda_excecoes: normalizarAgendaExcecoes(configEmpresa.agenda_excecoes),
+        agenda_rota_regras: normalizarAgendaRotaRegras(configEmpresa.agenda_rota_regras),
       };
       if (!isAdmin) {
         delete payload.fortinho_habilitado;
@@ -692,6 +907,7 @@ export default function ConfiguracoesPage() {
         agenda_semanal: payload.agenda_semanal,
         agenda_feriados: payload.agenda_feriados,
         agenda_excecoes: payload.agenda_excecoes,
+        agenda_rota_regras: payload.agenda_rota_regras,
       }));
       alert("ConfiguraÃ§Ãµes da empresa salvas com sucesso!");
     } catch (error) {
@@ -1006,6 +1222,8 @@ export default function ConfiguracoesPage() {
   };
 
   const agendaSemanalAtual = normalizarAgendaSemanal(configEmpresa.agenda_semanal);
+  const agendaRotaRegrasAtual =
+    configEmpresa.agenda_rota_regras || normalizarAgendaRotaRegras(DEFAULT_AGENDA_ROTA_REGRAS);
 
   if (loading) {
     return (
@@ -1492,6 +1710,403 @@ export default function ConfiguracoesPage() {
                         </button>
                       </div>
                     ))
+                  )}
+                </div>
+              </div>
+
+              <div className="border border-gray-200 rounded-lg p-4 mt-4 space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-800">Regras de rota e oferta</h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Ajuste as regras de sugestao de horario para reduzir deslocamento e melhorar encaixe por regiao.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Nome da base</label>
+                    <input
+                      type="text"
+                      value={agendaRotaRegrasAtual.base.label || ""}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) => atualizarRegraRotaBase("label", e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Endereco da base</label>
+                    <input
+                      type="text"
+                      value={agendaRotaRegrasAtual.base.address || ""}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) => atualizarRegraRotaBase("address", e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">CEP da base</label>
+                    <input
+                      type="text"
+                      value={agendaRotaRegrasAtual.base.zip_code || ""}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) => atualizarRegraRotaBase("zip_code", e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Latitude (opcional)</label>
+                      <input
+                        type="number"
+                        step="0.000001"
+                        value={agendaRotaRegrasAtual.base.lat ?? ""}
+                        disabled={somenteLeituraAgenda}
+                        onChange={(e) => atualizarRegraRotaBase("lat", e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Longitude (opcional)</label>
+                      <input
+                        type="number"
+                        step="0.000001"
+                        value={agendaRotaRegrasAtual.base.lng ?? ""}
+                        disabled={somenteLeituraAgenda}
+                        onChange={(e) => atualizarRegraRotaBase("lng", e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Ancora proxima (min)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={240}
+                      value={agendaRotaRegrasAtual.thresholds.nearby_anchor_max_travel_min}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) =>
+                        atualizarRegraRotaThreshold(
+                          "nearby_anchor_max_travel_min",
+                          Number(e.target.value || 0)
+                        )
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Clinica distante da base (min)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={360}
+                      value={agendaRotaRegrasAtual.thresholds.distant_clinic_min_travel_from_base_min}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) =>
+                        atualizarRegraRotaThreshold(
+                          "distant_clinic_min_travel_from_base_min",
+                          Number(e.target.value || 0)
+                        )
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Baixa frequencia (agend. 30d)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={60}
+                      value={agendaRotaRegrasAtual.thresholds.low_frequency_max_bookings_30d}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) =>
+                        atualizarRegraRotaThreshold(
+                          "low_frequency_max_bookings_30d",
+                          Number(e.target.value || 0)
+                        )
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Desvio maximo insercao (min)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={360}
+                      value={agendaRotaRegrasAtual.thresholds.max_insertion_detour_min}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) =>
+                        atualizarRegraRotaThreshold(
+                          "max_insertion_detour_min",
+                          Number(e.target.value || 0)
+                        )
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Margem segura deslocamento (min)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={120}
+                      value={agendaRotaRegrasAtual.thresholds.safe_margin_min}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) =>
+                        atualizarRegraRotaThreshold("safe_margin_min", Number(e.target.value || 0))
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Inicio da janela fim de rota</label>
+                    <input
+                      type="time"
+                      value={agendaRotaRegrasAtual.route_policy.end_of_route_window_start}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) => atualizarRegraRotaPolicy("end_of_route_window_start", e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Oferta padrao (dias a frente)
+                    </label>
+                    <input
+                      type="text"
+                      value={formatarDiasAFrenteInput(
+                        agendaRotaRegrasAtual.offer_policy.default_first_offer_days_ahead
+                      )}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) =>
+                        atualizarRegraRotaOfferDias("default_first_offer_days_ahead", e.target.value)
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      placeholder="Ex.: 2"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Oferta distantes/baixa freq. (dias)
+                    </label>
+                    <input
+                      type="text"
+                      value={formatarDiasAFrenteInput(
+                        agendaRotaRegrasAtual.offer_policy.distant_low_frequency_first_offer_days_ahead
+                      )}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) =>
+                        atualizarRegraRotaOfferDias(
+                          "distant_low_frequency_first_offer_days_ahead",
+                          e.target.value
+                        )
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      placeholder="Ex.: 3, 4"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Emergencia (dias a frente)
+                    </label>
+                    <input
+                      type="text"
+                      value={formatarDiasAFrenteInput(
+                        agendaRotaRegrasAtual.offer_policy.emergency_first_offer_days_ahead
+                      )}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) =>
+                        atualizarRegraRotaOfferDias("emergency_first_offer_days_ahead", e.target.value)
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      placeholder="Ex.: 1, 2"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <label className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={agendaRotaRegrasAtual.offer_policy.allow_d2_if_anchor_exists}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) => atualizarRegraRotaOfferBool("allow_d2_if_anchor_exists", e.target.checked)}
+                      className="w-4 h-4 text-teal-600"
+                    />
+                    Permitir D+2 quando houver ancora
+                  </label>
+                  <label className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={agendaRotaRegrasAtual.route_policy.prefer_near_base_at_end_of_route}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) => atualizarRegraRotaPolicy("prefer_near_base_at_end_of_route", e.target.checked)}
+                      className="w-4 h-4 text-teal-600"
+                    />
+                    Priorizar proximas da base no fim da rota
+                  </label>
+                  <label className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={agendaRotaRegrasAtual.route_policy.reject_clear_inefficiency}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) => atualizarRegraRotaPolicy("reject_clear_inefficiency", e.target.checked)}
+                      className="w-4 h-4 text-teal-600"
+                    />
+                    Bloquear encaixe ineficiente
+                  </label>
+                  <label className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={agendaRotaRegrasAtual.fallback_policy.suggest_alternative_slots_when_blocked}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) =>
+                        atualizarRegraRotaFallback(
+                          "suggest_alternative_slots_when_blocked",
+                          e.target.checked
+                        )
+                      }
+                      className="w-4 h-4 text-teal-600"
+                    />
+                    Sugerir alternativas quando bloquear
+                  </label>
+                  <label className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={agendaRotaRegrasAtual.fallback_policy.allow_extra_slot_start_or_end_route_for_emergency}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) =>
+                        atualizarRegraRotaFallback(
+                          "allow_extra_slot_start_or_end_route_for_emergency",
+                          e.target.checked
+                        )
+                      }
+                      className="w-4 h-4 text-teal-600"
+                    />
+                    Permitir extra para emergencia
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Bonus perto da base</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={999}
+                        value={agendaRotaRegrasAtual.route_policy.bonus_near_base_score}
+                        disabled={somenteLeituraAgenda}
+                        onChange={(e) =>
+                          atualizarRegraRotaPolicy("bonus_near_base_score", Number(e.target.value || 0))
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Penalty longe da base</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={999}
+                        value={agendaRotaRegrasAtual.route_policy.penalty_far_base_score}
+                        disabled={somenteLeituraAgenda}
+                        onChange={(e) =>
+                          atualizarRegraRotaPolicy("penalty_far_base_score", Number(e.target.value || 0))
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-semibold text-gray-800">Overrides por clinica</h4>
+                    <button
+                      type="button"
+                      onClick={adicionarOverrideRota}
+                      disabled={somenteLeituraAgenda}
+                      className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      Adicionar override
+                    </button>
+                  </div>
+
+                  {agendaRotaRegrasAtual.clinic_overrides.length === 0 ? (
+                    <p className="text-sm text-gray-500">Nenhuma clinica com regra especifica.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {agendaRotaRegrasAtual.clinic_overrides.map((item, index) => (
+                        <div key={`override-${index}`} className="border border-gray-200 rounded-lg p-3">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Clinica</label>
+                              <input
+                                type="text"
+                                value={item.clinic_name}
+                                disabled={somenteLeituraAgenda}
+                                onChange={(e) => atualizarOverrideRota(index, "clinic_name", e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Dias a frente (csv)
+                              </label>
+                              <input
+                                type="text"
+                                value={formatarDiasAFrenteInput(item.force_days_ahead)}
+                                disabled={somenteLeituraAgenda}
+                                onChange={(e) => atualizarOverrideRota(index, "force_days_ahead", e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                placeholder="Ex.: 3, 4"
+                              />
+                            </div>
+                            <div className="flex items-end justify-between gap-3">
+                              <label className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700">
+                                <input
+                                  type="checkbox"
+                                  checked={item.prefer_only_when_anchor_exists}
+                                  disabled={somenteLeituraAgenda}
+                                  onChange={(e) =>
+                                    atualizarOverrideRota(
+                                      index,
+                                      "prefer_only_when_anchor_exists",
+                                      e.target.checked
+                                    )
+                                  }
+                                  className="w-4 h-4 text-teal-600"
+                                />
+                                Exigir ancora proxima
+                              </label>
+                              <button
+                                type="button"
+                                disabled={somenteLeituraAgenda}
+                                onClick={() => removerOverrideRota(index)}
+                                className="px-3 py-2 text-xs text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+                              >
+                                Remover
+                              </button>
+                            </div>
+                          </div>
+                          <div className="mt-3">
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Observacao</label>
+                            <input
+                              type="text"
+                              value={item.notes || ""}
+                              disabled={somenteLeituraAgenda}
+                              onChange={(e) => atualizarOverrideRota(index, "notes", e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
