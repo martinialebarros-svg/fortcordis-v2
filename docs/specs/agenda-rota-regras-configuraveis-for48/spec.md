@@ -18,6 +18,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - RF-006: estado de agenda fechada/janela especial deve ficar explicito tambem na visao Lista da agenda para todo o periodo selecionado.
 - RF-007: acoes de navegacao para clinica devem oferecer Waze e Google Maps nas interfaces de agenda.
 - RF-008: Agenda (visao Lista) deve permitir receber pagamento da OS vinculada ao agendamento, com selecao de forma de pagamento, alinhando o fluxo da FullCalendar.
+- RF-009: regras de transicao de status, fluxo de acoes e formas de pagamento devem ser compartilhadas entre Agenda Lista e FullCalendar para evitar divergencia funcional.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -63,6 +64,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - CA-005: visao Lista mostra claramente dias fechados e janelas especiais dentro do periodo aplicado.
 - CA-006: agenda normal e fullcalendar exibem opcao de abrir rota no Google Maps alem do Waze.
 - CA-007: Agenda Lista permite recebimento de pagamento da OS quando existir vinculo e status pendente, atualizando o estado para pago apos confirmacao.
+- CA-008: menus de status e recebimento de pagamento exibem o mesmo comportamento funcional entre Agenda Lista e FullCalendar, usando a mesma base de regras compartilhada.
 
 ## 7) Casos de borda
 
