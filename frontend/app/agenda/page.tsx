@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import { montarToastAgendaRealtime } from "@/lib/agenda-realtime-toast";
@@ -323,15 +323,16 @@ export default function AgendaPage() {
   const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastRealtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
-  const searchParams = useSearchParams();
   const filtrosIniciaisAplicadosRef = useRef(false);
 
   useEffect(() => {
     if (filtrosIniciaisAplicadosRef.current) return;
 
-    const dataQuery = searchParams.get("data");
-    const visaoQuery = searchParams.get("visao");
-    const statusQuery = searchParams.get("status");
+    if (typeof window === "undefined") return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const dataQuery = urlParams.get("data");
+    const visaoQuery = urlParams.get("visao");
+    const statusQuery = urlParams.get("status");
 
     if (isDateInputValida(dataQuery)) {
       setFiltroData(dataQuery);
@@ -352,7 +353,7 @@ export default function AgendaPage() {
     }
 
     filtrosIniciaisAplicadosRef.current = true;
-  }, [searchParams]);
+  }, []);
 
   const abrirAgendaFullCalendar = useCallback(() => {
     const params = new URLSearchParams();

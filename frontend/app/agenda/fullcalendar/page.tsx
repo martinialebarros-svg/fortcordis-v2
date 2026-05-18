@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import type {
   DateSelectArg,
   DatesSetArg,
@@ -472,7 +472,6 @@ export default function AgendaFullCalendarPage() {
   const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastRealtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
-  const searchParams = useSearchParams();
   const filtrosIniciaisAplicadosRef = useRef(false);
 
   const duracaoSlot = useMemo(() => minutosParaDuracao(duracaoSlotMinutos), [duracaoSlotMinutos]);
@@ -503,8 +502,10 @@ export default function AgendaFullCalendarPage() {
   useEffect(() => {
     if (filtrosIniciaisAplicadosRef.current) return;
 
-    const dataQuery = searchParams.get("data");
-    const statusQuery = searchParams.get("status");
+    if (typeof window === "undefined") return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const dataQuery = urlParams.get("data");
+    const statusQuery = urlParams.get("status");
 
     if (isDateInputValida(dataQuery)) {
       setDataControleAgenda(dataQuery);
@@ -515,7 +516,7 @@ export default function AgendaFullCalendarPage() {
     }
 
     filtrosIniciaisAplicadosRef.current = true;
-  }, [searchParams]);
+  }, []);
 
   const slotMinTime = useMemo(() => {
     const inicios = Object.values(agendaSemanal)

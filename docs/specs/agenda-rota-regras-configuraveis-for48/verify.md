@@ -17,6 +17,7 @@ Status: in-progress
 | CA-007 | aceitacao | Agenda Lista permite receber pagamento da OS vinculada com modal de forma de pagamento em `frontend/app/agenda/page.tsx` | ok |
 | CA-008 | aceitacao | regras de status/pagamento compartilhadas via `frontend/lib/agenda-shared-actions.ts` aplicadas em `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
 | CA-009 | aceitacao | alternancia entre Lista e FullCalendar preserva contexto de data/status via query string em `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
+| CA-010 | aceitacao | build do frontend conclui sem erro de prerender em `/agenda` apos ajuste da leitura de query string nas telas de Agenda | ok |
 | NFR-001 | nao funcional | cache de deslocamento por request mantido | ok |
 | NFR-002 | nao funcional | sem novos endpoints publicos; usa permissao de configuracoes existente | ok |
 | NFR-004 | nao funcional | perfis nao-admin sem acao de abertura rapida de excecao em slot fechado | ok |
@@ -37,11 +38,12 @@ python3 -m py_compile backend/app/api/v1/endpoints/agenda.py \
 cd frontend && npx eslint app/configuracoes/page.tsx lib/agenda-route-rules.ts
 cd frontend && npx eslint app/agenda/page.tsx app/agenda/fullcalendar/page.tsx lib/waze.ts lib/agenda-shared-actions.ts
 cd frontend && npx tsc --noEmit
+cd frontend && npm run build
 ```
 
 Resumo dos resultados:
 - Backend: ok (py_compile).
-- Frontend: ok (eslint + tsc), incluindo validacao das duas telas de agenda e helper de navegacao.
+- Frontend: ok (eslint + tsc + build), incluindo validacao das duas telas de agenda e helper de navegacao.
 - Observacao: `pytest` nao disponivel no ambiente local desta execucao.
 
 ## 3) Testes manuais
