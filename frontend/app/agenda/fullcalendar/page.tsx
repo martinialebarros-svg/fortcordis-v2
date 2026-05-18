@@ -19,6 +19,16 @@ import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import { montarToastAgendaRealtime } from "@/lib/agenda-realtime-toast";
 import { useAgendaRealtime, type AgendaRealtimePayload } from "@/lib/useAgendaRealtime";
+import {
+  AGENDA_STATUS_LIST,
+  FORMA_PAGAMENTO_OPCOES,
+  FORMA_PAGAMENTO_PADRAO,
+  type AgendaStatus,
+  type AgendaStatusAction,
+  type FormaPagamentoAgenda,
+  obterAcoesStatusPorFluxo,
+  osEstaPaga,
+} from "@/lib/agenda-shared-actions";
 import { montarGoogleMapsDestinoClinica, montarWazeDestinoClinica } from "@/lib/waze";
 import {
   getLaudoEditPath,
@@ -78,14 +88,7 @@ interface SlotSelecionado {
   hora: string;
 }
 
-type StatusAgenda =
-  | "Agendado"
-  | "Reservado"
-  | "Confirmado"
-  | "Em atendimento"
-  | "Realizado"
-  | "Cancelado"
-  | "Faltou";
+type StatusAgenda = AgendaStatus;
 
 interface StatusVisual {
   bg: string;
@@ -98,13 +101,6 @@ interface AtualizacaoHorarioArgs {
   inicio: Date;
   fim: Date;
   revert: () => void;
-}
-
-interface AcaoStatus {
-  label: string;
-  status: StatusAgenda;
-  danger?: boolean;
-  precisaTipoHorario?: boolean;
 }
 
 interface ServicoAgenda {
@@ -175,15 +171,6 @@ interface ConflitoDeslocamentoDetail {
   confirmavel?: boolean;
 }
 
-const FORMAS_PAGAMENTO = [
-  { id: "dinheiro", nome: "Dinheiro" },
-  { id: "cartao_credito", nome: "Cartao de credito" },
-  { id: "cartao_debito", nome: "Cartao de debito" },
-  { id: "pix", nome: "PIX" },
-  { id: "boleto", nome: "Boleto" },
-  { id: "transferencia", nome: "Transferencia" },
-];
-
 const OPCOES_RECORRENCIA: Array<{ id: OpcaoRecorrencia; label: string; descricao: string }> = [
   { id: "apenas_este", label: "Apenas este", descricao: "Atualiza somente este agendamento." },
   { id: "cada_7_dias", label: "A cada 7 dias", descricao: "Replica semanalmente ate a data limite." },
@@ -201,26 +188,7 @@ const STATUS_CORES: Record<string, StatusVisual> = {
   Faltou: { bg: "#ffedd5", border: "#fb923c", text: "#7c2d12" },
 };
 
-const STATUS_FILTRO = [
-  "todos",
-  "Agendado",
-  "Reservado",
-  "Confirmado",
-  "Em atendimento",
-  "Realizado",
-  "Cancelado",
-  "Faltou",
-];
-
-const ACOES_STATUS: AcaoStatus[] = [
-  { label: "Agendar", status: "Agendado" },
-  { label: "Reservar", status: "Reservado" },
-  { label: "Confirmar", status: "Confirmado" },
-  { label: "Iniciar Atendimento", status: "Em atendimento" },
-  { label: "Finalizar Atendimento", status: "Realizado", precisaTipoHorario: true },
-  { label: "Marcar Falta", status: "Faltou", danger: true },
-  { label: "Cancelar", status: "Cancelado", danger: true },
-];
+const STATUS_FILTRO = ["todos", ...AGENDA_STATUS_LIST];
 
 const toDateInput = (date: Date) => {
   const ano = date.getFullYear();
@@ -465,7 +433,7 @@ export default function AgendaFullCalendarPage() {
   const [atualizandoStatusId, setAtualizandoStatusId] = useState<number | null>(null);
   const [recebendoPagamentoId, setRecebendoPagamentoId] = useState<number | null>(null);
   const [modalPagamentoAberto, setModalPagamentoAberto] = useState(false);
-  const [formaPagamento, setFormaPagamento] = useState("dinheiro");
+  const [formaPagamento, setFormaPagamento] = useState<FormaPagamentoAgenda>(FORMA_PAGAMENTO_PADRAO);
   const [excluindoAgendamentoId, setExcluindoAgendamentoId] = useState<number | null>(null);
   const [salvandoMovimentacao, setSalvandoMovimentacao] = useState(false);
   const [salvandoAgendaDia, setSalvandoAgendaDia] = useState(false);
@@ -503,6 +471,10 @@ export default function AgendaFullCalendarPage() {
     if (!selecionado) return null;
     return ordensServicoPorAgendamento[selecionado.id] || null;
   }, [ordensServicoPorAgendamento, selecionado]);
+  const acoesStatusDisponiveis = useMemo<AgendaStatusAction[]>(
+    () => obterAcoesStatusPorFluxo(selecionado?.status),
+    [selecionado]
+  );
   const laudoSelecionado = useMemo(() => {
     if (!selecionado) return null;
     const laudosDoAgendamento = Object.values(laudosVinculados[selecionado.id] || {});
@@ -963,7 +935,7 @@ export default function AgendaFullCalendarPage() {
 
   useEffect(() => {
     setModalPagamentoAberto(false);
-    setFormaPagamento("dinheiro");
+    setFormaPagamento(FORMA_PAGAMENTO_PADRAO);
   }, [selecionado?.id]);
 
   useEffect(() => {
@@ -1255,7 +1227,7 @@ export default function AgendaFullCalendarPage() {
   );
 
   const executarAcaoStatus = useCallback(
-    (acao: AcaoStatus) => {
+    (acao: AgendaStatusAction) => {
       if (!selecionado) return;
 
       if (selecionado.status === acao.status) {
@@ -1290,13 +1262,13 @@ export default function AgendaFullCalendarPage() {
       setErro("Este agendamento nao possui ordem de servico vinculada para recebimento.");
       return;
     }
-    if (String(osVinculada.status || "").trim() === "Pago") {
+    if (osEstaPaga(osVinculada.status)) {
       setMensagemStatus(`A OS ${osVinculada.numero_os || osVinculada.id} ja esta paga.`);
       return;
     }
 
     setErro("");
-    setFormaPagamento("dinheiro");
+    setFormaPagamento(FORMA_PAGAMENTO_PADRAO);
     setModalPagamentoAberto(true);
   }, [ordensServicoPorAgendamento, selecionado]);
 
@@ -2241,26 +2213,21 @@ export default function AgendaFullCalendarPage() {
 
                     {menuStatusAberto && (
                       <div className="absolute left-0 z-30 mt-2 w-56 rounded-lg border border-gray-200 bg-white p-1 shadow-lg">
-                        {ACOES_STATUS.map((acao) => {
-                          const estaAtivo = selecionado.status === acao.status;
-                          return (
+                        {acoesStatusDisponiveis.length === 0 ? (
+                          <div className="px-2 py-2 text-xs text-gray-500">Sem transicoes disponiveis.</div>
+                        ) : (
+                          acoesStatusDisponiveis.map((acao) => (
                             <button
                               key={acao.status}
                               onClick={() => executarAcaoStatus(acao)}
-                              disabled={estaAtivo}
                               className={`flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-xs font-medium transition-colors ${
-                                estaAtivo
-                                  ? "cursor-not-allowed bg-gray-100 text-gray-400"
-                                  : acao.danger
-                                    ? "text-red-700 hover:bg-red-50"
-                                    : "text-gray-700 hover:bg-gray-100"
+                                acao.danger ? "text-red-700 hover:bg-red-50" : "text-gray-700 hover:bg-gray-100"
                               }`}
                             >
                               <span>{acao.label}</span>
-                              {estaAtivo && <span className="text-[10px] uppercase">Atual</span>}
                             </button>
-                          );
-                        })}
+                          ))
+                        )}
                       </div>
                     )}
                   </div>
@@ -2270,7 +2237,7 @@ export default function AgendaFullCalendarPage() {
                     disabled={
                       recebendoPagamentoId === selecionado.id ||
                       !osSelecionada ||
-                      String(osSelecionada.status || "").trim() === "Pago"
+                      osEstaPaga(osSelecionada.status)
                     }
                     className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
@@ -2461,10 +2428,10 @@ export default function AgendaFullCalendarPage() {
               <label className="mt-4 block text-sm font-medium text-gray-700">Forma de pagamento</label>
               <select
                 value={formaPagamento}
-                onChange={(event) => setFormaPagamento(event.target.value)}
+                onChange={(event) => setFormaPagamento(event.target.value as FormaPagamentoAgenda)}
                 className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               >
-                {FORMAS_PAGAMENTO.map((forma) => (
+                {FORMA_PAGAMENTO_OPCOES.map((forma) => (
                   <option key={forma.id} value={forma.id}>
                     {forma.nome}
                   </option>

@@ -25,6 +25,15 @@ import {
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
 import { baixarLaudoPdf as baixarLaudoPdfUtil } from "@/lib/laudo-pdf";
+import {
+  AGENDA_STATUS_LIST,
+  FORMA_PAGAMENTO_OPCOES,
+  FORMA_PAGAMENTO_PADRAO,
+  type AgendaStatus,
+  type FormaPagamentoAgenda,
+  obterProximosStatus,
+  osEstaPaga,
+} from "@/lib/agenda-shared-actions";
 import { montarGoogleMapsDestinoClinica, montarWazeDestinoClinica } from "@/lib/waze";
 import { 
   Calendar, Clock, User, Building, Plus, RefreshCw, X, Trash2,
@@ -115,10 +124,8 @@ interface AgendaListaStatusDia {
   motivo: string;
 }
 
-type StatusType = "Agendado" | "Reservado" | "Confirmado" | "Em atendimento" | "Realizado" | "Cancelado" | "Faltou";
+type StatusType = AgendaStatus;
 type ModoVisualizacao = "lista" | "panoramica-dia" | "panoramica-semana";
-
-const STATUS_LIST: StatusType[] = ["Agendado", "Reservado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"];
 
 const toDateInput = (date: Date) => {
   const ano = date.getFullYear();
@@ -284,7 +291,7 @@ export default function AgendaPage() {
   const [laudosVinculados, setLaudosVinculados] = useState<LaudosVinculadosPorAgendamento>({});
   const [ordensServicoPorAgendamento, setOrdensServicoPorAgendamento] = useState<Record<number, OrdemServicoResumo>>({});
   const [modalPagamentoAberto, setModalPagamentoAberto] = useState(false);
-  const [formaPagamento, setFormaPagamento] = useState<"dinheiro" | "pix" | "cartao" | "transferencia">("dinheiro");
+  const [formaPagamento, setFormaPagamento] = useState<FormaPagamentoAgenda>(FORMA_PAGAMENTO_PADRAO);
   const [agendamentoPagamentoId, setAgendamentoPagamentoId] = useState<number | null>(null);
   const [recebendoPagamentoId, setRecebendoPagamentoId] = useState<number | null>(null);
   const [clinicasEndereco, setClinicasEndereco] = useState<Record<number, ClinicaEndereco>>({});
@@ -919,13 +926,13 @@ export default function AgendaPage() {
       return;
     }
 
-    if (String(osVinculada.status || "").trim().toLowerCase() === "pago") {
+    if (osEstaPaga(osVinculada.status)) {
       setErro("");
       return;
     }
 
     setErro("");
-    setFormaPagamento("dinheiro");
+    setFormaPagamento(FORMA_PAGAMENTO_PADRAO);
     setAgendamentoPagamentoId(agendamentoId);
     setModalPagamentoAberto(true);
   };
@@ -1102,19 +1109,6 @@ export default function AgendaPage() {
       'Faltou': AlertCircle,
     };
     return icons[status] || Calendar;
-  };
-
-  const getProximosStatus = (statusAtual: string): StatusType[] => {
-    const fluxos: Record<string, StatusType[]> = {
-      'Agendado': ['Reservado', 'Confirmado', 'Cancelado', 'Faltou'],
-      'Reservado': ['Confirmado', 'Agendado', 'Cancelado'],
-      'Confirmado': ['Em atendimento', 'Cancelado', 'Faltou'],
-      'Em atendimento': ['Realizado', 'Cancelado'],
-      'Realizado': ['Em atendimento'],
-      'Cancelado': ['Agendado'],
-      'Faltou': ['Agendado'],
-    };
-    return fluxos[statusAtual] || [];
   };
 
   const getOrdenacaoTimestamp = (ag: Agendamento) => {
@@ -1604,7 +1598,7 @@ export default function AgendaPage() {
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 <option value="todos">Todos os status</option>
-                {STATUS_LIST.map(s => <option key={s} value={s}>{s}</option>)}
+                {AGENDA_STATUS_LIST.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
 
               <button
@@ -1728,7 +1722,7 @@ export default function AgendaPage() {
 
           {/* Chips de status */}
           <div className="flex gap-2 mt-4 overflow-x-auto pb-1">
-            {STATUS_LIST.map((status) => {
+            {AGENDA_STATUS_LIST.map((status) => {
               const count = agendamentos.filter(a => a.status === status).length;
               return (
                 <button
@@ -1766,13 +1760,13 @@ export default function AgendaPage() {
             <div className="divide-y divide-gray-200">
               {agendamentosFiltrados.map((ag) => {
                 const StatusIcon = getStatusIcon(ag.status);
-                const proximosStatus = getProximosStatus(ag.status);
+                const proximosStatus = obterProximosStatus(ag.status);
                 const laudoVinculado = obterUltimoLaudoVinculado(ag.id);
                 const laudoPronto = podeBaixarLaudo(laudoVinculado?.status);
                 const laudoEco = obterLaudoVinculado(ag.id, TIPO_LAUDO_ECOCARDIOGRAMA);
                 const laudoUltrassom = obterLaudoVinculado(ag.id, TIPO_LAUDO_ULTRASSOM_ABDOMINAL);
                 const osVinculada = ordensServicoPorAgendamento[ag.id];
-                const osPaga = String(osVinculada?.status || "").trim().toLowerCase() === "pago";
+                const osPaga = osEstaPaga(osVinculada?.status);
                 const clinicaComEndereco = ag.clinica_id ? clinicasEndereco[ag.clinica_id] : undefined;
                 const podeAbrirWaze = Boolean(montarWazeDestinoClinica(clinicaComEndereco));
                 const podeAbrirGoogleMaps = Boolean(montarGoogleMapsDestinoClinica(clinicaComEndereco));
@@ -2280,14 +2274,15 @@ export default function AgendaPage() {
               <select
                 value={formaPagamento}
                 onChange={(event) =>
-                  setFormaPagamento(event.target.value as "dinheiro" | "pix" | "cartao" | "transferencia")
+                  setFormaPagamento(event.target.value as FormaPagamentoAgenda)
                 }
                 className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               >
-                <option value="dinheiro">Dinheiro</option>
-                <option value="pix">PIX</option>
-                <option value="cartao">Cartao</option>
-                <option value="transferencia">Transferencia</option>
+                {FORMA_PAGAMENTO_OPCOES.map((forma) => (
+                  <option key={forma.id} value={forma.id}>
+                    {forma.nome}
+                  </option>
+                ))}
               </select>
 
               <div className="mt-6 flex justify-end gap-2">
