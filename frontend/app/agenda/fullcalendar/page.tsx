@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type {
   DateSelectArg,
   DatesSetArg,
@@ -195,6 +195,13 @@ const toDateInput = (date: Date) => {
   const mes = String(date.getMonth() + 1).padStart(2, "0");
   const dia = String(date.getDate()).padStart(2, "0");
   return `${ano}-${mes}-${dia}`;
+};
+
+const isDateInputValida = (value?: string | null): value is string => {
+  if (!value) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const data = new Date(`${value}T00:00:00`);
+  return !Number.isNaN(data.getTime());
 };
 
 const toTimeInput = (date: Date) => {
@@ -465,6 +472,8 @@ export default function AgendaFullCalendarPage() {
   const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastRealtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const filtrosIniciaisAplicadosRef = useRef(false);
 
   const duracaoSlot = useMemo(() => minutosParaDuracao(duracaoSlotMinutos), [duracaoSlotMinutos]);
   const osSelecionada = useMemo(() => {
@@ -491,6 +500,23 @@ export default function AgendaFullCalendarPage() {
     () => agendaExcecoes.find((item) => item.data === dataControleAgenda) || null,
     [agendaExcecoes, dataControleAgenda]
   );
+  useEffect(() => {
+    if (filtrosIniciaisAplicadosRef.current) return;
+
+    const dataQuery = searchParams.get("data");
+    const statusQuery = searchParams.get("status");
+
+    if (isDateInputValida(dataQuery)) {
+      setDataControleAgenda(dataQuery);
+    }
+
+    if (statusQuery && STATUS_FILTRO.includes(statusQuery)) {
+      setFiltroStatus(statusQuery);
+    }
+
+    filtrosIniciaisAplicadosRef.current = true;
+  }, [searchParams]);
+
   const slotMinTime = useMemo(() => {
     const inicios = Object.values(agendaSemanal)
       .filter((dia) => dia.ativo)
@@ -1272,6 +1298,16 @@ export default function AgendaFullCalendarPage() {
     setModalPagamentoAberto(true);
   }, [ordensServicoPorAgendamento, selecionado]);
 
+  const abrirAgendaLista = useCallback(() => {
+    const params = new URLSearchParams();
+    params.set("data", dataControleAgenda || toDateInput(new Date()));
+    params.set("visao", "lista");
+    if (filtroStatus !== "todos") {
+      params.set("status", filtroStatus);
+    }
+    router.push(`/agenda?${params.toString()}`);
+  }, [dataControleAgenda, filtroStatus, router]);
+
   const receberPagamentoSelecionado = useCallback(async () => {
     if (!selecionado) return;
     const osVinculada = ordensServicoPorAgendamento[selecionado.id];
@@ -1977,6 +2013,13 @@ export default function AgendaFullCalendarPage() {
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <button
+              type="button"
+              onClick={abrirAgendaLista}
+              className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+            >
+              Ver Agenda Lista
+            </button>
             <select
               value={filtroStatus}
               onChange={(event) => setFiltroStatus(event.target.value)}

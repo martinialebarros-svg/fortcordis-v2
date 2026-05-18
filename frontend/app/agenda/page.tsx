@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import { montarToastAgendaRealtime } from "@/lib/agenda-realtime-toast";
@@ -266,6 +266,17 @@ const hojeLocal = () => {
   return toDateInput(new Date());
 };
 
+const isDateInputValida = (value?: string | null): value is string => {
+  if (!value) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const data = parseDateInput(value);
+  return !Number.isNaN(data.getTime());
+};
+
+const isModoVisualizacaoValido = (value?: string | null): value is ModoVisualizacao => {
+  return value === "lista" || value === "panoramica-dia" || value === "panoramica-semana";
+};
+
 export default function AgendaPage() {
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [loading, setLoading] = useState(true);
@@ -312,6 +323,50 @@ export default function AgendaPage() {
   const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastRealtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const filtrosIniciaisAplicadosRef = useRef(false);
+
+  useEffect(() => {
+    if (filtrosIniciaisAplicadosRef.current) return;
+
+    const dataQuery = searchParams.get("data");
+    const visaoQuery = searchParams.get("visao");
+    const statusQuery = searchParams.get("status");
+
+    if (isDateInputValida(dataQuery)) {
+      setFiltroData(dataQuery);
+      setFiltroPeriodoInicio(dataQuery);
+      setFiltroPeriodoFim(dataQuery);
+    }
+
+    if (isModoVisualizacaoValido(visaoQuery)) {
+      setModoVisualizacao(visaoQuery);
+    }
+
+    if (statusQuery) {
+      const statusNormalizado = statusQuery.trim();
+      const statusEhValido = statusNormalizado === "todos" || AGENDA_STATUS_LIST.includes(statusNormalizado as AgendaStatus);
+      if (statusEhValido) {
+        setFiltroStatus(statusNormalizado);
+      }
+    }
+
+    filtrosIniciaisAplicadosRef.current = true;
+  }, [searchParams]);
+
+  const abrirAgendaFullCalendar = useCallback(() => {
+    const params = new URLSearchParams();
+    const dataBase =
+      modoVisualizacao === "lista"
+        ? filtroPeriodoInicio || filtroData || hojeLocal()
+        : filtroData || hojeLocal();
+
+    params.set("data", dataBase);
+    if (filtroStatus !== "todos") {
+      params.set("status", filtroStatus);
+    }
+    router.push(`/agenda/fullcalendar?${params.toString()}`);
+  }, [filtroData, filtroPeriodoInicio, filtroStatus, modoVisualizacao, router]);
 
   const periodoConsulta = useMemo(() => {
     const dataBase = filtroData || hojeLocal();
@@ -1391,17 +1446,27 @@ export default function AgendaPage() {
             <h1 className="text-2xl font-bold text-gray-900">Agenda</h1>
             <p className="text-gray-500">Gerencie os agendamentos</p>
           </div>
-          <button
-            onClick={() => {
-              setAgendamentoEditando(null);
-              setSlotSelecionado(null);
-              setModalAberto(true);
-            }}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Novo Agendamento
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <button
+              type="button"
+              onClick={abrirAgendaFullCalendar}
+              className="flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-700 transition-colors hover:bg-gray-50"
+            >
+              <Calendar className="h-4 w-4" />
+              Ver FullCalendar
+            </button>
+            <button
+              onClick={() => {
+                setAgendamentoEditando(null);
+                setSlotSelecionado(null);
+                setModalAberto(true);
+              }}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Novo Agendamento
+            </button>
+          </div>
         </div>
 
         <div

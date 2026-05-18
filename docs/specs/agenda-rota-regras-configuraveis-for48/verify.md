@@ -16,6 +16,7 @@ Status: in-progress
 | CA-006 | aceitacao | botoes de rota para Google Maps adicionados em `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
 | CA-007 | aceitacao | Agenda Lista permite receber pagamento da OS vinculada com modal de forma de pagamento em `frontend/app/agenda/page.tsx` | ok |
 | CA-008 | aceitacao | regras de status/pagamento compartilhadas via `frontend/lib/agenda-shared-actions.ts` aplicadas em `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
+| CA-009 | aceitacao | alternancia entre Lista e FullCalendar preserva contexto de data/status via query string em `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
 | NFR-001 | nao funcional | cache de deslocamento por request mantido | ok |
 | NFR-002 | nao funcional | sem novos endpoints publicos; usa permissao de configuracoes existente | ok |
 | NFR-004 | nao funcional | perfis nao-admin sem acao de abertura rapida de excecao em slot fechado | ok |
@@ -52,6 +53,7 @@ Resumo dos resultados:
 - Cenario 5: no modo Lista, aplicar periodo e validar exibicao de alertas de agenda fechada/janela especial.
 - Cenario 6: validar abertura de rota por Waze e Google Maps nas acoes da agenda e no drawer do FullCalendar.
 - Cenario 7: no modo Lista, validar botao "Receber" para OS pendente e transicao para "Pago" apos confirmacao.
+- Cenario 8: em Agenda Lista, clicar "Ver FullCalendar" e confirmar abertura com mesma data/filtro de status; em FullCalendar, clicar "Ver Agenda Lista" e confirmar retorno com mesma data no modo Lista.
 
 ## 4) Regressao e riscos residuais
 
