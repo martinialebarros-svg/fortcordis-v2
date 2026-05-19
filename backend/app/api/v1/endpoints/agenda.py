@@ -375,6 +375,10 @@ def _classificar_politica_oferta(
         data_ref_iso=data_contato_iso,
     )
     baixa_frequencia = qtd_30d <= limite_baixa_frequencia
+    if tempo_base_min is None and baixa_frequencia and permitir_d2_ancora:
+        # Sem base geocodificada, adota regra conservadora para clinicas de baixa frequencia:
+        # D+2 so e priorizado quando houver ancora realmente proxima.
+        distante_base = True
 
     dias_preferenciais = dias_padrao or [2]
     ancora_d2 = False
@@ -1897,6 +1901,10 @@ def sugerir_agendamento_proximo(
     )
     if not data_contato_iso:
         data_contato_iso = datetime.now(LOCAL_TZ).date().isoformat()
+    try:
+        data_contato_ref = datetime.strptime(data_contato_iso, "%Y-%m-%d").date()
+    except ValueError:
+        data_contato_ref = datetime.now(LOCAL_TZ).date()
 
     data_ref = datetime.strptime(data_iso, "%Y-%m-%d").date()
     agora_local = datetime.now(LOCAL_TZ).replace(tzinfo=None)
@@ -1926,6 +1934,10 @@ def sugerir_agendamento_proximo(
         datetime.strptime(data_item, "%Y-%m-%d").date() for data_item in datas_preferenciais
     ]
     datas_preferenciais_set = set(datas_preferenciais)
+    politica_distante_baixa = bool(politica_oferta.get("distante_base")) and bool(
+        politica_oferta.get("baixa_frequencia")
+    )
+    exigir_data_preferencial = politica_distante_baixa and not bool(politica_oferta.get("ancora_d2"))
 
     data_inicio_busca = (data_ref - timedelta(days=janela_dias)).strftime("%Y-%m-%d")
     data_fim_busca = (data_ref + timedelta(days=janela_dias)).strftime("%Y-%m-%d")
@@ -1962,6 +1974,10 @@ def sugerir_agendamento_proximo(
         if inicio_item < agora_local and inicio_item.date() != data_ref:
             continue
 
+        data_item_iso = inicio_item.date().isoformat()
+        if exigir_data_preferencial and data_item_iso not in datas_preferenciais_set:
+            continue
+
         clinica_item_id = int(item.get("clinica_id") or 0)
         if clinica_item_id <= 0:
             continue
@@ -1982,7 +1998,7 @@ def sugerir_agendamento_proximo(
                 continue
 
         rank = (
-            0 if inicio_item.date().isoformat() in datas_preferenciais_set else 1,
+            0 if data_item_iso in datas_preferenciais_set else 1,
             (
                 min(abs((inicio_item.date() - data_pref).days) for data_pref in datas_preferenciais_dt)
                 if datas_preferenciais_dt
@@ -2006,11 +2022,22 @@ def sugerir_agendamento_proximo(
                 "duracao_deslocamento_min": duracao_min,
                 "fonte_deslocamento": fonte,
                 "status": status_item,
-                "data_preferencial": inicio_item.date().isoformat() in datas_preferenciais_set,
+                "data_preferencial": data_item_iso in datas_preferenciais_set,
             }
 
     if melhor_item is None or melhor_tempo is None:
         mensagem_base = "Nao encontramos agenda proxima para sugestao automatica dentro da janela configurada."
+        if politica_distante_baixa and datas_preferenciais:
+            dias_relativos = ", ".join(
+                [
+                    f"D+{(datetime.strptime(item, '%Y-%m-%d').date() - data_contato_ref).days}"
+                    for item in datas_preferenciais
+                ]
+            )
+            if dias_relativos:
+                mensagem_base = (
+                    f"{mensagem_base} Politica da clinica: priorizar {dias_relativos} e usar D+2 apenas com ancora proxima."
+                )
         if itens_ignorados_janela > 0:
             mensagem_base = (
                 f"{mensagem_base} {itens_ignorados_janela} agendamento(s) foram ignorados por estarem "

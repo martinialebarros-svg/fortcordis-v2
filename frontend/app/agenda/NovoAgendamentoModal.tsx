@@ -85,6 +85,13 @@ interface SugestaoProximidadeResponse {
   mensagem: string;
   limite_minutos?: number;
   acima_do_limite?: boolean;
+  politica_oferta?: {
+    data_contato?: string;
+    datas_preferenciais?: string[];
+    distante_base?: boolean;
+    baixa_frequencia?: boolean;
+    ancora_d2?: boolean;
+  };
   item?: {
     agendamento_id: number;
     clinica_id: number;
@@ -95,6 +102,7 @@ interface SugestaoProximidadeResponse {
     duracao_deslocamento_min: number;
     fonte_deslocamento?: string;
     status?: string;
+    data_preferencial?: boolean;
   } | null;
 }
 
@@ -854,6 +862,10 @@ export default function NovoAgendamentoModal({
       const dataSugeridaContexto = diaRelativo ? `${dataSugeridaBr} (${diaRelativo})` : dataSugeridaBr;
       const resumoHorario = `${dataSugeridaContexto}${detalheHora}`.trim() || "a data e o horário sugeridos";
       const acimaDoLimite = duracao > limiteBase || Boolean(data?.acima_do_limite);
+      const politicaDistanteBaixa =
+        Boolean(data?.politica_oferta?.distante_base) &&
+        Boolean(data?.politica_oferta?.baixa_frequencia);
+      const dataPreferencial = Boolean(item?.data_preferencial);
       const textoDeslocamento =
         clinicaDestino && !mesmoDestino
           ? `e o tempo de deslocamento para ${clinicaDestino} é de ${duracao} min`
@@ -864,7 +876,15 @@ export default function NovoAgendamentoModal({
       const mensagemAssistente = acimaDoLimite
         ? `${textoBase} (limite configurado: ${limiteBase} min).`
         : `${textoBase} Esse deslocamento está dentro do limite configurado de ${limiteBase} min.`;
-      setMensagemProximidade(mensagemAssistente);
+      const mensagemFinal =
+        (mensagem && (politicaDistanteBaixa || acimaDoLimite || !dataPreferencial))
+          ? mensagem
+          : mensagemAssistente;
+      setMensagemProximidade(mensagemFinal);
+
+      if (politicaDistanteBaixa && !dataPreferencial) {
+        return;
+      }
 
       const limiteEstendido = limiteBase + LIMITE_ESTENDIDO_EXTRA_MIN;
       if (!Number.isFinite(duracao) || duracao <= 0 || duracao > limiteEstendido) {
@@ -889,14 +909,14 @@ export default function NovoAgendamentoModal({
         ? [
             "Sugestão de proximidade acima do limite:",
             "",
-            mensagemAssistente,
+            mensagemFinal,
             "",
             "Posso aplicar esse horário?",
           ].join("\n")
         : [
             "Sugestão inteligente de proximidade:",
             "",
-            mensagemAssistente,
+            mensagemFinal,
             "",
             "Posso aplicar esse horário?",
           ].join("\n");
@@ -1197,9 +1217,33 @@ export default function NovoAgendamentoModal({
 
     const dataSelecionada = String(formData.data || "").trim();
     const dataProximidade = String(sugestaoProximidade?.item?.data || "").trim();
-    const deveUsarDataProximidade =
-      Boolean(sugestaoProximidade?.sugerir) && Boolean(dataProximidade);
-    const dataBaseBusca = deveUsarDataProximidade ? dataProximidade : dataSelecionada;
+    const politicaOferta = sugestaoProximidade?.politica_oferta;
+    const datasPreferenciaisPolitica = Array.isArray(politicaOferta?.datas_preferenciais)
+      ? politicaOferta.datas_preferenciais
+          .map((item) => String(item || "").trim())
+          .filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item))
+      : [];
+    const politicaDistanteBaixa =
+      Boolean(politicaOferta?.distante_base) && Boolean(politicaOferta?.baixa_frequencia);
+    const sugestaoProximidadeAderente =
+      Boolean(sugestaoProximidade?.sugerir) &&
+      Boolean(dataProximidade) &&
+      (!politicaDistanteBaixa || Boolean(sugestaoProximidade?.item?.data_preferencial));
+
+    let dataBaseBusca = dataSelecionada;
+    let origemDataAutomatica: "proximidade" | "politica" | null = null;
+    if (politicaDistanteBaixa && datasPreferenciaisPolitica.length > 0) {
+      if (sugestaoProximidadeAderente) {
+        dataBaseBusca = dataProximidade;
+        origemDataAutomatica = "proximidade";
+      } else {
+        dataBaseBusca = datasPreferenciaisPolitica[0];
+        origemDataAutomatica = "politica";
+      }
+    } else if (sugestaoProximidadeAderente) {
+      dataBaseBusca = dataProximidade;
+      origemDataAutomatica = "proximidade";
+    }
 
     if (!dataBaseBusca) {
       setErroSugestoes("Informe a data antes de buscar sugestoes.");
@@ -1208,12 +1252,15 @@ export default function NovoAgendamentoModal({
 
     try {
       setCarregandoSugestoes(true);
-      const mudouDataPorProximidade = dataBaseBusca !== dataSelecionada;
-      const prefixoMensagem = mudouDataPorProximidade
-        ? `Sugestoes calculadas automaticamente para ${dataBaseBusca} com base no agendamento proximo. `
-        : "";
+      const mudouDataBase = dataBaseBusca !== dataSelecionada;
+      const prefixoMensagem =
+        origemDataAutomatica === "proximidade" && mudouDataBase
+          ? `Sugestoes calculadas automaticamente para ${dataBaseBusca} com base no agendamento proximo. `
+          : origemDataAutomatica === "politica"
+            ? `Sugestoes calculadas automaticamente para ${dataBaseBusca} conforme politica de oferta (rota/frequencia). `
+            : "";
 
-      if (mudouDataPorProximidade) {
+      if (mudouDataBase) {
         setFormData((prev) => ({ ...prev, data: dataBaseBusca }));
       }
 

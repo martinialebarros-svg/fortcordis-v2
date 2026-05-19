@@ -13,6 +13,7 @@ Status: in-progress
 | CA-003 | aceitacao | estado `sem_opcao` exige `motivoSemOpcao` antes de habilitar salvar | ok |
 | CA-004 | aceitacao | condicao `!isEditando` para obrigatoriedade do wizard | ok |
 | CA-005 | aceitacao | banner de `itensIgnoradosJanela` no card do assistente | ok |
+| CA-006 | aceitacao | `buscarSugestoesHorario` prioriza `politica_oferta.datas_preferenciais` quando proximidade vier fora da politica | ok |
 | NFR-002 | nao funcional | decisao anexada em `observacoesFinal` no submit | ok |
 
 ## 2) Testes automatizados executados
@@ -34,6 +35,7 @@ Resumo dos resultados:
 - Cenario 2: gerar oferta, clicar `Cliente aceitou este horario` e validar habilitacao do botao `Salvar Agendamento`.
 - Cenario 3: recusar todas as ofertas, validar exigencia de motivo e depois salvamento manual.
 - Cenario 4: abrir `Editar Agendamento` e validar que fluxo antigo segue intacto.
+- Cenario 5: clinica distante/baixa frequencia sem ancora em D+2 deve abrir oferta em D+3/D+4 (data preferencial), sem ancorar automaticamente em D+2 fora da politica.
 
 ## 4) Regressao e riscos residuais
 

@@ -17,6 +17,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - RF-005: quando nao houver oferta valida, fluxo deve permitir seguir manualmente apenas com justificativa registrada.
 - RF-006: botao de salvar no modo novo deve permanecer bloqueado ate conclusao do fluxo guiado.
 - RF-007: no modo de edicao, manter comportamento anterior sem obrigatoriedade do wizard.
+- RF-008: quando a politica de oferta indicar clinica distante + baixa frequencia sem ancora em D+2, o wizard deve priorizar `datas_preferenciais` (ex.: D+3/D+4) em vez de forcar data de proximidade fora da politica.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -34,8 +35,8 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 
 ### Backend
 
-- Sem alteracao de endpoint nesta etapa.
-- Consumo de campo opcional `itens_ignorados_janela` quando retornado pela API de sugestao.
+- Sem endpoint novo nesta etapa.
+- Consumo de campos opcionais de `sugestao-proximidade` (`itens_ignorados_janela`, `politica_oferta`, `item.data_preferencial`) para controlar a data-base do fluxo guiado.
 
 ## 5) Compatibilidade e rollout
 
@@ -50,6 +51,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - CA-003: apos recusar todas as opcoes, fluxo exige motivo para liberar salvamento manual.
 - CA-004: `Editar Agendamento` continua permitindo salvar sem passar pelo wizard.
 - CA-005: mensagem visual informa quando opcoes foram ignoradas por agenda fechada/janela operacional.
+- CA-006: quando houver sugestao de proximidade fora da politica de oferta para clinica distante/baixa frequencia, o wizard nao deve adotar essa data automaticamente; deve buscar pela primeira `data_preferencial`.
 
 ## 7) Casos de borda
 
