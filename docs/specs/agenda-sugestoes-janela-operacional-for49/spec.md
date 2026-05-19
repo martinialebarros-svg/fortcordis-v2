@@ -15,6 +15,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - RF-003: endpoint `POST /agenda/sugestao-proximidade` deve ignorar agendamentos em datas fechadas (feriado, dia inativo ou excecao inativa).
 - RF-004: endpoint `POST /agenda/sugestoes-horario` deve desconsiderar agendamentos legados fora da janela operacional ativa ao calcular vizinhos e score.
 - RF-005: resposta de `POST /agenda/sugestao-proximidade` deve expor metrica de itens ignorados por janela (`itens_ignorados_janela`) para observabilidade operacional.
+- RF-006: endpoint `POST /agenda/sugestoes-horario` nao deve sugerir horarios retroativos quando a data selecionada for o dia atual; deve partir do proximo slot futuro valido.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -49,6 +50,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - CA-002: `POST /agenda/sugestao-proximidade` ignora ancora fora da janela ativa e seleciona apenas ancoras validas.
 - CA-003: quando houver descartes por agenda fechada/janela, resposta de proximidade retorna `itens_ignorados_janela > 0`.
 - CA-004: `POST /agenda/sugestoes-horario` nao usa legados fora da janela ativa para bloquear ou distorcer score.
+- CA-005: para data de hoje, `POST /agenda/sugestoes-horario` retorna apenas slots futuros (com arredondamento para o proximo intervalo configurado).
 
 ## 7) Casos de borda
 

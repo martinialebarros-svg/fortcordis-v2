@@ -146,6 +146,47 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_sugestoes_horario_ignoram_slots_passados_no_dia_atual(self) -> None:
+        class DateTimeFixa(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                if tz is not None:
+                    return cls(2026, 5, 19, 14, 20, 0, tzinfo=tz)
+                return cls(2026, 5, 19, 14, 20, 0)
+
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(db, excecoes=[])
+            clinica_base, _ = self._seed_clinicas(db)
+
+            payload = agenda.SugestaoHorarioPayload(
+                data="2026-05-19",
+                clinica_id=clinica_base.id,
+                duracao_minutos=30,
+                intervalo_minutos=30,
+                limite=8,
+                perfil_deslocamento="comercial",
+            )
+
+            with patch.object(agenda, "datetime", DateTimeFixa):
+                resposta = agenda.sugerir_horarios_agenda(
+                    payload=payload,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertTrue(resposta["ok"])
+            self.assertGreater(len(resposta["items"]), 0)
+            primeiro_inicio = str(resposta["items"][0]["inicio"])
+            self.assertTrue(primeiro_inicio.endswith("14:30"))
+            for item in resposta["items"]:
+                inicio = datetime.strptime(item["inicio"], "%Y-%m-%d %H:%M")
+                self.assertGreaterEqual(inicio, datetime(2026, 5, 19, 14, 30))
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()

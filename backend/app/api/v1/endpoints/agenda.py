@@ -122,6 +122,18 @@ def _minutos_entre(inicio: datetime, fim: datetime) -> int:
     return int((fim - inicio).total_seconds() // 60)
 
 
+def _arredondar_para_proximo_slot(data_hora: datetime, intervalo_minutos: int) -> datetime:
+    intervalo = max(1, int(intervalo_minutos))
+    base = data_hora.replace(second=0, microsecond=0)
+    total_min = (base.hour * 60) + base.minute
+    resto = total_min % intervalo
+    if resto == 0:
+        return base
+    total_ajustado = total_min + (intervalo - resto)
+    inicio_dia = base.replace(hour=0, minute=0, second=0, microsecond=0)
+    return inicio_dia + timedelta(minutes=total_ajustado)
+
+
 def _obter_duracao_deslocamento_cacheado(
     db: Session,
     *,
@@ -1682,6 +1694,16 @@ def sugerir_horarios_agenda(
 
     sugestoes: list[dict] = []
     inicio_candidato = janela_inicio
+    agora_local = datetime.now(LOCAL_TZ).replace(tzinfo=None)
+    if janela_inicio.date() == agora_local.date():
+        # Nunca sugerir slots retroativos no dia atual.
+        lead_time_min = max(1, margem_segura_min)
+        inicio_minimo_hoje = _arredondar_para_proximo_slot(
+            agora_local + timedelta(minutes=lead_time_min),
+            intervalo_minutos,
+        )
+        if inicio_minimo_hoje > inicio_candidato:
+            inicio_candidato = inicio_minimo_hoje
     while inicio_candidato < janela_fim:
         fim_candidato = inicio_candidato + timedelta(minutes=duracao_minutos)
         if fim_candidato > janela_fim:
@@ -1821,6 +1843,9 @@ def sugerir_horarios_agenda(
     sugestoes.sort(key=lambda item: (item["score"], item["risco"], item["inicio"]))
     limite = max(1, min(50, int(payload.limite)))
     top_items = sugestoes[:limite]
+    motivo_sem_item = None
+    if not top_items and data_iso == agora_local.date().isoformat():
+        motivo_sem_item = "Nao ha horarios futuros disponiveis para hoje dentro da janela da agenda."
 
     return {
         "ok": True,
@@ -1841,6 +1866,7 @@ def sugerir_horarios_agenda(
             "inicio": janela_inicio.strftime("%Y-%m-%d %H:%M"),
             "fim": janela_fim.strftime("%Y-%m-%d %H:%M"),
         },
+        "motivo": motivo_sem_item,
         "total_encontrados": len(sugestoes),
         "items": top_items,
     }

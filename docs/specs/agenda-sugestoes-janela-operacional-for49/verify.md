@@ -12,6 +12,7 @@ Status: in-progress
 | CA-002 | aceitacao | `test_sugestao_proximidade_ignora_agendamento_fora_janela` | ok |
 | CA-003 | aceitacao | campo `itens_ignorados_janela` no retorno de `sugerir_agendamento_proximo` | ok |
 | CA-004 | aceitacao | filtro `_filtrar_agendamentos_por_janela_funcionamento` aplicado em `sugerir_horarios_agenda` | ok |
+| CA-005 | aceitacao | `test_sugestoes_horario_ignoram_slots_passados_no_dia_atual` garante corte de horarios retroativos no dia atual | ok |
 | NFR-001 | nao funcional | endpoint permanece com contrato retrocompativel | ok |
 | NFR-002 | nao funcional | cache de janela por data via `_obter_janela_funcionamento_cacheada` | ok |
 
@@ -25,7 +26,7 @@ cd backend && ./venv/bin/pytest -q tests/test_agenda_deslocamento_cache.py tests
 ```
 
 Resumo dos resultados:
-- `test_agenda_sugestao_janela_operacional.py`: 2 passed.
+- `test_agenda_sugestao_janela_operacional.py`: 3 passed.
 - `test_agenda_deslocamento_cache.py` + `test_agenda_busca_periodo_filtros.py`: 6 passed.
 - Avisos de deprecacao de Pydantic/SQLAlchemy ja existentes no projeto.
 
