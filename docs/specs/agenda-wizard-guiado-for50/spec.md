@@ -1,0 +1,62 @@
+# Spec - agenda-wizard-guiado-for50
+
+Data: 2026-05-19  
+Responsavel: Martiniano + Codex  
+Status: in-progress
+
+## 1) Escopo funcional
+
+Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornando explicita a tomada de decisao da secretaria sobre a oferta sugerida (aceite ou recusa) antes de permitir salvar.
+
+## 2) Requisitos funcionais (RF)
+
+- RF-001: no modo de criacao (`Novo Agendamento`), o assistente deve exigir clinica, servico e data para gerar oferta.
+- RF-002: assistente deve apresentar oferta atual com contexto de deslocamento e risco.
+- RF-003: fluxo deve expor acao explicita `Cliente aceitou este horario`.
+- RF-004: fluxo deve expor acao explicita `Horario nao atende necessidade do cliente` para pedir proxima oferta.
+- RF-005: quando nao houver oferta valida, fluxo deve permitir seguir manualmente apenas com justificativa registrada.
+- RF-006: botao de salvar no modo novo deve permanecer bloqueado ate conclusao do fluxo guiado.
+- RF-007: no modo de edicao, manter comportamento anterior sem obrigatoriedade do wizard.
+
+## 3) Requisitos nao funcionais (NFR)
+
+- NFR-001 (compatibilidade): nenhuma quebra no contrato de APIs existentes do modal.
+- NFR-002 (auditabilidade): decisao do assistente (aceite ou sem opcao) deve ser anexada em `observacoes` do agendamento novo.
+- NFR-003 (ux operacional): feedback visual imediato para status do fluxo (pendente, aceito, sem opcao).
+
+## 4) Contratos tecnicos
+
+### Frontend
+
+- Arquivo afetado: `frontend/app/agenda/NovoAgendamentoModal.tsx`.
+- Estados novos: controle de indice da oferta, decisao do assistente, motivo sem opcao e itens ignorados por janela.
+- Regra de submit: bloqueio condicional no modo novo enquanto decisao estiver pendente.
+
+### Backend
+
+- Sem alteracao de endpoint nesta etapa.
+- Consumo de campo opcional `itens_ignorados_janela` quando retornado pela API de sugestao.
+
+## 5) Compatibilidade e rollout
+
+- Backward compatibility: modo `Editar Agendamento` preservado.
+- Rollout: deploy normal de frontend; sem migracoes.
+- Rollback: revert do commit da FOR-50.
+
+## 6) Criterios de aceitacao (CA)
+
+- CA-001: ao abrir `Novo Agendamento`, salvar fica bloqueado ate concluir decisao do assistente.
+- CA-002: apos aceitar oferta sugerida, salvar fica habilitado.
+- CA-003: apos recusar todas as opcoes, fluxo exige motivo para liberar salvamento manual.
+- CA-004: `Editar Agendamento` continua permitindo salvar sem passar pelo wizard.
+- CA-005: mensagem visual informa quando opcoes foram ignoradas por agenda fechada/janela operacional.
+
+## 7) Casos de borda
+
+- CB-001: secretaria troca clinica/servico/data apos gerar oferta -> fluxo deve resetar para evitar sugestao stale.
+- CB-002: sem sugestao retornada pela API -> liberar fluxo manual somente com motivo.
+
+## 8) Fora de escopo
+
+- Regras de permissao por papel para excecao de horario no wizard (tratado no FOR-51).
+- Persistencia dedicada de trilha de decisao em tabela propria.
