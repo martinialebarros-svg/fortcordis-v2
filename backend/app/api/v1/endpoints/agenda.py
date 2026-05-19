@@ -289,10 +289,19 @@ def _existe_ancora_proxima_no_dia(
 ) -> bool:
     if limite_minutos <= 0:
         return False
+    janela_inicio, janela_fim, _motivo = _obter_janela_funcionamento_data(db, data_iso)
+    if janela_inicio is None or janela_fim is None:
+        return False
+
     agendamentos_dia = _listar_agendamentos_ativos_do_dia(
         db,
         data_iso,
         agendamento_id_excluir=agendamento_id_excluir,
+    )
+    agendamentos_dia = _filtrar_agendamentos_por_janela_funcionamento(
+        db,
+        agendamentos_dia,
+        cache_janelas={data_iso: (janela_inicio, janela_fim, None)},
     )
     cache_duracoes: dict[tuple[int, int, str, bool], tuple[int, str]] = {}
     perfil_norm = normalizar_perfil(perfil_deslocamento)
@@ -525,6 +534,49 @@ def _listar_agendamentos_ativos_do_dia(
         data_iso,
         agendamento_id_excluir=agendamento_id_excluir,
     )
+
+
+def _obter_janela_funcionamento_cacheada(
+    db: Session,
+    data_iso: str,
+    *,
+    cache_janelas: Optional[dict[str, tuple[Optional[datetime], Optional[datetime], Optional[str]]]] = None,
+) -> tuple[Optional[datetime], Optional[datetime], Optional[str]]:
+    if cache_janelas is not None and data_iso in cache_janelas:
+        return cache_janelas[data_iso]
+    janela = _obter_janela_funcionamento_data(db, data_iso)
+    if cache_janelas is not None:
+        cache_janelas[data_iso] = janela
+    return janela
+
+
+def _filtrar_agendamentos_por_janela_funcionamento(
+    db: Session,
+    agendamentos: list[dict],
+    *,
+    cache_janelas: Optional[dict[str, tuple[Optional[datetime], Optional[datetime], Optional[str]]]] = None,
+) -> list[dict]:
+    filtrados: list[dict] = []
+    for item in agendamentos:
+        inicio_item = item.get("inicio")
+        fim_item = item.get("fim")
+        if not isinstance(inicio_item, datetime):
+            continue
+        if not isinstance(fim_item, datetime) or fim_item <= inicio_item:
+            fim_item = inicio_item + timedelta(minutes=30)
+        data_item_iso = inicio_item.date().isoformat()
+        janela_inicio, janela_fim, _motivo = _obter_janela_funcionamento_cacheada(
+            db,
+            data_item_iso,
+            cache_janelas=cache_janelas,
+        )
+        if janela_inicio is None or janela_fim is None:
+            continue
+        # Ignora legados fora da janela operacional ativa para evitar ancoras invalidas.
+        if inicio_item < janela_inicio or fim_item > janela_fim:
+            continue
+        filtrados.append(item)
+    return filtrados
 
 
 def _obter_vizinhos_horario(
@@ -1602,6 +1654,11 @@ def sugerir_horarios_agenda(
         data_iso,
         agendamento_id_excluir=payload.ignorar_agendamento_id,
     )
+    agendamentos_dia = _filtrar_agendamentos_por_janela_funcionamento(
+        db,
+        agendamentos_dia,
+        cache_janelas={data_iso: (janela_inicio, janela_fim, None)},
+    )
     perfil_norm = normalizar_perfil(payload.perfil_deslocamento)
     intervalo_minutos = max(5, int(payload.intervalo_minutos))
     margem_segura_min = int(thresholds.get("safe_margin_min") or MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN)
@@ -1853,6 +1910,12 @@ def sugerir_agendamento_proximo(
         data_fim_busca,
         agendamento_id_excluir=payload.ignorar_agendamento_id,
     )
+    total_agendamentos_periodo = len(agendamentos_periodo)
+    agendamentos_periodo = _filtrar_agendamentos_por_janela_funcionamento(
+        db,
+        agendamentos_periodo,
+    )
+    itens_ignorados_janela = max(0, total_agendamentos_periodo - len(agendamentos_periodo))
     perfil_norm = normalizar_perfil(payload.perfil_deslocamento)
     cache_duracoes: dict[tuple[int, int, str, bool], tuple[int, str]] = {}
     melhor_item: Optional[dict] = None
@@ -1921,18 +1984,25 @@ def sugerir_agendamento_proximo(
             }
 
     if melhor_item is None or melhor_tempo is None:
+        mensagem_base = "Nao encontramos agenda proxima para sugestao automatica dentro da janela configurada."
+        if itens_ignorados_janela > 0:
+            mensagem_base = (
+                f"{mensagem_base} {itens_ignorados_janela} agendamento(s) foram ignorados por estarem "
+                "fora da janela operacional ou em data fechada."
+            )
         return {
             "ok": True,
             "data": data_iso,
             "clinica_id": payload.clinica_id,
             "sugerir": False,
             "limite_minutos": limite_minutos,
+            "itens_ignorados_janela": itens_ignorados_janela,
             "politica_oferta": {
                 **politica_oferta,
                 "data_contato": data_contato_iso,
                 "datas_preferenciais": datas_preferenciais,
             },
-            "mensagem": "Nao encontramos agenda proxima para sugestao automatica dentro da janela configurada.",
+            "mensagem": mensagem_base,
             "item": None,
         }
 
@@ -1949,6 +2019,7 @@ def sugerir_agendamento_proximo(
             "clinica_id": payload.clinica_id,
             "sugerir": True,
             "limite_minutos": limite_minutos,
+            "itens_ignorados_janela": itens_ignorados_janela,
             "politica_oferta": {
                 **politica_oferta,
                 "data_contato": data_contato_iso,
@@ -1990,6 +2061,7 @@ def sugerir_agendamento_proximo(
         "clinica_id": payload.clinica_id,
         "sugerir": True,
         "limite_minutos": limite_minutos,
+        "itens_ignorados_janela": itens_ignorados_janela,
         "politica_oferta": {
             **politica_oferta,
             "data_contato": data_contato_iso,
