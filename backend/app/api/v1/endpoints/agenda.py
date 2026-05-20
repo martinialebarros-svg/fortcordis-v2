@@ -315,9 +315,23 @@ def _existe_ancora_proxima_no_dia(
         agendamentos_dia,
         cache_janelas={data_iso: (janela_inicio, janela_fim, None)},
     )
+    clinica_ref = db.query(Clinica).filter(Clinica.id == clinica_id).first()
+    cidade_ref = str(getattr(clinica_ref, "cidade", "") or "").strip().casefold()
+    uf_ref = str(getattr(clinica_ref, "estado", "") or "").strip().casefold()
+    clinicas_cache: dict[int, Optional[Clinica]] = {}
+    ancoras_mesma_cidade = 0
+
+    def _get_clinica_cached(cid: int) -> Optional[Clinica]:
+        if cid not in clinicas_cache:
+            clinicas_cache[cid] = db.query(Clinica).filter(Clinica.id == cid).first()
+        return clinicas_cache[cid]
+
     cache_duracoes: dict[tuple[int, int, str, bool], tuple[int, str]] = {}
     perfil_norm = normalizar_perfil(perfil_deslocamento)
     for item in agendamentos_dia:
+        status_item = (str(item.get("status") or "").strip() or "Agendado")
+        if status_item not in AGENDA_STATUS_PRE_AGENDADOS:
+            continue
         clinica_item_id = int(item.get("clinica_id") or 0)
         if clinica_item_id <= 0:
             continue
@@ -327,13 +341,57 @@ def _existe_ancora_proxima_no_dia(
             db,
             origem_clinica_id=clinica_id,
             destino_clinica_id=clinica_item_id,
-            perfil=perfil_norm,
-            permitir_estimativa_fallback=True,
-            cache=cache_duracoes,
-        )
+                perfil=perfil_norm,
+                permitir_estimativa_fallback=True,
+                cache=cache_duracoes,
+            )
         if duracao_min > 0 and duracao_min <= limite_minutos:
             return True
+        if duracao_min <= 0 and cidade_ref:
+            clinica_item = _get_clinica_cached(clinica_item_id)
+            cidade_item = str(getattr(clinica_item, "cidade", "") or "").strip().casefold()
+            if not cidade_item or cidade_item != cidade_ref:
+                continue
+            uf_item = str(getattr(clinica_item, "estado", "") or "").strip().casefold()
+            if uf_ref and uf_item and uf_item != uf_ref:
+                continue
+            ancoras_mesma_cidade += 1
+            if ancoras_mesma_cidade >= 1:
+                # Fallback operacional: se a matriz ainda nao tem duracoes, mas existe
+                # ancora valida na mesma cidade/UF para D+2, libera a ancoragem.
+                return True
     return False
+
+
+def _clinicas_mesma_cidade_uf(
+    db: Session,
+    *,
+    clinica_a_id: int,
+    clinica_b_id: int,
+    cache: Optional[dict[int, Optional[Clinica]]] = None,
+) -> bool:
+    clinicas_cache = cache if isinstance(cache, dict) else {}
+
+    def _get_clinica(cid: int) -> Optional[Clinica]:
+        if cid not in clinicas_cache:
+            clinicas_cache[cid] = db.query(Clinica).filter(Clinica.id == cid).first()
+        return clinicas_cache[cid]
+
+    clinica_a = _get_clinica(int(clinica_a_id or 0))
+    clinica_b = _get_clinica(int(clinica_b_id or 0))
+    if clinica_a is None or clinica_b is None:
+        return False
+
+    cidade_a = str(getattr(clinica_a, "cidade", "") or "").strip().casefold()
+    cidade_b = str(getattr(clinica_b, "cidade", "") or "").strip().casefold()
+    if not cidade_a or not cidade_b or cidade_a != cidade_b:
+        return False
+
+    uf_a = str(getattr(clinica_a, "estado", "") or "").strip().casefold()
+    uf_b = str(getattr(clinica_b, "estado", "") or "").strip().casefold()
+    if uf_a and uf_b and uf_a != uf_b:
+        return False
+    return True
 
 
 def _classificar_politica_oferta(
@@ -1956,6 +2014,7 @@ def sugerir_agendamento_proximo(
     itens_ignorados_janela = max(0, total_agendamentos_periodo - len(agendamentos_periodo))
     perfil_norm = normalizar_perfil(payload.perfil_deslocamento)
     cache_duracoes: dict[tuple[int, int, str, bool], tuple[int, str]] = {}
+    cache_clinicas: dict[int, Optional[Clinica]] = {}
     melhor_item: Optional[dict] = None
     melhor_tempo: Optional[int] = None
     melhor_rank = None
@@ -1995,7 +2054,15 @@ def sugerir_agendamento_proximo(
             )
         if duracao_min <= 0:
             if clinica_item_id != payload.clinica_id:
-                continue
+                if not _clinicas_mesma_cidade_uf(
+                    db,
+                    clinica_a_id=payload.clinica_id,
+                    clinica_b_id=clinica_item_id,
+                    cache=cache_clinicas,
+                ):
+                    continue
+                fonte = "fallback_mesma_cidade"
+                duracao_min = 0
 
         rank = (
             0 if data_item_iso in datas_preferenciais_set else 1,

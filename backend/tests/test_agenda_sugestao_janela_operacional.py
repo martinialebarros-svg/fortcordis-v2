@@ -60,18 +60,26 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
         *,
         clinica_base_coords: tuple[float | None, float | None] = (None, None),
         clinica_ancora_coords: tuple[float | None, float | None] = (None, None),
+        clinica_base_cidade: str = "Fortaleza",
+        clinica_base_estado: str = "CE",
+        clinica_ancora_cidade: str = "Fortaleza",
+        clinica_ancora_estado: str = "CE",
     ) -> tuple[Clinica, Clinica]:
         clinica_base = Clinica(
             nome="Pet Xodo",
             ativo=True,
             latitude=clinica_base_coords[0],
             longitude=clinica_base_coords[1],
+            cidade=clinica_base_cidade,
+            estado=clinica_base_estado,
         )
         clinica_ancora = Clinica(
             nome="Pet Sanus Caucaia",
             ativo=True,
             latitude=clinica_ancora_coords[0],
             longitude=clinica_ancora_coords[1],
+            cidade=clinica_ancora_cidade,
+            estado=clinica_ancora_estado,
         )
         db.add_all([clinica_base, clinica_ancora])
         db.commit()
@@ -328,7 +336,11 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                     "clinic_overrides": [],
                 },
             )
-            clinica_base, clinica_ancora = self._seed_clinicas(db)
+            clinica_base, clinica_ancora = self._seed_clinicas(
+                db,
+                clinica_base_cidade="Fortaleza",
+                clinica_ancora_cidade="Caucaia",
+            )
             self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2026-05-21", hora="09:00")
 
             payload = agenda.SugestaoProximidadePayload(
@@ -357,6 +369,168 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 politica.get("datas_preferenciais"),
                 ["2026-05-22", "2026-05-23"],
             )
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_ancora_d2_fallback_mesma_cidade_com_um_agendamento_valido(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(
+                db,
+                excecoes=[],
+                regras_rota={
+                    "base": {
+                        "label": "Casa",
+                        "address": "Av da Universidade, 1949",
+                        "zip_code": "60020-180",
+                        "lat": None,
+                        "lng": None,
+                    },
+                    "thresholds": {
+                        "nearby_anchor_max_travel_min": 20,
+                        "distant_clinic_min_travel_from_base_min": 35,
+                        "low_frequency_max_bookings_30d": 3,
+                        "max_insertion_detour_min": 25,
+                        "safe_margin_min": 5,
+                    },
+                    "offer_policy": {
+                        "default_first_offer_days_ahead": [2],
+                        "distant_low_frequency_first_offer_days_ahead": [3, 4],
+                        "allow_d2_if_anchor_exists": True,
+                        "emergency_first_offer_days_ahead": [1, 2],
+                    },
+                    "route_policy": {
+                        "end_of_route_window_start": "16:00",
+                        "prefer_near_base_at_end_of_route": True,
+                        "bonus_near_base_score": 15,
+                        "penalty_far_base_score": 10,
+                        "reject_clear_inefficiency": True,
+                    },
+                    "fallback_policy": {
+                        "suggest_alternative_slots_when_blocked": True,
+                        "max_alternative_suggestions": 3,
+                        "allow_extra_slot_start_or_end_route_for_emergency": True,
+                    },
+                    "clinic_overrides": [],
+                },
+            )
+            clinica_base, clinica_ancora = self._seed_clinicas(
+                db,
+                clinica_base_cidade="Fortaleza",
+                clinica_ancora_cidade="Fortaleza",
+            )
+            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2026-05-21", hora="09:00")
+
+            payload = agenda.SugestaoProximidadePayload(
+                clinica_id=clinica_base.id,
+                data="2026-05-21",
+                data_contato="2026-05-19",
+                perfil_deslocamento="comercial",
+                limite_minutos=25,
+                janela_dias_proximidade=3,
+                incluir_mesma_clinica=False,
+            )
+
+            with patch.object(agenda, "_obter_duracao_deslocamento_cacheado", return_value=(0, "sem_matriz")):
+                resposta = agenda.sugerir_agendamento_proximo(
+                    payload=payload,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertTrue(resposta["ok"])
+            self.assertTrue(resposta["sugerir"])
+            self.assertIsNotNone(resposta.get("item"))
+            politica = resposta.get("politica_oferta") or {}
+            self.assertTrue(politica.get("ancora_d2"))
+            self.assertEqual(politica.get("datas_preferenciais"), ["2026-05-21"])
+            self.assertEqual(str(resposta["item"].get("fonte_deslocamento") or ""), "fallback_mesma_cidade")
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_ancora_d2_fallback_cluster_mesma_cidade_quando_sem_matriz(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(
+                db,
+                excecoes=[],
+                regras_rota={
+                    "base": {
+                        "label": "Casa",
+                        "address": "Av da Universidade, 1949",
+                        "zip_code": "60020-180",
+                        "lat": None,
+                        "lng": None,
+                    },
+                    "thresholds": {
+                        "nearby_anchor_max_travel_min": 20,
+                        "distant_clinic_min_travel_from_base_min": 35,
+                        "low_frequency_max_bookings_30d": 3,
+                        "max_insertion_detour_min": 25,
+                        "safe_margin_min": 5,
+                    },
+                    "offer_policy": {
+                        "default_first_offer_days_ahead": [2],
+                        "distant_low_frequency_first_offer_days_ahead": [3, 4],
+                        "allow_d2_if_anchor_exists": True,
+                        "emergency_first_offer_days_ahead": [1, 2],
+                    },
+                    "route_policy": {
+                        "end_of_route_window_start": "16:00",
+                        "prefer_near_base_at_end_of_route": True,
+                        "bonus_near_base_score": 15,
+                        "penalty_far_base_score": 10,
+                        "reject_clear_inefficiency": True,
+                    },
+                    "fallback_policy": {
+                        "suggest_alternative_slots_when_blocked": True,
+                        "max_alternative_suggestions": 3,
+                        "allow_extra_slot_start_or_end_route_for_emergency": True,
+                    },
+                    "clinic_overrides": [],
+                },
+            )
+            clinica_base, clinica_ancora = self._seed_clinicas(
+                db,
+                clinica_base_cidade="Fortaleza",
+                clinica_ancora_cidade="Fortaleza",
+            )
+            clinica_ancora_2 = Clinica(nome="Casa Pet", ativo=True, cidade="Fortaleza", estado="CE")
+            db.add(clinica_ancora_2)
+            db.commit()
+            db.refresh(clinica_ancora_2)
+
+            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2026-05-21", hora="09:00")
+            self._criar_agendamento(db, clinica_id=clinica_ancora_2.id, data="2026-05-21", hora="10:30")
+
+            payload = agenda.SugestaoProximidadePayload(
+                clinica_id=clinica_base.id,
+                data="2026-05-21",
+                data_contato="2026-05-19",
+                perfil_deslocamento="comercial",
+                limite_minutos=25,
+                janela_dias_proximidade=3,
+                incluir_mesma_clinica=False,
+            )
+
+            with patch.object(agenda, "_obter_duracao_deslocamento_cacheado", return_value=(0, "sem_matriz")):
+                resposta = agenda.sugerir_agendamento_proximo(
+                    payload=payload,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertTrue(resposta["ok"])
+            self.assertTrue(resposta["sugerir"])
+            self.assertIsNotNone(resposta.get("item"))
+            politica = resposta.get("politica_oferta") or {}
+            self.assertTrue(politica.get("ancora_d2"))
+            self.assertEqual(politica.get("datas_preferenciais"), ["2026-05-21"])
+            self.assertEqual(str(resposta["item"].get("fonte_deslocamento") or ""), "fallback_mesma_cidade")
         finally:
             db.close()
             engine.dispose()

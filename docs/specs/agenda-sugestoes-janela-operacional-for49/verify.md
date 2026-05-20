@@ -14,6 +14,7 @@ Status: in-progress
 | CA-004 | aceitacao | filtro `_filtrar_agendamentos_por_janela_funcionamento` aplicado em `sugerir_horarios_agenda` | ok |
 | CA-005 | aceitacao | `test_sugestoes_horario_ignoram_slots_passados_no_dia_atual` garante corte de horarios retroativos no dia atual | ok |
 | CA-006 | aceitacao | `test_sugestao_proximidade_distante_sem_ancora_d2_prioriza_dias_politica` + `test_sugestao_proximidade_sem_base_geo_aplica_regra_conservadora` impedem oferta D+2 fora da politica | ok |
+| CA-007 | aceitacao | `test_ancora_d2_fallback_mesma_cidade_com_um_agendamento_valido` + `test_ancora_d2_fallback_cluster_mesma_cidade_quando_sem_matriz` habilitam D+2 por fallback local sem matriz | ok |
 | NFR-001 | nao funcional | endpoint permanece com contrato retrocompativel | ok |
 | NFR-002 | nao funcional | cache de janela por data via `_obter_janela_funcionamento_cacheada` | ok |
 
@@ -27,7 +28,7 @@ cd backend && ./venv/bin/pytest -q tests/test_agenda_deslocamento_cache.py tests
 ```
 
 Resumo dos resultados:
-- `test_agenda_sugestao_janela_operacional.py`: 5 passed.
+- `test_agenda_sugestao_janela_operacional.py`: 7 passed.
 - `test_agenda_deslocamento_cache.py` + `test_agenda_busca_periodo_filtros.py`: 6 passed.
 - Avisos de deprecacao de Pydantic/SQLAlchemy ja existentes no projeto.
 
@@ -37,6 +38,7 @@ Resumo dos resultados:
 - Cenario 2: configurar janela reduzida (ex.: 08:00-12:00), manter legado as 15:00 e validar que assistente ignora essa ancora.
 - Cenario 3: no modal de novo agendamento, validar mensagem de indisponibilidade quando data-base estiver fechada e ausencia de sugestao invalida.
 - Cenario 4: para clinica distante/baixa frequencia sem ancora proxima em D+2, validar que o assistente orienta D+3/D+4 e nao ancora em D+2 fora da politica.
+- Cenario 5: para clinica sem matriz de deslocamento, com pelo menos 1 agendamento em D+2 na mesma cidade/UF e janela ativa, validar que o assistente volta a ofertar D+2.
 
 ## 4) Regressao e riscos residuais
 

@@ -17,6 +17,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - RF-005: resposta de `POST /agenda/sugestao-proximidade` deve expor metrica de itens ignorados por janela (`itens_ignorados_janela`) para observabilidade operacional.
 - RF-006: endpoint `POST /agenda/sugestoes-horario` nao deve sugerir horarios retroativos quando a data selecionada for o dia atual; deve partir do proximo slot futuro valido.
 - RF-007: para clinica classificada como distante + baixa frequencia sem ancora valida em D+2, `POST /agenda/sugestao-proximidade` deve restringir sugestao as `datas_preferenciais` da politica e evitar proposta fora desse conjunto.
+- RF-008: validacao de ancora D+2 deve ter fallback operacional quando matriz de deslocamento estiver indisponivel, aceitando ancora se houver ao menos 1 agendamento pre-agendado na mesma cidade/UF e dentro da janela operacional.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -53,6 +54,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - CA-004: `POST /agenda/sugestoes-horario` nao usa legados fora da janela ativa para bloquear ou distorcer score.
 - CA-005: para data de hoje, `POST /agenda/sugestoes-horario` retorna apenas slots futuros (com arredondamento para o proximo intervalo configurado).
 - CA-006: clinica distante/baixa frequencia sem ancora D+2 nao recebe sugestao de proximidade em D+2; resposta preserva `datas_preferenciais` para oferta em D+3/D+4.
+- CA-007: quando nao houver duracao confiavel na matriz para D+2, mas existir ao menos 1 agendamento pre-agendado na mesma cidade/UF, a politica deve considerar `ancora_d2=true` e permitir oferta em D+2.
 
 ## 7) Casos de borda
 
