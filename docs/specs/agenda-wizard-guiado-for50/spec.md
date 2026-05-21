@@ -18,6 +18,8 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - RF-006: botao de salvar no modo novo deve permanecer bloqueado ate conclusao do fluxo guiado.
 - RF-007: no modo de edicao, manter comportamento anterior sem obrigatoriedade do wizard.
 - RF-008: quando a politica de oferta indicar clinica distante + baixa frequencia sem ancora em D+2, o wizard deve priorizar `datas_preferenciais` (ex.: D+3/D+4) em vez de forcar data de proximidade fora da politica.
+- RF-009: `data_contato` do assistente deve ser fixada no instante de abertura do modal `Novo Agendamento` e reutilizada durante toda a sessao para evitar drift de D+N.
+- RF-010: no modo novo, data/hora manuais devem ficar bloqueadas enquanto o fluxo do assistente estiver `pendente` ou `aceito`, liberando ajuste manual apenas quando estado for `sem_opcao`.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -52,6 +54,8 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - CA-004: `Editar Agendamento` continua permitindo salvar sem passar pelo wizard.
 - CA-005: mensagem visual informa quando opcoes foram ignoradas por agenda fechada/janela operacional.
 - CA-006: quando houver sugestao de proximidade fora da politica de oferta para clinica distante/baixa frequencia, o wizard nao deve adotar essa data automaticamente; deve buscar pela primeira `data_preferencial`.
+- CA-007: `POST /agenda/sugestao-proximidade` recebe `data_contato` fixa da sessao do modal e mantem a mesma referencia temporal enquanto o modal estiver aberto.
+- CA-008: antes de `sem_opcao`, secretaria nao consegue editar hora manualmente; ao entrar em `sem_opcao`, data/hora manual ficam disponiveis para fallback.
 
 ## 7) Casos de borda
 

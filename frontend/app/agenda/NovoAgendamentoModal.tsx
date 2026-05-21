@@ -483,6 +483,7 @@ export default function NovoAgendamentoModal({
   const [itensIgnoradosJanela, setItensIgnoradosJanela] = useState(0);
   const [mensagemProximidade, setMensagemProximidade] = useState<string>("");
   const [sugestaoProximidade, setSugestaoProximidade] = useState<SugestaoProximidadeResponse | null>(null);
+  const [dataContatoAssistente, setDataContatoAssistente] = useState<string>("");
   const [interacaoProximidade, setInteracaoProximidade] = useState({
     clinica: false,
     servico: false,
@@ -562,6 +563,11 @@ export default function NovoAgendamentoModal({
     return `${year}-${month}-${day}`;
   };
 
+  const hojeLocalIso = (): string => {
+    const agora = new Date();
+    return toInputDate(agora);
+  };
+
   const toBrDate = (isoDate?: string): string => {
     const match = String(isoDate || "")
       .trim()
@@ -611,6 +617,7 @@ export default function NovoAgendamentoModal({
   useEffect(() => {
     if (!isOpen || isEditando) return;
     setFormData(buildInitialFormData(defaultDate, defaultTime));
+    setDataContatoAssistente((atual) => atual || hojeLocalIso());
     setTutorSelecionado("");
     setSugestoesHorario([]);
     setIndiceSugestaoAtual(0);
@@ -629,6 +636,7 @@ export default function NovoAgendamentoModal({
   // Preenche formulario ao abrir/atualizar no modo de edicao.
   useEffect(() => {
     if (!isOpen || !isEditando || !agendamento) return;
+    setDataContatoAssistente("");
 
     const inicio = parseAgendamentoInicio(agendamento);
     const data = inicio ? toInputDate(inicio) : "";
@@ -696,6 +704,7 @@ export default function NovoAgendamentoModal({
     setMensagemSugestoes("");
     setMensagemProximidade("");
     setSugestaoProximidade(null);
+    setDataContatoAssistente("");
     setInteracaoProximidade({ clinica: false, servico: false, data: false });
     popupProximidadeHistoricoRef.current = {};
     sequenciaConsultaProximidadeRef.current = 0;
@@ -825,9 +834,11 @@ export default function NovoAgendamentoModal({
     const consultaId = ++sequenciaConsultaProximidadeRef.current;
 
     try {
+      const dataContato = !isEditando ? (dataContatoAssistente || hojeLocalIso()) : undefined;
       const response = await api.post<SugestaoProximidadeResponse>("/agenda/sugestao-proximidade", {
         clinica_id: clinicaIdNum,
         data: dataISO,
+        data_contato: dataContato,
         perfil_deslocamento: "comercial",
         limite_minutos: LIMITE_MINUTOS_PROXIMIDADE,
         ignorar_agendamento_id: isEditando ? agendamento?.id : null,
@@ -1642,6 +1653,9 @@ export default function NovoAgendamentoModal({
   const assistenteProntoParaSugerir = clinicaInformada && Boolean(formData.servico_id) && Boolean(formData.data);
   const sugestaoAtual = sugestoesHorario[indiceSugestaoAtual] || null;
   const totalSugestoes = sugestoesHorario.length;
+  const bloqueioManualAssistenteAtivo = !isEditando && decisaoAssistente !== "sem_opcao";
+  const bloquearDataManual = bloqueioManualAssistenteAtivo && assistenteProntoParaSugerir;
+  const bloquearHoraManual = bloqueioManualAssistenteAtivo;
   const bloquearSalvarNovo =
     !isEditando &&
     (
@@ -1830,6 +1844,7 @@ export default function NovoAgendamentoModal({
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 value={formData.data}
                 onChange={(e) => handleDataChange(e.target.value)}
+                disabled={bloquearDataManual}
               />
             </div>
             <div>
@@ -1843,9 +1858,16 @@ export default function NovoAgendamentoModal({
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 value={formData.hora}
                 onChange={(e) => setFormData({...formData, hora: e.target.value})}
+                disabled={bloquearHoraManual}
               />
             </div>
           </div>
+          {!isEditando && bloqueioManualAssistenteAtivo && (
+            <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+              Data/hora manuais ficam bloqueadas enquanto o assistente guiado estiver ativo. Se nenhuma oferta atender,
+              marque a recusa para liberar ajuste manual.
+            </div>
+          )}
 
           <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-3">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
