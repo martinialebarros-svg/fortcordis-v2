@@ -769,6 +769,50 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_sugestao_proximidade_ignora_ancora_sem_slot_operacional(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(
+                db,
+                excecoes=[
+                    {"data": "2099-05-23", "ativo": True, "inicio": "10:00", "fim": "11:00", "motivo": "Janela curta"},
+                ],
+            )
+            clinica_base, clinica_ancora = self._seed_clinicas(db)
+            self._criar_agendamento(
+                db,
+                clinica_id=clinica_ancora.id,
+                data="2099-05-23",
+                hora="10:30",
+                status="Agendado",
+            )
+
+            payload = agenda.SugestaoProximidadePayload(
+                clinica_id=clinica_base.id,
+                data="2099-05-23",
+                data_contato="2099-05-21",
+                duracao_minutos=30,
+                perfil_deslocamento="comercial",
+                limite_minutos=25,
+                janela_dias_proximidade=2,
+                incluir_mesma_clinica=False,
+            )
+
+            with patch.object(agenda, "_obter_duracao_deslocamento_cacheado", return_value=(20, "mock")):
+                resposta = agenda.sugerir_agendamento_proximo(
+                    payload=payload,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertTrue(resposta["ok"])
+            self.assertFalse(resposta["sugerir"])
+            self.assertIsNone(resposta.get("item"))
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()

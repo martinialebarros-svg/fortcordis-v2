@@ -23,19 +23,21 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - RF-011: fallback de ancora sem matriz deve ser resiliente a inconsistencias de cidade/UF, com normalizacao textual e agrupamento geografico por proximidade (cluster local).
 - RF-012: `POST /agenda/sugestao-proximidade` nao deve considerar ancora em horario passado, inclusive quando a data-base da consulta for o dia atual.
 - RF-013: suite automatizada de agenda deve usar datas de cenario estaveis para evitar flakiness temporal no CI quando regras de "horario passado" evoluirem.
+- RF-014: `POST /agenda/sugestao-proximidade` deve validar aderencia operacional com a mesma logica de `POST /agenda/sugestoes-horario`, ignorando ancoras sem slot viavel na data sugerida.
 
 ## 3) Requisitos nao funcionais (NFR)
 
 - NFR-001 (compatibilidade): manter contrato atual dos endpoints sem quebrar consumidores existentes.
 - NFR-002 (performance): reutilizar cache de janelas por data na filtragem para evitar repeticao de parse/lookup.
 - NFR-003 (seguranca funcional): sugestao nunca deve induzir a criacao de agendamento em periodo explicitamente fechado pela configuracao da agenda.
+- NFR-004 (consistencia de UX): mensagem do card "Assistente inteligente" deve ser coerente com o resultado do "Assistente guiado" para a mesma clinica/data.
 
 ## 4) Contratos tecnicos
 
 ### API
 
 - Endpoint: `POST /agenda/sugestao-proximidade`
-- Alteracao: resposta inclui campo adicional `itens_ignorados_janela` e passa a filtrar candidatos por janela operacional.
+- Alteracao: resposta inclui campo adicional `itens_ignorados_janela`, passa a filtrar candidatos por janela operacional e recebe parametros opcionais de contexto operacional (`servico_id`, `duracao_minutos`, `intervalo_minutos`, `limite_sugestoes_operacionais`) para validar slot viavel antes de sugerir ancora.
 
 - Endpoint: `POST /agenda/sugestoes-horario`
 - Alteracao: filtragem previa de agendamentos ativos do dia para remover legados fora da janela operacional antes da avaliacao de conflitos/vizinhos.
@@ -65,6 +67,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - CA-010: fallback de ancora sem matriz deve reconhecer cluster local por proximidade geografica mesmo com cidade/UF divergente no cadastro.
 - CA-011: `POST /agenda/sugestao-proximidade` nao retorna sugestao baseada em ancora passada no mesmo dia; quando nao houver ancora futura valida, deve retornar `sugerir=false`.
 - CA-012: testes de janela/sugestao mantem resultado deterministico ao longo do tempo (nao quebram apenas pela data corrente do runner).
+- CA-013: `POST /agenda/sugestao-proximidade` deve descartar ancora quando `POST /agenda/sugestoes-horario` nao encontra slot operacional aderente a essa ancora na mesma data.
 
 ## 7) Casos de borda
 
@@ -73,6 +76,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - CB-003: periodo de busca contendo agendamentos antigos fora da janela atual apos mudanca de configuracao.
 - CB-004: clinicas no mesmo bairro/regiao com cadastro textual divergente de cidade/UF.
 - CB-005: data-base igual ao dia atual com ultimo atendimento ja encerrado (evitar oferta de horario vencido).
+- CB-006: ancora com deslocamento "bom", mas sem nenhum slot operacional viavel na data (janela curta, conflito de folga ou desvio).
 
 ## 8) Fora de escopo
 

@@ -20,8 +20,10 @@ Status: in-progress
 | CA-010 | aceitacao | `test_ancora_d2_fallback_por_proximidade_geografica_com_cadastro_inconsistente` cobre fallback geografico com cadastro divergente | ok |
 | CA-011 | aceitacao | `test_sugestao_proximidade_ignora_ancora_passada_no_dia_atual` impede oferta de ancora vencida no dia atual | ok |
 | CA-012 | aceitacao | datas de cenario atualizadas para horizonte estavel e compativel com regra de corte de passado no CI | ok |
+| CA-013 | aceitacao | `test_sugestao_proximidade_ignora_ancora_sem_slot_operacional` impede sugestao de ancora quando nao ha slot viavel no assistente guiado | ok |
 | NFR-001 | nao funcional | endpoint permanece com contrato retrocompativel | ok |
 | NFR-002 | nao funcional | cache de janela por data via `_obter_janela_funcionamento_cacheada` | ok |
+| NFR-004 | nao funcional | `sugerir_agendamento_proximo` valida aderencia com `sugerir_horarios_agenda` antes de exibir sugestao de ancora | ok |
 
 ## 2) Testes automatizados executados
 
@@ -33,9 +35,9 @@ cd backend && ./venv/bin/pytest -q tests/test_agenda_deslocamento_cache.py tests
 ```
 
 Resumo dos resultados:
-- `test_agenda_sugestao_janela_operacional.py`: 11 passed.
+- `test_agenda_sugestao_janela_operacional.py`: 12 passed.
 - `test_agenda_deslocamento_cache.py` + `test_agenda_busca_periodo_filtros.py`: 6 passed.
-- `python -m unittest discover -s backend/tests -p "test_*.py"`: 184 passed.
+- `python -m unittest discover -s backend/tests -p "test_*.py"`: 185 passed.
 - Avisos de deprecacao de Pydantic/SQLAlchemy ja existentes no projeto.
 
 ## 3) Testes manuais sugeridos (stage)

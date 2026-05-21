@@ -78,6 +78,10 @@ class SugestaoProximidadePayload(BaseModel):
     clinica_id: int = Field(..., ge=1)
     data: Optional[str] = Field(default=None, description="Data no formato YYYY-MM-DD")
     data_contato: Optional[str] = Field(default=None, description="Data do contato no formato YYYY-MM-DD")
+    servico_id: Optional[int] = Field(default=None, ge=1)
+    duracao_minutos: Optional[int] = Field(default=None, ge=5, le=720)
+    intervalo_minutos: int = Field(default=30, ge=5, le=120)
+    limite_sugestoes_operacionais: int = Field(default=8, ge=1, le=50)
     perfil_deslocamento: str = Field(default="comercial")
     limite_minutos: int = Field(default=25, ge=1, le=180)
     ignorar_agendamento_id: Optional[int] = Field(default=None, ge=1)
@@ -2046,9 +2050,43 @@ def sugerir_agendamento_proximo(
     perfil_norm = normalizar_perfil(payload.perfil_deslocamento)
     cache_duracoes: dict[tuple[int, int, str, bool], tuple[int, str]] = {}
     cache_clinicas: dict[int, Optional[Clinica]] = {}
+    cache_slots_operacionais_por_data: dict[str, list[dict[str, Any]]] = {}
     melhor_item: Optional[dict] = None
     melhor_tempo: Optional[int] = None
     melhor_rank = None
+
+    def _obter_slots_operacionais_data(data_busca_iso: str) -> list[dict[str, Any]]:
+        if data_busca_iso in cache_slots_operacionais_por_data:
+            return cache_slots_operacionais_por_data[data_busca_iso]
+
+        payload_sugestoes = SugestaoHorarioPayload(
+            data=data_busca_iso,
+            clinica_id=payload.clinica_id,
+            servico_id=payload.servico_id,
+            duracao_minutos=payload.duracao_minutos,
+            intervalo_minutos=payload.intervalo_minutos,
+            limite=payload.limite_sugestoes_operacionais,
+            perfil_deslocamento=payload.perfil_deslocamento,
+            ignorar_agendamento_id=payload.ignorar_agendamento_id,
+        )
+        resposta_sugestoes = sugerir_horarios_agenda(
+            payload=payload_sugestoes,
+            db=db,
+            current_user=current_user,
+        )
+        slots = resposta_sugestoes.get("items") if isinstance(resposta_sugestoes, dict) else None
+        slots_lista = slots if isinstance(slots, list) else []
+        cache_slots_operacionais_por_data[data_busca_iso] = slots_lista
+        return slots_lista
+
+    def _slot_referencia_ancora(slot: dict[str, Any], agendamento_id_ancora: int) -> bool:
+        if agendamento_id_ancora <= 0:
+            return False
+        anterior = slot.get("anterior") if isinstance(slot, dict) else None
+        proximo = slot.get("proximo") if isinstance(slot, dict) else None
+        anterior_id = int((anterior or {}).get("agendamento_id") or 0)
+        proximo_id = int((proximo or {}).get("agendamento_id") or 0)
+        return anterior_id == agendamento_id_ancora or proximo_id == agendamento_id_ancora
 
     for item in agendamentos_periodo:
         inicio_item = item.get("inicio")
@@ -2067,6 +2105,18 @@ def sugerir_agendamento_proximo(
         data_item_iso = inicio_item.date().isoformat()
         if exigir_data_preferencial and data_item_iso not in datas_preferenciais_set:
             continue
+
+        slots_operacionais_data = _obter_slots_operacionais_data(data_item_iso)
+        if not slots_operacionais_data:
+            continue
+
+        agendamento_ancora_id = int(item.get("id") or 0)
+        if agendamento_ancora_id > 0:
+            possui_slot_aderente = any(
+                _slot_referencia_ancora(slot, agendamento_ancora_id) for slot in slots_operacionais_data
+            )
+            if not possui_slot_aderente:
+                continue
 
         clinica_item_id = int(item.get("clinica_id") or 0)
         if clinica_item_id <= 0:

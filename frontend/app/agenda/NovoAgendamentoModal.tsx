@@ -839,6 +839,10 @@ export default function NovoAgendamentoModal({
         clinica_id: clinicaIdNum,
         data: dataISO,
         data_contato: dataContato,
+        servico_id: formData.servico_id ? Number.parseInt(formData.servico_id, 10) : null,
+        duracao_minutos: obterDuracaoServicoSelecionado(),
+        intervalo_minutos: 30,
+        limite_sugestoes_operacionais: 8,
         perfil_deslocamento: "comercial",
         limite_minutos: LIMITE_MINUTOS_PROXIMIDADE,
         ignorar_agendamento_id: isEditando ? agendamento?.id : null,
@@ -887,10 +891,7 @@ export default function NovoAgendamentoModal({
       const mensagemAssistente = acimaDoLimite
         ? `${textoBase} (limite configurado: ${limiteBase} min).`
         : `${textoBase} Esse deslocamento está dentro do limite configurado de ${limiteBase} min.`;
-      const mensagemFinal =
-        (mensagem && (politicaDistanteBaixa || acimaDoLimite || !dataPreferencial))
-          ? mensagem
-          : mensagemAssistente;
+      const mensagemFinal = mensagem || mensagemAssistente;
       setMensagemProximidade(mensagemFinal);
 
       if (politicaDistanteBaixa && !dataPreferencial) {
