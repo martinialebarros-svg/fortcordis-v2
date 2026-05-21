@@ -12,4 +12,5 @@ Status: in-progress
 - [x] Bloquear submit no modo novo enquanto fluxo estiver pendente.
 - [x] Exigir justificativa para liberar fluxo manual sem oferta aderente.
 - [x] Registrar trilha da decisao do assistente nas observacoes do agendamento.
+- [x] Exibir progresso explicito por etapas do wizard (preparo, oferta 1, oferta 2, desfecho).
 - [x] Validar lint e tipagem no frontend.

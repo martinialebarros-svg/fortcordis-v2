@@ -21,6 +21,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - RF-009: `data_contato` do assistente deve ser fixada no instante de abertura do modal `Novo Agendamento` e reutilizada durante toda a sessao para evitar drift de D+N.
 - RF-010: no modo novo, data/hora manuais devem ficar bloqueadas enquanto o fluxo do assistente estiver `pendente` ou `aceito`, liberando ajuste manual apenas quando estado for `sem_opcao`.
 - RF-011: ao gerar sugestoes automaticas, o wizard nao deve sobrescrever silenciosamente a data selecionada no formulario; a data do formulario deve ser alterada apenas por aceite explicito de oferta.
+- RF-012: o card do assistente guiado deve exibir progresso explicito por etapas (1/4 a 4/4), incluindo etapa atual e status visual de concluidas/ativas.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -58,6 +59,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - CA-007: `POST /agenda/sugestao-proximidade` recebe `data_contato` fixa da sessao do modal e mantem a mesma referencia temporal enquanto o modal estiver aberto.
 - CA-008: antes de `sem_opcao`, secretaria nao consegue editar hora manualmente; ao entrar em `sem_opcao`, data/hora manual ficam disponiveis para fallback.
 - CA-009: ao clicar `Gerar melhor oferta`, a data digitada no formulario permanece preservada, evitando "prender" as proximas buscas em uma data autoescolhida.
+- CA-010: o modal deve mostrar progresso do wizard com etapa atual e trilha visual (`Preparar dados` -> `Oferta 1` -> `Oferta 2` -> `Desfecho`) sem ambiguidade para a secretaria.
 
 ## 7) Casos de borda
 

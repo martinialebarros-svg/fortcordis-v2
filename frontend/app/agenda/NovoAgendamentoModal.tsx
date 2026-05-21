@@ -71,6 +71,53 @@ interface SugestoesHorarioResponse {
 
 type AssistenteDecisao = "pendente" | "aceito" | "sem_opcao";
 
+type EtapaWizardNovo = {
+  id: "preparo" | "oferta_1" | "oferta_2" | "desfecho";
+  titulo: string;
+  descricao: string;
+};
+
+const ETAPAS_WIZARD_NOVO: EtapaWizardNovo[] = [
+  {
+    id: "preparo",
+    titulo: "Preparar dados",
+    descricao: "Selecionar clinica, servico e data.",
+  },
+  {
+    id: "oferta_1",
+    titulo: "Oferta 1",
+    descricao: "Assistente gera a melhor oferta inicial.",
+  },
+  {
+    id: "oferta_2",
+    titulo: "Oferta 2",
+    descricao: "Gerar alternativa quando o cliente recusar.",
+  },
+  {
+    id: "desfecho",
+    titulo: "Desfecho",
+    descricao: "Aceite registrado ou justificativa para fluxo manual.",
+  },
+];
+
+const resolverIndiceEtapaWizardNovo = (
+  prontoParaSugerir: boolean,
+  decisao: AssistenteDecisao,
+  totalSugestoes: number,
+  indiceSugestaoAtual: number
+): number => {
+  if (decisao === "aceito" || decisao === "sem_opcao") {
+    return 3;
+  }
+  if (!prontoParaSugerir) {
+    return 0;
+  }
+  if (totalSugestoes <= 0 || indiceSugestaoAtual <= 0) {
+    return 1;
+  }
+  return 2;
+};
+
 interface ConflitoDeslocamentoDetail {
   codigo?: string;
   mensagem?: string;
@@ -1650,6 +1697,13 @@ export default function NovoAgendamentoModal({
   const assistenteProntoParaSugerir = clinicaInformada && Boolean(formData.servico_id) && Boolean(formData.data);
   const sugestaoAtual = sugestoesHorario[indiceSugestaoAtual] || null;
   const totalSugestoes = sugestoesHorario.length;
+  const indiceEtapaWizardNovo = resolverIndiceEtapaWizardNovo(
+    assistenteProntoParaSugerir,
+    decisaoAssistente,
+    totalSugestoes,
+    indiceSugestaoAtual
+  );
+  const etapaWizardAtual = !isEditando ? ETAPAS_WIZARD_NOVO[indiceEtapaWizardNovo] : null;
   const bloqueioManualAssistenteAtivo = !isEditando && decisaoAssistente !== "sem_opcao";
   const bloquearDataManual = bloqueioManualAssistenteAtivo && assistenteProntoParaSugerir;
   const bloquearHoraManual = bloqueioManualAssistenteAtivo;
@@ -1887,6 +1941,45 @@ export default function NovoAgendamentoModal({
                 ? "Considera conflitos de agenda e tempo de deslocamento entre clinicas."
                 : "Fluxo obrigatorio: selecionar clinica/servico, oferecer sugestao, registrar aceite ou recusa do cliente."}
             </p>
+
+            {!isEditando && etapaWizardAtual && (
+              <div className="rounded-md border border-blue-200 bg-white px-2 py-2 space-y-2">
+                <div className="text-xs font-semibold text-blue-900">
+                  Etapa atual: {indiceEtapaWizardNovo + 1}/4 - {etapaWizardAtual.titulo}
+                </div>
+                <div className="text-[11px] text-blue-700">
+                  {etapaWizardAtual.descricao}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {ETAPAS_WIZARD_NOVO.map((etapa, idx) => {
+                    const concluida = idx < indiceEtapaWizardNovo;
+                    const ativa = idx === indiceEtapaWizardNovo;
+                    const className = ativa
+                      ? "rounded-md border border-blue-300 bg-blue-50 px-2 py-1"
+                      : concluida
+                        ? "rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1"
+                        : "rounded-md border border-gray-200 bg-gray-50 px-2 py-1";
+                    const tituloClass = ativa
+                      ? "text-[11px] font-semibold text-blue-900"
+                      : concluida
+                        ? "text-[11px] font-semibold text-emerald-900"
+                        : "text-[11px] font-semibold text-gray-600";
+                    const descClass = ativa
+                      ? "text-[11px] text-blue-700"
+                      : concluida
+                        ? "text-[11px] text-emerald-700"
+                        : "text-[11px] text-gray-500";
+
+                    return (
+                      <div key={etapa.id} className={className}>
+                        <div className={tituloClass}>Etapa {idx + 1}: {etapa.titulo}</div>
+                        <div className={descClass}>{etapa.descricao}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {!isEditando && !assistenteProntoParaSugerir && (
               <div className="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs text-blue-700">
