@@ -2059,9 +2059,9 @@ def sugerir_agendamento_proximo(
         if not _status_conta_como_ancora(status_item):
             continue
 
-        # Mantem o filtro de passado para datas antigas, mas preserva itens
-        # do proprio dia selecionado (importante para sugestao operacional no dia).
-        if inicio_item < agora_local and inicio_item.date() != data_ref:
+        # Nao sugerir ancora em horario passado, inclusive quando a data-base for hoje.
+        # Isso evita mensagens contraditorias (proximidade sugerindo slot ja vencido).
+        if inicio_item < agora_local:
             continue
 
         data_item_iso = inicio_item.date().isoformat()

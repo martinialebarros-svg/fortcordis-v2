@@ -724,6 +724,51 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_sugestao_proximidade_ignora_ancora_passada_no_dia_atual(self) -> None:
+        class DateTimeFixa(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                if tz is not None:
+                    return cls(2026, 5, 20, 22, 38, 0, tzinfo=tz)
+                return cls(2026, 5, 20, 22, 38, 0)
+
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(db, excecoes=[])
+            clinica_base, _ = self._seed_clinicas(db)
+            self._criar_agendamento(
+                db,
+                clinica_id=clinica_base.id,
+                data="2026-05-20",
+                hora="13:30",
+                status="Agendado",
+            )
+
+            payload = agenda.SugestaoProximidadePayload(
+                clinica_id=clinica_base.id,
+                data="2026-05-20",
+                data_contato="2026-05-20",
+                perfil_deslocamento="comercial",
+                limite_minutos=25,
+                janela_dias_proximidade=1,
+                incluir_mesma_clinica=True,
+            )
+
+            with patch.object(agenda, "datetime", DateTimeFixa):
+                resposta = agenda.sugerir_agendamento_proximo(
+                    payload=payload,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertTrue(resposta["ok"])
+            self.assertFalse(resposta["sugerir"])
+            self.assertIsNone(resposta.get("item"))
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()

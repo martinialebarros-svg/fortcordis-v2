@@ -21,6 +21,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - RF-009: no ranking de candidatos de proximidade, priorizar menor deslocamento antes da preferencia de data para evitar sugerir data "preferencial" com desvio excessivo quando houver opcao operacionalmente superior.
 - RF-010: ancoras de proximidade devem considerar status operacionais alem de pre-agendados (ex.: `Em atendimento`), excluindo apenas estados inelegiveis (`Cancelado`, `Faltou`).
 - RF-011: fallback de ancora sem matriz deve ser resiliente a inconsistencias de cidade/UF, com normalizacao textual e agrupamento geografico por proximidade (cluster local).
+- RF-012: `POST /agenda/sugestao-proximidade` nao deve considerar ancora em horario passado, inclusive quando a data-base da consulta for o dia atual.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -61,6 +62,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - CA-008: com candidatos em datas diferentes, o ranking deve priorizar menor deslocamento antes de preferencia de data quando a politica nao exigir restricao absoluta por `datas_preferenciais`.
 - CA-009: `_existe_ancora_proxima_no_dia` deve considerar `Em atendimento` como ancora valida quando dentro da janela operacional.
 - CA-010: fallback de ancora sem matriz deve reconhecer cluster local por proximidade geografica mesmo com cidade/UF divergente no cadastro.
+- CA-011: `POST /agenda/sugestao-proximidade` nao retorna sugestao baseada em ancora passada no mesmo dia; quando nao houver ancora futura valida, deve retornar `sugerir=false`.
 
 ## 7) Casos de borda
 
@@ -68,6 +70,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - CB-002: dia com excecao inativa (agenda fechada total).
 - CB-003: periodo de busca contendo agendamentos antigos fora da janela atual apos mudanca de configuracao.
 - CB-004: clinicas no mesmo bairro/regiao com cadastro textual divergente de cidade/UF.
+- CB-005: data-base igual ao dia atual com ultimo atendimento ja encerrado (evitar oferta de horario vencido).
 
 ## 8) Fora de escopo
 
