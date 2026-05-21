@@ -16,6 +16,7 @@ Status: in-progress
 | CA-006 | aceitacao | `buscarSugestoesHorario` prioriza `politica_oferta.datas_preferenciais` quando proximidade vier fora da politica | ok |
 | CA-007 | aceitacao | `dataContatoAssistente` fixada no open do modal e enviada como `data_contato` em `buscarSugestaoProximidade` | ok |
 | CA-008 | aceitacao | bloqueio de `input[type=date|time]` no modo novo enquanto decisao != `sem_opcao` | ok |
+| CA-009 | aceitacao | `buscarSugestoesHorario` nao sobrescreve mais `formData.data` com `dataBaseBusca` | ok |
 | NFR-002 | nao funcional | decisao anexada em `observacoesFinal` no submit | ok |
 
 ## 2) Testes automatizados executados
@@ -40,6 +41,7 @@ Resumo dos resultados:
 - Cenario 5: clinica distante/baixa frequencia sem ancora em D+2 deve abrir oferta em D+3/D+4 (data preferencial), sem ancorar automaticamente em D+2 fora da politica.
 - Cenario 6: abrir `Novo Agendamento`, aguardar alguns minutos e gerar sugestoes; validar que o comportamento de D+N permanece referenciado na data de abertura (sem drift de `data_contato`).
 - Cenario 7: com assistente em estado pendente/aceito, confirmar bloqueio de data/hora manual; apos `sem_opcao`, confirmar liberacao para fallback manual.
+- Cenario 8: selecionar uma data no formulario, gerar oferta automatica e confirmar que a data exibida no campo nao muda sozinha; mudar somente por aceite explicito de oferta.
 
 ## 4) Regressao e riscos residuais
 

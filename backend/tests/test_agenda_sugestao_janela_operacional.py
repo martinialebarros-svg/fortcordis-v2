@@ -536,6 +536,194 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_ancora_d2_considera_status_em_atendimento(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(db, excecoes=[])
+            clinica_base, clinica_ancora = self._seed_clinicas(db)
+            self._criar_agendamento(
+                db,
+                clinica_id=clinica_ancora.id,
+                data="2026-05-21",
+                hora="09:00",
+                status="Em atendimento",
+            )
+
+            with patch.object(agenda, "_obter_duracao_deslocamento_cacheado", return_value=(12, "mock")):
+                possui_ancora = agenda._existe_ancora_proxima_no_dia(
+                    db,
+                    clinica_id=clinica_base.id,
+                    data_iso="2026-05-21",
+                    limite_minutos=20,
+                    perfil_deslocamento="comercial",
+                )
+
+            self.assertTrue(possui_ancora)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_ancora_d2_fallback_por_proximidade_geografica_com_cadastro_inconsistente(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(db, excecoes=[])
+            clinica_base, clinica_ancora = self._seed_clinicas(
+                db,
+                clinica_base_coords=(-3.7320, -38.5270),
+                clinica_ancora_coords=(-3.7285, -38.5240),
+                clinica_base_cidade="Fortaleza",
+                clinica_base_estado="CE",
+                clinica_ancora_cidade="Aldeota",
+                clinica_ancora_estado="CE",
+            )
+            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2026-05-21", hora="09:00")
+
+            with patch.object(agenda, "_obter_duracao_deslocamento_cacheado", return_value=(0, "sem_matriz")):
+                possui_ancora = agenda._existe_ancora_proxima_no_dia(
+                    db,
+                    clinica_id=clinica_base.id,
+                    data_iso="2026-05-21",
+                    limite_minutos=20,
+                    perfil_deslocamento="comercial",
+                )
+
+            self.assertTrue(possui_ancora)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_rank_prioriza_deslocamento_antes_data_preferencial(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(
+                db,
+                excecoes=[],
+                regras_rota={
+                    "base": {
+                        "label": "Casa",
+                        "address": "Av da Universidade, 1949",
+                        "zip_code": "60020-180",
+                        "lat": -3.7319,
+                        "lng": -38.5267,
+                    },
+                    "thresholds": {
+                        "nearby_anchor_max_travel_min": 20,
+                        "distant_clinic_min_travel_from_base_min": 35,
+                        "low_frequency_max_bookings_30d": 3,
+                        "max_insertion_detour_min": 25,
+                        "safe_margin_min": 5,
+                    },
+                    "offer_policy": {
+                        "default_first_offer_days_ahead": [2],
+                        "distant_low_frequency_first_offer_days_ahead": [3, 4],
+                        "allow_d2_if_anchor_exists": True,
+                        "emergency_first_offer_days_ahead": [1, 2],
+                    },
+                    "route_policy": {
+                        "end_of_route_window_start": "16:00",
+                        "prefer_near_base_at_end_of_route": True,
+                        "bonus_near_base_score": 15,
+                        "penalty_far_base_score": 10,
+                        "reject_clear_inefficiency": True,
+                    },
+                    "fallback_policy": {
+                        "suggest_alternative_slots_when_blocked": True,
+                        "max_alternative_suggestions": 3,
+                        "allow_extra_slot_start_or_end_route_for_emergency": True,
+                    },
+                    "clinic_overrides": [],
+                },
+            )
+            clinica_base = Clinica(
+                nome="Vet World",
+                ativo=True,
+                latitude=-3.7320,
+                longitude=-38.5270,
+                cidade="Fortaleza",
+                estado="CE",
+            )
+            clinica_ancora_longa = Clinica(
+                nome="Celeiro",
+                ativo=True,
+                latitude=-3.8100,
+                longitude=-38.6100,
+                cidade="Fortaleza",
+                estado="CE",
+            )
+            clinica_ancora_curta = Clinica(
+                nome="Casa Pet",
+                ativo=True,
+                latitude=-3.7330,
+                longitude=-38.5280,
+                cidade="Fortaleza",
+                estado="CE",
+            )
+            db.add_all([clinica_base, clinica_ancora_longa, clinica_ancora_curta])
+            db.commit()
+            db.refresh(clinica_base)
+            db.refresh(clinica_ancora_longa)
+            db.refresh(clinica_ancora_curta)
+
+            # Data preferencial (D+2): 2026-05-21 -> deslocamento pior.
+            self._criar_agendamento(
+                db,
+                clinica_id=clinica_ancora_longa.id,
+                data="2026-05-21",
+                hora="10:00",
+                status="Agendado",
+            )
+            # Fora da data preferencial: 2026-05-22 -> deslocamento melhor.
+            self._criar_agendamento(
+                db,
+                clinica_id=clinica_ancora_curta.id,
+                data="2026-05-22",
+                hora="10:00",
+                status="Agendado",
+            )
+
+            payload = agenda.SugestaoProximidadePayload(
+                clinica_id=clinica_base.id,
+                data="2026-05-21",
+                data_contato="2026-05-19",
+                perfil_deslocamento="comercial",
+                limite_minutos=60,
+                janela_dias_proximidade=3,
+                incluir_mesma_clinica=False,
+            )
+
+            def _duracao_side_effect(
+                _db,
+                *,
+                origem_clinica_id: int,
+                destino_clinica_id: int,
+                perfil: str,
+                permitir_estimativa_fallback: bool = True,
+                cache=None,
+            ):
+                if int(destino_clinica_id) == int(clinica_ancora_longa.id):
+                    return (53, "mock")
+                if int(destino_clinica_id) == int(clinica_ancora_curta.id):
+                    return (10, "mock")
+                return (30, "mock")
+
+            with patch.object(agenda, "_obter_duracao_deslocamento_cacheado", side_effect=_duracao_side_effect):
+                resposta = agenda.sugerir_agendamento_proximo(
+                    payload=payload,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertTrue(resposta["ok"])
+            self.assertTrue(resposta["sugerir"])
+            self.assertEqual(str(resposta["item"]["data"]), "2026-05-22")
+            self.assertEqual(int(resposta["item"]["duracao_deslocamento_min"]), 10)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()

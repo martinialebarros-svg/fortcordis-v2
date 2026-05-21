@@ -3,6 +3,7 @@ import json
 import logging
 import math
 import re
+import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from queue import Empty
@@ -58,6 +59,7 @@ logger = logging.getLogger(__name__)
 LOCAL_TZ = timezone(timedelta(hours=-3))
 AGENDA_STATUS_PERMITIDOS = ["Agendado", "Reservado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"]
 AGENDA_STATUS_PRE_AGENDADOS = {"Agendado", "Reservado", "Confirmado"}
+AGENDA_STATUS_NAO_ANCORA = {"Cancelado", "Faltou"}
 MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN = 5
 
 
@@ -222,6 +224,53 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return raio_terra_km * c
 
 
+def _normalizar_localidade(value: Optional[str]) -> str:
+    raw = str(value or "").strip().casefold()
+    if not raw:
+        return ""
+    sem_acentos = unicodedata.normalize("NFKD", raw)
+    sem_acentos = sem_acentos.encode("ascii", "ignore").decode("ascii")
+    sem_pontuacao = re.sub(r"[^a-z0-9]+", " ", sem_acentos)
+    return re.sub(r"\s+", " ", sem_pontuacao).strip()
+
+
+def _status_conta_como_ancora(status_value: Optional[str]) -> bool:
+    status = str(status_value or "").strip() or "Agendado"
+    return status not in AGENDA_STATUS_NAO_ANCORA
+
+
+def _clinicas_mesma_regiao_operacional(
+    clinica_a: Optional[Clinica],
+    clinica_b: Optional[Clinica],
+    *,
+    max_cluster_km: float = 18.0,
+) -> bool:
+    if clinica_a is None or clinica_b is None:
+        return False
+
+    cidade_a = _normalizar_localidade(getattr(clinica_a, "cidade", None))
+    cidade_b = _normalizar_localidade(getattr(clinica_b, "cidade", None))
+    uf_a = _normalizar_localidade(getattr(clinica_a, "estado", None))
+    uf_b = _normalizar_localidade(getattr(clinica_b, "estado", None))
+
+    if cidade_a and cidade_b and cidade_a == cidade_b:
+        if uf_a and uf_b and uf_a != uf_b:
+            return False
+        return True
+
+    if _clinica_tem_localizacao_confiavel(clinica_a) and _clinica_tem_localizacao_confiavel(clinica_b):
+        try:
+            lat_a = float(clinica_a.latitude)
+            lng_a = float(clinica_a.longitude)
+            lat_b = float(clinica_b.latitude)
+            lng_b = float(clinica_b.longitude)
+        except (TypeError, ValueError):
+            return False
+        return _haversine_km(lat_a, lng_a, lat_b, lng_b) <= float(max_cluster_km)
+
+    return False
+
+
 def _tempo_estimado_clinica_ate_base_min(
     clinica: Optional[Clinica],
     *,
@@ -316,8 +365,6 @@ def _existe_ancora_proxima_no_dia(
         cache_janelas={data_iso: (janela_inicio, janela_fim, None)},
     )
     clinica_ref = db.query(Clinica).filter(Clinica.id == clinica_id).first()
-    cidade_ref = str(getattr(clinica_ref, "cidade", "") or "").strip().casefold()
-    uf_ref = str(getattr(clinica_ref, "estado", "") or "").strip().casefold()
     clinicas_cache: dict[int, Optional[Clinica]] = {}
     ancoras_mesma_cidade = 0
 
@@ -330,7 +377,7 @@ def _existe_ancora_proxima_no_dia(
     perfil_norm = normalizar_perfil(perfil_deslocamento)
     for item in agendamentos_dia:
         status_item = (str(item.get("status") or "").strip() or "Agendado")
-        if status_item not in AGENDA_STATUS_PRE_AGENDADOS:
+        if not _status_conta_como_ancora(status_item):
             continue
         clinica_item_id = int(item.get("clinica_id") or 0)
         if clinica_item_id <= 0:
@@ -347,13 +394,9 @@ def _existe_ancora_proxima_no_dia(
             )
         if duracao_min > 0 and duracao_min <= limite_minutos:
             return True
-        if duracao_min <= 0 and cidade_ref:
+        if duracao_min <= 0:
             clinica_item = _get_clinica_cached(clinica_item_id)
-            cidade_item = str(getattr(clinica_item, "cidade", "") or "").strip().casefold()
-            if not cidade_item or cidade_item != cidade_ref:
-                continue
-            uf_item = str(getattr(clinica_item, "estado", "") or "").strip().casefold()
-            if uf_ref and uf_item and uf_item != uf_ref:
+            if not _clinicas_mesma_regiao_operacional(clinica_ref, clinica_item):
                 continue
             ancoras_mesma_cidade += 1
             if ancoras_mesma_cidade >= 1:
@@ -379,19 +422,7 @@ def _clinicas_mesma_cidade_uf(
 
     clinica_a = _get_clinica(int(clinica_a_id or 0))
     clinica_b = _get_clinica(int(clinica_b_id or 0))
-    if clinica_a is None or clinica_b is None:
-        return False
-
-    cidade_a = str(getattr(clinica_a, "cidade", "") or "").strip().casefold()
-    cidade_b = str(getattr(clinica_b, "cidade", "") or "").strip().casefold()
-    if not cidade_a or not cidade_b or cidade_a != cidade_b:
-        return False
-
-    uf_a = str(getattr(clinica_a, "estado", "") or "").strip().casefold()
-    uf_b = str(getattr(clinica_b, "estado", "") or "").strip().casefold()
-    if uf_a and uf_b and uf_a != uf_b:
-        return False
-    return True
+    return _clinicas_mesma_regiao_operacional(clinica_a, clinica_b)
 
 
 def _classificar_politica_oferta(
@@ -2025,7 +2056,7 @@ def sugerir_agendamento_proximo(
             continue
 
         status_item = (str(item.get("status") or "").strip() or "Agendado")
-        if status_item not in AGENDA_STATUS_PRE_AGENDADOS:
+        if not _status_conta_como_ancora(status_item):
             continue
 
         # Mantem o filtro de passado para datas antigas, mas preserva itens
@@ -2065,14 +2096,14 @@ def sugerir_agendamento_proximo(
                 duracao_min = 0
 
         rank = (
+            int(duracao_min),
+            abs((inicio_item.date() - data_ref).days),
             0 if data_item_iso in datas_preferenciais_set else 1,
             (
                 min(abs((inicio_item.date() - data_pref).days) for data_pref in datas_preferenciais_dt)
                 if datas_preferenciais_dt
                 else 0
             ),
-            abs((inicio_item.date() - data_ref).days),
-            int(duracao_min),
             inicio_item,
             int(item.get("id") or 0),
         )

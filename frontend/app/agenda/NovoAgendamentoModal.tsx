@@ -1271,10 +1271,6 @@ export default function NovoAgendamentoModal({
             ? `Sugestoes calculadas automaticamente para ${dataBaseBusca} conforme politica de oferta (rota/frequencia). `
             : "";
 
-      if (mudouDataBase) {
-        setFormData((prev) => ({ ...prev, data: dataBaseBusca }));
-      }
-
       const { items, motivo, itensIgnorados } = await buscarSugestoesOperacionais(dataBaseBusca, clinicaId);
       setItensIgnoradosJanela(itensIgnorados);
       setSugestoesHorario(items);

@@ -15,6 +15,9 @@ Status: in-progress
 | CA-005 | aceitacao | `test_sugestoes_horario_ignoram_slots_passados_no_dia_atual` garante corte de horarios retroativos no dia atual | ok |
 | CA-006 | aceitacao | `test_sugestao_proximidade_distante_sem_ancora_d2_prioriza_dias_politica` + `test_sugestao_proximidade_sem_base_geo_aplica_regra_conservadora` impedem oferta D+2 fora da politica | ok |
 | CA-007 | aceitacao | `test_ancora_d2_fallback_mesma_cidade_com_um_agendamento_valido` + `test_ancora_d2_fallback_cluster_mesma_cidade_quando_sem_matriz` habilitam D+2 por fallback local sem matriz | ok |
+| CA-008 | aceitacao | `test_rank_prioriza_deslocamento_antes_data_preferencial` garante prioridade de menor deslocamento no ranking | ok |
+| CA-009 | aceitacao | `test_ancora_d2_considera_status_em_atendimento` valida status operacional como ancora | ok |
+| CA-010 | aceitacao | `test_ancora_d2_fallback_por_proximidade_geografica_com_cadastro_inconsistente` cobre fallback geografico com cadastro divergente | ok |
 | NFR-001 | nao funcional | endpoint permanece com contrato retrocompativel | ok |
 | NFR-002 | nao funcional | cache de janela por data via `_obter_janela_funcionamento_cacheada` | ok |
 
@@ -28,7 +31,7 @@ cd backend && ./venv/bin/pytest -q tests/test_agenda_deslocamento_cache.py tests
 ```
 
 Resumo dos resultados:
-- `test_agenda_sugestao_janela_operacional.py`: 7 passed.
+- `test_agenda_sugestao_janela_operacional.py`: 10 passed.
 - `test_agenda_deslocamento_cache.py` + `test_agenda_busca_periodo_filtros.py`: 6 passed.
 - Avisos de deprecacao de Pydantic/SQLAlchemy ja existentes no projeto.
 
