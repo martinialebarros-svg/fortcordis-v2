@@ -22,6 +22,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - RF-010: ancoras de proximidade devem considerar status operacionais alem de pre-agendados (ex.: `Em atendimento`), excluindo apenas estados inelegiveis (`Cancelado`, `Faltou`).
 - RF-011: fallback de ancora sem matriz deve ser resiliente a inconsistencias de cidade/UF, com normalizacao textual e agrupamento geografico por proximidade (cluster local).
 - RF-012: `POST /agenda/sugestao-proximidade` nao deve considerar ancora em horario passado, inclusive quando a data-base da consulta for o dia atual.
+- RF-013: suite automatizada de agenda deve usar datas de cenario estaveis para evitar flakiness temporal no CI quando regras de "horario passado" evoluirem.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -63,6 +64,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - CA-009: `_existe_ancora_proxima_no_dia` deve considerar `Em atendimento` como ancora valida quando dentro da janela operacional.
 - CA-010: fallback de ancora sem matriz deve reconhecer cluster local por proximidade geografica mesmo com cidade/UF divergente no cadastro.
 - CA-011: `POST /agenda/sugestao-proximidade` nao retorna sugestao baseada em ancora passada no mesmo dia; quando nao houver ancora futura valida, deve retornar `sugerir=false`.
+- CA-012: testes de janela/sugestao mantem resultado deterministico ao longo do tempo (nao quebram apenas pela data corrente do runner).
 
 ## 7) Casos de borda
 
