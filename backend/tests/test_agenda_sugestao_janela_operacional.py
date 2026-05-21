@@ -109,17 +109,17 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             self._seed_config(
                 db,
                 excecoes=[
-                    {"data": "2026-05-21", "ativo": False, "inicio": "08:00", "fim": "18:00", "motivo": "Fechado"},
+                    {"data": "2099-05-21", "ativo": False, "inicio": "08:00", "fim": "18:00", "motivo": "Fechado"},
                 ],
             )
             clinica_base, clinica_ancora = self._seed_clinicas(db)
-            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2026-05-21", hora="10:00")
+            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2099-05-21", hora="10:00")
 
             with patch.object(agenda, "_obter_duracao_deslocamento_cacheado", return_value=(10, "mock")) as mocked:
                 possui_ancora = agenda._existe_ancora_proxima_no_dia(
                     db,
                     clinica_id=clinica_base.id,
-                    data_iso="2026-05-21",
+                    data_iso="2099-05-21",
                     limite_minutos=20,
                     perfil_deslocamento="comercial",
                 )
@@ -138,17 +138,17 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 db,
                 excecoes=[
                     # Janela especial curta para o dia 21: qualquer ancora fora deste intervalo deve ser ignorada.
-                    {"data": "2026-05-21", "ativo": True, "inicio": "08:00", "fim": "12:00", "motivo": "Janela reduzida"},
+                    {"data": "2099-05-21", "ativo": True, "inicio": "08:00", "fim": "12:00", "motivo": "Janela reduzida"},
                 ],
             )
             clinica_base, clinica_ancora = self._seed_clinicas(db)
-            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2026-05-21", hora="15:00")
-            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2026-05-22", hora="09:30")
+            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2099-05-21", hora="15:00")
+            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2099-05-22", hora="09:30")
 
             payload = agenda.SugestaoProximidadePayload(
                 clinica_id=clinica_base.id,
-                data="2026-05-21",
-                data_contato="2026-05-19",
+                data="2099-05-21",
+                data_contato="2099-05-19",
                 perfil_deslocamento="comercial",
                 limite_minutos=25,
                 janela_dias_proximidade=3,
@@ -164,7 +164,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
 
             self.assertTrue(resposta["ok"])
             self.assertTrue(resposta["sugerir"])
-            self.assertEqual(resposta["item"]["data"], "2026-05-22")
+            self.assertEqual(resposta["item"]["data"], "2099-05-22")
             self.assertEqual(int(resposta.get("itens_ignorados_janela", 0)), 1)
         finally:
             db.close()
@@ -176,8 +176,8 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             @classmethod
             def now(cls, tz=None):
                 if tz is not None:
-                    return cls(2026, 5, 19, 14, 20, 0, tzinfo=tz)
-                return cls(2026, 5, 19, 14, 20, 0)
+                    return cls(2099, 5, 19, 14, 20, 0, tzinfo=tz)
+                return cls(2099, 5, 19, 14, 20, 0)
 
         tmpdir, db, engine = self._build_session()
         try:
@@ -185,7 +185,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             clinica_base, _ = self._seed_clinicas(db)
 
             payload = agenda.SugestaoHorarioPayload(
-                data="2026-05-19",
+                data="2099-05-19",
                 clinica_id=clinica_base.id,
                 duracao_minutos=30,
                 intervalo_minutos=30,
@@ -206,7 +206,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             self.assertTrue(primeiro_inicio.endswith("14:30"))
             for item in resposta["items"]:
                 inicio = datetime.strptime(item["inicio"], "%Y-%m-%d %H:%M")
-                self.assertGreaterEqual(inicio, datetime(2026, 5, 19, 14, 30))
+                self.assertGreaterEqual(inicio, datetime(2099, 5, 19, 14, 30))
         finally:
             db.close()
             engine.dispose()
@@ -259,12 +259,12 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 clinica_base_coords=(-3.9320, -38.4700),
                 clinica_ancora_coords=(-3.7320, -38.5270),
             )
-            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2026-05-21", hora="09:00")
+            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2099-05-21", hora="09:00")
 
             payload = agenda.SugestaoProximidadePayload(
                 clinica_id=clinica_base.id,
-                data="2026-05-21",
-                data_contato="2026-05-19",
+                data="2099-05-21",
+                data_contato="2099-05-19",
                 perfil_deslocamento="comercial",
                 limite_minutos=25,
                 janela_dias_proximidade=3,
@@ -287,7 +287,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             self.assertFalse(politica.get("ancora_d2"))
             self.assertEqual(
                 politica.get("datas_preferenciais"),
-                ["2026-05-22", "2026-05-23"],
+                ["2099-05-22", "2099-05-23"],
             )
         finally:
             db.close()
@@ -341,12 +341,12 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 clinica_base_cidade="Fortaleza",
                 clinica_ancora_cidade="Caucaia",
             )
-            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2026-05-21", hora="09:00")
+            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2099-05-21", hora="09:00")
 
             payload = agenda.SugestaoProximidadePayload(
                 clinica_id=clinica_base.id,
-                data="2026-05-21",
-                data_contato="2026-05-19",
+                data="2099-05-21",
+                data_contato="2099-05-19",
                 perfil_deslocamento="comercial",
                 limite_minutos=25,
                 janela_dias_proximidade=3,
@@ -367,7 +367,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             self.assertFalse(politica.get("ancora_d2"))
             self.assertEqual(
                 politica.get("datas_preferenciais"),
-                ["2026-05-22", "2026-05-23"],
+                ["2099-05-22", "2099-05-23"],
             )
         finally:
             db.close()
@@ -421,12 +421,12 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 clinica_base_cidade="Fortaleza",
                 clinica_ancora_cidade="Fortaleza",
             )
-            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2026-05-21", hora="09:00")
+            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2099-05-21", hora="09:00")
 
             payload = agenda.SugestaoProximidadePayload(
                 clinica_id=clinica_base.id,
-                data="2026-05-21",
-                data_contato="2026-05-19",
+                data="2099-05-21",
+                data_contato="2099-05-19",
                 perfil_deslocamento="comercial",
                 limite_minutos=25,
                 janela_dias_proximidade=3,
@@ -445,7 +445,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             self.assertIsNotNone(resposta.get("item"))
             politica = resposta.get("politica_oferta") or {}
             self.assertTrue(politica.get("ancora_d2"))
-            self.assertEqual(politica.get("datas_preferenciais"), ["2026-05-21"])
+            self.assertEqual(politica.get("datas_preferenciais"), ["2099-05-21"])
             self.assertEqual(str(resposta["item"].get("fonte_deslocamento") or ""), "fallback_mesma_cidade")
         finally:
             db.close()
@@ -504,13 +504,13 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             db.commit()
             db.refresh(clinica_ancora_2)
 
-            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2026-05-21", hora="09:00")
-            self._criar_agendamento(db, clinica_id=clinica_ancora_2.id, data="2026-05-21", hora="10:30")
+            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2099-05-21", hora="09:00")
+            self._criar_agendamento(db, clinica_id=clinica_ancora_2.id, data="2099-05-21", hora="10:30")
 
             payload = agenda.SugestaoProximidadePayload(
                 clinica_id=clinica_base.id,
-                data="2026-05-21",
-                data_contato="2026-05-19",
+                data="2099-05-21",
+                data_contato="2099-05-19",
                 perfil_deslocamento="comercial",
                 limite_minutos=25,
                 janela_dias_proximidade=3,
@@ -529,7 +529,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             self.assertIsNotNone(resposta.get("item"))
             politica = resposta.get("politica_oferta") or {}
             self.assertTrue(politica.get("ancora_d2"))
-            self.assertEqual(politica.get("datas_preferenciais"), ["2026-05-21"])
+            self.assertEqual(politica.get("datas_preferenciais"), ["2099-05-21"])
             self.assertEqual(str(resposta["item"].get("fonte_deslocamento") or ""), "fallback_mesma_cidade")
         finally:
             db.close()
@@ -544,7 +544,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             self._criar_agendamento(
                 db,
                 clinica_id=clinica_ancora.id,
-                data="2026-05-21",
+                data="2099-05-21",
                 hora="09:00",
                 status="Em atendimento",
             )
@@ -553,7 +553,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 possui_ancora = agenda._existe_ancora_proxima_no_dia(
                     db,
                     clinica_id=clinica_base.id,
-                    data_iso="2026-05-21",
+                    data_iso="2099-05-21",
                     limite_minutos=20,
                     perfil_deslocamento="comercial",
                 )
@@ -577,13 +577,13 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 clinica_ancora_cidade="Aldeota",
                 clinica_ancora_estado="CE",
             )
-            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2026-05-21", hora="09:00")
+            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2099-05-21", hora="09:00")
 
             with patch.object(agenda, "_obter_duracao_deslocamento_cacheado", return_value=(0, "sem_matriz")):
                 possui_ancora = agenda._existe_ancora_proxima_no_dia(
                     db,
                     clinica_id=clinica_base.id,
-                    data_iso="2026-05-21",
+                    data_iso="2099-05-21",
                     limite_minutos=20,
                     perfil_deslocamento="comercial",
                 )
@@ -666,27 +666,27 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             db.refresh(clinica_ancora_longa)
             db.refresh(clinica_ancora_curta)
 
-            # Data preferencial (D+2): 2026-05-21 -> deslocamento pior.
+            # Data preferencial (D+2): 2099-05-21 -> deslocamento pior.
             self._criar_agendamento(
                 db,
                 clinica_id=clinica_ancora_longa.id,
-                data="2026-05-21",
+                data="2099-05-21",
                 hora="10:00",
                 status="Agendado",
             )
-            # Fora da data preferencial: 2026-05-22 -> deslocamento melhor.
+            # Fora da data preferencial: 2099-05-22 -> deslocamento melhor.
             self._criar_agendamento(
                 db,
                 clinica_id=clinica_ancora_curta.id,
-                data="2026-05-22",
+                data="2099-05-22",
                 hora="10:00",
                 status="Agendado",
             )
 
             payload = agenda.SugestaoProximidadePayload(
                 clinica_id=clinica_base.id,
-                data="2026-05-21",
-                data_contato="2026-05-19",
+                data="2099-05-21",
+                data_contato="2099-05-19",
                 perfil_deslocamento="comercial",
                 limite_minutos=60,
                 janela_dias_proximidade=3,
@@ -717,7 +717,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
 
             self.assertTrue(resposta["ok"])
             self.assertTrue(resposta["sugerir"])
-            self.assertEqual(str(resposta["item"]["data"]), "2026-05-22")
+            self.assertEqual(str(resposta["item"]["data"]), "2099-05-22")
             self.assertEqual(int(resposta["item"]["duracao_deslocamento_min"]), 10)
         finally:
             db.close()
@@ -739,15 +739,15 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             self._criar_agendamento(
                 db,
                 clinica_id=clinica_base.id,
-                data="2026-05-20",
+                data="2099-05-20",
                 hora="13:30",
                 status="Agendado",
             )
 
             payload = agenda.SugestaoProximidadePayload(
                 clinica_id=clinica_base.id,
-                data="2026-05-20",
-                data_contato="2026-05-20",
+                data="2099-05-20",
+                data_contato="2099-05-20",
                 perfil_deslocamento="comercial",
                 limite_minutos=25,
                 janela_dias_proximidade=1,
