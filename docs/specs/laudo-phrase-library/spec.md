@@ -1,6 +1,6 @@
 # Spec - laudo-phrase-library
 
-Data: 2026-05-03  
+Data: 2026-05-21  
 Responsavel: Codex  
 Status: done
 
@@ -17,12 +17,15 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - RF-005: permitir listar, editar, duplicar, desativar e restaurar presets.
 - RF-006: ao renomear ou mover frase, sincronizar selecoes de presets que referenciam `frase_id`.
 - RF-007: sinalizar presets que usam frases inativas.
+- RF-008: bloquear persistencias que reduzam frases/presets sem operacao explicita de importacao.
+- RF-009: quando o store estiver reduzido ao baseline minimo e houver backup runtime mais completo, recuperar automaticamente o store mais rico.
 
 ## 3) Requisitos nao funcionais (NFR)
 
 - NFR-001 (compatibilidade): normalizar frases antigas com `patologias: []` e `ordem` sem exigir migracao manual.
 - NFR-002 (seguranca operacional): usar soft delete para frases e presets.
 - NFR-003 (resiliencia): manter backup runtime antes de cada mutacao do JSON.
+- NFR-004 (integridade): impedir shrink acidental de dados clinicos em saves de rotina.
 
 ## 4) Contratos tecnicos
 
@@ -61,6 +64,8 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - CA-004: frase renomeada ou movida atualiza presets que usam seu `frase_id`.
 - CA-005: frases e presets podem ser desativados/restaurados sem exclusao definitiva.
 - CA-006: presets que usam frase inativa exibem aviso.
+- CA-007: store minimo com backup mais rico e restaurado automaticamente no primeiro load.
+- CA-008: tentativa de shrink inesperado e bloqueada com erro de seguranca operacional.
 
 ## 7) Casos de borda
 

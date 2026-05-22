@@ -18,12 +18,15 @@ class FrasesEcocardiogramaEstruturadoImportTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             data_dir = Path(tmp)
             frases_file = data_dir / "frases_ecocardiograma_estruturado_teste.json"
+            runtime_backup_dir = data_dir / "runtime_backups" / "frases_ecocardiograma_estruturado_teste"
 
             original_data_dir = service.DATA_DIR
             original_frases_file = service.FRASES_FILE
+            original_runtime_backup_dir = service.RUNTIME_BACKUP_DIR
             try:
                 service.DATA_DIR = data_dir
                 service.FRASES_FILE = frases_file
+                service.RUNTIME_BACKUP_DIR = runtime_backup_dir
 
                 payload = service._build_default_store()
                 payload["presets"] = [
@@ -74,6 +77,7 @@ class FrasesEcocardiogramaEstruturadoImportTest(unittest.TestCase):
             finally:
                 service.DATA_DIR = original_data_dir
                 service.FRASES_FILE = original_frases_file
+                service.RUNTIME_BACKUP_DIR = original_runtime_backup_dir
 
 
 if __name__ == "__main__":

@@ -124,6 +124,10 @@ DEFAULT_SAMPLE_PRESETS = [
     },
 ]
 
+DEFAULT_SAMPLE_PRESETS_COUNT = len(DEFAULT_SAMPLE_PRESETS)
+DEFAULT_SAMPLE_PHRASES_COUNT = sum(len(items) for items in DEFAULT_SAMPLE_PHRASES.values())
+SAVE_REASONS_ALLOWING_SHRINK = {"import", "recover_from_backup", "fallback_rebuild", "auto_recover_minimal_store"}
+
 
 def _now_iso() -> str:
     return datetime.now().isoformat()
@@ -217,6 +221,40 @@ def _latest_valid_runtime_backup() -> Optional[Tuple[Path, Dict[str, Any]]]:
     return None
 
 
+def _store_counts(payload: Dict[str, Any]) -> Dict[str, int]:
+    if not isinstance(payload, dict):
+        return {"presets_count": 0, "frases_count": 0}
+    aspectos = payload.get("aspectos") or []
+    presets = payload.get("presets") or []
+    frases_count = 0
+    for aspecto in aspectos:
+        if not isinstance(aspecto, dict):
+            continue
+        frases_count += len(aspecto.get("frases") or [])
+    return {"presets_count": len(presets), "frases_count": frases_count}
+
+
+def _richest_valid_runtime_backup() -> Optional[Tuple[Path, Dict[str, Any], Dict[str, int]]]:
+    if not RUNTIME_BACKUP_DIR.exists():
+        return None
+    best: Optional[Tuple[Path, Dict[str, Any], Dict[str, int]]] = None
+    for candidate in sorted(RUNTIME_BACKUP_DIR.glob("*.json"), reverse=True):
+        payload = _try_load_store(candidate)
+        if payload is None:
+            continue
+        counts = _store_counts(payload)
+        if best is None:
+            best = (candidate, payload, counts)
+            continue
+        _, _, best_counts = best
+        if (counts["presets_count"], counts["frases_count"]) > (
+            best_counts["presets_count"],
+            best_counts["frases_count"],
+        ):
+            best = (candidate, payload, counts)
+    return best
+
+
 def _recover_store_from_runtime_backup() -> Optional[Dict[str, Any]]:
     recovered = _latest_valid_runtime_backup()
     if recovered is None:
@@ -225,6 +263,32 @@ def _recover_store_from_runtime_backup() -> Optional[Dict[str, Any]]:
     _, payload = recovered
     _atomic_write_store(payload)
     return payload
+
+
+def _should_auto_recover_minimal_store(current_counts: Dict[str, int], recovered_counts: Dict[str, int]) -> bool:
+    looks_like_minimal = (
+        current_counts["presets_count"] <= DEFAULT_SAMPLE_PRESETS_COUNT + 1
+        and current_counts["frases_count"] <= DEFAULT_SAMPLE_PHRASES_COUNT + 2
+    )
+    materially_richer_backup = (
+        recovered_counts["presets_count"] >= current_counts["presets_count"] + 5
+        or recovered_counts["frases_count"] >= current_counts["frases_count"] + 25
+    )
+    return looks_like_minimal and materially_richer_backup
+
+
+def _maybe_recover_minimal_store(payload: Dict[str, Any]) -> Dict[str, Any]:
+    current_counts = _store_counts(payload)
+    richest = _richest_valid_runtime_backup()
+    if richest is None:
+        return payload
+    _, candidate_payload, candidate_counts = richest
+    if not _should_auto_recover_minimal_store(current_counts, candidate_counts):
+        return payload
+    _snapshot_current_store("minimal_store_before_auto_recover")
+    recovered = _normalize_store(candidate_payload)
+    _atomic_write_store(recovered)
+    return recovered
 
 
 def _build_default_store() -> Dict[str, Any]:
@@ -276,11 +340,11 @@ def _load_store() -> Dict[str, Any]:
     _ensure_store_file()
     payload = _try_load_store(FRASES_FILE)
     if payload is not None:
-        return payload
+        return _maybe_recover_minimal_store(payload)
 
     recovered = _recover_store_from_runtime_backup()
     if recovered is not None:
-        return recovered
+        return _maybe_recover_minimal_store(recovered)
 
     fallback = _build_default_store()
     _atomic_write_store(fallback)
@@ -288,6 +352,18 @@ def _load_store() -> Dict[str, Any]:
 
 
 def _save_store(store: Dict[str, Any], reason: str = "update") -> Dict[str, Any]:
+    current = _try_load_store(FRASES_FILE)
+    if current is not None and reason not in SAVE_REASONS_ALLOWING_SHRINK:
+        current_counts = _store_counts(current)
+        next_counts = _store_counts(store)
+        shrunk = (
+            next_counts["presets_count"] < current_counts["presets_count"]
+            or next_counts["frases_count"] < current_counts["frases_count"]
+        )
+        if shrunk:
+            raise ValueError(
+                "Operacao bloqueada para evitar perda de dados no banco de frases/presets."
+            )
     store["last_updated"] = _now_iso()
     _snapshot_current_store(reason)
     _atomic_write_store(store)

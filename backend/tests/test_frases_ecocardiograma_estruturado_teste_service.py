@@ -394,6 +394,108 @@ class FrasesEcocardiogramaEstruturadoTesteServiceTest(unittest.TestCase):
                 service.FRASES_FILE = original_frases_file
                 service.RUNTIME_BACKUP_DIR = original_runtime_backup_dir
 
+    def test_minimal_store_is_auto_recovered_from_rich_runtime_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            frases_file = data_dir / "frases_ecocardiograma_estruturado_teste.json"
+            runtime_backup_dir = data_dir / "runtime_backups" / "frases_ecocardiograma_estruturado_teste"
+
+            original_data_dir = service.DATA_DIR
+            original_frases_file = service.FRASES_FILE
+            original_runtime_backup_dir = service.RUNTIME_BACKUP_DIR
+            try:
+                service.DATA_DIR = data_dir
+                service.FRASES_FILE = frases_file
+                service.RUNTIME_BACKUP_DIR = runtime_backup_dir
+
+                payload = service.get_payload()
+                rich_payload = deepcopy(payload)
+                base_phrase = rich_payload["aspectos"][0]["frases"][0]
+                next_id = max(int(item.get("id") or 0) for item in rich_payload["presets"]) + 1
+                for offset in range(6):
+                    rich_payload["presets"].append(
+                        {
+                            "id": next_id + offset,
+                            "key": f"preset_extra_{offset}",
+                            "label": f"Preset extra {offset}",
+                            "patologia": "Teste",
+                            "grau": "A",
+                            "descricao": "Preset extra para validar autorecovery.",
+                            "tags": ["teste"],
+                            "ordem": (next_id + offset) * 10,
+                            "ativo": 1,
+                            "selecoes": [
+                                {
+                                    "aspecto": rich_payload["aspectos"][0]["key"],
+                                    "frase_id": base_phrase["id"],
+                                    "frase_titulo": base_phrase["titulo"],
+                                }
+                            ],
+                        }
+                    )
+
+                service.import_store(rich_payload)
+                service._snapshot_current_store("rich_manual_snapshot")
+                service._atomic_write_store(service._build_default_store())
+
+                recovered = service.get_payload()
+                labels = {item.get("label") for item in recovered.get("presets") or []}
+                self.assertIn("Preset extra 0", labels)
+                self.assertGreaterEqual(len(recovered.get("presets") or []), len(rich_payload["presets"]))
+            finally:
+                service.DATA_DIR = original_data_dir
+                service.FRASES_FILE = original_frases_file
+                service.RUNTIME_BACKUP_DIR = original_runtime_backup_dir
+
+    def test_save_blocks_unexpected_store_shrink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            frases_file = data_dir / "frases_ecocardiograma_estruturado_teste.json"
+            runtime_backup_dir = data_dir / "runtime_backups" / "frases_ecocardiograma_estruturado_teste"
+
+            original_data_dir = service.DATA_DIR
+            original_frases_file = service.FRASES_FILE
+            original_runtime_backup_dir = service.RUNTIME_BACKUP_DIR
+            try:
+                service.DATA_DIR = data_dir
+                service.FRASES_FILE = frases_file
+                service.RUNTIME_BACKUP_DIR = runtime_backup_dir
+
+                payload = service.get_payload()
+                rich_payload = deepcopy(payload)
+                rich_payload["presets"].append(
+                    {
+                        "id": 999,
+                        "key": "preset_guarda",
+                        "label": "Preset guarda",
+                        "patologia": "Teste",
+                        "grau": "A",
+                        "descricao": "Preset para validar bloqueio de shrink.",
+                        "tags": ["teste"],
+                        "ordem": 9990,
+                        "ativo": 1,
+                        "selecoes": [
+                            {
+                                "aspecto": rich_payload["aspectos"][0]["key"],
+                                "frase_titulo": rich_payload["aspectos"][0]["frases"][0]["titulo"],
+                            }
+                        ],
+                    }
+                )
+                service.import_store(rich_payload)
+
+                with self.assertRaisesRegex(ValueError, "perda de dados"):
+                    service._save_store(service._build_default_store(), reason="normalize")
+
+                reloaded = service.get_payload()
+                self.assertTrue(
+                    any(item.get("label") == "Preset guarda" for item in reloaded.get("presets") or [])
+                )
+            finally:
+                service.DATA_DIR = original_data_dir
+                service.FRASES_FILE = original_frases_file
+                service.RUNTIME_BACKUP_DIR = original_runtime_backup_dir
+
 
 if __name__ == "__main__":
     unittest.main()
