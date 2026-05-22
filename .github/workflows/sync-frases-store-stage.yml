@@ -4,13 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       apply:
-        description: Apply seed and rewrite JSON mirror
+        description: Apply recovery on stage
         required: true
         default: "false"
         type: choice
         options:
           - "false"
           - "true"
+      token:
+        description: Texto esperado nos labels dos presets (ex.: DMVM)
+        required: true
+        default: "DMVM"
+        type: string
 
 jobs:
   sync-frases-store-stage:
@@ -35,25 +40,24 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Run sync_frases_store.py on stage
+      - name: Copy recovery script to stage VPS
+        run: |
+          scp -i ~/.ssh/id_vps -o IdentitiesOnly=yes scripts/recover_frases_stage.py ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/recover_frases_stage.py
+
+      - name: Inspect/Recover frases on stage
         env:
           APPLY: ${{ github.event.inputs.apply }}
+          TOKEN: ${{ github.event.inputs.token }}
         run: |
-          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "export APPLY='${APPLY}'; bash -s" <<'EOF'
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "export APPLY='${APPLY}' TOKEN='${TOKEN}'; bash -s" <<'EOF'
             set -euo pipefail
-            STAGE_DIR="/var/www/fortcordis-stage"
-
-            cd "$STAGE_DIR/backend"
-            source venv/bin/activate
-            if [ -f .env ]; then
-              set -a
-              source .env
-              set +a
-            fi
-
+            APP_DIR="/var/www/fortcordis-stage"
+            cd "$APP_DIR"
             if [ "${APPLY}" = "true" ]; then
-              python3 sync_frases_store.py --apply
+              python3 /tmp/recover_frases_stage.py --app-dir "$APP_DIR" --token "${TOKEN}" --apply
             else
-              python3 sync_frases_store.py
+              python3 /tmp/recover_frases_stage.py --app-dir "$APP_DIR" --token "${TOKEN}"
             fi
+
+            rm -f /tmp/recover_frases_stage.py
           EOF
