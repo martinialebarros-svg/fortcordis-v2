@@ -73,7 +73,7 @@ interface SugestoesHorarioResponse {
 type AssistenteDecisao = "pendente" | "aceito" | "sem_opcao";
 
 type EtapaWizardNovo = {
-  id: "preparo" | "oferta_1" | "oferta_2" | "desfecho";
+  id: "preparo" | "ofertas" | "desfecho";
   titulo: string;
   descricao: string;
 };
@@ -85,38 +85,28 @@ const ETAPAS_WIZARD_NOVO: EtapaWizardNovo[] = [
     descricao: "Selecionar clinica, servico e data.",
   },
   {
-    id: "oferta_1",
-    titulo: "Oferta 1",
-    descricao: "Assistente gera a melhor oferta inicial.",
-  },
-  {
-    id: "oferta_2",
-    titulo: "Oferta 2",
-    descricao: "Gerar alternativa quando o cliente recusar.",
+    id: "ofertas",
+    titulo: "Panorama de ofertas",
+    descricao: "Visualizar todas as opcoes sugeridas pelo assistente.",
   },
   {
     id: "desfecho",
     titulo: "Desfecho",
-    descricao: "Aceite registrado ou justificativa para fluxo manual.",
+    descricao: "Registrar aceite ou recusa com justificativa para fluxo de excecao.",
   },
 ];
 
 const resolverIndiceEtapaWizardNovo = (
   prontoParaSugerir: boolean,
-  decisao: AssistenteDecisao,
-  totalSugestoes: number,
-  indiceSugestaoAtual: number
+  decisao: AssistenteDecisao
 ): number => {
   if (decisao === "aceito" || decisao === "sem_opcao") {
-    return 3;
+    return 2;
   }
   if (!prontoParaSugerir) {
     return 0;
   }
-  if (totalSugestoes <= 0 || indiceSugestaoAtual <= 0) {
-    return 1;
-  }
-  return 2;
+  return 1;
 };
 
 interface ConflitoDeslocamentoDetail {
@@ -524,6 +514,7 @@ export default function NovoAgendamentoModal({
   const [erroCarregamento, setErroCarregamento] = useState<string>("");
   const [carregandoSugestoes, setCarregandoSugestoes] = useState(false);
   const [sugestoesHorario, setSugestoesHorario] = useState<SugestaoHorarioItem[]>([]);
+  const [ofertasPanoramicasConsultadas, setOfertasPanoramicasConsultadas] = useState(false);
   const [erroSugestoes, setErroSugestoes] = useState<string>("");
   const [mensagemSugestoes, setMensagemSugestoes] = useState<string>("");
   const [indiceSugestaoAtual, setIndiceSugestaoAtual] = useState(0);
@@ -671,6 +662,7 @@ export default function NovoAgendamentoModal({
     setDataContatoAssistente((atual) => atual || hojeLocalIso());
     setTutorSelecionado("");
     setSugestoesHorario([]);
+    setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
     setDecisaoAssistente("pendente");
     setMotivoSemOpcao("");
@@ -722,6 +714,7 @@ export default function NovoAgendamentoModal({
 
     setTutorSelecionado(pacienteSelecionado?.tutor || "");
     setSugestoesHorario([]);
+    setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
     setDecisaoAssistente("pendente");
     setMotivoSemOpcao("");
@@ -751,6 +744,7 @@ export default function NovoAgendamentoModal({
     setFormData(buildInitialFormData(defaultDate, defaultTime));
     setTutorSelecionado("");
     setSugestoesHorario([]);
+    setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
     setDecisaoAssistente("pendente");
     setMotivoSemOpcao("");
@@ -841,6 +835,7 @@ export default function NovoAgendamentoModal({
 
   const resetFluxoAssistente = (preservarMensagemProximidade = true) => {
     setSugestoesHorario([]);
+    setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
     setDecisaoAssistente("pendente");
     setMotivoSemOpcao("");
@@ -1006,7 +1001,19 @@ export default function NovoAgendamentoModal({
           const { items, itensIgnorados } = await buscarSugestoesOperacionais(dataSugerida, clinicaIdNum);
           setItensIgnoradosJanela(itensIgnorados);
           setSugestoesHorario(items);
+          setOfertasPanoramicasConsultadas(true);
           setIndiceSugestaoAtual(0);
+          setMotivoSemOpcao("");
+          setExcecaoConcedida(false);
+          if (items.length === 0) {
+            setDecisaoAssistente("sem_opcao");
+            setMensagemSugestoes(
+              isAdmin
+                ? "Sem ofertas aderentes para a data sugerida por proximidade. Registre o motivo e, se necessario, conceda excecao."
+                : "Sem ofertas aderentes para a data sugerida por proximidade. Registre o motivo e solicite excecao ao administrador."
+            );
+            return;
+          }
           setDecisaoAssistente("pendente");
 
           const candidatosRelacionados = items.filter(
@@ -1048,7 +1055,9 @@ export default function NovoAgendamentoModal({
                 hora: horaAplicacao,
               }));
               setErroSugestoes("");
-              setMensagemSugestoes(`Horario operacional aplicado automaticamente: ${horaAplicacao}.`);
+              setMensagemSugestoes(
+                `Horario operacional aplicado automaticamente: ${horaAplicacao}. Revise o panorama de ofertas antes de registrar aceite ou recusa.`
+              );
               return;
             }
           }
@@ -1061,7 +1070,7 @@ export default function NovoAgendamentoModal({
           setErroSugestoes("");
           setMensagemSugestoes(
             items.length > 0
-              ? "Data de proximidade aplicada. Escolha um horario operacional na lista de sugestoes."
+              ? "Data de proximidade aplicada. Revise o panorama completo de ofertas e registre aceite ou recusa."
               : "Data de proximidade aplicada. Clique em Sugerir horarios para encontrar um horario operacional."
           );
         } catch {
@@ -1219,13 +1228,9 @@ export default function NovoAgendamentoModal({
     setErroSugestoes("");
   };
 
-  const confirmarAceiteSugestaoAtual = () => {
-    const sugestaoAtual = sugestoesHorario[indiceSugestaoAtual];
-    if (!sugestaoAtual) {
-      setErroSugestoes("Nao ha sugestao ativa para confirmar.");
-      return;
-    }
-    aplicarSugestaoHorario(sugestaoAtual);
+  const confirmarAceiteSugestao = (item: SugestaoHorarioItem, indice: number) => {
+    setIndiceSugestaoAtual(indice);
+    aplicarSugestaoHorario(item);
     setDecisaoAssistente("aceito");
     setMotivoSemOpcao("");
     setExcecaoConcedida(false);
@@ -1233,44 +1238,18 @@ export default function NovoAgendamentoModal({
     setMensagemSugestoes("Cliente aceitou o horario sugerido pelo assistente.");
   };
 
-  const solicitarProximaSugestao = () => {
-    if (sugestoesHorario.length === 0) {
-      setDecisaoAssistente("sem_opcao");
-      setMensagemSugestoes(
-        isAdmin
-          ? "Nao ha sugestoes automaticas para este caso. Registre o motivo, conceda excecao ou encerre sem agendamento."
-          : "Nao ha sugestoes automaticas para este caso. Registre o motivo e solicite excecao ao administrador."
-      );
-      return;
-    }
-    const proximoIndice = indiceSugestaoAtual + 1;
-    if (proximoIndice >= sugestoesHorario.length) {
-      setDecisaoAssistente("sem_opcao");
-      setMensagemSugestoes(
-        isAdmin
-          ? "Nao encontramos outra opcao dentro das regras atuais. Registre o motivo, conceda excecao ou encerre sem agendamento."
-          : "Nao encontramos outra opcao dentro das regras atuais. Registre o motivo e solicite excecao ao administrador."
-      );
-      return;
-    }
-    setIndiceSugestaoAtual(proximoIndice);
-    setDecisaoAssistente("pendente");
-    setMotivoSemOpcao("");
-    setExcecaoConcedida(false);
-    setErroSugestoes("");
-    setMensagemSugestoes(
-      `Oferta alternativa ${proximoIndice + 1} de ${sugestoesHorario.length}.`
-    );
-  };
-
   const liberarFluxoManual = () => {
+    if (!ofertasPanoramicasConsultadas) {
+      setErroSugestoes("Gere e visualize as ofertas do assistente antes de registrar recusa.");
+      return;
+    }
     setDecisaoAssistente("sem_opcao");
     setExcecaoConcedida(false);
     setErroSugestoes("");
     setMensagemSugestoes(
       isAdmin
-        ? "Sem oferta aderente. Registre o motivo e conceda excecao para liberar data/hora manual."
-        : "Sem oferta aderente. Registre o motivo e solicite excecao ao administrador."
+        ? "Nenhuma oferta panoramica atendeu. Registre o motivo e conceda excecao para liberar data/hora manual."
+        : "Nenhuma oferta panoramica atendeu. Registre o motivo e solicite excecao ao administrador."
     );
   };
 
@@ -1352,6 +1331,7 @@ export default function NovoAgendamentoModal({
     setMensagemSugestoes("");
     setErroSugestoes("");
     setSugestoesHorario([]);
+    setOfertasPanoramicasConsultadas(false);
 
     const clinicaId = Number.parseInt(formData.clinica_id || "", 10);
     if (!Number.isFinite(clinicaId)) {
@@ -1411,6 +1391,7 @@ export default function NovoAgendamentoModal({
       const { items, motivo, itensIgnorados } = await buscarSugestoesOperacionais(dataBaseBusca, clinicaId);
       setItensIgnoradosJanela(itensIgnorados);
       setSugestoesHorario(items);
+      setOfertasPanoramicasConsultadas(true);
       setIndiceSugestaoAtual(0);
       setDecisaoAssistente("pendente");
       setMotivoSemOpcao("");
@@ -1770,6 +1751,7 @@ export default function NovoAgendamentoModal({
       setFormData(buildInitialFormData(defaultDate, defaultTime));
       setTutorSelecionado("");
       setSugestoesHorario([]);
+      setOfertasPanoramicasConsultadas(false);
       setIndiceSugestaoAtual(0);
       setDecisaoAssistente("pendente");
       setMotivoSemOpcao("");
@@ -1797,13 +1779,10 @@ export default function NovoAgendamentoModal({
 
   const clinicaInformada = Boolean(formData.clinica_id) || Boolean((formData.clinica_nova_nome || "").trim());
   const assistenteProntoParaSugerir = clinicaInformada && Boolean(formData.servico_id) && Boolean(formData.data);
-  const sugestaoAtual = sugestoesHorario[indiceSugestaoAtual] || null;
   const totalSugestoes = sugestoesHorario.length;
   const indiceEtapaWizardNovo = resolverIndiceEtapaWizardNovo(
     assistenteProntoParaSugerir,
-    decisaoAssistente,
-    totalSugestoes,
-    indiceSugestaoAtual
+    decisaoAssistente
   );
   const etapaWizardAtual = !isEditando ? ETAPAS_WIZARD_NOVO[indiceEtapaWizardNovo] : null;
   const excecaoManualLiberada = !isEditando && decisaoAssistente === "sem_opcao" && isAdmin && excecaoConcedida;
@@ -1922,6 +1901,11 @@ export default function NovoAgendamentoModal({
             {mensagemProximidade && (
               <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
                 <strong>Assistente inteligente:</strong> {mensagemProximidade}
+                {!isEditando && (
+                  <div className="mt-1 text-xs text-amber-900">
+                    Proximo passo: gerar melhor oferta para visualizar o panorama completo antes de confirmar com o cliente.
+                  </div>
+                )}
               </div>
             )}
 
@@ -2063,7 +2047,7 @@ export default function NovoAgendamentoModal({
             {!isEditando && etapaWizardAtual && (
               <div className="rounded-md border border-blue-200 bg-white px-2 py-2 space-y-2">
                 <div className="text-xs font-semibold text-blue-900">
-                  Etapa atual: {indiceEtapaWizardNovo + 1}/4 - {etapaWizardAtual.titulo}
+                  Etapa atual: {indiceEtapaWizardNovo + 1}/{ETAPAS_WIZARD_NOVO.length} - {etapaWizardAtual.titulo}
                 </div>
                 <div className="text-[11px] text-blue-700">
                   {etapaWizardAtual.descricao}
@@ -2123,38 +2107,50 @@ export default function NovoAgendamentoModal({
               </div>
             )}
 
-            {!isEditando && sugestaoAtual && (
+            {!isEditando && totalSugestoes > 0 && (
               <div className="rounded-md border border-blue-300 bg-white px-3 py-3 space-y-2">
                 <div className="text-xs font-semibold text-blue-900">
-                  Oferta atual {indiceSugestaoAtual + 1} de {totalSugestoes}
+                  Panorama de ofertas: {totalSugestoes} opcao(oes) sugerida(s)
                 </div>
-                <div className="text-sm font-medium text-gray-900">
-                  {toBrDate(String(sugestaoAtual.inicio || "").split(" ")[0])} - {extrairHoraDataHora(sugestaoAtual.inicio)} a{" "}
-                  {extrairHoraDataHora(sugestaoAtual.fim)}
-                </div>
-                <div className="text-xs text-gray-600">
-                  Deslocamento total: {sugestaoAtual.tempo_deslocamento_total_min} min | Risco: {sugestaoAtual.risco}
-                </div>
-                <div className="text-xs text-gray-500">
-                  {resumirDeslocamentoSugestao(sugestaoAtual)}
-                </div>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={confirmarAceiteSugestaoAtual}
-                    className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs hover:bg-emerald-700"
-                  >
-                    Cliente aceitou este horario
-                  </button>
-                  <button
-                    type="button"
-                    onClick={solicitarProximaSugestao}
-                    className="px-3 py-1.5 rounded-md bg-amber-500 text-white text-xs hover:bg-amber-600"
-                  >
-                    Horario nao atende necessidade do cliente
-                  </button>
+                <div className="space-y-2">
+                  {sugestoesHorario.map((item, idx) => (
+                    <div
+                      key={`${item.inicio}-${idx}`}
+                      className="rounded-md border border-blue-100 bg-blue-50/30 px-2 py-2"
+                    >
+                      <div className="text-sm font-medium text-gray-900">
+                        Oferta {idx + 1}: {toBrDate(String(item.inicio || "").split(" ")[0])} - {extrairHoraDataHora(item.inicio)} a{" "}
+                        {extrairHoraDataHora(item.fim)}
+                      </div>
+                      <div className="text-xs text-gray-600">
+                        Deslocamento total: {item.tempo_deslocamento_total_min} min | Risco: {item.risco}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {resumirDeslocamentoSugestao(item)}
+                      </div>
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={() => confirmarAceiteSugestao(item, idx)}
+                          className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs hover:bg-emerald-700"
+                        >
+                          Cliente aceitou esta oferta
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
+            )}
+
+            {!isEditando && assistenteProntoParaSugerir && ofertasPanoramicasConsultadas && totalSugestoes > 0 && decisaoAssistente === "pendente" && (
+              <button
+                type="button"
+                onClick={liberarFluxoManual}
+                className="px-3 py-1.5 rounded-md border border-amber-300 text-amber-700 text-xs hover:bg-amber-50"
+              >
+                Nenhuma oferta atende a necessidade do cliente (recusar todas)
+              </button>
             )}
 
             {!isEditando && decisaoAssistente === "aceito" && (
@@ -2166,7 +2162,7 @@ export default function NovoAgendamentoModal({
             {!isEditando && decisaoAssistente === "sem_opcao" && (
               <div className="rounded-md border border-amber-300 bg-white px-3 py-2 space-y-2">
                 <div className="text-xs font-medium text-amber-800">
-                  Nenhuma oferta automatica atendeu. Registre o motivo para concluir o desfecho.
+                  Nenhuma oferta panoramica atendeu. Registre o motivo para concluir o desfecho.
                 </div>
                 <textarea
                   rows={2}
@@ -2225,16 +2221,6 @@ export default function NovoAgendamentoModal({
                   </div>
                 )}
               </div>
-            )}
-
-            {!isEditando && assistenteProntoParaSugerir && totalSugestoes === 0 && decisaoAssistente === "pendente" && (
-              <button
-                type="button"
-                onClick={liberarFluxoManual}
-                className="px-3 py-1.5 rounded-md border border-amber-300 text-amber-700 text-xs hover:bg-amber-50"
-              >
-                Cliente nao aceitou sugestao automatica (seguir manualmente)
-              </button>
             )}
 
             {isEditando && sugestoesHorario.length > 0 && (

@@ -1735,6 +1735,18 @@ def sugerir_horarios_agenda(
     data_iso = _extract_date_filter(payload.data)
     if not data_iso:
         raise HTTPException(status_code=422, detail="Data invalida. Use o formato YYYY-MM-DD.")
+    hoje_local_iso = datetime.now(LOCAL_TZ).date().isoformat()
+    if data_iso < hoje_local_iso:
+        return {
+            "ok": True,
+            "data": data_iso,
+            "clinica_id": payload.clinica_id,
+            "duracao_minutos": max(5, int(payload.duracao_minutos or 30)),
+            "perfil_deslocamento": normalizar_perfil(payload.perfil_deslocamento),
+            "motivo": "Nao sugerimos horarios para datas passadas. Selecione hoje ou uma data futura.",
+            "total_encontrados": 0,
+            "items": [],
+        }
 
     clinica_base = db.query(Clinica).filter(Clinica.id == payload.clinica_id).first()
     if not clinica_base:
@@ -1996,6 +2008,22 @@ def sugerir_agendamento_proximo(
     data_iso = _extract_date_filter(payload.data) if payload.data else datetime.now().strftime("%Y-%m-%d")
     if not data_iso:
         raise HTTPException(status_code=422, detail="Data invalida. Use o formato YYYY-MM-DD.")
+    hoje_local_iso = datetime.now(LOCAL_TZ).date().isoformat()
+    if data_iso < hoje_local_iso:
+        return {
+            "ok": True,
+            "data": data_iso,
+            "clinica_id": payload.clinica_id,
+            "sugerir": False,
+            "limite_minutos": limite_proximidade_default,
+            "itens_ignorados_janela": 0,
+            "politica_oferta": {
+                "data_contato": None,
+                "datas_preferenciais": [],
+            },
+            "mensagem": "Nao sugerimos horarios para datas passadas. Selecione hoje ou uma data futura.",
+            "item": None,
+        }
 
     data_contato_iso = (
         _extract_date_filter(payload.data_contato)

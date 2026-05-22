@@ -212,6 +212,83 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_sugestoes_horario_bloqueiam_data_passada(self) -> None:
+        class DateTimeFixa(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                if tz is not None:
+                    return cls(2099, 5, 19, 14, 20, 0, tzinfo=tz)
+                return cls(2099, 5, 19, 14, 20, 0)
+
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(db, excecoes=[])
+            clinica_base, _ = self._seed_clinicas(db)
+
+            payload = agenda.SugestaoHorarioPayload(
+                data="2099-05-18",
+                clinica_id=clinica_base.id,
+                duracao_minutos=30,
+                intervalo_minutos=30,
+                limite=8,
+                perfil_deslocamento="comercial",
+            )
+
+            with patch.object(agenda, "datetime", DateTimeFixa):
+                resposta = agenda.sugerir_horarios_agenda(
+                    payload=payload,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertTrue(resposta["ok"])
+            self.assertEqual(resposta["total_encontrados"], 0)
+            self.assertEqual(resposta["items"], [])
+            self.assertIn("datas passadas", str(resposta.get("motivo", "")))
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_sugestao_proximidade_bloqueia_data_passada(self) -> None:
+        class DateTimeFixa(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                if tz is not None:
+                    return cls(2099, 5, 19, 9, 0, 0, tzinfo=tz)
+                return cls(2099, 5, 19, 9, 0, 0)
+
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(db, excecoes=[])
+            clinica_base, _ = self._seed_clinicas(db)
+
+            payload = agenda.SugestaoProximidadePayload(
+                clinica_id=clinica_base.id,
+                data="2099-05-18",
+                data_contato="2099-05-17",
+                perfil_deslocamento="comercial",
+                limite_minutos=25,
+                janela_dias_proximidade=3,
+                incluir_mesma_clinica=False,
+            )
+
+            with patch.object(agenda, "datetime", DateTimeFixa):
+                resposta = agenda.sugerir_agendamento_proximo(
+                    payload=payload,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertTrue(resposta["ok"])
+            self.assertFalse(resposta["sugerir"])
+            self.assertIsNone(resposta["item"])
+            self.assertIn("datas passadas", str(resposta.get("mensagem", "")))
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_sugestao_proximidade_distante_sem_ancora_d2_prioriza_dias_politica(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
