@@ -28,6 +28,7 @@ Comandos:
 cd backend
 venv/bin/python -m pytest tests/test_frases_ecocardiograma_estruturado_teste_service.py tests/test_frases_ecocardiograma_estruturado_import.py
 venv/bin/python -m py_compile app/api/v1/endpoints/frases_ecocardiograma_estruturado_teste.py app/services/frases_ecocardiograma_estruturado_teste_service.py
+venv/bin/python -m py_compile sync_frases_store.py
 
 ```
 

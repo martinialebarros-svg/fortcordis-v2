@@ -43,6 +43,7 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - Indices/constraints: nenhuma.
 - Migracao necessaria: nao.
 - Arquivo runtime afetado: `backend/data/frases_ecocardiograma_estruturado_teste.json`.
+- Script operacional: `backend/sync_frases_store.py` para diagnostico/recuperacao de presets via snapshots runtime/deploy.
 
 ### Frontend
 
