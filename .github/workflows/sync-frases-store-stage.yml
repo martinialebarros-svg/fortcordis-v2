@@ -15,7 +15,6 @@ on:
         description: Texto esperado nos labels dos presets (ex.: DMVM)
         required: true
         default: "DMVM"
-        type: string
 
 jobs:
   sync-frases-store-stage:

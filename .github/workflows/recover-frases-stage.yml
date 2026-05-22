@@ -15,7 +15,6 @@ on:
         description: "Texto esperado nos labels (ex.: DMVM)"
         required: true
         default: "DMVM"
-        type: string
 
 jobs:
   recover-stage:
