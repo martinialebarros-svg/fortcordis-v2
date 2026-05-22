@@ -1,0 +1,64 @@
+name: Recover Frases Stage Manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Aplicar restauracao no stage"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      token:
+        description: "Texto esperado nos labels (ex.: DMVM)"
+        required: true
+        default: "DMVM"
+        type: string
+
+jobs:
+  recover-stage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          ref: stage
+
+      - name: Setup SSH key
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s' "$VPS_SSH_KEY" > ~/.ssh/id_vps
+          chmod 600 ~/.ssh/id_vps
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Copy recovery script to stage VPS
+        run: |
+          scp -i ~/.ssh/id_vps -o IdentitiesOnly=yes scripts/recover_frases_stage.py ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/recover_frases_stage.py
+
+      - name: Inspect/Recover frases on stage VPS
+        env:
+          APPLY: ${{ github.event.inputs.apply }}
+          TOKEN: ${{ github.event.inputs.token }}
+        run: |
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "export APPLY='${APPLY}' TOKEN='${TOKEN}'; bash -s" <<'EOF'
+            set -euo pipefail
+            APP_DIR="/var/www/fortcordis-stage"
+            cd "$APP_DIR"
+
+            if [ "${APPLY}" = "true" ]; then
+              python3 /tmp/recover_frases_stage.py --app-dir "$APP_DIR" --token "${TOKEN}" --apply
+            else
+              python3 /tmp/recover_frases_stage.py --app-dir "$APP_DIR" --token "${TOKEN}"
+            fi
+
+            rm -f /tmp/recover_frases_stage.py
+          EOF
