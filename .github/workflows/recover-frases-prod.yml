@@ -1,14 +1,29 @@
-﻿name: Recover Frases Prod Manual
+name: Recover Frases Prod Manual
 
 on:
   workflow_dispatch:
+    inputs:
+      apply:
+        description: "Aplicar restauracao em producao"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      token:
+        description: "Texto esperado nos labels (ex.: DMVM)"
+        required: true
+        default: "DMVM"
 
 jobs:
-  recover:
+  recover-prod:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          ref: main
 
       - name: Setup SSH key
         env:
@@ -24,17 +39,26 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Copy recovery script to VPS
+      - name: Copy recovery script to production VPS
         run: |
-          scp -i ~/.ssh/id_vps -o IdentitiesOnly=yes scripts/recover_frases_prod.py ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/recover_frases_prod.py
+          scp -i ~/.ssh/id_vps -o IdentitiesOnly=yes scripts/recover_frases_stage.py ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/recover_frases_prod.py
 
-      - name: Recover frases on production VPS
+      - name: Inspect/Recover frases on production VPS
+        env:
+          APPLY: ${{ github.event.inputs.apply }}
+          TOKEN: ${{ github.event.inputs.token }}
         run: |
-          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "export APPLY='${APPLY}' TOKEN='${TOKEN}'; bash -s" <<'EOF'
             set -euo pipefail
             APP_DIR="/var/www/fortcordis-v2"
             cd "$APP_DIR"
-            python3 /tmp/recover_frases_prod.py "$APP_DIR"
+
+            if [ "${APPLY}" = "true" ]; then
+              python3 /tmp/recover_frases_prod.py --app-dir "$APP_DIR" --token "${TOKEN}" --apply
+            else
+              python3 /tmp/recover_frases_prod.py --app-dir "$APP_DIR" --token "${TOKEN}"
+            fi
+
             rm -f /tmp/recover_frases_prod.py
             sudo systemctl restart fortcordis-backend
             echo "Backend reiniciado com sucesso"
