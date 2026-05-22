@@ -7,7 +7,7 @@ import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from queue import Empty
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -87,6 +87,16 @@ class SugestaoProximidadePayload(BaseModel):
     ignorar_agendamento_id: Optional[int] = Field(default=None, ge=1)
     incluir_mesma_clinica: bool = Field(default=True)
     janela_dias_proximidade: int = Field(default=7, ge=0, le=30)
+
+
+class AssistenteEncerramentoPayload(BaseModel):
+    tipo: Literal["solicitacao_excecao", "encerramento_sem_agendamento"] = Field(...)
+    motivo: str = Field(..., min_length=5, max_length=1200)
+    clinica_id: Optional[int] = Field(default=None, ge=1)
+    servico_id: Optional[int] = Field(default=None, ge=1)
+    data_referencia: Optional[str] = Field(default=None, description="Data no formato YYYY-MM-DD")
+    data_contato: Optional[str] = Field(default=None, description="Data do primeiro contato no formato YYYY-MM-DD")
+    contexto: Optional[dict[str, Any]] = Field(default=None)
 
 
 def _parse_hora_hhmm(value: Optional[str], fallback: str) -> str:
@@ -2270,6 +2280,90 @@ def sugerir_agendamento_proximo(
         },
         "mensagem": mensagem,
         "item": melhor_item,
+    }
+
+
+@router.post("/assistente/encerramento")
+def registrar_encerramento_assistente(
+    payload: AssistenteEncerramentoPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Registra desfechos estruturados do assistente guiado sem criar agendamento."""
+    motivo = str(payload.motivo or "").strip()
+    if len(motivo) < 5:
+        raise HTTPException(status_code=422, detail="Motivo deve ter ao menos 5 caracteres.")
+
+    def _parse_data_yyyy_mm_dd(raw_value: Optional[str], field_label: str) -> Optional[str]:
+        raw = str(raw_value or "").strip()
+        if not raw:
+            return None
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+            raise HTTPException(
+                status_code=422,
+                detail=f"{field_label} invalida. Use o formato YYYY-MM-DD.",
+            )
+        try:
+            return datetime.strptime(raw, "%Y-%m-%d").date().isoformat()
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{field_label} invalida. Use o formato YYYY-MM-DD.",
+            )
+
+    data_referencia = _parse_data_yyyy_mm_dd(payload.data_referencia, "Data de referencia")
+    data_contato = _parse_data_yyyy_mm_dd(payload.data_contato, "Data de contato")
+
+    clinica_nome = _nome_clinica_por_id(db, payload.clinica_id) if payload.clinica_id else "Nao informada"
+    servico_nome = "Nao informado"
+    if payload.servico_id:
+        servico = db.query(Servico).filter(Servico.id == payload.servico_id).first()
+        if servico and servico.nome:
+            servico_nome = str(servico.nome).strip()
+
+    eh_admin = bool(current_user.tem_papel("admin"))
+    tipo = payload.tipo
+    if tipo == "solicitacao_excecao":
+        acao = "ASSISTENTE_AGENDA_SOLICITACAO_EXCECAO"
+        descricao = (
+            "Assistente de agenda sem oferta aderente: solicitacao de excecao registrada "
+            f"({clinica_nome} | servico: {servico_nome})."
+        )
+        mensagem = "Solicitacao de excecao registrada com sucesso."
+    else:
+        acao = "ASSISTENTE_AGENDA_ENCERRADO_SEM_AGENDAMENTO"
+        descricao = (
+            "Assistente de agenda encerrado sem agendamento "
+            f"({clinica_nome} | servico: {servico_nome})."
+        )
+        mensagem = "Encerramento sem agendamento registrado com sucesso."
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="agenda",
+        entidade="assistente_agendamento",
+        acao=acao,
+        descricao=descricao,
+        detalhes={
+            "tipo": tipo,
+            "motivo": motivo,
+            "clinica_id": payload.clinica_id,
+            "clinica_nome": clinica_nome,
+            "servico_id": payload.servico_id,
+            "servico_nome": servico_nome,
+            "data_referencia": data_referencia,
+            "data_contato": data_contato,
+            "perfil_usuario": "admin" if eh_admin else "nao_admin",
+            "contexto": payload.contexto or {},
+        },
+        request=request,
+    )
+
+    return {
+        "ok": True,
+        "tipo": tipo,
+        "mensagem": mensagem,
     }
 
 
