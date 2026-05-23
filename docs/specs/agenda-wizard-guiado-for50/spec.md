@@ -25,6 +25,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - RF-013: o assistente deve apresentar visao panoramica com todas as ofertas validas, evitando fluxo linear de "proxima oferta" para reduzir perguntas ao cliente.
 - RF-014: a acao de recusa total (`sem_opcao`) so pode ser habilitada apos consulta/visualizacao das ofertas panoramicas.
 - RF-015: o assistente nao deve sugerir horarios para datas passadas; ao receber data anterior a hoje, deve retornar resposta orientativa sem itens.
+- RF-016: para clinica proxima da base, quando nao houver ancora em D+2 e D+3, o assistente deve priorizar D0 se houver ancora em D0 ou se D0 estiver sem agendamentos.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -68,12 +69,14 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - CA-011: apos gerar ofertas, a secretaria deve visualizar todas as opcoes em lista panoramica, cada uma com acao de aceite direto.
 - CA-012: botao `Nenhuma oferta atende...` deve aparecer apenas quando houver panorama consultado e decisao ainda pendente.
 - CA-013: para data passada, endpoints de sugestao nao retornam oferta e respondem com mensagem explicita para selecionar hoje ou data futura.
+- CA-014: com clinica proxima da base e sem ancora D+2/D+3, `dias_preferenciais` deve ser `[0]` quando D0 tiver ancora ou estiver vazio.
 
 ## 7) Casos de borda
 
 - CB-001: secretaria troca clinica/servico/data apos gerar oferta -> fluxo deve resetar para evitar sugestao stale.
 - CB-002: sem sugestao retornada pela API -> liberar fluxo manual somente com motivo.
 - CB-003: sugestao de proximidade aplicada automaticamente sem ofertas validas deve cair em `sem_opcao` com orientacao de motivo/excecao.
+- CB-004: quando existir ancora em D+2 ou D+3 para clinica proxima da base, a regra de prioridade D0 nao deve ser aplicada.
 
 ## 8) Fora de escopo
 

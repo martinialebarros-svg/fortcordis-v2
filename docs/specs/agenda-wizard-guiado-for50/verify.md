@@ -21,6 +21,7 @@ Status: done
 | CA-011 | aceitacao | render de `Panorama de ofertas` com `sugestoesHorario.map(...)` e aceite por item | ok |
 | CA-012 | aceitacao | botao `Nenhuma oferta atende...` condicionado a `ofertasPanoramicasConsultadas` e `decisaoAssistente === "pendente"` | ok |
 | CA-013 | aceitacao | `agenda.py` retorna vazio para data passada em `sugestoes-horario` e `sugestao-proximidade` | ok |
+| CA-014 | aceitacao | `_classificar_politica_oferta` prioriza D0 para clinica proxima da base sem ancora D+2/D+3, com cobertura de cenarios positivo/negativo | ok |
 | NFR-002 | nao funcional | decisao anexada em `observacoesFinal` no submit | ok |
 
 ## 2) Testes automatizados executados
@@ -30,6 +31,7 @@ Comandos:
 ```bash
 cd frontend && npx eslint app/agenda/NovoAgendamentoModal.tsx
 python3 -m py_compile backend/app/api/v1/endpoints/agenda.py backend/tests/test_agenda_sugestao_janela_operacional.py
+cd backend && ./venv/bin/python -m pytest -q tests/test_agenda_sugestao_janela_operacional.py
 # evidencias de CI
 gh run view 26316967933 --json jobs --jq '.jobs[] | {name, conclusion}'
 ```
@@ -37,6 +39,7 @@ gh run view 26316967933 --json jobs --jq '.jobs[] | {name, conclusion}'
 Resumo dos resultados:
 - ESLint: ok.
 - PyCompile backend: ok.
+- Pytest `test_agenda_sugestao_janela_operacional.py`: `17 passed`.
 - CI `Deploy to Stage (VPS)` run `26316967933`: `quality-gate=success`, `sdd-guardrail=failure` (falta de docs neste commit), sem falha funcional de codigo.
 
 ## 3) Testes manuais sugeridos (stage)
@@ -51,6 +54,9 @@ Resumo dos resultados:
 - Cenario 8: selecionar uma data no formulario, gerar oferta automatica e confirmar que a data exibida no campo nao muda sozinha; mudar somente por aceite explicito de oferta.
 - Cenario 9: validar evolucao visual das etapas (1/3 a 3/3) ao preencher dados, gerar oferta panoramica e concluir desfecho.
 - Cenario 10: informar data passada (ex.: ontem) e validar ausencia de ofertas com mensagem orientativa para hoje/futuro.
+- Cenario 11: clinica proxima da base, sem ancoras em D+2/D+3, com ancora em D0 => prioridade D0.
+- Cenario 12: clinica proxima da base, D0 vazio e sem ancoras em D+2/D+3 => prioridade D0.
+- Cenario 13: clinica proxima da base com ancora em D+2 ou D+3 => nao priorizar D0.
 
 ## 4) Regressao e riscos residuais
 

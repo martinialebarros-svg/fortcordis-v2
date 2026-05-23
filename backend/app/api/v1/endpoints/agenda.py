@@ -455,6 +455,13 @@ def _classificar_politica_oferta(
     limite_ancora = int(thresholds.get("nearby_anchor_max_travel_min") or 20)
     limite_distante = int(thresholds.get("distant_clinic_min_travel_from_base_min") or 35)
     limite_baixa_frequencia = int(thresholds.get("low_frequency_max_bookings_30d") or 3)
+    try:
+        data_contato_ref = datetime.strptime(data_contato_iso, "%Y-%m-%d").date()
+    except ValueError:
+        data_contato_ref = datetime.now(LOCAL_TZ).date()
+    data_d0 = data_contato_ref.isoformat()
+    data_d2 = (data_contato_ref + timedelta(days=2)).isoformat()
+    data_d3 = (data_contato_ref + timedelta(days=3)).isoformat()
 
     dias_padrao = [int(item) for item in list(offer_policy.get("default_first_offer_days_ahead") or [2])]
     dias_distantes = [
@@ -482,17 +489,19 @@ def _classificar_politica_oferta(
         # Sem base geocodificada, adota regra conservadora para clinicas de baixa frequencia:
         # D+2 so e priorizado quando houver ancora realmente proxima.
         distante_base = True
+    base_proxima = tempo_base_min is not None and tempo_base_min < limite_distante
 
     dias_preferenciais = dias_padrao or [2]
+    ancora_d0 = False
     ancora_d2 = False
+    ancora_d3 = False
+    sem_agendamentos_d0 = False
+    prioridade_d0_aplicada = False
     override_aplicado = None
     override_ancora_obrigatoria = False
     if distante_base and baixa_frequencia:
         dias_preferenciais = dias_distantes or dias_preferenciais
         if permitir_d2_ancora:
-            data_d2 = (
-                datetime.strptime(data_contato_iso, "%Y-%m-%d").date() + timedelta(days=2)
-            ).isoformat()
             ancora_d2 = _existe_ancora_proxima_no_dia(
                 db,
                 clinica_id=clinica_id,
@@ -503,6 +512,44 @@ def _classificar_politica_oferta(
             )
             if ancora_d2:
                 dias_preferenciais = [2]
+
+    if base_proxima:
+        agendamentos_d0 = _listar_agendamentos_ativos_do_dia(
+            db,
+            data_d0,
+            agendamento_id_excluir=agendamento_id_excluir,
+        )
+        agendamentos_d0 = _filtrar_agendamentos_por_janela_funcionamento(db, agendamentos_d0)
+        sem_agendamentos_d0 = len(agendamentos_d0) == 0
+        if not sem_agendamentos_d0:
+            ancora_d0 = _existe_ancora_proxima_no_dia(
+                db,
+                clinica_id=clinica_id,
+                data_iso=data_d0,
+                limite_minutos=limite_ancora,
+                perfil_deslocamento=perfil_deslocamento,
+                agendamento_id_excluir=agendamento_id_excluir,
+            )
+        if not ancora_d2:
+            ancora_d2 = _existe_ancora_proxima_no_dia(
+                db,
+                clinica_id=clinica_id,
+                data_iso=data_d2,
+                limite_minutos=limite_ancora,
+                perfil_deslocamento=perfil_deslocamento,
+                agendamento_id_excluir=agendamento_id_excluir,
+            )
+        ancora_d3 = _existe_ancora_proxima_no_dia(
+            db,
+            clinica_id=clinica_id,
+            data_iso=data_d3,
+            limite_minutos=limite_ancora,
+            perfil_deslocamento=perfil_deslocamento,
+            agendamento_id_excluir=agendamento_id_excluir,
+        )
+        if (ancora_d0 or sem_agendamentos_d0) and (not ancora_d2 and not ancora_d3):
+            dias_preferenciais = [0]
+            prioridade_d0_aplicada = True
 
     overrides_cfg = regras_rota.get("clinic_overrides") if isinstance(regras_rota.get("clinic_overrides"), list) else []
     for override in overrides_cfg:
@@ -551,10 +598,15 @@ def _classificar_politica_oferta(
     return {
         "dias_preferenciais": dias_preferenciais,
         "distante_base": bool(distante_base),
+        "base_proxima": bool(base_proxima),
         "baixa_frequencia": bool(baixa_frequencia),
         "agendamentos_30d": int(qtd_30d),
         "tempo_base_estimado_min": tempo_base_min,
+        "ancora_d0": bool(ancora_d0),
         "ancora_d2": bool(ancora_d2),
+        "ancora_d3": bool(ancora_d3),
+        "sem_agendamentos_d0": bool(sem_agendamentos_d0),
+        "prioridade_d0_aplicada": bool(prioridade_d0_aplicada),
         "override_aplicado": override_aplicado,
     }
 

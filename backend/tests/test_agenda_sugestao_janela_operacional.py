@@ -451,6 +451,214 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_politica_oferta_prioriza_d0_quando_ha_ancora_em_d0_sem_ancora_d2_d3(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(
+                db,
+                excecoes=[],
+                regras_rota={
+                    "base": {
+                        "label": "Casa",
+                        "address": "Av da Universidade, 1949",
+                        "zip_code": "60020-180",
+                        "lat": -3.7319,
+                        "lng": -38.5267,
+                    },
+                    "thresholds": {
+                        "nearby_anchor_max_travel_min": 20,
+                        "distant_clinic_min_travel_from_base_min": 35,
+                        "low_frequency_max_bookings_30d": 3,
+                        "max_insertion_detour_min": 25,
+                        "safe_margin_min": 5,
+                    },
+                    "offer_policy": {
+                        "default_first_offer_days_ahead": [2],
+                        "distant_low_frequency_first_offer_days_ahead": [3, 4],
+                        "allow_d2_if_anchor_exists": True,
+                        "emergency_first_offer_days_ahead": [1, 2],
+                    },
+                    "route_policy": {
+                        "end_of_route_window_start": "16:00",
+                        "prefer_near_base_at_end_of_route": True,
+                        "bonus_near_base_score": 15,
+                        "penalty_far_base_score": 10,
+                        "reject_clear_inefficiency": True,
+                    },
+                    "fallback_policy": {
+                        "suggest_alternative_slots_when_blocked": True,
+                        "max_alternative_suggestions": 3,
+                        "allow_extra_slot_start_or_end_route_for_emergency": True,
+                    },
+                    "clinic_overrides": [],
+                },
+            )
+            clinica_base, clinica_ancora = self._seed_clinicas(
+                db,
+                clinica_base_coords=(-3.7320, -38.5270),
+                clinica_ancora_coords=(-3.7325, -38.5275),
+            )
+            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2099-05-19", hora="09:00")
+
+            regras_rota = agenda._obter_regras_rota_agenda(db)
+            with patch.object(agenda, "_obter_duracao_deslocamento_cacheado", return_value=(12, "mock")):
+                politica = agenda._classificar_politica_oferta(
+                    db,
+                    clinica_id=clinica_base.id,
+                    data_contato_iso="2099-05-19",
+                    perfil_deslocamento="comercial",
+                    regras_rota=regras_rota,
+                )
+
+            self.assertTrue(politica.get("base_proxima"))
+            self.assertTrue(politica.get("ancora_d0"))
+            self.assertFalse(politica.get("ancora_d2"))
+            self.assertFalse(politica.get("ancora_d3"))
+            self.assertTrue(politica.get("prioridade_d0_aplicada"))
+            self.assertEqual(politica.get("dias_preferenciais"), [0])
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_politica_oferta_prioriza_d0_quando_d0_vazio_sem_ancora_d2_d3(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(
+                db,
+                excecoes=[],
+                regras_rota={
+                    "base": {
+                        "label": "Casa",
+                        "address": "Av da Universidade, 1949",
+                        "zip_code": "60020-180",
+                        "lat": -3.7319,
+                        "lng": -38.5267,
+                    },
+                    "thresholds": {
+                        "nearby_anchor_max_travel_min": 20,
+                        "distant_clinic_min_travel_from_base_min": 35,
+                        "low_frequency_max_bookings_30d": 3,
+                        "max_insertion_detour_min": 25,
+                        "safe_margin_min": 5,
+                    },
+                    "offer_policy": {
+                        "default_first_offer_days_ahead": [2],
+                        "distant_low_frequency_first_offer_days_ahead": [3, 4],
+                        "allow_d2_if_anchor_exists": True,
+                        "emergency_first_offer_days_ahead": [1, 2],
+                    },
+                    "route_policy": {
+                        "end_of_route_window_start": "16:00",
+                        "prefer_near_base_at_end_of_route": True,
+                        "bonus_near_base_score": 15,
+                        "penalty_far_base_score": 10,
+                        "reject_clear_inefficiency": True,
+                    },
+                    "fallback_policy": {
+                        "suggest_alternative_slots_when_blocked": True,
+                        "max_alternative_suggestions": 3,
+                        "allow_extra_slot_start_or_end_route_for_emergency": True,
+                    },
+                    "clinic_overrides": [],
+                },
+            )
+            clinica_base, _ = self._seed_clinicas(
+                db,
+                clinica_base_coords=(-3.7320, -38.5270),
+                clinica_ancora_coords=(-3.8200, -38.6500),
+            )
+
+            regras_rota = agenda._obter_regras_rota_agenda(db)
+            politica = agenda._classificar_politica_oferta(
+                db,
+                clinica_id=clinica_base.id,
+                data_contato_iso="2099-05-19",
+                perfil_deslocamento="comercial",
+                regras_rota=regras_rota,
+            )
+
+            self.assertTrue(politica.get("base_proxima"))
+            self.assertTrue(politica.get("sem_agendamentos_d0"))
+            self.assertFalse(politica.get("ancora_d2"))
+            self.assertFalse(politica.get("ancora_d3"))
+            self.assertTrue(politica.get("prioridade_d0_aplicada"))
+            self.assertEqual(politica.get("dias_preferenciais"), [0])
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_politica_oferta_nao_prioriza_d0_quando_existe_ancora_d2_ou_d3(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(
+                db,
+                excecoes=[],
+                regras_rota={
+                    "base": {
+                        "label": "Casa",
+                        "address": "Av da Universidade, 1949",
+                        "zip_code": "60020-180",
+                        "lat": -3.7319,
+                        "lng": -38.5267,
+                    },
+                    "thresholds": {
+                        "nearby_anchor_max_travel_min": 20,
+                        "distant_clinic_min_travel_from_base_min": 35,
+                        "low_frequency_max_bookings_30d": 3,
+                        "max_insertion_detour_min": 25,
+                        "safe_margin_min": 5,
+                    },
+                    "offer_policy": {
+                        "default_first_offer_days_ahead": [2],
+                        "distant_low_frequency_first_offer_days_ahead": [3, 4],
+                        "allow_d2_if_anchor_exists": True,
+                        "emergency_first_offer_days_ahead": [1, 2],
+                    },
+                    "route_policy": {
+                        "end_of_route_window_start": "16:00",
+                        "prefer_near_base_at_end_of_route": True,
+                        "bonus_near_base_score": 15,
+                        "penalty_far_base_score": 10,
+                        "reject_clear_inefficiency": True,
+                    },
+                    "fallback_policy": {
+                        "suggest_alternative_slots_when_blocked": True,
+                        "max_alternative_suggestions": 3,
+                        "allow_extra_slot_start_or_end_route_for_emergency": True,
+                    },
+                    "clinic_overrides": [],
+                },
+            )
+            clinica_base, clinica_ancora = self._seed_clinicas(
+                db,
+                clinica_base_coords=(-3.7320, -38.5270),
+                clinica_ancora_coords=(-3.7325, -38.5275),
+            )
+            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2099-05-19", hora="09:00")
+            self._criar_agendamento(db, clinica_id=clinica_ancora.id, data="2099-05-21", hora="10:00")
+
+            regras_rota = agenda._obter_regras_rota_agenda(db)
+            with patch.object(agenda, "_obter_duracao_deslocamento_cacheado", return_value=(12, "mock")):
+                politica = agenda._classificar_politica_oferta(
+                    db,
+                    clinica_id=clinica_base.id,
+                    data_contato_iso="2099-05-19",
+                    perfil_deslocamento="comercial",
+                    regras_rota=regras_rota,
+                )
+
+            self.assertTrue(politica.get("base_proxima"))
+            self.assertTrue(politica.get("ancora_d0"))
+            self.assertTrue(politica.get("ancora_d2"))
+            self.assertFalse(politica.get("prioridade_d0_aplicada"))
+            self.assertEqual(politica.get("dias_preferenciais"), [2])
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_ancora_d2_fallback_mesma_cidade_com_um_agendamento_valido(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
