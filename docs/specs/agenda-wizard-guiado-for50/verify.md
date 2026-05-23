@@ -25,6 +25,7 @@ Status: done
 | CA-015 | aceitacao | `sugerir_horarios_agenda` prioriza slot apos `ancora + 60min` na mesma clinica e frontend respeita ordem backend no fluxo de proximidade | ok |
 | CA-016 | aceitacao | `criar_agendamento` forca recalculo de `fim` pela duracao do servico (`force_from_service=True`) no fluxo de criacao | ok |
 | CA-017 | aceitacao | `sugerir_horarios_agenda` usa duracao oficial do servico quando `servico_id` existe, ignorando payload divergente | ok |
+| CA-018 | aceitacao | `sugerir_agendamento_proximo` passa a usar deslocamento total do slot (`anterior + proximo`) para ranking e mensagem | ok |
 | NFR-002 | nao funcional | decisao anexada em `observacoesFinal` no submit | ok |
 
 ## 2) Testes automatizados executados
@@ -42,7 +43,7 @@ gh run view 26316967933 --json jobs --jq '.jobs[] | {name, conclusion}'
 Resumo dos resultados:
 - ESLint: ok.
 - PyCompile backend: ok.
-- Pytest `test_agenda_sugestao_janela_operacional.py` + `test_agenda_duracao_servico_create.py`: `20 passed`.
+- Pytest `test_agenda_sugestao_janela_operacional.py` + `test_agenda_duracao_servico_create.py`: `21 passed`.
 - CI `Deploy to Stage (VPS)` run `26316967933`: `quality-gate=success`, `sdd-guardrail=failure` (falta de docs neste commit), sem falha funcional de codigo.
 
 ## 3) Testes manuais sugeridos (stage)
@@ -63,6 +64,7 @@ Resumo dos resultados:
 - Cenario 14: mesma clinica com ancora as 10:00 e slots livres apos esse horario -> primeira oferta operacional em 11:00.
 - Cenario 15: servico com duracao de 20min (ex.: ECG), aceite oferta do assistente e salvar -> evento final deve ocupar apenas 20min na agenda.
 - Cenario 16: com servico de 20min, forcar frontend a enviar `duracao_minutos=60` na busca de ofertas -> oferta retornada deve permanecer em janela de 20min.
+- Cenario 17: na proximidade, validar caso com vizinho anterior e posterior no slot sugerido -> deslocamento exibido deve refletir soma dos dois lados.
 
 ## 4) Regressao e riscos residuais
 

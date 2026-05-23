@@ -2203,8 +2203,6 @@ def sugerir_agendamento_proximo(
         agendamentos_periodo,
     )
     itens_ignorados_janela = max(0, total_agendamentos_periodo - len(agendamentos_periodo))
-    perfil_norm = normalizar_perfil(payload.perfil_deslocamento)
-    cache_duracoes: dict[tuple[int, int, str, bool], tuple[int, str]] = {}
     cache_clinicas: dict[int, Optional[Clinica]] = {}
     cache_slots_operacionais_por_data: dict[str, list[dict[str, Any]]] = {}
     melhor_item: Optional[dict] = None
@@ -2277,57 +2275,98 @@ def sugerir_agendamento_proximo(
         clinica_item_id = int(item.get("clinica_id") or 0)
         if clinica_item_id <= 0:
             continue
-        if clinica_item_id == payload.clinica_id:
-            if not payload.incluir_mesma_clinica:
+        if clinica_item_id == payload.clinica_id and not payload.incluir_mesma_clinica:
+            continue
+
+        slots_aderentes = (
+            [slot for slot in slots_operacionais_data if _slot_referencia_ancora(slot, agendamento_ancora_id)]
+            if agendamento_ancora_id > 0
+            else list(slots_operacionais_data)
+        )
+        if not slots_aderentes:
+            continue
+
+        for slot in slots_aderentes:
+            if not isinstance(slot, dict):
                 continue
-            duracao_min, fonte = 0, "mesma_clinica"
-        else:
-            duracao_min, fonte = _obter_duracao_deslocamento_cacheado(
-                db,
-                origem_clinica_id=payload.clinica_id,
-                destino_clinica_id=clinica_item_id,
-                perfil=perfil_norm,
-                cache=cache_duracoes,
-            )
-        if duracao_min <= 0:
-            if clinica_item_id != payload.clinica_id:
-                if not _clinicas_mesma_cidade_uf(
+
+            inicio_slot_raw = str(slot.get("inicio") or "").strip()
+            fim_slot_raw = str(slot.get("fim") or "").strip()
+            if not inicio_slot_raw:
+                continue
+
+            try:
+                inicio_slot = datetime.strptime(inicio_slot_raw, "%Y-%m-%d %H:%M")
+            except ValueError:
+                continue
+
+            data_slot_iso = inicio_slot.strftime("%Y-%m-%d")
+            if exigir_data_preferencial and data_slot_iso not in datas_preferenciais_set:
+                continue
+            if inicio_slot < agora_local:
+                continue
+
+            anterior_slot = slot.get("anterior") if isinstance(slot.get("anterior"), dict) else {}
+            proximo_slot = slot.get("proximo") if isinstance(slot.get("proximo"), dict) else {}
+            duracao_anterior = max(0, int((anterior_slot or {}).get("duracao_deslocamento_min") or 0))
+            duracao_proximo = max(0, int((proximo_slot or {}).get("duracao_deslocamento_min") or 0))
+            duracao_total = duracao_anterior + duracao_proximo
+
+            if duracao_total <= 0:
+                # Fallback para manter compatibilidade com payloads antigos sem vizinhos detalhados.
+                duracao_total = max(0, int(slot.get("tempo_deslocamento_total_min") or 0))
+
+            fonte_anterior = str((anterior_slot or {}).get("fonte") or "").strip()
+            fonte_proximo = str((proximo_slot or {}).get("fonte") or "").strip()
+            if duracao_anterior > 0 and duracao_proximo > 0:
+                fonte = f"anterior:{fonte_anterior or 'indefinido'}|proximo:{fonte_proximo or 'indefinido'}"
+            elif duracao_anterior > 0:
+                fonte = f"anterior:{fonte_anterior or 'indefinido'}"
+            elif duracao_proximo > 0:
+                fonte = f"proximo:{fonte_proximo or 'indefinido'}"
+            else:
+                if clinica_item_id == payload.clinica_id:
+                    fonte = "mesma_clinica"
+                elif _clinicas_mesma_cidade_uf(
                     db,
                     clinica_a_id=payload.clinica_id,
                     clinica_b_id=clinica_item_id,
                     cache=cache_clinicas,
                 ):
-                    continue
-                fonte = "fallback_mesma_cidade"
-                duracao_min = 0
+                    fonte = "fallback_mesma_cidade"
+                else:
+                    fonte = "sem_vizinhos"
 
-        rank = (
-            int(duracao_min),
-            abs((inicio_item.date() - data_ref).days),
-            0 if data_item_iso in datas_preferenciais_set else 1,
-            (
-                min(abs((inicio_item.date() - data_pref).days) for data_pref in datas_preferenciais_dt)
-                if datas_preferenciais_dt
-                else 0
-            ),
-            inicio_item,
-            int(item.get("id") or 0),
-        )
-        if melhor_rank is None or rank < melhor_rank:
-            melhor_rank = rank
-            melhor_tempo = int(duracao_min)
-            melhor_item = {
-                "agendamento_id": item.get("id"),
-                "clinica_id": clinica_item_id,
-                "clinica": item.get("clinica_nome") or _nome_clinica_por_id(db, clinica_item_id),
-                "data": inicio_item.strftime("%Y-%m-%d"),
-                "inicio": inicio_item.strftime("%H:%M"),
-                "fim": item.get("fim").strftime("%H:%M") if item.get("fim") else None,
-                "duracao_deslocamento_min": duracao_min,
-                "fonte_deslocamento": fonte,
-                "status": status_item,
-                "data_preferencial": data_item_iso in datas_preferenciais_set,
-            }
+            rank = (
+                int(duracao_total),
+                abs((inicio_slot.date() - data_ref).days),
+                0 if data_slot_iso in datas_preferenciais_set else 1,
+                (
+                    min(abs((inicio_slot.date() - data_pref).days) for data_pref in datas_preferenciais_dt)
+                    if datas_preferenciais_dt
+                    else 0
+                ),
+                inicio_slot,
+                int(item.get("id") or 0),
+            )
+            if melhor_rank is None or rank < melhor_rank:
+                melhor_rank = rank
+                melhor_tempo = int(duracao_total)
+                melhor_item = {
+                    "agendamento_id": item.get("id"),
+                    "clinica_id": clinica_item_id,
+                    "clinica": item.get("clinica_nome") or _nome_clinica_por_id(db, clinica_item_id),
+                    "data": data_slot_iso,
+                    "inicio": inicio_slot.strftime("%H:%M"),
+                    "fim": fim_slot_raw.split(" ")[1] if " " in fim_slot_raw else (fim_slot_raw or None),
+                    "duracao_deslocamento_min": duracao_total,
+                    "tempo_deslocamento_total_min": duracao_total,
+                    "duracao_deslocamento_anterior_min": duracao_anterior,
+                    "duracao_deslocamento_proximo_min": duracao_proximo,
+                    "fonte_deslocamento": fonte,
+                    "status": status_item,
+                    "data_preferencial": data_slot_iso in datas_preferenciais_set,
+                }
 
     if melhor_item is None or melhor_tempo is None:
         mensagem_base = "Nao encontramos agenda proxima para sugestao automatica dentro da janela configurada."
@@ -2390,14 +2429,14 @@ def sugerir_agendamento_proximo(
     data_item = str(melhor_item.get("data") or data_iso)
     if int(melhor_item.get("clinica_id") or 0) == payload.clinica_id:
         mensagem = (
-            f"Ja temos um agendamento na mesma clinica na data {data_item} as {melhor_item['inicio']}. "
+            f"Encontramos um slot operacional na mesma clinica para {data_item} as {melhor_item['inicio']}. "
             "Sugira esse horario para o cliente e confirme a disponibilidade."
         )
     else:
         mensagem = (
-            f"Ja temos um agendamento na clinica {melhor_item['clinica']} "
+            f"Encontramos um slot operacional relacionado a ancora da clinica {melhor_item['clinica']} "
             f"na data {data_item} as {melhor_item['inicio']} "
-            f"(aprox. {melhor_tempo} min de deslocamento). "
+            f"(deslocamento total estimado: {melhor_tempo} min). "
             "Sugira esse horario para o cliente e confirme a disponibilidade."
         )
     if politica_oferta.get("distante_base") and politica_oferta.get("baixa_frequencia"):

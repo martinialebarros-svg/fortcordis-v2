@@ -1186,6 +1186,78 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_sugestao_proximidade_soma_deslocamento_anterior_e_proximo_do_slot(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(db, excecoes=[])
+            clinica_base, clinica_ancora = self._seed_clinicas(db)
+            ancora = self._criar_agendamento(
+                db,
+                clinica_id=clinica_ancora.id,
+                data="2099-05-25",
+                hora="10:00",
+                status="Agendado",
+            )
+
+            payload = agenda.SugestaoProximidadePayload(
+                clinica_id=clinica_base.id,
+                data="2099-05-25",
+                data_contato="2099-05-23",
+                perfil_deslocamento="comercial",
+                limite_minutos=60,
+                janela_dias_proximidade=2,
+                incluir_mesma_clinica=False,
+            )
+
+            def _mock_sugestoes_horario(
+                payload: agenda.SugestaoHorarioPayload,
+                db,
+                current_user,
+            ):
+                self.assertEqual(str(payload.data), "2099-05-25")
+                return {
+                    "ok": True,
+                    "items": [
+                        {
+                            "inicio": "2099-05-25 11:00",
+                            "fim": "2099-05-25 11:30",
+                            "tempo_deslocamento_total_min": 99,
+                            "anterior": {
+                                "agendamento_id": ancora.id,
+                                "duracao_deslocamento_min": 12,
+                                "fonte": "mock_prev",
+                            },
+                            "proximo": {
+                                "agendamento_id": 999999,
+                                "duracao_deslocamento_min": 8,
+                                "fonte": "mock_next",
+                            },
+                        }
+                    ],
+                }
+
+            with patch.object(agenda, "sugerir_horarios_agenda", side_effect=_mock_sugestoes_horario), patch.object(
+                agenda, "_obter_duracao_deslocamento_cacheado", return_value=(0, "sem_matriz")
+            ):
+                resposta = agenda.sugerir_agendamento_proximo(
+                    payload=payload,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertTrue(resposta["ok"])
+            self.assertTrue(resposta["sugerir"])
+            self.assertIsNotNone(resposta.get("item"))
+            self.assertEqual(str(resposta["item"]["inicio"]), "11:00")
+            self.assertEqual(int(resposta["item"]["duracao_deslocamento_min"]), 20)
+            self.assertEqual(int(resposta["item"]["tempo_deslocamento_total_min"]), 20)
+            self.assertEqual(int(resposta["item"]["duracao_deslocamento_anterior_min"]), 12)
+            self.assertEqual(int(resposta["item"]["duracao_deslocamento_proximo_min"]), 8)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()
