@@ -1842,6 +1842,14 @@ def sugerir_horarios_agenda(
         agendamentos_dia,
         cache_janelas={data_iso: (janela_inicio, janela_fim, None)},
     )
+    ancoras_mesma_clinica_inicio = sorted(
+        [
+            item["inicio"]
+            for item in agendamentos_dia
+            if int(item.get("clinica_id") or 0) == int(payload.clinica_id or 0)
+            and _status_conta_como_ancora(item.get("status"))
+        ]
+    )
     perfil_norm = normalizar_perfil(payload.perfil_deslocamento)
     intervalo_minutos = max(5, int(payload.intervalo_minutos))
     margem_segura_min = int(thresholds.get("safe_margin_min") or MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN)
@@ -1949,6 +1957,23 @@ def sugerir_horarios_agenda(
         margem_prev = (folga_prev - tempo_prev) if folga_prev is not None else None
         margem_next = (folga_next - tempo_next) if folga_next is not None else None
         ociosidade_min = max(0, margem_prev or 0) + max(0, margem_next or 0)
+
+        preferencia_ancora_ordem = 1
+        espera_ancora_min = 999999
+        if ancoras_mesma_clinica_inicio:
+            esperas_validas = []
+            for inicio_ancora in ancoras_mesma_clinica_inicio:
+                alvo_ancora = inicio_ancora + timedelta(minutes=60)
+                if inicio_candidato >= alvo_ancora:
+                    esperas_validas.append(_minutos_entre(alvo_ancora, inicio_candidato))
+            if esperas_validas:
+                preferencia_ancora_ordem = 0
+                espera_ancora_min = min(esperas_validas)
+            else:
+                # Quando existe ancora na mesma clinica, manter candidatos anteriores
+                # como fallback, mas abaixo das opcoes apos ancora+60.
+                preferencia_ancora_ordem = 2
+
         risco = 0
         if margem_prev is not None and margem_prev < margem_segura_min:
             risco += 1
@@ -1973,6 +1998,8 @@ def sugerir_horarios_agenda(
                 "fim": fim_candidato.strftime("%Y-%m-%d %H:%M"),
                 "score": score,
                 "risco": risco,
+                "preferencia_ancora_ordem": preferencia_ancora_ordem,
+                "espera_ancora_min": espera_ancora_min if preferencia_ancora_ordem == 0 else None,
                 "fim_rota": bool(fim_rota),
                 "tempo_ate_base_min": tempo_ate_base_min,
                 "ajuste_base_score": ajuste_base_score,
@@ -2011,7 +2038,19 @@ def sugerir_horarios_agenda(
 
         inicio_candidato += timedelta(minutes=intervalo_minutos)
 
-    sugestoes.sort(key=lambda item: (item["score"], item["risco"], item["inicio"]))
+    sugestoes.sort(
+        key=lambda item: (
+            int(item.get("preferencia_ancora_ordem", 1)),
+            (
+                int(item.get("espera_ancora_min"))
+                if item.get("espera_ancora_min") is not None
+                else 999999
+            ),
+            item["score"],
+            item["risco"],
+            item["inicio"],
+        )
+    )
     limite = max(1, min(50, int(payload.limite)))
     top_items = sugestoes[:limite]
     motivo_sem_item = None

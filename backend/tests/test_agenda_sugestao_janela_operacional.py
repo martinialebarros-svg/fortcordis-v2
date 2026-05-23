@@ -212,6 +212,45 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_sugestoes_horario_priorizam_slot_apos_ancora_mesma_clinica_mais_60min(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(db, excecoes=[])
+            clinica_base, _ = self._seed_clinicas(db)
+            self._criar_agendamento(
+                db,
+                clinica_id=clinica_base.id,
+                data="2099-05-25",
+                hora="10:00",
+                status="Agendado",
+            )
+
+            payload = agenda.SugestaoHorarioPayload(
+                data="2099-05-25",
+                clinica_id=clinica_base.id,
+                duracao_minutos=30,
+                intervalo_minutos=30,
+                limite=8,
+                perfil_deslocamento="comercial",
+            )
+
+            with patch.object(agenda, "_obter_duracao_deslocamento_cacheado", return_value=(0, "mesma_clinica")):
+                resposta = agenda.sugerir_horarios_agenda(
+                    payload=payload,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertTrue(resposta["ok"])
+            self.assertGreater(len(resposta["items"]), 0)
+            primeiro = resposta["items"][0]
+            self.assertEqual(str(primeiro.get("inicio") or ""), "2099-05-25 11:00")
+            self.assertEqual(int(primeiro.get("preferencia_ancora_ordem", 99)), 0)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_sugestoes_horario_bloqueiam_data_passada(self) -> None:
         class DateTimeFixa(datetime):
             @classmethod

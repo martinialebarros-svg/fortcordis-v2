@@ -26,6 +26,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - RF-014: a acao de recusa total (`sem_opcao`) so pode ser habilitada apos consulta/visualizacao das ofertas panoramicas.
 - RF-015: o assistente nao deve sugerir horarios para datas passadas; ao receber data anterior a hoje, deve retornar resposta orientativa sem itens.
 - RF-016: para clinica proxima da base, quando nao houver ancora em D+2 e D+3, o assistente deve priorizar D0 se houver ancora em D0 ou se D0 estiver sem agendamentos.
+- RF-017: quando houver ancora na mesma clinica na data alvo, a sugestao operacional deve priorizar o slot livre mais proximo apos `ancora + 60min`, sem conflitar com outros atendimentos.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -70,6 +71,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - CA-012: botao `Nenhuma oferta atende...` deve aparecer apenas quando houver panorama consultado e decisao ainda pendente.
 - CA-013: para data passada, endpoints de sugestao nao retornam oferta e respondem com mensagem explicita para selecionar hoje ou data futura.
 - CA-014: com clinica proxima da base e sem ancora D+2/D+3, `dias_preferenciais` deve ser `[0]` quando D0 tiver ancora ou estiver vazio.
+- CA-015: com ancora na mesma clinica as 10:00 e slots livres apos esse horario, a primeira sugestao operacional deve iniciar em 11:00 (ou no primeiro slot livre posterior a 11:00 se houver conflito).
 
 ## 7) Casos de borda
 
@@ -77,6 +79,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - CB-002: sem sugestao retornada pela API -> liberar fluxo manual somente com motivo.
 - CB-003: sugestao de proximidade aplicada automaticamente sem ofertas validas deve cair em `sem_opcao` com orientacao de motivo/excecao.
 - CB-004: quando existir ancora em D+2 ou D+3 para clinica proxima da base, a regra de prioridade D0 nao deve ser aplicada.
+- CB-005: quando o fluxo de proximidade buscar slots operacionais relacionados a ancora, a selecao automatica deve respeitar a ordenacao do backend para nao antecipar slot antes de `ancora + 60`.
 
 ## 8) Fora de escopo
 

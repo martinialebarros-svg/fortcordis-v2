@@ -22,6 +22,7 @@ Status: done
 | CA-012 | aceitacao | botao `Nenhuma oferta atende...` condicionado a `ofertasPanoramicasConsultadas` e `decisaoAssistente === "pendente"` | ok |
 | CA-013 | aceitacao | `agenda.py` retorna vazio para data passada em `sugestoes-horario` e `sugestao-proximidade` | ok |
 | CA-014 | aceitacao | `_classificar_politica_oferta` prioriza D0 para clinica proxima da base sem ancora D+2/D+3, com cobertura de cenarios positivo/negativo | ok |
+| CA-015 | aceitacao | `sugerir_horarios_agenda` prioriza slot apos `ancora + 60min` na mesma clinica e frontend respeita ordem backend no fluxo de proximidade | ok |
 | NFR-002 | nao funcional | decisao anexada em `observacoesFinal` no submit | ok |
 
 ## 2) Testes automatizados executados
@@ -39,7 +40,7 @@ gh run view 26316967933 --json jobs --jq '.jobs[] | {name, conclusion}'
 Resumo dos resultados:
 - ESLint: ok.
 - PyCompile backend: ok.
-- Pytest `test_agenda_sugestao_janela_operacional.py`: `17 passed`.
+- Pytest `test_agenda_sugestao_janela_operacional.py`: `18 passed`.
 - CI `Deploy to Stage (VPS)` run `26316967933`: `quality-gate=success`, `sdd-guardrail=failure` (falta de docs neste commit), sem falha funcional de codigo.
 
 ## 3) Testes manuais sugeridos (stage)
@@ -57,6 +58,7 @@ Resumo dos resultados:
 - Cenario 11: clinica proxima da base, sem ancoras em D+2/D+3, com ancora em D0 => prioridade D0.
 - Cenario 12: clinica proxima da base, D0 vazio e sem ancoras em D+2/D+3 => prioridade D0.
 - Cenario 13: clinica proxima da base com ancora em D+2 ou D+3 => nao priorizar D0.
+- Cenario 14: mesma clinica com ancora as 10:00 e slots livres apos esse horario -> primeira oferta operacional em 11:00.
 
 ## 4) Regressao e riscos residuais
 
