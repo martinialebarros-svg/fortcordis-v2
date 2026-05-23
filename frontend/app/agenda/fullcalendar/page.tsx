@@ -2562,6 +2562,7 @@ export default function AgendaFullCalendarPage() {
             agendaSemanal={agendaSemanal}
             agendaFeriados={agendaFeriados}
             agendaExcecoes={agendaExcecoes}
+            isAdmin={isAdmin}
           />
         ) : null}
       </div>

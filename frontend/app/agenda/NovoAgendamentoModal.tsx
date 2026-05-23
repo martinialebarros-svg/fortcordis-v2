@@ -31,6 +31,7 @@ interface NovoAgendamentoModalProps {
   agendaSemanal: AgendaSemanalConfig;
   agendaFeriados: AgendaFeriadoConfig[];
   agendaExcecoes: AgendaExcecaoConfig[];
+  isAdmin?: boolean;
 }
 
 interface SugestaoHorarioVizinho {
@@ -72,7 +73,7 @@ interface SugestoesHorarioResponse {
 type AssistenteDecisao = "pendente" | "aceito" | "sem_opcao";
 
 type EtapaWizardNovo = {
-  id: "preparo" | "oferta_1" | "oferta_2" | "desfecho";
+  id: "preparo" | "ofertas" | "desfecho";
   titulo: string;
   descricao: string;
 };
@@ -84,38 +85,28 @@ const ETAPAS_WIZARD_NOVO: EtapaWizardNovo[] = [
     descricao: "Selecionar clinica, servico e data.",
   },
   {
-    id: "oferta_1",
-    titulo: "Oferta 1",
-    descricao: "Assistente gera a melhor oferta inicial.",
-  },
-  {
-    id: "oferta_2",
-    titulo: "Oferta 2",
-    descricao: "Gerar alternativa quando o cliente recusar.",
+    id: "ofertas",
+    titulo: "Panorama de ofertas",
+    descricao: "Visualizar todas as opcoes sugeridas pelo assistente.",
   },
   {
     id: "desfecho",
     titulo: "Desfecho",
-    descricao: "Aceite registrado ou justificativa para fluxo manual.",
+    descricao: "Registrar aceite ou recusa com justificativa para fluxo de excecao.",
   },
 ];
 
 const resolverIndiceEtapaWizardNovo = (
   prontoParaSugerir: boolean,
-  decisao: AssistenteDecisao,
-  totalSugestoes: number,
-  indiceSugestaoAtual: number
+  decisao: AssistenteDecisao
 ): number => {
   if (decisao === "aceito" || decisao === "sem_opcao") {
-    return 3;
+    return 2;
   }
   if (!prontoParaSugerir) {
     return 0;
   }
-  if (totalSugestoes <= 0 || indiceSugestaoAtual <= 0) {
-    return 1;
-  }
-  return 2;
+  return 1;
 };
 
 interface ConflitoDeslocamentoDetail {
@@ -510,6 +501,7 @@ export default function NovoAgendamentoModal({
   agendaSemanal,
   agendaFeriados,
   agendaExcecoes,
+  isAdmin = false,
 }: NovoAgendamentoModalProps) {
   const fortinho = useFortinho();
   const [loading, setLoading] = useState(false);
@@ -522,11 +514,14 @@ export default function NovoAgendamentoModal({
   const [erroCarregamento, setErroCarregamento] = useState<string>("");
   const [carregandoSugestoes, setCarregandoSugestoes] = useState(false);
   const [sugestoesHorario, setSugestoesHorario] = useState<SugestaoHorarioItem[]>([]);
+  const [ofertasPanoramicasConsultadas, setOfertasPanoramicasConsultadas] = useState(false);
   const [erroSugestoes, setErroSugestoes] = useState<string>("");
   const [mensagemSugestoes, setMensagemSugestoes] = useState<string>("");
   const [indiceSugestaoAtual, setIndiceSugestaoAtual] = useState(0);
   const [decisaoAssistente, setDecisaoAssistente] = useState<AssistenteDecisao>("pendente");
   const [motivoSemOpcao, setMotivoSemOpcao] = useState("");
+  const [excecaoConcedida, setExcecaoConcedida] = useState(false);
+  const [registrandoEncerramento, setRegistrandoEncerramento] = useState(false);
   const [itensIgnoradosJanela, setItensIgnoradosJanela] = useState(0);
   const [mensagemProximidade, setMensagemProximidade] = useState<string>("");
   const [sugestaoProximidade, setSugestaoProximidade] = useState<SugestaoProximidadeResponse | null>(null);
@@ -667,9 +662,12 @@ export default function NovoAgendamentoModal({
     setDataContatoAssistente((atual) => atual || hojeLocalIso());
     setTutorSelecionado("");
     setSugestoesHorario([]);
+    setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
     setDecisaoAssistente("pendente");
     setMotivoSemOpcao("");
+    setExcecaoConcedida(false);
+    setRegistrandoEncerramento(false);
     setItensIgnoradosJanela(0);
     setErroSugestoes("");
     setMensagemSugestoes("");
@@ -716,9 +714,12 @@ export default function NovoAgendamentoModal({
 
     setTutorSelecionado(pacienteSelecionado?.tutor || "");
     setSugestoesHorario([]);
+    setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
     setDecisaoAssistente("pendente");
     setMotivoSemOpcao("");
+    setExcecaoConcedida(false);
+    setRegistrandoEncerramento(false);
     setItensIgnoradosJanela(0);
     setErroSugestoes("");
     setMensagemSugestoes("");
@@ -743,9 +744,12 @@ export default function NovoAgendamentoModal({
     setFormData(buildInitialFormData(defaultDate, defaultTime));
     setTutorSelecionado("");
     setSugestoesHorario([]);
+    setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
     setDecisaoAssistente("pendente");
     setMotivoSemOpcao("");
+    setExcecaoConcedida(false);
+    setRegistrandoEncerramento(false);
     setItensIgnoradosJanela(0);
     setErroSugestoes("");
     setMensagemSugestoes("");
@@ -831,9 +835,11 @@ export default function NovoAgendamentoModal({
 
   const resetFluxoAssistente = (preservarMensagemProximidade = true) => {
     setSugestoesHorario([]);
+    setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
     setDecisaoAssistente("pendente");
     setMotivoSemOpcao("");
+    setExcecaoConcedida(false);
     setItensIgnoradosJanela(0);
     setErroSugestoes("");
     setMensagemSugestoes("");
@@ -995,32 +1001,26 @@ export default function NovoAgendamentoModal({
           const { items, itensIgnorados } = await buscarSugestoesOperacionais(dataSugerida, clinicaIdNum);
           setItensIgnoradosJanela(itensIgnorados);
           setSugestoesHorario(items);
+          setOfertasPanoramicasConsultadas(true);
           setIndiceSugestaoAtual(0);
+          setMotivoSemOpcao("");
+          setExcecaoConcedida(false);
+          if (items.length === 0) {
+            setDecisaoAssistente("sem_opcao");
+            setMensagemSugestoes(
+              isAdmin
+                ? "Sem ofertas aderentes para a data sugerida por proximidade. Registre o motivo e, se necessario, conceda excecao."
+                : "Sem ofertas aderentes para a data sugerida por proximidade. Registre o motivo e solicite excecao ao administrador."
+            );
+            return;
+          }
           setDecisaoAssistente("pendente");
 
           const candidatosRelacionados = items.filter(
             (cand) => Number(cand?.anterior?.agendamento_id || 0) === Number(item?.agendamento_id || 0)
           );
 
-          const ordenarPorMenorOciosidade = (a: SugestaoHorarioItem, b: SugestaoHorarioItem): number => {
-            const margemA = Number(a?.anterior?.margem_min);
-            const margemB = Number(b?.anterior?.margem_min);
-            const ociosidadeA = Number.isFinite(margemA) ? Math.max(0, margemA) : Number.POSITIVE_INFINITY;
-            const ociosidadeB = Number.isFinite(margemB) ? Math.max(0, margemB) : Number.POSITIVE_INFINITY;
-            if (ociosidadeA !== ociosidadeB) {
-              return ociosidadeA - ociosidadeB;
-            }
-
-            const inicioA = parseApiDateTime(String(a?.inicio || ""));
-            const inicioB = parseApiDateTime(String(b?.inicio || ""));
-            const tsA = inicioA ? inicioA.getTime() : Number.POSITIVE_INFINITY;
-            const tsB = inicioB ? inicioB.getTime() : Number.POSITIVE_INFINITY;
-            return tsA - tsB;
-          };
-
-          const origemBusca = (candidatosRelacionados.length > 0 ? candidatosRelacionados : items)
-            .slice()
-            .sort(ordenarPorMenorOciosidade);
+          const origemBusca = (candidatosRelacionados.length > 0 ? candidatosRelacionados : items).slice();
 
           const itemAlternativo = origemBusca.find((cand) => {
             const [dataCand, horaCand] = String(cand?.inicio || "").split(" ");
@@ -1037,7 +1037,9 @@ export default function NovoAgendamentoModal({
                 hora: horaAplicacao,
               }));
               setErroSugestoes("");
-              setMensagemSugestoes(`Horario operacional aplicado automaticamente: ${horaAplicacao}.`);
+              setMensagemSugestoes(
+                `Horario operacional aplicado automaticamente: ${horaAplicacao}. Revise o panorama de ofertas antes de registrar aceite ou recusa.`
+              );
               return;
             }
           }
@@ -1050,7 +1052,7 @@ export default function NovoAgendamentoModal({
           setErroSugestoes("");
           setMensagemSugestoes(
             items.length > 0
-              ? "Data de proximidade aplicada. Escolha um horario operacional na lista de sugestoes."
+              ? "Data de proximidade aplicada. Revise o panorama completo de ofertas e registre aceite ou recusa."
               : "Data de proximidade aplicada. Clique em Sugerir horarios para encontrar um horario operacional."
           );
         } catch {
@@ -1208,49 +1210,97 @@ export default function NovoAgendamentoModal({
     setErroSugestoes("");
   };
 
-  const confirmarAceiteSugestaoAtual = () => {
-    const sugestaoAtual = sugestoesHorario[indiceSugestaoAtual];
-    if (!sugestaoAtual) {
-      setErroSugestoes("Nao ha sugestao ativa para confirmar.");
-      return;
-    }
-    aplicarSugestaoHorario(sugestaoAtual);
+  const confirmarAceiteSugestao = (item: SugestaoHorarioItem, indice: number) => {
+    setIndiceSugestaoAtual(indice);
+    aplicarSugestaoHorario(item);
     setDecisaoAssistente("aceito");
     setMotivoSemOpcao("");
+    setExcecaoConcedida(false);
     setErroSugestoes("");
     setMensagemSugestoes("Cliente aceitou o horario sugerido pelo assistente.");
   };
 
-  const solicitarProximaSugestao = () => {
-    if (sugestoesHorario.length === 0) {
-      setDecisaoAssistente("sem_opcao");
-      setMensagemSugestoes(
-        "Nao ha sugestoes automaticas para este caso. Registre o motivo e siga com opcao manual se necessario."
-      );
+  const liberarFluxoManual = () => {
+    if (!ofertasPanoramicasConsultadas) {
+      setErroSugestoes("Gere e visualize as ofertas do assistente antes de registrar recusa.");
       return;
     }
-    const proximoIndice = indiceSugestaoAtual + 1;
-    if (proximoIndice >= sugestoesHorario.length) {
-      setDecisaoAssistente("sem_opcao");
-      setMensagemSugestoes(
-        "Nao encontramos outra opcao dentro das regras atuais. Registre o motivo para seguir manualmente."
-      );
-      return;
-    }
-    setIndiceSugestaoAtual(proximoIndice);
-    setDecisaoAssistente("pendente");
-    setMotivoSemOpcao("");
+    setDecisaoAssistente("sem_opcao");
+    setExcecaoConcedida(false);
     setErroSugestoes("");
     setMensagemSugestoes(
-      `Oferta alternativa ${proximoIndice + 1} de ${sugestoesHorario.length}.`
+      isAdmin
+        ? "Nenhuma oferta panoramica atendeu. Registre o motivo e conceda excecao para liberar data/hora manual."
+        : "Nenhuma oferta panoramica atendeu. Registre o motivo e solicite excecao ao administrador."
     );
   };
 
-  const liberarFluxoManual = () => {
-    setDecisaoAssistente("sem_opcao");
-    setErroSugestoes("");
+  const registrarDesfechoSemAgendamento = async (
+    tipo: "solicitacao_excecao" | "encerramento_sem_agendamento"
+  ) => {
+    const motivo = String(motivoSemOpcao || "").trim();
+    if (!motivo) {
+      setErroSugestoes("Registre o motivo antes de concluir sem agendamento.");
+      return;
+    }
+
+    try {
+      setRegistrandoEncerramento(true);
+      const clinicaId = Number.parseInt(formData.clinica_id || "", 10);
+      const servicoId = Number.parseInt(formData.servico_id || "", 10);
+      await api.post("/agenda/assistente/encerramento", {
+        tipo,
+        motivo,
+        clinica_id: Number.isFinite(clinicaId) ? clinicaId : null,
+        servico_id: Number.isFinite(servicoId) ? servicoId : null,
+        data_referencia: String(formData.data || "").trim() || null,
+        data_contato: String(dataContatoAssistente || "").trim() || null,
+        contexto: {
+          total_sugestoes: totalSugestoes,
+          indice_sugestao_atual: indiceSugestaoAtual + 1,
+          decisao_assistente: decisaoAssistente,
+          perfil: isAdmin ? "admin" : "nao_admin",
+        },
+      });
+
+      fortinho.notify({
+        title: tipo === "solicitacao_excecao" ? "Solicitacao registrada" : "Encerramento registrado",
+        message:
+          tipo === "solicitacao_excecao"
+            ? "Solicitacao de excecao enviada para administracao. Atendimento encerrado sem agendamento."
+            : "Atendimento encerrado sem agendamento com motivo registrado.",
+        mood: "happy",
+        gesture: "wave",
+      });
+      onClose();
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail ?? error?.message;
+      setErroSugestoes(extrairMensagemErro(detail, "Nao foi possivel registrar este desfecho agora."));
+    } finally {
+      setRegistrandoEncerramento(false);
+    }
+  };
+
+  const concederExcecaoAdmin = () => {
+    if (!isAdmin) {
+      setErroSugestoes("Apenas administradores podem conceder excecao de horario.");
+      return;
+    }
+    if (!(motivoSemOpcao || "").trim()) {
+      setErroSugestoes("Registre o motivo antes de conceder excecao.");
+      return;
+    }
+    setExcecaoConcedida(true);
     setMensagemSugestoes(
-      "Fluxo manual liberado. Registre o motivo e ajuste data/hora conforme necessidade do cliente."
+      "Excecao concedida por admin. Ajuste data/hora manualmente e conclua o agendamento."
+    );
+    setErroSugestoes("");
+  };
+
+  const revogarExcecaoAdmin = () => {
+    setExcecaoConcedida(false);
+    setMensagemSugestoes(
+      "Excecao revogada. O fluxo voltou para bloqueio de data/hora manual."
     );
   };
 
@@ -1263,6 +1313,7 @@ export default function NovoAgendamentoModal({
     setMensagemSugestoes("");
     setErroSugestoes("");
     setSugestoesHorario([]);
+    setOfertasPanoramicasConsultadas(false);
 
     const clinicaId = Number.parseInt(formData.clinica_id || "", 10);
     if (!Number.isFinite(clinicaId)) {
@@ -1322,6 +1373,7 @@ export default function NovoAgendamentoModal({
       const { items, motivo, itensIgnorados } = await buscarSugestoesOperacionais(dataBaseBusca, clinicaId);
       setItensIgnoradosJanela(itensIgnorados);
       setSugestoesHorario(items);
+      setOfertasPanoramicasConsultadas(true);
       setIndiceSugestaoAtual(0);
       setDecisaoAssistente("pendente");
       setMotivoSemOpcao("");
@@ -1553,6 +1605,14 @@ export default function NovoAgendamentoModal({
         if (decisaoAssistente === "sem_opcao" && !(motivoSemOpcao || "").trim()) {
           throw new Error("Descreva o motivo da recusa das sugestoes para seguir com horario manual.");
         }
+        if (decisaoAssistente === "sem_opcao" && (!isAdmin || !excecaoConcedida)) {
+          if (isAdmin) {
+            throw new Error("Conceda excecao de horario ou encerre sem agendamento antes de salvar.");
+          }
+          throw new Error(
+            "Seu perfil nao pode liberar horario manual. Solicite excecao ao administrador ou encerre sem agendamento."
+          );
+        }
       }
 
       const inicio = new Date(`${formData.data}T${formData.hora}:00`);
@@ -1626,6 +1686,9 @@ export default function NovoAgendamentoModal({
           observacoesAssistente.push(
             `[Assistente agenda] motivo informado: ${String(motivoSemOpcao || "").trim()}`
           );
+          if (isAdmin && excecaoConcedida) {
+            observacoesAssistente.push("[Assistente agenda] excecao manual concedida por admin.");
+          }
         }
       }
       const observacoesFinal = [observacoesOriginais, ...observacoesAssistente]
@@ -1670,9 +1733,12 @@ export default function NovoAgendamentoModal({
       setFormData(buildInitialFormData(defaultDate, defaultTime));
       setTutorSelecionado("");
       setSugestoesHorario([]);
+      setOfertasPanoramicasConsultadas(false);
       setIndiceSugestaoAtual(0);
       setDecisaoAssistente("pendente");
       setMotivoSemOpcao("");
+      setExcecaoConcedida(false);
+      setRegistrandoEncerramento(false);
       setItensIgnoradosJanela(0);
       setErroSugestoes("");
       setMensagemSugestoes("");
@@ -1695,23 +1761,22 @@ export default function NovoAgendamentoModal({
 
   const clinicaInformada = Boolean(formData.clinica_id) || Boolean((formData.clinica_nova_nome || "").trim());
   const assistenteProntoParaSugerir = clinicaInformada && Boolean(formData.servico_id) && Boolean(formData.data);
-  const sugestaoAtual = sugestoesHorario[indiceSugestaoAtual] || null;
   const totalSugestoes = sugestoesHorario.length;
   const indiceEtapaWizardNovo = resolverIndiceEtapaWizardNovo(
     assistenteProntoParaSugerir,
-    decisaoAssistente,
-    totalSugestoes,
-    indiceSugestaoAtual
+    decisaoAssistente
   );
   const etapaWizardAtual = !isEditando ? ETAPAS_WIZARD_NOVO[indiceEtapaWizardNovo] : null;
-  const bloqueioManualAssistenteAtivo = !isEditando && decisaoAssistente !== "sem_opcao";
+  const excecaoManualLiberada = !isEditando && decisaoAssistente === "sem_opcao" && isAdmin && excecaoConcedida;
+  const bloqueioManualAssistenteAtivo = !isEditando && !excecaoManualLiberada;
   const bloquearDataManual = bloqueioManualAssistenteAtivo && assistenteProntoParaSugerir;
   const bloquearHoraManual = bloqueioManualAssistenteAtivo;
+  const semOpcaoSemExcecao = !isEditando && decisaoAssistente === "sem_opcao" && !excecaoManualLiberada;
   const bloquearSalvarNovo =
     !isEditando &&
     (
       decisaoAssistente === "pendente" ||
-      (decisaoAssistente === "sem_opcao" && !(motivoSemOpcao || "").trim())
+      (decisaoAssistente === "sem_opcao" && (!(motivoSemOpcao || "").trim() || semOpcaoSemExcecao))
     );
 
   if (!isOpen) return null;
@@ -1818,6 +1883,11 @@ export default function NovoAgendamentoModal({
             {mensagemProximidade && (
               <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
                 <strong>Assistente inteligente:</strong> {mensagemProximidade}
+                {!isEditando && (
+                  <div className="mt-1 text-xs text-amber-900">
+                    Proximo passo: gerar melhor oferta para visualizar o panorama completo antes de confirmar com o cliente.
+                  </div>
+                )}
               </div>
             )}
 
@@ -1915,8 +1985,22 @@ export default function NovoAgendamentoModal({
           </div>
           {!isEditando && bloqueioManualAssistenteAtivo && (
             <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-              Data/hora manuais ficam bloqueadas enquanto o assistente guiado estiver ativo. Se nenhuma oferta atender,
-              marque a recusa para liberar ajuste manual.
+              {decisaoAssistente !== "sem_opcao" && (
+                <span>
+                  Data/hora manuais ficam bloqueadas enquanto o assistente guiado estiver ativo. Se nenhuma oferta atender,
+                  marque a recusa para seguir o fluxo de excecao.
+                </span>
+              )}
+              {decisaoAssistente === "sem_opcao" && isAdmin && !excecaoConcedida && (
+                <span>
+                  Como admin, registre o motivo e clique em <strong>Conceder excecao</strong> para liberar ajuste manual.
+                </span>
+              )}
+              {decisaoAssistente === "sem_opcao" && !isAdmin && (
+                <span>
+                  Seu perfil nao pode liberar horario manual. Registre o motivo e solicite excecao ao administrador.
+                </span>
+              )}
             </div>
           )}
 
@@ -1945,7 +2029,7 @@ export default function NovoAgendamentoModal({
             {!isEditando && etapaWizardAtual && (
               <div className="rounded-md border border-blue-200 bg-white px-2 py-2 space-y-2">
                 <div className="text-xs font-semibold text-blue-900">
-                  Etapa atual: {indiceEtapaWizardNovo + 1}/4 - {etapaWizardAtual.titulo}
+                  Etapa atual: {indiceEtapaWizardNovo + 1}/{ETAPAS_WIZARD_NOVO.length} - {etapaWizardAtual.titulo}
                 </div>
                 <div className="text-[11px] text-blue-700">
                   {etapaWizardAtual.descricao}
@@ -2005,38 +2089,50 @@ export default function NovoAgendamentoModal({
               </div>
             )}
 
-            {!isEditando && sugestaoAtual && (
+            {!isEditando && totalSugestoes > 0 && (
               <div className="rounded-md border border-blue-300 bg-white px-3 py-3 space-y-2">
                 <div className="text-xs font-semibold text-blue-900">
-                  Oferta atual {indiceSugestaoAtual + 1} de {totalSugestoes}
+                  Panorama de ofertas: {totalSugestoes} opcao(oes) sugerida(s)
                 </div>
-                <div className="text-sm font-medium text-gray-900">
-                  {toBrDate(String(sugestaoAtual.inicio || "").split(" ")[0])} - {extrairHoraDataHora(sugestaoAtual.inicio)} a{" "}
-                  {extrairHoraDataHora(sugestaoAtual.fim)}
-                </div>
-                <div className="text-xs text-gray-600">
-                  Deslocamento total: {sugestaoAtual.tempo_deslocamento_total_min} min | Risco: {sugestaoAtual.risco}
-                </div>
-                <div className="text-xs text-gray-500">
-                  {resumirDeslocamentoSugestao(sugestaoAtual)}
-                </div>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={confirmarAceiteSugestaoAtual}
-                    className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs hover:bg-emerald-700"
-                  >
-                    Cliente aceitou este horario
-                  </button>
-                  <button
-                    type="button"
-                    onClick={solicitarProximaSugestao}
-                    className="px-3 py-1.5 rounded-md bg-amber-500 text-white text-xs hover:bg-amber-600"
-                  >
-                    Horario nao atende necessidade do cliente
-                  </button>
+                <div className="space-y-2">
+                  {sugestoesHorario.map((item, idx) => (
+                    <div
+                      key={`${item.inicio}-${idx}`}
+                      className="rounded-md border border-blue-100 bg-blue-50/30 px-2 py-2"
+                    >
+                      <div className="text-sm font-medium text-gray-900">
+                        Oferta {idx + 1}: {toBrDate(String(item.inicio || "").split(" ")[0])} - {extrairHoraDataHora(item.inicio)} a{" "}
+                        {extrairHoraDataHora(item.fim)}
+                      </div>
+                      <div className="text-xs text-gray-600">
+                        Deslocamento total: {item.tempo_deslocamento_total_min} min | Risco: {item.risco}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {resumirDeslocamentoSugestao(item)}
+                      </div>
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={() => confirmarAceiteSugestao(item, idx)}
+                          className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs hover:bg-emerald-700"
+                        >
+                          Cliente aceitou esta oferta
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
+            )}
+
+            {!isEditando && assistenteProntoParaSugerir && ofertasPanoramicasConsultadas && totalSugestoes > 0 && decisaoAssistente === "pendente" && (
+              <button
+                type="button"
+                onClick={liberarFluxoManual}
+                className="px-3 py-1.5 rounded-md border border-amber-300 text-amber-700 text-xs hover:bg-amber-50"
+              >
+                Nenhuma oferta atende a necessidade do cliente (recusar todas)
+              </button>
             )}
 
             {!isEditando && decisaoAssistente === "aceito" && (
@@ -2048,7 +2144,7 @@ export default function NovoAgendamentoModal({
             {!isEditando && decisaoAssistente === "sem_opcao" && (
               <div className="rounded-md border border-amber-300 bg-white px-3 py-2 space-y-2">
                 <div className="text-xs font-medium text-amber-800">
-                  Nenhuma oferta automatica atendeu. Registre o motivo para liberar horario manual.
+                  Nenhuma oferta panoramica atendeu. Registre o motivo para concluir o desfecho.
                 </div>
                 <textarea
                   rows={2}
@@ -2057,17 +2153,56 @@ export default function NovoAgendamentoModal({
                   placeholder="Ex.: cliente so pode no turno da manha por urgencia clinica."
                   className="w-full px-2 py-1 border border-amber-200 rounded-md text-xs focus:ring-2 focus:ring-amber-500"
                 />
+                <div className="flex flex-wrap gap-2">
+                  {isAdmin ? (
+                    <>
+                      {!excecaoConcedida ? (
+                        <button
+                          type="button"
+                          onClick={concederExcecaoAdmin}
+                          disabled={registrandoEncerramento}
+                          className="px-3 py-1.5 rounded-md bg-amber-600 text-white text-xs hover:bg-amber-700 disabled:opacity-60"
+                        >
+                          Conceder excecao e liberar horario manual
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={revogarExcecaoAdmin}
+                          disabled={registrandoEncerramento}
+                          className="px-3 py-1.5 rounded-md border border-amber-300 text-amber-700 text-xs hover:bg-amber-50 disabled:opacity-60"
+                        >
+                          Revogar excecao
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void registrarDesfechoSemAgendamento("solicitacao_excecao")}
+                      disabled={registrandoEncerramento}
+                      className="px-3 py-1.5 rounded-md bg-amber-600 text-white text-xs hover:bg-amber-700 disabled:opacity-60"
+                    >
+                      {registrandoEncerramento
+                        ? "Registrando..."
+                        : "Solicitar excecao ao admin e encerrar"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void registrarDesfechoSemAgendamento("encerramento_sem_agendamento")}
+                    disabled={registrandoEncerramento}
+                    className="px-3 py-1.5 rounded-md border border-gray-300 text-gray-700 text-xs hover:bg-gray-50 disabled:opacity-60"
+                  >
+                    Encerrar sem agendamento
+                  </button>
+                </div>
+                {isAdmin && excecaoConcedida && (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
+                    Excecao concedida por admin. Data/hora manual liberadas para concluir o agendamento.
+                  </div>
+                )}
               </div>
-            )}
-
-            {!isEditando && assistenteProntoParaSugerir && totalSugestoes === 0 && decisaoAssistente === "pendente" && (
-              <button
-                type="button"
-                onClick={liberarFluxoManual}
-                className="px-3 py-1.5 rounded-md border border-amber-300 text-amber-700 text-xs hover:bg-amber-50"
-              >
-                Cliente nao aceitou sugestao automatica (seguir manualmente)
-              </button>
             )}
 
             {isEditando && sugestoesHorario.length > 0 && (
@@ -2138,7 +2273,7 @@ export default function NovoAgendamentoModal({
             </button>
             <button
               type="submit"
-              disabled={loading || bloquearSalvarNovo}
+              disabled={loading || bloquearSalvarNovo || registrandoEncerramento}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
             >
               {loading 

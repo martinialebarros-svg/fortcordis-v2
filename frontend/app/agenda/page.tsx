@@ -2431,6 +2431,7 @@ export default function AgendaPage() {
           agendaSemanal={agendaSemanal}
           agendaFeriados={agendaFeriados}
           agendaExcecoes={agendaExcecoes}
+          isAdmin={isAdmin}
         />
       </div>
     </DashboardLayout>
