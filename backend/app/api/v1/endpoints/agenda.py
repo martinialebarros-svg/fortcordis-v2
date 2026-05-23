@@ -63,6 +63,16 @@ AGENDA_STATUS_NAO_ANCORA = {"Cancelado", "Faltou"}
 MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN = 5
 
 
+def _usuario_tem_papel(usuario: Any, papel: str) -> bool:
+    metodo = getattr(usuario, "tem_papel", None)
+    if callable(metodo):
+        try:
+            return bool(metodo(papel))
+        except Exception:
+            return False
+    return False
+
+
 class SugestaoHorarioPayload(BaseModel):
     data: str = Field(..., description="Data no formato YYYY-MM-DD")
     clinica_id: int = Field(..., ge=1)
@@ -774,6 +784,7 @@ def _validar_deslocamento_agendamento(
     *,
     agendamento_id_excluir: Optional[int] = None,
     perfil_deslocamento: str = "comercial",
+    confirmar_conflito_deslocamento: bool = False,
 ) -> None:
     status_atual = (str(agendamento.status or "").strip() or "Agendado")
     if status_atual == "Cancelado":
@@ -842,6 +853,8 @@ def _validar_deslocamento_agendamento(
             folga_prev = _minutos_entre(anterior["fim"], inicio_dt)
             clinica_anterior_nome = anterior.get("clinica_nome") or _nome_clinica_por_id(db, anterior.get("clinica_id"))
             if duracao_prev > 0 and folga_prev < duracao_prev:
+                if confirmar_conflito_deslocamento:
+                    return
                 raise HTTPException(
                     status_code=409,
                     detail={
@@ -875,6 +888,8 @@ def _validar_deslocamento_agendamento(
             folga_next = _minutos_entre(fim_dt, proximo["inicio"])
             clinica_proxima_nome = proximo.get("clinica_nome") or _nome_clinica_por_id(db, proximo.get("clinica_id"))
             if duracao_next > 0 and folga_next < duracao_next:
+                if confirmar_conflito_deslocamento:
+                    return
                 raise HTTPException(
                     status_code=409,
                     detail={
@@ -916,6 +931,8 @@ def _validar_deslocamento_agendamento(
             duracao_via_novo = int(duracao_prev + duracao_next)
             desvio_insercao = max(0, int(duracao_via_novo - duracao_direta))
             if desvio_insercao > limite_desvio_insercao:
+                if confirmar_conflito_deslocamento:
+                    return
                 origem = clinica_anterior_nome or _nome_clinica_por_id(db, anterior.get("clinica_id"))
                 destino = clinica_proxima_nome or _nome_clinica_por_id(db, proximo.get("clinica_id"))
                 raise HTTPException(
@@ -2573,6 +2590,13 @@ def criar_agendamento(
     current_user: User = Depends(get_current_user)
 ):
     """Cria novo agendamento"""
+    override_conflito_deslocamento = bool(agendamento.confirmar_conflito_deslocamento)
+    if override_conflito_deslocamento and not _usuario_tem_papel(current_user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Somente administradores podem confirmar excecao de conflito operacional.",
+        )
+
     now = datetime.now()
     db_agendamento = Agendamento(
         **agendamento.model_dump(exclude={"confirmar_conflito_deslocamento"})
@@ -2595,6 +2619,7 @@ def criar_agendamento(
     _validar_deslocamento_agendamento(
         db,
         db_agendamento,
+        confirmar_conflito_deslocamento=override_conflito_deslocamento,
     )
     _fill_data_hora_from_inicio(db_agendamento)
     related = _fetch_related_names(db, db_agendamento)
@@ -2623,6 +2648,7 @@ def criar_agendamento(
             "clinica_id": db_agendamento.clinica_id,
             "servico_id": db_agendamento.servico_id,
             "status": db_agendamento.status,
+            "override_conflito_deslocamento": override_conflito_deslocamento,
             "contexto_agendamento": contexto,
         },
         request=request,
@@ -2669,6 +2695,13 @@ def atualizar_agendamento(
     clinica_original = db_agendamento.clinica_id
     status_anterior = str(db_agendamento.status or "").strip() or "Agendado"
 
+    override_conflito_deslocamento = bool(agendamento.confirmar_conflito_deslocamento)
+    if override_conflito_deslocamento and not _usuario_tem_papel(current_user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Somente administradores podem confirmar excecao de conflito operacional.",
+        )
+
     update_data = agendamento.model_dump(exclude_unset=True)
     update_data.pop("confirmar_conflito_deslocamento", None)
     for field, value in update_data.items():
@@ -2713,6 +2746,7 @@ def atualizar_agendamento(
                 db,
                 db_agendamento,
                 agendamento_id_excluir=agendamento_id,
+                confirmar_conflito_deslocamento=override_conflito_deslocamento,
             )
     elif reativando_cancelado:
         _apply_service_duration_if_needed(db, db_agendamento)
@@ -2722,6 +2756,7 @@ def atualizar_agendamento(
             db,
             db_agendamento,
             agendamento_id_excluir=agendamento_id,
+            confirmar_conflito_deslocamento=override_conflito_deslocamento,
         )
     if "inicio" in update_data:
         _fill_data_hora_from_inicio(db_agendamento)
@@ -2761,6 +2796,7 @@ def atualizar_agendamento(
                 "clinica_id": db_agendamento.clinica_id,
                 "servico_id": db_agendamento.servico_id,
             },
+            "override_conflito_deslocamento": override_conflito_deslocamento,
             "contexto_agendamento": contexto,
         },
         request=request,

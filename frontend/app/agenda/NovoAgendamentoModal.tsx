@@ -115,6 +115,8 @@ interface ConflitoDeslocamentoDetail {
   duracao_min?: number;
   folga_min?: number;
   confirmavel?: boolean;
+  desvio_insercao_min?: number;
+  limite_desvio_min?: number;
 }
 
 interface SugestaoProximidadeResponse {
@@ -1421,6 +1423,24 @@ export default function NovoAgendamentoModal({
     return null;
   };
 
+  const confirmarExcecaoConflitoAdmin = async (conflito: ConflitoDeslocamentoDetail): Promise<boolean> => {
+    if (!isAdmin) return false;
+
+    const mensagemConflito = extrairMensagemErro(
+      conflito,
+      "Conflito operacional de deslocamento detectado para este horario."
+    );
+    return fortinho.confirm({
+      title: "Conflito operacional",
+      message:
+        `${mensagemConflito}\n\nComo admin, deseja conceder excecao para concluir o agendamento neste horario?`,
+      mood: "alert",
+      gesture: "open-arms",
+      confirmLabel: "Conceder excecao",
+      cancelLabel: "Cancelar",
+    });
+  };
+
   const abrirModalTutor = () => {
     setNovoTutor(buildInitialTutorForm());
     setModalTutorAberto(true);
@@ -1705,27 +1725,59 @@ export default function NovoAgendamentoModal({
         observacoes: observacoesFinal,
       };
 
-      const enviarAgendamento = async () => {
+      const enviarAgendamento = async (confirmarConflitoDeslocamento = false) => {
+        const payload = {
+          ...payloadBase,
+          confirmar_conflito_deslocamento: confirmarConflitoDeslocamento,
+        };
         if (isEditando) {
-          return api.put(`/agenda/${agendamento.id}`, payloadBase);
+          return api.put(`/agenda/${agendamento.id}`, payload);
         }
-        return api.post("/agenda", payloadBase);
+        return api.post("/agenda", payload);
       };
 
       let response;
       try {
-        response = await enviarAgendamento();
+        response = await enviarAgendamento(false);
       } catch (error: any) {
         const conflito = extrairConflitoDeslocamento(error);
         if (conflito) {
-          throw new Error(
-            extrairMensagemErro(
-              conflito,
-              "Conflito operacional de deslocamento. Ajuste o horario ou escolha outra clinica."
-            )
-          );
+          if (!isAdmin) {
+            throw new Error(
+              extrairMensagemErro(
+                conflito,
+                "Conflito operacional de deslocamento. Ajuste o horario ou escolha outra clinica."
+              )
+            );
+          }
+
+          const confirmouExcecao = await confirmarExcecaoConflitoAdmin(conflito);
+          if (!confirmouExcecao) {
+            throw new Error(
+              extrairMensagemErro(
+                conflito,
+                "Conflito operacional de deslocamento. Ajuste o horario ou escolha outra clinica."
+              )
+            );
+          }
+
+          try {
+            response = await enviarAgendamento(true);
+          } catch (errorOverride: any) {
+            const conflitoOverride = extrairConflitoDeslocamento(errorOverride);
+            if (conflitoOverride) {
+              throw new Error(
+                extrairMensagemErro(
+                  conflitoOverride,
+                  "Nao foi possivel concluir mesmo com excecao. Ajuste o horario ou escolha outra clinica."
+                )
+              );
+            }
+            throw errorOverride;
+          }
+        } else {
+          throw error;
         }
-        throw error;
       }
 
       await onSuccess(response?.data);

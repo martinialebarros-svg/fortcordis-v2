@@ -17,6 +17,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
 os.environ.setdefault("SECRET_KEY", "agenda-duracao-servico-create-test-secret-key-1234567890")
 
 from app.api.v1.endpoints import agenda
+from fastapi import HTTPException
 from app.models.agendamento import Agendamento
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
@@ -76,6 +77,83 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
                 int((agendamento_criado.fim - agendamento_criado.inicio).total_seconds() // 60),
                 20,
             )
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_criar_agendamento_bloqueia_override_conflito_para_nao_admin(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            inicio = datetime(2099, 5, 25, 11, 0, 0)
+            payload = agenda.AgendamentoCreate(
+                paciente_id=None,
+                clinica_id=1,
+                servico_id=None,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                status="Agendado",
+                observacoes="teste",
+                confirmar_conflito_deslocamento=True,
+            )
+
+            with self.assertRaises(HTTPException) as ctx:
+                agenda.criar_agendamento(
+                    agendamento=payload,
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=SimpleNamespace(id=10, nome="Sem Admin"),
+                )
+
+            self.assertEqual(int(ctx.exception.status_code), 403)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_criar_agendamento_repasse_override_conflito_quando_admin(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            clinica = Clinica(nome="Clinica Admin", ativo=True)
+            db.add(clinica)
+            db.commit()
+            db.refresh(clinica)
+
+            inicio = datetime(2099, 5, 25, 11, 0, 0)
+            payload = agenda.AgendamentoCreate(
+                paciente_id=None,
+                clinica_id=clinica.id,
+                servico_id=None,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                status="Reservado",
+                observacoes="teste override admin",
+                confirmar_conflito_deslocamento=True,
+            )
+
+            def _validar_deslocamento_mock(*args, **kwargs):
+                self.assertTrue(bool(kwargs.get("confirmar_conflito_deslocamento")))
+
+            usuario_admin = SimpleNamespace(
+                id=99,
+                nome="Admin",
+                tem_papel=lambda papel: papel == "admin",
+            )
+
+            with patch.object(agenda, "_validar_deslocamento_agendamento", side_effect=_validar_deslocamento_mock), patch.object(
+                agenda, "registrar_auditoria", return_value=None
+            ), patch.object(
+                agenda, "_notificar_agenda_update", return_value=None
+            ):
+                resposta = agenda.criar_agendamento(
+                    agendamento=payload,
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=usuario_admin,
+                )
+
+            self.assertIsNotNone(resposta)
+            self.assertTrue(int(resposta.get("id") or 0) > 0)
         finally:
             db.close()
             engine.dispose()
