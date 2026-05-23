@@ -12,7 +12,7 @@ from typing import Any, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import exists, func, or_
+from sqlalchemy import exists, func, or_, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ from app.models.agendamento import Agendamento
 from app.models.paciente import Paciente
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao, ConfiguracaoUsuario
+from app.models.auditoria_evento import AuditoriaEvento
 from app.models.servico import Servico
 from app.models.ordem_servico import OrdemServico
 from app.models.laudo import Laudo
@@ -61,6 +62,7 @@ AGENDA_STATUS_PERMITIDOS = ["Agendado", "Reservado", "Confirmado", "Em atendimen
 AGENDA_STATUS_PRE_AGENDADOS = {"Agendado", "Reservado", "Confirmado"}
 AGENDA_STATUS_NAO_ANCORA = {"Cancelado", "Faltou"}
 MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN = 5
+AGENDA_WRITE_LOCK_KEY = 24052301
 
 
 def _usuario_tem_papel(usuario: Any, papel: str) -> bool:
@@ -107,6 +109,21 @@ class AssistenteEncerramentoPayload(BaseModel):
     data_referencia: Optional[str] = Field(default=None, description="Data no formato YYYY-MM-DD")
     data_contato: Optional[str] = Field(default=None, description="Data do primeiro contato no formato YYYY-MM-DD")
     contexto: Optional[dict[str, Any]] = Field(default=None)
+
+
+class AssistenteOfertaPayload(BaseModel):
+    clinica_id: int = Field(..., ge=1)
+    data: Optional[str] = Field(default=None, description="Data no formato YYYY-MM-DD")
+    data_contato: Optional[str] = Field(default=None, description="Data do contato no formato YYYY-MM-DD")
+    servico_id: Optional[int] = Field(default=None, ge=1)
+    duracao_minutos: Optional[int] = Field(default=None, ge=5, le=720)
+    intervalo_minutos: int = Field(default=30, ge=5, le=120)
+    limite: int = Field(default=8, ge=1, le=50)
+    perfil_deslocamento: str = Field(default="comercial")
+    limite_minutos: int = Field(default=25, ge=1, le=180)
+    ignorar_agendamento_id: Optional[int] = Field(default=None, ge=1)
+    incluir_mesma_clinica: bool = Field(default=True)
+    janela_dias_proximidade: int = Field(default=7, ge=0, le=30)
 
 
 def _parse_hora_hhmm(value: Optional[str], fallback: str) -> str:
@@ -1270,6 +1287,31 @@ def _validar_slot_disponivel(
         )
 
 
+def _adquirir_lock_escrita_agenda(db: Session) -> None:
+    if db.info.get("_agenda_write_lock"):
+        return
+
+    bind = db.get_bind()
+    dialect_name = str(getattr(getattr(bind, "dialect", None), "name", "")).lower()
+
+    if dialect_name == "sqlite":
+        # Em SQLite, BEGIN IMMEDIATE antecipa o lock de escrita e evita corrida
+        # entre duas transacoes que validam slot ao mesmo tempo.
+        if not db.in_transaction():
+            db.execute(text("BEGIN IMMEDIATE"))
+    elif dialect_name in {"postgres", "postgresql"}:
+        db.execute(text("SELECT pg_advisory_xact_lock(:lock_key)"), {"lock_key": AGENDA_WRITE_LOCK_KEY})
+    else:
+        (
+            db.query(Configuracao)
+            .order_by(Configuracao.id.asc())
+            .with_for_update()
+            .first()
+        )
+
+    db.info["_agenda_write_lock"] = True
+
+
 def _fetch_related_names(db: Session, agendamento: Agendamento) -> dict:
     paciente_nome = None
     tutor_nome = None
@@ -1358,6 +1400,84 @@ def _descricao_contexto_agendamento(contexto: dict[str, str]) -> str:
         f" | Animal: {contexto.get('animal', 'Nao informado')}"
         f" | Tutor: {contexto.get('tutor', 'Nao informado')}"
     )
+
+
+def _registrar_auditoria_excecao_operacional_concedida(
+    *,
+    db: Session,
+    current_user: User,
+    request: Request,
+    agendamento: Agendamento,
+    related: Optional[dict],
+    motivo: str,
+) -> None:
+    contexto = _contexto_agendamento_auditoria(agendamento, related)
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="agenda",
+        entidade="assistente_agendamento",
+        entidade_id=agendamento.id,
+        acao="ASSISTENTE_AGENDA_EXCECAO_CONCEDIDA",
+        descricao=(
+            "Excecao operacional concedida por admin para concluir agendamento manual - "
+            f"{_descricao_contexto_agendamento(contexto)}"
+        ),
+        detalhes={
+            "motivo": motivo,
+            "perfil_usuario": "admin",
+            "agendamento_id": agendamento.id,
+            "clinica_id": agendamento.clinica_id,
+            "servico_id": agendamento.servico_id,
+            "contexto_agendamento": contexto,
+        },
+        request=request,
+    )
+
+
+def _registrar_evento_funil_assistente(
+    *,
+    current_user: User,
+    request: Optional[Request],
+    evento: str,
+    detalhes: Optional[dict[str, Any]] = None,
+) -> None:
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="agenda",
+        entidade="assistente_agendamento",
+        acao=evento,
+        descricao=f"Evento de funil do assistente: {evento}.",
+        detalhes=detalhes or {},
+        request=request,
+    )
+
+
+def _parse_detalhes_auditoria(raw: Optional[str]) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except Exception:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _extrair_data_evento_local(value: Any) -> Optional[str]:
+    if isinstance(value, datetime):
+        dt = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return dt.astimezone(LOCAL_TZ).date().isoformat()
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(LOCAL_TZ).date().isoformat()
 
 
 def _validar_paciente_tutor_para_status(
@@ -2485,6 +2605,231 @@ def sugerir_agendamento_proximo(
     }
 
 
+@router.post("/assistente/ofertas")
+def orquestrar_ofertas_assistente(
+    payload: AssistenteOfertaPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Orquestra politica de oferta + sugestao de proximidade + panorama de horarios em resposta unica."""
+    data_referencia = _extract_date_filter(payload.data) if payload.data else datetime.now(LOCAL_TZ).date().isoformat()
+    if not data_referencia:
+        raise HTTPException(status_code=422, detail="Data invalida. Use o formato YYYY-MM-DD.")
+    data_contato = (
+        _extract_date_filter(payload.data_contato)
+        if payload.data_contato
+        else datetime.now(LOCAL_TZ).date().isoformat()
+    )
+    if not data_contato:
+        data_contato = datetime.now(LOCAL_TZ).date().isoformat()
+
+    resposta_proximidade = sugerir_agendamento_proximo(
+        payload=SugestaoProximidadePayload(
+            clinica_id=payload.clinica_id,
+            data=data_referencia,
+            data_contato=data_contato,
+            servico_id=payload.servico_id,
+            duracao_minutos=payload.duracao_minutos,
+            intervalo_minutos=payload.intervalo_minutos,
+            limite_sugestoes_operacionais=payload.limite,
+            perfil_deslocamento=payload.perfil_deslocamento,
+            limite_minutos=payload.limite_minutos,
+            ignorar_agendamento_id=payload.ignorar_agendamento_id,
+            incluir_mesma_clinica=payload.incluir_mesma_clinica,
+            janela_dias_proximidade=payload.janela_dias_proximidade,
+        ),
+        db=db,
+        current_user=current_user,
+    )
+
+    politica_oferta = (
+        resposta_proximidade.get("politica_oferta")
+        if isinstance(resposta_proximidade, dict) and isinstance(resposta_proximidade.get("politica_oferta"), dict)
+        else {}
+    )
+    data_proximidade = (
+        str(((resposta_proximidade or {}).get("item") or {}).get("data") or "").strip()
+        if isinstance(resposta_proximidade, dict)
+        else ""
+    )
+    datas_preferenciais = [
+        str(item).strip()
+        for item in (politica_oferta.get("datas_preferenciais") or [])
+        if isinstance(item, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", item.strip())
+    ]
+    politica_distante_baixa = bool(politica_oferta.get("distante_base")) and bool(politica_oferta.get("baixa_frequencia"))
+    sugestao_proximidade_aderente = (
+        bool((resposta_proximidade or {}).get("sugerir"))
+        and bool(data_proximidade)
+        and (not politica_distante_baixa or bool(((resposta_proximidade or {}).get("item") or {}).get("data_preferencial")))
+    )
+
+    data_base = data_referencia
+    origem_data_automatica = "manual"
+    if politica_distante_baixa and datas_preferenciais:
+        if sugestao_proximidade_aderente:
+            data_base = data_proximidade
+            origem_data_automatica = "proximidade"
+        else:
+            data_base = datas_preferenciais[0]
+            origem_data_automatica = "politica"
+    elif sugestao_proximidade_aderente:
+        data_base = data_proximidade
+        origem_data_automatica = "proximidade"
+
+    resposta_panorama = sugerir_horarios_agenda(
+        payload=SugestaoHorarioPayload(
+            data=data_base,
+            clinica_id=payload.clinica_id,
+            servico_id=payload.servico_id,
+            duracao_minutos=payload.duracao_minutos,
+            intervalo_minutos=payload.intervalo_minutos,
+            limite=payload.limite,
+            perfil_deslocamento=payload.perfil_deslocamento,
+            ignorar_agendamento_id=payload.ignorar_agendamento_id,
+        ),
+        db=db,
+        current_user=current_user,
+    )
+
+    mudou_data_base = data_base != data_referencia
+    if origem_data_automatica == "proximidade" and mudou_data_base:
+        prefixo_mensagem = f"Sugestoes calculadas automaticamente para {data_base} com base no agendamento proximo."
+    elif origem_data_automatica == "politica":
+        prefixo_mensagem = f"Sugestoes calculadas automaticamente para {data_base} conforme politica de oferta (rota/frequencia)."
+    else:
+        prefixo_mensagem = ""
+
+    items_panorama = resposta_panorama.get("items") if isinstance(resposta_panorama, dict) else []
+    items_panorama = items_panorama if isinstance(items_panorama, list) else []
+    motivo_panorama = str((resposta_panorama or {}).get("motivo") or "").strip() if isinstance(resposta_panorama, dict) else ""
+    if not items_panorama:
+        mensagem_panorama = f"{prefixo_mensagem} {motivo_panorama or 'Nenhum horario operacional encontrado para essa data.'}".strip()
+    elif all(not item.get("anterior") and not item.get("proximo") for item in items_panorama if isinstance(item, dict)):
+        mensagem_panorama = f"{prefixo_mensagem} Nao ha agendamentos vizinhos nesta data; por isso o deslocamento pode aparecer como 0 min.".strip()
+    else:
+        mensagem_panorama = prefixo_mensagem.strip()
+
+    _registrar_evento_funil_assistente(
+        current_user=current_user,
+        request=request,
+        evento="ASSISTENTE_AGENDA_OFERTA_GERADA",
+        detalhes={
+            "clinica_id": payload.clinica_id,
+            "servico_id": payload.servico_id,
+            "perfil_usuario": "admin" if _usuario_tem_papel(current_user, "admin") else "nao_admin",
+            "data_referencia": data_referencia,
+            "data_base": data_base,
+            "origem_data_automatica": origem_data_automatica,
+            "total_sugestoes": len(items_panorama),
+            "houve_sugestao_proximidade": bool((resposta_proximidade or {}).get("item")),
+        },
+    )
+
+    return {
+        "ok": True,
+        "clinica_id": payload.clinica_id,
+        "data_referencia": data_referencia,
+        "data_contato": data_contato,
+        "data_base": data_base,
+        "origem_data_automatica": origem_data_automatica,
+        "politica_oferta": politica_oferta,
+        "sugestao_proximidade": resposta_proximidade,
+        "panorama_ofertas": resposta_panorama,
+        "mensagem_panorama": mensagem_panorama,
+    }
+
+
+@router.get("/assistente/metricas")
+def obter_metricas_funil_assistente(
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Consolida metricas do funil do assistente por etapa, perfil e clinica."""
+    if not _usuario_tem_papel(current_user, "admin"):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem consultar metricas do assistente.")
+
+    data_inicio_iso = _extract_date_filter(data_inicio) if data_inicio else None
+    data_fim_iso = _extract_date_filter(data_fim) if data_fim else None
+    if data_inicio and not data_inicio_iso:
+        raise HTTPException(status_code=422, detail="Data inicial invalida. Use YYYY-MM-DD.")
+    if data_fim and not data_fim_iso:
+        raise HTTPException(status_code=422, detail="Data final invalida. Use YYYY-MM-DD.")
+
+    acoes_funil = {
+        "ASSISTENTE_AGENDA_OFERTA_GERADA": "oferta_gerada",
+        "ASSISTENTE_AGENDA_ACEITE": "aceite",
+        "ASSISTENTE_AGENDA_SEM_OPCAO": "sem_opcao",
+        "ASSISTENTE_AGENDA_SOLICITACAO_EXCECAO": "solicitacao_excecao",
+        "ASSISTENTE_AGENDA_EXCECAO_CONCEDIDA": "excecao_concedida",
+        "ASSISTENTE_AGENDA_ENCERRADO_SEM_AGENDAMENTO": "encerramento",
+    }
+
+    query = db.query(AuditoriaEvento).filter(
+        AuditoriaEvento.modulo == "agenda",
+        AuditoriaEvento.entidade == "assistente_agendamento",
+        AuditoriaEvento.acao.in_(list(acoes_funil.keys())),
+    )
+    if data_inicio_iso:
+        query = query.filter(func.date(AuditoriaEvento.created_at) >= data_inicio_iso)
+    if data_fim_iso:
+        query = query.filter(func.date(AuditoriaEvento.created_at) <= data_fim_iso)
+
+    eventos = query.order_by(AuditoriaEvento.created_at.asc(), AuditoriaEvento.id.asc()).all()
+
+    totais_por_etapa: dict[str, int] = {etapa: 0 for etapa in acoes_funil.values()}
+    por_perfil: dict[str, dict[str, int]] = {}
+    por_clinica: dict[str, dict[str, Any]] = {}
+    serie_diaria: dict[str, dict[str, int]] = {}
+
+    for row in eventos:
+        etapa = acoes_funil.get(str(row.acao or "").strip())
+        if not etapa:
+            continue
+        detalhes = _parse_detalhes_auditoria(getattr(row, "detalhes_json", None))
+        perfil = str(detalhes.get("perfil_usuario") or detalhes.get("perfil") or "nao_informado").strip() or "nao_informado"
+        clinica_id_raw = detalhes.get("clinica_id")
+        clinica_id = str(clinica_id_raw) if clinica_id_raw not in (None, "", 0, "0") else "nao_informada"
+        clinica_nome = str(detalhes.get("clinica_nome") or "Nao informada")
+        data_evento = _extrair_data_evento_local(getattr(row, "created_at", None)) or "sem_data"
+
+        totais_por_etapa[etapa] = int(totais_por_etapa.get(etapa, 0)) + 1
+
+        bucket_perfil = por_perfil.setdefault(perfil, {nome: 0 for nome in acoes_funil.values()})
+        bucket_perfil[etapa] = int(bucket_perfil.get(etapa, 0)) + 1
+
+        bucket_clinica = por_clinica.setdefault(
+            clinica_id,
+            {
+                "clinica_id": None if clinica_id == "nao_informada" else clinica_id_raw,
+                "clinica_nome": clinica_nome,
+                "eventos": {nome: 0 for nome in acoes_funil.values()},
+            },
+        )
+        bucket_clinica["eventos"][etapa] = int(bucket_clinica["eventos"].get(etapa, 0)) + 1
+
+        bucket_dia = serie_diaria.setdefault(data_evento, {nome: 0 for nome in acoes_funil.values()})
+        bucket_dia[etapa] = int(bucket_dia.get(etapa, 0)) + 1
+
+    return {
+        "ok": True,
+        "periodo": {
+            "data_inicio": data_inicio_iso,
+            "data_fim": data_fim_iso,
+        },
+        "totais_por_etapa": totais_por_etapa,
+        "por_perfil": por_perfil,
+        "por_clinica": sorted(por_clinica.values(), key=lambda item: str(item.get("clinica_nome") or "")),
+        "serie_diaria": [
+            {"data": data_ref, "eventos": serie_diaria[data_ref]}
+            for data_ref in sorted(serie_diaria.keys())
+        ],
+    }
+
+
 @router.post("/assistente/encerramento")
 def registrar_encerramento_assistente(
     payload: AssistenteEncerramentoPayload,
@@ -2516,6 +2861,16 @@ def registrar_encerramento_assistente(
 
     data_referencia = _parse_data_yyyy_mm_dd(payload.data_referencia, "Data de referencia")
     data_contato = _parse_data_yyyy_mm_dd(payload.data_contato, "Data de contato")
+    contexto = payload.contexto if isinstance(payload.contexto, dict) else {}
+    try:
+        total_sugestoes = int(contexto.get("total_sugestoes", 0) or 0)
+    except (TypeError, ValueError):
+        total_sugestoes = 0
+    if total_sugestoes < 1:
+        raise HTTPException(
+            status_code=422,
+            detail="Para registrar recusa sem agendamento, e obrigatorio ter ao menos 1 oferta exibida.",
+        )
 
     clinica_nome = _nome_clinica_por_id(db, payload.clinica_id) if payload.clinica_id else "Nao informada"
     servico_nome = "Nao informado"
@@ -2557,9 +2912,23 @@ def registrar_encerramento_assistente(
             "data_referencia": data_referencia,
             "data_contato": data_contato,
             "perfil_usuario": "admin" if eh_admin else "nao_admin",
-            "contexto": payload.contexto or {},
+            "contexto": contexto,
         },
         request=request,
+    )
+    _registrar_evento_funil_assistente(
+        current_user=current_user,
+        request=request,
+        evento="ASSISTENTE_AGENDA_SEM_OPCAO",
+        detalhes={
+            "clinica_id": payload.clinica_id,
+            "servico_id": payload.servico_id,
+            "perfil_usuario": "admin" if eh_admin else "nao_admin",
+            "tipo_desfecho": tipo,
+            "motivo": motivo,
+            "data_referencia": data_referencia,
+            "data_contato": data_contato,
+        },
     )
 
     return {
@@ -2590,16 +2959,36 @@ def criar_agendamento(
     current_user: User = Depends(get_current_user)
 ):
     """Cria novo agendamento"""
+    _adquirir_lock_escrita_agenda(db)
+
     override_conflito_deslocamento = bool(agendamento.confirmar_conflito_deslocamento)
+    excecao_operacional_concedida = bool(getattr(agendamento, "excecao_operacional_concedida", False))
+    motivo_excecao_operacional = str(getattr(agendamento, "motivo_excecao_operacional", "") or "").strip()
     if override_conflito_deslocamento and not _usuario_tem_papel(current_user, "admin"):
         raise HTTPException(
             status_code=403,
             detail="Somente administradores podem confirmar excecao de conflito operacional.",
         )
+    if excecao_operacional_concedida and not _usuario_tem_papel(current_user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Somente administradores podem conceder excecao operacional da agenda.",
+        )
+    if excecao_operacional_concedida and not motivo_excecao_operacional:
+        raise HTTPException(
+            status_code=422,
+            detail="Informe o motivo da excecao operacional concedida.",
+        )
 
     now = datetime.now()
     db_agendamento = Agendamento(
-        **agendamento.model_dump(exclude={"confirmar_conflito_deslocamento"})
+        **agendamento.model_dump(
+            exclude={
+                "confirmar_conflito_deslocamento",
+                "excecao_operacional_concedida",
+                "motivo_excecao_operacional",
+            }
+        )
     )
     db_agendamento.status = _normalizar_status_agendamento(db_agendamento.status)
     if db_agendamento.status == "Reservado" and not db_agendamento.paciente_id:
@@ -2653,6 +3042,28 @@ def criar_agendamento(
         },
         request=request,
     )
+    observacoes_agendamento = str(db_agendamento.observacoes or "")
+    if "[Assistente agenda] sugestao aceita" in observacoes_agendamento:
+        _registrar_evento_funil_assistente(
+            current_user=current_user,
+            request=request,
+            evento="ASSISTENTE_AGENDA_ACEITE",
+            detalhes={
+                "agendamento_id": db_agendamento.id,
+                "clinica_id": db_agendamento.clinica_id,
+                "servico_id": db_agendamento.servico_id,
+                "perfil_usuario": "admin" if _usuario_tem_papel(current_user, "admin") else "nao_admin",
+            },
+        )
+    if excecao_operacional_concedida:
+        _registrar_auditoria_excecao_operacional_concedida(
+            db=db,
+            current_user=current_user,
+            request=request,
+            agendamento=db_agendamento,
+            related=related,
+            motivo=motivo_excecao_operacional,
+        )
 
     _notificar_agenda_update(
         db=db,
@@ -2676,6 +3087,8 @@ def atualizar_agendamento(
     current_user: User = Depends(get_current_user)
 ):
     """Atualiza agendamento"""
+    _adquirir_lock_escrita_agenda(db)
+
     db_agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
     if not db_agendamento:
         raise HTTPException(status_code=404, detail="Agendamento nao encontrado")
@@ -2696,14 +3109,28 @@ def atualizar_agendamento(
     status_anterior = str(db_agendamento.status or "").strip() or "Agendado"
 
     override_conflito_deslocamento = bool(agendamento.confirmar_conflito_deslocamento)
+    excecao_operacional_concedida = bool(getattr(agendamento, "excecao_operacional_concedida", False))
+    motivo_excecao_operacional = str(getattr(agendamento, "motivo_excecao_operacional", "") or "").strip()
     if override_conflito_deslocamento and not _usuario_tem_papel(current_user, "admin"):
         raise HTTPException(
             status_code=403,
             detail="Somente administradores podem confirmar excecao de conflito operacional.",
         )
+    if excecao_operacional_concedida and not _usuario_tem_papel(current_user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Somente administradores podem conceder excecao operacional da agenda.",
+        )
+    if excecao_operacional_concedida and not motivo_excecao_operacional:
+        raise HTTPException(
+            status_code=422,
+            detail="Informe o motivo da excecao operacional concedida.",
+        )
 
     update_data = agendamento.model_dump(exclude_unset=True)
     update_data.pop("confirmar_conflito_deslocamento", None)
+    update_data.pop("excecao_operacional_concedida", None)
+    update_data.pop("motivo_excecao_operacional", None)
     for field, value in update_data.items():
         setattr(db_agendamento, field, value)
 
@@ -2801,6 +3228,28 @@ def atualizar_agendamento(
         },
         request=request,
     )
+    observacoes_atualizadas = str(db_agendamento.observacoes or "")
+    if "[Assistente agenda] sugestao aceita" in observacoes_atualizadas:
+        _registrar_evento_funil_assistente(
+            current_user=current_user,
+            request=request,
+            evento="ASSISTENTE_AGENDA_ACEITE",
+            detalhes={
+                "agendamento_id": db_agendamento.id,
+                "clinica_id": db_agendamento.clinica_id,
+                "servico_id": db_agendamento.servico_id,
+                "perfil_usuario": "admin" if _usuario_tem_papel(current_user, "admin") else "nao_admin",
+            },
+        )
+    if excecao_operacional_concedida:
+        _registrar_auditoria_excecao_operacional_concedida(
+            db=db,
+            current_user=current_user,
+            request=request,
+            agendamento=db_agendamento,
+            related=related,
+            motivo=motivo_excecao_operacional,
+        )
 
     acao_push_update = "updated"
     base_push_update: Optional[dict] = None
@@ -2837,6 +3286,7 @@ def atualizar_status(
     """Atualiza apenas o status do agendamento."""
     from decimal import Decimal
     from app.models.ordem_servico import OrdemServico
+    _adquirir_lock_escrita_agenda(db)
 
     def _gerar_numero_os() -> str:
         mes_ano = datetime.now().strftime("%Y%m")

@@ -159,6 +159,91 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_criar_agendamento_bloqueia_excecao_operacional_para_nao_admin(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            inicio = datetime(2099, 5, 25, 11, 0, 0)
+            payload = agenda.AgendamentoCreate(
+                paciente_id=None,
+                clinica_id=1,
+                servico_id=None,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                status="Agendado",
+                observacoes="teste",
+                excecao_operacional_concedida=True,
+                motivo_excecao_operacional="Cliente so tem essa janela disponivel.",
+            )
+
+            with self.assertRaises(HTTPException) as ctx:
+                agenda.criar_agendamento(
+                    agendamento=payload,
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=SimpleNamespace(id=10, nome="Sem Admin", tem_papel=lambda _: False),
+                )
+
+            self.assertEqual(int(ctx.exception.status_code), 403)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_criar_agendamento_admin_registra_evento_excecao_operacional(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            clinica = Clinica(nome="Clinica Admin Excecao", ativo=True)
+            db.add(clinica)
+            db.commit()
+            db.refresh(clinica)
+
+            inicio = datetime(2099, 5, 25, 11, 0, 0)
+            payload = agenda.AgendamentoCreate(
+                paciente_id=None,
+                clinica_id=clinica.id,
+                servico_id=None,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                status="Reservado",
+                observacoes="teste excecao admin",
+                excecao_operacional_concedida=True,
+                motivo_excecao_operacional="Cliente sem alternativa nas opcoes ofertadas.",
+            )
+
+            usuario_admin = SimpleNamespace(
+                id=99,
+                nome="Admin",
+                tem_papel=lambda papel: papel == "admin",
+            )
+
+            with patch.object(agenda, "registrar_auditoria", return_value=None) as mocked_auditoria, patch.object(
+                agenda, "_notificar_agenda_update", return_value=None
+            ), patch.object(
+                agenda, "_validar_deslocamento_agendamento", return_value=None
+            ):
+                resposta = agenda.criar_agendamento(
+                    agendamento=payload,
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=usuario_admin,
+                )
+
+            self.assertIsNotNone(resposta)
+            chamadas = mocked_auditoria.call_args_list
+            self.assertGreaterEqual(len(chamadas), 2)
+            self.assertTrue(
+                any(
+                    call.kwargs.get("acao") == "ASSISTENTE_AGENDA_EXCECAO_CONCEDIDA"
+                    and call.kwargs.get("detalhes", {}).get("motivo")
+                    == "Cliente sem alternativa nas opcoes ofertadas."
+                    for call in chamadas
+                )
+            )
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -81,8 +81,17 @@ class AgendaAssistenteEncerramentoTest(unittest.TestCase):
 
         self.assertTrue(resposta["ok"])
         self.assertEqual(resposta["tipo"], "solicitacao_excecao")
-        mocked_audit.assert_called_once()
-        detalhes = mocked_audit.call_args.kwargs["detalhes"]
+        self.assertGreaterEqual(mocked_audit.call_count, 1)
+        chamada_principal = next(
+            (
+                call
+                for call in mocked_audit.call_args_list
+                if call.kwargs.get("acao") == "ASSISTENTE_AGENDA_SOLICITACAO_EXCECAO"
+            ),
+            None,
+        )
+        self.assertIsNotNone(chamada_principal)
+        detalhes = chamada_principal.kwargs["detalhes"]
         self.assertEqual(detalhes["tipo"], "solicitacao_excecao")
         self.assertEqual(detalhes["clinica_id"], clinica_id)
         self.assertEqual(detalhes["servico_id"], servico_id)
@@ -133,6 +142,7 @@ class AgendaAssistenteEncerramentoTest(unittest.TestCase):
             motivo="Cliente desistiu do atendimento nesta semana.",
             clinica_id=clinica_id,
             data_referencia="2026-05-23",
+            contexto={"total_sugestoes": 1},
         )
 
         with self._session_factory() as db, patch.object(agenda, "registrar_auditoria") as mocked_audit:
@@ -145,9 +155,37 @@ class AgendaAssistenteEncerramentoTest(unittest.TestCase):
 
         self.assertTrue(resposta["ok"])
         self.assertEqual(resposta["tipo"], "encerramento_sem_agendamento")
-        detalhes = mocked_audit.call_args.kwargs["detalhes"]
+        chamada_principal = next(
+            (
+                call
+                for call in mocked_audit.call_args_list
+                if call.kwargs.get("acao") == "ASSISTENTE_AGENDA_ENCERRADO_SEM_AGENDAMENTO"
+            ),
+            None,
+        )
+        self.assertIsNotNone(chamada_principal)
+        detalhes = chamada_principal.kwargs["detalhes"]
         self.assertEqual(detalhes["perfil_usuario"], "admin")
         self.assertEqual(detalhes["tipo"], "encerramento_sem_agendamento")
+
+    def test_rejeita_encerramento_sem_oferta_exibida(self) -> None:
+        payload = agenda.AssistenteEncerramentoPayload(
+            tipo="solicitacao_excecao",
+            motivo="Cliente nao aceitou as alternativas apresentadas.",
+            contexto={"total_sugestoes": 0},
+        )
+
+        with self._session_factory() as db:
+            with self.assertRaises(HTTPException) as ctx:
+                agenda.registrar_encerramento_assistente(
+                    payload=payload,
+                    request=None,
+                    db=db,
+                    current_user=self._build_user(False),
+                )
+
+        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertIn("ao menos 1 oferta exibida", str(ctx.exception.detail))
 
 
 if __name__ == "__main__":

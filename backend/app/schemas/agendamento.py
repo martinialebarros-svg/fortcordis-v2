@@ -29,6 +29,8 @@ class AgendamentoBase(BaseModel):
     status: str = "Agendado"
     observacoes: Optional[str] = None
     confirmar_conflito_deslocamento: bool = False
+    excecao_operacional_concedida: bool = False
+    motivo_excecao_operacional: Optional[str] = None
 
     @validator('inicio', 'fim', pre=True)
     def parse_dates(cls, v):
@@ -46,6 +48,8 @@ class AgendamentoUpdate(BaseModel):
     status: Optional[str] = None
     observacoes: Optional[str] = None
     confirmar_conflito_deslocamento: Optional[bool] = None
+    excecao_operacional_concedida: Optional[bool] = None
+    motivo_excecao_operacional: Optional[str] = None
 
     @validator('inicio', 'fim', pre=True)
     def parse_dates(cls, v):
