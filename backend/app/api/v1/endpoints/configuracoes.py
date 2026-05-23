@@ -138,6 +138,14 @@ def atualizar_configuracoes(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Apenas administradores podem ativar ou desativar o Fortinho.",
             )
+    if "agenda_excecoes" in dados and not current_user.tem_papel("admin"):
+        excecoes_atuais = carregar_agenda_excecoes(getattr(config, "agenda_excecoes", None))
+        excecoes_novas = normalizar_agenda_excecoes(dados.get("agenda_excecoes"))
+        if excecoes_novas != excecoes_atuais:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Apenas administradores podem conceder ou alterar excecoes operacionais da agenda.",
+            )
     
     agenda_semanal_normalizada = None
     for campo in campos_permitidos:

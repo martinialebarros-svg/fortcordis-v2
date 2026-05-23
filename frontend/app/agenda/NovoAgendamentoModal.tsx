@@ -146,6 +146,19 @@ interface SugestaoProximidadeResponse {
   } | null;
 }
 
+interface AssistenteOfertaResponse {
+  ok: boolean;
+  clinica_id: number;
+  data_referencia: string;
+  data_contato?: string;
+  data_base: string;
+  origem_data_automatica: "manual" | "proximidade" | "politica";
+  politica_oferta?: SugestaoProximidadeResponse["politica_oferta"];
+  sugestao_proximidade?: SugestaoProximidadeResponse | null;
+  panorama_ofertas?: SugestoesHorarioResponse | null;
+  mensagem_panorama?: string;
+}
+
 interface TutorOption {
   id: number;
   nome: string;
@@ -1008,11 +1021,9 @@ export default function NovoAgendamentoModal({
           setMotivoSemOpcao("");
           setExcecaoConcedida(false);
           if (items.length === 0) {
-            setDecisaoAssistente("sem_opcao");
+            setDecisaoAssistente("pendente");
             setMensagemSugestoes(
-              isAdmin
-                ? "Sem ofertas aderentes para a data sugerida por proximidade. Registre o motivo e, se necessario, conceda excecao."
-                : "Sem ofertas aderentes para a data sugerida por proximidade. Registre o motivo e solicite excecao ao administrador."
+              "Sem ofertas aderentes para a data sugerida por proximidade. Ajuste os filtros e gere novas ofertas antes de registrar recusa."
             );
             return;
           }
@@ -1227,6 +1238,10 @@ export default function NovoAgendamentoModal({
       setErroSugestoes("Gere e visualize as ofertas do assistente antes de registrar recusa.");
       return;
     }
+    if (totalSugestoes < 1) {
+      setErroSugestoes("Nao e possivel registrar recusa sem ao menos 1 oferta exibida no panorama.");
+      return;
+    }
     setDecisaoAssistente("sem_opcao");
     setExcecaoConcedida(false);
     setErroSugestoes("");
@@ -1328,68 +1343,53 @@ export default function NovoAgendamentoModal({
     }
 
     const dataSelecionada = String(formData.data || "").trim();
-    const dataProximidade = String(sugestaoProximidade?.item?.data || "").trim();
-    const politicaOferta = sugestaoProximidade?.politica_oferta;
-    const datasPreferenciaisPolitica = Array.isArray(politicaOferta?.datas_preferenciais)
-      ? politicaOferta.datas_preferenciais
-          .map((item) => String(item || "").trim())
-          .filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item))
-      : [];
-    const politicaDistanteBaixa =
-      Boolean(politicaOferta?.distante_base) && Boolean(politicaOferta?.baixa_frequencia);
-    const sugestaoProximidadeAderente =
-      Boolean(sugestaoProximidade?.sugerir) &&
-      Boolean(dataProximidade) &&
-      (!politicaDistanteBaixa || Boolean(sugestaoProximidade?.item?.data_preferencial));
-
-    let dataBaseBusca = dataSelecionada;
-    let origemDataAutomatica: "proximidade" | "politica" | null = null;
-    if (politicaDistanteBaixa && datasPreferenciaisPolitica.length > 0) {
-      if (sugestaoProximidadeAderente) {
-        dataBaseBusca = dataProximidade;
-        origemDataAutomatica = "proximidade";
-      } else {
-        dataBaseBusca = datasPreferenciaisPolitica[0];
-        origemDataAutomatica = "politica";
-      }
-    } else if (sugestaoProximidadeAderente) {
-      dataBaseBusca = dataProximidade;
-      origemDataAutomatica = "proximidade";
-    }
-
-    if (!dataBaseBusca) {
-      setErroSugestoes("Informe a data antes de buscar sugestoes.");
-      return;
-    }
 
     try {
       setCarregandoSugestoes(true);
-      const mudouDataBase = dataBaseBusca !== dataSelecionada;
-      const prefixoMensagem =
-        origemDataAutomatica === "proximidade" && mudouDataBase
-          ? `Sugestoes calculadas automaticamente para ${dataBaseBusca} com base no agendamento proximo. `
-          : origemDataAutomatica === "politica"
-            ? `Sugestoes calculadas automaticamente para ${dataBaseBusca} conforme politica de oferta (rota/frequencia). `
-            : "";
+      const dataContato = !isEditando ? (dataContatoAssistente || hojeLocalIso()) : undefined;
+      const response = await api.post<AssistenteOfertaResponse>("/agenda/assistente/ofertas", {
+        clinica_id: clinicaId,
+        data: dataSelecionada || null,
+        data_contato: dataContato,
+        servico_id: formData.servico_id ? parseInt(formData.servico_id, 10) : null,
+        duracao_minutos: obterDuracaoServicoSelecionado(),
+        intervalo_minutos: 30,
+        limite: 8,
+        perfil_deslocamento: "comercial",
+        limite_minutos: LIMITE_MINUTOS_PROXIMIDADE,
+        ignorar_agendamento_id: isEditando ? agendamento?.id : null,
+      });
 
-      const { items, motivo, itensIgnorados } = await buscarSugestoesOperacionais(dataBaseBusca, clinicaId);
+      const dados = response?.data || null;
+      const panorama = dados?.panorama_ofertas || null;
+      const items = Array.isArray(panorama?.items) ? panorama.items : [];
+      const motivo = String(panorama?.motivo || "").trim();
+      const itensIgnorados = Number(panorama?.itens_ignorados_janela || 0);
       setItensIgnoradosJanela(itensIgnorados);
       setSugestoesHorario(items);
       setOfertasPanoramicasConsultadas(true);
       setIndiceSugestaoAtual(0);
       setDecisaoAssistente("pendente");
       setMotivoSemOpcao("");
+      if (dados?.sugestao_proximidade) {
+        setSugestaoProximidade(dados.sugestao_proximidade);
+      }
+
+      const mensagemOrquestrada = String(dados?.mensagem_panorama || "").trim();
       if (items.length === 0) {
-        setDecisaoAssistente("sem_opcao");
+        setDecisaoAssistente("pendente");
         setMensagemSugestoes(
-          `${prefixoMensagem}${motivo || "Nenhum horario operacional encontrado para essa data."}`.trim()
+          mensagemOrquestrada ||
+            motivo ||
+            "Nenhum horario operacional encontrado para essa data. Ajuste os filtros e gere novas ofertas antes de registrar recusa."
         );
       } else if (items.every((item) => !item.anterior && !item.proximo)) {
         setMensagemSugestoes(
-          `${prefixoMensagem}Nao ha agendamentos vizinhos nesta data; por isso o deslocamento pode aparecer como 0 min.`.trim()
+          mensagemOrquestrada ||
+            "Nao ha agendamentos vizinhos nesta data; por isso o deslocamento pode aparecer como 0 min."
         );
-      } else if (prefixoMensagem) {
-        setMensagemSugestoes(prefixoMensagem.trim());
+      } else if (mensagemOrquestrada) {
+        setMensagemSugestoes(mensagemOrquestrada);
       }
     } catch (error: any) {
       const detail = error?.response?.data?.detail;
@@ -1723,6 +1723,12 @@ export default function NovoAgendamentoModal({
         fim: toApiDateTime(fim),
         status: statusFormulario,
         observacoes: observacoesFinal,
+        excecao_operacional_concedida:
+          !isEditando && decisaoAssistente === "sem_opcao" && isAdmin && excecaoConcedida,
+        motivo_excecao_operacional:
+          !isEditando && decisaoAssistente === "sem_opcao" && isAdmin && excecaoConcedida
+            ? String(motivoSemOpcao || "").trim()
+            : null,
       };
 
       const enviarAgendamento = async (confirmarConflitoDeslocamento = false) => {
