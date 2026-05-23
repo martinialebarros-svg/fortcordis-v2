@@ -1102,22 +1102,31 @@ def _fill_data_hora_from_inicio(agendamento: Agendamento) -> None:
     agendamento.hora = inicio_dt.strftime("%H:%M")
 
 
-def _apply_service_duration_if_needed(db: Session, agendamento: Agendamento) -> None:
+def _apply_service_duration_if_needed(
+    db: Session,
+    agendamento: Agendamento,
+    *,
+    force_from_service: bool = False,
+) -> None:
     inicio_dt = _coerce_datetime(agendamento.inicio)
     if inicio_dt is None:
         return
 
     fim_dt = _coerce_datetime(agendamento.fim)
-    if fim_dt is not None and fim_dt > inicio_dt:
-        return
 
-    duracao_minutos = 30
     if agendamento.servico_id:
         servico = db.query(Servico).filter(Servico.id == agendamento.servico_id).first()
         if servico and servico.duracao_minutos and servico.duracao_minutos > 0:
-            duracao_minutos = int(servico.duracao_minutos)
+            agendamento.fim = inicio_dt + timedelta(minutes=int(servico.duracao_minutos))
+            return
+        if force_from_service:
+            agendamento.fim = inicio_dt + timedelta(minutes=30)
+            return
 
-    agendamento.fim = inicio_dt + timedelta(minutes=duracao_minutos)
+    if fim_dt is not None and fim_dt > inicio_dt:
+        return
+
+    agendamento.fim = inicio_dt + timedelta(minutes=30)
 
 
 def _obter_regras_agenda(db: Session) -> tuple[dict, list, list]:
@@ -2523,7 +2532,7 @@ def criar_agendamento(
     db_agendamento.created_at = now
     db_agendamento.updated_at = now
 
-    _apply_service_duration_if_needed(db, db_agendamento)
+    _apply_service_duration_if_needed(db, db_agendamento, force_from_service=True)
     _validar_agendamento_no_funcionamento(db, db_agendamento)
     _validar_slot_disponivel(db, db_agendamento)
     _validar_deslocamento_agendamento(

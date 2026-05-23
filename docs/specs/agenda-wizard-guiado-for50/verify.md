@@ -23,6 +23,7 @@ Status: done
 | CA-013 | aceitacao | `agenda.py` retorna vazio para data passada em `sugestoes-horario` e `sugestao-proximidade` | ok |
 | CA-014 | aceitacao | `_classificar_politica_oferta` prioriza D0 para clinica proxima da base sem ancora D+2/D+3, com cobertura de cenarios positivo/negativo | ok |
 | CA-015 | aceitacao | `sugerir_horarios_agenda` prioriza slot apos `ancora + 60min` na mesma clinica e frontend respeita ordem backend no fluxo de proximidade | ok |
+| CA-016 | aceitacao | `criar_agendamento` forca recalculo de `fim` pela duracao do servico (`force_from_service=True`) no fluxo de criacao | ok |
 | NFR-002 | nao funcional | decisao anexada em `observacoesFinal` no submit | ok |
 
 ## 2) Testes automatizados executados
@@ -31,8 +32,8 @@ Comandos:
 
 ```bash
 cd frontend && npx eslint app/agenda/NovoAgendamentoModal.tsx
-python3 -m py_compile backend/app/api/v1/endpoints/agenda.py backend/tests/test_agenda_sugestao_janela_operacional.py
-cd backend && ./venv/bin/python -m pytest -q tests/test_agenda_sugestao_janela_operacional.py
+python3 -m py_compile backend/app/api/v1/endpoints/agenda.py backend/tests/test_agenda_sugestao_janela_operacional.py backend/tests/test_agenda_duracao_servico_create.py
+cd backend && ./venv/bin/python -m pytest -q tests/test_agenda_sugestao_janela_operacional.py tests/test_agenda_duracao_servico_create.py
 # evidencias de CI
 gh run view 26316967933 --json jobs --jq '.jobs[] | {name, conclusion}'
 ```
@@ -40,7 +41,7 @@ gh run view 26316967933 --json jobs --jq '.jobs[] | {name, conclusion}'
 Resumo dos resultados:
 - ESLint: ok.
 - PyCompile backend: ok.
-- Pytest `test_agenda_sugestao_janela_operacional.py`: `18 passed`.
+- Pytest `test_agenda_sugestao_janela_operacional.py` + `test_agenda_duracao_servico_create.py`: `19 passed`.
 - CI `Deploy to Stage (VPS)` run `26316967933`: `quality-gate=success`, `sdd-guardrail=failure` (falta de docs neste commit), sem falha funcional de codigo.
 
 ## 3) Testes manuais sugeridos (stage)
@@ -59,6 +60,7 @@ Resumo dos resultados:
 - Cenario 12: clinica proxima da base, D0 vazio e sem ancoras em D+2/D+3 => prioridade D0.
 - Cenario 13: clinica proxima da base com ancora em D+2 ou D+3 => nao priorizar D0.
 - Cenario 14: mesma clinica com ancora as 10:00 e slots livres apos esse horario -> primeira oferta operacional em 11:00.
+- Cenario 15: servico com duracao de 20min (ex.: ECG), aceite oferta do assistente e salvar -> evento final deve ocupar apenas 20min na agenda.
 
 ## 4) Regressao e riscos residuais
 
