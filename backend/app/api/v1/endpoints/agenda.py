@@ -1129,6 +1129,26 @@ def _apply_service_duration_if_needed(
     agendamento.fim = inicio_dt + timedelta(minutes=30)
 
 
+def _resolver_duracao_servico(
+    db: Session,
+    *,
+    servico_id: Optional[int],
+    fallback_minutos: int = 30,
+) -> int:
+    fallback = max(5, int(fallback_minutos or 30))
+    if not servico_id:
+        return fallback
+
+    servico = db.query(Servico).filter(Servico.id == servico_id).first()
+    if not servico:
+        raise HTTPException(status_code=404, detail="Servico nao encontrado.")
+
+    duracao = int(servico.duracao_minutos or 0)
+    if duracao <= 0:
+        return fallback
+    return max(5, duracao)
+
+
 def _obter_regras_agenda(db: Session) -> tuple[dict, list, list]:
     config = db.query(Configuracao).first()
     if not config:
@@ -1818,15 +1838,13 @@ def sugerir_horarios_agenda(
     base_cfg = regras_rota.get("base") if isinstance(regras_rota.get("base"), dict) else {}
 
     duracao_minutos = int(payload.duracao_minutos or 0)
-    if duracao_minutos <= 0:
-        if payload.servico_id:
-            servico = db.query(Servico).filter(Servico.id == payload.servico_id).first()
-            if not servico:
-                raise HTTPException(status_code=404, detail="Servico nao encontrado.")
-            duracao_minutos = int(servico.duracao_minutos or 30)
-        else:
-            duracao_minutos = 30
-    duracao_minutos = max(5, duracao_minutos)
+    duracao_fallback = max(5, duracao_minutos if duracao_minutos > 0 else 30)
+    # Fonte de verdade: quando houver servico selecionado, usa sempre a duracao cadastrada.
+    duracao_minutos = _resolver_duracao_servico(
+        db,
+        servico_id=payload.servico_id,
+        fallback_minutos=duracao_fallback,
+    )
 
     janela_inicio, janela_fim, motivo_fechado = _obter_janela_funcionamento_data(db, data_iso)
     if janela_inicio is None or janela_fim is None:

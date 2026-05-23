@@ -21,6 +21,7 @@ from app.api.v1.endpoints import agenda
 from app.models.agendamento import Agendamento
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
+from app.models.servico import Servico
 
 
 def _agenda_semanal_aberta() -> dict[str, dict[str, object]]:
@@ -38,6 +39,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
         for table in (
             Configuracao.__table__,
             Clinica.__table__,
+            Servico.__table__,
             Agendamento.__table__,
         ):
             table.create(engine, checkfirst=True)
@@ -102,6 +104,17 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
         db.commit()
         db.refresh(agendamento)
         return agendamento
+
+    def _seed_servico(self, db, *, nome: str, duracao_minutos: int) -> Servico:
+        servico = Servico(
+            nome=nome,
+            duracao_minutos=duracao_minutos,
+            ativo=True,
+        )
+        db.add(servico)
+        db.commit()
+        db.refresh(servico)
+        return servico
 
     def test_ancora_d2_nao_considera_dia_fechado(self) -> None:
         tmpdir, db, engine = self._build_session()
@@ -207,6 +220,42 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             for item in resposta["items"]:
                 inicio = datetime.strptime(item["inicio"], "%Y-%m-%d %H:%M")
                 self.assertGreaterEqual(inicio, datetime(2099, 5, 19, 14, 30))
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_sugestoes_horario_usam_duracao_do_servico_mesmo_com_payload_maior(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(db, excecoes=[])
+            clinica_base, _clinica_ancora = self._seed_clinicas(db)
+            servico = self._seed_servico(db, nome="Eletrocardiograma", duracao_minutos=20)
+
+            payload = agenda.SugestaoHorarioPayload(
+                data="2099-05-25",
+                clinica_id=clinica_base.id,
+                servico_id=servico.id,
+                duracao_minutos=60,
+                intervalo_minutos=30,
+                limite=4,
+                perfil_deslocamento="comercial",
+            )
+
+            resposta = agenda.sugerir_horarios_agenda(
+                payload=payload,
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+
+            self.assertTrue(resposta["ok"])
+            self.assertGreater(len(resposta["items"]), 0)
+            self.assertEqual(int(resposta.get("duracao_minutos", 0)), 20)
+
+            primeiro = resposta["items"][0]
+            inicio = datetime.strptime(str(primeiro["inicio"]), "%Y-%m-%d %H:%M")
+            fim = datetime.strptime(str(primeiro["fim"]), "%Y-%m-%d %H:%M")
+            self.assertEqual(int((fim - inicio).total_seconds() // 60), 20)
         finally:
             db.close()
             engine.dispose()

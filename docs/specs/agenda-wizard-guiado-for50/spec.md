@@ -28,6 +28,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - RF-016: para clinica proxima da base, quando nao houver ancora em D+2 e D+3, o assistente deve priorizar D0 se houver ancora em D0 ou se D0 estiver sem agendamentos.
 - RF-017: quando houver ancora na mesma clinica na data alvo, a sugestao operacional deve priorizar o slot livre mais proximo apos `ancora + 60min`, sem conflitar com outros atendimentos.
 - RF-018: no aceite de oferta do assistente, a ocupacao final do agendamento deve usar a duracao cadastrada do servico (ex.: ECG 20min), mesmo que o `fim` recebido no payload esteja maior.
+- RF-019: na geracao de ofertas do assistente, quando houver `servico_id`, a duracao considerada deve vir sempre do cadastro do servico (fonte de verdade), ignorando `duracao_minutos` divergente enviada pelo frontend.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -74,6 +75,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - CA-014: com clinica proxima da base e sem ancora D+2/D+3, `dias_preferenciais` deve ser `[0]` quando D0 tiver ancora ou estiver vazio.
 - CA-015: com ancora na mesma clinica as 10:00 e slots livres apos esse horario, a primeira sugestao operacional deve iniciar em 11:00 (ou no primeiro slot livre posterior a 11:00 se houver conflito).
 - CA-016: ao criar agendamento a partir de aceite do assistente, o backend deve recalcular `fim` pela duracao do servico cadastrado, evitando ocupar janela maior do que o procedimento real.
+- CA-017: se o frontend enviar `duracao_minutos` maior que a duracao cadastrada do servico, a API de sugestoes deve prevalecer a duracao do servico e retornar oferta com janela correta.
 
 ## 7) Casos de borda
 
