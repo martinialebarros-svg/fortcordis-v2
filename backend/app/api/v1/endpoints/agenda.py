@@ -2667,31 +2667,55 @@ def orquestrar_ofertas_assistente(
 
     data_base = data_referencia
     origem_data_automatica = "manual"
+    candidatos_data_base: list[tuple[str, str]] = []
+    datas_tentadas_panorama: list[str] = []
+
+    def _adicionar_candidato_data(data_candidata: Optional[str], origem: str) -> None:
+        data_txt = str(data_candidata or "").strip()
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", data_txt):
+            return
+        if any(data_txt == data_existente for data_existente, _ in candidatos_data_base):
+            return
+        candidatos_data_base.append((data_txt, origem))
+
     if politica_distante_baixa and datas_preferenciais:
         if sugestao_proximidade_aderente:
-            data_base = data_proximidade
-            origem_data_automatica = "proximidade"
-        else:
-            data_base = datas_preferenciais[0]
-            origem_data_automatica = "politica"
+            _adicionar_candidato_data(data_proximidade, "proximidade")
+        for data_preferencial in datas_preferenciais:
+            _adicionar_candidato_data(data_preferencial, "politica")
+        _adicionar_candidato_data(data_referencia, "manual")
     elif sugestao_proximidade_aderente:
-        data_base = data_proximidade
-        origem_data_automatica = "proximidade"
+        _adicionar_candidato_data(data_proximidade, "proximidade")
+        _adicionar_candidato_data(data_referencia, "manual")
+    else:
+        _adicionar_candidato_data(data_referencia, "manual")
 
-    resposta_panorama = sugerir_horarios_agenda(
-        payload=SugestaoHorarioPayload(
-            data=data_base,
-            clinica_id=payload.clinica_id,
-            servico_id=payload.servico_id,
-            duracao_minutos=payload.duracao_minutos,
-            intervalo_minutos=payload.intervalo_minutos,
-            limite=payload.limite,
-            perfil_deslocamento=payload.perfil_deslocamento,
-            ignorar_agendamento_id=payload.ignorar_agendamento_id,
-        ),
-        db=db,
-        current_user=current_user,
-    )
+    if not candidatos_data_base:
+        _adicionar_candidato_data(data_referencia, "manual")
+
+    resposta_panorama = {"ok": True, "items": [], "motivo": "", "itens_ignorados_janela": 0}
+    for data_candidata, origem_candidata in candidatos_data_base:
+        resposta_tentativa = sugerir_horarios_agenda(
+            payload=SugestaoHorarioPayload(
+                data=data_candidata,
+                clinica_id=payload.clinica_id,
+                servico_id=payload.servico_id,
+                duracao_minutos=payload.duracao_minutos,
+                intervalo_minutos=payload.intervalo_minutos,
+                limite=payload.limite,
+                perfil_deslocamento=payload.perfil_deslocamento,
+                ignorar_agendamento_id=payload.ignorar_agendamento_id,
+            ),
+            db=db,
+            current_user=current_user,
+        )
+        datas_tentadas_panorama.append(data_candidata)
+        resposta_panorama = resposta_tentativa if isinstance(resposta_tentativa, dict) else resposta_panorama
+        data_base = data_candidata
+        origem_data_automatica = origem_candidata
+        items_tentativa = resposta_panorama.get("items") if isinstance(resposta_panorama, dict) else []
+        if isinstance(items_tentativa, list) and items_tentativa:
+            break
 
     mudou_data_base = data_base != data_referencia
     if origem_data_automatica == "proximidade" and mudou_data_base:
@@ -2722,6 +2746,7 @@ def orquestrar_ofertas_assistente(
             "data_referencia": data_referencia,
             "data_base": data_base,
             "origem_data_automatica": origem_data_automatica,
+            "datas_tentadas_panorama": datas_tentadas_panorama,
             "total_sugestoes": len(items_panorama),
             "houve_sugestao_proximidade": bool((resposta_proximidade or {}).get("item")),
         },
