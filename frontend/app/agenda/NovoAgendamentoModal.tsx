@@ -634,6 +634,19 @@ export default function NovoAgendamentoModal({
     return `${day}/${month}/${year}`;
   };
 
+  const isDataPassada = (isoDate?: string): boolean => {
+    const match = String(isoDate || "")
+      .trim()
+      .match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return false;
+    const [, year, month, day] = match;
+    const dataSelecionada = new Date(Number(year), Number(month) - 1, Number(day), 0, 0, 0, 0);
+    if (Number.isNaN(dataSelecionada.getTime())) return false;
+    const agora = new Date();
+    const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate(), 0, 0, 0, 0);
+    return dataSelecionada.getTime() < hoje.getTime();
+  };
+
   const getDiaRelativo = (isoDate?: string): string => {
     const match = String(isoDate || "")
       .trim()
@@ -1252,6 +1265,30 @@ export default function NovoAgendamentoModal({
     );
   };
 
+  const liberarFluxoRetroativoAdmin = () => {
+    if (!isAdmin) {
+      setErroSugestoes("Apenas administradores podem registrar agendamento retroativo.");
+      return;
+    }
+    if (!ofertasPanoramicasConsultadas) {
+      setErroSugestoes("Gere as ofertas primeiro para registrar a tentativa do assistente.");
+      return;
+    }
+    if (!isDataPassada(formData.data)) {
+      setErroSugestoes("Fluxo retroativo disponivel apenas para datas passadas.");
+      return;
+    }
+    setDecisaoAssistente("sem_opcao");
+    setExcecaoConcedida(true);
+    if (!(motivoSemOpcao || "").trim()) {
+      setMotivoSemOpcao("Registro retroativo: atendimento realizado e lancado apos a data original.");
+    }
+    setErroSugestoes("");
+    setMensagemSugestoes(
+      "Modo retroativo liberado por admin. Revise data/hora, confirme o motivo e salve o agendamento."
+    );
+  };
+
   const registrarDesfechoSemAgendamento = async (
     tipo: "solicitacao_excecao" | "encerramento_sem_agendamento"
   ) => {
@@ -1830,6 +1867,7 @@ export default function NovoAgendamentoModal({
   const bloquearDataManual = bloqueioManualAssistenteAtivo && assistenteProntoParaSugerir;
   const bloquearHoraManual = bloqueioManualAssistenteAtivo;
   const semOpcaoSemExcecao = !isEditando && decisaoAssistente === "sem_opcao" && !excecaoManualLiberada;
+  const dataSelecionadaPassada = !isEditando && isDataPassada(formData.data);
   const bloquearSalvarNovo =
     !isEditando &&
     (
@@ -2144,6 +2182,27 @@ export default function NovoAgendamentoModal({
             {mensagemSugestoes && !erroSugestoes && (
               <div className="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs text-blue-700">
                 {mensagemSugestoes}
+              </div>
+            )}
+
+            {!isEditando && assistenteProntoParaSugerir && ofertasPanoramicasConsultadas && totalSugestoes === 0 && dataSelecionadaPassada && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 space-y-2">
+                <div className="text-xs text-amber-900">
+                  Data passada detectada sem oferta operacional. Para lancamento retroativo, e obrigatorio registrar justificativa.
+                </div>
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    onClick={liberarFluxoRetroativoAdmin}
+                    className="px-3 py-1.5 rounded-md bg-amber-600 text-white text-xs hover:bg-amber-700"
+                  >
+                    Liberar lancamento retroativo (admin)
+                  </button>
+                ) : (
+                  <div className="text-xs text-amber-800">
+                    Seu perfil nao pode liberar lancamento retroativo. Solicite um administrador.
+                  </div>
+                )}
               </div>
             )}
 
