@@ -203,6 +203,69 @@ class AgendaAssistenteOrquestradorTest(unittest.TestCase):
         datas_consultadas = [chamada.kwargs["payload"].data for chamada in mocked_panorama.call_args_list]
         self.assertEqual(datas_consultadas, ["2026-05-26", "2026-05-27", "2026-05-23"])
 
+    def test_orquestrador_busca_dias_seguintes_quando_panorama_inicial_vazio(self) -> None:
+        payload = agenda.AssistenteOfertaPayload(
+            clinica_id=1,
+            data="2030-06-01",
+            data_contato="2030-06-01",
+            servico_id=1,
+            duracao_minutos=30,
+            intervalo_minutos=30,
+            limite=8,
+            perfil_deslocamento="comercial",
+            limite_minutos=25,
+        )
+        proximidade_mock = {
+            "ok": True,
+            "sugerir": False,
+            "mensagem": "mock proximidade",
+            "politica_oferta": {
+                "distante_base": True,
+                "baixa_frequencia": True,
+                "ancora_d2": False,
+                "datas_preferenciais": ["2030-06-04", "2030-06-05"],
+            },
+            "item": None,
+        }
+
+        def _mock_panorama(*, payload, db, current_user):
+            if str(payload.data) == "2030-06-07":
+                return {
+                    "ok": True,
+                    "data": "2030-06-07",
+                    "items": [{"inicio": "2030-06-07 10:00", "fim": "2030-06-07 10:30", "anterior": {}, "proximo": {}}],
+                    "motivo": "",
+                    "itens_ignorados_janela": 0,
+                }
+            return {
+                "ok": True,
+                "data": str(payload.data),
+                "items": [],
+                "motivo": "sem horario util",
+                "itens_ignorados_janela": 0,
+            }
+
+        with self._session_factory() as db, patch.object(
+            agenda, "sugerir_agendamento_proximo", return_value=proximidade_mock
+        ), patch.object(
+            agenda, "sugerir_horarios_agenda", side_effect=_mock_panorama
+        ) as mocked_panorama, patch.object(
+            agenda, "_registrar_evento_funil_assistente", return_value=None
+        ):
+            resposta = agenda.orquestrar_ofertas_assistente(
+                payload=payload,
+                request=None,
+                db=db,
+                current_user=self._admin(),
+            )
+
+        self.assertTrue(resposta["ok"])
+        self.assertEqual(resposta["origem_data_automatica"], "progressao_dias")
+        self.assertEqual(resposta["data_base"], "2030-06-07")
+        self.assertIn("busca progressiva", str(resposta.get("mensagem_panorama") or "").lower())
+        datas_consultadas = [chamada.kwargs["payload"].data for chamada in mocked_panorama.call_args_list]
+        self.assertEqual(datas_consultadas, ["2030-06-04", "2030-06-05", "2030-06-01", "2030-06-06", "2030-06-07"])
+
 
 class AgendaAssistenteMetricasTest(unittest.TestCase):
     def setUp(self) -> None:

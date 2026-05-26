@@ -27,6 +27,7 @@ Status: done
 | CA-017 | aceitacao | `sugerir_horarios_agenda` usa duracao oficial do servico quando `servico_id` existe, ignorando payload divergente | ok |
 | CA-018 | aceitacao | `sugerir_agendamento_proximo` passa a usar deslocamento total do slot (`anterior + proximo`) para ranking e mensagem | ok |
 | CA-019 | aceitacao | conflito operacional no salvar permite override apenas para admin via `confirmar_conflito_deslocamento`; nao-admin recebe `403` | ok |
+| CA-020 | aceitacao | `test_orquestrador_busca_dias_seguintes_quando_panorama_inicial_vazio` valida busca progressiva D+N ate primeira data com oferta | ok |
 | NFR-002 | nao funcional | decisao anexada em `observacoesFinal` no submit | ok |
 
 ## 2) Testes automatizados executados
@@ -37,6 +38,7 @@ Comandos:
 cd frontend && npx eslint app/agenda/NovoAgendamentoModal.tsx
 python3 -m py_compile backend/app/api/v1/endpoints/agenda.py backend/tests/test_agenda_sugestao_janela_operacional.py backend/tests/test_agenda_duracao_servico_create.py
 cd backend && ./venv/bin/python -m pytest -q tests/test_agenda_sugestao_janela_operacional.py tests/test_agenda_duracao_servico_create.py
+cd backend && ./venv/bin/python -m pytest -q tests/test_agenda_assistente_orquestrador_metricas.py
 # evidencias de CI
 gh run view 26316967933 --json jobs --jq '.jobs[] | {name, conclusion}'
 ```
@@ -45,6 +47,7 @@ Resumo dos resultados:
 - ESLint: ok.
 - PyCompile backend: ok.
 - Pytest `test_agenda_sugestao_janela_operacional.py` + `test_agenda_duracao_servico_create.py`: `23 passed`.
+- Pytest `test_agenda_assistente_orquestrador_metricas.py`: `5 passed`.
 - CI `Deploy to Stage (VPS)` run `26316967933`: `quality-gate=success`, `sdd-guardrail=failure` (falta de docs neste commit), sem falha funcional de codigo.
 
 ## 3) Testes manuais sugeridos (stage)
@@ -68,6 +71,7 @@ Resumo dos resultados:
 - Cenario 17: na proximidade, validar caso com vizinho anterior e posterior no slot sugerido -> deslocamento exibido deve refletir soma dos dois lados.
 - Cenario 18: provocar `CONFLITO_DESLOCAMENTO` no salvar; com perfil admin confirmar excecao no popup e validar persistencia do agendamento.
 - Cenario 19: repetir o mesmo conflito com perfil nao-admin e validar ausencia de override (mensagem orientativa + bloqueio).
+- Cenario 20: sem slots em D+2/D+3/D+4 (agenda cheia ou fechada), clicar `Gerar melhor oferta` e validar que o assistente avanca automaticamente para D+5, D+6... ate retornar a primeira data com ofertas.
 
 ## 4) Regressao e riscos residuais
 

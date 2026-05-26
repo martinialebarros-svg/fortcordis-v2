@@ -31,6 +31,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - RF-019: na geracao de ofertas do assistente, quando houver `servico_id`, a duracao considerada deve vir sempre do cadastro do servico (fonte de verdade), ignorando `duracao_minutos` divergente enviada pelo frontend.
 - RF-020: no assistente de proximidade, o tempo exibido/ranqueado deve usar o deslocamento total do slot sugerido, somando deslocamento do vizinho anterior e do vizinho posterior quando existirem.
 - RF-021: em bloqueio operacional por conflito de deslocamento no salvar, admin deve poder conceder excecao explicita no proprio fluxo e confirmar o agendamento.
+- RF-022: quando as datas iniciais (manual/politica/proximidade) nao retornarem nenhum slot util no panorama, o assistente deve continuar buscando automaticamente nos dias seguintes (D+N progressivo) ate encontrar a primeira data com oferta valida.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -80,6 +81,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - CA-017: se o frontend enviar `duracao_minutos` maior que a duracao cadastrada do servico, a API de sugestoes deve prevalecer a duracao do servico e retornar oferta com janela correta.
 - CA-018: o `POST /agenda/sugestao-proximidade` deve ranquear e reportar deslocamento com base no slot operacional escolhido (`anterior + proximo`), mantendo consistencia com `POST /agenda/sugestoes-horario`.
 - CA-019: diante de `CONFLITO_DESLOCAMENTO` no `POST /agenda`, admin pode confirmar excecao operacional e reenviar com `confirmar_conflito_deslocamento=true`; perfis nao-admin devem receber `403` se tentarem o override.
+- CA-020: se o panorama vier vazio nas datas iniciais de tentativa, o `POST /agenda/assistente/ofertas` deve avancar para os dias subsequentes e retornar a primeira data futura com slots, marcando a origem automatica como busca progressiva.
 
 ## 7) Casos de borda
 
@@ -88,6 +90,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - CB-003: sugestao de proximidade aplicada automaticamente sem ofertas validas deve cair em `sem_opcao` com orientacao de motivo/excecao.
 - CB-004: quando existir ancora em D+2 ou D+3 para clinica proxima da base, a regra de prioridade D0 nao deve ser aplicada.
 - CB-005: quando o fluxo de proximidade buscar slots operacionais relacionados a ancora, a selecao automatica deve respeitar a ordenacao do backend para nao antecipar slot antes de `ancora + 60`.
+- CB-006: quando nao houver nenhum slot util em D+2/D+3/D+4 por agenda cheia/fechada, o assistente deve continuar para D+5, D+6... ate encontrar o primeiro dia viavel.
 
 ## 8) Fora de escopo
 
