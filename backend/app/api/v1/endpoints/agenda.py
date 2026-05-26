@@ -63,6 +63,7 @@ AGENDA_STATUS_PRE_AGENDADOS = {"Agendado", "Reservado", "Confirmado"}
 AGENDA_STATUS_NAO_ANCORA = {"Cancelado", "Faltou"}
 MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN = 5
 AGENDA_WRITE_LOCK_KEY = 24052301
+ASSISTENTE_BUSCA_PROGRESSIVA_MAX_DIAS = 30
 
 
 def _usuario_tem_papel(usuario: Any, papel: str) -> bool:
@@ -2675,6 +2676,10 @@ def orquestrar_ofertas_assistente(
     data_referencia = _extract_date_filter(payload.data) if payload.data else datetime.now(LOCAL_TZ).date().isoformat()
     if not data_referencia:
         raise HTTPException(status_code=422, detail="Data invalida. Use o formato YYYY-MM-DD.")
+    try:
+        data_referencia_ref = datetime.strptime(data_referencia, "%Y-%m-%d").date()
+    except ValueError:
+        data_referencia_ref = datetime.now(LOCAL_TZ).date()
     data_contato = (
         _extract_date_filter(payload.data_contato)
         if payload.data_contato
@@ -2776,16 +2781,63 @@ def orquestrar_ofertas_assistente(
         if isinstance(items_tentativa, list) and items_tentativa:
             break
 
+    items_panorama = resposta_panorama.get("items") if isinstance(resposta_panorama, dict) else []
+    items_panorama = items_panorama if isinstance(items_panorama, list) else []
+    hoje_local_ref = datetime.now(LOCAL_TZ).date()
+    if not items_panorama and data_referencia_ref >= hoje_local_ref:
+        datas_tentadas_set = set(datas_tentadas_panorama)
+        datas_candidatas_ref: list[date] = []
+        for data_candidata, _origem in candidatos_data_base:
+            try:
+                datas_candidatas_ref.append(datetime.strptime(data_candidata, "%Y-%m-%d").date())
+            except ValueError:
+                continue
+
+        data_cursor = max(datas_candidatas_ref) if datas_candidatas_ref else data_referencia_ref
+        dias_busca_progressiva = 0
+        while dias_busca_progressiva < ASSISTENTE_BUSCA_PROGRESSIVA_MAX_DIAS:
+            dias_busca_progressiva += 1
+            data_cursor = data_cursor + timedelta(days=1)
+            data_cursor_iso = data_cursor.isoformat()
+            if data_cursor_iso in datas_tentadas_set:
+                continue
+
+            resposta_tentativa = sugerir_horarios_agenda(
+                payload=SugestaoHorarioPayload(
+                    data=data_cursor_iso,
+                    clinica_id=payload.clinica_id,
+                    servico_id=payload.servico_id,
+                    duracao_minutos=payload.duracao_minutos,
+                    intervalo_minutos=payload.intervalo_minutos,
+                    limite=payload.limite,
+                    perfil_deslocamento=payload.perfil_deslocamento,
+                    ignorar_agendamento_id=payload.ignorar_agendamento_id,
+                ),
+                db=db,
+                current_user=current_user,
+            )
+            datas_tentadas_panorama.append(data_cursor_iso)
+            datas_tentadas_set.add(data_cursor_iso)
+            resposta_panorama = resposta_tentativa if isinstance(resposta_tentativa, dict) else resposta_panorama
+            data_base = data_cursor_iso
+            origem_data_automatica = "progressao_dias"
+            items_tentativa = resposta_panorama.get("items") if isinstance(resposta_panorama, dict) else []
+            items_panorama = items_tentativa if isinstance(items_tentativa, list) else []
+            if items_panorama:
+                break
+
     mudou_data_base = data_base != data_referencia
     if origem_data_automatica == "proximidade" and mudou_data_base:
         prefixo_mensagem = f"Sugestoes calculadas automaticamente para {data_base} com base no agendamento proximo."
     elif origem_data_automatica == "politica":
         prefixo_mensagem = f"Sugestoes calculadas automaticamente para {data_base} conforme politica de oferta (rota/frequencia)."
+    elif origem_data_automatica == "progressao_dias":
+        prefixo_mensagem = (
+            f"Sugestoes calculadas automaticamente para {data_base} apos busca progressiva nos dias seguintes."
+        )
     else:
         prefixo_mensagem = ""
 
-    items_panorama = resposta_panorama.get("items") if isinstance(resposta_panorama, dict) else []
-    items_panorama = items_panorama if isinstance(items_panorama, list) else []
     motivo_panorama = str((resposta_panorama or {}).get("motivo") or "").strip() if isinstance(resposta_panorama, dict) else ""
     if not items_panorama:
         mensagem_panorama = f"{prefixo_mensagem} {motivo_panorama or 'Nenhum horario operacional encontrado para essa data.'}".strip()

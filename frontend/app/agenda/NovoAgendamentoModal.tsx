@@ -152,7 +152,7 @@ interface AssistenteOfertaResponse {
   data_referencia: string;
   data_contato?: string;
   data_base: string;
-  origem_data_automatica: "manual" | "proximidade" | "politica";
+  origem_data_automatica: "manual" | "proximidade" | "politica" | "progressao_dias";
   politica_oferta?: SugestaoProximidadeResponse["politica_oferta"];
   sugestao_proximidade?: SugestaoProximidadeResponse | null;
   panorama_ofertas?: SugestoesHorarioResponse | null;
