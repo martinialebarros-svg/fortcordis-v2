@@ -700,7 +700,6 @@ def _listar_agendamentos_ativos_periodo(
                     data_sem_vazio <= data_fim_iso,
                 ),
                 and_(
-                    data_sem_vazio.is_(None),
                     func.date(Agendamento.inicio) >= data_inicio_iso,
                     func.date(Agendamento.inicio) <= data_fim_iso,
                 ),
@@ -2056,14 +2055,14 @@ def sugerir_horarios_agenda(
             "items": [],
         }
 
-    agendamentos_dia = _listar_agendamentos_ativos_do_dia(
+    agendamentos_dia_todos = _listar_agendamentos_ativos_do_dia(
         db,
         data_iso,
         agendamento_id_excluir=payload.ignorar_agendamento_id,
     )
     agendamentos_dia = _filtrar_agendamentos_por_janela_funcionamento(
         db,
-        agendamentos_dia,
+        agendamentos_dia_todos,
         cache_janelas={data_iso: (janela_inicio, janela_fim, None)},
     )
     ancoras_mesma_clinica_inicio = sorted(
@@ -2114,7 +2113,7 @@ def sugerir_horarios_agenda(
 
         conflita = any(
             inicio_candidato < item["fim"] and fim_candidato > item["inicio"]
-            for item in agendamentos_dia
+            for item in agendamentos_dia_todos
         )
         if conflita:
             inicio_candidato += timedelta(minutes=intervalo_minutos)

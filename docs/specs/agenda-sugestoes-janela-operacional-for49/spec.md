@@ -25,6 +25,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - RF-013: suite automatizada de agenda deve usar datas de cenario estaveis para evitar flakiness temporal no CI quando regras de "horario passado" evoluirem.
 - RF-014: `POST /agenda/sugestao-proximidade` deve validar aderencia operacional com a mesma logica de `POST /agenda/sugestoes-horario`, ignorando ancoras sem slot viavel na data sugerida.
 - RF-015: `POST /agenda/sugestoes-horario` nao pode sugerir slot ocupado quando houver drift legado entre `agendamentos.data/hora` e `agendamentos.inicio/fim`; a deteccao de conflito deve normalizar o intervalo local pelo `data+hora` do agendamento.
+- RF-016: `POST /agenda/sugestoes-horario` nao pode perder conflito por causa de `agendamentos.data` legado invalido (ex.: `DD/MM/YYYY`); a selecao de ocupacao deve considerar tambem a data derivada de `inicio`.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -41,7 +42,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - Alteracao: resposta inclui campo adicional `itens_ignorados_janela`, passa a filtrar candidatos por janela operacional e recebe parametros opcionais de contexto operacional (`servico_id`, `duracao_minutos`, `intervalo_minutos`, `limite_sugestoes_operacionais`) para validar slot viavel antes de sugerir ancora.
 
 - Endpoint: `POST /agenda/sugestoes-horario`
-- Alteracao: filtragem previa de agendamentos ativos do dia para remover legados fora da janela operacional antes da avaliacao de conflitos/vizinhos.
+- Alteracao: conflitos de ocupacao passam a considerar toda agenda ativa do dia; a filtragem por janela operacional fica restrita ao calculo de vizinhos/score e heuristicas de rota.
 
 ### Backend
 
@@ -59,7 +60,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - CA-001: `_existe_ancora_proxima_no_dia` retorna `False` quando o dia esta fechado, mesmo havendo agendamento gravado.
 - CA-002: `POST /agenda/sugestao-proximidade` ignora ancora fora da janela ativa e seleciona apenas ancoras validas.
 - CA-003: quando houver descartes por agenda fechada/janela, resposta de proximidade retorna `itens_ignorados_janela > 0`.
-- CA-004: `POST /agenda/sugestoes-horario` nao usa legados fora da janela ativa para bloquear ou distorcer score.
+- CA-004: `POST /agenda/sugestoes-horario` nao usa legados fora da janela ativa para distorcer vizinhos/score, mas continua bloqueando conflito real de ocupacao no mesmo horario.
 - CA-005: para data de hoje, `POST /agenda/sugestoes-horario` retorna apenas slots futuros (com arredondamento para o proximo intervalo configurado).
 - CA-006: clinica distante/baixa frequencia sem ancora D+2 nao recebe sugestao de proximidade em D+2; resposta preserva `datas_preferenciais` para oferta em D+3/D+4.
 - CA-007: quando nao houver duracao confiavel na matriz para D+2, mas existir ao menos 1 agendamento pre-agendado na mesma cidade/UF, a politica deve considerar `ancora_d2=true` e permitir oferta em D+2.
@@ -70,6 +71,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - CA-012: testes de janela/sugestao mantem resultado deterministico ao longo do tempo (nao quebram apenas pela data corrente do runner).
 - CA-013: `POST /agenda/sugestao-proximidade` deve descartar ancora quando `POST /agenda/sugestoes-horario` nao encontra slot operacional aderente a essa ancora na mesma data.
 - CA-014: se existir agendamento com `data/hora` ocupando um slot e `inicio/fim` driftado para outro dia, o assistente nao deve ofertar esse slot como livre.
+- CA-015: se existir agendamento com `inicio` no dia e `data` legado em formato invalido, o assistente ainda deve bloquear esse horario como ocupado.
 
 ## 7) Casos de borda
 
@@ -79,6 +81,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - CB-004: clinicas no mesmo bairro/regiao com cadastro textual divergente de cidade/UF.
 - CB-005: data-base igual ao dia atual com ultimo atendimento ja encerrado (evitar oferta de horario vencido).
 - CB-006: ancora com deslocamento "bom", mas sem nenhum slot operacional viavel na data (janela curta, conflito de folga ou desvio).
+- CB-007: agendamento legado com coluna `data` fora do padrao ISO (ex.: `26/05/2026`) deve continuar bloqueando o slot real ocupado.
 
 ## 8) Fora de escopo
 
