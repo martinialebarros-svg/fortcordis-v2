@@ -13,7 +13,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
@@ -21,7 +21,7 @@ from app.db.database import get_db
 from app.models.agendamento import Agendamento
 from app.models.clinica import Clinica
 from app.models.clinica_deslocamento import ClinicaDeslocamento
-from app.models.financeiro import ConfigRateioFrota, CustoFrota, Transacao
+from app.models.financeiro import ConfigRateioFrota, CustoFrota, CreditoFinanceiro, Transacao
 from app.models.ordem_servico import OrdemServico
 from app.models.servico import Servico
 from app.models.user import User
@@ -689,6 +689,88 @@ def relatorio_controle_gerencial(
         data_inicio=inicio_mes_ref,
         data_fim=referencia,
         clinica_ids_filter=clinica_ids_financeiro,
+    )
+
+    filtros_taxa_periodo = [
+        Transacao.tipo == "entrada",
+        Transacao.status.in_(["Recebido", "Pago"]),
+        func.date(Transacao.data_transacao) >= inicio.isoformat(),
+        func.date(Transacao.data_transacao) <= fim.isoformat(),
+    ]
+    filtros_taxa_mes = [
+        Transacao.tipo == "entrada",
+        Transacao.status.in_(["Recebido", "Pago"]),
+        func.date(Transacao.data_transacao) >= inicio_mes_ref.isoformat(),
+        func.date(Transacao.data_transacao) <= referencia.isoformat(),
+    ]
+    if clinica_ids_financeiro is not None:
+        if clinica_ids_financeiro:
+            filtros_taxa_periodo.append(Transacao.clinica_id.in_(clinica_ids_financeiro))
+            filtros_taxa_mes.append(Transacao.clinica_id.in_(clinica_ids_financeiro))
+        else:
+            filtros_taxa_periodo.append(Transacao.id == -1)
+            filtros_taxa_mes.append(Transacao.id == -1)
+
+    taxas_pagamento_periodo = (
+        db.query(func.sum(Transacao.valor_taxa))
+        .filter(*filtros_taxa_periodo)
+        .scalar()
+        or 0
+    )
+    taxas_pagamento_mes = (
+        db.query(func.sum(Transacao.valor_taxa))
+        .filter(*filtros_taxa_mes)
+        .scalar()
+        or 0
+    )
+
+    filtros_credito_periodo = [
+        CreditoFinanceiro.origem == "excedente_pagamento_os",
+        CreditoFinanceiro.status == "Ativo",
+        func.date(CreditoFinanceiro.data_movimento) >= inicio.isoformat(),
+        func.date(CreditoFinanceiro.data_movimento) <= fim.isoformat(),
+    ]
+    filtros_credito_mes = [
+        CreditoFinanceiro.origem == "excedente_pagamento_os",
+        CreditoFinanceiro.status == "Ativo",
+        func.date(CreditoFinanceiro.data_movimento) >= inicio_mes_ref.isoformat(),
+        func.date(CreditoFinanceiro.data_movimento) <= referencia.isoformat(),
+    ]
+    if clinica_ids_financeiro is not None:
+        if clinica_ids_financeiro:
+            filtros_credito_periodo.append(
+                or_(
+                    CreditoFinanceiro.clinica_id.in_(clinica_ids_financeiro),
+                    and_(
+                        CreditoFinanceiro.clinica_id.is_(None),
+                        CreditoFinanceiro.paciente_id.isnot(None),
+                    ),
+                )
+            )
+            filtros_credito_mes.append(
+                or_(
+                    CreditoFinanceiro.clinica_id.in_(clinica_ids_financeiro),
+                    and_(
+                        CreditoFinanceiro.clinica_id.is_(None),
+                        CreditoFinanceiro.paciente_id.isnot(None),
+                    ),
+                )
+            )
+        else:
+            filtros_credito_periodo.append(CreditoFinanceiro.id == -1)
+            filtros_credito_mes.append(CreditoFinanceiro.id == -1)
+
+    creditos_gerados_periodo = (
+        db.query(func.sum(CreditoFinanceiro.valor))
+        .filter(*filtros_credito_periodo)
+        .scalar()
+        or 0
+    )
+    creditos_gerados_mes = (
+        db.query(func.sum(CreditoFinanceiro.valor))
+        .filter(*filtros_credito_mes)
+        .scalar()
+        or 0
     )
 
     valor_servicos_periodo = _aplicar_filtros_os(
@@ -1406,6 +1488,8 @@ def relatorio_controle_gerencial(
                 "entradas_recebidas": round(entradas_periodo, 2),
                 "saidas_pagas": round(saidas_periodo, 2),
                 "saldo": round(entradas_periodo - saidas_periodo, 2),
+                "taxas_pagamento": round(_to_float(taxas_pagamento_periodo), 2),
+                "creditos_gerados": round(_to_float(creditos_gerados_periodo), 2),
                 "valor_total_servicos": round(_to_float(valor_servicos_periodo), 2),
                 "quantidade_servicos": int(qtd_servicos_periodo or 0),
             },
@@ -1415,6 +1499,8 @@ def relatorio_controle_gerencial(
                 "entradas_recebidas": round(entradas_mes, 2),
                 "saidas_pagas": round(saidas_mes, 2),
                 "saldo": round(entradas_mes - saidas_mes, 2),
+                "taxas_pagamento": round(_to_float(taxas_pagamento_mes), 2),
+                "creditos_gerados": round(_to_float(creditos_gerados_mes), 2),
                 "valor_total_servicos_realizados": valor_servicos_mes_float,
                 "quantidade_servicos_realizados": qtd_servicos_mes_int,
                 "ticket_medio_servico": ticket_medio_mes,
@@ -1561,8 +1647,12 @@ def _gerar_csv_relatorio_controle(payload: dict, secoes: list[str]) -> bytes:
         writer.writerow(["Entradas recebidas periodo", _formatar_moeda_brl(financeiro_periodo.get("entradas_recebidas", 0))])
         writer.writerow(["Saidas pagas periodo", _formatar_moeda_brl(financeiro_periodo.get("saidas_pagas", 0))])
         writer.writerow(["Saldo periodo", _formatar_moeda_brl(financeiro_periodo.get("saldo", 0))])
+        writer.writerow(["Taxas de pagamento periodo", _formatar_moeda_brl(financeiro_periodo.get("taxas_pagamento", 0))])
+        writer.writerow(["Creditos gerados periodo", _formatar_moeda_brl(financeiro_periodo.get("creditos_gerados", 0))])
         writer.writerow(["Valor total servicos periodo", _formatar_moeda_brl(financeiro_periodo.get("valor_total_servicos", 0))])
         writer.writerow(["Valor total servicos mes", _formatar_moeda_brl(financeiro_mes.get("valor_total_servicos_realizados", 0))])
+        writer.writerow(["Taxas de pagamento mes", _formatar_moeda_brl(financeiro_mes.get("taxas_pagamento", 0))])
+        writer.writerow(["Creditos gerados mes", _formatar_moeda_brl(financeiro_mes.get("creditos_gerados", 0))])
         writer.writerow([])
 
         writer.writerow(["Financeiro - Clinicas maior faturamento"])
@@ -1763,6 +1853,8 @@ def _gerar_pdf_relatorio_controle(payload: dict, secoes: list[str]) -> bytes:
             ["Taxa falta", _formatar_numero(producao.get("taxa_falta_percent", 0)) + "%"],
             ["Valor servicos no mes", _formatar_moeda_brl(financeiro_mes.get("valor_total_servicos_realizados", 0))],
             ["Retorno por km no mes", _formatar_moeda_brl(financeiro_mes.get("retorno_por_km", 0))],
+            ["Taxas de pagamento no mes", _formatar_moeda_brl(financeiro_mes.get("taxas_pagamento", 0))],
+            ["Creditos gerados no mes", _formatar_moeda_brl(financeiro_mes.get("creditos_gerados", 0))],
         ]
         tabela_resumo = Table(resumo_rows, colWidths=[90 * mm, 80 * mm], repeatRows=1)
         tabela_resumo.setStyle(
@@ -1791,8 +1883,12 @@ def _gerar_pdf_relatorio_controle(payload: dict, secoes: list[str]) -> bytes:
                 ["Entradas recebidas (periodo)", _formatar_moeda_brl(financeiro_periodo.get("entradas_recebidas", 0))],
                 ["Saidas pagas (periodo)", _formatar_moeda_brl(financeiro_periodo.get("saidas_pagas", 0))],
                 ["Saldo (periodo)", _formatar_moeda_brl(financeiro_periodo.get("saldo", 0))],
+                ["Taxas de pagamento (periodo)", _formatar_moeda_brl(financeiro_periodo.get("taxas_pagamento", 0))],
+                ["Creditos gerados (periodo)", _formatar_moeda_brl(financeiro_periodo.get("creditos_gerados", 0))],
                 ["Valor servicos (periodo)", _formatar_moeda_brl(financeiro_periodo.get("valor_total_servicos", 0))],
                 ["Valor servicos (mes)", _formatar_moeda_brl(financeiro_mes.get("valor_total_servicos_realizados", 0))],
+                ["Taxas de pagamento (mes)", _formatar_moeda_brl(financeiro_mes.get("taxas_pagamento", 0))],
+                ["Creditos gerados (mes)", _formatar_moeda_brl(financeiro_mes.get("creditos_gerados", 0))],
             ],
             colWidths=[95 * mm, 75 * mm],
             repeatRows=1,

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check } from "lucide-react";
 import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
+import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
 import {
   AgendaExcecaoConfig,
   AgendaFeriadoConfig,
@@ -321,6 +322,14 @@ const formatarResumoPaciente = (paciente: PacienteOption): string => {
   return detalhes.join(" - ");
 };
 
+const formatarMoedaBRL = (valor: number): string => {
+  return Number(valor || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 2,
+  });
+};
+
 const rotularFonteDeslocamento = (fonte?: string | null): string => {
   const valor = String(fonte || "").trim().toLowerCase();
   if (!valor) return "Fonte nao informada";
@@ -554,6 +563,9 @@ export default function NovoAgendamentoModal({
   const [salvandoAnimal, setSalvandoAnimal] = useState(false);
   const [novoTutor, setNovoTutor] = useState<NovoTutorForm>(buildInitialTutorForm());
   const [novoAnimal, setNovoAnimal] = useState<NovoAnimalForm>(buildInitialAnimalForm());
+  const [saldoCreditoCliente, setSaldoCreditoCliente] = useState(0);
+  const [carregandoCreditoCliente, setCarregandoCreditoCliente] = useState(false);
+  const [erroCreditoCliente, setErroCreditoCliente] = useState("");
 
   const [formData, setFormData] = useState<FormDataAgenda>(
     buildInitialFormData(defaultDate, defaultTime)
@@ -784,10 +796,61 @@ export default function NovoAgendamentoModal({
     setMensagemProximidade("");
     setSugestaoProximidade(null);
     setDataContatoAssistente("");
+    setSaldoCreditoCliente(0);
+    setCarregandoCreditoCliente(false);
+    setErroCreditoCliente("");
     setInteracaoProximidade({ clinica: false, servico: false, data: false });
     popupProximidadeHistoricoRef.current = {};
     sequenciaConsultaProximidadeRef.current = 0;
   }, [defaultDate, defaultTime, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || isEditando) {
+      setSaldoCreditoCliente(0);
+      setCarregandoCreditoCliente(false);
+      setErroCreditoCliente("");
+      return;
+    }
+
+    const tutorId = Number.parseInt(formData.tutor_id || "", 10);
+    const pacienteId = Number.parseInt(formData.paciente_id || "", 10);
+    const tutorValido = Number.isFinite(tutorId) && tutorId > 0;
+    const pacienteValido = Number.isFinite(pacienteId) && pacienteId > 0;
+
+    if (!tutorValido && !pacienteValido) {
+      setSaldoCreditoCliente(0);
+      setCarregandoCreditoCliente(false);
+      setErroCreditoCliente("");
+      return;
+    }
+
+    let ativo = true;
+    setCarregandoCreditoCliente(true);
+    setErroCreditoCliente("");
+
+    (async () => {
+      try {
+        const saldo = await consultarSaldoCreditoCliente({
+          tutorId: tutorValido ? tutorId : null,
+          pacienteId: pacienteValido ? pacienteId : null,
+        });
+        if (!ativo) return;
+        setSaldoCreditoCliente(saldo > 0 ? saldo : 0);
+      } catch (error) {
+        console.error("Erro ao consultar saldo de credito do cliente:", error);
+        if (!ativo) return;
+        setSaldoCreditoCliente(0);
+        setErroCreditoCliente("Nao foi possivel consultar o credito do cliente no momento.");
+      } finally {
+        if (!ativo) return;
+        setCarregandoCreditoCliente(false);
+      }
+    })();
+
+    return () => {
+      ativo = false;
+    };
+  }, [formData.paciente_id, formData.tutor_id, isEditando, isOpen]);
 
   const carregarDados = async () => {
     const extrairItems = (payload: any): any[] => {
@@ -1868,6 +1931,7 @@ export default function NovoAgendamentoModal({
   const bloquearHoraManual = bloqueioManualAssistenteAtivo;
   const semOpcaoSemExcecao = !isEditando && decisaoAssistente === "sem_opcao" && !excecaoManualLiberada;
   const dataSelecionadaPassada = !isEditando && isDataPassada(formData.data);
+  const clienteComCredito = !isEditando && saldoCreditoCliente > 0;
   const bloquearSalvarNovo =
     !isEditando &&
     (
@@ -2255,6 +2319,25 @@ export default function NovoAgendamentoModal({
             {!isEditando && decisaoAssistente === "aceito" && (
               <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
                 Aceite do cliente registrado. Agora basta salvar o agendamento.
+              </div>
+            )}
+
+            {!isEditando && carregandoCreditoCliente && (
+              <div className="rounded-md border border-cyan-200 bg-cyan-50 px-2 py-1 text-xs text-cyan-800">
+                Verificando se o cliente possui credito disponivel...
+              </div>
+            )}
+
+            {!isEditando && erroCreditoCliente && !carregandoCreditoCliente && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                {erroCreditoCliente}
+              </div>
+            )}
+
+            {clienteComCredito && !carregandoCreditoCliente && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Cliente com credito ativo: <strong>{formatarMoedaBRL(saldoCreditoCliente)}</strong>. Confirme com
+                o cliente se deseja abater esse valor neste novo agendamento.
               </div>
             )}
 

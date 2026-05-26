@@ -34,6 +34,8 @@ export default function RelatoriosFinanceiroView({
   const pendenciasOs = relatorio.insights_avancados.pendencias_recebimento?.valor_total_pendente || 0;
   const aReceberConsolidado = aReceber + pendenciasOs;
   const aPagar = totalContasPendentes(financeiroContexto?.contas_pagar, ["Pendente", "Atrasado"]);
+  const taxasPagamentoPeriodo = relatorio.financeiro.periodo.taxas_pagamento || 0;
+  const creditosGeradosPeriodo = relatorio.financeiro.periodo.creditos_gerados || 0;
 
   return (
     <div className="space-y-4">
@@ -68,6 +70,21 @@ export default function RelatoriosFinanceiroView({
           icon={Receipt}
           iconColorClass="text-red-600"
           emphasis="negative"
+        />
+        <MetricCard
+          titulo="Taxas de pagamento"
+          valor={formatarMoeda(taxasPagamentoPeriodo)}
+          descricao="Desconto operacional por meio de pagamento"
+          icon={Wallet}
+          iconColorClass="text-amber-600"
+          emphasis="negative"
+        />
+        <MetricCard
+          titulo="Creditos gerados"
+          valor={formatarMoeda(creditosGeradosPeriodo)}
+          descricao="Valor excedente convertido em credito"
+          icon={Landmark}
+          iconColorClass="text-cyan-600"
         />
       </div>
 
@@ -242,4 +259,3 @@ export default function RelatoriosFinanceiroView({
     </div>
   );
 }
-

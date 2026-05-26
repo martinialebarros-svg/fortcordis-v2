@@ -60,7 +60,7 @@ export default function VisualizarLaudoPage() {
     if (!laudoId) return;
     try {
       setLoading(true);
-      
+
       // Carregar laudo
       const respLaudo = await api.get(`/laudos/${laudoId}`);
       if (respLaudo.data.tipo === TIPO_LAUDO_ULTRASSOM_ABDOMINAL) {
@@ -68,7 +68,7 @@ export default function VisualizarLaudoPage() {
         return;
       }
       setLaudo(respLaudo.data);
-      
+
       // Carregar dados do paciente (agora vem no laudo)
       if (respLaudo.data.paciente) {
         setPaciente(respLaudo.data.paciente);
@@ -81,11 +81,11 @@ export default function VisualizarLaudoPage() {
           console.error("Erro ao carregar paciente:", e);
         }
       }
-      
+
       // Extrair medidas e qualitativa da descrição
       if (respLaudo.data.descricao) {
         const descricao = respLaudo.data.descricao;
-        
+
         // Extrair medidas (formato: - DIVEd: 1.50)
         // Regex atualizada para capturar nomes com underscores
         const medidasExtraidas: Record<string, string> = {};
@@ -95,7 +95,7 @@ export default function VisualizarLaudoPage() {
           medidasExtraidas[match[1]] = match[2];
         }
         setMedidas(medidasExtraidas);
-        
+
         // Extrair qualitativa
         const qualitativaExtraida: Record<string, string> = {};
         const regexQualitativa = /-\s*(valvas|camaras|funcao|pericardio|vasos|ad_vd):\s*(.+?)(?=\n-|$)/gi;
@@ -120,15 +120,15 @@ export default function VisualizarLaudoPage() {
       const response = await fetch(`/api/v1/laudos/${laudoId}/pdf`, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
-      
+
       if (!response.ok) {
         throw new Error('Erro ao baixar PDF');
       }
-      
+
       // Extrair nome do arquivo do header Content-Disposition
       let filename = `laudo_${laudoId}.pdf`;
       const contentDisposition = response.headers.get('content-disposition');
-      
+
       if (contentDisposition) {
         // Regex que aceita tanto filename="..." quanto filename=...
         const match = contentDisposition?.match(/filename="?([^";\s]+)"?/);
@@ -136,7 +136,7 @@ export default function VisualizarLaudoPage() {
           filename = match?.[1] || filename;
         }
       }
-      
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -198,7 +198,7 @@ export default function VisualizarLaudoPage() {
               <p className="text-gray-500">{laudo.titulo}</p>
             </div>
           </div>
-          
+
           <div className="flex gap-2">
             <button
               onClick={downloadPDF}
@@ -286,13 +286,12 @@ export default function VisualizarLaudoPage() {
 
           {/* Status */}
           <div className="mb-6">
-            <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
-              laudo.status === 'Finalizado' 
+            <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${laudo.status === 'Finalizado'
                 ? 'bg-green-100 text-green-800'
                 : laudo.status === 'Rascunho'
-                ? 'bg-gray-100 text-gray-800'
-                : 'bg-blue-100 text-blue-800'
-            }`}>
+                  ? 'bg-gray-100 text-gray-800'
+                  : 'bg-blue-100 text-blue-800'
+              }`}>
               {laudo.status}
             </span>
           </div>

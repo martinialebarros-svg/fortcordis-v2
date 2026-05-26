@@ -5,6 +5,14 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import TransacaoModal from "./TransacaoModal";
+import {
+  FORMA_PAGAMENTO_FALLBACK,
+  FORMA_PAGAMENTO_PADRAO,
+  descricaoFormaPagamentoConfig,
+  normalizarCodigoFormaPagamento,
+  type FormaPagamentoConfig,
+} from "@/lib/agenda-shared-actions";
+import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
 import { 
   DollarSign, TrendingUp, TrendingDown, Plus, Search, 
   Calendar, CheckCircle, XCircle, Clock, Edit, Trash2,
@@ -50,25 +58,29 @@ interface OrdemServico {
   created_at: string;
 }
 
+interface PagamentoRecebimentoItem {
+  id: string;
+  forma_codigo: string;
+  valor: string;
+}
+
 interface ClinicaOption {
   id: number;
   nome: string;
   telefone?: string | null;
 }
 
+interface BandeiraCartaoOption {
+  id: number;
+  nome: string;
+  codigo: string;
+  ativo: boolean;
+}
+
 interface ServicoOption {
   id: number;
   nome: string;
 }
-
-const FORMAS_PAGAMENTO = [
-  { id: "dinheiro", nome: "Dinheiro" },
-  { id: "cartao_credito", nome: "Cartao de Credito" },
-  { id: "cartao_debito", nome: "Cartao de Debito" },
-  { id: "pix", nome: "PIX" },
-  { id: "boleto", nome: "Boleto" },
-  { id: "transferencia", nome: "Transferencia" },
-];
 
 const CATEGORIAS_TRANSACAO = [
   { id: "consulta", nome: "Consulta" },
@@ -111,6 +123,8 @@ interface Resumo {
   a_pagar: number;
   pendente_entrada: number;
   pendente_saida: number;
+  taxas_pagamento: number;
+  creditos_gerados: number;
 }
 
 interface GrupoCobrancaClinica {
@@ -135,6 +149,8 @@ export default function FinanceiroPage() {
     a_pagar: 0,
     pendente_entrada: 0,
     pendente_saida: 0,
+    taxas_pagamento: 0,
+    creditos_gerados: 0,
   });
   const [periodo, setPeriodo] = useState("mes");
   const [loading, setLoading] = useState(true);
@@ -154,11 +170,20 @@ export default function FinanceiroPage() {
   const [abaAtiva, setAbaAtiva] = useState<"transacoes" | "cobrancas" | "ordens">("transacoes");
   const [modalReceberOS, setModalReceberOS] = useState<OrdemServico | null>(null);
   const [modalEditarOS, setModalEditarOS] = useState<OrdemServico | null>(null);
-  const [formaPagamentoOS, setFormaPagamentoOS] = useState("dinheiro");
+  const [formasPagamentoDisponiveis, setFormasPagamentoDisponiveis] = useState<FormaPagamentoConfig[]>(FORMA_PAGAMENTO_FALLBACK);
+  const [carregandoFormasPagamento, setCarregandoFormasPagamento] = useState(false);
+  const [pagamentosRecebimentoOS, setPagamentosRecebimentoOS] = useState<PagamentoRecebimentoItem[]>([]);
   const [dataRecebimentoOS, setDataRecebimentoOS] = useState("");
+  const [destinoCreditoExcedenteOS, setDestinoCreditoExcedenteOS] = useState<"cliente" | "clinica" | "nenhum">("cliente");
+  const [saldoCreditoClienteOS, setSaldoCreditoClienteOS] = useState(0);
+  const [carregandoSaldoCreditoClienteOS, setCarregandoSaldoCreditoClienteOS] = useState(false);
+  const [erroSaldoCreditoClienteOS, setErroSaldoCreditoClienteOS] = useState("");
+  const [usarCreditoClienteOS, setUsarCreditoClienteOS] = useState(false);
+  const [valorCreditoUtilizadoOS, setValorCreditoUtilizadoOS] = useState("0.00");
   const [salvandoOS, setSalvandoOS] = useState(false);
   const [clinicas, setClinicas] = useState<ClinicaOption[]>([]);
   const [servicos, setServicos] = useState<ServicoOption[]>([]);
+  const [bandeirasCartao, setBandeirasCartao] = useState<BandeiraCartaoOption[]>([]);
   const [formEditarOS, setFormEditarOS] = useState({
     clinica_id: "",
     servico_id: "",
@@ -218,6 +243,46 @@ export default function FinanceiroPage() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!modalReceberOS) {
+      setSaldoCreditoClienteOS(0);
+      setCarregandoSaldoCreditoClienteOS(false);
+      setErroSaldoCreditoClienteOS("");
+      return;
+    }
+
+    const pacienteId = Number(modalReceberOS.paciente_id || 0);
+    if (!Number.isFinite(pacienteId) || pacienteId <= 0) {
+      setSaldoCreditoClienteOS(0);
+      setCarregandoSaldoCreditoClienteOS(false);
+      setErroSaldoCreditoClienteOS("");
+      return;
+    }
+
+    let ativo = true;
+    setCarregandoSaldoCreditoClienteOS(true);
+    setErroSaldoCreditoClienteOS("");
+    (async () => {
+      try {
+        const saldo = await consultarSaldoCreditoCliente({ pacienteId });
+        if (!ativo) return;
+        setSaldoCreditoClienteOS(saldo > 0 ? saldo : 0);
+      } catch (error) {
+        console.error("Erro ao consultar credito do cliente no financeiro:", error);
+        if (!ativo) return;
+        setSaldoCreditoClienteOS(0);
+        setErroSaldoCreditoClienteOS("Nao foi possivel consultar o credito do cliente.");
+      } finally {
+        if (!ativo) return;
+        setCarregandoSaldoCreditoClienteOS(false);
+      }
+    })();
+
+    return () => {
+      ativo = false;
+    };
+  }, [modalReceberOS]);
+
   const montarQueryString = (params: Record<string, string | number | undefined>) => {
     const query = new URLSearchParams();
     for (const [chave, valor] of Object.entries(params)) {
@@ -233,6 +298,7 @@ export default function FinanceiroPage() {
   const carregarDados = async () => {
     try {
       setLoading(true);
+      setCarregandoFormasPagamento(true);
       const queryTransacoes = montarQueryString({
         limit: 500,
         tipo: filtroTipo !== "todos" ? filtroTipo : undefined,
@@ -252,23 +318,64 @@ export default function FinanceiroPage() {
         data_fim: filtroDataFim || undefined,
       });
 
-      const [respTransacoes, respResumo, respOS, respClinicas, respServicos] = await Promise.all([
+      const [respTransacoes, respResumo, respOS, respClinicas, respServicos, respFormas, respBandeiras] = await Promise.all([
         api.get(`/financeiro/transacoes${queryTransacoes}`),
         api.get(`/financeiro/resumo?periodo=${periodo}`),
         api.get(`/ordens-servico${queryOS}`),
         api.get("/clinicas?limit=1000"),
         api.get("/servicos?limit=1000"),
+        api.get("/financeiro/formas-pagamento", {
+          params: { apenas_ativas: true, limit: 300 },
+        }),
+        api.get("/financeiro/bandeiras-cartao", {
+          params: { ativo: true, limit: 300 },
+        }),
       ]);
       setTransacoes(respTransacoes.data.items || []);
       setOrdensServico(respOS.data.items || []);
       setResumo(respResumo.data);
       setClinicas(respClinicas.data.items || []);
       setServicos(respServicos.data.items || []);
+      setBandeirasCartao(respBandeiras.data.items || []);
+      const formasApi = Array.isArray(respFormas.data?.items) ? respFormas.data.items : [];
+      if (formasApi.length > 0) {
+        const normalizadas: FormaPagamentoConfig[] = formasApi.map((item: any) => ({
+          id: Number(item.id),
+          codigo: normalizarCodigoFormaPagamento(item.codigo),
+          nome: String(item.nome || item.codigo || "Forma de pagamento"),
+          tipo: item.tipo,
+          adquirente: item.adquirente ?? null,
+          bandeira_id: item.bandeira_id ?? null,
+          bandeira_nome: item.bandeira_nome ?? null,
+          taxa_percentual: Number(item.taxa_percentual || 0),
+          taxa_fixa: Number(item.taxa_fixa || 0),
+          ativo: Boolean(item.ativo ?? true),
+        }));
+        setFormasPagamentoDisponiveis(normalizadas);
+      } else {
+        setFormasPagamentoDisponiveis(FORMA_PAGAMENTO_FALLBACK);
+      }
     } catch (error) {
       console.error("Erro ao carregar:", error);
+      setFormasPagamentoDisponiveis(FORMA_PAGAMENTO_FALLBACK);
     } finally {
       setLoading(false);
+      setCarregandoFormasPagamento(false);
     }
+  };
+
+  const gerarPagamentoId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+  const parseMoneyValue = (value: string): number => {
+    const normalizado = String(value || "").replace(",", ".").trim();
+    const parsed = Number.parseFloat(normalizado);
+    if (!Number.isFinite(parsed)) return 0;
+    return parsed;
+  };
+
+  const toMoneyInput = (value: number): string => {
+    if (!Number.isFinite(value)) return "0.00";
+    return value.toFixed(2);
   };
 
   const formatarValor = (valor: number) => {
@@ -374,6 +481,13 @@ export default function FinanceiroPage() {
   };
 
   const getFormaPagamentoNome = (forma: string) => {
+    const codigo = normalizarCodigoFormaPagamento(forma);
+    const configurada = formasPagamentoDisponiveis.find(
+      (item) => normalizarCodigoFormaPagamento(item.codigo) === codigo
+    );
+    if (configurada) {
+      return descricaoFormaPagamentoConfig(configurada);
+    }
     const formas: Record<string, string> = {
       dinheiro: "Dinheiro",
       cartao_credito: "Cartao Credito",
@@ -383,6 +497,163 @@ export default function FinanceiroPage() {
       transferencia: "Transferencia",
     };
     return formas[forma] || forma;
+  };
+
+  const resumoPagamentoOS = useMemo(() => {
+    const linhas = pagamentosRecebimentoOS.map((item) => {
+      const codigo = normalizarCodigoFormaPagamento(item.forma_codigo);
+      const forma = formasPagamentoDisponiveis.find(
+        (opcao) => normalizarCodigoFormaPagamento(opcao.codigo) === codigo
+      );
+      const valor = parseMoneyValue(item.valor);
+      const taxaPercentual = Number(forma?.taxa_percentual || 0);
+      const taxaFixa = Number(forma?.taxa_fixa || 0);
+      const taxa = Number((valor * (taxaPercentual / 100) + taxaFixa).toFixed(2));
+      const liquido = Number((valor - taxa).toFixed(2));
+      return {
+        ...item,
+        forma,
+        valor,
+        taxa,
+        liquido,
+      };
+    });
+    const totalBruto = linhas.reduce((acc, item) => acc + item.valor, 0);
+    const totalTaxa = linhas.reduce((acc, item) => acc + item.taxa, 0);
+    const totalLiquido = linhas.reduce((acc, item) => acc + item.liquido, 0);
+    const valorOS = Number(modalReceberOS?.valor_final || 0);
+    const limiteCredito = Math.max(0, Number(saldoCreditoClienteOS || 0));
+    const creditoSolicitado = parseMoneyValue(valorCreditoUtilizadoOS);
+    const creditoUtilizado = usarCreditoClienteOS
+      ? Math.max(0, Math.min(creditoSolicitado, limiteCredito))
+      : 0;
+    const totalCoberto = Number((totalBruto + creditoUtilizado).toFixed(2));
+    const diferenca = Number((totalCoberto - valorOS).toFixed(2));
+    return {
+      linhas,
+      totalBruto,
+      totalTaxa,
+      totalLiquido,
+      totalCoberto,
+      valorOS,
+      limiteCredito,
+      creditoSolicitado,
+      creditoUtilizado,
+      excedente: diferenca > 0 ? diferenca : 0,
+      faltante: diferenca < 0 ? Math.abs(diferenca) : 0,
+    };
+  }, [
+    formasPagamentoDisponiveis,
+    modalReceberOS?.valor_final,
+    pagamentosRecebimentoOS,
+    saldoCreditoClienteOS,
+    usarCreditoClienteOS,
+    valorCreditoUtilizadoOS,
+  ]);
+
+  const atualizarLinhaPagamentoOS = (id: string, campo: "forma_codigo" | "valor", valor: string) => {
+    setPagamentosRecebimentoOS((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, [campo]: valor } : item))
+    );
+  };
+
+  const adicionarLinhaPagamentoOS = () => {
+    const formaPadrao =
+      formasPagamentoDisponiveis.find(
+        (forma) => normalizarCodigoFormaPagamento(forma.codigo) === FORMA_PAGAMENTO_PADRAO
+      ) || formasPagamentoDisponiveis[0];
+    const codigo = normalizarCodigoFormaPagamento(formaPadrao?.codigo || FORMA_PAGAMENTO_PADRAO);
+    setPagamentosRecebimentoOS((prev) => [
+      ...prev,
+      {
+        id: gerarPagamentoId(),
+        forma_codigo: codigo,
+        valor: "0.00",
+      },
+    ]);
+  };
+
+  const removerLinhaPagamentoOS = (id: string) => {
+    setPagamentosRecebimentoOS((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((item) => item.id !== id);
+    });
+  };
+
+  const cadastrarBandeiraRapido = async () => {
+    const nome = window.prompt("Nome da bandeira (ex.: Visa):");
+    if (!nome) return;
+    const codigoSugerido = normalizarCodigoFormaPagamento(nome);
+    const codigo = window.prompt("Codigo da bandeira:", codigoSugerido);
+    if (!codigo) return;
+    try {
+      await api.post("/financeiro/bandeiras-cartao", {
+        nome: nome.trim(),
+        codigo: normalizarCodigoFormaPagamento(codigo),
+        ativo: true,
+      });
+      alert("Bandeira cadastrada com sucesso.");
+      await carregarDados();
+    } catch (error: any) {
+      console.error("Erro ao cadastrar bandeira:", error);
+      alert("Nao foi possivel cadastrar bandeira: " + (error.response?.data?.detail || error.message));
+    }
+  };
+
+  const cadastrarFormaPagamentoRapido = async () => {
+    const nome = window.prompt("Nome da forma de pagamento (ex.: Cartao credito - TON):");
+    if (!nome) return;
+    const codigoSugerido = normalizarCodigoFormaPagamento(nome);
+    const codigo = window.prompt("Codigo unico da forma de pagamento:", codigoSugerido);
+    if (!codigo) return;
+    const tipo = window
+      .prompt("Tipo (dinheiro, pix, cartao_credito, cartao_debito, boleto, transferencia, credito, outro):", "pix")
+      ?.trim();
+    if (!tipo) return;
+    const adquirente = window.prompt("Adquirente/maquininha (opcional):", "") || "";
+    const taxaPercentualStr = window.prompt("Taxa percentual (ex.: 4.99):", "0") || "0";
+    const taxaFixaStr = window.prompt("Taxa fixa em R$ (ex.: 0.40):", "0") || "0";
+    const ordemStr = window.prompt("Ordem de exibicao (numero):", "0") || "0";
+
+    const bandeirasTexto = bandeirasCartao.map((b) => `${b.id}=${b.nome}`).join(" | ");
+    const bandeiraIdStr = window.prompt(
+      bandeirasTexto
+        ? `ID da bandeira (opcional). Disponiveis: ${bandeirasTexto}`
+        : "ID da bandeira (opcional):",
+      ""
+    );
+    const bandeiraId = bandeiraIdStr ? Number(bandeiraIdStr) : null;
+
+    try {
+      await api.post("/financeiro/formas-pagamento", {
+        nome: nome.trim(),
+        codigo: normalizarCodigoFormaPagamento(codigo),
+        tipo: normalizarCodigoFormaPagamento(tipo),
+        adquirente: adquirente.trim() || null,
+        bandeira_id: Number.isFinite(bandeiraId as number) && (bandeiraId as number) > 0 ? Number(bandeiraId) : null,
+        taxa_percentual: Number.parseFloat(taxaPercentualStr.replace(",", ".")) || 0,
+        taxa_fixa: Number.parseFloat(taxaFixaStr.replace(",", ".")) || 0,
+        ordem_exibicao: Number.parseInt(ordemStr, 10) || 0,
+        ativo: true,
+      });
+      alert("Forma de pagamento cadastrada com sucesso.");
+      await carregarDados();
+    } catch (error: any) {
+      console.error("Erro ao cadastrar forma de pagamento:", error);
+      alert("Nao foi possivel cadastrar forma: " + (error.response?.data?.detail || error.message));
+    }
+  };
+
+  const desativarFormaPagamento = async (formaId?: number) => {
+    if (!formaId) return;
+    if (!confirm("Desativar esta forma de pagamento?")) return;
+    try {
+      await api.delete(`/financeiro/formas-pagamento/${formaId}`);
+      await carregarDados();
+    } catch (error: any) {
+      console.error("Erro ao desativar forma de pagamento:", error);
+      alert("Nao foi possivel desativar: " + (error.response?.data?.detail || error.message));
+    }
   };
 
   const handleEditar = (transacao: Transacao) => {
@@ -419,8 +690,25 @@ export default function FinanceiroPage() {
 
   const handlePagarOS = (os: OrdemServico) => {
     setModalReceberOS(os);
-    setFormaPagamentoOS("dinheiro");
+    const formaPadrao =
+      formasPagamentoDisponiveis.find(
+        (forma) => normalizarCodigoFormaPagamento(forma.codigo) === FORMA_PAGAMENTO_PADRAO
+      ) || formasPagamentoDisponiveis[0];
+    const codigo = normalizarCodigoFormaPagamento(formaPadrao?.codigo || FORMA_PAGAMENTO_PADRAO);
+    setPagamentosRecebimentoOS([
+      {
+        id: gerarPagamentoId(),
+        forma_codigo: codigo,
+        valor: toMoneyInput(Number(os.valor_final || 0)),
+      },
+    ]);
     setDataRecebimentoOS(hojeLocalISO());
+    setDestinoCreditoExcedenteOS("cliente");
+    setSaldoCreditoClienteOS(0);
+    setCarregandoSaldoCreditoClienteOS(false);
+    setErroSaldoCreditoClienteOS("");
+    setUsarCreditoClienteOS(false);
+    setValorCreditoUtilizadoOS("0.00");
   };
 
   const handleEditarOS = (os: OrdemServico) => {
@@ -438,12 +726,32 @@ export default function FinanceiroPage() {
     if (!modalReceberOS) return;
 
     try {
+      const pagamentosPayload = resumoPagamentoOS.linhas
+        .filter((item) => item.valor > 0)
+        .map((item) => ({
+          forma_pagamento: normalizarCodigoFormaPagamento(item.forma_codigo),
+          forma_pagamento_config_id: item.forma?.id ?? undefined,
+          valor: Number(item.valor.toFixed(2)),
+        }));
+      const creditoUtilizado = Number(resumoPagamentoOS.creditoUtilizado || 0);
+      if (pagamentosPayload.length === 0 && creditoUtilizado <= 0) {
+        alert("Informe ao menos um pagamento com valor maior que zero ou utilize credito disponivel.");
+        return;
+      }
       await api.patch(`/ordens-servico/${modalReceberOS.id}/receber`, {
-        forma_pagamento: formaPagamentoOS,
+        pagamentos: pagamentosPayload,
         data_recebimento: dataRecebimentoOS || null,
+        valor_credito_utilizado: Number(creditoUtilizado.toFixed(2)),
+        destino_credito_excedente: destinoCreditoExcedenteOS,
       });
 
       setModalReceberOS(null);
+      setPagamentosRecebimentoOS([]);
+      setSaldoCreditoClienteOS(0);
+      setCarregandoSaldoCreditoClienteOS(false);
+      setErroSaldoCreditoClienteOS("");
+      setUsarCreditoClienteOS(false);
+      setValorCreditoUtilizadoOS("0.00");
       alert("Recebimento registrado com sucesso!");
       carregarDados();
     } catch (error: any) {
@@ -823,7 +1131,7 @@ export default function FinanceiroPage() {
         </div>
 
         {/* Cards Resumo */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+	        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <div className="bg-white p-5 rounded-xl shadow-sm border">
             <div className="flex items-center justify-between">
               <div>
@@ -872,24 +1180,123 @@ export default function FinanceiroPage() {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-xl shadow-sm border">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">OS Pendentes</p>
-                <p className="text-2xl font-bold text-yellow-600">{formatarValor(valorPendenteOS)}</p>
+	          <div className="bg-white p-5 rounded-xl shadow-sm border">
+	            <div className="flex items-center justify-between">
+	              <div>
+	                <p className="text-sm text-gray-500">OS Pendentes</p>
+	                <p className="text-2xl font-bold text-yellow-600">{formatarValor(valorPendenteOS)}</p>
               </div>
               <div className="w-12 h-12 bg-yellow-50 rounded-lg flex items-center justify-center">
                 <FileText className="w-6 h-6 text-yellow-600" />
               </div>
             </div>
-            <p className="text-xs text-gray-500 mt-2">
-              {osPendentes.length} ordem(ns) pendente(s)
-            </p>
-          </div>
-        </div>
+	            <p className="text-xs text-gray-500 mt-2">
+	              {osPendentes.length} ordem(ns) pendente(s)
+	            </p>
+	          </div>
 
-        {/* Abas */}
-        <div className="flex gap-2 mb-6 border-b">
+	          <div className="bg-white p-5 rounded-xl shadow-sm border">
+	            <div className="flex items-center justify-between">
+	              <div>
+	                <p className="text-sm text-gray-500">Taxas de pagamento</p>
+	                <p className="text-2xl font-bold text-amber-600">{formatarValor(resumo.taxas_pagamento || 0)}</p>
+	              </div>
+	              <div className="w-12 h-12 bg-amber-50 rounded-lg flex items-center justify-center">
+	                <Receipt className="w-6 h-6 text-amber-600" />
+	              </div>
+	            </div>
+	          </div>
+
+	          <div className="bg-white p-5 rounded-xl shadow-sm border">
+	            <div className="flex items-center justify-between">
+	              <div>
+	                <p className="text-sm text-gray-500">Creditos gerados</p>
+	                <p className="text-2xl font-bold text-cyan-600">{formatarValor(resumo.creditos_gerados || 0)}</p>
+	              </div>
+	              <div className="w-12 h-12 bg-cyan-50 rounded-lg flex items-center justify-center">
+	                <TrendingUp className="w-6 h-6 text-cyan-600" />
+	              </div>
+	            </div>
+	          </div>
+	        </div>
+
+	        <div className="bg-white p-4 rounded-xl shadow-sm border mb-6">
+	          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+	            <div>
+	              <h2 className="text-base font-semibold text-gray-900">Cadastro de meios de pagamento</h2>
+	              <p className="text-xs text-gray-500">
+	                Cadastre bandeiras e formas com taxa para uso no recebimento da OS.
+	              </p>
+	            </div>
+	            <div className="flex gap-2">
+	              <button
+	                onClick={cadastrarBandeiraRapido}
+	                className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+	              >
+	                Nova bandeira
+	              </button>
+	              <button
+	                onClick={cadastrarFormaPagamentoRapido}
+	                className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+	              >
+	                Nova forma
+	              </button>
+	            </div>
+	          </div>
+	          <div className="mt-3 overflow-x-auto">
+	            <table className="w-full text-sm">
+	              <thead className="bg-gray-50 text-gray-600">
+	                <tr>
+	                  <th className="text-left px-3 py-2">Forma</th>
+	                  <th className="text-left px-3 py-2">Tipo</th>
+	                  <th className="text-left px-3 py-2">Adquirente</th>
+	                  <th className="text-right px-3 py-2">Taxa %</th>
+	                  <th className="text-right px-3 py-2">Taxa fixa</th>
+	                  <th className="text-left px-3 py-2">Bandeira</th>
+	                  <th className="text-right px-3 py-2">Acao</th>
+	                </tr>
+	              </thead>
+	              <tbody>
+	                {formasPagamentoDisponiveis.length === 0 ? (
+	                  <tr>
+	                    <td colSpan={7} className="px-3 py-4 text-center text-gray-500">
+	                      Nenhuma forma de pagamento cadastrada.
+	                    </td>
+	                  </tr>
+	                ) : (
+	                  formasPagamentoDisponiveis.map((forma) => {
+	                    const bandeira = bandeirasCartao.find((b) => b.id === forma.bandeira_id);
+	                    return (
+	                      <tr key={`${forma.id ?? forma.codigo}`} className="border-t">
+	                        <td className="px-3 py-2">{forma.nome}</td>
+	                        <td className="px-3 py-2">{forma.tipo || "-"}</td>
+	                        <td className="px-3 py-2">{forma.adquirente || "-"}</td>
+	                        <td className="px-3 py-2 text-right">{Number(forma.taxa_percentual || 0).toFixed(2)}%</td>
+	                        <td className="px-3 py-2 text-right">{formatarValor(Number(forma.taxa_fixa || 0))}</td>
+	                        <td className="px-3 py-2">{forma.bandeira_nome || bandeira?.nome || "-"}</td>
+	                        <td className="px-3 py-2 text-right">
+	                          {forma.id ? (
+	                            <button
+	                              onClick={() => desativarFormaPagamento(forma.id)}
+	                              className="text-red-600 hover:text-red-700"
+	                            >
+	                              Desativar
+	                            </button>
+	                          ) : (
+	                            <span className="text-gray-400">-</span>
+	                          )}
+	                        </td>
+	                      </tr>
+	                    );
+	                  })
+	                )}
+	              </tbody>
+	            </table>
+	          </div>
+	        </div>
+
+	        {/* Abas */}
+	        <div className="flex gap-2 mb-6 border-b">
           <button
             onClick={() => setAbaAtiva("transacoes")}
             className={`flex items-center gap-2 px-4 py-3 font-medium border-b-2 transition-colors ${
@@ -1014,18 +1421,21 @@ export default function FinanceiroPage() {
                   ))}
                 </select>
 
-                <select
-                  value={filtroFormaPagamento}
-                  onChange={(e) => setFiltroFormaPagamento(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
-                >
-                  <option value="todos">Todas formas</option>
-                  {FORMAS_PAGAMENTO.map((fp) => (
-                    <option key={fp.id} value={fp.id}>
-                      {fp.nome}
-                    </option>
-                  ))}
-                </select>
+	                <select
+	                  value={filtroFormaPagamento}
+	                  onChange={(e) => setFiltroFormaPagamento(e.target.value)}
+	                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+	                >
+	                  <option value="todos">Todas formas</option>
+	                  {formasPagamentoDisponiveis.map((fp) => {
+	                    const codigo = normalizarCodigoFormaPagamento(fp.codigo);
+	                    return (
+	                      <option key={`${codigo}-${fp.id ?? "fallback"}`} value={codigo}>
+	                        {descricaoFormaPagamentoConfig(fp)}
+	                      </option>
+	                    );
+	                  })}
+	                </select>
               </>
             )}
 
@@ -1659,9 +2069,9 @@ export default function FinanceiroPage() {
       )}
 
       {/* Modal de Receber OS */}
-      {modalReceberOS && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40 p-4">
-          <div className="bg-white rounded-lg w-full max-w-md">
+	      {modalReceberOS && (
+	        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40 p-4">
+	          <div className="bg-white rounded-lg w-full max-w-md">
             <div className="p-6 border-b">
               <h3 className="text-lg font-semibold text-gray-900">Receber Ordem de Servico</h3>
               <p className="text-sm text-gray-500 mt-1">
@@ -1670,7 +2080,7 @@ export default function FinanceiroPage() {
             </div>
             
             <div className="p-6 space-y-4">
-              <div className="bg-gray-50 p-4 rounded-lg">
+	              <div className="bg-gray-50 p-4 rounded-lg">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Valor:</span>
                   <span className="font-medium">{formatarValor(modalReceberOS.valor_final)}</span>
@@ -1681,66 +2091,210 @@ export default function FinanceiroPage() {
                 </div>
                 <div className="flex justify-between text-sm mt-1">
                   <span className="text-gray-600">Servico:</span>
-                  <span className="font-medium">{modalReceberOS.servico}</span>
-                </div>
-              </div>
+	                  <span className="font-medium">{modalReceberOS.servico}</span>
+	                </div>
+	              </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Forma de Pagamento
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {FORMAS_PAGAMENTO.map((fp) => (
-                    <label
-                      key={fp.id}
-                      className={`cursor-pointer border-2 rounded-lg p-3 text-center transition-all ${
-                        formaPagamentoOS === fp.id
-                          ? "border-green-500 bg-green-50"
-                          : "border-gray-200 hover:border-gray-300"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="forma_pagamento"
-                        value={fp.id}
-                        checked={formaPagamentoOS === fp.id}
-                        onChange={() => setFormaPagamentoOS(fp.id)}
-                        className="hidden"
-                      />
-                      <span className={`text-sm ${formaPagamentoOS === fp.id ? "text-green-700 font-medium" : "text-gray-700"}`}>
-                        {fp.nome}
-                      </span>
-                    </label>
-                  ))}
+              {carregandoSaldoCreditoClienteOS && (
+                <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs text-cyan-800">
+                  Consultando credito ativo do cliente...
                 </div>
-              </div>
+              )}
+              {!carregandoSaldoCreditoClienteOS && erroSaldoCreditoClienteOS && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  {erroSaldoCreditoClienteOS}
+                </div>
+              )}
+              {!carregandoSaldoCreditoClienteOS && saldoCreditoClienteOS > 0 && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  Cliente com credito ativo: <strong>{formatarValor(saldoCreditoClienteOS)}</strong>. Avalie com o
+                  cliente se deseja usar esse saldo antes de confirmar o recebimento.
+                </div>
+              )}
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Data do Recebimento
-                </label>
+	              <div className="space-y-3">
+	                {pagamentosRecebimentoOS.map((pagamento, index) => (
+	                  <div key={pagamento.id} className="rounded-lg border border-gray-200 p-3">
+	                    <div className="mb-2 text-xs font-medium text-gray-500">Pagamento {index + 1}</div>
+	                    <label className="block text-xs font-medium text-gray-600">Forma de pagamento</label>
+	                    <select
+	                      value={pagamento.forma_codigo}
+	                      onChange={(event) => atualizarLinhaPagamentoOS(pagamento.id, "forma_codigo", event.target.value)}
+	                      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+	                    >
+	                      {formasPagamentoDisponiveis.map((forma) => {
+	                        const codigo = normalizarCodigoFormaPagamento(forma.codigo);
+	                        return (
+	                          <option key={`${codigo}-${forma.id ?? "fallback"}`} value={codigo}>
+	                            {descricaoFormaPagamentoConfig(forma)}
+	                          </option>
+	                        );
+	                      })}
+	                    </select>
+	                    <label className="mt-2 block text-xs font-medium text-gray-600">Valor</label>
+	                    <input
+	                      type="number"
+	                      min="0"
+	                      step="0.01"
+	                      value={pagamento.valor}
+	                      onChange={(event) => atualizarLinhaPagamentoOS(pagamento.id, "valor", event.target.value)}
+	                      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+	                    />
+	                    <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+	                      <span>
+	                        Taxa estimada: {formatarValor(resumoPagamentoOS.linhas[index]?.taxa || 0)}
+	                      </span>
+	                      {pagamentosRecebimentoOS.length > 1 && (
+	                        <button
+	                          type="button"
+	                          onClick={() => removerLinhaPagamentoOS(pagamento.id)}
+	                          className="text-red-600 hover:text-red-700"
+	                        >
+	                          Remover
+	                        </button>
+	                      )}
+	                    </div>
+	                  </div>
+	                ))}
+	                <button
+	                  type="button"
+	                  onClick={adicionarLinhaPagamentoOS}
+	                  className="text-sm font-medium text-blue-600 hover:text-blue-700"
+	                >
+	                  + Adicionar forma de pagamento
+	                </button>
+	              </div>
+
+	              <div>
+	                <label className="block text-sm font-medium text-gray-700 mb-2">
+	                  Data do Recebimento
+	                </label>
                 <input
                   type="date"
                   value={dataRecebimentoOS}
                   onChange={(e) => setDataRecebimentoOS(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-            
-            <div className="p-6 border-t flex justify-end gap-3">
+	                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+	                />
+	              </div>
+
+              {!carregandoSaldoCreditoClienteOS && saldoCreditoClienteOS > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <label className="flex items-center gap-2 text-sm font-medium text-amber-900">
+                    <input
+                      type="checkbox"
+                      checked={usarCreditoClienteOS}
+                      onChange={(event) => {
+                        const checked = event.target.checked;
+                        setUsarCreditoClienteOS(checked);
+                        if (checked) {
+                          const coberturaAtual = Math.max(
+                            0,
+                            Number(resumoPagamentoOS.valorOS || 0) - Number(resumoPagamentoOS.totalBruto || 0)
+                          );
+                          const sugestao = Math.min(
+                            Number(saldoCreditoClienteOS || 0),
+                            coberturaAtual > 0 ? coberturaAtual : Number(resumoPagamentoOS.valorOS || 0)
+                          );
+                          setValorCreditoUtilizadoOS(toMoneyInput(sugestao));
+                        }
+                      }}
+                    />
+                    Usar credito do cliente neste recebimento
+                  </label>
+                  {usarCreditoClienteOS && (
+                    <div className="mt-2">
+                      <label className="block text-xs font-medium text-amber-900">Valor do credito a usar</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        max={Number(saldoCreditoClienteOS || 0)}
+                        value={valorCreditoUtilizadoOS}
+                        onChange={(event) => setValorCreditoUtilizadoOS(event.target.value)}
+                        className="mt-1 w-full rounded-lg border border-amber-300 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                      />
+                      <div className="mt-1 text-xs text-amber-800">
+                        Saldo disponivel: {formatarValor(saldoCreditoClienteOS)}.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+	              {resumoPagamentoOS.excedente > 0 && (
+	                <div>
+	                  <label className="block text-sm font-medium text-gray-700 mb-2">
+	                    Excedente detectado. Destino do credito
+	                  </label>
+	                  <select
+	                    value={destinoCreditoExcedenteOS}
+	                    onChange={(event) =>
+	                      setDestinoCreditoExcedenteOS(event.target.value as "cliente" | "clinica" | "nenhum")
+	                    }
+	                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+	                  >
+	                    <option value="cliente">Cliente</option>
+	                    <option value="clinica">Clinica</option>
+	                    <option value="nenhum">Nao gerar credito</option>
+	                  </select>
+	                </div>
+	              )}
+
+	              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">
+	                <div className="flex justify-between">
+	                  <span>Valor da OS</span>
+	                  <strong>{formatarValor(resumoPagamentoOS.valorOS || 0)}</strong>
+	                </div>
+	                <div className="flex justify-between">
+	                  <span>Total bruto informado</span>
+	                  <strong>{formatarValor(resumoPagamentoOS.totalBruto || 0)}</strong>
+	                </div>
+	                <div className="mt-1 flex justify-between">
+	                  <span>Credito aplicado</span>
+	                  <strong>{formatarValor(resumoPagamentoOS.creditoUtilizado || 0)}</strong>
+	                </div>
+	                <div className="mt-1 flex justify-between">
+	                  <span>Total coberto</span>
+	                  <strong>{formatarValor(resumoPagamentoOS.totalCoberto || 0)}</strong>
+	                </div>
+	                <div className="mt-1 flex justify-between">
+	                  <span>Total de taxas estimadas</span>
+	                  <strong>{formatarValor(resumoPagamentoOS.totalTaxa || 0)}</strong>
+	                </div>
+	                {resumoPagamentoOS.faltante > 0 && (
+	                  <p className="mt-1 text-red-700">
+	                    Falta cobrir {formatarValor(resumoPagamentoOS.faltante)} para atingir o valor da OS.
+	                  </p>
+	                )}
+	                {resumoPagamentoOS.excedente > 0 && (
+	                  <p className="mt-1 text-emerald-700">
+	                    Excedente para credito: {formatarValor(resumoPagamentoOS.excedente)}.
+	                  </p>
+	                )}
+	              </div>
+	            </div>
+	            
+	            <div className="p-6 border-t flex justify-end gap-3">
               <button
-                onClick={() => setModalReceberOS(null)}
+                onClick={() => {
+                  setModalReceberOS(null);
+                  setSaldoCreditoClienteOS(0);
+                  setCarregandoSaldoCreditoClienteOS(false);
+                  setErroSaldoCreditoClienteOS("");
+                  setUsarCreditoClienteOS(false);
+                  setValorCreditoUtilizadoOS("0.00");
+                }}
                 className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg border"
               >
                 Cancelar
               </button>
-              <button
-                onClick={confirmarRecebimentoOS}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-              >
-                <CheckCircle className="w-4 h-4" />
-                Confirmar Recebimento
+	              <button
+	                onClick={confirmarRecebimentoOS}
+	                disabled={carregandoFormasPagamento || resumoPagamentoOS.faltante > 0}
+	                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60"
+	              >
+	                <CheckCircle className="w-4 h-4" />
+	                Confirmar Recebimento
               </button>
             </div>
           </div>
@@ -1749,4 +2303,3 @@ export default function FinanceiroPage() {
     </DashboardLayout>
   );
 }
-
