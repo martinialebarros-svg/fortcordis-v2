@@ -261,6 +261,48 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_sugestoes_horario_nao_ofertam_slot_ocupado_mesmo_com_drift_em_inicio(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(db, excecoes=[])
+            clinica_base, _ = self._seed_clinicas(db)
+
+            # Simula legado/drift: coluna "data" no dia correto, mas "inicio" gravado em outro dia.
+            agendamento = Agendamento(
+                clinica_id=clinica_base.id,
+                inicio=datetime.fromisoformat("2099-05-27T00:30:00"),
+                fim=datetime.fromisoformat("2099-05-27T00:50:00"),
+                data="2099-05-26",
+                hora="14:30",
+                status="Agendado",
+                clinica=clinica_base.nome,
+            )
+            db.add(agendamento)
+            db.commit()
+
+            payload = agenda.SugestaoHorarioPayload(
+                data="2099-05-26",
+                clinica_id=clinica_base.id,
+                duracao_minutos=20,
+                intervalo_minutos=10,
+                limite=50,
+                perfil_deslocamento="comercial",
+            )
+
+            resposta = agenda.sugerir_horarios_agenda(
+                payload=payload,
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+
+            self.assertTrue(resposta["ok"])
+            inicios = {str(item.get("inicio") or "") for item in resposta.get("items", [])}
+            self.assertNotIn("2099-05-26 14:30", inicios)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_sugestoes_horario_priorizam_slot_apos_ancora_mesma_clinica_mais_60min(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
