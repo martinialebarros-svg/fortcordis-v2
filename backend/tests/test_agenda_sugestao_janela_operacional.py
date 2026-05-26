@@ -303,6 +303,49 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_sugestoes_horario_nao_ignoram_ocupacao_quando_data_legada_esta_em_formato_invalido(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(db, excecoes=[])
+            clinica_base, _ = self._seed_clinicas(db)
+
+            # Simula legado: coluna "data" preenchida fora do padrao ISO.
+            # A deteccao de conflito deve continuar bloqueando o slot ocupado.
+            agendamento = Agendamento(
+                clinica_id=clinica_base.id,
+                inicio=datetime.fromisoformat("2099-05-26T14:30:00"),
+                fim=datetime.fromisoformat("2099-05-26T14:50:00"),
+                data="26/05/2099",
+                hora="14:30",
+                status="Agendado",
+                clinica=clinica_base.nome,
+            )
+            db.add(agendamento)
+            db.commit()
+
+            payload = agenda.SugestaoHorarioPayload(
+                data="2099-05-26",
+                clinica_id=clinica_base.id,
+                duracao_minutos=20,
+                intervalo_minutos=10,
+                limite=50,
+                perfil_deslocamento="comercial",
+            )
+
+            resposta = agenda.sugerir_horarios_agenda(
+                payload=payload,
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+
+            self.assertTrue(resposta["ok"])
+            inicios = {str(item.get("inicio") or "") for item in resposta.get("items", [])}
+            self.assertNotIn("2099-05-26 14:30", inicios)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_sugestoes_horario_priorizam_slot_apos_ancora_mesma_clinica_mais_60min(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
