@@ -12,7 +12,7 @@ from typing import Any, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import exists, func, or_, text
+from sqlalchemy import and_, exists, func, or_, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -687,22 +687,34 @@ def _listar_agendamentos_ativos_periodo(
     *,
     agendamento_id_excluir: Optional[int] = None,
 ) -> list[dict]:
+    data_sem_vazio = func.nullif(func.trim(Agendamento.data), "")
     query = (
         db.query(Agendamento)
         .filter(Agendamento.status != "Cancelado")
-        .filter(func.date(Agendamento.inicio) >= data_inicio_iso)
-        .filter(func.date(Agendamento.inicio) <= data_fim_iso)
+        .filter(
+            or_(
+                and_(
+                    data_sem_vazio.isnot(None),
+                    data_sem_vazio >= data_inicio_iso,
+                    data_sem_vazio <= data_fim_iso,
+                ),
+                and_(
+                    data_sem_vazio.is_(None),
+                    func.date(Agendamento.inicio) >= data_inicio_iso,
+                    func.date(Agendamento.inicio) <= data_fim_iso,
+                ),
+            )
+        )
     )
     if agendamento_id_excluir is not None:
         query = query.filter(Agendamento.id != agendamento_id_excluir)
 
     registros: list[dict] = []
     for item in query.order_by(Agendamento.inicio.asc(), Agendamento.id.asc()).all():
-        inicio_dt = _to_local_naive(_coerce_datetime(item.inicio))
+        inicio_dt, fim_dt = _intervalo_local_agendamento(item)
         if inicio_dt is None:
             continue
 
-        fim_dt = _to_local_naive(_coerce_datetime(item.fim))
         if fim_dt is None or fim_dt <= inicio_dt:
             fim_dt = inicio_dt + timedelta(minutes=30)
 
@@ -1114,6 +1126,58 @@ def _coerce_datetime(value) -> Optional[datetime]:
     return None
 
 
+def _coerce_hora_hhmm(value: Optional[str]) -> Optional[str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    match = re.match(r"^(\d{2}):(\d{2})", raw)
+    if not match:
+        return None
+    hh = int(match.group(1))
+    mm = int(match.group(2))
+    if hh < 0 or hh > 23 or mm < 0 or mm > 59:
+        return None
+    return f"{hh:02d}:{mm:02d}"
+
+
+def _coerce_data_iso(value: Optional[str]) -> Optional[str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+        return None
+    return raw
+
+
+def _intervalo_local_agendamento(
+    item: Agendamento,
+    *,
+    fallback_duracao_min: int = 30,
+) -> tuple[Optional[datetime], Optional[datetime]]:
+    inicio_ref = _to_local_naive(_coerce_datetime(item.inicio))
+    fim_ref = _to_local_naive(_coerce_datetime(item.fim))
+
+    duracao_min = max(1, int(fallback_duracao_min or 30))
+    if inicio_ref is not None and fim_ref is not None and fim_ref > inicio_ref:
+        duracao_min = max(1, int((fim_ref - inicio_ref).total_seconds() // 60))
+
+    data_iso = _coerce_data_iso(getattr(item, "data", None))
+    hora_hhmm = _coerce_hora_hhmm(getattr(item, "hora", None))
+    if data_iso and hora_hhmm:
+        try:
+            inicio_normalizado = datetime.strptime(f"{data_iso} {hora_hhmm}", "%Y-%m-%d %H:%M")
+            fim_normalizado = inicio_normalizado + timedelta(minutes=duracao_min)
+            return inicio_normalizado, fim_normalizado
+        except ValueError:
+            pass
+
+    if inicio_ref is None:
+        return None, None
+    if fim_ref is None or fim_ref <= inicio_ref:
+        fim_ref = inicio_ref + timedelta(minutes=duracao_min)
+    return inicio_ref, fim_ref
+
+
 def _normalize_text_filter(value: Optional[str]) -> Optional[str]:
     raw = " ".join(str(value or "").split())
     return raw.strip() or None
@@ -1231,44 +1295,39 @@ def _validar_slot_disponivel(
     if status_atual == "Cancelado":
         return
 
-    inicio_dt = _coerce_datetime(agendamento.inicio)
-    if inicio_dt is None:
+    inicio_local, fim_local = _intervalo_local_agendamento(agendamento)
+    if inicio_local is None:
         raise HTTPException(status_code=422, detail="Horario de inicio invalido para validar disponibilidade.")
-
-    fim_dt = _coerce_datetime(agendamento.fim)
-    if fim_dt is None or fim_dt <= inicio_dt:
-        fim_dt = inicio_dt + timedelta(minutes=30)
-
-    inicio_local = _to_local_naive(inicio_dt)
-    fim_local = _to_local_naive(fim_dt)
-    if inicio_local is None or fim_local is None:
+    if fim_local is None:
         raise HTTPException(status_code=422, detail="Nao foi possivel validar disponibilidade do horario informado.")
 
     if fim_local <= inicio_local:
         raise HTTPException(status_code=422, detail="Horario final invalido para validar disponibilidade.")
 
     data_referencia = inicio_local.date().isoformat()
+    data_sem_vazio = func.nullif(func.trim(Agendamento.data), "")
 
     query = (
         db.query(Agendamento)
         .filter(Agendamento.status != "Cancelado")
-        .filter(func.date(Agendamento.inicio) == data_referencia)
+        .filter(
+            or_(
+                data_sem_vazio == data_referencia,
+                and_(
+                    data_sem_vazio.is_(None),
+                    func.date(Agendamento.inicio) == data_referencia,
+                ),
+            )
+        )
     )
     if agendamento_id_excluir is not None:
         query = query.filter(Agendamento.id != agendamento_id_excluir)
 
     for existente in query.all():
-        inicio_existente_dt = _coerce_datetime(existente.inicio)
-        if inicio_existente_dt is None:
+        inicio_existente_local, fim_existente_local = _intervalo_local_agendamento(existente)
+        if inicio_existente_local is None:
             continue
-
-        fim_existente_dt = _coerce_datetime(existente.fim)
-        if fim_existente_dt is None or fim_existente_dt <= inicio_existente_dt:
-            fim_existente_dt = inicio_existente_dt + timedelta(minutes=30)
-
-        inicio_existente_local = _to_local_naive(inicio_existente_dt)
-        fim_existente_local = _to_local_naive(fim_existente_dt)
-        if inicio_existente_local is None or fim_existente_local is None:
+        if fim_existente_local is None:
             continue
 
         sobrepoe = inicio_local < fim_existente_local and fim_local > inicio_existente_local

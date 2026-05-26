@@ -24,6 +24,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - RF-012: `POST /agenda/sugestao-proximidade` nao deve considerar ancora em horario passado, inclusive quando a data-base da consulta for o dia atual.
 - RF-013: suite automatizada de agenda deve usar datas de cenario estaveis para evitar flakiness temporal no CI quando regras de "horario passado" evoluirem.
 - RF-014: `POST /agenda/sugestao-proximidade` deve validar aderencia operacional com a mesma logica de `POST /agenda/sugestoes-horario`, ignorando ancoras sem slot viavel na data sugerida.
+- RF-015: `POST /agenda/sugestoes-horario` nao pode sugerir slot ocupado quando houver drift legado entre `agendamentos.data/hora` e `agendamentos.inicio/fim`; a deteccao de conflito deve normalizar o intervalo local pelo `data+hora` do agendamento.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -68,6 +69,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - CA-011: `POST /agenda/sugestao-proximidade` nao retorna sugestao baseada em ancora passada no mesmo dia; quando nao houver ancora futura valida, deve retornar `sugerir=false`.
 - CA-012: testes de janela/sugestao mantem resultado deterministico ao longo do tempo (nao quebram apenas pela data corrente do runner).
 - CA-013: `POST /agenda/sugestao-proximidade` deve descartar ancora quando `POST /agenda/sugestoes-horario` nao encontra slot operacional aderente a essa ancora na mesma data.
+- CA-014: se existir agendamento com `data/hora` ocupando um slot e `inicio/fim` driftado para outro dia, o assistente nao deve ofertar esse slot como livre.
 
 ## 7) Casos de borda
 
