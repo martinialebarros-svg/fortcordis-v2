@@ -9,6 +9,10 @@ from app.models.laudo import Laudo, Exame
 from app.models.catalogo_exame import CatalogoExame, PainelExame, PainelExameItem
 from app.models.financeiro import (
     Transacao,
+    BandeiraCartao,
+    FormaPagamentoConfiguracao,
+    OrdemServicoPagamento,
+    CreditoFinanceiro,
     ContaPagar,
     ContaReceber,
     CustoFrota,

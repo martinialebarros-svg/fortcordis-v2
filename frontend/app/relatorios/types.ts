@@ -244,6 +244,8 @@ export interface RelatorioControleResponse {
       entradas_recebidas: number;
       saidas_pagas: number;
       saldo: number;
+      taxas_pagamento: number;
+      creditos_gerados: number;
       valor_total_servicos: number;
       quantidade_servicos: number;
     };
@@ -253,6 +255,8 @@ export interface RelatorioControleResponse {
       entradas_recebidas: number;
       saidas_pagas: number;
       saldo: number;
+      taxas_pagamento: number;
+      creditos_gerados: number;
       valor_total_servicos_realizados: number;
       quantidade_servicos_realizados: number;
       ticket_medio_servico: number;

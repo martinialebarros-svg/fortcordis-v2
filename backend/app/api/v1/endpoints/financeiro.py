@@ -7,6 +7,9 @@ from calendar import monthrange
 
 from app.db.database import get_db
 from app.models.financeiro import (
+    BandeiraCartao,
+    CreditoFinanceiro,
+    FormaPagamentoConfiguracao,
     Transacao,
     ContaPagar,
     ContaReceber,
@@ -21,6 +24,9 @@ from app.core.security import get_current_user
 from app.services.auditoria_service import registrar_auditoria
 from app.schemas.financeiro import (
     TransacaoCreate, TransacaoUpdate, TransacaoResponse, TransacaoLista,
+    BandeiraCartaoCreate, BandeiraCartaoUpdate, BandeiraCartaoResponse, BandeiraCartaoLista,
+    FormaPagamentoConfigCreate, FormaPagamentoConfigUpdate, FormaPagamentoConfigResponse, FormaPagamentoConfigLista,
+    CreditoFinanceiroResponse, CreditoFinanceiroLista, CreditoSaldoLista, CreditoSaldoItem,
     ContaPagarCreate, ContaPagarUpdate, ContaPagarResponse, ContaPagarLista,
     ContaReceberCreate, ContaReceberUpdate, ContaReceberResponse, ContaReceberLista,
     CustoFrotaCreate, CustoFrotaUpdate, CustoFrotaResponse, CustoFrotaLista,
@@ -33,6 +39,15 @@ from app.schemas.financeiro import (
 )
 
 router = APIRouter()
+
+
+def _normalizar_codigo(valor: Optional[str]) -> str:
+    return str(valor or "").strip().lower().replace(" ", "_")
+
+
+def _require_admin(current_user: User) -> None:
+    if not current_user.tem_papel("admin"):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem realizar esta acao.")
 
 
 def _obter_ou_criar_config_rateio_frota(db: Session) -> ConfigRateioFrota:
@@ -143,6 +158,12 @@ def criar_transacao(
         desconto=transacao_data.desconto,
         valor_final=transacao_data.valor - transacao_data.desconto,
         forma_pagamento=transacao_data.forma_pagamento,
+        forma_pagamento_config_id=transacao_data.forma_pagamento_config_id,
+        adquirente_pagamento=transacao_data.adquirente_pagamento,
+        bandeira_pagamento=transacao_data.bandeira_pagamento,
+        taxa_percentual=transacao_data.taxa_percentual,
+        taxa_fixa=transacao_data.taxa_fixa,
+        valor_taxa=transacao_data.valor_taxa,
         status=transacao_data.status,
         descricao=transacao_data.descricao,
         data_transacao=transacao_data.data_transacao,
@@ -185,7 +206,13 @@ def atualizar_transacao(
             setattr(transacao, field, value)
     
     # Recalcula valor_final se valor ou desconto mudou
-    if transacao_data.valor is not None or transacao_data.desconto is not None:
+    if transacao_data.valor_taxa is not None and transacao_data.desconto is None:
+        transacao.desconto = transacao_data.valor_taxa
+    if (
+        transacao_data.valor is not None
+        or transacao_data.desconto is not None
+        or transacao_data.valor_taxa is not None
+    ):
         transacao.valor_final = transacao.valor - transacao.desconto
     
     transacao.updated_at = datetime.now()
@@ -323,6 +350,381 @@ def listar_categorias(
 
 
 # ==================== CUSTOS DE FROTA ====================
+
+@router.get("/bandeiras-cartao", response_model=BandeiraCartaoLista)
+def listar_bandeiras_cartao(
+    ativo: Optional[bool] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    query = db.query(BandeiraCartao)
+    if ativo is not None:
+        query = query.filter(BandeiraCartao.ativo == ativo)
+    total = query.count()
+    items = query.order_by(BandeiraCartao.nome.asc()).offset(skip).limit(limit).all()
+    return {"total": total, "items": items}
+
+
+@router.post("/bandeiras-cartao", response_model=BandeiraCartaoResponse, status_code=status.HTTP_201_CREATED)
+def criar_bandeira_cartao(
+    dados: BandeiraCartaoCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_admin(current_user)
+    codigo = _normalizar_codigo(dados.codigo)
+    if not codigo:
+        raise HTTPException(status_code=422, detail="Codigo da bandeira e obrigatorio.")
+
+    existente = (
+        db.query(BandeiraCartao)
+        .filter(func.lower(BandeiraCartao.codigo) == codigo)
+        .first()
+    )
+    if existente:
+        raise HTTPException(status_code=409, detail="Ja existe bandeira cadastrada com este codigo.")
+
+    registro = BandeiraCartao(
+        nome=str(dados.nome).strip(),
+        codigo=codigo,
+        ativo=bool(dados.ativo),
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+        criado_por_id=current_user.id,
+        criado_por_nome=current_user.nome,
+    )
+    db.add(registro)
+    db.commit()
+    db.refresh(registro)
+    return registro
+
+
+@router.put("/bandeiras-cartao/{bandeira_id}", response_model=BandeiraCartaoResponse)
+def atualizar_bandeira_cartao(
+    bandeira_id: int,
+    dados: BandeiraCartaoUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_admin(current_user)
+    registro = db.query(BandeiraCartao).filter(BandeiraCartao.id == bandeira_id).first()
+    if not registro:
+        raise HTTPException(status_code=404, detail="Bandeira de cartao nao encontrada.")
+
+    payload = dados.model_dump(exclude_unset=True)
+    if "codigo" in payload and payload["codigo"] is not None:
+        codigo = _normalizar_codigo(payload["codigo"])
+        existente = (
+            db.query(BandeiraCartao)
+            .filter(func.lower(BandeiraCartao.codigo) == codigo, BandeiraCartao.id != bandeira_id)
+            .first()
+        )
+        if existente:
+            raise HTTPException(status_code=409, detail="Ja existe bandeira cadastrada com este codigo.")
+        registro.codigo = codigo
+        payload.pop("codigo", None)
+
+    for field, value in payload.items():
+        if value is not None:
+            setattr(registro, field, value)
+    registro.updated_at = datetime.now()
+
+    db.commit()
+    db.refresh(registro)
+    return registro
+
+
+@router.get("/formas-pagamento", response_model=FormaPagamentoConfigLista)
+def listar_formas_pagamento(
+    tipo: Optional[str] = Query(
+        None,
+        pattern="^(dinheiro|pix|cartao_credito|cartao_debito|boleto|transferencia|credito|outro)$",
+    ),
+    apenas_ativas: bool = Query(True),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    query = (
+        db.query(
+            FormaPagamentoConfiguracao,
+            BandeiraCartao.nome.label("bandeira_nome"),
+        )
+        .outerjoin(BandeiraCartao, FormaPagamentoConfiguracao.bandeira_id == BandeiraCartao.id)
+    )
+    if tipo:
+        query = query.filter(FormaPagamentoConfiguracao.tipo == tipo)
+    if apenas_ativas:
+        query = query.filter(FormaPagamentoConfiguracao.ativo.is_(True))
+
+    total = query.count()
+    resultados = (
+        query.order_by(
+            FormaPagamentoConfiguracao.ordem_exibicao.asc(),
+            FormaPagamentoConfiguracao.nome.asc(),
+            FormaPagamentoConfiguracao.id.asc(),
+        )
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    items = []
+    for forma, bandeira_nome in resultados:
+        item = {
+            "id": forma.id,
+            "nome": forma.nome,
+            "codigo": forma.codigo,
+            "tipo": forma.tipo,
+            "adquirente": forma.adquirente,
+            "bandeira_id": forma.bandeira_id,
+            "bandeira_nome": bandeira_nome,
+            "taxa_percentual": float(forma.taxa_percentual or 0),
+            "taxa_fixa": float(forma.taxa_fixa or 0),
+            "ativo": bool(forma.ativo),
+            "ordem_exibicao": int(forma.ordem_exibicao or 0),
+            "created_at": forma.created_at,
+            "updated_at": forma.updated_at,
+        }
+        items.append(item)
+    return {"total": total, "items": items}
+
+
+@router.post("/formas-pagamento", response_model=FormaPagamentoConfigResponse, status_code=status.HTTP_201_CREATED)
+def criar_forma_pagamento(
+    dados: FormaPagamentoConfigCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_admin(current_user)
+    codigo = _normalizar_codigo(dados.codigo)
+    if not codigo:
+        raise HTTPException(status_code=422, detail="Codigo da forma de pagamento e obrigatorio.")
+    existente = (
+        db.query(FormaPagamentoConfiguracao)
+        .filter(func.lower(FormaPagamentoConfiguracao.codigo) == codigo)
+        .first()
+    )
+    if existente:
+        raise HTTPException(status_code=409, detail="Ja existe forma de pagamento com este codigo.")
+
+    if dados.bandeira_id is not None:
+        bandeira = db.query(BandeiraCartao).filter(BandeiraCartao.id == dados.bandeira_id).first()
+        if not bandeira:
+            raise HTTPException(status_code=422, detail="Bandeira informada nao encontrada.")
+
+    registro = FormaPagamentoConfiguracao(
+        nome=str(dados.nome).strip(),
+        codigo=codigo,
+        tipo=dados.tipo,
+        adquirente=(str(dados.adquirente).strip() if dados.adquirente else None),
+        bandeira_id=dados.bandeira_id,
+        taxa_percentual=float(dados.taxa_percentual or 0),
+        taxa_fixa=float(dados.taxa_fixa or 0),
+        ativo=bool(dados.ativo),
+        ordem_exibicao=int(dados.ordem_exibicao or 0),
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+        criado_por_id=current_user.id,
+        criado_por_nome=current_user.nome,
+    )
+    db.add(registro)
+    db.commit()
+
+    bandeira_nome = None
+    if registro.bandeira_id:
+        bandeira = db.query(BandeiraCartao).filter(BandeiraCartao.id == registro.bandeira_id).first()
+        bandeira_nome = bandeira.nome if bandeira else None
+
+    return {
+        "id": registro.id,
+        "nome": registro.nome,
+        "codigo": registro.codigo,
+        "tipo": registro.tipo,
+        "adquirente": registro.adquirente,
+        "bandeira_id": registro.bandeira_id,
+        "bandeira_nome": bandeira_nome,
+        "taxa_percentual": float(registro.taxa_percentual or 0),
+        "taxa_fixa": float(registro.taxa_fixa or 0),
+        "ativo": bool(registro.ativo),
+        "ordem_exibicao": int(registro.ordem_exibicao or 0),
+        "created_at": registro.created_at,
+        "updated_at": registro.updated_at,
+    }
+
+
+@router.put("/formas-pagamento/{forma_id}", response_model=FormaPagamentoConfigResponse)
+def atualizar_forma_pagamento(
+    forma_id: int,
+    dados: FormaPagamentoConfigUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_admin(current_user)
+    registro = (
+        db.query(FormaPagamentoConfiguracao)
+        .filter(FormaPagamentoConfiguracao.id == forma_id)
+        .first()
+    )
+    if not registro:
+        raise HTTPException(status_code=404, detail="Forma de pagamento nao encontrada.")
+
+    payload = dados.model_dump(exclude_unset=True)
+    if "codigo" in payload and payload["codigo"] is not None:
+        codigo = _normalizar_codigo(payload["codigo"])
+        existente = (
+            db.query(FormaPagamentoConfiguracao)
+            .filter(
+                func.lower(FormaPagamentoConfiguracao.codigo) == codigo,
+                FormaPagamentoConfiguracao.id != forma_id,
+            )
+            .first()
+        )
+        if existente:
+            raise HTTPException(status_code=409, detail="Ja existe forma de pagamento com este codigo.")
+        registro.codigo = codigo
+        payload.pop("codigo", None)
+
+    if "bandeira_id" in payload and payload["bandeira_id"] is not None:
+        bandeira = db.query(BandeiraCartao).filter(BandeiraCartao.id == payload["bandeira_id"]).first()
+        if not bandeira:
+            raise HTTPException(status_code=422, detail="Bandeira informada nao encontrada.")
+
+    for field, value in payload.items():
+        if value is not None:
+            setattr(registro, field, value)
+    registro.updated_at = datetime.now()
+
+    db.commit()
+
+    bandeira_nome = None
+    if registro.bandeira_id:
+        bandeira = db.query(BandeiraCartao).filter(BandeiraCartao.id == registro.bandeira_id).first()
+        bandeira_nome = bandeira.nome if bandeira else None
+
+    return {
+        "id": registro.id,
+        "nome": registro.nome,
+        "codigo": registro.codigo,
+        "tipo": registro.tipo,
+        "adquirente": registro.adquirente,
+        "bandeira_id": registro.bandeira_id,
+        "bandeira_nome": bandeira_nome,
+        "taxa_percentual": float(registro.taxa_percentual or 0),
+        "taxa_fixa": float(registro.taxa_fixa or 0),
+        "ativo": bool(registro.ativo),
+        "ordem_exibicao": int(registro.ordem_exibicao or 0),
+        "created_at": registro.created_at,
+        "updated_at": registro.updated_at,
+    }
+
+
+@router.delete("/formas-pagamento/{forma_id}", status_code=status.HTTP_204_NO_CONTENT)
+def desativar_forma_pagamento(
+    forma_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_admin(current_user)
+    registro = (
+        db.query(FormaPagamentoConfiguracao)
+        .filter(FormaPagamentoConfiguracao.id == forma_id)
+        .first()
+    )
+    if not registro:
+        raise HTTPException(status_code=404, detail="Forma de pagamento nao encontrada.")
+    registro.ativo = False
+    registro.updated_at = datetime.now()
+    db.commit()
+    return None
+
+
+@router.get("/creditos/movimentos", response_model=CreditoFinanceiroLista)
+def listar_movimentos_credito(
+    tipo_destino: Optional[str] = Query(None, pattern="^(cliente|clinica)$"),
+    status_credito: Optional[str] = Query(None, pattern="^(Ativo|Cancelado)$"),
+    clinica_id: Optional[int] = Query(None, ge=1),
+    paciente_id: Optional[int] = Query(None, ge=1),
+    tutor_id: Optional[int] = Query(None, ge=1),
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    query = db.query(CreditoFinanceiro)
+    if tipo_destino:
+        query = query.filter(CreditoFinanceiro.tipo_destino == tipo_destino)
+    if status_credito:
+        query = query.filter(CreditoFinanceiro.status == status_credito)
+    if clinica_id:
+        query = query.filter(CreditoFinanceiro.clinica_id == clinica_id)
+    if paciente_id:
+        query = query.filter(CreditoFinanceiro.paciente_id == paciente_id)
+    if tutor_id:
+        query = query.filter(CreditoFinanceiro.tutor_id == tutor_id)
+    if data_inicio:
+        query = query.filter(CreditoFinanceiro.data_movimento >= data_inicio)
+    if data_fim:
+        query = query.filter(CreditoFinanceiro.data_movimento <= data_fim)
+
+    total = query.count()
+    items = query.order_by(CreditoFinanceiro.data_movimento.desc(), CreditoFinanceiro.id.desc()).offset(skip).limit(limit).all()
+    return {"total": total, "items": items}
+
+
+@router.get("/creditos/saldos", response_model=CreditoSaldoLista)
+def listar_saldos_credito(
+    tipo_destino: Optional[str] = Query(None, pattern="^(cliente|clinica)$"),
+    clinica_id: Optional[int] = Query(None, ge=1),
+    paciente_id: Optional[int] = Query(None, ge=1),
+    tutor_id: Optional[int] = Query(None, ge=1),
+    incluir_cancelados: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    query = db.query(
+        CreditoFinanceiro.tipo_destino,
+        CreditoFinanceiro.clinica_id,
+        CreditoFinanceiro.paciente_id,
+        CreditoFinanceiro.tutor_id,
+        func.sum(CreditoFinanceiro.valor).label("saldo"),
+    )
+    if not incluir_cancelados:
+        query = query.filter(CreditoFinanceiro.status == "Ativo")
+    if tipo_destino:
+        query = query.filter(CreditoFinanceiro.tipo_destino == tipo_destino)
+    if clinica_id:
+        query = query.filter(CreditoFinanceiro.clinica_id == clinica_id)
+    if paciente_id:
+        query = query.filter(CreditoFinanceiro.paciente_id == paciente_id)
+    if tutor_id:
+        query = query.filter(CreditoFinanceiro.tutor_id == tutor_id)
+
+    rows = query.group_by(
+        CreditoFinanceiro.tipo_destino,
+        CreditoFinanceiro.clinica_id,
+        CreditoFinanceiro.paciente_id,
+        CreditoFinanceiro.tutor_id,
+    ).all()
+    items = [
+        CreditoSaldoItem(
+            tipo_destino=str(row.tipo_destino),
+            clinica_id=row.clinica_id,
+            paciente_id=row.paciente_id,
+            tutor_id=row.tutor_id,
+            saldo=float(row.saldo or 0),
+        )
+        for row in rows
+    ]
+    return {"total": len(items), "items": items}
 
 @router.get("/custos-frota", response_model=CustoFrotaLista)
 def listar_custos_frota(
@@ -1219,6 +1621,20 @@ def resumo_financeiro(
         Transacao.tipo == "saida",
         Transacao.status.in_(["Pendente"])
     ).scalar() or 0
+
+    taxas_pagamento = db.query(func.sum(Transacao.valor_taxa)).filter(
+        Transacao.tipo == "entrada",
+        Transacao.status == "Recebido",
+        func.date(Transacao.data_transacao) >= dt_inicio,
+        func.date(Transacao.data_transacao) <= dt_fim,
+    ).scalar() or 0
+
+    creditos_gerados = db.query(func.sum(CreditoFinanceiro.valor)).filter(
+        CreditoFinanceiro.origem == "excedente_pagamento_os",
+        CreditoFinanceiro.status == "Ativo",
+        func.date(CreditoFinanceiro.data_movimento) >= dt_inicio,
+        func.date(CreditoFinanceiro.data_movimento) <= dt_fim,
+    ).scalar() or 0
     
     return ResumoFinanceiro(
         periodo=periodo,
@@ -1230,7 +1646,9 @@ def resumo_financeiro(
         pendente_entrada=float(pendente_entrada),
         pendente_saida=float(pendente_saida),
         a_receber=float(pendente_entrada),
-        a_pagar=float(pendente_saida)
+        a_pagar=float(pendente_saida),
+        taxas_pagamento=float(taxas_pagamento),
+        creditos_gerados=float(creditos_gerados),
     )
 
 
@@ -1331,6 +1749,80 @@ def relatorio_fluxo_caixa(
         saldo_final=saldo_acumulado,
         items=items
     )
+
+
+@router.get("/relatorios/taxas-forma-pagamento")
+def relatorio_taxas_forma_pagamento(
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    clinica_id: Optional[int] = Query(None, ge=1),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    query = db.query(
+        Transacao.forma_pagamento,
+        Transacao.adquirente_pagamento,
+        Transacao.bandeira_pagamento,
+        func.sum(Transacao.valor).label("valor_bruto"),
+        func.sum(Transacao.valor_taxa).label("valor_taxa"),
+        func.sum(Transacao.valor_final).label("valor_liquido"),
+        func.count(Transacao.id).label("quantidade"),
+    ).filter(
+        Transacao.tipo == "entrada",
+        Transacao.status.in_(["Recebido", "Pago"]),
+    )
+    if clinica_id:
+        query = query.filter(Transacao.clinica_id == clinica_id)
+    if data_inicio:
+        query = query.filter(Transacao.data_transacao >= data_inicio)
+    if data_fim:
+        query = query.filter(Transacao.data_transacao <= data_fim)
+
+    rows = query.group_by(
+        Transacao.forma_pagamento,
+        Transacao.adquirente_pagamento,
+        Transacao.bandeira_pagamento,
+    ).order_by(
+        func.sum(Transacao.valor_taxa).desc(),
+        func.sum(Transacao.valor).desc(),
+    ).all()
+
+    itens = []
+    total_bruto = 0.0
+    total_taxa = 0.0
+    total_liquido = 0.0
+    for row in rows:
+        bruto = float(row.valor_bruto or 0)
+        taxa = float(row.valor_taxa or 0)
+        liquido = float(row.valor_liquido or 0)
+        total_bruto += bruto
+        total_taxa += taxa
+        total_liquido += liquido
+        itens.append(
+            {
+                "forma_pagamento": row.forma_pagamento or "nao_informado",
+                "adquirente": row.adquirente_pagamento,
+                "bandeira": row.bandeira_pagamento,
+                "quantidade": int(row.quantidade or 0),
+                "valor_bruto": round(bruto, 2),
+                "valor_taxa": round(taxa, 2),
+                "valor_liquido": round(liquido, 2),
+                "taxa_efetiva_percent": round((taxa / bruto) * 100, 2) if bruto > 0 else 0.0,
+            }
+        )
+
+    return {
+        "periodo": {
+            "data_inicio": data_inicio,
+            "data_fim": data_fim,
+        },
+        "total_bruto": round(total_bruto, 2),
+        "total_taxa": round(total_taxa, 2),
+        "total_liquido": round(total_liquido, 2),
+        "taxa_media_percent": round((total_taxa / total_bruto) * 100, 2) if total_bruto > 0 else 0.0,
+        "items": itens,
+    }
 
 
 @router.get("/relatorios/comparativo-mensal", response_model=RelatorioComparativo)

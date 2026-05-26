@@ -27,13 +27,16 @@ import {
 import { baixarLaudoPdf as baixarLaudoPdfUtil } from "@/lib/laudo-pdf";
 import {
   AGENDA_STATUS_LIST,
-  FORMA_PAGAMENTO_OPCOES,
+  FORMA_PAGAMENTO_FALLBACK,
   FORMA_PAGAMENTO_PADRAO,
+  descricaoFormaPagamentoConfig,
+  normalizarCodigoFormaPagamento,
   type AgendaStatus,
-  type FormaPagamentoAgenda,
+  type FormaPagamentoConfig,
   obterProximosStatus,
   osEstaPaga,
 } from "@/lib/agenda-shared-actions";
+import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
 import { montarGoogleMapsDestinoClinica, montarWazeDestinoClinica } from "@/lib/waze";
 import { 
   Calendar, Clock, User, Building, Plus, RefreshCw, X, Trash2,
@@ -94,6 +97,12 @@ interface ClinicaEndereco {
 interface FiltroOption {
   id: number;
   nome: string;
+}
+
+interface PagamentoRecebimentoItem {
+  id: string;
+  forma_codigo: string;
+  valor: string;
 }
 
 interface ResumoFinanceiroAgenda {
@@ -277,6 +286,22 @@ const isModoVisualizacaoValido = (value?: string | null): value is ModoVisualiza
   return value === "lista" || value === "panoramica-dia" || value === "panoramica-semana";
 };
 
+const gerarPagamentoId = () => {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const toMoneyInput = (value: number): string => {
+  if (!Number.isFinite(value)) return "0.00";
+  return value.toFixed(2);
+};
+
+const parseMoneyValue = (value: string): number => {
+  const normalizado = String(value || "").replace(",", ".").trim();
+  const parsed = Number.parseFloat(normalizado);
+  if (!Number.isFinite(parsed)) return 0;
+  return parsed;
+};
+
 export default function AgendaPage() {
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [loading, setLoading] = useState(true);
@@ -302,9 +327,18 @@ export default function AgendaPage() {
   const [laudosVinculados, setLaudosVinculados] = useState<LaudosVinculadosPorAgendamento>({});
   const [ordensServicoPorAgendamento, setOrdensServicoPorAgendamento] = useState<Record<number, OrdemServicoResumo>>({});
   const [modalPagamentoAberto, setModalPagamentoAberto] = useState(false);
-  const [formaPagamento, setFormaPagamento] = useState<FormaPagamentoAgenda>(FORMA_PAGAMENTO_PADRAO);
+  const [formasPagamentoDisponiveis, setFormasPagamentoDisponiveis] = useState<FormaPagamentoConfig[]>(FORMA_PAGAMENTO_FALLBACK);
+  const [carregandoFormasPagamento, setCarregandoFormasPagamento] = useState(false);
+  const [pagamentosRecebimento, setPagamentosRecebimento] = useState<PagamentoRecebimentoItem[]>([]);
+  const [dataRecebimentoPagamento, setDataRecebimentoPagamento] = useState<string>(() => hojeLocal());
+  const [destinoCreditoExcedente, setDestinoCreditoExcedente] = useState<"cliente" | "clinica" | "nenhum">("cliente");
   const [agendamentoPagamentoId, setAgendamentoPagamentoId] = useState<number | null>(null);
   const [recebendoPagamentoId, setRecebendoPagamentoId] = useState<number | null>(null);
+  const [saldoCreditoClientePagamento, setSaldoCreditoClientePagamento] = useState(0);
+  const [carregandoSaldoCreditoPagamento, setCarregandoSaldoCreditoPagamento] = useState(false);
+  const [erroSaldoCreditoPagamento, setErroSaldoCreditoPagamento] = useState("");
+  const [usarCreditoClientePagamento, setUsarCreditoClientePagamento] = useState(false);
+  const [valorCreditoUtilizadoPagamento, setValorCreditoUtilizadoPagamento] = useState("0.00");
   const [clinicasEndereco, setClinicasEndereco] = useState<Record<number, ClinicaEndereco>>({});
   const [agendaSemanal, setAgendaSemanal] = useState<AgendaSemanalConfig>(() =>
     normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL)
@@ -354,6 +388,93 @@ export default function AgendaPage() {
 
     filtrosIniciaisAplicadosRef.current = true;
   }, []);
+
+  const carregarFormasPagamento = useCallback(async () => {
+    try {
+      setCarregandoFormasPagamento(true);
+      const response = await api.get("/financeiro/formas-pagamento", {
+        params: {
+          apenas_ativas: true,
+          limit: 200,
+        },
+      });
+      const items = Array.isArray(response.data?.items) ? response.data.items : [];
+      if (items.length > 0) {
+        const normalizados: FormaPagamentoConfig[] = items.map((item: any) => ({
+          id: Number(item.id),
+          codigo: normalizarCodigoFormaPagamento(item.codigo),
+          nome: String(item.nome || item.codigo || "Forma de pagamento"),
+          tipo: item.tipo,
+          adquirente: item.adquirente ?? null,
+          bandeira_id: item.bandeira_id ?? null,
+          bandeira_nome: item.bandeira_nome ?? null,
+          taxa_percentual: Number(item.taxa_percentual || 0),
+          taxa_fixa: Number(item.taxa_fixa || 0),
+          ativo: Boolean(item.ativo ?? true),
+        }));
+        setFormasPagamentoDisponiveis(normalizados);
+        return;
+      }
+      setFormasPagamentoDisponiveis(FORMA_PAGAMENTO_FALLBACK);
+    } catch (error) {
+      console.error("Erro ao carregar formas de pagamento:", error);
+      setFormasPagamentoDisponiveis(FORMA_PAGAMENTO_FALLBACK);
+    } finally {
+      setCarregandoFormasPagamento(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void carregarFormasPagamento();
+  }, [carregarFormasPagamento]);
+
+  const osPagamentoAtual = agendamentoPagamentoId
+    ? ordensServicoPorAgendamento[agendamentoPagamentoId]
+    : undefined;
+  const agendamentoPagamentoAtual = agendamentoPagamentoId
+    ? agendamentos.find((item) => item.id === agendamentoPagamentoId) || null
+    : null;
+
+  useEffect(() => {
+    if (!modalPagamentoAberto || !agendamentoPagamentoAtual) {
+      setSaldoCreditoClientePagamento(0);
+      setCarregandoSaldoCreditoPagamento(false);
+      setErroSaldoCreditoPagamento("");
+      return;
+    }
+
+    const pacienteId = Number(agendamentoPagamentoAtual.paciente_id || 0);
+    if (!Number.isFinite(pacienteId) || pacienteId <= 0) {
+      setSaldoCreditoClientePagamento(0);
+      setCarregandoSaldoCreditoPagamento(false);
+      setErroSaldoCreditoPagamento("");
+      return;
+    }
+
+    let ativo = true;
+    setCarregandoSaldoCreditoPagamento(true);
+    setErroSaldoCreditoPagamento("");
+
+    (async () => {
+      try {
+        const saldo = await consultarSaldoCreditoCliente({ pacienteId });
+        if (!ativo) return;
+        setSaldoCreditoClientePagamento(saldo > 0 ? saldo : 0);
+      } catch (error) {
+        console.error("Erro ao consultar credito do cliente no recebimento:", error);
+        if (!ativo) return;
+        setSaldoCreditoClientePagamento(0);
+        setErroSaldoCreditoPagamento("Nao foi possivel consultar o credito do cliente.");
+      } finally {
+        if (!ativo) return;
+        setCarregandoSaldoCreditoPagamento(false);
+      }
+    })();
+
+    return () => {
+      ativo = false;
+    };
+  }, [agendamentoPagamentoAtual, modalPagamentoAberto]);
 
   const abrirAgendaFullCalendar = useCallback(() => {
     const params = new URLSearchParams();
@@ -975,6 +1096,90 @@ export default function AgendaPage() {
     window.open(destino, "_blank", "noopener,noreferrer");
   };
 
+  const resumoPagamentoModal = useMemo(() => {
+    const linhas = pagamentosRecebimento.map((item) => {
+      const codigo = normalizarCodigoFormaPagamento(item.forma_codigo);
+      const forma = formasPagamentoDisponiveis.find(
+        (opcao) => normalizarCodigoFormaPagamento(opcao.codigo) === codigo
+      );
+      const valor = parseMoneyValue(item.valor);
+      const taxaPercentual = Number(forma?.taxa_percentual || 0);
+      const taxaFixa = Number(forma?.taxa_fixa || 0);
+      const taxa = Number((valor * (taxaPercentual / 100) + taxaFixa).toFixed(2));
+      const liquido = Number((valor - taxa).toFixed(2));
+      return {
+        ...item,
+        forma,
+        valor,
+        taxaPercentual,
+        taxaFixa,
+        taxa,
+        liquido,
+      };
+    });
+    const totalBruto = linhas.reduce((acc, item) => acc + item.valor, 0);
+    const totalTaxa = linhas.reduce((acc, item) => acc + item.taxa, 0);
+    const totalLiquido = linhas.reduce((acc, item) => acc + item.liquido, 0);
+    const valorOs = Number(osPagamentoAtual?.valor_final || 0);
+    const limiteCredito = Math.max(0, Number(saldoCreditoClientePagamento || 0));
+    const creditoSolicitado = parseMoneyValue(valorCreditoUtilizadoPagamento);
+    const creditoUtilizado = usarCreditoClientePagamento
+      ? Math.max(0, Math.min(creditoSolicitado, limiteCredito))
+      : 0;
+    const totalCoberto = Number((totalBruto + creditoUtilizado).toFixed(2));
+    const diferenca = Number((totalCoberto - valorOs).toFixed(2));
+    return {
+      linhas,
+      totalBruto,
+      totalTaxa,
+      totalLiquido,
+      totalCoberto,
+      valorOs,
+      limiteCredito,
+      creditoSolicitado,
+      creditoUtilizado,
+      diferenca,
+      excedente: diferenca > 0 ? diferenca : 0,
+      faltante: diferenca < 0 ? Math.abs(diferenca) : 0,
+    };
+  }, [
+    formasPagamentoDisponiveis,
+    osPagamentoAtual?.valor_final,
+    pagamentosRecebimento,
+    saldoCreditoClientePagamento,
+    usarCreditoClientePagamento,
+    valorCreditoUtilizadoPagamento,
+  ]);
+
+  const atualizarLinhaPagamento = useCallback((id: string, campo: "forma_codigo" | "valor", valor: string) => {
+    setPagamentosRecebimento((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, [campo]: valor } : item))
+    );
+  }, []);
+
+  const removerLinhaPagamento = useCallback((id: string) => {
+    setPagamentosRecebimento((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((item) => item.id !== id);
+    });
+  }, []);
+
+  const adicionarLinhaPagamento = useCallback(() => {
+    const formaPadrao =
+      formasPagamentoDisponiveis.find(
+        (forma) => normalizarCodigoFormaPagamento(forma.codigo) === FORMA_PAGAMENTO_PADRAO
+      ) || formasPagamentoDisponiveis[0];
+    const codigo = normalizarCodigoFormaPagamento(formaPadrao?.codigo || FORMA_PAGAMENTO_PADRAO);
+    setPagamentosRecebimento((prev) => [
+      ...prev,
+      {
+        id: gerarPagamentoId(),
+        forma_codigo: codigo,
+        valor: "0.00",
+      },
+    ]);
+  }, [formasPagamentoDisponiveis]);
+
   const abrirRecebimentoPagamentoModal = (agendamentoId: number) => {
     const osVinculada = ordensServicoPorAgendamento[agendamentoId];
     if (!osVinculada) {
@@ -988,9 +1193,30 @@ export default function AgendaPage() {
     }
 
     setErro("");
-    setFormaPagamento(FORMA_PAGAMENTO_PADRAO);
+    const formaPadrao =
+      formasPagamentoDisponiveis.find(
+        (forma) => normalizarCodigoFormaPagamento(forma.codigo) === FORMA_PAGAMENTO_PADRAO
+      ) || formasPagamentoDisponiveis[0];
+    const formaCodigo = normalizarCodigoFormaPagamento(formaPadrao?.codigo || FORMA_PAGAMENTO_PADRAO);
+    setPagamentosRecebimento([
+      {
+        id: gerarPagamentoId(),
+        forma_codigo: formaCodigo,
+        valor: toMoneyInput(Number(osVinculada.valor_final || 0)),
+      },
+    ]);
+    setDataRecebimentoPagamento(hojeLocal());
+    setDestinoCreditoExcedente("cliente");
+    setSaldoCreditoClientePagamento(0);
+    setCarregandoSaldoCreditoPagamento(false);
+    setErroSaldoCreditoPagamento("");
+    setUsarCreditoClientePagamento(false);
+    setValorCreditoUtilizadoPagamento("0.00");
     setAgendamentoPagamentoId(agendamentoId);
     setModalPagamentoAberto(true);
+    if (!formasPagamentoDisponiveis.length) {
+      void carregarFormasPagamento();
+    }
   };
 
   const confirmarRecebimentoPagamento = async () => {
@@ -1006,12 +1232,35 @@ export default function AgendaPage() {
     try {
       setRecebendoPagamentoId(agendamentoPagamentoId);
       setErro("");
+      const pagamentosPayload = resumoPagamentoModal.linhas
+        .filter((item) => item.valor > 0)
+        .map((item) => ({
+          forma_pagamento: normalizarCodigoFormaPagamento(item.forma_codigo),
+          forma_pagamento_config_id: item.forma?.id ?? undefined,
+          valor: Number(item.valor.toFixed(2)),
+        }));
+      const creditoUtilizado = Number(resumoPagamentoModal.creditoUtilizado || 0);
+
+      if (pagamentosPayload.length === 0 && creditoUtilizado <= 0) {
+        setErro("Informe ao menos um pagamento com valor maior que zero ou utilize credito disponivel.");
+        return;
+      }
+
       await api.patch(`/ordens-servico/${osVinculada.id}/receber`, {
-        forma_pagamento: formaPagamento,
+        pagamentos: pagamentosPayload,
+        data_recebimento: dataRecebimentoPagamento || null,
+        valor_credito_utilizado: Number(creditoUtilizado.toFixed(2)),
+        destino_credito_excedente: destinoCreditoExcedente,
       });
 
       setModalPagamentoAberto(false);
       setAgendamentoPagamentoId(null);
+      setPagamentosRecebimento([]);
+      setSaldoCreditoClientePagamento(0);
+      setCarregandoSaldoCreditoPagamento(false);
+      setErroSaldoCreditoPagamento("");
+      setUsarCreditoClientePagamento(false);
+      setValorCreditoUtilizadoPagamento("0.00");
       await carregarAgendamentos();
     } catch (error: any) {
       console.error("Erro ao receber pagamento da OS na agenda:", error);
@@ -2333,23 +2582,215 @@ export default function AgendaPage() {
             <div className="mx-4 w-full max-w-md rounded-lg bg-white p-6">
               <h3 className="text-lg font-semibold text-gray-900">Receber pagamento</h3>
               <p className="mt-1 text-sm text-gray-600">
-                Confirme a forma de pagamento da OS vinculada ao agendamento.
+                Informe as formas de pagamento da OS vinculada ao agendamento.
               </p>
 
-              <label className="mt-4 block text-sm font-medium text-gray-700">Forma de pagamento</label>
-              <select
-                value={formaPagamento}
-                onChange={(event) =>
-                  setFormaPagamento(event.target.value as FormaPagamentoAgenda)
-                }
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-              >
-                {FORMA_PAGAMENTO_OPCOES.map((forma) => (
-                  <option key={forma.id} value={forma.id}>
-                    {forma.nome}
-                  </option>
+              {carregandoSaldoCreditoPagamento && (
+                <div className="mt-3 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs text-cyan-800">
+                  Consultando credito ativo do cliente...
+                </div>
+              )}
+              {!carregandoSaldoCreditoPagamento && erroSaldoCreditoPagamento && (
+                <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  {erroSaldoCreditoPagamento}
+                </div>
+              )}
+              {!carregandoSaldoCreditoPagamento && saldoCreditoClientePagamento > 0 && (
+                <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  Cliente com credito ativo: <strong>{formatarMoedaBRL(saldoCreditoClientePagamento)}</strong>.
+                  Avalie com o cliente se deseja usar esse saldo antes de confirmar o recebimento.
+                </div>
+              )}
+
+              <div className="mt-4 space-y-3">
+                {pagamentosRecebimento.map((pagamento, index) => (
+                  <div key={pagamento.id} className="rounded-lg border border-gray-200 p-3">
+                    <div className="mb-2 text-xs font-medium text-gray-500">Pagamento {index + 1}</div>
+                    <label className="block text-xs font-medium text-gray-600">Forma de pagamento</label>
+                    <select
+                      value={pagamento.forma_codigo}
+                      onChange={(event) => atualizarLinhaPagamento(pagamento.id, "forma_codigo", event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      {formasPagamentoDisponiveis.map((forma) => {
+                        const codigo = normalizarCodigoFormaPagamento(forma.codigo);
+                        return (
+                          <option key={`${codigo}-${forma.id ?? "fallback"}`} value={codigo}>
+                            {descricaoFormaPagamentoConfig(forma)}
+                          </option>
+                        );
+                      })}
+                    </select>
+
+                    <label className="mt-2 block text-xs font-medium text-gray-600">Valor</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={pagamento.valor}
+                      onChange={(event) => atualizarLinhaPagamento(pagamento.id, "valor", event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                    <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                      <span>
+                        Taxa estimada:{" "}
+                        {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+                          resumoPagamentoModal.linhas[index]?.taxa || 0
+                        )}
+                      </span>
+                      {pagamentosRecebimento.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removerLinhaPagamento(pagamento.id)}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          Remover
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 ))}
-              </select>
+              </div>
+
+              <button
+                type="button"
+                onClick={adicionarLinhaPagamento}
+                className="mt-3 text-sm font-medium text-blue-600 hover:text-blue-700"
+              >
+                + Adicionar forma de pagamento
+              </button>
+
+              <label className="mt-4 block text-sm font-medium text-gray-700">Data do recebimento</label>
+              <input
+                type="date"
+                value={dataRecebimentoPagamento}
+                onChange={(event) => setDataRecebimentoPagamento(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+
+              {!carregandoSaldoCreditoPagamento && saldoCreditoClientePagamento > 0 && (
+                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <label className="flex items-center gap-2 text-sm font-medium text-amber-900">
+                    <input
+                      type="checkbox"
+                      checked={usarCreditoClientePagamento}
+                      onChange={(event) => {
+                        const checked = event.target.checked;
+                        setUsarCreditoClientePagamento(checked);
+                        if (checked) {
+                          const coberturaAtual = Math.max(
+                            0,
+                            Number(resumoPagamentoModal.valorOs || 0) - Number(resumoPagamentoModal.totalBruto || 0)
+                          );
+                          const sugestao = Math.min(
+                            Number(saldoCreditoClientePagamento || 0),
+                            coberturaAtual > 0 ? coberturaAtual : Number(resumoPagamentoModal.valorOs || 0)
+                          );
+                          setValorCreditoUtilizadoPagamento(toMoneyInput(sugestao));
+                        }
+                      }}
+                    />
+                    Usar credito do cliente neste recebimento
+                  </label>
+                  {usarCreditoClientePagamento && (
+                    <div className="mt-2">
+                      <label className="block text-xs font-medium text-amber-900">Valor do credito a usar</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        max={Number(saldoCreditoClientePagamento || 0)}
+                        value={valorCreditoUtilizadoPagamento}
+                        onChange={(event) => setValorCreditoUtilizadoPagamento(event.target.value)}
+                        className="mt-1 w-full rounded-lg border border-amber-300 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                      />
+                      <div className="mt-1 text-xs text-amber-800">
+                        Saldo disponivel: {formatarMoedaBRL(saldoCreditoClientePagamento)}.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {resumoPagamentoModal.excedente > 0 && (
+                <>
+                  <label className="mt-4 block text-sm font-medium text-gray-700">
+                    Excedente detectado. Destino do credito
+                  </label>
+                  <select
+                    value={destinoCreditoExcedente}
+                    onChange={(event) =>
+                      setDestinoCreditoExcedente(event.target.value as "cliente" | "clinica" | "nenhum")
+                    }
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="cliente">Cliente</option>
+                    <option value="clinica">Clinica</option>
+                    <option value="nenhum">Nao gerar credito</option>
+                  </select>
+                </>
+              )}
+
+              <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">
+                <div className="flex justify-between">
+                  <span>Valor da OS</span>
+                  <strong>
+                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+                      resumoPagamentoModal.valorOs || 0
+                    )}
+                  </strong>
+                </div>
+                <div className="mt-1 flex justify-between">
+                  <span>Total bruto informado</span>
+                  <strong>
+                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+                      resumoPagamentoModal.totalBruto || 0
+                    )}
+                  </strong>
+                </div>
+                <div className="mt-1 flex justify-between">
+                  <span>Credito aplicado</span>
+                  <strong>
+                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+                      resumoPagamentoModal.creditoUtilizado || 0
+                    )}
+                  </strong>
+                </div>
+                <div className="mt-1 flex justify-between">
+                  <span>Total coberto</span>
+                  <strong>
+                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+                      resumoPagamentoModal.totalCoberto || 0
+                    )}
+                  </strong>
+                </div>
+                <div className="mt-1 flex justify-between">
+                  <span>Total de taxas estimadas</span>
+                  <strong>
+                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+                      resumoPagamentoModal.totalTaxa || 0
+                    )}
+                  </strong>
+                </div>
+                {resumoPagamentoModal.faltante > 0 && (
+                  <div className="mt-1 text-red-700">
+                    Falta cobrir{" "}
+                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+                      resumoPagamentoModal.faltante
+                    )}
+                    .
+                  </div>
+                )}
+                {resumoPagamentoModal.excedente > 0 && (
+                  <div className="mt-1 text-emerald-700">
+                    Excedente para credito:{" "}
+                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+                      resumoPagamentoModal.excedente
+                    )}
+                    .
+                  </div>
+                )}
+              </div>
 
               <div className="mt-6 flex justify-end gap-2">
                 <button
@@ -2357,6 +2798,11 @@ export default function AgendaPage() {
                   onClick={() => {
                     setModalPagamentoAberto(false);
                     setAgendamentoPagamentoId(null);
+                    setSaldoCreditoClientePagamento(0);
+                    setCarregandoSaldoCreditoPagamento(false);
+                    setErroSaldoCreditoPagamento("");
+                    setUsarCreditoClientePagamento(false);
+                    setValorCreditoUtilizadoPagamento("0.00");
                   }}
                   className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                 >
@@ -2365,7 +2811,11 @@ export default function AgendaPage() {
                 <button
                   type="button"
                   onClick={confirmarRecebimentoPagamento}
-                  disabled={recebendoPagamentoId === agendamentoPagamentoId}
+                  disabled={
+                    recebendoPagamentoId === agendamentoPagamentoId ||
+                    carregandoFormasPagamento ||
+                    resumoPagamentoModal.faltante > 0
+                  }
                   className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {recebendoPagamentoId === agendamentoPagamentoId ? (

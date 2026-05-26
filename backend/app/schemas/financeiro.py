@@ -1,7 +1,6 @@
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional, List
-from decimal import Decimal
 
 
 # ==================== TRANSAÇÕES ====================
@@ -12,6 +11,12 @@ class TransacaoBase(BaseModel):
     valor: float = Field(..., gt=0, description="Valor da transação")
     desconto: float = Field(default=0, ge=0, description="Desconto aplicado")
     forma_pagamento: Optional[str] = Field(default=None, description="Forma de pagamento")
+    forma_pagamento_config_id: Optional[int] = Field(default=None, description="ID do cadastro de forma de pagamento")
+    adquirente_pagamento: Optional[str] = Field(default=None, description="Adquirente/maquininha")
+    bandeira_pagamento: Optional[str] = Field(default=None, description="Bandeira do cartao")
+    taxa_percentual: float = Field(default=0, ge=0, description="Taxa percentual aplicada")
+    taxa_fixa: float = Field(default=0, ge=0, description="Taxa fixa aplicada")
+    valor_taxa: float = Field(default=0, ge=0, description="Valor monetario da taxa")
     status: str = Field(default="Pendente", description="Status: Pendente, Pago, Recebido, Cancelado")
     descricao: str = Field(..., min_length=3, max_length=255, description="Descrição da transação")
     data_transacao: datetime = Field(default_factory=datetime.now, description="Data da transação")
@@ -41,6 +46,12 @@ class TransacaoUpdate(BaseModel):
     valor: Optional[float] = Field(default=None, gt=0)
     desconto: Optional[float] = Field(default=None, ge=0)
     forma_pagamento: Optional[str] = None
+    forma_pagamento_config_id: Optional[int] = None
+    adquirente_pagamento: Optional[str] = None
+    bandeira_pagamento: Optional[str] = None
+    taxa_percentual: Optional[float] = Field(default=None, ge=0)
+    taxa_fixa: Optional[float] = Field(default=None, ge=0)
+    valor_taxa: Optional[float] = Field(default=None, ge=0)
     status: Optional[str] = None
     descricao: Optional[str] = Field(default=None, min_length=3, max_length=255)
     data_transacao: Optional[datetime] = None
@@ -63,6 +74,12 @@ class TransacaoResponse(BaseModel):
     desconto: float
     valor_final: float
     forma_pagamento: Optional[str]
+    forma_pagamento_config_id: Optional[int]
+    adquirente_pagamento: Optional[str]
+    bandeira_pagamento: Optional[str]
+    taxa_percentual: float
+    taxa_fixa: float
+    valor_taxa: float
     status: str
     descricao: str
     data_transacao: datetime
@@ -87,6 +104,135 @@ class TransacaoResponse(BaseModel):
 class TransacaoLista(BaseModel):
     total: int
     items: List[TransacaoResponse]
+
+
+class BandeiraCartaoBase(BaseModel):
+    nome: str = Field(..., min_length=2, max_length=120)
+    codigo: str = Field(..., min_length=2, max_length=80)
+    ativo: bool = True
+
+
+class BandeiraCartaoCreate(BandeiraCartaoBase):
+    pass
+
+
+class BandeiraCartaoUpdate(BaseModel):
+    nome: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    codigo: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    ativo: Optional[bool] = None
+
+
+class BandeiraCartaoResponse(BaseModel):
+    id: int
+    nome: str
+    codigo: str
+    ativo: bool
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class BandeiraCartaoLista(BaseModel):
+    total: int
+    items: List[BandeiraCartaoResponse]
+
+
+class FormaPagamentoConfigBase(BaseModel):
+    nome: str = Field(..., min_length=2, max_length=140)
+    codigo: str = Field(..., min_length=2, max_length=80)
+    tipo: str = Field(
+        ...,
+        pattern="^(dinheiro|pix|cartao_credito|cartao_debito|boleto|transferencia|credito|outro)$",
+    )
+    adquirente: Optional[str] = Field(default=None, max_length=120)
+    bandeira_id: Optional[int] = None
+    taxa_percentual: float = Field(default=0, ge=0)
+    taxa_fixa: float = Field(default=0, ge=0)
+    ativo: bool = True
+    ordem_exibicao: int = Field(default=0, ge=0)
+
+
+class FormaPagamentoConfigCreate(FormaPagamentoConfigBase):
+    pass
+
+
+class FormaPagamentoConfigUpdate(BaseModel):
+    nome: Optional[str] = Field(default=None, min_length=2, max_length=140)
+    codigo: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    tipo: Optional[str] = Field(
+        default=None,
+        pattern="^(dinheiro|pix|cartao_credito|cartao_debito|boleto|transferencia|credito|outro)$",
+    )
+    adquirente: Optional[str] = Field(default=None, max_length=120)
+    bandeira_id: Optional[int] = None
+    taxa_percentual: Optional[float] = Field(default=None, ge=0)
+    taxa_fixa: Optional[float] = Field(default=None, ge=0)
+    ativo: Optional[bool] = None
+    ordem_exibicao: Optional[int] = Field(default=None, ge=0)
+
+
+class FormaPagamentoConfigResponse(BaseModel):
+    id: int
+    nome: str
+    codigo: str
+    tipo: str
+    adquirente: Optional[str]
+    bandeira_id: Optional[int]
+    bandeira_nome: Optional[str] = None
+    taxa_percentual: float
+    taxa_fixa: float
+    ativo: bool
+    ordem_exibicao: int
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class FormaPagamentoConfigLista(BaseModel):
+    total: int
+    items: List[FormaPagamentoConfigResponse]
+
+
+class CreditoFinanceiroResponse(BaseModel):
+    id: int
+    tipo_destino: str
+    clinica_id: Optional[int]
+    paciente_id: Optional[int]
+    tutor_id: Optional[int]
+    valor: float
+    status: str
+    origem: str
+    descricao: Optional[str]
+    ordem_servico_id: Optional[int]
+    transacao_id: Optional[int]
+    data_movimento: datetime
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class CreditoFinanceiroLista(BaseModel):
+    total: int
+    items: List[CreditoFinanceiroResponse]
+
+
+class CreditoSaldoItem(BaseModel):
+    tipo_destino: str
+    clinica_id: Optional[int] = None
+    paciente_id: Optional[int] = None
+    tutor_id: Optional[int] = None
+    saldo: float
+
+
+class CreditoSaldoLista(BaseModel):
+    total: int
+    items: List[CreditoSaldoItem]
 
 
 # ==================== CONTAS A PAGAR ====================
@@ -279,6 +425,8 @@ class ResumoFinanceiro(BaseModel):
     pendente_saida: float
     a_receber: float
     a_pagar: float
+    taxas_pagamento: float = 0
+    creditos_gerados: float = 0
 
 
 class DadosGrafico(BaseModel):

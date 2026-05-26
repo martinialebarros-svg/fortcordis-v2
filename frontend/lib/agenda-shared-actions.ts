@@ -67,6 +67,42 @@ export type FormaPagamentoAgenda = (typeof FORMA_PAGAMENTO_OPCOES)[number]["id"]
 
 export const FORMA_PAGAMENTO_PADRAO: FormaPagamentoAgenda = "dinheiro";
 
+export interface FormaPagamentoConfig {
+  id?: number;
+  codigo: string;
+  nome: string;
+  tipo?: string;
+  adquirente?: string | null;
+  bandeira_id?: number | null;
+  bandeira_nome?: string | null;
+  taxa_percentual?: number;
+  taxa_fixa?: number;
+  ativo?: boolean;
+}
+
+export const FORMA_PAGAMENTO_FALLBACK: FormaPagamentoConfig[] = FORMA_PAGAMENTO_OPCOES.map((item) => ({
+  codigo: item.id,
+  nome: item.nome,
+  tipo: item.id,
+  taxa_percentual: 0,
+  taxa_fixa: 0,
+  ativo: true,
+}));
+
+export const normalizarCodigoFormaPagamento = (valor?: string | null): string => {
+  return String(valor || "").trim().toLowerCase().replace(/\s+/g, "_");
+};
+
+export const descricaoFormaPagamentoConfig = (forma: FormaPagamentoConfig): string => {
+  const origem = String(forma.adquirente || "").trim();
+  const bandeira = String(forma.bandeira_nome || "").trim();
+  const partes = [origem, bandeira].filter(Boolean);
+  if (partes.length === 0) {
+    return forma.nome;
+  }
+  return `${forma.nome} (${partes.join(" / ")})`;
+};
+
 export const osEstaPaga = (status?: string): boolean => {
   return String(status || "").trim().toLowerCase() === "pago";
 };

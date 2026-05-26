@@ -22,6 +22,8 @@ export default function RelatoriosVisaoGeralView({
 }: RelatoriosVisaoGeralViewProps) {
   const faturamentoPeriodo = relatorio.financeiro.periodo.valor_total_servicos;
   const despesasPeriodo = relatorio.financeiro.periodo.saidas_pagas;
+  const taxasPagamentoPeriodo = relatorio.financeiro.periodo.taxas_pagamento || 0;
+  const creditosGeradosPeriodo = relatorio.financeiro.periodo.creditos_gerados || 0;
   const lucroLiquido =
     financeiroContexto?.dre?.lucro_liquido ?? faturamentoPeriodo - despesasPeriodo;
   const contasReceberPendentes = totalContasPendentes(financeiroContexto?.contas_receber, [
@@ -59,9 +61,16 @@ export default function RelatoriosVisaoGeralView({
         <MetricCard
           titulo="Despesas do periodo"
           valor={formatarMoeda(despesasPeriodo)}
+          descricao={`Taxas de pagamento: ${formatarMoeda(taxasPagamentoPeriodo)}`}
           icon={Receipt}
           iconColorClass="text-red-600"
           emphasis="negative"
+        />
+        <MetricCard
+          titulo="Creditos gerados"
+          valor={formatarMoeda(creditosGeradosPeriodo)}
+          icon={Landmark}
+          iconColorClass="text-cyan-600"
         />
         <MetricCard
           titulo="Lucro liquido"
