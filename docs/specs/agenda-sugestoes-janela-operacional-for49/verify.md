@@ -21,6 +21,7 @@ Status: in-progress
 | CA-011 | aceitacao | `test_sugestao_proximidade_ignora_ancora_passada_no_dia_atual` impede oferta de ancora vencida no dia atual | ok |
 | CA-012 | aceitacao | datas de cenario atualizadas para horizonte estavel e compativel com regra de corte de passado no CI | ok |
 | CA-013 | aceitacao | `test_sugestao_proximidade_ignora_ancora_sem_slot_operacional` impede sugestao de ancora quando nao ha slot viavel no assistente guiado | ok |
+| CA-014 | aceitacao | `test_sugestoes_horario_nao_ofertam_slot_ocupado_mesmo_com_drift_em_inicio` bloqueia oferta de slot ocupado em cenario legado com drift `data/hora` x `inicio/fim` | ok |
 | NFR-001 | nao funcional | endpoint permanece com contrato retrocompativel | ok |
 | NFR-002 | nao funcional | cache de janela por data via `_obter_janela_funcionamento_cacheada` | ok |
 | NFR-004 | nao funcional | `sugerir_agendamento_proximo` valida aderencia com `sugerir_horarios_agenda` antes de exibir sugestao de ancora | ok |
@@ -32,11 +33,13 @@ Comandos:
 ```bash
 cd backend && ./venv/bin/pytest -q tests/test_agenda_sugestao_janela_operacional.py
 cd backend && ./venv/bin/pytest -q tests/test_agenda_deslocamento_cache.py tests/test_agenda_busca_periodo_filtros.py
+cd backend && ./venv/bin/pytest -q tests/test_agenda_duracao_servico_create.py
 ```
 
 Resumo dos resultados:
-- `test_agenda_sugestao_janela_operacional.py`: 12 passed.
+- `test_agenda_sugestao_janela_operacional.py`: 21 passed.
 - `test_agenda_deslocamento_cache.py` + `test_agenda_busca_periodo_filtros.py`: 6 passed.
+- `test_agenda_duracao_servico_create.py`: 5 passed.
 - `python -m unittest discover -s backend/tests -p "test_*.py"`: 185 passed.
 - Avisos de deprecacao de Pydantic/SQLAlchemy ja existentes no projeto.
 
