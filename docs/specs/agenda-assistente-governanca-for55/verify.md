@@ -1,6 +1,6 @@
 # Verify - agenda-assistente-governanca-for55
 
-Data: 2026-05-23
+Data: 2026-05-26
 Responsavel: Martiniano + Codex
 Status: in-progress
 
@@ -16,6 +16,8 @@ Status: in-progress
 | CA-006 | aceitacao | modal usa `POST /agenda/assistente/ofertas` para gerar panorama | ok |
 | CA-007 | aceitacao | evento `ASSISTENTE_AGENDA_EXCECAO_CONCEDIDA` com motivo/contexto | ok |
 | CA-008 | aceitacao | `GET /agenda/assistente/metricas` agrega por etapa/perfil/clinica | ok |
+| CA-009 | aceitacao | orquestrador tenta fallback de datas candidatas quando primeira data automatica vem sem ofertas | ok |
+| CA-010 | aceitacao | modal libera fluxo retroativo para admin em data passada + zero ofertas; nao-admin segue bloqueado | ok |
 
 ## 2) Testes automatizados executados
 
@@ -31,6 +33,24 @@ Resumo:
 - Pytest focal agenda: `15 passed`.
 - `py_compile`: ok.
 - ESLint do modal de agenda: ok.
+
+Execucao adicional deste ciclo (2026-05-26):
+
+```bash
+cd backend && source venv/bin/activate && pytest -q tests/test_agenda_assistente_orquestrador_metricas.py
+```
+
+Resultado adicional:
+- `4 passed` (inclui cobertura dos cenarios de fallback entre datas preferenciais e fallback para data de referencia).
+
+Validacao adicional deste ciclo (frontend):
+
+```bash
+cd frontend && npx eslint app/agenda/NovoAgendamentoModal.tsx --max-warnings=0
+```
+
+Resultado adicional:
+- ESLint local: `ok` para fluxo retroativo controlado em data passada.
 
 ## 3) Smoke operacional recomendado (FOR-62)
 

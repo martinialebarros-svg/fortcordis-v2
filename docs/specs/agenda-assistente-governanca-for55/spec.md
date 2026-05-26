@@ -1,6 +1,6 @@
 # Spec - agenda-assistente-governanca-for55
 
-Data: 2026-05-23
+Data: 2026-05-26
 Responsavel: Martiniano + Codex
 Status: in-progress
 
@@ -26,6 +26,8 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
 - RF-008: concessao de excecao operacional por admin deve gerar evento estruturado dedicado de auditoria.
 - RF-009: backend deve registrar eventos de funil do assistente para oferta gerada, aceite, sem opcao, solicitacao de excecao, excecao concedida e encerramento.
 - RF-010: backend deve expor endpoint admin de metricas agregadas do funil por etapa, perfil, clinica e serie diaria.
+- RF-011: no endpoint `POST /agenda/assistente/ofertas`, quando a primeira `data_base` automatica nao retornar slots operacionais, o backend deve tentar fallback deterministico entre datas candidatas (proximidade -> datas preferenciais da politica -> data de referencia), interrompendo na primeira data com ofertas validas.
+- RF-012: no modal de novo agendamento, quando a data selecionada for passada e o panorama vier sem ofertas, o admin deve poder liberar um fluxo retroativo controlado para concluir o cadastro manual com justificativa obrigatoria.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -33,6 +35,8 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
 - NFR-002 (consistencia): mesma entrada de negocio deve produzir mesma decisao de data-base/politica em qualquer entrypoint de sugestao.
 - NFR-003 (confiabilidade): fluxo de agendamento deve reduzir risco de duplicidade em concorrencia.
 - NFR-004 (observabilidade): eventos do funil devem ser consultaveis por janela temporal para operacao.
+- NFR-005 (resiliencia operacional): ausencia de oferta na primeira data automatica nao pode encerrar prematuramente o panorama se houver datas candidatas ainda nao tentadas no mesmo contexto de negocio.
+- NFR-006 (governanca): lancamento retroativo de data passada deve permanecer controlado por papel admin e gerar trilha textual no contexto do assistente.
 
 ## 4) Contratos tecnicos
 
@@ -48,6 +52,7 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
   - lock de escrita em create/update/status (`BEGIN IMMEDIATE` em SQLite e advisory lock no Postgres);
   - evento `ASSISTENTE_AGENDA_EXCECAO_CONCEDIDA`;
   - validacao de encerramento sem oferta exibida.
+  - fallback de `data_base` no orquestrador de ofertas (`proximidade` -> `politica` -> `manual`) com registro das datas tentadas para auditoria (`datas_tentadas_panorama`).
 
 ### Frontend
 
@@ -73,6 +78,8 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
 - CA-006: frontend usa resposta orquestrada para montar panorama e mensagem.
 - CA-007: conceder excecao operacional por admin gera evento estruturado dedicado.
 - CA-008: endpoint de metricas retorna agregacao por etapa, perfil e clinica no periodo informado.
+- CA-009: `POST /agenda/assistente/ofertas` nao deve retornar vazio definitivo apos primeira data automatica sem slots quando houver outra data candidata valida no mesmo contexto; deve tentar proximas datas e retornar oferta ao encontrar disponibilidade.
+- CA-010: com data passada e zero ofertas no panorama, admin consegue liberar fluxo retroativo e salvar agendamento manual apos informar justificativa; perfil nao-admin permanece bloqueado para essa liberacao.
 
 ## 7) Casos de borda
 
@@ -80,6 +87,9 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
 - CB-002: chamada de encerramento com contexto invalido deve ser rejeitada.
 - CB-003: concorrencia com duas threads simultaneas no mesmo slot.
 - CB-004: politica distante/baixa frequencia sem ancora aderente em D+2 deve aplicar data preferencial de politica.
+- CB-005: primeira data preferencial da politica sem janela operacional, mas segunda data preferencial com janela valida.
+- CB-006: todas as datas preferenciais sem janela operacional e fallback final para `data_referencia` com oferta valida.
+- CB-007: data passada selecionada, sem sugestoes operacionais e necessidade de lancamento retroativo no mesmo modal.
 
 ## 8) Fora de escopo
 
