@@ -1857,7 +1857,11 @@ export default function AgendaPage() {
                     <input
                       type="date"
                       value={filtroPeriodoInicio}
-                      onChange={(e) => setFiltroPeriodoInicio(e.target.value || hojeLocal())}
+                      onChange={(e) => {
+                        const novaDataInicio = e.target.value || hojeLocal();
+                        setFiltroPeriodoInicio(novaDataInicio);
+                        setFiltroPeriodoFim(novaDataInicio);
+                      }}
                       className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -1866,6 +1870,7 @@ export default function AgendaPage() {
                     <input
                       type="date"
                       value={filtroPeriodoFim}
+                      min={filtroPeriodoInicio || undefined}
                       onChange={(e) => setFiltroPeriodoFim(e.target.value || filtroPeriodoInicio || hojeLocal())}
                       className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
