@@ -2725,11 +2725,7 @@ def orquestrar_ofertas_assistente(
         if isinstance(item, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", item.strip())
     ]
     politica_distante_baixa = bool(politica_oferta.get("distante_base")) and bool(politica_oferta.get("baixa_frequencia"))
-    sugestao_proximidade_aderente = (
-        bool((resposta_proximidade or {}).get("sugerir"))
-        and bool(data_proximidade)
-        and (not politica_distante_baixa or bool(((resposta_proximidade or {}).get("item") or {}).get("data_preferencial")))
-    )
+    sugestao_proximidade_aderente = bool((resposta_proximidade or {}).get("sugerir")) and bool(data_proximidade)
 
     data_base = data_referencia
     origem_data_automatica = "manual"

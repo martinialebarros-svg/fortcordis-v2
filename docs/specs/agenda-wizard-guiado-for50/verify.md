@@ -13,7 +13,7 @@ Status: done
 | CA-003 | aceitacao | estado `sem_opcao` exige `motivoSemOpcao` antes de habilitar salvar | ok |
 | CA-004 | aceitacao | condicao `!isEditando` para obrigatoriedade do wizard | ok |
 | CA-005 | aceitacao | banner de `itensIgnoradosJanela` no card do assistente | ok |
-| CA-006 | aceitacao | `buscarSugestoesHorario` prioriza `politica_oferta.datas_preferenciais` quando proximidade vier fora da politica | ok |
+| CA-006 | aceitacao | `orquestrar_ofertas_assistente` prioriza data de proximidade operacional (mesmo fora de `datas_preferenciais`) e usa politica como fallback quando necessario | ok |
 | CA-007 | aceitacao | `dataContatoAssistente` fixada no open do modal e enviada como `data_contato` em `buscarSugestaoProximidade` | ok |
 | CA-008 | aceitacao | bloqueio de `input[type=date|time]` no modo novo enquanto decisao != `sem_opcao` | ok |
 | CA-009 | aceitacao | `buscarSugestoesHorario` nao sobrescreve mais `formData.data` com `dataBaseBusca` | ok |
@@ -47,7 +47,7 @@ Resumo dos resultados:
 - ESLint: ok.
 - PyCompile backend: ok.
 - Pytest `test_agenda_sugestao_janela_operacional.py` + `test_agenda_duracao_servico_create.py`: `23 passed`.
-- Pytest `test_agenda_assistente_orquestrador_metricas.py`: `5 passed`.
+- Pytest `test_agenda_assistente_orquestrador_metricas.py`: `6 passed`.
 - CI `Deploy to Stage (VPS)` run `26316967933`: `quality-gate=success`, `sdd-guardrail=failure` (falta de docs neste commit), sem falha funcional de codigo.
 
 ## 3) Testes manuais sugeridos (stage)
@@ -56,7 +56,7 @@ Resumo dos resultados:
 - Cenario 2: gerar oferta, clicar `Cliente aceitou este horario` e validar habilitacao do botao `Salvar Agendamento`.
 - Cenario 3: recusar todas as ofertas, validar exigencia de motivo e depois salvamento manual.
 - Cenario 4: abrir `Editar Agendamento` e validar que fluxo antigo segue intacto.
-- Cenario 5: clinica distante/baixa frequencia sem ancora em D+2 deve abrir oferta em D+3/D+4 (data preferencial), sem ancorar automaticamente em D+2 fora da politica.
+- Cenario 5: quando o assistente inteligente sugerir data de proximidade operacional fora de `datas_preferenciais`, o guiado deve tentar essa data primeiro; se nao houver slot nela, deve cair para D+3/D+4.
 - Cenario 6: abrir `Novo Agendamento`, aguardar alguns minutos e gerar sugestoes; validar que o comportamento de D+N permanece referenciado na data de abertura (sem drift de `data_contato`).
 - Cenario 7: com assistente em estado pendente/aceito, confirmar bloqueio de data/hora manual; apos `sem_opcao`, confirmar liberacao para fallback manual.
 - Cenario 8: selecionar uma data no formulario, gerar oferta automatica e confirmar que a data exibida no campo nao muda sozinha; mudar somente por aceite explicito de oferta.

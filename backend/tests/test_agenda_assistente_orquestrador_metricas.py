@@ -34,7 +34,7 @@ class AgendaAssistenteOrquestradorTest(unittest.TestCase):
     def _admin(self):
         return SimpleNamespace(id=1, nome="Admin", email="admin@fortcordis.com", tem_papel=lambda p: p == "admin")
 
-    def test_orquestrador_prioriza_data_politica_quando_distante_baixa_sem_ancora_aderente(self) -> None:
+    def test_orquestrador_prioriza_data_proximidade_mesmo_fora_da_data_preferencial(self) -> None:
         payload = agenda.AssistenteOfertaPayload(
             clinica_id=1,
             data="2026-05-23",
@@ -64,8 +64,8 @@ class AgendaAssistenteOrquestradorTest(unittest.TestCase):
         }
         panorama_mock = {
             "ok": True,
-            "data": "2026-05-26",
-            "items": [{"inicio": "2026-05-26 12:00", "fim": "2026-05-26 12:30", "anterior": {}, "proximo": {}}],
+            "data": "2026-05-24",
+            "items": [{"inicio": "2026-05-24 10:00", "fim": "2026-05-24 10:30", "anterior": {}, "proximo": {}}],
             "motivo": "",
             "itens_ignorados_janela": 0,
         }
@@ -85,9 +85,69 @@ class AgendaAssistenteOrquestradorTest(unittest.TestCase):
             )
 
         self.assertTrue(resposta["ok"])
+        self.assertEqual(resposta["origem_data_automatica"], "proximidade")
+        self.assertEqual(resposta["data_base"], "2026-05-24")
+        self.assertEqual(mocked_panorama.call_args.kwargs["payload"].data, "2026-05-24")
+
+    def test_orquestrador_faz_fallback_para_data_politica_quando_data_proximidade_esta_sem_ofertas(self) -> None:
+        payload = agenda.AssistenteOfertaPayload(
+            clinica_id=1,
+            data="2026-05-23",
+            data_contato="2026-05-23",
+            servico_id=1,
+            duracao_minutos=30,
+            intervalo_minutos=30,
+            limite=8,
+            perfil_deslocamento="comercial",
+            limite_minutos=25,
+        )
+        proximidade_mock = {
+            "ok": True,
+            "sugerir": True,
+            "mensagem": "mock proximidade",
+            "politica_oferta": {
+                "distante_base": True,
+                "baixa_frequencia": True,
+                "ancora_d2": False,
+                "datas_preferenciais": ["2026-05-26", "2026-05-27"],
+            },
+            "item": {
+                "data": "2026-05-24",
+                "inicio": "10:00",
+                "data_preferencial": False,
+            },
+        }
+
+        def _mock_panorama(*, payload, db, current_user):
+            if str(payload.data) == "2026-05-24":
+                return {"ok": True, "data": "2026-05-24", "items": [], "motivo": "sem oferta", "itens_ignorados_janela": 0}
+            return {
+                "ok": True,
+                "data": "2026-05-26",
+                "items": [{"inicio": "2026-05-26 12:00", "fim": "2026-05-26 12:30", "anterior": {}, "proximo": {}}],
+                "motivo": "",
+                "itens_ignorados_janela": 0,
+            }
+
+        with self._session_factory() as db, patch.object(
+            agenda, "sugerir_agendamento_proximo", return_value=proximidade_mock
+        ), patch.object(
+            agenda, "sugerir_horarios_agenda", side_effect=_mock_panorama
+        ) as mocked_panorama, patch.object(
+            agenda, "_registrar_evento_funil_assistente", return_value=None
+        ):
+            resposta = agenda.orquestrar_ofertas_assistente(
+                payload=payload,
+                request=None,
+                db=db,
+                current_user=self._admin(),
+            )
+
+        self.assertTrue(resposta["ok"])
         self.assertEqual(resposta["origem_data_automatica"], "politica")
         self.assertEqual(resposta["data_base"], "2026-05-26")
-        self.assertEqual(mocked_panorama.call_args.kwargs["payload"].data, "2026-05-26")
+        datas_consultadas = [chamada.kwargs["payload"].data for chamada in mocked_panorama.call_args_list]
+        self.assertEqual(datas_consultadas, ["2026-05-24", "2026-05-26"])
 
     def test_orquestrador_faz_fallback_para_proxima_data_preferencial_quando_primeira_sem_ofertas(self) -> None:
         payload = agenda.AssistenteOfertaPayload(
