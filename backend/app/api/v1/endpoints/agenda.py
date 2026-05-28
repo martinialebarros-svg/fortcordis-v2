@@ -2119,7 +2119,10 @@ def sugerir_horarios_agenda(
             inicio_candidato += timedelta(minutes=intervalo_minutos)
             continue
 
-        anterior, proximo = _obter_vizinhos_horario(agendamentos_dia, inicio_candidato, fim_candidato)
+        # Para validar deslocamento operacional, os vizinhos devem considerar toda a agenda ativa do dia.
+        # Isso evita ofertar slots que "cabem" na janela configurada, mas conflitam com atendimentos
+        # reais registrados fora da janela (legado/excecoes operacionais).
+        anterior, proximo = _obter_vizinhos_horario(agendamentos_dia_todos, inicio_candidato, fim_candidato)
 
         tempo_prev = 0
         tempo_next = 0

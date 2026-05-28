@@ -346,6 +346,67 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_sugestoes_horario_validam_proximo_fora_da_janela_para_evitar_conflito_operacional(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(
+                db,
+                excecoes=[
+                    {"data": "2099-05-26", "ativo": True, "inicio": "08:00", "fim": "13:30", "motivo": "Janela curta"},
+                ],
+            )
+            clinica_base, clinica_proxima = self._seed_clinicas(db)
+
+            # Agendamento real fora da janela ativa do dia; ainda assim deve entrar no calculo
+            # de deslocamento do "proximo" para nao ofertar slot inviavel antes dele.
+            self._criar_agendamento(
+                db,
+                clinica_id=clinica_proxima.id,
+                data="2099-05-26",
+                hora="14:00",
+                status="Agendado",
+            )
+
+            payload = agenda.SugestaoHorarioPayload(
+                data="2099-05-26",
+                clinica_id=clinica_base.id,
+                duracao_minutos=20,
+                intervalo_minutos=30,
+                limite=50,
+                perfil_deslocamento="comercial",
+            )
+
+            def _mock_deslocamento(
+                db,
+                *,
+                origem_clinica_id,
+                destino_clinica_id,
+                perfil,
+                permitir_estimativa_fallback=True,
+                cache=None,
+            ):
+                if (
+                    int(origem_clinica_id or 0) == int(clinica_base.id)
+                    and int(destino_clinica_id or 0) == int(clinica_proxima.id)
+                ):
+                    return (45, "mock_next")
+                return (0, "mock")
+
+            with patch.object(agenda, "_obter_duracao_deslocamento_cacheado", side_effect=_mock_deslocamento):
+                resposta = agenda.sugerir_horarios_agenda(
+                    payload=payload,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertTrue(resposta["ok"])
+            inicios = {str(item.get("inicio") or "") for item in resposta.get("items", [])}
+            self.assertNotIn("2099-05-26 13:00", inicios)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_sugestoes_horario_priorizam_slot_apos_ancora_mesma_clinica_mais_60min(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
