@@ -32,6 +32,7 @@ interface NovoAgendamentoModalProps {
   agendaSemanal: AgendaSemanalConfig;
   agendaFeriados: AgendaFeriadoConfig[];
   agendaExcecoes: AgendaExcecaoConfig[];
+  intervaloSlotMinutos?: number;
   isAdmin?: boolean;
 }
 
@@ -525,6 +526,7 @@ export default function NovoAgendamentoModal({
   agendaSemanal,
   agendaFeriados,
   agendaExcecoes,
+  intervaloSlotMinutos = 30,
   isAdmin = false,
 }: NovoAgendamentoModalProps) {
   const fortinho = useFortinho();
@@ -566,6 +568,9 @@ export default function NovoAgendamentoModal({
   const [saldoCreditoCliente, setSaldoCreditoCliente] = useState(0);
   const [carregandoCreditoCliente, setCarregandoCreditoCliente] = useState(false);
   const [erroCreditoCliente, setErroCreditoCliente] = useState("");
+  const intervaloSugestaoMinutos = Number.isFinite(intervaloSlotMinutos)
+    ? Math.max(5, Math.min(120, Math.round(intervaloSlotMinutos)))
+    : 30;
 
   const [formData, setFormData] = useState<FormDataAgenda>(
     buildInitialFormData(defaultDate, defaultTime)
@@ -985,7 +990,7 @@ export default function NovoAgendamentoModal({
         data_contato: dataContato,
         servico_id: formData.servico_id ? Number.parseInt(formData.servico_id, 10) : null,
         duracao_minutos: obterDuracaoServicoSelecionado(),
-        intervalo_minutos: 30,
+        intervalo_minutos: intervaloSugestaoMinutos,
         limite_sugestoes_operacionais: 8,
         perfil_deslocamento: "comercial",
         limite_minutos: LIMITE_MINUTOS_PROXIMIDADE,
@@ -1274,7 +1279,7 @@ export default function NovoAgendamentoModal({
       clinica_id: clinicaId,
       servico_id: formData.servico_id ? parseInt(formData.servico_id, 10) : null,
       duracao_minutos: obterDuracaoServicoSelecionado(),
-      intervalo_minutos: 30,
+      intervalo_minutos: intervaloSugestaoMinutos,
       limite: 8,
       perfil_deslocamento: "comercial",
       ignorar_agendamento_id: isEditando ? agendamento?.id : null,
@@ -1453,7 +1458,7 @@ export default function NovoAgendamentoModal({
         data_contato: dataContato,
         servico_id: formData.servico_id ? parseInt(formData.servico_id, 10) : null,
         duracao_minutos: obterDuracaoServicoSelecionado(),
-        intervalo_minutos: 30,
+        intervalo_minutos: intervaloSugestaoMinutos,
         limite: 8,
         perfil_deslocamento: "comercial",
         limite_minutos: LIMITE_MINUTOS_PROXIMIDADE,

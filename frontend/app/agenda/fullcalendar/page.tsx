@@ -51,6 +51,11 @@ import {
   slotDentroDaJornada,
   validarHorarioAgendamento,
 } from "@/lib/agenda-config";
+import {
+  DEFAULT_AGENDA_ROTA_REGRAS,
+  normalizarAgendaRotaRegras,
+  type AgendaRotaRenderingPolicyConfig,
+} from "@/lib/agenda-route-rules";
 
 const AgendaFullCalendarView = dynamic(() => import("./AgendaFullCalendarView"), {
   ssr: false,
@@ -104,11 +109,6 @@ interface AtualizacaoHorarioArgs {
   inicio: Date;
   fim: Date;
   revert: () => void;
-}
-
-interface ServicoAgenda {
-  id: number;
-  duracao_minutos?: number | null;
 }
 
 interface ClinicaEndereco {
@@ -243,16 +243,7 @@ const toMoneyInput = (value: number): string => {
   return value.toFixed(2);
 };
 
-const calcularMdc = (a: number, b: number): number => {
-  let x = Math.abs(a);
-  let y = Math.abs(b);
-  while (y !== 0) {
-    const resto = x % y;
-    x = y;
-    y = resto;
-  }
-  return x || 1;
-};
+const SLOT_INTERVALO_PADRAO_MIN = DEFAULT_AGENDA_ROTA_REGRAS.rendering_policy.slot_interval_min;
 
 const minutosParaDuracao = (minutos: number): string => {
   const horas = Math.floor(minutos / 60);
@@ -484,7 +475,9 @@ export default function AgendaFullCalendarPage() {
   const [excluindoAgendamentoId, setExcluindoAgendamentoId] = useState<number | null>(null);
   const [salvandoMovimentacao, setSalvandoMovimentacao] = useState(false);
   const [salvandoAgendaDia, setSalvandoAgendaDia] = useState(false);
-  const [duracaoSlotMinutos, setDuracaoSlotMinutos] = useState(30);
+  const [renderingPolicy, setRenderingPolicy] = useState<AgendaRotaRenderingPolicyConfig>(
+    DEFAULT_AGENDA_ROTA_REGRAS.rendering_policy
+  );
   const [erro, setErro] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("todos");
   const [mensagemStatus, setMensagemStatus] = useState("");
@@ -514,6 +507,11 @@ export default function AgendaFullCalendarPage() {
   const router = useRouter();
   const filtrosIniciaisAplicadosRef = useRef(false);
 
+  const duracaoSlotMinutos = useMemo(() => {
+    const parsed = Number(renderingPolicy.slot_interval_min);
+    if (!Number.isFinite(parsed)) return SLOT_INTERVALO_PADRAO_MIN;
+    return Math.max(5, Math.min(120, Math.round(parsed)));
+  }, [renderingPolicy.slot_interval_min]);
   const duracaoSlot = useMemo(() => minutosParaDuracao(duracaoSlotMinutos), [duracaoSlotMinutos]);
   const osSelecionada = useMemo(() => {
     if (!selecionado) return null;
@@ -721,21 +719,43 @@ export default function AgendaFullCalendarPage() {
   }, [formasPagamentoDisponiveis]);
 
   const slotMinTime = useMemo(() => {
+    const inicioConfigMin = horarioParaMinutos(renderingPolicy.window_start);
+    const fimConfigMin = horarioParaMinutos(renderingPolicy.window_end);
+    const janelaCustomValida =
+      Boolean(renderingPolicy.use_custom_window) &&
+      inicioConfigMin !== null &&
+      fimConfigMin !== null &&
+      fimConfigMin > inicioConfigMin;
+    if (janelaCustomValida) {
+      return minutosParaHoraComSegundos(inicioConfigMin);
+    }
+
     const inicios = Object.values(agendaSemanal)
       .filter((dia) => dia.ativo)
       .map((dia) => horarioParaMinutos(dia.inicio))
       .filter((valor): valor is number => valor !== null);
     const menor = inicios.length > 0 ? Math.min(...inicios) : 6 * 60;
     return minutosParaHoraComSegundos(menor);
-  }, [agendaSemanal]);
+  }, [agendaSemanal, renderingPolicy]);
   const slotMaxTime = useMemo(() => {
+    const inicioConfigMin = horarioParaMinutos(renderingPolicy.window_start);
+    const fimConfigMin = horarioParaMinutos(renderingPolicy.window_end);
+    const janelaCustomValida =
+      Boolean(renderingPolicy.use_custom_window) &&
+      inicioConfigMin !== null &&
+      fimConfigMin !== null &&
+      fimConfigMin > inicioConfigMin;
+    if (janelaCustomValida) {
+      return minutosParaHoraComSegundos(fimConfigMin);
+    }
+
     const fins = Object.values(agendaSemanal)
       .filter((dia) => dia.ativo)
       .map((dia) => horarioParaMinutos(dia.fim))
       .filter((valor): valor is number => valor !== null);
     const maior = fins.length > 0 ? Math.max(...fins) : 22 * 60;
     return minutosParaHoraComSegundos(maior);
-  }, [agendaSemanal]);
+  }, [agendaSemanal, renderingPolicy]);
   const businessHours = useMemo(() => {
     return (Object.entries(agendaSemanal) as Array<[string, { ativo: boolean; inicio: string; fim: string }]>)
       .filter(([, dia]) => dia.ativo)
@@ -1013,6 +1033,8 @@ export default function AgendaFullCalendarPage() {
       setAgendaSemanal(normalizarAgendaSemanal(response.data?.agenda_semanal));
       setAgendaFeriados(normalizarAgendaFeriados(response.data?.agenda_feriados));
       setAgendaExcecoes(normalizarAgendaExcecoes(response.data?.agenda_excecoes));
+      const regrasRota = normalizarAgendaRotaRegras(response.data?.agenda_rota_regras);
+      setRenderingPolicy(regrasRota.rendering_policy);
     } catch (error: any) {
       try {
         if (error?.response?.status === 404) {
@@ -1020,6 +1042,8 @@ export default function AgendaFullCalendarPage() {
           setAgendaSemanal(normalizarAgendaSemanal(fallback.data?.agenda_semanal));
           setAgendaFeriados(normalizarAgendaFeriados(fallback.data?.agenda_feriados));
           setAgendaExcecoes(normalizarAgendaExcecoes(fallback.data?.agenda_excecoes));
+          const regrasRota = normalizarAgendaRotaRegras(fallback.data?.agenda_rota_regras);
+          setRenderingPolicy(regrasRota.rendering_policy);
           return;
         }
       } catch (fallbackError) {
@@ -1030,29 +1054,7 @@ export default function AgendaFullCalendarPage() {
       setAgendaSemanal(normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL));
       setAgendaFeriados([]);
       setAgendaExcecoes([]);
-    }
-  }, []);
-
-  const carregarDuracaoSlots = useCallback(async () => {
-    try {
-      const response = await api.get("/servicos?limit=1000");
-      const itens: ServicoAgenda[] = Array.isArray(response.data?.items) ? response.data.items : [];
-      const duracoes = itens
-        .map((servico) => Number(servico?.duracao_minutos || 0))
-        .filter((valor) => Number.isFinite(valor) && valor > 0)
-        .map((valor) => Math.round(valor));
-
-      if (duracoes.length === 0) {
-        setDuracaoSlotMinutos(30);
-        return;
-      }
-
-      const base = duracoes.reduce((acumulado, atual) => calcularMdc(acumulado, atual));
-      const normalizado = Math.max(5, base);
-      setDuracaoSlotMinutos(normalizado);
-    } catch (error) {
-      console.error("Erro ao carregar duracao de servicos para slots:", error);
-      setDuracaoSlotMinutos(30);
+      setRenderingPolicy(DEFAULT_AGENDA_ROTA_REGRAS.rendering_policy);
     }
   }, []);
 
@@ -1147,8 +1149,7 @@ export default function AgendaFullCalendarPage() {
       return;
     }
     carregarConfiguracaoAgenda();
-    carregarDuracaoSlots();
-  }, [authChecked, carregarConfiguracaoAgenda, carregarDuracaoSlots]);
+  }, [authChecked, carregarConfiguracaoAgenda]);
 
   useEffect(() => {
     if (!selecionado) return;
@@ -2406,7 +2407,7 @@ export default function AgendaFullCalendarPage() {
             <p className="mt-2 text-2xl font-bold text-gray-900">{eventos.length}</p>
             <p className="text-xs text-gray-500">eventos no filtro atual</p>
             <p className="mt-1 text-xs text-gray-500">
-              Grade de slots: {duracaoSlotMinutos} min (baseada na duracao cadastrada dos servicos)
+              Grade de slots: {duracaoSlotMinutos} min (configurada em Configuracoes &gt; Funcionamento da Agenda)
             </p>
           </div>
 
@@ -3028,6 +3029,7 @@ export default function AgendaFullCalendarPage() {
             agendaSemanal={agendaSemanal}
             agendaFeriados={agendaFeriados}
             agendaExcecoes={agendaExcecoes}
+            intervaloSlotMinutos={duracaoSlotMinutos}
             isAdmin={isAdmin}
           />
         ) : null}

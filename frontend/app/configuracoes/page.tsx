@@ -455,6 +455,25 @@ export default function ConfiguracoesPage() {
     });
   };
 
+  const atualizarRegraRenderizacaoAgenda = (
+    campo: keyof AgendaRotaRegrasConfig["rendering_policy"],
+    valor: string | number | boolean
+  ) => {
+    setConfigEmpresa((prev) => {
+      const regras = prev.agenda_rota_regras || normalizarAgendaRotaRegras(DEFAULT_AGENDA_ROTA_REGRAS);
+      return {
+        ...prev,
+        agenda_rota_regras: {
+          ...regras,
+          rendering_policy: {
+            ...regras.rendering_policy,
+            [campo]: valor,
+          },
+        },
+      };
+    });
+  };
+
   const adicionarOverrideRota = () => {
     setConfigEmpresa((prev) => {
       const regras = prev.agenda_rota_regras || normalizarAgendaRotaRegras(DEFAULT_AGENDA_ROTA_REGRAS);
@@ -1779,9 +1798,78 @@ export default function ConfiguracoesPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Ancora proxima (min)</label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div className="md:col-span-2 lg:col-span-3 border border-gray-200 rounded-lg p-3 bg-gray-50">
+                      <h4 className="text-sm font-semibold text-gray-800">Renderizacao das grades da agenda</h4>
+                      <p className="text-xs text-gray-500 mt-1 mb-3">
+                        Define o periodo exibido nas visoes de grade e o tamanho de cada slot (Agenda panoramica e FullCalendar).
+                      </p>
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                        <label className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 md:col-span-2">
+                          <input
+                            type="checkbox"
+                            checked={agendaRotaRegrasAtual.rendering_policy.use_custom_window}
+                            disabled={somenteLeituraAgenda}
+                            onChange={(e) =>
+                              atualizarRegraRenderizacaoAgenda("use_custom_window", e.target.checked)
+                            }
+                            className="w-4 h-4 text-teal-600"
+                          />
+                          Usar periodo fixo de renderizacao
+                        </label>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Inicio da grade</label>
+                          <input
+                            type="time"
+                            value={agendaRotaRegrasAtual.rendering_policy.window_start}
+                            disabled={
+                              somenteLeituraAgenda || !agendaRotaRegrasAtual.rendering_policy.use_custom_window
+                            }
+                            onChange={(e) =>
+                              atualizarRegraRenderizacaoAgenda("window_start", e.target.value)
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100 disabled:text-gray-400"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Fim da grade</label>
+                          <input
+                            type="time"
+                            value={agendaRotaRegrasAtual.rendering_policy.window_end}
+                            disabled={
+                              somenteLeituraAgenda || !agendaRotaRegrasAtual.rendering_policy.use_custom_window
+                            }
+                            onChange={(e) =>
+                              atualizarRegraRenderizacaoAgenda("window_end", e.target.value)
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100 disabled:text-gray-400"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Tamanho do slot (min)
+                          </label>
+                          <input
+                            type="number"
+                            min={5}
+                            max={120}
+                            step={5}
+                            value={agendaRotaRegrasAtual.rendering_policy.slot_interval_min}
+                            disabled={somenteLeituraAgenda}
+                            onChange={(e) =>
+                              atualizarRegraRenderizacaoAgenda(
+                                "slot_interval_min",
+                                Number(e.target.value || 0)
+                              )
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Ancora proxima (min)</label>
                     <input
                       type="number"
                       min={1}

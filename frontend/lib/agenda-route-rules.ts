@@ -35,6 +35,13 @@ export interface AgendaRotaFallbackPolicyConfig {
   allow_extra_slot_start_or_end_route_for_emergency: boolean;
 }
 
+export interface AgendaRotaRenderingPolicyConfig {
+  use_custom_window: boolean;
+  window_start: string;
+  window_end: string;
+  slot_interval_min: number;
+}
+
 export interface AgendaRotaClinicOverrideConfig {
   clinic_name: string;
   force_days_ahead: number[];
@@ -49,6 +56,7 @@ export interface AgendaRotaRegrasConfig {
   offer_policy: AgendaRotaOfferPolicyConfig;
   route_policy: AgendaRotaRoutePolicyConfig;
   fallback_policy: AgendaRotaFallbackPolicyConfig;
+  rendering_policy: AgendaRotaRenderingPolicyConfig;
   clinic_overrides: AgendaRotaClinicOverrideConfig[];
 }
 
@@ -86,6 +94,12 @@ export const DEFAULT_AGENDA_ROTA_REGRAS: AgendaRotaRegrasConfig = {
     max_alternative_suggestions: 3,
     allow_extra_slot_start_or_end_route_for_emergency: true,
   },
+  rendering_policy: {
+    use_custom_window: false,
+    window_start: "08:00",
+    window_end: "18:00",
+    slot_interval_min: 30,
+  },
   clinic_overrides: [],
 };
 
@@ -122,6 +136,11 @@ const normalizarHoraHHMM = (value: unknown, fallback: string): string => {
   if (!Number.isFinite(hh) || !Number.isFinite(mm)) return fallback;
   if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return fallback;
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+};
+
+const horaParaMinutos = (value: string): number => {
+  const [hh, mm] = value.split(":").map((item) => Number.parseInt(item, 10));
+  return (Number.isFinite(hh) ? hh : 0) * 60 + (Number.isFinite(mm) ? mm : 0);
 };
 
 export const normalizarDiasAFrente = (value: unknown, fallback: number[]): number[] => {
@@ -189,9 +208,22 @@ export const normalizarAgendaRotaRegras = (payload: unknown): AgendaRotaRegrasCo
     source.fallback_policy && typeof source.fallback_policy === "object"
       ? (source.fallback_policy as Record<string, unknown>)
       : {};
+  const renderingRaw =
+    source.rendering_policy && typeof source.rendering_policy === "object"
+      ? (source.rendering_policy as Record<string, unknown>)
+      : {};
 
   const lat = normalizarFloat(baseRaw.lat);
   const lng = normalizarFloat(baseRaw.lng);
+  const renderingStart = normalizarHoraHHMM(
+    renderingRaw.window_start,
+    defaultCfg.rendering_policy.window_start
+  );
+  const renderingEnd = normalizarHoraHHMM(
+    renderingRaw.window_end,
+    defaultCfg.rendering_policy.window_end
+  );
+  const renderingWindowValida = horaParaMinutos(renderingStart) < horaParaMinutos(renderingEnd);
 
   return {
     version: String(source.version ?? defaultCfg.version).trim() || defaultCfg.version,
@@ -289,6 +321,20 @@ export const normalizarAgendaRotaRegras = (payload: unknown): AgendaRotaRegrasCo
       allow_extra_slot_start_or_end_route_for_emergency: normalizarBool(
         fallbackRaw.allow_extra_slot_start_or_end_route_for_emergency,
         defaultCfg.fallback_policy.allow_extra_slot_start_or_end_route_for_emergency
+      ),
+    },
+    rendering_policy: {
+      use_custom_window: normalizarBool(
+        renderingRaw.use_custom_window,
+        defaultCfg.rendering_policy.use_custom_window
+      ),
+      window_start: renderingWindowValida ? renderingStart : defaultCfg.rendering_policy.window_start,
+      window_end: renderingWindowValida ? renderingEnd : defaultCfg.rendering_policy.window_end,
+      slot_interval_min: normalizarInt(
+        renderingRaw.slot_interval_min,
+        defaultCfg.rendering_policy.slot_interval_min,
+        5,
+        120
       ),
     },
     clinic_overrides: normalizarClinicOverrides(source.clinic_overrides),
