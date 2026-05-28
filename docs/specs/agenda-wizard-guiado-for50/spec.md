@@ -17,7 +17,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - RF-005: quando nao houver oferta valida, fluxo deve permitir seguir manualmente apenas com justificativa registrada.
 - RF-006: botao de salvar no modo novo deve permanecer bloqueado ate conclusao do fluxo guiado.
 - RF-007: no modo de edicao, manter comportamento anterior sem obrigatoriedade do wizard.
-- RF-008: quando a politica de oferta indicar clinica distante + baixa frequencia sem ancora em D+2, o wizard deve priorizar `datas_preferenciais` (ex.: D+3/D+4) em vez de forcar data de proximidade fora da politica.
+- RF-008: quando o assistente inteligente encontrar data de proximidade operacional valida (mesmo fora de `datas_preferenciais`), o wizard deve testar essa data primeiro e usar `datas_preferenciais` como fallback.
 - RF-009: `data_contato` do assistente deve ser fixada no instante de abertura do modal `Novo Agendamento` e reutilizada durante toda a sessao para evitar drift de D+N.
 - RF-010: no modo novo, data/hora manuais devem ficar bloqueadas enquanto o fluxo do assistente estiver `pendente` ou `aceito`, liberando ajuste manual apenas quando estado for `sem_opcao`.
 - RF-011: ao gerar sugestoes automaticas, o wizard nao deve sobrescrever silenciosamente a data selecionada no formulario; a data do formulario deve ser alterada apenas por aceite explicito de oferta.
@@ -67,7 +67,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - CA-003: apos recusar todas as opcoes, fluxo exige motivo para liberar salvamento manual.
 - CA-004: `Editar Agendamento` continua permitindo salvar sem passar pelo wizard.
 - CA-005: mensagem visual informa quando opcoes foram ignoradas por agenda fechada/janela operacional.
-- CA-006: quando houver sugestao de proximidade fora da politica de oferta para clinica distante/baixa frequencia, o wizard nao deve adotar essa data automaticamente; deve buscar pela primeira `data_preferencial`.
+- CA-006: quando houver sugestao de proximidade operacional valida fora de `datas_preferenciais`, o wizard deve priorizar essa data no panorama; se nao houver oferta nela, deve cair para a primeira `data_preferencial`.
 - CA-007: `POST /agenda/sugestao-proximidade` recebe `data_contato` fixa da sessao do modal e mantem a mesma referencia temporal enquanto o modal estiver aberto.
 - CA-008: antes de `sem_opcao`, secretaria nao consegue editar hora manualmente; ao entrar em `sem_opcao`, data/hora manual ficam disponiveis para fallback.
 - CA-009: ao clicar `Gerar melhor oferta`, a data digitada no formulario permanece preservada, evitando "prender" as proximas buscas em uma data autoescolhida.
@@ -91,6 +91,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - CB-004: quando existir ancora em D+2 ou D+3 para clinica proxima da base, a regra de prioridade D0 nao deve ser aplicada.
 - CB-005: quando o fluxo de proximidade buscar slots operacionais relacionados a ancora, a selecao automatica deve respeitar a ordenacao do backend para nao antecipar slot antes de `ancora + 60`.
 - CB-006: quando nao houver nenhum slot util em D+2/D+3/D+4 por agenda cheia/fechada, o assistente deve continuar para D+5, D+6... ate encontrar o primeiro dia viavel.
+- CB-007: se a data de proximidade (fora de `datas_preferenciais`) retornar sem ofertas no panorama, o wizard deve seguir para `datas_preferenciais` sem perder a busca progressiva.
 
 ## 8) Fora de escopo
 
