@@ -36,6 +36,11 @@ import {
   obterProximosStatus,
   osEstaPaga,
 } from "@/lib/agenda-shared-actions";
+import {
+  DEFAULT_AGENDA_ROTA_REGRAS,
+  normalizarAgendaRotaRegras,
+  type AgendaRotaRenderingPolicyConfig,
+} from "@/lib/agenda-route-rules";
 import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
 import { montarGoogleMapsDestinoClinica, montarWazeDestinoClinica } from "@/lib/waze";
 import { 
@@ -302,6 +307,8 @@ const parseMoneyValue = (value: string): number => {
   return parsed;
 };
 
+const SLOT_INTERVALO_PADRAO_MIN = DEFAULT_AGENDA_ROTA_REGRAS.rendering_policy.slot_interval_min;
+
 export default function AgendaPage() {
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [loading, setLoading] = useState(true);
@@ -345,6 +352,9 @@ export default function AgendaPage() {
   );
   const [agendaFeriados, setAgendaFeriados] = useState<AgendaFeriadoConfig[]>([]);
   const [agendaExcecoes, setAgendaExcecoes] = useState<AgendaExcecaoConfig[]>([]);
+  const [renderingPolicy, setRenderingPolicy] = useState<AgendaRotaRenderingPolicyConfig>(
+    DEFAULT_AGENDA_ROTA_REGRAS.rendering_policy
+  );
   const [isAdmin, setIsAdmin] = useState(false);
   const [resumoFinanceiro, setResumoFinanceiro] = useState<ResumoFinanceiroAgenda | null>(null);
   const [carregandoResumoFinanceiro, setCarregandoResumoFinanceiro] = useState(false);
@@ -600,6 +610,8 @@ export default function AgendaPage() {
       setAgendaSemanal(normalizarAgendaSemanal(response.data?.agenda_semanal));
       setAgendaFeriados(normalizarAgendaFeriados(response.data?.agenda_feriados));
       setAgendaExcecoes(normalizarAgendaExcecoes(response.data?.agenda_excecoes));
+      const regrasRota = normalizarAgendaRotaRegras(response.data?.agenda_rota_regras);
+      setRenderingPolicy(regrasRota.rendering_policy);
     } catch (error: any) {
       try {
         // Compatibilidade com backend legado sem /agenda/configuracao.
@@ -608,6 +620,8 @@ export default function AgendaPage() {
           setAgendaSemanal(normalizarAgendaSemanal(fallback.data?.agenda_semanal));
           setAgendaFeriados(normalizarAgendaFeriados(fallback.data?.agenda_feriados));
           setAgendaExcecoes(normalizarAgendaExcecoes(fallback.data?.agenda_excecoes));
+          const regrasRota = normalizarAgendaRotaRegras(fallback.data?.agenda_rota_regras);
+          setRenderingPolicy(regrasRota.rendering_policy);
           return;
         }
       } catch (fallbackError) {
@@ -618,6 +632,7 @@ export default function AgendaPage() {
       setAgendaSemanal(normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL));
       setAgendaFeriados([]);
       setAgendaExcecoes([]);
+      setRenderingPolicy(DEFAULT_AGENDA_ROTA_REGRAS.rendering_policy);
     }
   };
 
@@ -743,6 +758,10 @@ export default function AgendaPage() {
       }
       if (response.data?.agenda_excecoes) {
         setAgendaExcecoes(normalizarAgendaExcecoes(response.data.agenda_excecoes));
+      }
+      if (response.data?.agenda_rota_regras) {
+        const regrasRota = normalizarAgendaRotaRegras(response.data.agenda_rota_regras);
+        setRenderingPolicy(regrasRota.rendering_policy);
       }
       if (includeRelated) {
         await Promise.all([
@@ -1462,7 +1481,25 @@ export default function AgendaPage() {
     return mapa;
   }, [diasPanoramica, agendaSemanal, agendaFeriados, agendaExcecoes]);
 
+  const intervaloSlotMinutos = useMemo(() => {
+    const parsed = Number(renderingPolicy.slot_interval_min);
+    if (!Number.isFinite(parsed)) return SLOT_INTERVALO_PADRAO_MIN;
+    return Math.max(5, Math.min(120, Math.round(parsed)));
+  }, [renderingPolicy.slot_interval_min]);
+
   const slotsPanoramica = useMemo(() => {
+    const inicioConfigMin = horarioParaMinutos(renderingPolicy.window_start);
+    const fimConfigMin = horarioParaMinutos(renderingPolicy.window_end);
+    const janelaCustomValida =
+      Boolean(renderingPolicy.use_custom_window) &&
+      inicioConfigMin !== null &&
+      fimConfigMin !== null &&
+      fimConfigMin > inicioConfigMin;
+
+    if (janelaCustomValida) {
+      return gerarSlots(inicioConfigMin, fimConfigMin, intervaloSlotMinutos);
+    }
+
     let inicioMin = Number.POSITIVE_INFINITY;
     let fimMin = 0;
 
@@ -1479,11 +1516,11 @@ export default function AgendaPage() {
     if (!Number.isFinite(inicioMin) || fimMin <= inicioMin) {
       const fallbackInicio = horarioParaMinutos(DEFAULT_AGENDA_SEMANAL["1"].inicio) ?? 8 * 60;
       const fallbackFim = horarioParaMinutos(DEFAULT_AGENDA_SEMANAL["1"].fim) ?? 14 * 60;
-      return gerarSlots(fallbackInicio, fallbackFim, 30);
+      return gerarSlots(fallbackInicio, fallbackFim, intervaloSlotMinutos);
     }
 
-    return gerarSlots(inicioMin, fimMin, 30);
-  }, [diasPanoramica, jornadaPanoramicaPorDia]);
+    return gerarSlots(inicioMin, fimMin, intervaloSlotMinutos);
+  }, [diasPanoramica, intervaloSlotMinutos, jornadaPanoramicaPorDia, renderingPolicy]);
 
   const mapaOcupacao = useMemo(() => {
     const mapa = new Map<string, Agendamento[]>();
@@ -1499,19 +1536,19 @@ export default function AgendaPage() {
 
       const cursor = new Date(inicio);
       cursor.setSeconds(0, 0);
-      cursor.setMinutes(Math.floor(cursor.getMinutes() / 30) * 30);
+      cursor.setMinutes(Math.floor(cursor.getMinutes() / intervaloSlotMinutos) * intervaloSlotMinutos);
 
       while (cursor < fim) {
         const chave = `${toDateInput(cursor)}|${toTimeInput(cursor)}`;
         const existentes = mapa.get(chave) || [];
         existentes.push(ag);
         mapa.set(chave, existentes);
-        cursor.setMinutes(cursor.getMinutes() + 30);
+        cursor.setMinutes(cursor.getMinutes() + intervaloSlotMinutos);
       }
     }
 
     return mapa;
-  }, [agendamentosFiltrados]);
+  }, [agendamentosFiltrados, intervaloSlotMinutos]);
 
   const formatarDiaPanoramica = (data: string) => {
     const dt = parseDateInput(data);
@@ -1531,7 +1568,7 @@ export default function AgendaPage() {
       return false;
     }
 
-    const fim = somarMinutosHHMM(hora, 30);
+    const fim = somarMinutosHHMM(hora, intervaloSlotMinutos);
     const excecaoExistente = agendaExcecoes.find((item) => item.data === data);
 
     let inicioExcecao = hora;
@@ -2886,6 +2923,7 @@ export default function AgendaPage() {
           agendaSemanal={agendaSemanal}
           agendaFeriados={agendaFeriados}
           agendaExcecoes={agendaExcecoes}
+          intervaloSlotMinutos={intervaloSlotMinutos}
           isAdmin={isAdmin}
         />
       </div>

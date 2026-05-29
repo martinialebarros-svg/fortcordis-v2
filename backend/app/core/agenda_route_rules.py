@@ -40,6 +40,12 @@ DEFAULT_AGENDA_ROTA_REGRAS = {
         "max_alternative_suggestions": 3,
         "allow_extra_slot_start_or_end_route_for_emergency": True,
     },
+    "rendering_policy": {
+        "use_custom_window": False,
+        "window_start": "08:00",
+        "window_end": "18:00",
+        "slot_interval_min": 30,
+    },
     "clinic_overrides": [],
 }
 
@@ -59,6 +65,11 @@ def _normalizar_hora_hhmm(value: Any, fallback: str) -> str:
     if hora < 0 or hora > 23 or minuto < 0 or minuto > 59:
         return fallback
     return f"{hora:02d}:{minuto:02d}"
+
+
+def _hora_em_minutos(value: str) -> int:
+    hora_str, minuto_str = value.split(":")
+    return int(hora_str) * 60 + int(minuto_str)
 
 
 def _normalizar_int(value: Any, fallback: int, min_value: int, max_value: int) -> int:
@@ -230,6 +241,31 @@ def normalizar_agenda_rota_regras(payload: Any) -> dict[str, Any]:
         ),
     }
 
+    rendering_src = source.get("rendering_policy") if isinstance(source.get("rendering_policy"), dict) else {}
+    rendering_policy = {
+        "use_custom_window": _normalizar_bool(
+            rendering_src.get("use_custom_window"),
+            default["rendering_policy"]["use_custom_window"],
+        ),
+        "window_start": _normalizar_hora_hhmm(
+            rendering_src.get("window_start"),
+            default["rendering_policy"]["window_start"],
+        ),
+        "window_end": _normalizar_hora_hhmm(
+            rendering_src.get("window_end"),
+            default["rendering_policy"]["window_end"],
+        ),
+        "slot_interval_min": _normalizar_int(
+            rendering_src.get("slot_interval_min"),
+            default["rendering_policy"]["slot_interval_min"],
+            5,
+            120,
+        ),
+    }
+    if _hora_em_minutos(rendering_policy["window_start"]) >= _hora_em_minutos(rendering_policy["window_end"]):
+        rendering_policy["window_start"] = default["rendering_policy"]["window_start"]
+        rendering_policy["window_end"] = default["rendering_policy"]["window_end"]
+
     overrides_src = source.get("clinic_overrides") if isinstance(source.get("clinic_overrides"), list) else []
     clinic_overrides: list[dict[str, Any]] = []
     for item in overrides_src:
@@ -260,6 +296,7 @@ def normalizar_agenda_rota_regras(payload: Any) -> dict[str, Any]:
         "offer_policy": offer_policy,
         "route_policy": route_policy,
         "fallback_policy": fallback_policy,
+        "rendering_policy": rendering_policy,
         "clinic_overrides": clinic_overrides,
     }
 
