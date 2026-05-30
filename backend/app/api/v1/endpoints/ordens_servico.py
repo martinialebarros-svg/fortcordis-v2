@@ -74,6 +74,7 @@ class OrdemServicoReceberInput(BaseModel):
     forma_pagamento: Optional[str] = "dinheiro"
     data_recebimento: Optional[date] = None
     pagamentos: Optional[List[OrdemServicoPagamentoItemInput]] = None
+    desconto: Optional[float] = Field(default=None, ge=0)
     valor_credito_utilizado: float = Field(default=0, ge=0)
     destino_credito_excedente: str = Field(default="cliente", pattern="^(cliente|clinica|nenhum)$")
     observacoes_credito: Optional[str] = None
@@ -900,11 +901,28 @@ def receber_ordem(
         raise HTTPException(status_code=400, detail="Ja existe recebimento ativo para esta OS.")
 
     now = datetime.now()
-    valor_os = round(float(os_data.valor_final or 0), 2)
+    valor_servico = round(float(os_data.valor_servico or 0), 2)
+    desconto_base = round(float(os_data.desconto or 0), 2)
+    desconto_informado = (
+        desconto_base
+        if dados.desconto is None
+        else round(float(dados.desconto or 0), 2)
+    )
+    if desconto_informado > valor_servico + 1e-9:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Desconto informado ({desconto_informado:.2f}) maior que o valor do servico "
+                f"({valor_servico:.2f})."
+            ),
+        )
+    valor_os = round(max(0.0, valor_servico - desconto_informado), 2)
+    os_data.desconto = _to_decimal(desconto_informado)
+    os_data.valor_final = _to_decimal(valor_os)
     momento_recebimento_base = _montar_momento_recebimento(dados.data_recebimento, now)
     valor_credito_solicitado = round(float(dados.valor_credito_utilizado or 0), 2)
     pagamentos_input = list(dados.pagamentos or [])
-    if not pagamentos_input and valor_credito_solicitado <= 0:
+    if not pagamentos_input and valor_credito_solicitado <= 0 and valor_os > 0:
         pagamentos_input = [
             OrdemServicoPagamentoItemInput(
                 forma_pagamento=dados.forma_pagamento or "dinheiro",
@@ -946,7 +964,7 @@ def receber_ordem(
                 ),
             )
 
-    if not pagamentos_input and valor_credito_utilizado <= 0:
+    if not pagamentos_input and valor_credito_utilizado <= 0 and valor_os > 0:
         raise HTTPException(
             status_code=400,
             detail="Informe ao menos um pagamento ou utilize credito disponivel para receber a OS.",
@@ -1156,6 +1174,8 @@ def receber_ordem(
             "numero_os": os_data.numero_os,
             "forma_pagamento_legacy": dados.forma_pagamento,
             "pagamentos_quantidade": len(transacoes_criadas),
+            "valor_servico": valor_servico,
+            "desconto_aplicado": round(desconto_informado, 2),
             "valor_os": valor_os,
             "valor_bruto_total": round(total_bruto, 2),
             "valor_credito_utilizado": round(valor_credito_utilizado, 2),
@@ -1211,6 +1231,8 @@ def receber_ordem(
         "mensagem": "Ordem de servico recebida com sucesso.",
         "os_id": os_data.id,
         "status": os_data.status,
+        "valor_servico": valor_servico,
+        "desconto_aplicado": round(desconto_informado, 2),
         "transacoes_ids": [item.id for item in transacoes_criadas],
         "data_recebimento": max(datas_recebimento).isoformat() if datas_recebimento else now.isoformat(),
         "valor_os": valor_os,
