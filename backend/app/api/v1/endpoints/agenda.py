@@ -209,6 +209,21 @@ def _obter_duracao_deslocamento_cacheado(
     return resultado
 
 
+def _detalhar_deslocamento_minutos(
+    total_minutos: Optional[int],
+    anterior_minutos: Optional[int],
+    proximo_minutos: Optional[int],
+) -> str:
+    total = max(0, int(total_minutos or 0))
+    anterior = max(0, int(anterior_minutos or 0))
+    proximo = max(0, int(proximo_minutos or 0))
+    if anterior <= 0 and proximo <= 0:
+        return f"{total} min (sem deslocamento com agendamentos vizinhos)"
+    return (
+        f"{anterior} min (trecho anterior) + {proximo} min (trecho posterior) = {total} min"
+    )
+
+
 def _nome_clinica_por_id(db: Session, clinica_id: Optional[int]) -> str:
     if not clinica_id:
         return "Clinica nao informada"
@@ -2603,9 +2618,14 @@ def sugerir_agendamento_proximo(
 
     if melhor_tempo > limite_minutos:
         data_item = str(melhor_item.get("data") or data_iso)
+        detalhe_deslocamento = _detalhar_deslocamento_minutos(
+            melhor_tempo,
+            melhor_item.get("duracao_deslocamento_anterior_min"),
+            melhor_item.get("duracao_deslocamento_proximo_min"),
+        )
         mensagem_limite = (
             f"Opcao mais proxima encontrada em {data_item} as {melhor_item.get('inicio')} "
-            f"na clinica {melhor_item.get('clinica')} (aprox. {melhor_tempo} min de deslocamento), "
+            f"na clinica {melhor_item.get('clinica')} (deslocamento total: {detalhe_deslocamento}), "
             f"acima do limite configurado de {limite_minutos} min."
         )
         return {
@@ -2626,16 +2646,22 @@ def sugerir_agendamento_proximo(
         }
 
     data_item = str(melhor_item.get("data") or data_iso)
+    detalhe_deslocamento = _detalhar_deslocamento_minutos(
+        melhor_tempo,
+        melhor_item.get("duracao_deslocamento_anterior_min"),
+        melhor_item.get("duracao_deslocamento_proximo_min"),
+    )
     if int(melhor_item.get("clinica_id") or 0) == payload.clinica_id:
         mensagem = (
             f"Encontramos um slot operacional na mesma clinica para {data_item} as {melhor_item['inicio']}. "
+            f"Composicao do deslocamento estimado: {detalhe_deslocamento}. "
             "Sugira esse horario para o cliente e confirme a disponibilidade."
         )
     else:
         mensagem = (
             f"Encontramos um slot operacional relacionado a ancora da clinica {melhor_item['clinica']} "
             f"na data {data_item} as {melhor_item['inicio']} "
-            f"(deslocamento total estimado: {melhor_tempo} min). "
+            f"(deslocamento total estimado: {detalhe_deslocamento}). "
             "Sugira esse horario para o cliente e confirme a disponibilidade."
         )
     if politica_oferta.get("distante_base") and politica_oferta.get("baixa_frequencia"):

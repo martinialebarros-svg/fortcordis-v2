@@ -142,6 +142,9 @@ interface SugestaoProximidadeResponse {
     inicio?: string | null;
     fim?: string | null;
     duracao_deslocamento_min: number;
+    tempo_deslocamento_total_min?: number;
+    duracao_deslocamento_anterior_min?: number;
+    duracao_deslocamento_proximo_min?: number;
     fonte_deslocamento?: string;
     status?: string;
     data_preferencial?: boolean;
@@ -342,14 +345,34 @@ const rotularFonteDeslocamento = (fonte?: string | null): string => {
   return valor.replaceAll("_", " ");
 };
 
+const detalharComposicaoDeslocamento = (
+  totalMinutos?: number | null,
+  anteriorMinutos?: number | null,
+  proximoMinutos?: number | null
+): string => {
+  const total = Number.isFinite(Number(totalMinutos)) ? Math.max(0, Number(totalMinutos)) : 0;
+  const anterior = Number.isFinite(Number(anteriorMinutos)) ? Math.max(0, Number(anteriorMinutos)) : 0;
+  const proximo = Number.isFinite(Number(proximoMinutos)) ? Math.max(0, Number(proximoMinutos)) : 0;
+
+  if (anterior <= 0 && proximo <= 0) {
+    return `${total} min (sem deslocamento com agendamentos vizinhos)`;
+  }
+  return `${anterior} min (trecho anterior) + ${proximo} min (trecho posterior) = ${total} min`;
+};
+
 const resumirDeslocamentoSugestao = (item: SugestaoHorarioItem): string => {
   const fontes = [item.anterior?.fonte, item.proximo?.fonte].filter(Boolean) as string[];
+  const detalheComposicao = detalharComposicaoDeslocamento(
+    item.tempo_deslocamento_total_min,
+    item.anterior?.duracao_deslocamento_min,
+    item.proximo?.duracao_deslocamento_min
+  );
   if (fontes.length === 0) {
-    return "Sem agendamentos vizinhos na data para aplicar deslocamento neste horario.";
+    return `Composicao do deslocamento: ${detalheComposicao}.`;
   }
 
   const fontesUnicas = Array.from(new Set(fontes.map((fonte) => rotularFonteDeslocamento(fonte))));
-  return `Fonte do deslocamento: ${fontesUnicas.join(" + ")}.`;
+  return `Composicao do deslocamento: ${detalheComposicao}. Fonte do deslocamento: ${fontesUnicas.join(" + ")}.`;
 };
 
 function SearchableSelect({
@@ -1012,6 +1035,9 @@ export default function NovoAgendamentoModal({
 
       const limiteBase = Number(data?.limite_minutos || LIMITE_MINUTOS_PROXIMIDADE);
       const duracao = Number(item?.duracao_deslocamento_min || 0);
+      const duracaoAnterior = Number(item?.duracao_deslocamento_anterior_min || 0);
+      const duracaoProximo = Number(item?.duracao_deslocamento_proximo_min || 0);
+      const detalheComposicao = detalharComposicaoDeslocamento(duracao, duracaoAnterior, duracaoProximo);
 
       const dataSugerida = String(item?.data || dataISO || "").trim();
       const horaSugerida = String(item?.inicio || "").trim();
@@ -1032,8 +1058,8 @@ export default function NovoAgendamentoModal({
       const dataPreferencial = Boolean(item?.data_preferencial);
       const textoDeslocamento =
         clinicaDestino && !mesmoDestino
-          ? `e o tempo de deslocamento para ${clinicaDestino} é de ${duracao} min`
-          : `com tempo estimado de deslocamento de ${duracao} min`;
+          ? `e a composicao do deslocamento para ${clinicaDestino} é de ${detalheComposicao}`
+          : `com composicao estimada de deslocamento em ${detalheComposicao}`;
       const textoBase = `Encontramos uma opção melhor de horário para reduzir deslocamento. Temos um atendimento ${
         clinicaSugerida ? `na ${clinicaSugerida}` : "próximo"
       } no dia ${resumoHorario} ${textoDeslocamento}.`;
