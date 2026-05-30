@@ -138,6 +138,11 @@ interface SugestaoProximidadeResponse {
     agendamento_id: number;
     clinica_id: number;
     clinica: string;
+    clinica_destino?: string;
+    clinica_anterior?: string | null;
+    clinica_posterior?: string | null;
+    ha_agendamento_anterior?: boolean;
+    ha_agendamento_posterior?: boolean;
     data?: string | null;
     inicio?: string | null;
     fim?: string | null;
@@ -345,19 +350,50 @@ const rotularFonteDeslocamento = (fonte?: string | null): string => {
   return valor.replaceAll("_", " ");
 };
 
+const nomeClinicaLegivel = (nome?: string | null): string => {
+  const valor = String(nome || "").trim();
+  return valor || "clinica nao informada";
+};
+
+const fraseDeslocamentoEntreClinicas = (origem?: string | null, destino?: string | null, duracaoMin = 0): string => {
+  const origemNome = nomeClinicaLegivel(origem);
+  const destinoNome = nomeClinicaLegivel(destino);
+  if (origemNome.toLocaleLowerCase("pt-BR") === destinoNome.toLocaleLowerCase("pt-BR")) {
+    return `Deslocamento dentro da clinica ${origemNome}: ${duracaoMin} min.`;
+  }
+  return `Deslocamento entre ${origemNome} e ${destinoNome} de ${duracaoMin} min.`;
+};
+
 const detalharComposicaoDeslocamento = (
   totalMinutos?: number | null,
   anteriorMinutos?: number | null,
-  proximoMinutos?: number | null
+  proximoMinutos?: number | null,
+  clinicaDestino?: string | null,
+  clinicaAnterior?: string | null,
+  clinicaProximo?: string | null,
+  haAgendamentoAnterior = false,
+  haAgendamentoProximo = false
 ): string => {
   const total = Number.isFinite(Number(totalMinutos)) ? Math.max(0, Number(totalMinutos)) : 0;
   const anterior = Number.isFinite(Number(anteriorMinutos)) ? Math.max(0, Number(anteriorMinutos)) : 0;
   const proximo = Number.isFinite(Number(proximoMinutos)) ? Math.max(0, Number(proximoMinutos)) : 0;
+  const destino = String(clinicaDestino || "").trim() || "clinica selecionada";
+  const partes: string[] = [];
 
-  if (anterior <= 0 && proximo <= 0) {
-    return `${total} min (sem deslocamento com agendamentos vizinhos)`;
+  if (haAgendamentoAnterior) {
+    partes.push(fraseDeslocamentoEntreClinicas(clinicaAnterior, destino, anterior));
+  } else {
+    partes.push("Nao ha agendamentos anteriores ainda.");
   }
-  return `${anterior} min (trecho anterior) + ${proximo} min (trecho posterior) = ${total} min`;
+
+  if (haAgendamentoProximo) {
+    partes.push(fraseDeslocamentoEntreClinicas(destino, clinicaProximo, proximo));
+  } else {
+    partes.push("Nao ha agendamentos posteriores ainda.");
+  }
+
+  partes.push(`Total estimado de deslocamento: ${total} min.`);
+  return partes.join(" ");
 };
 
 const resumirDeslocamentoSugestao = (item: SugestaoHorarioItem): string => {
@@ -365,7 +401,12 @@ const resumirDeslocamentoSugestao = (item: SugestaoHorarioItem): string => {
   const detalheComposicao = detalharComposicaoDeslocamento(
     item.tempo_deslocamento_total_min,
     item.anterior?.duracao_deslocamento_min,
-    item.proximo?.duracao_deslocamento_min
+    item.proximo?.duracao_deslocamento_min,
+    undefined,
+    item.anterior?.clinica,
+    item.proximo?.clinica,
+    Boolean(item.anterior),
+    Boolean(item.proximo)
   );
   if (fontes.length === 0) {
     return `Composicao do deslocamento: ${detalheComposicao}.`;
@@ -1037,7 +1078,16 @@ export default function NovoAgendamentoModal({
       const duracao = Number(item?.duracao_deslocamento_min || 0);
       const duracaoAnterior = Number(item?.duracao_deslocamento_anterior_min || 0);
       const duracaoProximo = Number(item?.duracao_deslocamento_proximo_min || 0);
-      const detalheComposicao = detalharComposicaoDeslocamento(duracao, duracaoAnterior, duracaoProximo);
+      const detalheComposicao = detalharComposicaoDeslocamento(
+        duracao,
+        duracaoAnterior,
+        duracaoProximo,
+        item?.clinica_destino || undefined,
+        item?.clinica_anterior || undefined,
+        item?.clinica_posterior || undefined,
+        Boolean(item?.ha_agendamento_anterior),
+        Boolean(item?.ha_agendamento_posterior)
+      );
 
       const dataSugerida = String(item?.data || dataISO || "").trim();
       const horaSugerida = String(item?.inicio || "").trim();

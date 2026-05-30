@@ -18,7 +18,7 @@ Status: in-progress
 | CA-008 | aceitacao | regras de status/pagamento compartilhadas via `frontend/lib/agenda-shared-actions.ts` aplicadas em `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
 | CA-009 | aceitacao | alternancia entre Lista e FullCalendar preserva contexto de data/status via query string em `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
 | CA-010 | aceitacao | build do frontend conclui sem erro de prerender em `/agenda` apos ajuste da leitura de query string nas telas de Agenda | ok |
-| CA-011 | aceitacao | mensagem de proximidade detalha composicao `trecho anterior + trecho posterior = total` em `backend/app/api/v1/endpoints/agenda.py` e `frontend/app/agenda/NovoAgendamentoModal.tsx` | ok |
+| CA-011 | aceitacao | mensagem de proximidade detalha deslocamento com nomes das clinicas (anterior/destino/posterior), dia da semana e indicacao de ausencia de vizinho quando aplicavel em `backend/app/api/v1/endpoints/agenda.py` e `frontend/app/agenda/NovoAgendamentoModal.tsx` | ok |
 | NFR-001 | nao funcional | cache de deslocamento por request mantido | ok |
 | NFR-002 | nao funcional | sem novos endpoints publicos; usa permissao de configuracoes existente | ok |
 | NFR-004 | nao funcional | perfis nao-admin sem acao de abertura rapida de excecao em slot fechado | ok |
@@ -57,7 +57,7 @@ Resumo dos resultados:
 - Cenario 6: validar abertura de rota por Waze e Google Maps nas acoes da agenda e no drawer do FullCalendar.
 - Cenario 7: no modo Lista, validar botao "Receber" para OS pendente e transicao para "Pago" apos confirmacao.
 - Cenario 8: em Agenda Lista, clicar "Ver FullCalendar" e confirmar abertura com mesma data/filtro de status; em FullCalendar, clicar "Ver Agenda Lista" e confirmar retorno com mesma data no modo Lista.
-- Cenario 9: abrir sugestao de proximidade com vizinho anterior e/ou posterior e confirmar mensagem explicita com composicao de deslocamento (`anterior + posterior = total`).
+- Cenario 9: abrir sugestao de proximidade com vizinho anterior e/ou posterior e confirmar mensagem explicita com nomes das clinicas, total de deslocamento e aviso quando nao ha vizinho anterior/posterior.
 
 ## 4) Regressao e riscos residuais
 

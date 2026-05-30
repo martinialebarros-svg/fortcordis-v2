@@ -64,6 +64,15 @@ AGENDA_STATUS_NAO_ANCORA = {"Cancelado", "Faltou"}
 MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN = 5
 AGENDA_WRITE_LOCK_KEY = 24052301
 ASSISTENTE_BUSCA_PROGRESSIVA_MAX_DIAS = 30
+DIAS_SEMANA_PT = [
+    "segunda-feira",
+    "terca-feira",
+    "quarta-feira",
+    "quinta-feira",
+    "sexta-feira",
+    "sabado",
+    "domingo",
+]
 
 
 def _usuario_tem_papel(usuario: Any, papel: str) -> bool:
@@ -209,19 +218,61 @@ def _obter_duracao_deslocamento_cacheado(
     return resultado
 
 
-def _detalhar_deslocamento_minutos(
-    total_minutos: Optional[int],
-    anterior_minutos: Optional[int],
-    proximo_minutos: Optional[int],
+def _nome_clinica_legivel(nome: Optional[str], fallback: str = "clinica nao informada") -> str:
+    valor = str(nome or "").strip()
+    return valor or fallback
+
+
+def _formatar_data_com_semana_pt(data_iso: Optional[str]) -> str:
+    raw = str(data_iso or "").strip()
+    if not raw:
+        return "data nao informada"
+    try:
+        data_ref = datetime.strptime(raw, "%Y-%m-%d").date()
+    except ValueError:
+        return raw
+    return f"{raw} ({DIAS_SEMANA_PT[data_ref.weekday()]})"
+
+
+def _frase_deslocamento_entre_clinicas(origem: str, destino: str, duracao_min: int) -> str:
+    origem_nome = _nome_clinica_legivel(origem)
+    destino_nome = _nome_clinica_legivel(destino)
+    if origem_nome.casefold() == destino_nome.casefold():
+        return f"Deslocamento dentro da clinica {origem_nome}: {duracao_min} min."
+    return f"Deslocamento entre {origem_nome} e {destino_nome} de {duracao_min} min."
+
+
+def _detalhar_deslocamento_por_clinicas(
+    *,
+    clinica_destino: Optional[str],
+    clinica_anterior: Optional[str],
+    clinica_posterior: Optional[str],
+    duracao_anterior_min: Optional[int],
+    duracao_posterior_min: Optional[int],
+    total_min: Optional[int],
+    ha_agendamento_anterior: bool,
+    ha_agendamento_posterior: bool,
 ) -> str:
-    total = max(0, int(total_minutos or 0))
-    anterior = max(0, int(anterior_minutos or 0))
-    proximo = max(0, int(proximo_minutos or 0))
-    if anterior <= 0 and proximo <= 0:
-        return f"{total} min (sem deslocamento com agendamentos vizinhos)"
-    return (
-        f"{anterior} min (trecho anterior) + {proximo} min (trecho posterior) = {total} min"
-    )
+    destino_nome = _nome_clinica_legivel(clinica_destino)
+    anterior_nome = _nome_clinica_legivel(clinica_anterior)
+    posterior_nome = _nome_clinica_legivel(clinica_posterior)
+    anterior_min = max(0, int(duracao_anterior_min or 0))
+    posterior_min = max(0, int(duracao_posterior_min or 0))
+    total = max(0, int(total_min or 0))
+
+    partes = []
+    if ha_agendamento_anterior:
+        partes.append(_frase_deslocamento_entre_clinicas(anterior_nome, destino_nome, anterior_min))
+    else:
+        partes.append("Nao ha agendamentos anteriores ainda.")
+
+    if ha_agendamento_posterior:
+        partes.append(_frase_deslocamento_entre_clinicas(destino_nome, posterior_nome, posterior_min))
+    else:
+        partes.append("Nao ha agendamentos posteriores ainda.")
+
+    partes.append(f"Total estimado de deslocamento: {total} min.")
+    return " ".join(partes)
 
 
 def _nome_clinica_por_id(db: Session, clinica_id: Optional[int]) -> str:
@@ -2333,6 +2384,7 @@ def sugerir_agendamento_proximo(
     clinica_base = db.query(Clinica).filter(Clinica.id == payload.clinica_id).first()
     if not clinica_base:
         raise HTTPException(status_code=404, detail="Clinica nao encontrada.")
+    clinica_destino_nome = _nome_clinica_legivel(clinica_base.nome)
     regras_rota = _obter_regras_rota_agenda(db)
     thresholds = regras_rota.get("thresholds") if isinstance(regras_rota.get("thresholds"), dict) else {}
     limite_proximidade_default = int(thresholds.get("nearby_anchor_max_travel_min") or 20)
@@ -2522,6 +2574,10 @@ def sugerir_agendamento_proximo(
 
             anterior_slot = slot.get("anterior") if isinstance(slot.get("anterior"), dict) else {}
             proximo_slot = slot.get("proximo") if isinstance(slot.get("proximo"), dict) else {}
+            clinica_anterior_nome = str((anterior_slot or {}).get("clinica") or "").strip()
+            clinica_posterior_nome = str((proximo_slot or {}).get("clinica") or "").strip()
+            ha_agendamento_anterior = bool((anterior_slot or {}).get("agendamento_id") or clinica_anterior_nome)
+            ha_agendamento_posterior = bool((proximo_slot or {}).get("agendamento_id") or clinica_posterior_nome)
             duracao_anterior = max(0, int((anterior_slot or {}).get("duracao_deslocamento_min") or 0))
             duracao_proximo = max(0, int((proximo_slot or {}).get("duracao_deslocamento_min") or 0))
             duracao_total = duracao_anterior + duracao_proximo
@@ -2577,6 +2633,11 @@ def sugerir_agendamento_proximo(
                     "tempo_deslocamento_total_min": duracao_total,
                     "duracao_deslocamento_anterior_min": duracao_anterior,
                     "duracao_deslocamento_proximo_min": duracao_proximo,
+                    "clinica_destino": clinica_destino_nome,
+                    "clinica_anterior": clinica_anterior_nome or None,
+                    "clinica_posterior": clinica_posterior_nome or None,
+                    "ha_agendamento_anterior": ha_agendamento_anterior,
+                    "ha_agendamento_posterior": ha_agendamento_posterior,
                     "fonte_deslocamento": fonte,
                     "status": status_item,
                     "data_preferencial": data_slot_iso in datas_preferenciais_set,
@@ -2593,7 +2654,7 @@ def sugerir_agendamento_proximo(
             )
             if dias_relativos:
                 mensagem_base = (
-                    f"{mensagem_base} Politica da clinica: priorizar {dias_relativos} e usar D+2 apenas com ancora proxima."
+                    f"{mensagem_base} Politica da clinica: priorizar {dias_relativos} e usar D+2 apenas com atendimento proximo."
                 )
         if itens_ignorados_janela > 0:
             mensagem_base = (
@@ -2618,15 +2679,22 @@ def sugerir_agendamento_proximo(
 
     if melhor_tempo > limite_minutos:
         data_item = str(melhor_item.get("data") or data_iso)
-        detalhe_deslocamento = _detalhar_deslocamento_minutos(
-            melhor_tempo,
-            melhor_item.get("duracao_deslocamento_anterior_min"),
-            melhor_item.get("duracao_deslocamento_proximo_min"),
+        data_item_legivel = _formatar_data_com_semana_pt(data_item)
+        detalhe_deslocamento = _detalhar_deslocamento_por_clinicas(
+            clinica_destino=melhor_item.get("clinica_destino") or clinica_destino_nome,
+            clinica_anterior=melhor_item.get("clinica_anterior"),
+            clinica_posterior=melhor_item.get("clinica_posterior"),
+            duracao_anterior_min=melhor_item.get("duracao_deslocamento_anterior_min"),
+            duracao_posterior_min=melhor_item.get("duracao_deslocamento_proximo_min"),
+            total_min=melhor_tempo,
+            ha_agendamento_anterior=bool(melhor_item.get("ha_agendamento_anterior")),
+            ha_agendamento_posterior=bool(melhor_item.get("ha_agendamento_posterior")),
         )
         mensagem_limite = (
-            f"Opcao mais proxima encontrada em {data_item} as {melhor_item.get('inicio')} "
-            f"na clinica {melhor_item.get('clinica')} (deslocamento total: {detalhe_deslocamento}), "
-            f"acima do limite configurado de {limite_minutos} min."
+            f"Opcao mais proxima encontrada na data {data_item_legivel} as {melhor_item.get('inicio')} "
+            f"proximo ao atendimento na clinica {_nome_clinica_legivel(melhor_item.get('clinica'))}. "
+            f"{detalhe_deslocamento} O deslocamento total estimado ({melhor_tempo} min) "
+            f"esta acima do limite configurado de {limite_minutos} min."
         )
         return {
             "ok": True,
@@ -2646,22 +2714,29 @@ def sugerir_agendamento_proximo(
         }
 
     data_item = str(melhor_item.get("data") or data_iso)
-    detalhe_deslocamento = _detalhar_deslocamento_minutos(
-        melhor_tempo,
-        melhor_item.get("duracao_deslocamento_anterior_min"),
-        melhor_item.get("duracao_deslocamento_proximo_min"),
+    data_item_legivel = _formatar_data_com_semana_pt(data_item)
+    detalhe_deslocamento = _detalhar_deslocamento_por_clinicas(
+        clinica_destino=melhor_item.get("clinica_destino") or clinica_destino_nome,
+        clinica_anterior=melhor_item.get("clinica_anterior"),
+        clinica_posterior=melhor_item.get("clinica_posterior"),
+        duracao_anterior_min=melhor_item.get("duracao_deslocamento_anterior_min"),
+        duracao_posterior_min=melhor_item.get("duracao_deslocamento_proximo_min"),
+        total_min=melhor_tempo,
+        ha_agendamento_anterior=bool(melhor_item.get("ha_agendamento_anterior")),
+        ha_agendamento_posterior=bool(melhor_item.get("ha_agendamento_posterior")),
     )
     if int(melhor_item.get("clinica_id") or 0) == payload.clinica_id:
         mensagem = (
-            f"Encontramos um slot operacional na mesma clinica para {data_item} as {melhor_item['inicio']}. "
-            f"Composicao do deslocamento estimado: {detalhe_deslocamento}. "
+            f"Encontramos horario livre na data {data_item_legivel} as {melhor_item['inicio']} "
+            f"na clinica {_nome_clinica_legivel(melhor_item.get('clinica_destino') or clinica_destino_nome)}. "
+            f"{detalhe_deslocamento} "
             "Sugira esse horario para o cliente e confirme a disponibilidade."
         )
     else:
         mensagem = (
-            f"Encontramos um slot operacional relacionado a ancora da clinica {melhor_item['clinica']} "
-            f"na data {data_item} as {melhor_item['inicio']} "
-            f"(deslocamento total estimado: {detalhe_deslocamento}). "
+            f"Encontramos horario livre na data {data_item_legivel} as {melhor_item['inicio']} "
+            f"proximo ao atendimento na clinica {_nome_clinica_legivel(melhor_item.get('clinica'))}. "
+            f"{detalhe_deslocamento} "
             "Sugira esse horario para o cliente e confirme a disponibilidade."
         )
     if politica_oferta.get("distante_base") and politica_oferta.get("baixa_frequencia"):
@@ -2669,7 +2744,7 @@ def sugerir_agendamento_proximo(
         if dias_txt:
             mensagem = (
                 f"{mensagem} Politica recomendada para esta clinica: priorizar {dias_txt} "
-                "quando nao houver ancora proxima em D+2."
+                "quando nao houver atendimento proximo em D+2."
             )
     if datas_preferenciais and not bool(melhor_item.get("data_preferencial")):
         mensagem = (
