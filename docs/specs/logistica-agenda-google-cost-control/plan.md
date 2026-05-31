@@ -41,3 +41,12 @@ Status: done
 - `backend/venv/bin/python -m pytest -q backend/tests/test_logistica_cobertura_matriz.py backend/tests/test_logistica_refresh_gate.py backend/tests/test_agenda_deslocamento_cache.py backend/tests/test_agenda_resumo_financeiro.py`
 - `backend/venv/bin/python -m pytest -q backend/tests`
 - `python3 scripts/ci/check_sdd_guardrail.py --base-sha <base> --head-sha <head>`
+
+## 4) Atualizacao 2026-05-31
+
+- [x] Ajustar default de `LOGISTICA_ALLOW_LIVE_GOOGLE_LOOKUPS_ON_READ` para `True` (rollout seguro, sem degradar precisao por padrao).
+- [x] Incluir endpoint de leitura dedicado `/api/v1/logistica/google-maps/custos-quotas`.
+- [x] Incluir `cost_and_quotas` no resumo `/api/v1/logistica/google-maps/resumo`.
+- [x] Corrigir recomendacao de `qpm_soft_limit_recommended` para refletir volume real baixo (piso `1`).
+- [x] Separar limite hard de Distance Matrix (`DISTANCE_MATRIX_EPM_HARD_LIMIT=60000`) do limite de Routes.
+- [x] Cobrir ajustes com testes automatizados de custo/controle de trafego.

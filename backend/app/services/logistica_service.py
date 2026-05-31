@@ -36,6 +36,52 @@ GOOGLE_ROUTES_API_URL = "https://routes.googleapis.com/directions/v2:computeRout
 GOOGLE_ROUTES_FIELD_MASK = "routes.distanceMeters,routes.duration,routes.staticDuration"
 GOOGLE_TIMEOUT_SECONDS = 8.0
 DEFAULT_METRICAS_WINDOW_DIAS = 30
+GOOGLE_MAPS_COST_MODEL_VERSION = "2026-05-29"
+ROUTES_QPM_HARD_LIMIT = 3000
+DISTANCE_MATRIX_EPM_HARD_LIMIT = 60000
+
+GOOGLE_MAPS_SKU_PRICING = {
+    # Routes (new API)
+    "routes_compute_routes_essentials": {
+        "label": "Routes: Compute Routes Essentials",
+        "free_cap": 10000,
+        "tiers": [
+            (100000, 5.00),
+            (500000, 4.00),
+            (1000000, 3.00),
+            (5000000, 1.50),
+            (None, 0.38),
+        ],
+    },
+    "routes_compute_routes_pro": {
+        "label": "Routes: Compute Routes Pro",
+        "free_cap": 5000,
+        "tiers": [
+            (100000, 10.00),
+            (500000, 8.00),
+            (1000000, 6.00),
+            (5000000, 3.00),
+            (None, 0.75),
+        ],
+    },
+    # Distance Matrix (legacy API)
+    "distance_matrix_legacy_basic": {
+        "label": "Distance Matrix (Legacy)",
+        "free_cap": 10000,
+        "tiers": [
+            (100000, 5.00),
+            (None, 4.00),
+        ],
+    },
+    "distance_matrix_legacy_advanced": {
+        "label": "Distance Matrix Advanced (Legacy)",
+        "free_cap": 5000,
+        "tiers": [
+            (100000, 10.00),
+            (None, 8.00),
+        ],
+    },
+}
 
 
 def normalizar_perfil(perfil: Optional[str]) -> str:
@@ -98,6 +144,192 @@ def _metrics_retention_days() -> int:
 
 def _force_refresh_heuristica_com_api_key() -> bool:
     return bool(getattr(settings, "LOGISTICA_FORCE_REFRESH_HEURISTICA_COM_API_KEY", False))
+
+
+def _allow_live_google_lookups_on_read() -> bool:
+    return bool(getattr(settings, "LOGISTICA_ALLOW_LIVE_GOOGLE_LOOKUPS_ON_READ", False))
+
+
+def _google_traffic_aware_enabled() -> bool:
+    return bool(getattr(settings, "LOGISTICA_GOOGLE_TRAFFIC_AWARE", False))
+
+
+def _map_metric_to_google_sku(operation: str, provider: str) -> Optional[str]:
+    op = str(operation or "").strip().lower()
+    prov = str(provider or "").strip().lower()
+
+    if op in {"compute_routes", "compute_routes_pro"}:
+        if "traffic" in prov or prov in {"routes_api", "routes_api_pro"}:
+            return "routes_compute_routes_pro"
+        return "routes_compute_routes_essentials"
+
+    if op == "distance_matrix":
+        if "traffic" in prov or prov in {"distance_matrix", "distance_matrix_advanced"}:
+            return "distance_matrix_legacy_advanced"
+        return "distance_matrix_legacy_basic"
+
+    return None
+
+
+def _calcular_custo_tierizado(eventos: int, sku_config: dict) -> float:
+    total_eventos = max(0, int(eventos or 0))
+    if total_eventos <= 0:
+        return 0.0
+
+    free_cap = max(0, int(sku_config.get("free_cap") or 0))
+    tiers = sku_config.get("tiers") or []
+
+    custo = 0.0
+    cursor = free_cap
+    remaining = max(0, total_eventos - free_cap)
+    for tier in tiers:
+        limite_superior, valor_por_mil = tier
+        preco = float(valor_por_mil or 0.0)
+        if remaining <= 0:
+            break
+        if limite_superior is None:
+            quantidade = remaining
+        else:
+            limite_abs = max(cursor, int(limite_superior))
+            faixa = max(0, limite_abs - cursor)
+            quantidade = min(remaining, faixa)
+            cursor = limite_abs
+
+        if quantidade > 0 and preco > 0:
+            custo += (quantidade / 1000.0) * preco
+        remaining -= quantidade
+
+    return round(custo, 4)
+
+
+def _resumir_custo_google_maps(metricas: list[GoogleMapsUsageMetrica], dias_janela: int) -> dict:
+    dias_norm = max(1, int(dias_janela or DEFAULT_METRICAS_WINDOW_DIAS))
+    dias_projecao = 30
+
+    # Cenarios:
+    # - conservador: somente status "ok".
+    # - teto_pratico: tudo que nao foi "skipped" por politica local.
+    cenarios = {
+        "conservador": {"statuses": {"ok"}},
+        "teto_pratico": {"statuses": {"ok", "empty", "error", "unknown"}},
+    }
+
+    breakdown: dict[str, dict[str, dict]] = {}
+    custos_por_cenario: dict[str, dict] = {}
+    eventos_por_dia: dict[str, dict[str, int]] = {}
+    eventos_por_operacao: dict[str, int] = defaultdict(int)
+    eventos_por_provider: dict[str, int] = defaultdict(int)
+
+    for item in metricas:
+        operation = str(getattr(item, "operation", "") or "unknown").strip().lower() or "unknown"
+        provider = str(getattr(item, "provider", "") or "unknown").strip().lower() or "unknown"
+        status = str(getattr(item, "status", "") or "unknown").strip().lower() or "unknown"
+        created_at = _normalize_datetime(getattr(item, "created_at", None)) or _utc_now_naive()
+        dia = created_at.date().isoformat()
+
+        eventos_por_operacao[operation] += 1
+        eventos_por_provider[provider] += 1
+        eventos_por_dia.setdefault(dia, defaultdict(int))
+        eventos_por_dia[dia][operation] += 1
+
+        sku = _map_metric_to_google_sku(operation, provider)
+        if not sku:
+            continue
+
+        for nome_cenario, cfg in cenarios.items():
+            if status not in cfg["statuses"]:
+                continue
+            cenario = breakdown.setdefault(nome_cenario, {})
+            bucket = cenario.setdefault(
+                sku,
+                {
+                    "sku": sku,
+                    "label": GOOGLE_MAPS_SKU_PRICING.get(sku, {}).get("label", sku),
+                    "events_window": 0,
+                },
+            )
+            bucket["events_window"] += 1
+
+    for nome_cenario in cenarios.keys():
+        skus = breakdown.get(nome_cenario, {})
+        total_window = 0.0
+        total_proj_30d = 0.0
+        rows = []
+        for sku, bucket in skus.items():
+            sku_cfg = GOOGLE_MAPS_SKU_PRICING.get(sku, {})
+            events_window = int(bucket.get("events_window") or 0)
+            events_proj_30d = int(math.ceil((events_window / max(1, dias_norm)) * dias_projecao))
+            cost_window = _calcular_custo_tierizado(events_window, sku_cfg)
+            cost_proj_30d = _calcular_custo_tierizado(events_proj_30d, sku_cfg)
+            total_window += cost_window
+            total_proj_30d += cost_proj_30d
+            rows.append(
+                {
+                    "sku": sku,
+                    "label": bucket.get("label"),
+                    "events_window": events_window,
+                    "events_projected_30d": events_proj_30d,
+                    "estimated_cost_window_usd": round(cost_window, 2),
+                    "estimated_cost_projected_30d_usd": round(cost_proj_30d, 2),
+                }
+            )
+
+        rows.sort(key=lambda r: r["estimated_cost_projected_30d_usd"], reverse=True)
+        custos_por_cenario[nome_cenario] = {
+            "window_days": dias_norm,
+            "projected_days": dias_projecao,
+            "estimated_total_cost_window_usd": round(total_window, 2),
+            "estimated_total_cost_projected_30d_usd": round(total_proj_30d, 2),
+            "breakdown": rows,
+        }
+
+    chamadas_routing_dia = {
+        dia: int(
+            op_counts.get("compute_routes", 0)
+            + op_counts.get("compute_routes_pro", 0)
+            + op_counts.get("distance_matrix", 0)
+        )
+        for dia, op_counts in eventos_por_dia.items()
+    }
+    pico_dia = max(chamadas_routing_dia.values()) if chamadas_routing_dia else 0
+    media_dia = (
+        int(math.ceil(sum(chamadas_routing_dia.values()) / max(1, len(chamadas_routing_dia))))
+        if chamadas_routing_dia
+        else 0
+    )
+    quota_diaria_recomendada = max(200, int(math.ceil(pico_dia * 1.25))) if pico_dia > 0 else 200
+    alerta_diario = max(100, int(math.floor(quota_diaria_recomendada * 0.8)))
+    qpm_soft = max(1, int(math.ceil(quota_diaria_recomendada / 24.0 / 60.0 * 2.0)))
+
+    recomendacoes_quotas = {
+        "routes_api": {
+            "daily_quota_recommended_requests": quota_diaria_recomendada,
+            "daily_alert_threshold_requests": alerta_diario,
+            "qpm_soft_limit_recommended": qpm_soft,
+            "qpm_hard_limit_google": ROUTES_QPM_HARD_LIMIT,
+        },
+        "distance_matrix_legacy": {
+            # No fluxo atual cada chamada representa 1 origem x 1 destino (1 elemento).
+            "daily_quota_recommended_elements": quota_diaria_recomendada,
+            "daily_alert_threshold_elements": alerta_diario,
+            "epm_soft_limit_recommended": qpm_soft,
+            "epm_hard_limit_google": DISTANCE_MATRIX_EPM_HARD_LIMIT,
+        },
+        "based_on_window": {
+            "window_days": dias_norm,
+            "average_daily_calls": media_dia,
+            "peak_daily_calls": pico_dia,
+        },
+    }
+
+    return {
+        "cost_model_version": GOOGLE_MAPS_COST_MODEL_VERSION,
+        "currency": "USD",
+        "events_by_operation": dict(sorted(eventos_por_operacao.items())),
+        "events_by_provider": dict(sorted(eventos_por_provider.items())),
+        "estimated_costs": custos_por_cenario,
+        "quota_recommendations": recomendacoes_quotas,
+    }
 
 
 def _http_get_json(url: str, timeout: float = GOOGLE_TIMEOUT_SECONDS) -> dict:
@@ -354,11 +586,13 @@ def _consultar_google_routes_api_raw(
     if not api_key:
         return None
 
+    traffic_aware = _google_traffic_aware_enabled()
+    provider = "routes_api_traffic" if traffic_aware else "routes_api_basic"
     body = {
         "origin": origem_waypoint,
         "destination": destino_waypoint,
         "travelMode": "DRIVE",
-        "routingPreference": "TRAFFIC_AWARE",
+        "routingPreference": "TRAFFIC_AWARE" if traffic_aware else "TRAFFIC_UNAWARE",
         "languageCode": "pt-BR",
         "units": "METRIC",
     }
@@ -375,8 +609,8 @@ def _consultar_google_routes_api_raw(
         _append_google_metric_event(
             telemetry_events,
             service="routes",
-            operation="compute_routes_pro",
-            provider="routes_api",
+            operation="compute_routes",
+            provider=provider,
             status="error",
             context=metric_context,
         )
@@ -387,8 +621,8 @@ def _consultar_google_routes_api_raw(
         _append_google_metric_event(
             telemetry_events,
             service="routes",
-            operation="compute_routes_pro",
-            provider="routes_api",
+            operation="compute_routes",
+            provider=provider,
             status="empty",
             context=metric_context,
         )
@@ -400,8 +634,8 @@ def _consultar_google_routes_api_raw(
         _append_google_metric_event(
             telemetry_events,
             service="routes",
-            operation="compute_routes_pro",
-            provider="routes_api",
+            operation="compute_routes",
+            provider=provider,
             status="empty",
             context=metric_context,
         )
@@ -413,8 +647,8 @@ def _consultar_google_routes_api_raw(
         _append_google_metric_event(
             telemetry_events,
             service="routes",
-            operation="compute_routes_pro",
-            provider="routes_api",
+            operation="compute_routes",
+            provider=provider,
             status="error",
             context=metric_context,
         )
@@ -436,8 +670,8 @@ def _consultar_google_routes_api_raw(
         _append_google_metric_event(
             telemetry_events,
             service="routes",
-            operation="compute_routes_pro",
-            provider="routes_api",
+            operation="compute_routes",
+            provider=provider,
             status="empty",
             context=metric_context,
         )
@@ -446,14 +680,14 @@ def _consultar_google_routes_api_raw(
     _append_google_metric_event(
         telemetry_events,
         service="routes",
-        operation="compute_routes_pro",
-        provider="routes_api",
+        operation="compute_routes",
+        provider=provider,
         status="ok",
         context=metric_context,
     )
 
     return {
-        "provider": "routes_api",
+        "provider": provider,
         "distance_km": distance_km,
         "duracao_base_min": duration_base_min,
         "duracao_traffic_min": duration_traffic_min,
@@ -471,18 +705,20 @@ def _consultar_google_distance_matrix_raw(
     if not api_key or not origem_ref or not destino_ref:
         return None
 
-    params = urlencode(
-        {
-            "origins": origem_ref,
-            "destinations": destino_ref,
-            "mode": "driving",
-            "language": "pt-BR",
-            "region": "br",
-            "departure_time": "now",
-            "traffic_model": "best_guess",
-            "key": api_key,
-        }
-    )
+    traffic_aware = _google_traffic_aware_enabled()
+    provider = "distance_matrix_traffic" if traffic_aware else "distance_matrix_basic"
+    params_payload = {
+        "origins": origem_ref,
+        "destinations": destino_ref,
+        "mode": "driving",
+        "language": "pt-BR",
+        "region": "br",
+        "key": api_key,
+    }
+    if traffic_aware:
+        params_payload["departure_time"] = "now"
+        params_payload["traffic_model"] = "best_guess"
+    params = urlencode(params_payload)
     url = f"{GOOGLE_DISTANCE_MATRIX_URL}?{params}"
 
     try:
@@ -492,7 +728,7 @@ def _consultar_google_distance_matrix_raw(
             telemetry_events,
             service="routes",
             operation="distance_matrix",
-            provider="distance_matrix",
+            provider=provider,
             status="error",
             context=metric_context,
         )
@@ -504,7 +740,7 @@ def _consultar_google_distance_matrix_raw(
             telemetry_events,
             service="routes",
             operation="distance_matrix",
-            provider="distance_matrix",
+            provider=provider,
             status="empty",
             context=metric_context,
         )
@@ -516,7 +752,7 @@ def _consultar_google_distance_matrix_raw(
             telemetry_events,
             service="routes",
             operation="distance_matrix",
-            provider="distance_matrix",
+            provider=provider,
             status="empty",
             context=metric_context,
         )
@@ -529,7 +765,7 @@ def _consultar_google_distance_matrix_raw(
             telemetry_events,
             service="routes",
             operation="distance_matrix",
-            provider="distance_matrix",
+            provider=provider,
             status="empty",
             context=metric_context,
         )
@@ -542,7 +778,7 @@ def _consultar_google_distance_matrix_raw(
             telemetry_events,
             service="routes",
             operation="distance_matrix",
-            provider="distance_matrix",
+            provider=provider,
             status="empty",
             context=metric_context,
         )
@@ -559,7 +795,7 @@ def _consultar_google_distance_matrix_raw(
             telemetry_events,
             service="routes",
             operation="distance_matrix",
-            provider="distance_matrix",
+            provider=provider,
             status="error",
             context=metric_context,
         )
@@ -583,7 +819,7 @@ def _consultar_google_distance_matrix_raw(
             telemetry_events,
             service="routes",
             operation="distance_matrix",
-            provider="distance_matrix",
+            provider=provider,
             status="empty",
             context=metric_context,
         )
@@ -593,13 +829,13 @@ def _consultar_google_distance_matrix_raw(
         telemetry_events,
         service="routes",
         operation="distance_matrix",
-        provider="distance_matrix",
+        provider=provider,
         status="ok",
         context=metric_context,
     )
 
     return {
-        "provider": "distance_matrix",
+        "provider": provider,
         "distance_km": distance_km,
         "duracao_base_min": duration_base_min,
         "duracao_traffic_min": duration_traffic_min,
@@ -611,6 +847,7 @@ def estimar_deslocamento(
     destino: Clinica,
     *,
     perfil: str = "comercial",
+    permitir_google_lookup: bool = True,
     google_cache: Optional[dict] = None,
     telemetry_events: Optional[list[dict]] = None,
 ) -> tuple[float, int, str]:
@@ -629,7 +866,7 @@ def estimar_deslocamento(
     destino_ref = _ref_google_maps(destino)
     metric_context = _build_google_metric_context(origem, destino, perfil_norm)
     google_result = None
-    if str(settings.GOOGLE_MAPS_API_KEY or "").strip():
+    if permitir_google_lookup and str(settings.GOOGLE_MAPS_API_KEY or "").strip():
         cache = google_cache if isinstance(google_cache, dict) else None
         origem_cache_ref = (
             json.dumps(origem_waypoint, ensure_ascii=True, sort_keys=True)
@@ -667,7 +904,7 @@ def estimar_deslocamento(
         duracao_base = google_result.get("duracao_base_min")
         duracao_traffic = google_result.get("duracao_traffic_min")
         provider = str(google_result.get("provider") or "google").strip().lower()
-        provider_prefix = "google_routes_api" if provider == "routes_api" else "google_distance_matrix"
+        provider_prefix = "google_routes_api" if provider.startswith("routes_api") else "google_distance_matrix"
         if perfil_norm == "comercial":
             duracao_escolhida = duracao_traffic if duracao_traffic is not None else duracao_base
             fonte = f"{provider_prefix}_traffic" if duracao_traffic is not None else provider_prefix
@@ -677,6 +914,16 @@ def estimar_deslocamento(
 
         duracao_min = max(MIN_DURACAO_MINUTOS, int(duracao_escolhida or 0))
         return distancia_km, duracao_min, fonte
+
+    if not permitir_google_lookup and str(settings.GOOGLE_MAPS_API_KEY or "").strip():
+        _append_google_metric_event(
+            telemetry_events,
+            service="routes",
+            operation="google_lookup_skipped",
+            provider="local_policy",
+            status="skipped",
+            context=metric_context,
+        )
 
     lat1 = _safe_float(origem.latitude)
     lon1 = _safe_float(origem.longitude)
@@ -772,6 +1019,7 @@ def materializar_deslocamento_par(
     destino: Clinica,
     perfis: Optional[Iterable[str]] = None,
     force_override: bool = False,
+    permitir_google_lookup: bool = True,
 ) -> dict[str, ClinicaDeslocamento]:
     """Resolve a route once and persist the requested profiles.
 
@@ -788,6 +1036,7 @@ def materializar_deslocamento_par(
             origem,
             destino,
             perfil=perfil,
+            permitir_google_lookup=permitir_google_lookup,
             google_cache=google_cache,
             telemetry_events=telemetry_events,
         )
@@ -1064,6 +1313,7 @@ def obter_duracao_deslocamento(
         origem=origem,
         destino=destino,
         perfis=["comercial", "plantao"],
+        permitir_google_lookup=_allow_live_google_lookups_on_read(),
     )
     row = rows.get(perfil_norm)
     if row and row.duracao_min is not None:
@@ -1127,6 +1377,8 @@ def resumir_cobertura_matriz_deslocamentos(
                 "google_maps_api_key_configurada": bool(str(settings.GOOGLE_MAPS_API_KEY or "").strip()),
                 "cache_max_age_days": _cache_max_age_days(),
                 "force_refresh_heuristica_com_api_key": _force_refresh_heuristica_com_api_key(),
+                "allow_live_google_lookups_on_read": _allow_live_google_lookups_on_read(),
+                "google_traffic_aware_enabled": _google_traffic_aware_enabled(),
             },
         }
 
@@ -1242,6 +1494,8 @@ def resumir_cobertura_matriz_deslocamentos(
             "google_maps_api_key_configurada": bool(str(settings.GOOGLE_MAPS_API_KEY or "").strip()),
             "cache_max_age_days": _cache_max_age_days(),
             "force_refresh_heuristica_com_api_key": _force_refresh_heuristica_com_api_key(),
+            "allow_live_google_lookups_on_read": _allow_live_google_lookups_on_read(),
+            "google_traffic_aware_enabled": _google_traffic_aware_enabled(),
             "linhas_fora_escopo_clinicas_ativas": linhas_fora_escopo,
         },
     }
@@ -1369,11 +1623,14 @@ def resumir_google_maps_metricas(
         top_pares.values(),
         key=lambda item: (-int(item["calls"]), str(item["last_called_at"] or "")),
     )[:10]
+    custo_e_quotas = _resumir_custo_google_maps(metricas, dias_norm)
 
     return {
         "window_days": dias_norm,
         "cache_max_age_days": _cache_max_age_days(),
         "metrics_retention_days": _metrics_retention_days(),
+        "allow_live_google_lookups_on_read": _allow_live_google_lookups_on_read(),
+        "google_traffic_aware_enabled": _google_traffic_aware_enabled(),
         "total_api_calls": len(metricas),
         "success_rate_percent": success_rate,
         "status_counts": dict(sorted(por_status.items())),
@@ -1381,6 +1638,7 @@ def resumir_google_maps_metricas(
         "calls_by_day": dict(sorted(por_dia.items())),
         "top_pairs": top_pairs_sorted,
         "cache": cache_stats,
+        "cost_and_quotas": custo_e_quotas,
     }
 
 

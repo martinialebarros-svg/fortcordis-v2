@@ -173,6 +173,25 @@ def obter_resumo_google_maps(
     )
 
 
+@router.get("/google-maps/custos-quotas")
+def obter_custos_quotas_google_maps(
+    dias: int = Query(default=30, ge=1, le=365),
+    incluir_inativas: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    resumo = resumir_google_maps_metricas(
+        db,
+        dias=dias,
+        incluir_inativas=incluir_inativas,
+    )
+    return {
+        "window_days": resumo.get("window_days"),
+        "total_api_calls": resumo.get("total_api_calls"),
+        "cost_and_quotas": resumo.get("cost_and_quotas"),
+    }
+
+
 @router.put("/deslocamento/manual", status_code=status.HTTP_200_OK)
 def ajustar_deslocamento_manual(
     payload: AjusteManualDeslocamentoPayload,
