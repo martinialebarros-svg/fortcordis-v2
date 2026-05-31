@@ -656,6 +656,46 @@ export default function FinanceiroPage() {
     }
   };
 
+  const editarTaxasFormaPagamento = async (forma: FormaPagamentoConfig) => {
+    if (!forma.id) return;
+    const taxaPercentualAtual = Number(forma.taxa_percentual || 0).toFixed(2);
+    const taxaPercentualStr = window.prompt(
+      `Taxa percentual (%) para "${forma.nome}":`,
+      taxaPercentualAtual
+    );
+    if (taxaPercentualStr === null) return;
+
+    const taxaFixaAtual = Number(forma.taxa_fixa || 0).toFixed(2);
+    const taxaFixaStr = window.prompt(
+      `Taxa fixa (R$) para "${forma.nome}":`,
+      taxaFixaAtual
+    );
+    if (taxaFixaStr === null) return;
+
+    const taxaPercentual = Number.parseFloat(String(taxaPercentualStr).replace(",", "."));
+    const taxaFixa = Number.parseFloat(String(taxaFixaStr).replace(",", "."));
+    if (!Number.isFinite(taxaPercentual) || taxaPercentual < 0) {
+      alert("Taxa percentual invalida.");
+      return;
+    }
+    if (!Number.isFinite(taxaFixa) || taxaFixa < 0) {
+      alert("Taxa fixa invalida.");
+      return;
+    }
+
+    try {
+      await api.put(`/financeiro/formas-pagamento/${forma.id}`, {
+        taxa_percentual: Number(taxaPercentual.toFixed(4)),
+        taxa_fixa: Number(taxaFixa.toFixed(2)),
+      });
+      await carregarDados();
+      alert("Taxas atualizadas com sucesso.");
+    } catch (error: any) {
+      console.error("Erro ao atualizar taxas da forma de pagamento:", error);
+      alert("Nao foi possivel atualizar as taxas: " + (error.response?.data?.detail || error.message));
+    }
+  };
+
   const handleEditar = (transacao: Transacao) => {
     setTransacaoEditando(transacao);
     setModalAberto(true);
@@ -1274,18 +1314,26 @@ export default function FinanceiroPage() {
 	                        <td className="px-3 py-2 text-right">{Number(forma.taxa_percentual || 0).toFixed(2)}%</td>
 	                        <td className="px-3 py-2 text-right">{formatarValor(Number(forma.taxa_fixa || 0))}</td>
 	                        <td className="px-3 py-2">{forma.bandeira_nome || bandeira?.nome || "-"}</td>
-	                        <td className="px-3 py-2 text-right">
-	                          {forma.id ? (
-	                            <button
-	                              onClick={() => desativarFormaPagamento(forma.id)}
-	                              className="text-red-600 hover:text-red-700"
-	                            >
-	                              Desativar
-	                            </button>
-	                          ) : (
-	                            <span className="text-gray-400">-</span>
-	                          )}
-	                        </td>
+		                        <td className="px-3 py-2 text-right">
+		                          {forma.id ? (
+		                            <div className="flex justify-end gap-3">
+		                              <button
+		                                onClick={() => editarTaxasFormaPagamento(forma)}
+		                                className="text-blue-600 hover:text-blue-700"
+		                              >
+		                                Editar taxas
+		                              </button>
+		                              <button
+		                                onClick={() => desativarFormaPagamento(forma.id)}
+		                                className="text-red-600 hover:text-red-700"
+		                              >
+		                                Desativar
+		                              </button>
+		                            </div>
+		                          ) : (
+		                            <span className="text-gray-400">-</span>
+		                          )}
+		                        </td>
 	                      </tr>
 	                    );
 	                  })

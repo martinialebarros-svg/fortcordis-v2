@@ -130,6 +130,8 @@ interface OrdemServicoResumo {
   agendamento_id: number;
   numero_os: string;
   status: string;
+  valor_servico: number;
+  desconto: number;
   valor_final: number;
 }
 
@@ -472,6 +474,7 @@ export default function AgendaFullCalendarPage() {
   const [erroSaldoCreditoPagamento, setErroSaldoCreditoPagamento] = useState("");
   const [usarCreditoClientePagamento, setUsarCreditoClientePagamento] = useState(false);
   const [valorCreditoUtilizadoPagamento, setValorCreditoUtilizadoPagamento] = useState("0.00");
+  const [descontoPagamento, setDescontoPagamento] = useState("0.00");
   const [excluindoAgendamentoId, setExcluindoAgendamentoId] = useState<number | null>(null);
   const [salvandoMovimentacao, setSalvandoMovimentacao] = useState(false);
   const [salvandoAgendaDia, setSalvandoAgendaDia] = useState(false);
@@ -658,7 +661,14 @@ export default function AgendaFullCalendarPage() {
     const totalBruto = linhas.reduce((acc, item) => acc + item.valor, 0);
     const totalTaxa = linhas.reduce((acc, item) => acc + item.taxa, 0);
     const totalLiquido = linhas.reduce((acc, item) => acc + item.liquido, 0);
-    const valorOs = Number(osSelecionada?.valor_final || 0);
+    const valorOsBrutoDireto = Number(osSelecionada?.valor_servico || 0);
+    const descontoBase = Number(osSelecionada?.desconto || 0);
+    const valorOsBruto = Number(
+      (valorOsBrutoDireto > 0 ? valorOsBrutoDireto : Number(osSelecionada?.valor_final || 0) + descontoBase).toFixed(2)
+    );
+    const descontoSolicitado = parseMoneyValue(descontoPagamento);
+    const descontoAplicado = Math.max(0, Math.min(descontoSolicitado, Math.max(0, valorOsBruto)));
+    const valorOs = Number((Math.max(0, valorOsBruto - descontoAplicado)).toFixed(2));
     const limiteCredito = Math.max(0, Number(saldoCreditoClientePagamento || 0));
     const creditoSolicitado = parseMoneyValue(valorCreditoUtilizadoPagamento);
     const creditoUtilizado = usarCreditoClientePagamento
@@ -672,6 +682,8 @@ export default function AgendaFullCalendarPage() {
       totalTaxa,
       totalLiquido,
       totalCoberto,
+      valorOsBruto,
+      descontoAplicado,
       valorOs,
       limiteCredito,
       creditoSolicitado,
@@ -681,7 +693,10 @@ export default function AgendaFullCalendarPage() {
       faltante: diferenca < 0 ? Math.abs(diferenca) : 0,
     };
   }, [
+    descontoPagamento,
     formasPagamentoDisponiveis,
+    osSelecionada?.desconto,
+    osSelecionada?.valor_servico,
     osSelecionada?.valor_final,
     pagamentosRecebimento,
     saldoCreditoClientePagamento,
@@ -899,6 +914,8 @@ export default function AgendaFullCalendarPage() {
               agendamento_id: agendamentoId,
               numero_os: String(os?.numero_os || ""),
               status: statusOs || "Pendente",
+              valor_servico: Number(os?.valor_servico || 0),
+              desconto: Number(os?.desconto || 0),
               valor_final: Number(os?.valor_final || 0),
             };
           }
@@ -1517,6 +1534,7 @@ export default function AgendaFullCalendarPage() {
         valor: toMoneyInput(Number(osVinculada.valor_final || 0)),
       },
     ]);
+    setDescontoPagamento(toMoneyInput(Number(osVinculada.desconto || 0)));
     setDataRecebimentoPagamento(toDateInput(new Date()));
     setDestinoCreditoExcedente("cliente");
     setSaldoCreditoClientePagamento(0);
@@ -1569,6 +1587,7 @@ export default function AgendaFullCalendarPage() {
       await api.patch(`/ordens-servico/${osVinculada.id}/receber`, {
         pagamentos: pagamentosPayload,
         data_recebimento: dataRecebimentoPagamento || null,
+        desconto: Number(resumoPagamentoModal.descontoAplicado.toFixed(2)),
         valor_credito_utilizado: Number(creditoUtilizado.toFixed(2)),
         destino_credito_excedente: destinoCreditoExcedente,
       });
@@ -1583,6 +1602,7 @@ export default function AgendaFullCalendarPage() {
       setErroSaldoCreditoPagamento("");
       setUsarCreditoClientePagamento(false);
       setValorCreditoUtilizadoPagamento("0.00");
+      setDescontoPagamento("0.00");
       if (intervalo) {
         await carregarAgendamentos(intervalo);
       }
@@ -1603,6 +1623,7 @@ export default function AgendaFullCalendarPage() {
     destinoCreditoExcedente,
     intervalo,
     ordensServicoPorAgendamento,
+    resumoPagamentoModal.descontoAplicado,
     resumoPagamentoModal.linhas,
     resumoPagamentoModal.creditoUtilizado,
     selecionado,
@@ -2738,9 +2759,9 @@ export default function AgendaFullCalendarPage() {
 
               <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
                 <p>
-                  <strong>Valor:</strong>{" "}
+                  <strong>Valor liquido da OS:</strong>{" "}
                   {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
-                    Number(osSelecionada.valor_final || 0)
+                    Number(resumoPagamentoModal.valorOs || 0)
                   )}
                 </p>
                 <p className="mt-1">
@@ -2814,6 +2835,20 @@ export default function AgendaFullCalendarPage() {
                 className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               />
 
+              <label className="mt-4 block text-sm font-medium text-gray-700">Desconto aplicado na OS</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                max={Math.max(0, Number(resumoPagamentoModal.valorOsBruto || 0))}
+                value={descontoPagamento}
+                onChange={(event) => setDescontoPagamento(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+              <div className="mt-1 text-xs text-gray-500">
+                Valor bruto da OS: {formatarMoedaBRL(Number(resumoPagamentoModal.valorOsBruto || 0))}.
+              </div>
+
               {!carregandoSaldoCreditoPagamento && saldoCreditoClientePagamento > 0 && (
                 <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
                   <label className="flex items-center gap-2 text-sm font-medium text-amber-900">
@@ -2879,7 +2914,23 @@ export default function AgendaFullCalendarPage() {
 
               <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">
                 <div className="flex justify-between">
-                  <span>Valor da OS</span>
+                  <span>Valor bruto da OS</span>
+                  <strong>
+                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+                      resumoPagamentoModal.valorOsBruto || 0
+                    )}
+                  </strong>
+                </div>
+                <div className="mt-1 flex justify-between">
+                  <span>Desconto aplicado</span>
+                  <strong>
+                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+                      resumoPagamentoModal.descontoAplicado || 0
+                    )}
+                  </strong>
+                </div>
+                <div className="mt-1 flex justify-between">
+                  <span>Valor liquido da OS</span>
                   <strong>
                     {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
                       resumoPagamentoModal.valorOs || 0
@@ -2947,6 +2998,7 @@ export default function AgendaFullCalendarPage() {
                     setErroSaldoCreditoPagamento("");
                     setUsarCreditoClientePagamento(false);
                     setValorCreditoUtilizadoPagamento("0.00");
+                    setDescontoPagamento("0.00");
                   }}
                   className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                 >

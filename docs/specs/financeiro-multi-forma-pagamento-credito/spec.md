@@ -21,6 +21,8 @@ Evoluir o recebimento financeiro de Ordem de Servico (OS) para suportar pagament
   - destino do credito quando houver excedente.
 - RF-007: relatorios financeiros devem expor taxas de pagamento e creditos gerados.
 - RF-008: fluxo legado com `forma_pagamento` unica deve permanecer compativel para rollback controlado.
+- RF-009: no recebimento da OS (Agenda Lista e FullCalendar), deve existir campo de desconto explicito no modal, com recalculo do valor liquido da OS antes da validacao de cobertura.
+- RF-010: no modulo Financeiro, a tabela de formas de pagamento deve permitir editar as taxas aplicadas (percentual e fixa) sem desativar/recriar o cadastro.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -34,6 +36,7 @@ Evoluir o recebimento financeiro de Ordem de Servico (OS) para suportar pagament
 
 - `PATCH /ordens-servico/{os_id}/receber`
   - novo suporte a `pagamentos[]` com `forma_pagamento`, `forma_pagamento_config_id`, `valor`, `data_recebimento`, `taxa_percentual`, `taxa_fixa`.
+  - novo suporte a `desconto` no ato do recebimento, com persistencia em `ordens_servico.desconto` e recalc de `valor_final`.
   - novo suporte a `destino_credito_excedente`.
 - `PATCH /ordens-servico/{os_id}/desfazer-recebimento`
   - deve cancelar lote de transacoes e creditos vinculados.
@@ -68,9 +71,11 @@ Evoluir o recebimento financeiro de Ordem de Servico (OS) para suportar pagament
   - `frontend/app/relatorios/components/views/*`
 - Comportamento:
   - modais com linhas multiplas de pagamento;
+  - campo de desconto no recebimento da OS (agenda lista e fullcalendar);
   - exibicao de taxa estimada por linha;
-  - resumo bruto/taxa/liquido/faltante/excedente;
+  - resumo bruto/desconto/liquido/taxa/faltante/excedente;
   - escolha de destino de credito.
+  - no cadastro de meios de pagamento, acao de edicao de taxas (percentual/fixa) por linha.
 
 ## 5) Compatibilidade e rollout
 
@@ -87,6 +92,8 @@ Evoluir o recebimento financeiro de Ordem de Servico (OS) para suportar pagament
 - CA-005: fullcalendar e agenda lista apresentam o mesmo fluxo de recebimento multiplo.
 - CA-006: resumo financeiro e relatorio de controle exibem taxas de pagamento e creditos gerados.
 - CA-007: cadastro de bandeira/forma via API rejeita usuario sem papel admin.
+- CA-008: secretaria pode informar desconto no modal de recebimento da agenda e o backend deve validar `desconto <= valor_servico`, recalculando o valor da OS para cobertura.
+- CA-009: admin consegue editar `taxa_percentual` e `taxa_fixa` de forma de pagamento existente e a alteracao reflete nos proximos recebimentos.
 
 ## 7) Casos de borda
 

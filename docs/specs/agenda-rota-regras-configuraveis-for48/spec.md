@@ -21,6 +21,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - RF-009: regras de transicao de status, fluxo de acoes e formas de pagamento devem ser compartilhadas entre Agenda Lista e FullCalendar para evitar divergencia funcional.
 - RF-010: Agenda Lista e FullCalendar devem permitir alternancia direta de visao mantendo contexto operacional minimo (data e status via query string), reduzindo ruptura de fluxo.
 - RF-011: leitura inicial do contexto por query string nas telas de Agenda deve ser compatível com build de producao do Next.js sem exigir boundary adicional de suspense.
+- RF-012: mensagens do assistente inteligente de proximidade devem detalhar a composicao do deslocamento usando nomes das clinicas envolvidas (anterior/destino/posterior), indicar quando nao ha agendamento vizinho e mostrar a data com dia da semana para evitar ambiguidade operacional.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -38,6 +39,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - Metodo: GET/PUT/POST
 - Payload: incluir bloco `agenda_rota_regras` normalizado.
 - Resposta: incluir metadados de regras aplicadas e politica de oferta nos endpoints de sugestao.
+- Resposta (proximidade): incluir detalhamento textual de deslocamento total e sua composicao por trecho, quando houver agendamentos vizinhos.
 
 ### Banco/migracoes
 
@@ -69,6 +71,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - CA-008: menus de status e recebimento de pagamento exibem o mesmo comportamento funcional entre Agenda Lista e FullCalendar, usando a mesma base de regras compartilhada.
 - CA-009: botao de alternancia entre Lista e FullCalendar preserva data (e status quando aplicavel), abrindo a outra visao no mesmo contexto.
 - CA-010: `npm run build` do frontend conclui sem erro de prerender relacionado a leitura de query string na rota `/agenda`.
+- CA-011: mensagem de proximidade exibe composicao do deslocamento com nomes das clinicas e total estimado, incluindo indicacao explicita de ausencia de agendamento anterior/posterior e data com dia da semana.
 
 ## 7) Casos de borda
 
