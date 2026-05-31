@@ -25,3 +25,11 @@ Reduzir custo de Google Maps no modulo de logistica/agenda sem perder compatibil
 
 - Preservar comportamento atual como padrao seguro para producao.
 - Guardrail SDD precisa aprovar o diff para liberar deploy em `stage`.
+
+## 5) Atualizacao 2026-05-31 (hardening de custos e rollout seguro)
+
+Durante a revisao pre-deploy para `stage`, foram aplicados ajustes complementares para reduzir custo com seguranca operacional:
+- adicionar resumo de custo/quotas de Google Maps no backend;
+- manter lookup ao vivo do Google habilitado por padrao na leitura para evitar perda de precisao sem rollout explicito;
+- manter modo sem trafego como padrao (`TRAFFIC_UNAWARE`) para reduzir custo por chamada;
+- corrigir recomendacoes de limite por minuto para nao inflar quotas em cenarios de baixo volume.
