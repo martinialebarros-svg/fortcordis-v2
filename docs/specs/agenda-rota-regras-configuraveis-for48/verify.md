@@ -19,6 +19,7 @@ Status: in-progress
 | CA-009 | aceitacao | alternancia entre Lista e FullCalendar preserva contexto de data/status via query string em `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
 | CA-010 | aceitacao | build do frontend conclui sem erro de prerender em `/agenda` apos ajuste da leitura de query string nas telas de Agenda | ok |
 | CA-011 | aceitacao | mensagem de proximidade detalha deslocamento com nomes das clinicas (anterior/destino/posterior), dia da semana e indicacao de ausencia de vizinho quando aplicavel em `backend/app/api/v1/endpoints/agenda.py` e `frontend/app/agenda/NovoAgendamentoModal.tsx` | ok |
+| CA-012 | aceitacao | `test_sugestoes_horario_exigem_margem_segura_entre_vizinhos` e `test_validacao_agendamento_exige_margem_segura_de_deslocamento` cobrem folga menor que deslocamento + margem | ok |
 | NFR-001 | nao funcional | cache de deslocamento por request mantido | ok |
 | NFR-002 | nao funcional | sem novos endpoints publicos; usa permissao de configuracoes existente | ok |
 | NFR-004 | nao funcional | perfis nao-admin sem acao de abertura rapida de excecao em slot fechado | ok |
@@ -40,12 +41,16 @@ cd frontend && npx eslint app/configuracoes/page.tsx lib/agenda-route-rules.ts
 cd frontend && npx eslint app/agenda/page.tsx app/agenda/fullcalendar/page.tsx lib/waze.ts lib/agenda-shared-actions.ts
 cd frontend && npx tsc --noEmit
 cd frontend && npm run build
+
+# backend (regras de margem segura em sugestao/salvamento)
+cd backend && ./venv/bin/python -m pytest -q tests/test_agenda_sugestao_janela_operacional.py
 ```
 
 Resumo dos resultados:
 - Backend: ok (py_compile).
+- Backend agenda: ok (`26 passed` em `test_agenda_sugestao_janela_operacional.py`).
 - Frontend: ok (eslint + tsc + build), incluindo validacao das duas telas de agenda e helper de navegacao.
-- Observacao: `pytest` nao disponivel no ambiente local desta execucao.
+- Observacao: os avisos de deprecacao de Pydantic/SQLAlchemy ja existiam no projeto.
 
 ## 3) Testes manuais
 

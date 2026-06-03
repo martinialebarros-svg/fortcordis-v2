@@ -27,6 +27,8 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - RF-015: `POST /agenda/sugestoes-horario` nao pode sugerir slot ocupado quando houver drift legado entre `agendamentos.data/hora` e `agendamentos.inicio/fim`; a deteccao de conflito deve normalizar o intervalo local pelo `data+hora` do agendamento.
 - RF-016: `POST /agenda/sugestoes-horario` nao pode perder conflito por causa de `agendamentos.data` legado invalido (ex.: `DD/MM/YYYY`); a selecao de ocupacao deve considerar tambem a data derivada de `inicio`.
 - RF-017: validacao de deslocamento com agendamento seguinte deve considerar todos os atendimentos ativos do dia (inclusive fora da janela operacional ativa), evitando ofertar slot que conflita com o proximo atendimento real.
+- RF-018: `POST /agenda/sugestoes-horario` deve aplicar `safe_margin_min` como bloqueio de folga operacional, nao apenas como risco de ranking.
+- RF-019: `POST /agenda/sugestao-proximidade` nao deve retornar `sugerir=true` quando a melhor opcao encontrada estiver acima de `limite_minutos`; o item pode ser mantido apenas como diagnostico rejeitado.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -74,6 +76,8 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - CA-014: se existir agendamento com `data/hora` ocupando um slot e `inicio/fim` driftado para outro dia, o assistente nao deve ofertar esse slot como livre.
 - CA-015: se existir agendamento com `inicio` no dia e `data` legado em formato invalido, o assistente ainda deve bloquear esse horario como ocupado.
 - CA-016: se existir atendimento seguinte real fora da janela operacional ativa do dia, o assistente nao deve ofertar slot cuja folga para esse proximo atendimento seja menor que o deslocamento necessario.
+- CA-017: se a folga entre vizinhos for maior que o deslocamento, mas menor que `deslocamento + safe_margin_min`, o assistente nao deve ofertar o slot.
+- CA-018: se a melhor opcao de proximidade exceder `limite_minutos`, a resposta deve retornar `sugerir=false`, `item=null` e sinalizar `acima_do_limite=true`.
 
 ## 7) Casos de borda
 
@@ -85,6 +89,7 @@ Ajustar o backend de sugestao de agendamento para respeitar integralmente agenda
 - CB-006: ancora com deslocamento "bom", mas sem nenhum slot operacional viavel na data (janela curta, conflito de folga ou desvio).
 - CB-007: agendamento legado com coluna `data` fora do padrao ISO (ex.: `26/05/2026`) deve continuar bloqueando o slot real ocupado.
 - CB-008: atendimento seguinte fora da janela operacional ativa (ex.: agenda encerrada as 13:30 e atendimento real as 14:00) deve continuar bloqueando oferta de slot inviavel imediatamente anterior.
+- CB-009: folga de deslocamento tecnicamente suficiente, mas sem margem operacional minima, deve ser tratada como inviavel.
 
 ## 8) Fora de escopo
 
