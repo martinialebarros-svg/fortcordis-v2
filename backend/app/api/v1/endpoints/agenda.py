@@ -909,6 +909,7 @@ def _validar_deslocamento_agendamento(
     thresholds = regras_rota.get("thresholds") if isinstance(regras_rota.get("thresholds"), dict) else {}
     route_policy = regras_rota.get("route_policy") if isinstance(regras_rota.get("route_policy"), dict) else {}
     limite_desvio_insercao = int(thresholds.get("max_insertion_detour_min") or 25)
+    margem_segura_min = int(thresholds.get("safe_margin_min") or MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN)
     bloquear_ineficiencia = bool(route_policy.get("reject_clear_inefficiency", True))
     cache_clinicas: dict[int, Optional[Clinica]] = {}
     cache_duracoes: dict[tuple[int, int, str, bool], tuple[int, str]] = {}
@@ -947,7 +948,8 @@ def _validar_deslocamento_agendamento(
             )
             folga_prev = _minutos_entre(anterior["fim"], inicio_dt)
             clinica_anterior_nome = anterior.get("clinica_nome") or _nome_clinica_por_id(db, anterior.get("clinica_id"))
-            if duracao_prev > 0 and folga_prev < duracao_prev:
+            folga_necessaria_prev = int(duracao_prev + margem_segura_min)
+            if duracao_prev > 0 and folga_prev < folga_necessaria_prev:
                 if confirmar_conflito_deslocamento:
                     return
                 raise HTTPException(
@@ -958,12 +960,16 @@ def _validar_deslocamento_agendamento(
                             f"O tempo de deslocamento entre {clinica_anterior_nome} e {clinica_atual} "
                             f"e de aproximadamente {duracao_prev} minutos. "
                             f"Disponivel: {max(0, folga_prev)} minutos. "
+                            f"Necessario com margem segura: {folga_necessaria_prev} minutos "
+                            f"({duracao_prev} min de deslocamento + {margem_segura_min} min de margem). "
                             "Ajuste o horario ou escolha outra clinica."
                         ),
                         "origem_clinica": clinica_anterior_nome,
                         "destino_clinica": clinica_atual,
                         "duracao_min": int(duracao_prev),
                         "folga_min": max(0, int(folga_prev)),
+                        "margem_segura_min": int(margem_segura_min),
+                        "folga_necessaria_min": int(folga_necessaria_prev),
                         "fonte": fonte_prev,
                         "confirmavel": False,
                     },
@@ -982,7 +988,8 @@ def _validar_deslocamento_agendamento(
             )
             folga_next = _minutos_entre(fim_dt, proximo["inicio"])
             clinica_proxima_nome = proximo.get("clinica_nome") or _nome_clinica_por_id(db, proximo.get("clinica_id"))
-            if duracao_next > 0 and folga_next < duracao_next:
+            folga_necessaria_next = int(duracao_next + margem_segura_min)
+            if duracao_next > 0 and folga_next < folga_necessaria_next:
                 if confirmar_conflito_deslocamento:
                     return
                 raise HTTPException(
@@ -993,12 +1000,16 @@ def _validar_deslocamento_agendamento(
                             f"O tempo de deslocamento entre {clinica_atual} e {clinica_proxima_nome} "
                             f"e de aproximadamente {duracao_next} minutos. "
                             f"Disponivel: {max(0, folga_next)} minutos. "
+                            f"Necessario com margem segura: {folga_necessaria_next} minutos "
+                            f"({duracao_next} min de deslocamento + {margem_segura_min} min de margem). "
                             "Ajuste o horario ou escolha outra clinica."
                         ),
                         "origem_clinica": clinica_atual,
                         "destino_clinica": clinica_proxima_nome,
                         "duracao_min": int(duracao_next),
                         "folga_min": max(0, int(folga_next)),
+                        "margem_segura_min": int(margem_segura_min),
+                        "folga_necessaria_min": int(folga_necessaria_next),
                         "fonte": fonte_next,
                         "confirmavel": False,
                     },
@@ -2206,7 +2217,7 @@ def sugerir_horarios_agenda(
                 cache=cache_duracoes,
             )
             folga_prev = _minutos_entre(anterior["fim"], inicio_candidato)
-            if folga_prev < tempo_prev:
+            if tempo_prev > 0 and folga_prev < (tempo_prev + margem_segura_min):
                 inicio_candidato += timedelta(minutes=intervalo_minutos)
                 continue
 
@@ -2219,7 +2230,7 @@ def sugerir_horarios_agenda(
                 cache=cache_duracoes,
             )
             folga_next = _minutos_entre(fim_candidato, proximo["inicio"])
-            if folga_next < tempo_next:
+            if tempo_next > 0 and folga_next < (tempo_next + margem_segura_min):
                 inicio_candidato += timedelta(minutes=intervalo_minutos)
                 continue
 
@@ -2700,7 +2711,7 @@ def sugerir_agendamento_proximo(
             "ok": True,
             "data": data_iso,
             "clinica_id": payload.clinica_id,
-            "sugerir": True,
+            "sugerir": False,
             "limite_minutos": limite_minutos,
             "itens_ignorados_janela": itens_ignorados_janela,
             "politica_oferta": {
@@ -2709,7 +2720,8 @@ def sugerir_agendamento_proximo(
                 "datas_preferenciais": datas_preferenciais,
             },
             "mensagem": mensagem_limite,
-            "item": melhor_item,
+            "item": None,
+            "item_rejeitado": melhor_item,
             "acima_do_limite": True,
         }
 

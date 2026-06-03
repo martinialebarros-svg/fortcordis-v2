@@ -24,6 +24,8 @@ Status: in-progress
 | CA-014 | aceitacao | `test_sugestoes_horario_nao_ofertam_slot_ocupado_mesmo_com_drift_em_inicio` bloqueia oferta de slot ocupado em cenario legado com drift `data/hora` x `inicio/fim` | ok |
 | CA-015 | aceitacao | `test_sugestoes_horario_nao_ignoram_ocupacao_quando_data_legada_esta_em_formato_invalido` bloqueia slot ocupado com `data` legado fora do padrao ISO | ok |
 | CA-016 | aceitacao | `test_sugestoes_horario_validam_proximo_fora_da_janela_para_evitar_conflito_operacional` impede oferta quando o proximo atendimento real ficaria sem folga de deslocamento | ok |
+| CA-017 | aceitacao | `test_sugestoes_horario_exigem_margem_segura_entre_vizinhos` impede oferta com folga menor que deslocamento + margem | ok |
+| CA-018 | aceitacao | `test_sugestao_proximidade_nao_oferece_item_acima_do_limite` impede retorno aplicavel acima de `limite_minutos` | ok |
 | NFR-001 | nao funcional | endpoint permanece com contrato retrocompativel | ok |
 | NFR-002 | nao funcional | cache de janela por data via `_obter_janela_funcionamento_cacheada` | ok |
 | NFR-004 | nao funcional | `sugerir_agendamento_proximo` valida aderencia com `sugerir_horarios_agenda` antes de exibir sugestao de ancora | ok |
@@ -38,7 +40,7 @@ cd backend && ./venv/bin/pytest -q tests/test_agenda_assistente_orquestrador_met
 ```
 
 Resumo dos resultados:
-- `test_agenda_sugestao_janela_operacional.py`: 23 passed.
+- `test_agenda_sugestao_janela_operacional.py`: 26 passed.
 - `test_agenda_assistente_orquestrador_metricas.py`: 5 passed.
 - Avisos de deprecacao de Pydantic/SQLAlchemy ja existentes no projeto.
 

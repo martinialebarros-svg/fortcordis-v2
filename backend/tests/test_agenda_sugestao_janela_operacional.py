@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -402,6 +403,114 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             self.assertTrue(resposta["ok"])
             inicios = {str(item.get("inicio") or "") for item in resposta.get("items", [])}
             self.assertNotIn("2099-05-26 13:00", inicios)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_sugestoes_horario_exigem_margem_segura_entre_vizinhos(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(db, excecoes=[])
+            clinica_destino, clinica_anterior = self._seed_clinicas(db)
+            inicio_anterior = datetime.fromisoformat("2099-05-25T08:30:00")
+            db.add(
+                Agendamento(
+                    clinica_id=clinica_anterior.id,
+                    inicio=inicio_anterior,
+                    fim=inicio_anterior + timedelta(minutes=20),
+                    data="2099-05-25",
+                    hora="08:30",
+                    status="Agendado",
+                    clinica=clinica_anterior.nome,
+                )
+            )
+            db.commit()
+
+            payload = agenda.SugestaoHorarioPayload(
+                data="2099-05-25",
+                clinica_id=clinica_destino.id,
+                duracao_minutos=30,
+                intervalo_minutos=30,
+                limite=50,
+                perfil_deslocamento="comercial",
+            )
+
+            def _mock_deslocamento(
+                db,
+                *,
+                origem_clinica_id,
+                destino_clinica_id,
+                perfil,
+                permitir_estimativa_fallback=True,
+                cache=None,
+            ):
+                ids = {int(origem_clinica_id or 0), int(destino_clinica_id or 0)}
+                if ids == {int(clinica_destino.id), int(clinica_anterior.id)}:
+                    return (39, "mock")
+                return (0, "mesma_clinica")
+
+            with patch.object(agenda, "_obter_duracao_deslocamento_cacheado", side_effect=_mock_deslocamento):
+                resposta = agenda.sugerir_horarios_agenda(
+                    payload=payload,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertTrue(resposta["ok"])
+            inicios = {str(item.get("inicio") or "") for item in resposta.get("items", [])}
+            self.assertNotIn("2099-05-25 09:30", inicios)
+            self.assertIn("2099-05-25 10:00", inicios)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_validacao_agendamento_exige_margem_segura_de_deslocamento(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(db, excecoes=[])
+            clinica_destino, clinica_anterior = self._seed_clinicas(
+                db,
+                clinica_base_coords=(-3.7278, -38.4772),
+                clinica_ancora_coords=(-3.7756, -38.6055),
+            )
+            inicio_anterior = datetime.fromisoformat("2099-05-25T08:30:00")
+            db.add(
+                Agendamento(
+                    clinica_id=clinica_anterior.id,
+                    inicio=inicio_anterior,
+                    fim=inicio_anterior + timedelta(minutes=20),
+                    data="2099-05-25",
+                    hora="08:30",
+                    status="Agendado",
+                    clinica=clinica_anterior.nome,
+                )
+            )
+            db.commit()
+
+            inicio_novo = datetime.fromisoformat("2099-05-25T09:30:00")
+            novo = Agendamento(
+                clinica_id=clinica_destino.id,
+                inicio=inicio_novo,
+                fim=inicio_novo + timedelta(minutes=30),
+                data="2099-05-25",
+                hora="09:30",
+                status="Agendado",
+                clinica=clinica_destino.nome,
+            )
+
+            with patch.object(agenda, "_obter_duracao_deslocamento_cacheado", return_value=(39, "mock")):
+                with self.assertRaises(HTTPException) as ctx:
+                    agenda._validar_deslocamento_agendamento(db, novo)
+
+            self.assertEqual(ctx.exception.status_code, 409)
+            detail = ctx.exception.detail
+            self.assertEqual(detail.get("codigo"), "CONFLITO_DESLOCAMENTO")
+            self.assertEqual(int(detail.get("duracao_min")), 39)
+            self.assertEqual(int(detail.get("folga_min")), 40)
+            self.assertEqual(int(detail.get("margem_segura_min")), 5)
+            self.assertEqual(int(detail.get("folga_necessaria_min")), 44)
         finally:
             db.close()
             engine.dispose()
@@ -1399,6 +1508,71 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             self.assertEqual(int(resposta["item"]["tempo_deslocamento_total_min"]), 20)
             self.assertEqual(int(resposta["item"]["duracao_deslocamento_anterior_min"]), 12)
             self.assertEqual(int(resposta["item"]["duracao_deslocamento_proximo_min"]), 8)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_sugestao_proximidade_nao_oferece_item_acima_do_limite(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(db, excecoes=[])
+            clinica_base, clinica_ancora = self._seed_clinicas(db)
+            ancora = self._criar_agendamento(
+                db,
+                clinica_id=clinica_ancora.id,
+                data="2099-05-25",
+                hora="10:00",
+                status="Agendado",
+            )
+
+            payload = agenda.SugestaoProximidadePayload(
+                clinica_id=clinica_base.id,
+                data="2099-05-25",
+                data_contato="2099-05-23",
+                perfil_deslocamento="comercial",
+                limite_minutos=25,
+                janela_dias_proximidade=2,
+                incluir_mesma_clinica=False,
+            )
+
+            def _mock_sugestoes_horario(
+                payload: agenda.SugestaoHorarioPayload,
+                db,
+                current_user,
+            ):
+                return {
+                    "ok": True,
+                    "items": [
+                        {
+                            "inicio": "2099-05-25 11:00",
+                            "fim": "2099-05-25 11:30",
+                            "tempo_deslocamento_total_min": 26,
+                            "anterior": {
+                                "agendamento_id": ancora.id,
+                                "clinica": clinica_ancora.nome,
+                                "duracao_deslocamento_min": 26,
+                                "fonte": "mock_prev",
+                            },
+                            "proximo": None,
+                        }
+                    ],
+                }
+
+            with patch.object(agenda, "sugerir_horarios_agenda", side_effect=_mock_sugestoes_horario), patch.object(
+                agenda, "_obter_duracao_deslocamento_cacheado", return_value=(0, "sem_matriz")
+            ):
+                resposta = agenda.sugerir_agendamento_proximo(
+                    payload=payload,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertTrue(resposta["ok"])
+            self.assertFalse(resposta["sugerir"])
+            self.assertTrue(resposta.get("acima_do_limite"))
+            self.assertIsNone(resposta.get("item"))
+            self.assertIsNotNone(resposta.get("item_rejeitado"))
         finally:
             db.close()
             engine.dispose()
