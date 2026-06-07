@@ -160,6 +160,47 @@ class AgendaAssistenteContextoReadOnlyTest(unittest.TestCase):
         self.assertNotIn("Tutor", str(item))
         self.assertNotIn("859", str(item))
 
+    def test_retorna_contexto_operacional_sanitizado(self) -> None:
+        with self._session_factory() as db:
+            agendamento = self._seed(db)
+            conflito = Agendamento(
+                paciente_id=agendamento.paciente_id,
+                clinica_id=agendamento.clinica_id,
+                servico_id=agendamento.servico_id,
+                inicio=datetime.fromisoformat("2026-07-10T09:15:00"),
+                fim=datetime.fromisoformat("2026-07-10T09:45:00"),
+                data="2026-07-10",
+                hora="09:15",
+                status="Agendado",
+                paciente="Thor Legado",
+                tutor="Tutor Conflito",
+                telefone="85000000002",
+                observacoes="Outra observacao sensivel",
+            )
+            db.add(conflito)
+            db.commit()
+
+            resposta = agenda.obter_contexto_assistente_agenda_readonly(
+                request=self._request(self._token),
+                data_inicio="2026-07-10",
+                data_fim="2026-07-10",
+                db=db,
+            )
+
+        operacional = resposta["operacional"]
+        self.assertEqual(operacional["modo"], "read_only_sanitizado")
+        self.assertEqual(operacional["totais"]["agendamentos_ativos"], 2)
+        self.assertEqual(operacional["totais"]["conflitos"], 1)
+        dia = operacional["dias"][0]
+        self.assertEqual(dia["data"], "2026-07-10")
+        self.assertEqual(dia["fila_status"]["aguardando"], 2)
+        self.assertEqual(dia["pendencias"]["sem_confirmacao"], 1)
+        self.assertEqual(dia["conflitos"][0]["tipo"], "sobreposicao")
+        self.assertIn({"inicio": "08:00", "fim": "09:00", "duracao_minutos": 60}, dia["vagas_livres"])
+        self.assertNotIn("telefone", str(operacional))
+        self.assertNotIn("observacao", str(operacional).lower())
+        self.assertNotIn("Tutor", str(operacional))
+
     def test_limita_janela_de_consulta(self) -> None:
         os.environ["ASSISTENTE_AGENDA_MAX_WINDOW_DAYS"] = "2"
         with self._session_factory() as db:

@@ -19,6 +19,8 @@ Criar um contrato backend para assistentes externos autorizados consultarem o co
 - RF-006: `incluir_paciente=true` deve retornar apenas primeiro nome do paciente, sem tutor, telefone ou observacoes.
 - RF-007: resposta deve incluir catalogos minimos de clinicas/servicos ativos e regras normalizadas de funcionamento, rota e politica de oferta.
 - RF-008: resposta deve explicitar contrato read-only, acoes permitidas e acoes bloqueadas para o assistente.
+- RF-009: resposta deve incluir bloco `operacional` com fila/status, vagas livres, ocupacao, gargalos, conflitos e pendencias por dia.
+- RF-010: bloco `operacional` deve permanecer sanitizado, sem telefone, tutor, observacoes ou dados completos do paciente.
 
 ## 3) Requisitos nao funcionais
 
@@ -26,6 +28,7 @@ Criar um contrato backend para assistentes externos autorizados consultarem o co
 - NFR-002 (seguranca): usar token separado da sessao web do usuario e comparar em tempo constante.
 - NFR-003 (minimizacao): limitar periodo e quantidade de registros por chamada.
 - NFR-004 (consistencia): reutilizar as mesmas regras carregadas por `agenda_config` e `agenda_route_rules`.
+- NFR-005 (decisao assistida): vagas livres e gargalos devem ser apresentados como insumos para orientacao, nunca como confirmacao automatica de agendamento.
 
 ## 4) Contrato tecnico
 
@@ -52,6 +55,14 @@ Variaveis:
 
 - `ASSISTENTE_AGENDA_TOKEN`: token longo para habilitar a integracao.
 - `ASSISTENTE_AGENDA_MAX_WINDOW_DAYS`: janela maxima configuravel, padrao 14, teto 31.
+
+Blocos principais de resposta:
+
+- `agenda`: lista paginada e sanitizada dos agendamentos no periodo.
+- `operacional`: resumo por dia com `fila_status`, `ocupacao`, `vagas_livres`, `atrasos`, `conflitos`, `pendencias` e `gargalos`.
+- `catalogos`: clinicas e servicos ativos para leitura operacional.
+- `regras`: regras de funcionamento, feriados, excecoes e politica de rota/oferta.
+- `assistente_guiado`: instrucoes para o Nox usar as mesmas regras do fluxo guiado sem executar escrita.
 
 ## 5) Fora de escopo
 

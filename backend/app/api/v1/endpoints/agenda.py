@@ -877,6 +877,7 @@ def _listar_agendamentos_ativos_periodo(
                 "fim": fim_dt,
                 "clinica_id": item.clinica_id,
                 "clinica_nome": (str(item.clinica or "").strip() or None),
+                "servico_id": item.servico_id,
                 "status": item.status,
             }
         )
@@ -1898,6 +1899,256 @@ def _servicos_ativos_assistente(db: Session) -> list[dict[str, Any]]:
     ]
 
 
+def _status_operacional_assistente(status_value: Optional[Any]) -> str:
+    status_txt = str(status_value or "").strip().casefold()
+    if status_txt in {"agendado", "reservado", "confirmado"}:
+        return "aguardando"
+    if status_txt == "em atendimento":
+        return "em_atendimento"
+    if status_txt in {"realizado", "concluido", "concluído"}:
+        return "finalizado"
+    if status_txt == "cancelado":
+        return "cancelado"
+    if status_txt == "faltou":
+        return "faltou"
+    return "outro"
+
+
+def _datas_periodo_assistente(inicio_iso: str, fim_iso: str) -> list[str]:
+    try:
+        inicio_ref = datetime.strptime(inicio_iso, "%Y-%m-%d").date()
+        fim_ref = datetime.strptime(fim_iso, "%Y-%m-%d").date()
+    except ValueError:
+        return []
+    total = max(0, (fim_ref - inicio_ref).days)
+    return [(inicio_ref + timedelta(days=offset)).isoformat() for offset in range(total + 1)]
+
+
+def _merge_intervalos_assistente(intervalos: list[tuple[datetime, datetime]]) -> list[tuple[datetime, datetime]]:
+    ordenados = sorted(
+        [(inicio, fim) for inicio, fim in intervalos if fim > inicio],
+        key=lambda item: item[0],
+    )
+    merged: list[tuple[datetime, datetime]] = []
+    for inicio, fim in ordenados:
+        if not merged or inicio > merged[-1][1]:
+            merged.append((inicio, fim))
+            continue
+        merged[-1] = (merged[-1][0], max(merged[-1][1], fim))
+    return merged
+
+
+def _resumir_operacional_dia_assistente(
+    db: Session,
+    *,
+    data_iso: str,
+    agendamentos_periodo: list[dict],
+    agora_local: datetime,
+    min_slot_minutos: int = 30,
+) -> dict[str, Any]:
+    janela_inicio, janela_fim, motivo_fechado = _obter_janela_funcionamento_data(db, data_iso)
+    agendamentos_dia = [
+        item
+        for item in agendamentos_periodo
+        if isinstance(item.get("inicio"), datetime) and item["inicio"].date().isoformat() == data_iso
+    ]
+    agendamentos_dia.sort(key=lambda item: (item["inicio"], item.get("id") or 0))
+
+    fila_status = {
+        "aguardando": 0,
+        "em_atendimento": 0,
+        "finalizado": 0,
+        "cancelado": 0,
+        "faltou": 0,
+        "outro": 0,
+    }
+    pendencias = {
+        "sem_confirmacao": 0,
+        "sem_clinica": 0,
+        "sem_servico": 0,
+        "sem_horario_fim": 0,
+    }
+    atrasos: list[dict[str, Any]] = []
+    conflitos: list[dict[str, Any]] = []
+    por_clinica: dict[str, int] = {}
+    intervalos_ocupados: list[tuple[datetime, datetime]] = []
+    anterior: Optional[dict] = None
+
+    for item in agendamentos_dia:
+        inicio_item = item.get("inicio")
+        fim_item = item.get("fim")
+        if not isinstance(inicio_item, datetime):
+            continue
+        if not isinstance(fim_item, datetime) or fim_item <= inicio_item:
+            fim_item = inicio_item + timedelta(minutes=30)
+            pendencias["sem_horario_fim"] += 1
+
+        status_item = str(item.get("status") or "").strip() or "Agendado"
+        status_operacional = _status_operacional_assistente(status_item)
+        fila_status[status_operacional] = int(fila_status.get(status_operacional, 0)) + 1
+        _incrementar_resumo_assistente(por_clinica, item.get("clinica_nome"))
+        if status_item in {"Agendado", "Reservado"}:
+            pendencias["sem_confirmacao"] += 1
+        if not item.get("clinica_id"):
+            pendencias["sem_clinica"] += 1
+        if not item.get("servico_id"):
+            pendencias["sem_servico"] += 1
+
+        if status_item not in AGENDA_STATUS_NAO_ANCORA:
+            intervalos_ocupados.append((inicio_item, fim_item))
+            if (
+                inicio_item.date() == agora_local.date()
+                and inicio_item < agora_local
+                and status_item in {"Agendado", "Reservado", "Confirmado"}
+            ):
+                atrasos.append(
+                    {
+                        "agendamento_id": item.get("id"),
+                        "status": status_item,
+                        "inicio": inicio_item.strftime("%H:%M"),
+                        "clinica": item.get("clinica_nome") or "Clinica nao informada",
+                        "minutos_desde_inicio": max(0, _minutos_entre(inicio_item, agora_local)),
+                    }
+                )
+
+        if anterior:
+            anterior_fim = anterior.get("fim")
+            if isinstance(anterior_fim, datetime) and inicio_item < anterior_fim:
+                conflitos.append(
+                    {
+                        "tipo": "sobreposicao",
+                        "agendamento_id": item.get("id"),
+                        "agendamento_anterior_id": anterior.get("id"),
+                        "inicio": inicio_item.strftime("%H:%M"),
+                        "fim_anterior": anterior_fim.strftime("%H:%M"),
+                    }
+                )
+            if not isinstance(anterior_fim, datetime) or fim_item > anterior_fim:
+                anterior = {**item, "fim": fim_item}
+        else:
+            anterior = {**item, "fim": fim_item}
+
+    vagas: list[dict[str, Any]] = []
+    minutos_janela = 0
+    minutos_ocupados = 0
+    if janela_inicio is not None and janela_fim is not None:
+        minutos_janela = max(0, _minutos_entre(janela_inicio, janela_fim))
+        intervalos_clipped = [
+            (max(inicio, janela_inicio), min(fim, janela_fim))
+            for inicio, fim in intervalos_ocupados
+            if fim > janela_inicio and inicio < janela_fim
+        ]
+        intervalos_merged = _merge_intervalos_assistente(intervalos_clipped)
+        minutos_ocupados = sum(max(0, _minutos_entre(inicio, fim)) for inicio, fim in intervalos_merged)
+
+        cursor = janela_inicio
+        for inicio_ocupado, fim_ocupado in intervalos_merged:
+            if inicio_ocupado > cursor:
+                duracao_livre = _minutos_entre(cursor, inicio_ocupado)
+                if duracao_livre >= min_slot_minutos:
+                    vagas.append(
+                        {
+                            "inicio": cursor.strftime("%H:%M"),
+                            "fim": inicio_ocupado.strftime("%H:%M"),
+                            "duracao_minutos": duracao_livre,
+                        }
+                    )
+            if fim_ocupado > cursor:
+                cursor = fim_ocupado
+        if cursor < janela_fim:
+            duracao_livre = _minutos_entre(cursor, janela_fim)
+            if duracao_livre >= min_slot_minutos:
+                vagas.append(
+                    {
+                        "inicio": cursor.strftime("%H:%M"),
+                        "fim": janela_fim.strftime("%H:%M"),
+                        "duracao_minutos": duracao_livre,
+                    }
+                )
+
+    ocupacao_percentual = 0
+    if minutos_janela > 0:
+        ocupacao_percentual = round(min(100.0, minutos_ocupados / minutos_janela * 100), 1)
+
+    gargalos: list[dict[str, Any]] = []
+    if conflitos:
+        gargalos.append({"tipo": "conflito_horario", "severidade": "alta", "total": len(conflitos)})
+    if atrasos:
+        gargalos.append({"tipo": "atraso_operacional", "severidade": "media", "total": len(atrasos)})
+    if ocupacao_percentual >= 85:
+        gargalos.append({"tipo": "ocupacao_alta", "severidade": "media", "ocupacao_percentual": ocupacao_percentual})
+    if not vagas and janela_inicio is not None:
+        gargalos.append({"tipo": "sem_vagas_livres", "severidade": "media"})
+
+    return {
+        "data": data_iso,
+        "janela": (
+            {
+                "inicio": janela_inicio.strftime("%H:%M"),
+                "fim": janela_fim.strftime("%H:%M"),
+                "minutos": minutos_janela,
+            }
+            if janela_inicio is not None and janela_fim is not None
+            else {"fechada": True, "motivo": motivo_fechado or "Agenda fechada."}
+        ),
+        "fila_status": fila_status,
+        "total_agendamentos_ativos": len(agendamentos_dia),
+        "por_clinica": por_clinica,
+        "ocupacao": {
+            "minutos_ocupados": minutos_ocupados,
+            "percentual": ocupacao_percentual,
+        },
+        "vagas_livres": vagas[:12],
+        "vagas_livres_truncado": len(vagas) > 12,
+        "atrasos": atrasos[:20],
+        "conflitos": conflitos[:20],
+        "pendencias": pendencias,
+        "gargalos": gargalos,
+    }
+
+
+def _gerar_contexto_operacional_assistente(
+    db: Session,
+    *,
+    data_inicio_iso: str,
+    data_fim_iso: str,
+) -> dict[str, Any]:
+    datas = _datas_periodo_assistente(data_inicio_iso, data_fim_iso)
+    agora_local = datetime.now(LOCAL_TZ).replace(tzinfo=None)
+    agendamentos_periodo = _listar_agendamentos_ativos_periodo(
+        db,
+        data_inicio_iso,
+        data_fim_iso,
+    )
+    dias = [
+        _resumir_operacional_dia_assistente(
+            db,
+            data_iso=data_iso,
+            agendamentos_periodo=agendamentos_periodo,
+            agora_local=agora_local,
+        )
+        for data_iso in datas
+    ]
+    return {
+        "gerado_em": datetime.now(LOCAL_TZ).isoformat(),
+        "modo": "read_only_sanitizado",
+        "totais": {
+            "agendamentos_ativos": sum(int(dia.get("total_agendamentos_ativos") or 0) for dia in dias),
+            "conflitos": sum(len(dia.get("conflitos") or []) for dia in dias),
+            "atrasos": sum(len(dia.get("atrasos") or []) for dia in dias),
+            "dias_com_gargalo": sum(1 for dia in dias if dia.get("gargalos")),
+            "vagas_livres": sum(len(dia.get("vagas_livres") or []) for dia in dias),
+        },
+        "dias": dias,
+        "orientacao_nox": [
+            "Use fila_status para responder sobre andamento do dia.",
+            "Use vagas_livres como candidatos iniciais; antes de orientar agendamento, considere regras de rota e assistente guiado.",
+            "Use conflitos, atrasos, pendencias e gargalos para priorizar atencao humana.",
+            "Nao trate vagas_livres como confirmacao automatica de agendamento.",
+        ],
+    }
+
+
 def _aplicar_filtros_lista_agenda(
     query,
     *,
@@ -2317,6 +2568,11 @@ def obter_contexto_assistente_agenda_readonly(
                 "por_clinica": por_clinica,
             },
         },
+        "operacional": _gerar_contexto_operacional_assistente(
+            db,
+            data_inicio_iso=inicio,
+            data_fim_iso=fim,
+        ),
         "catalogos": {
             "clinicas_ativas": _clinicas_ativas_assistente(db),
             "servicos_ativos": _servicos_ativos_assistente(db),
