@@ -2,7 +2,9 @@ import asyncio
 import json
 import logging
 import math
+import os
 import re
+import secrets
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -64,6 +66,11 @@ AGENDA_STATUS_NAO_ANCORA = {"Cancelado", "Faltou"}
 MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN = 5
 AGENDA_WRITE_LOCK_KEY = 24052301
 ASSISTENTE_BUSCA_PROGRESSIVA_MAX_DIAS = 30
+ASSISTENTE_AGENDA_TOKEN_ENV = "ASSISTENTE_AGENDA_TOKEN"
+ASSISTENTE_AGENDA_MAX_WINDOW_ENV = "ASSISTENTE_AGENDA_MAX_WINDOW_DAYS"
+ASSISTENTE_AGENDA_DEFAULT_WINDOW_DAYS = 7
+ASSISTENTE_AGENDA_DEFAULT_MAX_WINDOW_DAYS = 14
+ASSISTENTE_AGENDA_HARD_MAX_WINDOW_DAYS = 31
 DIAS_SEMANA_PT = [
     "segunda-feira",
     "terca-feira",
@@ -422,6 +429,76 @@ def _obter_regras_rota_agenda(db: Session) -> dict:
     if not config:
         return carregar_agenda_rota_regras(None)
     return carregar_agenda_rota_regras(getattr(config, "agenda_rota_regras", None))
+
+
+def _obter_max_window_assistente_agenda() -> int:
+    raw = str(os.getenv(ASSISTENTE_AGENDA_MAX_WINDOW_ENV) or "").strip()
+    try:
+        value = int(raw) if raw else ASSISTENTE_AGENDA_DEFAULT_MAX_WINDOW_DAYS
+    except ValueError:
+        value = ASSISTENTE_AGENDA_DEFAULT_MAX_WINDOW_DAYS
+    return max(1, min(ASSISTENTE_AGENDA_HARD_MAX_WINDOW_DAYS, value))
+
+
+def _validar_acesso_assistente_agenda(request: Request) -> None:
+    expected = str(os.getenv(ASSISTENTE_AGENDA_TOKEN_ENV) or "").strip()
+    if len(expected) < 20:
+        raise HTTPException(
+            status_code=403,
+            detail="Integracao read-only do assistente de agenda desabilitada.",
+        )
+
+    headers = getattr(request, "headers", {}) or {}
+    provided = str(headers.get("x-assistente-agenda-token") or "").strip()
+    auth_header = str(headers.get("authorization") or "").strip()
+    if not provided and auth_header.lower().startswith("bearer "):
+        provided = auth_header[7:].strip()
+
+    if not provided or not secrets.compare_digest(provided, expected):
+        raise HTTPException(status_code=403, detail="Token do assistente de agenda invalido.")
+
+
+def _parse_data_assistente_agenda(value: Optional[str], *, field_label: str, default: date) -> date:
+    raw = str(value or "").strip()
+    if not raw:
+        return default
+    data_iso = _extract_date_filter(raw)
+    if not data_iso:
+        raise HTTPException(status_code=422, detail=f"{field_label} invalida. Use YYYY-MM-DD.")
+    try:
+        return datetime.strptime(data_iso, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"{field_label} invalida. Use YYYY-MM-DD.")
+
+
+def _resolver_periodo_assistente_agenda(
+    data_inicio: Optional[str],
+    data_fim: Optional[str],
+) -> tuple[str, str, int]:
+    hoje = datetime.now(LOCAL_TZ).date()
+    inicio_ref = _parse_data_assistente_agenda(
+        data_inicio,
+        field_label="Data inicial",
+        default=hoje,
+    )
+    fim_padrao = inicio_ref + timedelta(days=ASSISTENTE_AGENDA_DEFAULT_WINDOW_DAYS)
+    fim_ref = _parse_data_assistente_agenda(
+        data_fim,
+        field_label="Data final",
+        default=fim_padrao,
+    )
+    if fim_ref < inicio_ref:
+        raise HTTPException(status_code=422, detail="Data final nao pode ser anterior a data inicial.")
+
+    total_dias = (fim_ref - inicio_ref).days + 1
+    max_dias = _obter_max_window_assistente_agenda()
+    if total_dias > max_dias:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Janela maxima para assistente de agenda e de {max_dias} dias.",
+        )
+
+    return inicio_ref.isoformat(), fim_ref.isoformat(), total_dias
 
 
 def _contar_agendamentos_clinica_30d(
@@ -1714,6 +1791,104 @@ def _query_agendamentos_com_relacionados(db: Session):
     )
 
 
+def _primeiro_nome_paciente_assistente(
+    agendamento: Agendamento,
+    *,
+    paciente_nome: Optional[str] = None,
+) -> Optional[str]:
+    raw = " ".join(str(paciente_nome or agendamento.paciente or "").split())
+    if not raw:
+        return None
+    return raw.split(" ", 1)[0]
+
+
+def _serialize_agendamento_assistente_readonly(
+    agendamento: Agendamento,
+    *,
+    paciente_nome: Optional[str] = None,
+    clinica_nome: Optional[str] = None,
+    servico_nome: Optional[str] = None,
+    incluir_paciente: bool = False,
+) -> dict[str, Any]:
+    inicio_dt, fim_dt = _intervalo_local_agendamento(agendamento)
+    data = str(agendamento.data or "").strip()
+    hora = str(agendamento.hora or "").strip()
+    if inicio_dt is not None:
+        if not data:
+            data = inicio_dt.date().isoformat()
+        if not hora:
+            hora = inicio_dt.strftime("%H:%M")
+
+    duracao_minutos = None
+    if inicio_dt is not None and fim_dt is not None and fim_dt > inicio_dt:
+        duracao_minutos = int((fim_dt - inicio_dt).total_seconds() // 60)
+
+    item: dict[str, Any] = {
+        "agendamento_id": agendamento.id,
+        "data": data or None,
+        "inicio": hora or (inicio_dt.strftime("%H:%M") if inicio_dt else None),
+        "fim": fim_dt.strftime("%H:%M") if fim_dt else None,
+        "duracao_minutos": duracao_minutos,
+        "status": agendamento.status,
+        "conta_como_ancora": _status_conta_como_ancora(agendamento.status),
+        "clinica": {
+            "id": agendamento.clinica_id,
+            "nome": clinica_nome or agendamento.clinica or "Clinica nao informada",
+        },
+        "servico": {
+            "id": agendamento.servico_id,
+            "nome": servico_nome or agendamento.servico or "",
+        },
+    }
+    if incluir_paciente:
+        item["paciente_primeiro_nome"] = _primeiro_nome_paciente_assistente(
+            agendamento,
+            paciente_nome=paciente_nome,
+        )
+    return item
+
+
+def _incrementar_resumo_assistente(bucket: dict[str, int], key: Optional[Any]) -> None:
+    key_txt = str(key or "nao_informado").strip() or "nao_informado"
+    bucket[key_txt] = int(bucket.get(key_txt, 0)) + 1
+
+
+def _clinicas_ativas_assistente(db: Session) -> list[dict[str, Any]]:
+    clinicas = (
+        db.query(Clinica)
+        .filter(Clinica.ativo == True)  # noqa: E712
+        .order_by(Clinica.nome.asc(), Clinica.id.asc())
+        .all()
+    )
+    return [
+        {
+            "id": clinica.id,
+            "nome": clinica.nome,
+            "cidade": clinica.cidade,
+            "estado": clinica.estado,
+            "regiao_operacional": clinica.regiao_operacional,
+        }
+        for clinica in clinicas
+    ]
+
+
+def _servicos_ativos_assistente(db: Session) -> list[dict[str, Any]]:
+    servicos = (
+        db.query(Servico)
+        .filter(Servico.ativo == True)  # noqa: E712
+        .order_by(Servico.nome.asc(), Servico.id.asc())
+        .all()
+    )
+    return [
+        {
+            "id": servico.id,
+            "nome": servico.nome,
+            "duracao_minutos": servico.duracao_minutos,
+        }
+        for servico in servicos
+    ]
+
+
 def _aplicar_filtros_lista_agenda(
     query,
     *,
@@ -2007,6 +2182,168 @@ def obter_configuracao_agenda(
         "agenda_feriados": agenda_feriados,
         "agenda_excecoes": agenda_excecoes,
         "agenda_rota_regras": agenda_rota_regras,
+    }
+
+
+@router.get("/assistente/contexto")
+def obter_contexto_assistente_agenda_readonly(
+    request: Request,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    status: Optional[str] = None,
+    clinica_id: Optional[int] = None,
+    servico_id: Optional[int] = None,
+    incluir_paciente: bool = False,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+):
+    """
+    Contexto minimo e read-only da agenda para assistentes externos autorizados.
+
+    A rota usa token dedicado e nao retorna telefone, tutor, observacoes, laudos,
+    financeiro nem dados completos de paciente. Serve para o assistente entender
+    disponibilidade, ancoras e regras operacionais sem ganhar capacidade de escrita.
+    """
+    _validar_acesso_assistente_agenda(request)
+    if status and status not in AGENDA_STATUS_PERMITIDOS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Status invalido. Use: {', '.join(AGENDA_STATUS_PERMITIDOS)}",
+        )
+
+    inicio, fim, total_dias = _resolver_periodo_assistente_agenda(data_inicio, data_fim)
+    limit_eff = max(1, min(500, int(limit or 200)))
+
+    query_ids = _aplicar_filtros_lista_agenda(
+        db.query(Agendamento.id),
+        data_inicio=inicio,
+        data_fim=fim,
+        status=status,
+        clinica_id=clinica_id,
+        servico_id=servico_id,
+        paciente_id=None,
+        paciente_nome=None,
+        tutor_nome=None,
+        clinica_nome=None,
+        servico_nome=None,
+    )
+    total = query_ids.order_by(None).count()
+    ids_paginados = [
+        row[0]
+        for row in query_ids.order_by(Agendamento.inicio.asc(), Agendamento.id.asc())
+        .limit(limit_eff)
+        .all()
+    ]
+
+    rows = []
+    if ids_paginados:
+        rows = (
+            _query_agendamentos_com_relacionados(db)
+            .filter(Agendamento.id.in_(ids_paginados))
+            .order_by(Agendamento.inicio.asc(), Agendamento.id.asc())
+            .all()
+        )
+
+    items: list[dict[str, Any]] = []
+    por_data: dict[str, int] = {}
+    por_status: dict[str, int] = {}
+    por_clinica: dict[str, int] = {}
+    for agendamento, paciente_nome, clinica_nome, servico_nome, _tutor_nome, _tutor_telefone in rows:
+        item = _serialize_agendamento_assistente_readonly(
+            agendamento,
+            paciente_nome=paciente_nome,
+            clinica_nome=clinica_nome,
+            servico_nome=servico_nome,
+            incluir_paciente=incluir_paciente,
+        )
+        items.append(item)
+        _incrementar_resumo_assistente(por_data, item.get("data"))
+        _incrementar_resumo_assistente(por_status, item.get("status"))
+        clinica_item = item.get("clinica") if isinstance(item.get("clinica"), dict) else {}
+        _incrementar_resumo_assistente(por_clinica, clinica_item.get("nome"))
+
+    agenda_semanal, agenda_feriados, agenda_excecoes = _obter_regras_agenda(db)
+    agenda_rota_regras = _obter_regras_rota_agenda(db)
+
+    return {
+        "ok": True,
+        "contrato": {
+            "modo": "read_only",
+            "escopo": "agenda_operacional",
+            "janela_maxima_dias": _obter_max_window_assistente_agenda(),
+            "dados_excluidos": [
+                "telefone",
+                "tutor",
+                "observacoes",
+                "laudos",
+                "financeiro",
+                "dados_completos_paciente",
+            ],
+            "acoes_permitidas": [
+                "consultar_ocupacao",
+                "explicar_regras",
+                "preparar_sugestoes",
+                "pedir_confirmacao_humana",
+            ],
+            "acoes_bloqueadas": [
+                "criar_agendamento",
+                "editar_agendamento",
+                "cancelar_agendamento",
+                "consultar_contato_do_tutor",
+            ],
+        },
+        "periodo": {
+            "data_inicio": inicio,
+            "data_fim": fim,
+            "total_dias": total_dias,
+        },
+        "agenda": {
+            "total": total,
+            "limit": limit_eff,
+            "truncado": total > len(items),
+            "items": items,
+            "resumo": {
+                "por_data": por_data,
+                "por_status": por_status,
+                "por_clinica": por_clinica,
+            },
+        },
+        "catalogos": {
+            "clinicas_ativas": _clinicas_ativas_assistente(db),
+            "servicos_ativos": _servicos_ativos_assistente(db),
+        },
+        "regras": {
+            "fonte": "configuracoes",
+            "status_permitidos": AGENDA_STATUS_PERMITIDOS,
+            "status_que_contam_como_ancora": [
+                status_item
+                for status_item in AGENDA_STATUS_PERMITIDOS
+                if _status_conta_como_ancora(status_item)
+            ],
+            "agenda_semanal": agenda_semanal,
+            "agenda_feriados": agenda_feriados,
+            "agenda_excecoes": agenda_excecoes,
+            "agenda_rota_regras": agenda_rota_regras,
+        },
+        "assistente_guiado": {
+            "regra_geral": (
+                "Use as mesmas regras de janela operacional, feriados, excecoes, "
+                "ancoras por clinica e politica de oferta por rota/frequencia antes "
+                "de sugerir horarios."
+            ),
+            "referencias_backend": {
+                "orquestrador_ofertas": "POST /api/v1/agenda/assistente/ofertas",
+                "sugestao_proximidade": "POST /api/v1/agenda/sugestao-proximidade",
+                "panorama_horarios": "POST /api/v1/agenda/sugestoes-horario",
+                "encerramento_sem_agendamento": "POST /api/v1/agenda/assistente/encerramento",
+            },
+            "orientacao_operacional": [
+                "Nunca confirme agendamento sozinho; apresente sugestoes e peca validacao humana.",
+                "Priorize slots aderentes a rota e frequencia configuradas.",
+                "Quando nao houver oferta aderente, registre a necessidade de excecao ou encaminhe para humano.",
+                "Nao use dados pessoais fora do minimo necessario para localizar ocupacao da agenda.",
+            ],
+        },
     }
 
 
