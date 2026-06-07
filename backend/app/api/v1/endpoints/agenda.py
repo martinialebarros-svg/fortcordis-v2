@@ -46,6 +46,7 @@ from app.core.agenda_config import (
 )
 from app.core.agenda_route_rules import carregar_agenda_rota_regras
 from app.core.agenda_realtime import agenda_realtime_manager
+from app.core.config import settings
 from app.core.security import get_current_user
 from app.services.logistica_service import normalizar_perfil, obter_duracao_deslocamento
 from app.services.precos_service import calcular_preco_servico, to_decimal
@@ -432,7 +433,11 @@ def _obter_regras_rota_agenda(db: Session) -> dict:
 
 
 def _obter_max_window_assistente_agenda() -> int:
-    raw = str(os.getenv(ASSISTENTE_AGENDA_MAX_WINDOW_ENV) or "").strip()
+    raw = str(
+        os.getenv(ASSISTENTE_AGENDA_MAX_WINDOW_ENV)
+        or getattr(settings, ASSISTENTE_AGENDA_MAX_WINDOW_ENV, "")
+        or ""
+    ).strip()
     try:
         value = int(raw) if raw else ASSISTENTE_AGENDA_DEFAULT_MAX_WINDOW_DAYS
     except ValueError:
@@ -441,7 +446,11 @@ def _obter_max_window_assistente_agenda() -> int:
 
 
 def _validar_acesso_assistente_agenda(request: Request) -> None:
-    expected = str(os.getenv(ASSISTENTE_AGENDA_TOKEN_ENV) or "").strip()
+    expected = str(
+        os.getenv(ASSISTENTE_AGENDA_TOKEN_ENV)
+        or getattr(settings, ASSISTENTE_AGENDA_TOKEN_ENV, "")
+        or ""
+    ).strip()
     if len(expected) < 20:
         raise HTTPException(
             status_code=403,

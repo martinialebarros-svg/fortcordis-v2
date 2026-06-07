@@ -18,6 +18,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
 os.environ.setdefault("SECRET_KEY", "agenda-assistente-contexto-test-secret-key-1234567890")
 
 from app.api.v1.endpoints import agenda
+from app.core.config import Settings
 from app.models.agendamento import Agendamento
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
@@ -170,6 +171,11 @@ class AgendaAssistenteContextoReadOnlyTest(unittest.TestCase):
                     db=db,
                 )
         self.assertEqual(erro.exception.status_code, 422)
+
+    def test_settings_aceita_variaveis_do_assistente_no_env(self) -> None:
+        settings = Settings()
+        self.assertEqual(settings.ASSISTENTE_AGENDA_TOKEN, self._token)
+        self.assertEqual(settings.ASSISTENTE_AGENDA_MAX_WINDOW_DAYS, 14)
 
 
 if __name__ == "__main__":

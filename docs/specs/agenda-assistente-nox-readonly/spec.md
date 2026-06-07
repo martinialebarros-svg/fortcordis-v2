@@ -12,6 +12,7 @@ Criar um contrato backend para assistentes externos autorizados consultarem o co
 
 - RF-001: endpoint `GET /api/v1/agenda/assistente/contexto` deve exigir token dedicado em `X-Assistente-Agenda-Token` ou `Authorization: Bearer`.
 - RF-002: token deve vir de `ASSISTENTE_AGENDA_TOKEN`; quando ausente ou curto, a integracao fica desabilitada.
+- RF-002A: `ASSISTENTE_AGENDA_TOKEN` e `ASSISTENTE_AGENDA_MAX_WINDOW_DAYS` devem ser declarados em `Settings` para que o `.env` de producao seja aceito na inicializacao do backend.
 - RF-003: consulta deve aceitar `data_inicio`, `data_fim`, `status`, `clinica_id`, `servico_id`, `limit` e `incluir_paciente`.
 - RF-004: janela de consulta deve respeitar `ASSISTENTE_AGENDA_MAX_WINDOW_DAYS`, com teto duro de 31 dias.
 - RF-005: payload de agenda deve retornar apenas ocupacao operacional: id do agendamento, data, inicio, fim, duracao, status, clinica e servico.

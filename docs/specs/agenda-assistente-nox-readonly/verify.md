@@ -10,6 +10,7 @@ Status: in-progress
 | --- | --- | --- | --- |
 | RF-001 | funcional | `GET /api/v1/agenda/assistente/contexto` valida token em header dedicado ou bearer | ok |
 | RF-002 | funcional | integracao desabilitada quando `ASSISTENTE_AGENDA_TOKEN` ausente/curto | ok |
+| RF-002A | funcional | `Settings` aceita `ASSISTENTE_AGENDA_TOKEN` e `ASSISTENTE_AGENDA_MAX_WINDOW_DAYS` vindos do env | ok |
 | RF-003 | funcional | parametros de periodo/filtro implementados na rota | ok |
 | RF-004 | funcional | limite por `ASSISTENTE_AGENDA_MAX_WINDOW_DAYS` e teto duro de 31 dias | ok |
 | RF-005 | funcional | serializador read-only retorna somente ocupacao operacional | ok |
