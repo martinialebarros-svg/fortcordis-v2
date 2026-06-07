@@ -76,7 +76,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - CA-012: botao `Nenhuma oferta atende...` deve aparecer apenas quando houver panorama consultado e decisao ainda pendente.
 - CA-013: para data passada, endpoints de sugestao nao retornam oferta e respondem com mensagem explicita para selecionar hoje ou data futura.
 - CA-014: com clinica proxima da base e sem ancora D+2/D+3, `dias_preferenciais` deve ser `[0]` quando D0 tiver ancora ou estiver vazio.
-- CA-015: com ancora na mesma clinica as 10:00 e slots livres apos esse horario, a primeira sugestao operacional deve iniciar em 11:00 (ou no primeiro slot livre posterior a 11:00 se houver conflito).
+- CA-015: com ancora na mesma clinica, a primeira sugestao operacional deve considerar `fim do atendimento + margem segura`; por exemplo, com atendimento as 09:00 durando 20 min e margem segura de 5 min, a primeira oferta em grade de 30 min deve iniciar em 09:30.
 - CA-016: ao criar agendamento a partir de aceite do assistente, o backend deve recalcular `fim` pela duracao do servico cadastrado, evitando ocupar janela maior do que o procedimento real.
 - CA-017: se o frontend enviar `duracao_minutos` maior que a duracao cadastrada do servico, a API de sugestoes deve prevalecer a duracao do servico e retornar oferta com janela correta.
 - CA-018: o `POST /agenda/sugestao-proximidade` deve ranquear e reportar deslocamento com base no slot operacional escolhido (`anterior + proximo`), mantendo consistencia com `POST /agenda/sugestoes-horario`.
@@ -89,7 +89,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - CB-002: sem sugestao retornada pela API -> liberar fluxo manual somente com motivo.
 - CB-003: sugestao de proximidade aplicada automaticamente sem ofertas validas deve cair em `sem_opcao` com orientacao de motivo/excecao.
 - CB-004: quando existir ancora em D+2 ou D+3 para clinica proxima da base, a regra de prioridade D0 nao deve ser aplicada.
-- CB-005: quando o fluxo de proximidade buscar slots operacionais relacionados a ancora, a selecao automatica deve respeitar a ordenacao do backend para nao antecipar slot antes de `ancora + 60`.
+- CB-005: quando o fluxo de proximidade buscar slots operacionais relacionados a ancora, a selecao automatica deve respeitar a ordenacao do backend para nao antecipar slot antes de `fim da ancora + margem segura`.
 - CB-006: quando nao houver nenhum slot util em D+2/D+3/D+4 por agenda cheia/fechada, o assistente deve continuar para D+5, D+6... ate encontrar o primeiro dia viavel.
 - CB-007: se a data de proximidade (fora de `datas_preferenciais`) retornar sem ofertas no panorama, o wizard deve seguir para `datas_preferenciais` sem perder a busca progressiva.
 

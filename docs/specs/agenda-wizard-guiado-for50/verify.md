@@ -22,7 +22,7 @@ Status: done
 | CA-012 | aceitacao | botao `Nenhuma oferta atende...` condicionado a `ofertasPanoramicasConsultadas` e `decisaoAssistente === "pendente"` | ok |
 | CA-013 | aceitacao | `agenda.py` retorna vazio para data passada em `sugestoes-horario` e `sugestao-proximidade` | ok |
 | CA-014 | aceitacao | `_classificar_politica_oferta` prioriza D0 para clinica proxima da base sem ancora D+2/D+3, com cobertura de cenarios positivo/negativo | ok |
-| CA-015 | aceitacao | `sugerir_horarios_agenda` prioriza slot apos `ancora + 60min` na mesma clinica e frontend respeita ordem backend no fluxo de proximidade | ok |
+| CA-015 | aceitacao | `sugerir_horarios_agenda` prioriza slot apos `fim da ancora + margem segura` na mesma clinica e frontend respeita ordem backend no fluxo de proximidade | ok |
 | CA-016 | aceitacao | `criar_agendamento` forca recalculo de `fim` pela duracao do servico (`force_from_service=True`) no fluxo de criacao | ok |
 | CA-017 | aceitacao | `sugerir_horarios_agenda` usa duracao oficial do servico quando `servico_id` existe, ignorando payload divergente | ok |
 | CA-018 | aceitacao | `sugerir_agendamento_proximo` passa a usar deslocamento total do slot (`anterior + proximo`) para ranking e mensagem | ok |
@@ -65,7 +65,7 @@ Resumo dos resultados:
 - Cenario 11: clinica proxima da base, sem ancoras em D+2/D+3, com ancora em D0 => prioridade D0.
 - Cenario 12: clinica proxima da base, D0 vazio e sem ancoras em D+2/D+3 => prioridade D0.
 - Cenario 13: clinica proxima da base com ancora em D+2 ou D+3 => nao priorizar D0.
-- Cenario 14: mesma clinica com ancora as 10:00 e slots livres apos esse horario -> primeira oferta operacional em 11:00.
+- Cenario 14: mesma clinica com ancora as 09:00 durando 20min e margem segura padrao -> primeira oferta operacional em 09:30.
 - Cenario 15: servico com duracao de 20min (ex.: ECG), aceite oferta do assistente e salvar -> evento final deve ocupar apenas 20min na agenda.
 - Cenario 16: com servico de 20min, forcar frontend a enviar `duracao_minutos=60` na busca de ofertas -> oferta retornada deve permanecer em janela de 20min.
 - Cenario 17: na proximidade, validar caso com vizinho anterior e posterior no slot sugerido -> deslocamento exibido deve refletir soma dos dois lados.

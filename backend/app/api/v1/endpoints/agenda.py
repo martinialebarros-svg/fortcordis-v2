@@ -2488,17 +2488,18 @@ def sugerir_horarios_agenda(
         agendamentos_dia_todos,
         cache_janelas={data_iso: (janela_inicio, janela_fim, None)},
     )
-    ancoras_mesma_clinica_inicio = sorted(
-        [
-            item["inicio"]
-            for item in agendamentos_dia
-            if int(item.get("clinica_id") or 0) == int(payload.clinica_id or 0)
-            and _status_conta_como_ancora(item.get("status"))
-        ]
-    )
     perfil_norm = normalizar_perfil(payload.perfil_deslocamento)
     intervalo_minutos = max(5, int(payload.intervalo_minutos))
     margem_segura_min = int(thresholds.get("safe_margin_min") or MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN)
+    ancoras_mesma_clinica_liberacao = sorted(
+        [
+            item["fim"] + timedelta(minutes=margem_segura_min)
+            for item in agendamentos_dia
+            if int(item.get("clinica_id") or 0) == int(payload.clinica_id or 0)
+            and _status_conta_como_ancora(item.get("status"))
+            and isinstance(item.get("fim"), datetime)
+        ]
+    )
     limite_desvio_insercao = int(thresholds.get("max_insertion_detour_min") or 25)
     limite_proximo_base_min = int(thresholds.get("nearby_anchor_max_travel_min") or 20)
     janela_fim_rota_min = _hora_hhmm_para_minutos(
@@ -2609,18 +2610,17 @@ def sugerir_horarios_agenda(
 
         preferencia_ancora_ordem = 1
         espera_ancora_min = 999999
-        if ancoras_mesma_clinica_inicio:
+        if ancoras_mesma_clinica_liberacao:
             esperas_validas = []
-            for inicio_ancora in ancoras_mesma_clinica_inicio:
-                alvo_ancora = inicio_ancora + timedelta(minutes=60)
-                if inicio_candidato >= alvo_ancora:
-                    esperas_validas.append(_minutos_entre(alvo_ancora, inicio_candidato))
+            for liberacao_ancora in ancoras_mesma_clinica_liberacao:
+                if inicio_candidato >= liberacao_ancora:
+                    esperas_validas.append(_minutos_entre(liberacao_ancora, inicio_candidato))
             if esperas_validas:
                 preferencia_ancora_ordem = 0
                 espera_ancora_min = min(esperas_validas)
             else:
                 # Quando existe ancora na mesma clinica, manter candidatos anteriores
-                # como fallback, mas abaixo das opcoes apos ancora+60.
+                # como fallback, mas abaixo das opcoes apos fim da ancora + margem segura.
                 preferencia_ancora_ordem = 2
 
         risco = 0

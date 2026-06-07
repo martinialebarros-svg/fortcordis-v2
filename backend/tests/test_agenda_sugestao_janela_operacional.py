@@ -90,12 +90,21 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
         db.refresh(clinica_ancora)
         return clinica_base, clinica_ancora
 
-    def _criar_agendamento(self, db, *, clinica_id: int, data: str, hora: str, status: str = "Agendado") -> Agendamento:
+    def _criar_agendamento(
+        self,
+        db,
+        *,
+        clinica_id: int,
+        data: str,
+        hora: str,
+        status: str = "Agendado",
+        duracao_minutos: int = 30,
+    ) -> Agendamento:
         inicio = datetime.fromisoformat(f"{data}T{hora}:00")
         agendamento = Agendamento(
             clinica_id=clinica_id,
             inicio=inicio,
-            fim=inicio + timedelta(minutes=30),
+            fim=inicio + timedelta(minutes=duracao_minutos),
             data=data,
             hora=hora,
             status=status,
@@ -516,7 +525,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
-    def test_sugestoes_horario_priorizam_slot_apos_ancora_mesma_clinica_mais_60min(self) -> None:
+    def test_sugestoes_horario_priorizam_slot_apos_fim_da_ancora_com_margem_segura(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
             self._seed_config(db, excecoes=[])
@@ -525,14 +534,15 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 db,
                 clinica_id=clinica_base.id,
                 data="2099-05-25",
-                hora="10:00",
+                hora="09:00",
                 status="Agendado",
+                duracao_minutos=20,
             )
 
             payload = agenda.SugestaoHorarioPayload(
                 data="2099-05-25",
                 clinica_id=clinica_base.id,
-                duracao_minutos=30,
+                duracao_minutos=20,
                 intervalo_minutos=30,
                 limite=8,
                 perfil_deslocamento="comercial",
@@ -548,7 +558,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             self.assertTrue(resposta["ok"])
             self.assertGreater(len(resposta["items"]), 0)
             primeiro = resposta["items"][0]
-            self.assertEqual(str(primeiro.get("inicio") or ""), "2099-05-25 11:00")
+            self.assertEqual(str(primeiro.get("inicio") or ""), "2099-05-25 09:30")
             self.assertEqual(int(primeiro.get("preferencia_ancora_ordem", 99)), 0)
         finally:
             db.close()
