@@ -16,6 +16,7 @@ from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from sqlalchemy import and_, func, or_
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
@@ -869,6 +870,21 @@ def _gerar_pdf_recibos_ordens(
     return pdf_bytes
 
 
+def _carregar_configuracao_usuario_recibo(
+    db: Session,
+    user_id: int,
+) -> Optional[ConfiguracaoUsuario]:
+    try:
+        return (
+            db.query(ConfiguracaoUsuario)
+            .filter(ConfiguracaoUsuario.user_id == user_id)
+            .first()
+        )
+    except SQLAlchemyError as exc:
+        print(f"[recibo-os] Aviso: falha ao carregar configuracao do usuario {user_id}: {exc}")
+        return None
+
+
 @router.get("")
 def listar_ordens(
     status: Optional[str] = None,
@@ -1197,6 +1213,7 @@ def gerar_recibos_os_pdf(
         )
 
     configuracao = db.query(Configuracao).first()
+    configuracao_usuario = _carregar_configuracao_usuario_recibo(db, current_user.id)
     nome_empresa = (
         (configuracao.nome_empresa or "").strip()
         if configuracao and configuracao.nome_empresa

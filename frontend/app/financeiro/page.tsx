@@ -1434,7 +1434,20 @@ export default function FinanceiroPage() {
       return { blob, filename: match?.[1] || filename };
     } catch (error: any) {
       console.error("Erro ao gerar recibo PDF:", error);
-      alert(error?.response?.data?.detail || "Erro ao gerar recibo das OS recebidas.");
+      let detail = "";
+      const payload = error?.response?.data;
+      if (payload instanceof Blob) {
+        try {
+          const texto = await payload.text();
+          const json = JSON.parse(texto);
+          detail = String(json?.detail || texto || "");
+        } catch {
+          detail = "";
+        }
+      } else if (typeof payload?.detail === "string") {
+        detail = payload.detail;
+      }
+      alert(detail || "Erro ao gerar recibo das OS recebidas.");
       return null;
     }
   };
