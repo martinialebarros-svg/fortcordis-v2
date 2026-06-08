@@ -14,7 +14,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
-from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
@@ -22,6 +22,7 @@ from app.core.security import get_current_user
 from app.db.database import get_db
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
+from app.models.configuracao import ConfiguracaoUsuario
 from app.models.financeiro import (
     BandeiraCartao,
     CreditoFinanceiro,
@@ -510,6 +511,364 @@ def _gerar_pdf_cobranca_pendencias(
     return pdf_bytes
 
 
+def _parse_os_ids_param(os_ids: Optional[str]) -> List[int]:
+    ids: List[int] = []
+    for parte in str(os_ids or "").split(","):
+        texto = parte.strip()
+        if not texto:
+            continue
+        try:
+            valor = int(texto)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Parametro os_ids invalido.") from exc
+        if valor > 0 and valor not in ids:
+            ids.append(valor)
+    if not ids:
+        raise HTTPException(status_code=400, detail="Informe ao menos uma OS para gerar o recibo.")
+    return ids
+
+
+def _resumir_formas_pagamento_recibo(
+    pagamentos: List[Dict[str, Any]],
+    valor_credito_utilizado: float,
+    possui_detalhamento_legacy: bool = False,
+) -> str:
+    partes = []
+    for pagamento in pagamentos:
+        nome_forma = str(pagamento.get("forma_pagamento_nome") or "Pagamento").strip()
+        partes.append(f"{nome_forma} ({_formatar_moeda_brl(pagamento.get('valor_bruto'))})")
+    if valor_credito_utilizado > 0:
+        partes.append(f"Credito do cliente ({_formatar_moeda_brl(valor_credito_utilizado)})")
+    if not partes and possui_detalhamento_legacy:
+        partes.append("Recebimento legado sem composicao detalhada")
+    return ", ".join(partes) if partes else "-"
+
+
+def _gerar_pdf_recibos_ordens(
+    recibos: List[Dict[str, Any]],
+    nome_empresa: str,
+    contato_empresa: str,
+    texto_rodape: str,
+    agrupar: bool,
+    nome_emitente: str,
+    crmv_emitente: str,
+    assinatura_emitente_dados: Optional[bytes] = None,
+    logomarca_dados: Optional[bytes] = None,
+) -> bytes:
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=14 * mm,
+        rightMargin=14 * mm,
+        topMargin=14 * mm,
+        bottomMargin=18 * mm,
+        title="Recibo de Ordem de Servico",
+    )
+
+    styles = getSampleStyleSheet()
+    style_titulo = ParagraphStyle(
+        "ReciboTitulo",
+        parent=styles["Heading1"],
+        fontName="Helvetica-Bold",
+        fontSize=15,
+        textColor=colors.HexColor("#0F172A"),
+        spaceAfter=4,
+    )
+    style_subtitulo = ParagraphStyle(
+        "ReciboSubtitulo",
+        parent=styles["Heading3"],
+        fontName="Helvetica-Bold",
+        fontSize=10.5,
+        textColor=colors.HexColor("#1F2937"),
+        spaceAfter=3,
+        spaceBefore=6,
+    )
+    style_normal = ParagraphStyle(
+        "ReciboNormal",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=9.5,
+        leading=13,
+        textColor=colors.HexColor("#111827"),
+    )
+
+    story: List[Any] = []
+    logo = None
+    if logomarca_dados:
+        try:
+            logo_reader = ImageReader(BytesIO(logomarca_dados))
+            largura, altura = logo_reader.getSize()
+            max_largura = 34 * mm
+            max_altura = 24 * mm
+            escala = min(max_largura / largura, max_altura / altura)
+            logo = Image(BytesIO(logomarca_dados), width=largura * escala, height=altura * escala)
+            logo.hAlign = "LEFT"
+        except Exception:
+            logo = None
+
+    assinatura = None
+    if assinatura_emitente_dados:
+        try:
+            assinatura_reader = ImageReader(BytesIO(assinatura_emitente_dados))
+            largura, altura = assinatura_reader.getSize()
+            max_largura = 50 * mm
+            max_altura = 25 * mm
+            escala = min(max_largura / largura, max_altura / altura)
+            assinatura = Image(
+                BytesIO(assinatura_emitente_dados),
+                width=largura * escala,
+                height=altura * escala,
+            )
+            assinatura.hAlign = "LEFT"
+        except Exception:
+            assinatura = None
+
+    def _adicionar_cabecalho(titulo: str, subtitulo: str):
+        emissao = datetime.now().strftime("%d/%m/%Y %H:%M")
+        linhas_info = [
+            _texto_pdf(nome_empresa, "Fort Cordis"),
+            f"Emissao: {emissao}",
+        ]
+        if contato_empresa:
+            linhas_info.append(_texto_pdf(contato_empresa, ""))
+        linhas_info.append(_texto_pdf(subtitulo, ""))
+
+        cabecalho_info = [
+            Paragraph(titulo, style_titulo),
+            Paragraph("<br/>".join(linhas_info), style_normal),
+        ]
+        if logo:
+            tabela_cabecalho = Table(
+                [[logo, cabecalho_info]],
+                colWidths=[38 * mm, doc.width - (38 * mm)],
+            )
+            tabela_cabecalho.setStyle(
+                TableStyle(
+                    [
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                        ("TOPPADDING", (0, 0), (-1, -1), 0),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                    ]
+                )
+            )
+            story.append(tabela_cabecalho)
+        else:
+            story.extend(cabecalho_info)
+        story.append(Spacer(1, 4 * mm))
+
+    if agrupar:
+        total_geral = sum(float(item["valor_final"] or 0) for item in recibos)
+        total_credito = sum(float(item["valor_credito_utilizado"] or 0) for item in recibos)
+        _adicionar_cabecalho(
+            "Recibo consolidado de ordens de servico recebidas",
+            f"{len(recibos)} OS quitada(s)",
+        )
+        story.append(
+            Paragraph(
+                (
+                    "Declaramos o recebimento das ordens de servico abaixo, "
+                    f"totalizando <b>{_formatar_moeda_brl(total_geral)}</b>."
+                ),
+                style_normal,
+            )
+        )
+        if total_credito > 0:
+            story.append(
+                Paragraph(
+                    f"Parte da quitacao utilizou credito do cliente no total de {_formatar_moeda_brl(total_credito)}.",
+                    style_normal,
+                )
+            )
+
+        linhas_tabela = [[
+            "OS",
+            "Data receb.",
+            "Paciente",
+            "Clinica",
+            "Servico",
+            "Formas",
+            "Valor",
+        ]]
+        for item in recibos:
+            linhas_tabela.append(
+                [
+                    str(item["numero_os"] or "-"),
+                    _formatar_data_ddmmaa(item["data_recebimento"]),
+                    str(item["paciente"] or "-"),
+                    str(item["clinica"] or "-"),
+                    str(item["servico"] or "-"),
+                    _resumir_formas_pagamento_recibo(
+                        item["pagamentos"],
+                        float(item["valor_credito_utilizado"] or 0),
+                        bool(item["possui_detalhamento_legacy"]),
+                    ),
+                    _formatar_moeda_brl(item["valor_final"]),
+                ]
+            )
+        linhas_tabela.append(["", "", "", "", "", "Total recebido", _formatar_moeda_brl(total_geral)])
+        subtotal_row = len(linhas_tabela) - 1
+        tabela = Table(
+            linhas_tabela,
+            colWidths=[20 * mm, 22 * mm, 28 * mm, 34 * mm, 34 * mm, 42 * mm, 20 * mm],
+            repeatRows=1,
+        )
+        tabela.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E8EEF8")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (0, 1), (-1, -2), "Helvetica"),
+                    ("FONTNAME", (0, subtotal_row), (-1, subtotal_row), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8.2),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
+                    ("ALIGN", (-1, 1), (-1, -1), "RIGHT"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ("BACKGROUND", (0, subtotal_row), (-1, subtotal_row), colors.HexColor("#F3F4F6")),
+                ]
+            )
+        )
+        story.append(Spacer(1, 3 * mm))
+        story.append(tabela)
+    else:
+        for idx, item in enumerate(recibos):
+            if idx > 0:
+                story.append(PageBreak())
+            _adicionar_cabecalho(
+                "Recibo de ordem de servico recebida",
+                f"OS {item['numero_os']} | Paciente {item['paciente'] or '-'}",
+            )
+            story.append(
+                Paragraph(
+                    (
+                        "Declaramos o recebimento referente a ordem de servico abaixo, "
+                        f"no valor de <b>{_formatar_moeda_brl(item['valor_final'])}</b>."
+                    ),
+                    style_normal,
+                )
+            )
+            story.append(Spacer(1, 3 * mm))
+            story.append(Paragraph("Dados da ordem", style_subtitulo))
+            story.append(
+                Paragraph(
+                    "<br/>".join(
+                        [
+                            f"OS: {_texto_pdf(item['numero_os'])}",
+                            f"Paciente: {_texto_pdf(item['paciente'])}",
+                            f"Tutor: {_texto_pdf(item['tutor'])}",
+                            f"Clinica: {_texto_pdf(item['clinica'])}",
+                            f"Servico: {_texto_pdf(item['servico'])}",
+                            f"Data do atendimento: {_texto_pdf(_formatar_data_ddmmaa(item['data_atendimento']))}",
+                            f"Data do recebimento: {_texto_pdf(_formatar_data_ddmmaa(item['data_recebimento']))}",
+                        ]
+                    ),
+                    style_normal,
+                )
+            )
+
+            linhas_pagamento = [["Forma", "Data", "Valor bruto", "Taxa", "Valor liquido"]]
+            for pagamento in item["pagamentos"]:
+                linhas_pagamento.append(
+                    [
+                        str(pagamento["forma_pagamento_nome"] or "-"),
+                        _formatar_data_ddmmaa(pagamento["data_recebimento"]),
+                        _formatar_moeda_brl(pagamento["valor_bruto"]),
+                        _formatar_moeda_brl(pagamento["valor_taxa"]),
+                        _formatar_moeda_brl(pagamento["valor_liquido"]),
+                    ]
+                )
+            if item["valor_credito_utilizado"] > 0:
+                linhas_pagamento.append(
+                    [
+                        "Credito do cliente",
+                        _formatar_data_ddmmaa(item["data_recebimento"]),
+                        _formatar_moeda_brl(item["valor_credito_utilizado"]),
+                        _formatar_moeda_brl(0),
+                        _formatar_moeda_brl(item["valor_credito_utilizado"]),
+                    ]
+                )
+            linhas_pagamento.append(
+                [
+                    "Total quitado",
+                    "",
+                    _formatar_moeda_brl(item["valor_final"]),
+                    _formatar_moeda_brl(item["valor_taxa_total"]),
+                    _formatar_moeda_brl(item["valor_liquido_exibido"]),
+                ]
+            )
+            total_row = len(linhas_pagamento) - 1
+            story.append(Spacer(1, 2 * mm))
+            story.append(Paragraph("Composicao do recebimento", style_subtitulo))
+            tabela_pagamentos = Table(
+                linhas_pagamento,
+                colWidths=[52 * mm, 24 * mm, 28 * mm, 22 * mm, 28 * mm],
+                repeatRows=1,
+            )
+            tabela_pagamentos.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E8EEF8")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTNAME", (0, total_row), (-1, total_row), "Helvetica-Bold"),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
+                        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                        ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                        ("TOPPADDING", (0, 0), (-1, -1), 3),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                        ("BACKGROUND", (0, total_row), (-1, total_row), colors.HexColor("#F3F4F6")),
+                    ]
+                )
+            )
+            story.append(tabela_pagamentos)
+            if float(item["desconto"] or 0) > 0:
+                story.append(Spacer(1, 2 * mm))
+                story.append(
+                    Paragraph(
+                        f"Desconto aplicado na OS: {_formatar_moeda_brl(item['desconto'])}.",
+                        style_normal,
+                    )
+                )
+
+    story.append(Spacer(1, 5 * mm))
+    story.append(Paragraph("Atenciosamente,", style_normal))
+    if assinatura:
+        story.append(Spacer(1, 2 * mm))
+        story.append(assinatura)
+    story.append(Spacer(1, 2 * mm))
+    story.append(
+        Table(
+            [[""]],
+            colWidths=[70 * mm],
+            style=TableStyle([("LINEABOVE", (0, 0), (-1, -1), 0.8, colors.HexColor("#9CA3AF"))]),
+        )
+    )
+    story.append(Paragraph(f"<b>{_texto_pdf(nome_empresa, 'Fort Cordis')}</b>", style_normal))
+    story.append(Paragraph(f"Emitido por: <b>{_texto_pdf(nome_emitente, '-')}</b>", style_normal))
+    if crmv_emitente:
+        story.append(Paragraph(f"Medico Veterinario - CRMV: {_texto_pdf(crmv_emitente, '-')}", style_normal))
+
+    rodape_final = texto_rodape.strip() if texto_rodape else nome_empresa
+    doc.build(
+        story,
+        onFirstPage=lambda c, d: _desenhar_rodape_relatorio(c, d, rodape_final),
+        onLaterPages=lambda c, d: _desenhar_rodape_relatorio(c, d, rodape_final),
+    )
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+    return pdf_bytes
+
+
 @router.get("")
 def listar_ordens(
     status: Optional[str] = None,
@@ -659,6 +1018,11 @@ def gerar_relatorio_pendencias_pdf(
         )
 
     configuracao = db.query(Configuracao).first()
+    configuracao_usuario = (
+        db.query(ConfiguracaoUsuario)
+        .filter(ConfiguracaoUsuario.user_id == current_user.id)
+        .first()
+    )
     nome_empresa = (
         (configuracao.nome_empresa or "").strip()
         if configuracao and configuracao.nome_empresa
@@ -717,6 +1081,173 @@ def gerar_relatorio_pendencias_pdf(
     )
 
     filename = f"relatorio_cobranca_pendencias_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/relatorios/recibos/pdf")
+def gerar_recibos_os_pdf(
+    os_ids: str,
+    agrupar: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Gera recibo PDF para OS recebidas, individual ou agrupado."""
+    ids = _parse_os_ids_param(os_ids)
+
+    resultados = (
+        db.query(
+            OrdemServico,
+            Paciente.nome.label("paciente_nome"),
+            Tutor.nome.label("tutor_nome"),
+            Clinica.nome.label("clinica_nome"),
+            Servico.nome.label("servico_nome"),
+        )
+        .outerjoin(Paciente, OrdemServico.paciente_id == Paciente.id)
+        .outerjoin(Tutor, Paciente.tutor_id == Tutor.id)
+        .outerjoin(Clinica, OrdemServico.clinica_id == Clinica.id)
+        .outerjoin(Servico, OrdemServico.servico_id == Servico.id)
+        .filter(OrdemServico.id.in_(ids), OrdemServico.status == "Pago")
+        .order_by(OrdemServico.data_atendimento.asc(), OrdemServico.id.asc())
+        .all()
+    )
+
+    encontrados_ids = {item[0].id for item in resultados}
+    faltantes = [os_id for os_id in ids if os_id not in encontrados_ids]
+    if faltantes:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Algumas OS informadas nao foram encontradas ou ainda nao estao recebidas: "
+                + ", ".join(str(item) for item in faltantes)
+            ),
+        )
+
+    pagamentos_rows = (
+        db.query(OrdemServicoPagamento)
+        .filter(OrdemServicoPagamento.ordem_servico_id.in_(ids))
+        .order_by(OrdemServicoPagamento.ordem_servico_id.asc(), OrdemServicoPagamento.data_recebimento.asc())
+        .all()
+    )
+    pagamentos_por_os: Dict[int, List[OrdemServicoPagamento]] = {}
+    for pagamento in pagamentos_rows:
+        pagamentos_por_os.setdefault(pagamento.ordem_servico_id, []).append(pagamento)
+
+    creditos_rows = (
+        db.query(CreditoFinanceiro)
+        .filter(
+            CreditoFinanceiro.ordem_servico_id.in_(ids),
+            CreditoFinanceiro.origem == "consumo_credito_os",
+            CreditoFinanceiro.status == "Ativo",
+        )
+        .all()
+    )
+    credito_por_os: Dict[int, float] = {}
+    for credito in creditos_rows:
+        credito_por_os[credito.ordem_servico_id] = round(
+            credito_por_os.get(credito.ordem_servico_id, 0.0) + abs(float(credito.valor or 0)),
+            2,
+        )
+
+    recibos: List[Dict[str, Any]] = []
+    for os_data, paciente_nome, tutor_nome, clinica_nome, servico_nome in resultados:
+        pagamentos_os = pagamentos_por_os.get(os_data.id, [])
+        pagamentos = [
+            {
+                "forma_pagamento_nome": pagamento.forma_pagamento_nome,
+                "valor_bruto": float(pagamento.valor_bruto or 0),
+                "valor_taxa": float(pagamento.valor_taxa or 0),
+                "valor_liquido": float(pagamento.valor_liquido or 0),
+                "data_recebimento": pagamento.data_recebimento,
+            }
+            for pagamento in pagamentos_os
+        ]
+        datas_recebimento = [pagamento.data_recebimento for pagamento in pagamentos_os if pagamento.data_recebimento]
+        valor_credito_utilizado = round(float(credito_por_os.get(os_data.id, 0.0)), 2)
+        valor_liquido_total = round(sum(float(item["valor_liquido"] or 0) for item in pagamentos), 2)
+        possui_detalhamento_legacy = not pagamentos and valor_credito_utilizado <= 0
+        valor_liquido_exibido = (
+            float(os_data.valor_final or 0)
+            if possui_detalhamento_legacy
+            else round(valor_liquido_total + valor_credito_utilizado, 2)
+        )
+        recibos.append(
+            {
+                "id": os_data.id,
+                "numero_os": os_data.numero_os,
+                "paciente": paciente_nome or "",
+                "tutor": tutor_nome or "",
+                "clinica": clinica_nome or "",
+                "servico": servico_nome or "",
+                "data_atendimento": os_data.data_atendimento,
+                "data_recebimento": max(datas_recebimento) if datas_recebimento else os_data.updated_at or os_data.created_at,
+                "valor_servico": float(os_data.valor_servico or 0),
+                "desconto": float(os_data.desconto or 0),
+                "valor_final": float(os_data.valor_final or 0),
+                "pagamentos": pagamentos,
+                "valor_credito_utilizado": valor_credito_utilizado,
+                "possui_detalhamento_legacy": possui_detalhamento_legacy,
+                "valor_taxa_total": round(sum(float(item["valor_taxa"] or 0) for item in pagamentos), 2),
+                "valor_liquido_total": valor_liquido_total,
+                "valor_liquido_exibido": valor_liquido_exibido,
+            }
+        )
+
+    configuracao = db.query(Configuracao).first()
+    nome_empresa = (
+        (configuracao.nome_empresa or "").strip()
+        if configuracao and configuracao.nome_empresa
+        else "Fort Cordis Cardiologia Veterinaria"
+    )
+    contato_partes: List[str] = []
+    if configuracao:
+        if configuracao.telefone:
+            contato_partes.append(str(configuracao.telefone).strip())
+        if configuracao.email:
+            contato_partes.append(str(configuracao.email).strip())
+        cidade_estado = " ".join(
+            [parte for parte in [configuracao.cidade or "", configuracao.estado or ""] if parte]
+        ).strip()
+        if cidade_estado:
+            contato_partes.append(cidade_estado)
+    contato_empresa = " | ".join([p for p in contato_partes if p])
+
+    logomarca = None
+    texto_rodape = ""
+    assinatura_emitente = None
+    crmv_emitente = ""
+    if configuracao:
+        if configuracao.mostrar_logomarca and configuracao.logomarca_dados:
+            logomarca = configuracao.logomarca_dados
+        texto_rodape = (configuracao.texto_rodape_laudo or "").strip()
+        if configuracao.mostrar_assinatura and configuracao.assinatura_dados:
+            assinatura_emitente = configuracao.assinatura_dados
+    if configuracao_usuario:
+        if configuracao_usuario.assinatura_dados:
+            assinatura_emitente = configuracao_usuario.assinatura_dados
+        crmv_emitente = str(configuracao_usuario.crmv or "").strip()
+
+    pdf_bytes = _gerar_pdf_recibos_ordens(
+        recibos=recibos,
+        nome_empresa=nome_empresa,
+        contato_empresa=contato_empresa,
+        texto_rodape=texto_rodape,
+        agrupar=agrupar,
+        nome_emitente=str(current_user.nome or "").strip() or "Usuario emissor",
+        crmv_emitente=crmv_emitente,
+        assinatura_emitente_dados=assinatura_emitente,
+        logomarca_dados=logomarca,
+    )
+
+    if agrupar:
+        filename = f"recibo_os_agrupado_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+    elif len(recibos) == 1:
+        filename = f"recibo_os_{recibos[0]['numero_os']}.pdf"
+    else:
+        filename = f"recibos_os_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
     return StreamingResponse(
         BytesIO(pdf_bytes),
         media_type="application/pdf",

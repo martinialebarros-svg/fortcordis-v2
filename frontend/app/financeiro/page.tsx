@@ -17,7 +17,7 @@ import {
   DollarSign, TrendingUp, TrendingDown, Plus, Search, 
   Calendar, CheckCircle, XCircle, Clock, Edit, Trash2,
   Filter, Download, BarChart3, PieChart, ArrowUpRight, ArrowDownRight,
-  ChevronLeft, ChevronRight, FileText, Receipt, Undo2, MessageCircle, Copy
+  ChevronLeft, ChevronRight, FileText, Receipt, Undo2, MessageCircle, Copy, Mail
 } from "lucide-react";
 
 interface Transacao {
@@ -68,6 +68,7 @@ interface ClinicaOption {
   id: number;
   nome: string;
   telefone?: string | null;
+  email?: string | null;
 }
 
 interface BandeiraCartaoOption {
@@ -108,11 +109,44 @@ const MODELO_MENSAGEM_COBRANCA_PADRAO = [
   "Favor confirmar a previsao de pagamento. Obrigado!",
 ].join("\n");
 
+const MODELO_MENSAGEM_RECIBO_INDIVIDUAL_PADRAO = [
+  "Ola, segue o recibo da OS {{os_numero}}.",
+  "Paciente: {{paciente}}.",
+  "Clinica: {{clinica}}.",
+  "Valor recebido: {{valor_recebido}}.",
+  "Data de emissao: {{data}}.",
+  "",
+  "PDF em anexo.",
+].join("\n");
+
+const MODELO_MENSAGEM_RECIBO_AGRUPADO_PADRAO = [
+  "Ola, segue o recibo consolidado das ordens de servico recebidas.",
+  "Clinica: {{clinica}}.",
+  "Quantidade de OS: {{quantidade_os}}.",
+  "Total recebido: {{total_recebido}}.",
+  "Data de emissao: {{data}}.",
+  "",
+  "{{lista_os}}",
+  "",
+  "PDF em anexo.",
+].join("\n");
+
 const PLACEHOLDERS_MENSAGEM_COBRANCA = [
   { label: "Clinica", valor: "{{clinica}}" },
   { label: "Data", valor: "{{data}}" },
   { label: "Lista OS", valor: "{{lista_os}}" },
   { label: "Total pendente", valor: "{{total_pendente}}" },
+];
+
+const PLACEHOLDERS_MENSAGEM_RECIBO = [
+  { label: "Clinica", valor: "{{clinica}}" },
+  { label: "Data", valor: "{{data}}" },
+  { label: "OS", valor: "{{os_numero}}" },
+  { label: "Paciente", valor: "{{paciente}}" },
+  { label: "Valor", valor: "{{valor_recebido}}" },
+  { label: "Total", valor: "{{total_recebido}}" },
+  { label: "Qtd. OS", valor: "{{quantidade_os}}" },
+  { label: "Lista OS", valor: "{{lista_os}}" },
 ];
 
 interface Resumo {
@@ -136,6 +170,24 @@ interface GrupoCobrancaClinica {
   quantidade_os: number;
   quantidade_total: number;
   ordens: OrdemServico[];
+}
+
+interface CompartilhamentoReciboState {
+  canal: "whatsapp" | "email";
+  ids: number[];
+  agrupar: boolean;
+  mensagem: string;
+  assunto: string;
+  telefone: string;
+  email: string;
+}
+
+interface PreviewReciboState {
+  ids: number[];
+  agrupar: boolean;
+  titulo: string;
+  filename: string;
+  url: string;
 }
 
 export default function FinanceiroPage() {
@@ -192,11 +244,32 @@ export default function FinanceiroPage() {
     observacoes: "",
   });
   const [mensagemCobrancaModelo, setMensagemCobrancaModelo] = useState(MODELO_MENSAGEM_COBRANCA_PADRAO);
+  const [mensagemReciboIndividualModelo, setMensagemReciboIndividualModelo] = useState(
+    MODELO_MENSAGEM_RECIBO_INDIVIDUAL_PADRAO
+  );
+  const [mensagemReciboAgrupadoModelo, setMensagemReciboAgrupadoModelo] = useState(
+    MODELO_MENSAGEM_RECIBO_AGRUPADO_PADRAO
+  );
   const textareaMensagemRef = useRef<HTMLTextAreaElement | null>(null);
+  const textareaMensagemReciboIndividualRef = useRef<HTMLTextAreaElement | null>(null);
+  const textareaMensagemReciboAgrupadoRef = useRef<HTMLTextAreaElement | null>(null);
   const [osHighlightId, setOsHighlightId] = useState<number | null>(null);
   const [osHighlightUntil, setOsHighlightUntil] = useState<number>(0);
+  const [osSelecionadasRecibo, setOsSelecionadasRecibo] = useState<number[]>([]);
+  const [modalCompartilharRecibo, setModalCompartilharRecibo] = useState<CompartilhamentoReciboState | null>(null);
+  const [enviandoCompartilhamentoRecibo, setEnviandoCompartilhamentoRecibo] = useState(false);
+  const [previewRecibo, setPreviewRecibo] = useState<PreviewReciboState | null>(null);
+  const [carregandoPreviewRecibo, setCarregandoPreviewRecibo] = useState(false);
   const highlightedRowRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
+
+  useEffect(() => {
+    return () => {
+      if (previewRecibo?.url) {
+        window.URL.revokeObjectURL(previewRecibo.url);
+      }
+    };
+  }, [previewRecibo]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -885,6 +958,16 @@ export default function FinanceiroPage() {
     return matchStatus && matchClinica && matchServico && matchTipoHorario && matchData && matchBusca;
   });
 
+  const osRecebidasFiltradas = useMemo(
+    () => osFiltradas.filter((os) => os.status === "Pago"),
+    [osFiltradas]
+  );
+
+  useEffect(() => {
+    const idsRecebidas = new Set(ordensServico.filter((os) => os.status === "Pago").map((os) => os.id));
+    setOsSelecionadasRecibo((prev) => prev.filter((id) => idsRecebidas.has(id)));
+  }, [ordensServico]);
+
   useEffect(() => {
     if (osHighlightId == null) return;
     if (Date.now() >= osHighlightUntil) {
@@ -978,6 +1061,190 @@ export default function FinanceiroPage() {
     if (digitos.startsWith("55")) return digitos;
     if (digitos.length >= 10 && digitos.length <= 11) return `55${digitos}`;
     return digitos;
+  };
+
+  const formatarDataArquivo = () => new Date().toISOString().slice(0, 10);
+
+  const obterClinicaDaOS = (os: OrdemServico) => {
+    if (!os.clinica_id) return null;
+    return clinicas.find((clinica) => clinica.id === os.clinica_id) || null;
+  };
+
+  const obterContatoCompartilhamento = (ids: number[]) => {
+    const selecionadas = ordensServico.filter((os) => ids.includes(os.id));
+    const clinicasSelecionadas = selecionadas
+      .map((os) => obterClinicaDaOS(os))
+      .filter((item): item is ClinicaOption => Boolean(item));
+    const clinicasUnicas = Array.from(new Map(clinicasSelecionadas.map((item) => [item.id, item])).values());
+    if (clinicasUnicas.length === 1) {
+      return clinicasUnicas[0];
+    }
+    return null;
+  };
+
+  const montarMensagemCompartilhamentoRecibo = (ids: number[], agrupar: boolean) => {
+    const selecionadas = ordensServico.filter((os) => ids.includes(os.id));
+    const total = selecionadas.reduce((acc, item) => acc + Number(item.valor_final || 0), 0);
+    const primeiraOS = selecionadas[0];
+    const clinicas = Array.from(
+      new Set(selecionadas.map((item) => String(item.clinica || "").trim()).filter(Boolean))
+    );
+    const clinicaTexto =
+      clinicas.length === 1 ? clinicas[0] : clinicas.length > 1 ? "Multiplas clinicas" : "Clinica nao informada";
+    const dataHoje = new Date().toLocaleDateString("pt-BR");
+    const listaOS = selecionadas
+      .map(
+        (os, index) =>
+          `${index + 1}. OS ${os.numero_os} | ${os.paciente || "Paciente"} | ${formatarValor(Number(os.valor_final || 0))}`
+      )
+      .join("\n");
+
+    let modelo =
+      agrupar || selecionadas.length > 1
+        ? mensagemReciboAgrupadoModelo || MODELO_MENSAGEM_RECIBO_AGRUPADO_PADRAO
+        : mensagemReciboIndividualModelo || MODELO_MENSAGEM_RECIBO_INDIVIDUAL_PADRAO;
+
+    modelo = modelo
+      .replace(/{{\s*clinica\s*}}/gi, clinicaTexto)
+      .replace(/{{\s*data\s*}}/gi, dataHoje)
+      .replace(/{{\s*os_numero\s*}}/gi, primeiraOS?.numero_os || "-")
+      .replace(/{{\s*paciente\s*}}/gi, primeiraOS?.paciente || "Nao informado")
+      .replace(/{{\s*valor_recebido\s*}}/gi, formatarValor(Number(primeiraOS?.valor_final || 0)))
+      .replace(/{{\s*total_recebido\s*}}/gi, formatarValor(total))
+      .replace(/{{\s*quantidade_os\s*}}/gi, String(selecionadas.length))
+      .replace(/{{\s*lista_os\s*}}/gi, listaOS || "1. Nenhuma OS selecionada.");
+
+    return modelo;
+  };
+
+  const montarAssuntoCompartilhamentoRecibo = (ids: number[], agrupar: boolean) => {
+    if (ids.length === 1) {
+      const ordem = ordensServico.find((os) => os.id === ids[0]);
+      return `Recibo da OS ${ordem?.numero_os || ids[0]}`;
+    }
+    return agrupar
+      ? "Recibo agrupado de ordens de servico recebidas"
+      : "Recibos de ordens de servico recebidas";
+  };
+
+  const inserirPlaceholderModeloRecibo = (
+    placeholder: string,
+    tipo: "individual" | "agrupado"
+  ) => {
+    const textarea =
+      tipo === "individual" ? textareaMensagemReciboIndividualRef.current : textareaMensagemReciboAgrupadoRef.current;
+    const textoAtual =
+      tipo === "individual" ? mensagemReciboIndividualModelo || "" : mensagemReciboAgrupadoModelo || "";
+
+    if (!textarea) {
+      if (tipo === "individual") {
+        setMensagemReciboIndividualModelo(`${textoAtual}${placeholder}`);
+      } else {
+        setMensagemReciboAgrupadoModelo(`${textoAtual}${placeholder}`);
+      }
+      return;
+    }
+
+    const inicio = textarea.selectionStart ?? textoAtual.length;
+    const fim = textarea.selectionEnd ?? inicio;
+    const novoTexto = `${textoAtual.slice(0, inicio)}${placeholder}${textoAtual.slice(fim)}`;
+    const novaPosicao = inicio + placeholder.length;
+
+    if (tipo === "individual") {
+      setMensagemReciboIndividualModelo(novoTexto);
+    } else {
+      setMensagemReciboAgrupadoModelo(novoTexto);
+    }
+
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(novaPosicao, novaPosicao);
+    });
+  };
+
+  const restaurarModeloMensagemRecibo = (tipo: "individual" | "agrupado") => {
+    if (tipo === "individual") {
+      setMensagemReciboIndividualModelo(MODELO_MENSAGEM_RECIBO_INDIVIDUAL_PADRAO);
+    } else {
+      setMensagemReciboAgrupadoModelo(MODELO_MENSAGEM_RECIBO_AGRUPADO_PADRAO);
+    }
+  };
+
+  const abrirDownloadBlob = (blob: Blob, filename: string) => {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const fecharPreviewRecibo = () => {
+    setPreviewRecibo((prev) => {
+      if (prev?.url) {
+        window.URL.revokeObjectURL(prev.url);
+      }
+      return null;
+    });
+  };
+
+  const abrirMailtoComMensagem = (email: string, subject: string, body: string) => {
+    const params = new URLSearchParams();
+    params.set("subject", subject);
+    params.set("body", body);
+    const to = email ? email.trim() : "";
+    window.open(`mailto:${to}?${params.toString()}`, "_self");
+  };
+
+  const abrirWhatsAppComMensagem = (telefone: string, mensagem: string) => {
+    const numero = normalizarTelefoneWhatsApp(telefone || "");
+    const destino = numero ? `https://wa.me/${numero}?text=${encodeURIComponent(mensagem)}` : `https://wa.me/?text=${encodeURIComponent(mensagem)}`;
+    window.open(destino, "_blank", "noopener,noreferrer");
+  };
+
+  const compartilharArquivoSeDisponivel = async (blob: Blob, filename: string, title: string, text: string) => {
+    if (typeof navigator === "undefined" || typeof navigator.share !== "function") {
+      return false;
+    }
+
+    try {
+      const file = new File([blob], filename, { type: "application/pdf" });
+      const payload = { title, text, files: [file] };
+      if (typeof navigator.canShare === "function" && !navigator.canShare(payload)) {
+        return false;
+      }
+      await navigator.share(payload);
+      return true;
+    } catch (error: any) {
+      if (error?.name === "AbortError") {
+        return true;
+      }
+      return false;
+    }
+  };
+
+  const abrirComposerCompartilhamentoRecibo = (
+    canal: "whatsapp" | "email",
+    ids: number[],
+    agrupar: boolean
+  ) => {
+    if (ids.length === 0) {
+      alert("Selecione ao menos uma OS recebida para compartilhar o recibo.");
+      return;
+    }
+
+    const contato = obterContatoCompartilhamento(ids);
+    setModalCompartilharRecibo({
+      canal,
+      ids,
+      agrupar,
+      mensagem: montarMensagemCompartilhamentoRecibo(ids, agrupar),
+      assunto: montarAssuntoCompartilhamentoRecibo(ids, agrupar),
+      telefone: String(contato?.telefone || ""),
+      email: String(contato?.email || ""),
+    });
   };
 
   const montarLinhasPendentes = (grupo: GrupoCobrancaClinica) => {
@@ -1124,6 +1391,149 @@ export default function FinanceiroPage() {
     } catch (error: any) {
       console.error("Erro ao baixar relatorio PDF:", error);
       alert(error?.response?.data?.detail || "Erro ao gerar relatorio PDF de pendencias.");
+    }
+  };
+
+  const toggleSelecaoReciboOS = (osId: number) => {
+    setOsSelecionadasRecibo((prev) =>
+      prev.includes(osId) ? prev.filter((id) => id !== osId) : [...prev, osId]
+    );
+  };
+
+  const selecionarTodasRecebidasVisiveis = () => {
+    setOsSelecionadasRecibo(osRecebidasFiltradas.map((os) => os.id));
+  };
+
+  const limparSelecaoRecibo = () => {
+    setOsSelecionadasRecibo([]);
+  };
+
+  const obterReciboOSPDF = async (ids: number[], agrupar: boolean) => {
+    if (ids.length === 0) {
+      alert("Selecione ao menos uma OS recebida para gerar o recibo.");
+      return null;
+    }
+
+    try {
+      const query = montarQueryString({
+        os_ids: ids.join(","),
+        agrupar: agrupar ? "true" : "false",
+      });
+      const response = await api.get(`/ordens-servico/relatorios/recibos/pdf${query}`, {
+        responseType: "blob",
+      });
+      const blob = new Blob([response.data], { type: "application/pdf" });
+      const disposition = response.headers?.["content-disposition"] as string | undefined;
+      const match = disposition?.match(/filename=\"?([^\";]+)\"?/i);
+      const filename =
+        ids.length === 1
+          ? `recibo_os_${ids[0]}.pdf`
+          : agrupar
+            ? `recibo_os_agrupado_${new Date().toISOString().slice(0, 10)}.pdf`
+            : `recibos_os_${new Date().toISOString().slice(0, 10)}.pdf`;
+      return { blob, filename: match?.[1] || filename };
+    } catch (error: any) {
+      console.error("Erro ao gerar recibo PDF:", error);
+      alert(error?.response?.data?.detail || "Erro ao gerar recibo das OS recebidas.");
+      return null;
+    }
+  };
+
+  const baixarReciboOSPDF = async (ids: number[], agrupar: boolean) => {
+    const arquivo = await obterReciboOSPDF(ids, agrupar);
+    if (!arquivo) return;
+    abrirDownloadBlob(arquivo.blob, arquivo.filename);
+  };
+
+  const abrirPreviewRecibo = async (ids: number[], agrupar: boolean) => {
+    setCarregandoPreviewRecibo(true);
+    try {
+      const arquivo = await obterReciboOSPDF(ids, agrupar);
+      if (!arquivo) return;
+
+      const titulo =
+        ids.length === 1
+          ? `Previa do recibo da OS ${ordensServico.find((os) => os.id === ids[0])?.numero_os || ids[0]}`
+          : agrupar
+            ? `Previa do recibo agrupado`
+            : `Previa dos recibos selecionados`;
+
+      const url = window.URL.createObjectURL(arquivo.blob);
+      setPreviewRecibo((prev) => {
+        if (prev?.url) {
+          window.URL.revokeObjectURL(prev.url);
+        }
+        return {
+          ids,
+          agrupar,
+          titulo,
+          filename: arquivo.filename,
+          url,
+        };
+      });
+    } finally {
+      setCarregandoPreviewRecibo(false);
+    }
+  };
+
+  const compartilharReciboPorEmail = async (
+    ids: number[],
+    agrupar: boolean,
+    overrides?: { assunto?: string; mensagem?: string; email?: string }
+  ) => {
+    const arquivo = await obterReciboOSPDF(ids, agrupar);
+    if (!arquivo) return;
+
+    const contato = obterContatoCompartilhamento(ids);
+    const subject = String(overrides?.assunto || montarAssuntoCompartilhamentoRecibo(ids, agrupar)).trim();
+    const body = String(overrides?.mensagem || montarMensagemCompartilhamentoRecibo(ids, agrupar)).trim();
+    const emailDestino = String(overrides?.email || contato?.email || "").trim();
+    const textoFallback = `${body}\n\nCaso o anexo nao seja compartilhado automaticamente, o PDF foi baixado neste dispositivo para envio manual.`;
+    const compartilhado = await compartilharArquivoSeDisponivel(arquivo.blob, arquivo.filename, subject, textoFallback);
+    if (compartilhado) return;
+    abrirDownloadBlob(arquivo.blob, arquivo.filename);
+    abrirMailtoComMensagem(emailDestino, subject, textoFallback);
+  };
+
+  const compartilharReciboPorWhatsApp = async (
+    ids: number[],
+    agrupar: boolean,
+    overrides?: { mensagem?: string; telefone?: string }
+  ) => {
+    const arquivo = await obterReciboOSPDF(ids, agrupar);
+    if (!arquivo) return;
+
+    const contato = obterContatoCompartilhamento(ids);
+    const title =
+      montarAssuntoCompartilhamentoRecibo(ids, agrupar);
+    const telefoneDestino = String(overrides?.telefone || contato?.telefone || "").trim();
+    const mensagem = String(overrides?.mensagem || montarMensagemCompartilhamentoRecibo(ids, agrupar)).trim();
+    const textoFallback = `${mensagem}\n\nSe o PDF nao seguir automaticamente, ele foi baixado neste dispositivo para anexar na conversa.`;
+    const compartilhado = await compartilharArquivoSeDisponivel(arquivo.blob, arquivo.filename, title, textoFallback);
+    if (compartilhado) return;
+    abrirDownloadBlob(arquivo.blob, arquivo.filename);
+    abrirWhatsAppComMensagem(telefoneDestino, textoFallback);
+  };
+
+  const confirmarCompartilhamentoRecibo = async () => {
+    if (!modalCompartilharRecibo) return;
+    setEnviandoCompartilhamentoRecibo(true);
+    try {
+      if (modalCompartilharRecibo.canal === "email") {
+        await compartilharReciboPorEmail(modalCompartilharRecibo.ids, modalCompartilharRecibo.agrupar, {
+          assunto: modalCompartilharRecibo.assunto,
+          mensagem: modalCompartilharRecibo.mensagem,
+          email: modalCompartilharRecibo.email,
+        });
+      } else {
+        await compartilharReciboPorWhatsApp(modalCompartilharRecibo.ids, modalCompartilharRecibo.agrupar, {
+          mensagem: modalCompartilharRecibo.mensagem,
+          telefone: modalCompartilharRecibo.telefone,
+        });
+      }
+      setModalCompartilharRecibo(null);
+    } finally {
+      setEnviandoCompartilhamentoRecibo(false);
     }
   };
 
@@ -1844,16 +2254,141 @@ export default function FinanceiroPage() {
         {/* Conteudo - Ordens de Servico */}
         {abaAtiva === "ordens" && (
           <div className="bg-white rounded-xl shadow-sm border">
-            <div className="p-5 border-b flex justify-between items-center">
-              <h2 className="text-lg font-semibold text-gray-900">
-                Ordens de Servico
-                <span className="text-sm font-normal text-gray-500 ml-2">
-                  ({osFiltradas.length})
-                </span>
-              </h2>
-              <p className="text-sm text-gray-500">
-                Geradas automaticamente dos agendamentos
-              </p>
+            <div className="p-5 border-b flex flex-col lg:flex-row lg:justify-between lg:items-center gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Ordens de Servico
+                  <span className="text-sm font-normal text-gray-500 ml-2">
+                    ({osFiltradas.length})
+                  </span>
+                </h2>
+                <p className="text-sm text-gray-500">
+                  Geradas automaticamente dos agendamentos
+                </p>
+                <p className="text-xs text-emerald-700 mt-1">
+                  {osRecebidasFiltradas.length} OS recebida(s) visivel(is) | {osSelecionadasRecibo.length} selecionada(s) para recibo
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={selecionarTodasRecebidasVisiveis}
+                  disabled={osRecebidasFiltradas.length === 0}
+                  className="px-3 py-1.5 text-sm bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Selecionar recebidas
+                </button>
+                <button
+                  onClick={limparSelecaoRecibo}
+                  disabled={osSelecionadasRecibo.length === 0}
+                  className="px-3 py-1.5 text-sm bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Limpar selecao
+                </button>
+                <button
+                  onClick={() => abrirPreviewRecibo(osSelecionadasRecibo, false)}
+                  disabled={osSelecionadasRecibo.length === 0 || carregandoPreviewRecibo}
+                  className="px-3 py-1.5 text-sm bg-white border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-50 flex items-center gap-1 disabled:opacity-50"
+                >
+                  <FileText className="w-4 h-4" />
+                  {carregandoPreviewRecibo ? "Abrindo previa..." : "Previa"}
+                </button>
+                <button
+                  onClick={() => baixarReciboOSPDF(osSelecionadasRecibo, false)}
+                  disabled={osSelecionadasRecibo.length === 0}
+                  className="px-3 py-1.5 text-sm bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-lg flex items-center gap-1 disabled:opacity-50"
+                >
+                  <Receipt className="w-4 h-4" />
+                  Gerar recibo
+                </button>
+                <button
+                  onClick={() => baixarReciboOSPDF(osSelecionadasRecibo, true)}
+                  disabled={osSelecionadasRecibo.length === 0}
+                  className="px-3 py-1.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg flex items-center gap-1 disabled:opacity-50"
+                >
+                  <Receipt className="w-4 h-4" />
+                  Gerar recibo agrupado
+                </button>
+                <button
+                  onClick={() => abrirComposerCompartilhamentoRecibo("whatsapp", osSelecionadasRecibo, osSelecionadasRecibo.length > 1)}
+                  disabled={osSelecionadasRecibo.length === 0}
+                  className="px-3 py-1.5 text-sm bg-green-600 text-white hover:bg-green-700 rounded-lg flex items-center gap-1 disabled:opacity-50"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  WhatsApp
+                </button>
+                <button
+                  onClick={() => abrirComposerCompartilhamentoRecibo("email", osSelecionadasRecibo, osSelecionadasRecibo.length > 1)}
+                  disabled={osSelecionadasRecibo.length === 0}
+                  className="px-3 py-1.5 text-sm bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg flex items-center gap-1 disabled:opacity-50"
+                >
+                  <Mail className="w-4 h-4" />
+                  E-mail
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 border-b bg-white space-y-5">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-sm font-medium text-gray-700">Mensagem base do recibo individual</label>
+                  <button
+                    onClick={() => restaurarModeloMensagemRecibo("individual")}
+                    className="text-xs text-blue-600 hover:text-blue-700"
+                  >
+                    Restaurar padrao
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {PLACEHOLDERS_MENSAGEM_RECIBO.map((item) => (
+                    <button
+                      key={`individual-${item.valor}`}
+                      type="button"
+                      onClick={() => inserirPlaceholderModeloRecibo(item.valor, "individual")}
+                      className="px-2.5 py-1 text-xs rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                    >
+                      {item.label}: <span className="font-mono">{item.valor}</span>
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  ref={textareaMensagemReciboIndividualRef}
+                  rows={6}
+                  value={mensagemReciboIndividualModelo}
+                  onChange={(e) => setMensagemReciboIndividualModelo(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-sm font-medium text-gray-700">Mensagem base do recibo agrupado</label>
+                  <button
+                    onClick={() => restaurarModeloMensagemRecibo("agrupado")}
+                    className="text-xs text-blue-600 hover:text-blue-700"
+                  >
+                    Restaurar padrao
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {PLACEHOLDERS_MENSAGEM_RECIBO.map((item) => (
+                    <button
+                      key={`agrupado-${item.valor}`}
+                      type="button"
+                      onClick={() => inserirPlaceholderModeloRecibo(item.valor, "agrupado")}
+                      className="px-2.5 py-1 text-xs rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                    >
+                      {item.label}: <span className="font-mono">{item.valor}</span>
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  ref={textareaMensagemReciboAgrupadoRef}
+                  rows={7}
+                  value={mensagemReciboAgrupadoModelo}
+                  onChange={(e) => setMensagemReciboAgrupadoModelo(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+                />
+              </div>
             </div>
 
             {loading ? (
@@ -1876,8 +2411,22 @@ export default function FinanceiroPage() {
                     }`}
                   >
                     <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-                      <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-blue-100">
-                        <FileText className="w-5 h-5 text-blue-600" />
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={osSelecionadasRecibo.includes(os.id)}
+                          disabled={os.status !== "Pago"}
+                          onChange={() => toggleSelecaoReciboOS(os.id)}
+                          className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+                          title={
+                            os.status === "Pago"
+                              ? "Selecionar para recibo"
+                              : "Apenas OS recebidas podem gerar recibo"
+                          }
+                        />
+                        <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-blue-100">
+                          <FileText className="w-5 h-5 text-blue-600" />
+                        </div>
                       </div>
 
                       <div className="flex-1 min-w-0 space-y-2">
@@ -1928,6 +2477,46 @@ export default function FinanceiroPage() {
                             >
                               <CheckCircle className="w-4 h-4" />
                               Receber
+                            </button>
+                          )}
+                          {os.status === "Pago" && (
+                            <button
+                              onClick={() => abrirPreviewRecibo([os.id], false)}
+                              className="px-3 py-1.5 text-sm bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 rounded-lg flex items-center gap-1"
+                              title="Visualizar recibo desta OS"
+                            >
+                              <FileText className="w-4 h-4" />
+                              Previa
+                            </button>
+                          )}
+                          {os.status === "Pago" && (
+                            <button
+                              onClick={() => baixarReciboOSPDF([os.id], false)}
+                              className="px-3 py-1.5 text-sm bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded-lg flex items-center gap-1"
+                              title="Gerar recibo desta OS"
+                            >
+                              <Receipt className="w-4 h-4" />
+                              Recibo
+                            </button>
+                          )}
+                          {os.status === "Pago" && (
+                            <button
+                              onClick={() => abrirComposerCompartilhamentoRecibo("whatsapp", [os.id], false)}
+                              className="px-3 py-1.5 text-sm bg-green-100 text-green-700 hover:bg-green-200 rounded-lg flex items-center gap-1"
+                              title="Compartilhar recibo por WhatsApp"
+                            >
+                              <MessageCircle className="w-4 h-4" />
+                              WhatsApp
+                            </button>
+                          )}
+                          {os.status === "Pago" && (
+                            <button
+                              onClick={() => abrirComposerCompartilhamentoRecibo("email", [os.id], false)}
+                              className="px-3 py-1.5 text-sm bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg flex items-center gap-1"
+                              title="Compartilhar recibo por e-mail"
+                            >
+                              <Mail className="w-4 h-4" />
+                              E-mail
                             </button>
                           )}
                           {os.status === "Pago" && (
@@ -2111,6 +2700,145 @@ export default function FinanceiroPage() {
               >
                 {salvandoOS ? "Salvando..." : "Salvar alteracoes"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalCompartilharRecibo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40 p-4">
+          <div className="bg-white rounded-lg w-full max-w-2xl">
+            <div className="p-6 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">
+                {modalCompartilharRecibo.canal === "email" ? "Revisar e-mail do recibo" : "Revisar mensagem do recibo"}
+              </h3>
+              <p className="text-sm text-gray-500 mt-1">
+                {modalCompartilharRecibo.ids.length === 1
+                  ? `1 OS selecionada`
+                  : `${modalCompartilharRecibo.ids.length} OS selecionadas`}{" "}
+                {modalCompartilharRecibo.agrupar ? "com recibo agrupado" : "com recibo individual"}
+              </p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {modalCompartilharRecibo.canal === "email" ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">E-mail de destino</label>
+                  <input
+                    type="email"
+                    value={modalCompartilharRecibo.email}
+                    onChange={(e) =>
+                      setModalCompartilharRecibo((prev) =>
+                        prev ? { ...prev, email: e.target.value } : prev
+                      )
+                    }
+                    placeholder="destinatario@exemplo.com"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp de destino</label>
+                  <input
+                    type="text"
+                    value={modalCompartilharRecibo.telefone}
+                    onChange={(e) =>
+                      setModalCompartilharRecibo((prev) =>
+                        prev ? { ...prev, telefone: e.target.value } : prev
+                      )
+                    }
+                    placeholder="(85) 99999-9999"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                </div>
+              )}
+
+              {modalCompartilharRecibo.canal === "email" && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Assunto</label>
+                  <input
+                    type="text"
+                    value={modalCompartilharRecibo.assunto}
+                    onChange={(e) =>
+                      setModalCompartilharRecibo((prev) =>
+                        prev ? { ...prev, assunto: e.target.value } : prev
+                      )
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Mensagem</label>
+                <textarea
+                  rows={10}
+                  value={modalCompartilharRecibo.mensagem}
+                  onChange={(e) =>
+                    setModalCompartilharRecibo((prev) =>
+                      prev ? { ...prev, mensagem: e.target.value } : prev
+                    )
+                  }
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+              </div>
+
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                O sistema tenta compartilhar o PDF automaticamente. Se o navegador nao permitir, ele baixa o arquivo e abre o {modalCompartilharRecibo.canal === "email" ? "e-mail" : "WhatsApp"} com essa mensagem para anexo manual.
+              </div>
+            </div>
+
+            <div className="p-6 border-t flex justify-end gap-3">
+              <button
+                onClick={() => setModalCompartilharRecibo(null)}
+                disabled={enviandoCompartilhamentoRecibo}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg border disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarCompartilhamentoRecibo}
+                disabled={enviandoCompartilhamentoRecibo}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 flex items-center gap-2"
+              >
+                {modalCompartilharRecibo.canal === "email" ? <Mail className="w-4 h-4" /> : <MessageCircle className="w-4 h-4" />}
+                {enviandoCompartilhamentoRecibo ? "Preparando..." : modalCompartilharRecibo.canal === "email" ? "Abrir e-mail" : "Abrir WhatsApp"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {previewRecibo && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-40 p-4">
+          <div className="bg-white rounded-lg w-full max-w-6xl h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-4 border-b flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">{previewRecibo.titulo}</h3>
+                <p className="text-sm text-gray-500">{previewRecibo.filename}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => baixarReciboOSPDF(previewRecibo.ids, previewRecibo.agrupar)}
+                  className="px-3 py-1.5 text-sm bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-lg flex items-center gap-1"
+                >
+                  <Download className="w-4 h-4" />
+                  Baixar PDF
+                </button>
+                <button
+                  onClick={fecharPreviewRecibo}
+                  className="px-3 py-1.5 text-sm border rounded-lg text-gray-700 hover:bg-gray-50"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-gray-100">
+              <iframe
+                src={previewRecibo.url}
+                title={previewRecibo.titulo}
+                className="w-full h-full"
+              />
             </div>
           </div>
         </div>
