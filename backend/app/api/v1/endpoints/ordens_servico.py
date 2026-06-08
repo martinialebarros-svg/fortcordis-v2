@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
@@ -293,11 +293,12 @@ def _desenhar_rodape_relatorio(canvas, doc, texto_rodape: str):
     canvas.saveState()
     canvas.setStrokeColor(colors.HexColor("#D1D5DB"))
     canvas.setLineWidth(0.5)
-    canvas.line(doc.leftMargin, 12 * mm, A4[0] - doc.rightMargin, 12 * mm)
+    largura_pagina = doc.pagesize[0]
+    canvas.line(doc.leftMargin, 12 * mm, largura_pagina - doc.rightMargin, 12 * mm)
     canvas.setFont("Helvetica", 8)
     canvas.setFillColor(colors.HexColor("#6B7280"))
     canvas.drawString(doc.leftMargin, 8 * mm, (texto_rodape or "")[:120])
-    canvas.drawRightString(A4[0] - doc.rightMargin, 8 * mm, f"Pagina {canvas.getPageNumber()}")
+    canvas.drawRightString(largura_pagina - doc.rightMargin, 8 * mm, f"Pagina {canvas.getPageNumber()}")
     canvas.restoreState()
 
 
@@ -313,7 +314,7 @@ def _gerar_pdf_cobranca_pendencias(
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
-        pagesize=A4,
+        pagesize=landscape(A4) if agrupar else A4,
         leftMargin=14 * mm,
         rightMargin=14 * mm,
         topMargin=14 * mm,
@@ -559,7 +560,7 @@ def _gerar_pdf_recibos_ordens(
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
-        pagesize=A4,
+        pagesize=landscape(A4) if agrupar else A4,
         leftMargin=14 * mm,
         rightMargin=14 * mm,
         topMargin=14 * mm,
@@ -593,6 +594,43 @@ def _gerar_pdf_recibos_ordens(
         leading=13,
         textColor=colors.HexColor("#111827"),
     )
+    style_tabela = ParagraphStyle(
+        "ReciboTabela",
+        parent=style_normal,
+        fontName="Helvetica",
+        fontSize=8.2,
+        leading=10,
+    )
+    style_tabela_cabecalho = ParagraphStyle(
+        "ReciboTabelaCabecalho",
+        parent=style_tabela,
+        fontName="Helvetica-Bold",
+        textColor=colors.HexColor("#0F172A"),
+    )
+    style_tabela_direita = ParagraphStyle(
+        "ReciboTabelaDireita",
+        parent=style_tabela,
+        alignment=2,
+    )
+
+    def _celula_tabela(
+        valor: Any,
+        *,
+        cabecalho: bool = False,
+        alinhar_direita: bool = False,
+        quebrar_linhas: bool = False,
+    ) -> Paragraph:
+        texto = _texto_pdf(valor, "-")
+        if quebrar_linhas:
+            texto = texto.replace(", ", "<br/>")
+        estilo = (
+            style_tabela_cabecalho
+            if cabecalho
+            else style_tabela_direita
+            if alinhar_direita
+            else style_tabela
+        )
+        return Paragraph(texto, estilo)
 
     story: List[Any] = []
     logo = None
@@ -685,35 +723,48 @@ def _gerar_pdf_recibos_ordens(
             )
 
         linhas_tabela = [[
-            "OS",
-            "Data receb.",
-            "Paciente",
-            "Clinica",
-            "Servico",
-            "Formas",
-            "Valor",
+            _celula_tabela("OS", cabecalho=True),
+            _celula_tabela("Data receb.", cabecalho=True),
+            _celula_tabela("Paciente", cabecalho=True),
+            _celula_tabela("Clinica", cabecalho=True),
+            _celula_tabela("Servico", cabecalho=True),
+            _celula_tabela("Formas", cabecalho=True),
+            _celula_tabela("Valor", cabecalho=True, alinhar_direita=True),
         ]]
         for item in recibos:
             linhas_tabela.append(
                 [
-                    str(item["numero_os"] or "-"),
-                    _formatar_data_ddmmaa(item["data_recebimento"]),
-                    str(item["paciente"] or "-"),
-                    str(item["clinica"] or "-"),
-                    str(item["servico"] or "-"),
-                    _resumir_formas_pagamento_recibo(
-                        item["pagamentos"],
-                        float(item["valor_credito_utilizado"] or 0),
-                        bool(item["possui_detalhamento_legacy"]),
+                    _celula_tabela(item["numero_os"]),
+                    _celula_tabela(_formatar_data_ddmmaa(item["data_recebimento"])),
+                    _celula_tabela(item["paciente"]),
+                    _celula_tabela(item["clinica"]),
+                    _celula_tabela(item["servico"]),
+                    _celula_tabela(
+                        _resumir_formas_pagamento_recibo(
+                            item["pagamentos"],
+                            float(item["valor_credito_utilizado"] or 0),
+                            bool(item["possui_detalhamento_legacy"]),
+                        ),
+                        quebrar_linhas=True,
                     ),
-                    _formatar_moeda_brl(item["valor_final"]),
+                    _celula_tabela(_formatar_moeda_brl(item["valor_final"]), alinhar_direita=True),
                 ]
             )
-        linhas_tabela.append(["", "", "", "", "", "Total recebido", _formatar_moeda_brl(total_geral)])
+        linhas_tabela.append(
+            [
+                _celula_tabela(""),
+                _celula_tabela(""),
+                _celula_tabela(""),
+                _celula_tabela(""),
+                _celula_tabela(""),
+                _celula_tabela("Total recebido", cabecalho=True),
+                _celula_tabela(_formatar_moeda_brl(total_geral), cabecalho=True, alinhar_direita=True),
+            ]
+        )
         subtotal_row = len(linhas_tabela) - 1
         tabela = Table(
             linhas_tabela,
-            colWidths=[20 * mm, 22 * mm, 28 * mm, 34 * mm, 34 * mm, 42 * mm, 20 * mm],
+            colWidths=[24 * mm, 24 * mm, 30 * mm, 34 * mm, 34 * mm, 90 * mm, 24 * mm],
             repeatRows=1,
         )
         tabela.setStyle(

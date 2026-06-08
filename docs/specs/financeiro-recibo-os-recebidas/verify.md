@@ -19,9 +19,13 @@ Status: done
 | CA-009 | aceitacao | modelos distintos de mensagem para recibo individual e agrupado na tela Financeiro | ok |
 | CA-010 | aceitacao | botao `Previa` abre modal do PDF sem exigir download imediato | ok |
 | CA-011 | aceitacao | previa usa renderer compativel com Safari e oferece `Abrir em nova aba` como alternativa explicita | ok |
+| CA-012 | aceitacao | previa de varias OS renderiza todas as paginas do PDF em sequencia no modal | ok |
+| CA-013 | aceitacao | recibo agrupado evita sobreposicao de colunas com layout em paisagem e quebra de linha nas celulas | ok |
 | HOTFIX-001 | regressao | endpoint de recibo volta a carregar `configuracao_usuario` antes de usar assinatura/CRMV | ok |
 | HOTFIX-002 | regressao | frontend tenta ler `detail` quando erro vem como `blob` | ok |
 | HOTFIX-003 | regressao | preview do recibo deixa de depender apenas de `iframe` e passa a usar fallback compativel com Safari | ok |
+| HOTFIX-004 | regressao | modal passa a renderizar o PDF via `pdfjs-dist`, eliminando area em branco do viewer inline | ok |
+| HOTFIX-005 | regressao | tabela do recibo agrupado usa paisagem e `Paragraph` nas celulas para acomodar textos longos | ok |
 
 ## 2) Testes automatizados executados
 
@@ -35,6 +39,8 @@ cd frontend && npx eslint app/financeiro/page.tsx
 Resumo:
 - `python3 -m py_compile backend/app/api/v1/endpoints/ordens_servico.py`: ok
 - `npx eslint app/financeiro/page.tsx`: ok
+- `npx tsc --noEmit`: ok
+- `pytest -q backend/tests/test_sdd_guardrail.py`: ok (`5 passed`)
 - `gh run view 27164936912 --log`: falha identificada como `sdd-guardrail` por ausencia de mudanca em `spec.md` + `verify.md` no ciclo do hotfix; alinhamento documental aplicado neste commit.
 - `gh run view 27170677717 --log`: falha identificada como `sdd-guardrail` apos hotfix da previa porque apenas `frontend/app/financeiro/page.tsx` mudou sem atualizar artefatos SDD; alinhamento documental reaplicado neste commit.
 
@@ -51,6 +57,8 @@ Resumo:
 - Alterar os dois modelos base e validar que individual e agrupado abrem com textos diferentes.
 - Abrir a previa do recibo individual e do agrupado antes do download e validar renderizacao do PDF.
 - Repetir a previa no Safari e validar abertura inline ou pela acao `Abrir em nova aba`.
+- Selecionar varias OS pagas e validar que a previa do modal renderiza todas as paginas do arquivo em sequencia.
+- Gerar recibo agrupado com formas de pagamento longas e validar ausencia de sobreposicao entre colunas.
 - Gerar recibo apos o hotfix de stage e confirmar ausencia de erro generico anterior.
 
 ## 4) Riscos residuais

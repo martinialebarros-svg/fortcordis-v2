@@ -6,6 +6,9 @@ Status: done
 
 ## 0) Atualizacao de ciclo
 
+- 2026-06-08 (hotfix stage): previa inline do recibo passou a renderizar as paginas do PDF dentro do modal, evitando area em branco no Safari e permitindo rolagem por todas as OS selecionadas.
+- 2026-06-08 (hotfix stage): previa de multiplas OS passou a exibir todas as paginas do arquivo no modal, em vez de depender apenas do viewer nativo do navegador.
+- 2026-06-08 (hotfix stage): recibo agrupado passou a ser gerado em paisagem com quebra de linha e distribuicao de colunas ajustada para evitar sobreposicao de dados.
 - 2026-06-08 (hotfix stage): previa do recibo passou a priorizar renderizacao inline compativel com Safari usando visualizador PDF mais tolerante e acao de abrir em nova aba.
 - 2026-06-08 (hotfix stage): corrigido o carregamento da configuracao do usuario no endpoint de recibo para evitar falha em runtime ao gerar PDF na stage.
 - 2026-06-08 (hotfix stage): frontend passou a tentar extrair `detail` mesmo quando a API responde erro em `blob`, reduzindo a mensagem generica no modulo Financeiro.
@@ -33,6 +36,8 @@ Adicionar geracao de recibo para ordens de servico ja recebidas no modulo Financ
 - RF-013: deve existir um modelo base diferente para mensagem de recibo individual e para mensagem de recibo agrupado.
 - RF-014: usuario deve conseguir visualizar uma previa do PDF do recibo antes de baixar ou compartilhar.
 - RF-015: a previa deve funcionar em navegadores com suporte parcial a `iframe` de `blob`, incluindo fallback compativel com Safari e opcao de abrir o PDF em nova aba.
+- RF-016: quando o PDF tiver varias paginas, a previa deve renderizar todas elas no modal para conferencia sequencial das OS selecionadas.
+- RF-017: o recibo agrupado deve ajustar orientacao, largura e quebra de conteudo da tabela para evitar sobreposicao entre colunas.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -83,6 +88,8 @@ Adicionar geracao de recibo para ordens de servico ja recebidas no modulo Financ
 - CA-009: a mensagem inicial do compartilhamento deve usar modelos diferentes para recibo individual e agrupado.
 - CA-010: ao clicar em `Previa`, o sistema deve abrir uma visualizacao do PDF do recibo sem exigir download imediato.
 - CA-011: em navegadores como Safari, a previa deve continuar acessivel com renderer compativel e alternativa explicita para abrir o PDF em nova aba.
+- CA-012: ao visualizar uma previa de varias OS, o modal deve exibir todas as paginas do PDF em sequencia.
+- CA-013: no recibo agrupado, colunas de formas de pagamento e valores nao podem sobrepor texto mesmo com conteudo longo.
 
 ## 6) Fora de escopo
 

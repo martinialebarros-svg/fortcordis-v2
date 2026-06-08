@@ -188,6 +188,131 @@ interface PreviewReciboState {
   titulo: string;
   filename: string;
   url: string;
+  blob: Blob;
+}
+
+function ReciboPdfPreview({
+  blob,
+  titulo,
+}: {
+  blob: Blob;
+  titulo: string;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState("");
+  const [quantidadePaginas, setQuantidadePaginas] = useState(0);
+
+  useEffect(() => {
+    let cancelado = false;
+    let documentoPdf: any = null;
+
+    const renderizar = async () => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      container.innerHTML = "";
+      setCarregando(true);
+      setErro("");
+      setQuantidadePaginas(0);
+
+      try {
+        const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+          "pdfjs-dist/legacy/build/pdf.worker.min.mjs",
+          import.meta.url
+        ).toString();
+
+        const data = new Uint8Array(await blob.arrayBuffer());
+        const loadingTask = pdfjsLib.getDocument({
+          data,
+          useWorkerFetch: false,
+          isEvalSupported: false,
+        });
+        documentoPdf = await loadingTask.promise;
+
+        if (cancelado) return;
+
+        setQuantidadePaginas(documentoPdf.numPages);
+        const larguraDisponivel = Math.max((container.clientWidth || 0) - 24, 320);
+        const escalaSaida = window.devicePixelRatio || 1;
+
+        for (let paginaAtual = 1; paginaAtual <= documentoPdf.numPages; paginaAtual += 1) {
+          if (cancelado) return;
+
+          const pagina = await documentoPdf.getPage(paginaAtual);
+          const viewportBase = pagina.getViewport({ scale: 1 });
+          const escala = Math.max(0.8, larguraDisponivel / viewportBase.width);
+          const viewport = pagina.getViewport({ scale: escala });
+
+          const wrapper = document.createElement("div");
+          wrapper.className = "mb-4 flex justify-center last:mb-0";
+
+          const canvas = document.createElement("canvas");
+          canvas.className = "bg-white shadow-sm";
+          canvas.width = Math.floor(viewport.width * escalaSaida);
+          canvas.height = Math.floor(viewport.height * escalaSaida);
+          canvas.style.width = `${Math.floor(viewport.width)}px`;
+          canvas.style.height = `${Math.floor(viewport.height)}px`;
+
+          const context = canvas.getContext("2d");
+          if (!context) {
+            throw new Error("Nao foi possivel inicializar o canvas da previa.");
+          }
+
+          wrapper.appendChild(canvas);
+          container.appendChild(wrapper);
+
+          await pagina.render({
+            canvasContext: context,
+            viewport,
+            transform:
+              escalaSaida !== 1 ? [escalaSaida, 0, 0, escalaSaida, 0, 0] : undefined,
+          }).promise;
+        }
+      } catch (err) {
+        console.error("Erro ao renderizar previa do recibo:", err);
+        if (!cancelado) {
+          setErro("A previa inline do PDF nao carregou neste navegador.");
+        }
+      } finally {
+        if (!cancelado) {
+          setCarregando(false);
+        }
+      }
+    };
+
+    renderizar();
+
+    return () => {
+      cancelado = true;
+      if (containerRef.current) {
+        containerRef.current.innerHTML = "";
+      }
+      documentoPdf?.destroy?.();
+    };
+  }, [blob]);
+
+  return (
+    <div className="h-full overflow-auto bg-gray-100 p-3">
+      {carregando && (
+        <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+          Carregando previa{quantidadePaginas > 0 ? ` (${quantidadePaginas} pagina(s))` : ""}...
+        </div>
+      )}
+      {erro && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          {erro} Abra em nova aba para usar o visualizador nativo do navegador.
+        </div>
+      )}
+      {!carregando && !erro && quantidadePaginas > 1 && (
+        <div className="mb-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600">
+          Exibindo {quantidadePaginas} paginas do arquivo `{titulo}`. Role para ver todas as OS.
+        </div>
+      )}
+      <div ref={containerRef} className="min-h-full" />
+    </div>
+  );
 }
 
 export default function FinanceiroPage() {
@@ -1482,6 +1607,7 @@ export default function FinanceiroPage() {
           titulo,
           filename: arquivo.filename,
           url,
+          blob: arquivo.blob,
         };
       });
     } finally {
@@ -2858,38 +2984,8 @@ export default function FinanceiroPage() {
                 </button>
               </div>
             </div>
-            <div className="flex-1 bg-gray-100">
-              <object
-                data={`${previewRecibo.url}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
-                type="application/pdf"
-                className="w-full h-full"
-              >
-                <iframe
-                  src={previewRecibo.url}
-                  title={previewRecibo.titulo}
-                  className="w-full h-full"
-                />
-                <div className="h-full w-full flex items-center justify-center p-6 text-center text-gray-600">
-                  <div>
-                    <p className="font-medium text-gray-900 mb-2">A previa inline do PDF nao carregou neste navegador.</p>
-                    <p className="text-sm mb-4">Use uma das acoes abaixo para visualizar o recibo.</p>
-                    <div className="flex items-center justify-center gap-2">
-                      <button
-                        onClick={abrirPreviewReciboNovaAba}
-                        className="px-3 py-1.5 text-sm bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg"
-                      >
-                        Abrir em nova aba
-                      </button>
-                      <button
-                        onClick={() => baixarReciboOSPDF(previewRecibo.ids, previewRecibo.agrupar)}
-                        className="px-3 py-1.5 text-sm bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-lg"
-                      >
-                        Baixar PDF
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </object>
+            <div className="flex-1 min-h-0">
+              <ReciboPdfPreview blob={previewRecibo.blob} titulo={previewRecibo.filename} />
             </div>
           </div>
         </div>
