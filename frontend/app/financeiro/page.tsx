@@ -1489,6 +1489,11 @@ export default function FinanceiroPage() {
     }
   };
 
+  const abrirPreviewReciboNovaAba = () => {
+    if (!previewRecibo?.url) return;
+    window.open(previewRecibo.url, "_blank", "noopener,noreferrer");
+  };
+
   const compartilharReciboPorEmail = async (
     ids: number[],
     agrupar: boolean,
@@ -2832,6 +2837,13 @@ export default function FinanceiroPage() {
               </div>
               <div className="flex items-center gap-2">
                 <button
+                  onClick={abrirPreviewReciboNovaAba}
+                  className="px-3 py-1.5 text-sm bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg flex items-center gap-1"
+                >
+                  <FileText className="w-4 h-4" />
+                  Abrir em nova aba
+                </button>
+                <button
                   onClick={() => baixarReciboOSPDF(previewRecibo.ids, previewRecibo.agrupar)}
                   className="px-3 py-1.5 text-sm bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-lg flex items-center gap-1"
                 >
@@ -2847,11 +2859,37 @@ export default function FinanceiroPage() {
               </div>
             </div>
             <div className="flex-1 bg-gray-100">
-              <iframe
-                src={previewRecibo.url}
-                title={previewRecibo.titulo}
+              <object
+                data={`${previewRecibo.url}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
+                type="application/pdf"
                 className="w-full h-full"
-              />
+              >
+                <iframe
+                  src={previewRecibo.url}
+                  title={previewRecibo.titulo}
+                  className="w-full h-full"
+                />
+                <div className="h-full w-full flex items-center justify-center p-6 text-center text-gray-600">
+                  <div>
+                    <p className="font-medium text-gray-900 mb-2">A previa inline do PDF nao carregou neste navegador.</p>
+                    <p className="text-sm mb-4">Use uma das acoes abaixo para visualizar o recibo.</p>
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={abrirPreviewReciboNovaAba}
+                        className="px-3 py-1.5 text-sm bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg"
+                      >
+                        Abrir em nova aba
+                      </button>
+                      <button
+                        onClick={() => baixarReciboOSPDF(previewRecibo.ids, previewRecibo.agrupar)}
+                        className="px-3 py-1.5 text-sm bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-lg"
+                      >
+                        Baixar PDF
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </object>
             </div>
           </div>
         </div>
