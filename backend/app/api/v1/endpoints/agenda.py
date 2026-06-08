@@ -3708,11 +3708,21 @@ def orquestrar_ofertas_assistente(
                 if adicionados >= limite_categoria or len(selecoes) >= ASSISTENTE_HIERARQUIA_MAX_DATAS:
                     break
 
+        possui_data_vazia_disponivel = any(
+            registro.get("categoria") == "data_vazia"
+            and isinstance(registro.get("items_hierarquia"), list)
+            and bool(registro.get("items_hierarquia"))
+            for registro in panoramas_consultados
+        )
+
         _adicionar_registros("ancora", 2)
+        vagas_restantes = max(0, ASSISTENTE_HIERARQUIA_MAX_DATAS - len(selecoes))
+        reserva_data_vazia = 1 if possui_data_vazia_disponivel and vagas_restantes > 0 else 0
+        limite_operacional = max(0, vagas_restantes - reserva_data_vazia)
+        if limite_operacional > 0:
+            _adicionar_registros("operacional", limite_operacional)
         _adicionar_registros("data_vazia", 1)
-        if len(selecoes) < 2:
-            _adicionar_registros("operacional", ASSISTENTE_HIERARQUIA_MAX_DATAS)
-        elif len(selecoes) < ASSISTENTE_HIERARQUIA_MAX_DATAS:
+        if len(selecoes) < ASSISTENTE_HIERARQUIA_MAX_DATAS:
             _adicionar_registros("operacional", ASSISTENTE_HIERARQUIA_MAX_DATAS)
         return selecoes[:ASSISTENTE_HIERARQUIA_MAX_DATAS]
 
@@ -3731,6 +3741,17 @@ def orquestrar_ofertas_assistente(
                 continue
 
         data_cursor = max(datas_candidatas_ref) if datas_candidatas_ref else data_referencia_ref
+        data_inicio_intervalo = min(datas_candidatas_ref) if datas_candidatas_ref else data_referencia_ref
+        if data_inicio_intervalo < data_cursor:
+            data_intervalo = data_inicio_intervalo
+            while data_intervalo <= data_cursor:
+                data_intervalo_iso = data_intervalo.isoformat()
+                if data_intervalo_iso not in datas_tentadas_set:
+                    _consultar_panorama_data(data_intervalo_iso, "intervalo_candidatos")
+                    datas_tentadas_set.add(data_intervalo_iso)
+                data_intervalo = data_intervalo + timedelta(days=1)
+            selecoes_hierarquia = _selecionar_datas_hierarquia()
+
         dias_busca_progressiva = 0
 
         while len(selecoes_hierarquia) < 2 and dias_busca_progressiva < ASSISTENTE_BUSCA_PROGRESSIVA_MAX_DIAS:

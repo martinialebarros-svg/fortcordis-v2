@@ -32,7 +32,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - RF-020: no assistente de proximidade, o tempo exibido/ranqueado deve usar o deslocamento total do slot sugerido, somando deslocamento do vizinho anterior e do vizinho posterior quando existirem.
 - RF-021: em bloqueio operacional por conflito de deslocamento no salvar, admin deve poder conceder excecao explicita no proprio fluxo e confirmar o agendamento.
 - RF-022: quando as datas iniciais (manual/politica/proximidade) nao retornarem nenhum slot util no panorama, o assistente deve continuar buscando automaticamente nos dias seguintes (D+N progressivo) ate encontrar a primeira data com oferta valida.
-- RF-023: no panorama do assistente, as ofertas devem ser organizadas em ate 3 datas distintas, priorizando duas datas com ancora aderente e, em seguida, uma data vazia; nas datas com ancora, apenas slots adjacentes a ancora podem ser exibidos para manter a lista objetiva.
+- RF-023: no panorama do assistente, as ofertas devem ser organizadas em ate 3 datas distintas, priorizando duas datas com ancora aderente e, apenas depois disso, uma data vazia; nas datas com ancora, apenas slots adjacentes a ancora podem ser exibidos para manter a lista objetiva, e os dias intermediarios entre datas automaticas devem ser avaliados antes de promover uma agenda vazia.
 
 ## 3) Requisitos nao funcionais (NFR)
 

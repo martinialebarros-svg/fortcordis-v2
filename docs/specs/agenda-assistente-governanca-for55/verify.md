@@ -18,7 +18,7 @@ Status: in-progress
 | CA-008 | aceitacao | `GET /agenda/assistente/metricas` agrega por etapa/perfil/clinica | ok |
 | CA-009 | aceitacao | orquestrador tenta fallback de datas candidatas quando primeira data automatica vem sem ofertas | ok |
 | CA-010 | aceitacao | modal libera fluxo retroativo para admin em data passada + zero ofertas; nao-admin segue bloqueado | ok |
-| CA-011 | aceitacao | orquestrador hierarquiza ate 3 datas (`ancora`, `outra ancora`, `data vazia`) e limita 2 slots por data, usando apenas adjacencias da ancora quando houver | ok |
+| CA-011 | aceitacao | orquestrador hierarquiza ate 3 datas com `data vazia` apenas no fim e varre dias intermediarios entre datas candidatas para nao perder ancoras validas | ok |
 
 ## 2) Testes automatizados executados
 
@@ -62,7 +62,7 @@ cd backend && ./venv/bin/python -m pytest -q tests/test_agenda_assistente_orques
 
 Resultado adicional:
 - `py_compile`: ok.
-- Pytest focal do assistente/orquestrador: `35 passed`.
+- Pytest focal do assistente/orquestrador: `36 passed`.
 
 ## 3) Smoke operacional recomendado (FOR-62)
 

@@ -28,7 +28,7 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
 - RF-010: backend deve expor endpoint admin de metricas agregadas do funil por etapa, perfil, clinica e serie diaria.
 - RF-011: no endpoint `POST /agenda/assistente/ofertas`, quando a primeira `data_base` automatica nao retornar slots operacionais, o backend deve tentar fallback deterministico entre datas candidatas (proximidade -> datas preferenciais da politica -> data de referencia), interrompendo na primeira data com ofertas validas.
 - RF-012: no modal de novo agendamento, quando a data selecionada for passada e o panorama vier sem ofertas, o admin deve poder liberar um fluxo retroativo controlado para concluir o cadastro manual com justificativa obrigatoria.
-- RF-013: no endpoint `POST /agenda/assistente/ofertas`, o panorama deve priorizar ate 3 datas distintas em hierarquia operacional: (1) primeira data com ancora aderente na mesma clinica, exibindo apenas slots adjacentes a essa ancora; (2) segunda data distinta com ancora aderente; (3) primeira data vazia encontrada, sem outros agendamentos no dia.
+- RF-013: no endpoint `POST /agenda/assistente/ofertas`, o panorama deve priorizar ate 3 datas distintas em hierarquia operacional: (1) primeira data com ancora aderente na mesma clinica, exibindo apenas slots adjacentes a essa ancora; (2) segunda data distinta com ancora aderente; (3) primeira data vazia encontrada, sem outros agendamentos no dia. Antes de assumir essa terceira opcao, o backend deve varrer os dias intermediarios ja cobertos pelas datas candidatas automaticas para nao perder ancoras validas nesse intervalo.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -83,7 +83,7 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
 - CA-008: endpoint de metricas retorna agregacao por etapa, perfil e clinica no periodo informado.
 - CA-009: `POST /agenda/assistente/ofertas` nao deve retornar vazio definitivo apos primeira data automatica sem slots quando houver outra data candidata valida no mesmo contexto; deve tentar proximas datas e retornar oferta ao encontrar disponibilidade.
 - CA-010: com data passada e zero ofertas no panorama, admin consegue liberar fluxo retroativo e salvar agendamento manual apos informar justificativa; perfil nao-admin permanece bloqueado para essa liberacao.
-- CA-011: `POST /agenda/assistente/ofertas` deve devolver panorama hierarquizado em ate 3 datas, priorizando duas datas com ancora aderente na mesma clinica e, em seguida, a primeira data vazia; nas datas com ancora, apenas slots adjacentes a ancora podem entrar na lista final.
+- CA-011: `POST /agenda/assistente/ofertas` deve devolver panorama hierarquizado em ate 3 datas, priorizando duas datas com ancora aderente na mesma clinica e, apenas depois disso, a primeira data vazia; nas datas com ancora, apenas slots adjacentes a ancora podem entrar na lista final, e os dias intermediarios entre datas candidatas devem ser avaliados antes de promover uma agenda vazia.
 
 ## 7) Casos de borda
 
@@ -95,6 +95,7 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
 - CB-006: todas as datas preferenciais sem janela operacional e fallback final para `data_referencia` com oferta valida.
 - CB-007: data passada selecionada, sem sugestoes operacionais e necessidade de lancamento retroativo no mesmo modal.
 - CB-008: quando existir apenas 1 data com ancora aderente no horizonte pesquisado, o panorama deve completar a lista com a melhor data vazia ou operacional encontrada, sem repetir datas nem expandir em excesso a quantidade de slots.
+- CB-009: quando uma data vazia aparecer antes de uma ancora em dias intermediarios dentro do intervalo ja coberto pelas datas automaticas, o backend deve reordenar o panorama para promover a ancora e empurrar a data vazia para o fim da hierarquia.
 
 ## 8) Fora de escopo
 

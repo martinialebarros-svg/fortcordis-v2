@@ -28,7 +28,7 @@ Status: done
 | CA-018 | aceitacao | `sugerir_agendamento_proximo` passa a usar deslocamento total do slot (`anterior + proximo`) para ranking e mensagem | ok |
 | CA-019 | aceitacao | conflito operacional no salvar permite override apenas para admin via `confirmar_conflito_deslocamento`; nao-admin recebe `403` | ok |
 | CA-020 | aceitacao | `test_orquestrador_busca_dias_seguintes_quando_panorama_inicial_vazio` valida busca progressiva D+N ate primeira data com oferta | ok |
-| CA-021 | aceitacao | panorama final do assistente hierarquiza ate 3 datas e limita 2 slots por data, usando apenas adjacencias da ancora quando houver | ok |
+| CA-021 | aceitacao | panorama final do assistente hierarquiza ate 3 datas com `agenda vazia` apenas no fim e varre dias intermediarios entre datas automaticas antes de ordenar o resultado | ok |
 | NFR-002 | nao funcional | decisao anexada em `observacoesFinal` no submit | ok |
 
 ## 2) Testes automatizados executados
