@@ -4,6 +4,11 @@ Data: 2026-06-08
 Responsavel: Martiniano + Codex  
 Status: done
 
+## 0) Atualizacao de ciclo
+
+- 2026-06-08 (hotfix stage): corrigido o carregamento da configuracao do usuario no endpoint de recibo para evitar falha em runtime ao gerar PDF na stage.
+- 2026-06-08 (hotfix stage): frontend passou a tentar extrair `detail` mesmo quando a API responde erro em `blob`, reduzindo a mensagem generica no modulo Financeiro.
+
 ## 1) Escopo funcional
 
 Adicionar geracao de recibo para ordens de servico ja recebidas no modulo Financeiro, com suporte a emissao individual e emissao agrupada para varias OS selecionadas.
