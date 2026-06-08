@@ -6,6 +6,7 @@ Status: done
 
 ## 0) Atualizacao de ciclo
 
+- 2026-06-08 (hotfix stage): ao selecionar varias OS, a acao `Previa` passa a abrir o recibo consolidado agrupado, espelhando exatamente o formato do PDF agrupado.
 - 2026-06-08 (hotfix stage): previa inline do recibo passou a renderizar as paginas do PDF dentro do modal, evitando area em branco no Safari e permitindo rolagem por todas as OS selecionadas.
 - 2026-06-08 (hotfix stage): previa de multiplas OS passou a exibir todas as paginas do arquivo no modal, em vez de depender apenas do viewer nativo do navegador.
 - 2026-06-08 (hotfix stage): recibo agrupado passou a ser gerado em paisagem com quebra de linha e distribuicao de colunas ajustada para evitar sobreposicao de dados.
@@ -38,6 +39,7 @@ Adicionar geracao de recibo para ordens de servico ja recebidas no modulo Financ
 - RF-015: a previa deve funcionar em navegadores com suporte parcial a `iframe` de `blob`, incluindo fallback compativel com Safari e opcao de abrir o PDF em nova aba.
 - RF-016: quando o PDF tiver varias paginas, a previa deve renderizar todas elas no modal para conferencia sequencial das OS selecionadas.
 - RF-017: o recibo agrupado deve ajustar orientacao, largura e quebra de conteudo da tabela para evitar sobreposicao entre colunas.
+- RF-018: ao abrir a previa com mais de uma OS selecionada, o sistema deve usar a mesma consolidacao agrupada aplicada na geracao do recibo agrupado.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -90,6 +92,7 @@ Adicionar geracao de recibo para ordens de servico ja recebidas no modulo Financ
 - CA-011: em navegadores como Safari, a previa deve continuar acessivel com renderer compativel e alternativa explicita para abrir o PDF em nova aba.
 - CA-012: ao visualizar uma previa de varias OS, o modal deve exibir todas as paginas do PDF em sequencia.
 - CA-013: no recibo agrupado, colunas de formas de pagamento e valores nao podem sobrepor texto mesmo com conteudo longo.
+- CA-014: ao selecionar varias OS e clicar em `Previa`, a visualizacao deve abrir o recibo agrupado consolidado, e nao recibos individuais por pagina.
 
 ## 6) Fora de escopo
 

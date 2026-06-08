@@ -2429,7 +2429,7 @@ export default function FinanceiroPage() {
                   Limpar selecao
                 </button>
                 <button
-                  onClick={() => abrirPreviewRecibo(osSelecionadasRecibo, false)}
+                  onClick={() => abrirPreviewRecibo(osSelecionadasRecibo, osSelecionadasRecibo.length > 1)}
                   disabled={osSelecionadasRecibo.length === 0 || carregandoPreviewRecibo}
                   className="px-3 py-1.5 text-sm bg-white border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-50 flex items-center gap-1 disabled:opacity-50"
                 >

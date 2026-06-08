@@ -21,11 +21,13 @@ Status: done
 | CA-011 | aceitacao | previa usa renderer compativel com Safari e oferece `Abrir em nova aba` como alternativa explicita | ok |
 | CA-012 | aceitacao | previa de varias OS renderiza todas as paginas do PDF em sequencia no modal | ok |
 | CA-013 | aceitacao | recibo agrupado evita sobreposicao de colunas com layout em paisagem e quebra de linha nas celulas | ok |
+| CA-014 | aceitacao | acao `Previa` com varias OS selecionadas abre o mesmo recibo agrupado consolidado usado em `Gerar recibo agrupado` | ok |
 | HOTFIX-001 | regressao | endpoint de recibo volta a carregar `configuracao_usuario` antes de usar assinatura/CRMV | ok |
 | HOTFIX-002 | regressao | frontend tenta ler `detail` quando erro vem como `blob` | ok |
 | HOTFIX-003 | regressao | preview do recibo deixa de depender apenas de `iframe` e passa a usar fallback compativel com Safari | ok |
 | HOTFIX-004 | regressao | modal passa a renderizar o PDF via `pdfjs-dist`, eliminando area em branco do viewer inline | ok |
 | HOTFIX-005 | regressao | tabela do recibo agrupado usa paisagem e `Paragraph` nas celulas para acomodar textos longos | ok |
+| HOTFIX-006 | regressao | botao de previa em lote passa a solicitar PDF agrupado quando ha mais de uma OS selecionada | ok |
 
 ## 2) Testes automatizados executados
 
@@ -59,6 +61,7 @@ Resumo:
 - Repetir a previa no Safari e validar abertura inline ou pela acao `Abrir em nova aba`.
 - Selecionar varias OS pagas e validar que a previa do modal renderiza todas as paginas do arquivo em sequencia.
 - Gerar recibo agrupado com formas de pagamento longas e validar ausencia de sobreposicao entre colunas.
+- Selecionar varias OS pagas e confirmar que `Previa` abre o consolidado agrupado, igual ao layout de `Gerar recibo agrupado`.
 - Gerar recibo apos o hotfix de stage e confirmar ausencia de erro generico anterior.
 
 ## 4) Riscos residuais
