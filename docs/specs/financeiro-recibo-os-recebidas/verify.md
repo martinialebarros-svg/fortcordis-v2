@@ -17,9 +17,11 @@ Status: done
 | CA-007 | aceitacao | modal de revisao abre antes do envio com mensagem editavel e campos do canal | ok |
 | CA-008 | aceitacao | PDF adiciona assinatura do emissor com fallback da assinatura padrao do sistema | ok |
 | CA-009 | aceitacao | modelos distintos de mensagem para recibo individual e agrupado na tela Financeiro | ok |
-| CA-010 | aceitacao | botao `Previa` abre modal com `iframe` do PDF e opcao de baixar | ok |
+| CA-010 | aceitacao | botao `Previa` abre modal do PDF sem exigir download imediato | ok |
+| CA-011 | aceitacao | previa usa renderer compativel com Safari e oferece `Abrir em nova aba` como alternativa explicita | ok |
 | HOTFIX-001 | regressao | endpoint de recibo volta a carregar `configuracao_usuario` antes de usar assinatura/CRMV | ok |
 | HOTFIX-002 | regressao | frontend tenta ler `detail` quando erro vem como `blob` | ok |
+| HOTFIX-003 | regressao | preview do recibo deixa de depender apenas de `iframe` e passa a usar fallback compativel com Safari | ok |
 
 ## 2) Testes automatizados executados
 
@@ -34,6 +36,7 @@ Resumo:
 - `python3 -m py_compile backend/app/api/v1/endpoints/ordens_servico.py`: ok
 - `npx eslint app/financeiro/page.tsx`: ok
 - `gh run view 27164936912 --log`: falha identificada como `sdd-guardrail` por ausencia de mudanca em `spec.md` + `verify.md` no ciclo do hotfix; alinhamento documental aplicado neste commit.
+- `gh run view 27170677717 --log`: falha identificada como `sdd-guardrail` apos hotfix da previa porque apenas `frontend/app/financeiro/page.tsx` mudou sem atualizar artefatos SDD; alinhamento documental reaplicado neste commit.
 
 ## 3) Smoke manual recomendado
 
@@ -47,6 +50,7 @@ Resumo:
 - Com assinatura pessoal cadastrada, gerar recibo e validar assinatura/nome/CRMV no PDF.
 - Alterar os dois modelos base e validar que individual e agrupado abrem com textos diferentes.
 - Abrir a previa do recibo individual e do agrupado antes do download e validar renderizacao do PDF.
+- Repetir a previa no Safari e validar abertura inline ou pela acao `Abrir em nova aba`.
 - Gerar recibo apos o hotfix de stage e confirmar ausencia de erro generico anterior.
 
 ## 4) Riscos residuais

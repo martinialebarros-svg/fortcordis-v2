@@ -6,6 +6,7 @@ Status: done
 
 ## 0) Atualizacao de ciclo
 
+- 2026-06-08 (hotfix stage): previa do recibo passou a priorizar renderizacao inline compativel com Safari usando visualizador PDF mais tolerante e acao de abrir em nova aba.
 - 2026-06-08 (hotfix stage): corrigido o carregamento da configuracao do usuario no endpoint de recibo para evitar falha em runtime ao gerar PDF na stage.
 - 2026-06-08 (hotfix stage): frontend passou a tentar extrair `detail` mesmo quando a API responde erro em `blob`, reduzindo a mensagem generica no modulo Financeiro.
 
@@ -31,6 +32,7 @@ Adicionar geracao de recibo para ordens de servico ja recebidas no modulo Financ
 - RF-012: no envio por WhatsApp, o usuario deve poder revisar e editar o telefone de destino.
 - RF-013: deve existir um modelo base diferente para mensagem de recibo individual e para mensagem de recibo agrupado.
 - RF-014: usuario deve conseguir visualizar uma previa do PDF do recibo antes de baixar ou compartilhar.
+- RF-015: a previa deve funcionar em navegadores com suporte parcial a `iframe` de `blob`, incluindo fallback compativel com Safari e opcao de abrir o PDF em nova aba.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -66,6 +68,7 @@ Adicionar geracao de recibo para ordens de servico ja recebidas no modulo Financ
   - editor de modelo para mensagem base do recibo individual
   - editor de modelo para mensagem base do recibo agrupado
   - modal de previa do PDF do recibo
+  - fallback da previa com visualizador PDF compativel e acao `Abrir em nova aba`
 
 ## 5) Criterios de aceitacao (CA)
 
@@ -79,6 +82,7 @@ Adicionar geracao de recibo para ordens de servico ja recebidas no modulo Financ
 - CA-008: recibo PDF deve sair com assinatura do usuario emissor quando existir, com fallback para assinatura padrao do sistema.
 - CA-009: a mensagem inicial do compartilhamento deve usar modelos diferentes para recibo individual e agrupado.
 - CA-010: ao clicar em `Previa`, o sistema deve abrir uma visualizacao do PDF do recibo sem exigir download imediato.
+- CA-011: em navegadores como Safari, a previa deve continuar acessivel com renderer compativel e alternativa explicita para abrir o PDF em nova aba.
 
 ## 6) Fora de escopo
 
