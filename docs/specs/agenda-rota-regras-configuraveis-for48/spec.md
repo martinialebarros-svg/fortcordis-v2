@@ -11,7 +11,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 ## 2) Requisitos funcionais (RF)
 
 - RF-001: sistema deve armazenar `agenda_rota_regras` em `configuracoes` com defaults e normalizacao.
-- RF-002: sugestao de horarios deve considerar limiares de margem segura, desvio maximo de insercao e preferencia por clinicas proximas da base no fim de rota.
+- RF-002: sugestao de horarios deve considerar limiares de margem segura, deslocamento maximo por trecho vizinho, desvio maximo de insercao e preferencia por clinicas proximas da base no fim de rota.
 - RF-003: sugestao de proximidade deve retornar politica aplicada (dias preferenciais, sinalizacao de distancia/frequencia e override por clinica).
 - RF-004: UI de Configuracoes deve permitir editar base, thresholds, politicas e overrides por clinica.
 - RF-005: em slots fechados da agenda, apenas perfil `admin` pode abrir excecao diretamente pelo clique no slot (agenda normal e fullcalendar), com confirmacao explicita.
@@ -23,6 +23,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - RF-011: leitura inicial do contexto por query string nas telas de Agenda deve ser compatível com build de producao do Next.js sem exigir boundary adicional de suspense.
 - RF-012: mensagens do assistente inteligente de proximidade devem detalhar a composicao do deslocamento usando nomes das clinicas envolvidas (anterior/destino/posterior), indicar quando nao ha agendamento vizinho e mostrar a data com dia da semana para evitar ambiguidade operacional.
 - RF-013: `safe_margin_min` deve ser aplicado como margem obrigatoria no salvamento e nas sugestoes de horario; slots com folga menor que `duracao_deslocamento + safe_margin_min` devem ser rejeitados.
+- RF-014: `max_neighbor_travel_min` deve bloquear salvamento e sugestoes quando o deslocamento entre a clinica candidata e o vizinho imediato anterior ou posterior exceder o limite configurado, mesmo que exista folga suficiente no relogio.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -63,7 +64,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 ## 6) Criterios de aceitacao (CA)
 
 - CA-001: salvar configuracoes persiste e retorna `agenda_rota_regras` sem quebrar os campos antigos.
-- CA-002: agendamento com insercao claramente ineficiente retorna conflito com dados de desvio.
+- CA-002: agendamento com insercao claramente ineficiente ou com trecho vizinho acima do limite retorna conflito com dados de diagnostico.
 - CA-003: painel de configuracoes expõe edicao de regras e overrides por clinica.
 - CA-004: ao clicar em slot fechado, `admin` consegue abrir excecao e seguir para criacao de agendamento; nao-admin permanece bloqueado.
 - CA-005: visao Lista mostra claramente dias fechados e janelas especiais dentro do periodo aplicado.
@@ -74,6 +75,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - CA-010: `npm run build` do frontend conclui sem erro de prerender relacionado a leitura de query string na rota `/agenda`.
 - CA-011: mensagem de proximidade exibe composicao do deslocamento com nomes das clinicas e total estimado, incluindo indicacao explicita de ausencia de agendamento anterior/posterior e data com dia da semana.
 - CA-012: com `safe_margin_min=5`, um slot com 40 minutos de folga para deslocamento de 39 minutos deve ser bloqueado no salvamento e nao deve aparecer nas sugestoes.
+- CA-013: com `max_neighbor_travel_min=45`, um trecho vizinho de 62 minutos deve ser bloqueado no salvamento e nao deve aparecer nas sugestoes, mesmo quando a folga de agenda for suficiente.
 
 ## 7) Casos de borda
 

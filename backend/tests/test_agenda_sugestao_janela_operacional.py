@@ -565,6 +565,115 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_validacao_agendamento_bloqueia_trecho_vizinho_acima_do_limite_mesmo_com_folga(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(
+                db,
+                excecoes=[],
+                regras_rota={
+                    "thresholds": {
+                        "max_neighbor_travel_min": 45,
+                        "safe_margin_min": 5,
+                    }
+                },
+            )
+            clinica_destino, clinica_anterior = self._seed_clinicas(
+                db,
+                clinica_base_coords=(-3.7278, -38.4772),
+                clinica_ancora_coords=(-3.7756, -38.6055),
+            )
+            inicio_anterior = datetime.fromisoformat("2099-05-25T08:30:00")
+            db.add(
+                Agendamento(
+                    clinica_id=clinica_anterior.id,
+                    inicio=inicio_anterior,
+                    fim=inicio_anterior + timedelta(minutes=20),
+                    data="2099-05-25",
+                    hora="08:30",
+                    status="Agendado",
+                    clinica=clinica_anterior.nome,
+                )
+            )
+            db.commit()
+
+            inicio_novo = datetime.fromisoformat("2099-05-25T10:30:00")
+            novo = Agendamento(
+                clinica_id=clinica_destino.id,
+                inicio=inicio_novo,
+                fim=inicio_novo + timedelta(minutes=30),
+                data="2099-05-25",
+                hora="10:30",
+                status="Agendado",
+                clinica=clinica_destino.nome,
+            )
+
+            with patch.object(agenda, "_obter_duracao_deslocamento_cacheado", return_value=(62, "mock")):
+                with self.assertRaises(HTTPException) as ctx:
+                    agenda._validar_deslocamento_agendamento(db, novo)
+
+            self.assertEqual(ctx.exception.status_code, 409)
+            detail = ctx.exception.detail
+            self.assertEqual(detail.get("codigo"), "CONFLITO_DESLOCAMENTO")
+            self.assertEqual(int(detail.get("duracao_min")), 62)
+            self.assertEqual(int(detail.get("limite_trecho_vizinho_min")), 45)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_sugestoes_horario_bloqueiam_trecho_vizinho_acima_do_limite(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(
+                db,
+                excecoes=[],
+                regras_rota={
+                    "thresholds": {
+                        "max_neighbor_travel_min": 45,
+                        "safe_margin_min": 5,
+                    }
+                },
+            )
+            clinica_destino, clinica_ancora = self._seed_clinicas(
+                db,
+                clinica_base_coords=(-3.7278, -38.4772),
+                clinica_ancora_coords=(-3.7756, -38.6055),
+            )
+            self._criar_agendamento(
+                db,
+                clinica_id=clinica_ancora.id,
+                data="2099-05-25",
+                hora="09:00",
+                status="Agendado",
+                duracao_minutos=20,
+            )
+
+            payload = agenda.SugestaoHorarioPayload(
+                data="2099-05-25",
+                clinica_id=clinica_destino.id,
+                duracao_minutos=20,
+                intervalo_minutos=30,
+                limite=8,
+                perfil_deslocamento="comercial",
+            )
+
+            with patch.object(agenda, "_obter_duracao_deslocamento_cacheado", return_value=(62, "mock")):
+                resposta = agenda.sugerir_horarios_agenda(
+                    payload=payload,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertTrue(resposta["ok"])
+            self.assertEqual(resposta["items"], [])
+            regras_aplicadas = resposta.get("regras_aplicadas") or {}
+            self.assertEqual(int(regras_aplicadas.get("max_neighbor_travel_min") or 0), 45)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_sugestoes_horario_bloqueiam_data_passada(self) -> None:
         class DateTimeFixa(datetime):
             @classmethod

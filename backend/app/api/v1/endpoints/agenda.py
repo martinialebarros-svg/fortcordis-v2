@@ -65,6 +65,7 @@ AGENDA_STATUS_PERMITIDOS = ["Agendado", "Reservado", "Confirmado", "Em atendimen
 AGENDA_STATUS_PRE_AGENDADOS = {"Agendado", "Reservado", "Confirmado"}
 AGENDA_STATUS_NAO_ANCORA = {"Cancelado", "Faltou"}
 MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN = 5
+MAX_DESLOCAMENTO_TRECHO_VIZINHO_MIN = 45
 AGENDA_WRITE_LOCK_KEY = 24052301
 ASSISTENTE_BUSCA_PROGRESSIVA_MAX_DIAS = 30
 ASSISTENTE_AGENDA_TOKEN_ENV = "ASSISTENTE_AGENDA_TOKEN"
@@ -997,6 +998,9 @@ def _validar_deslocamento_agendamento(
     route_policy = regras_rota.get("route_policy") if isinstance(regras_rota.get("route_policy"), dict) else {}
     limite_desvio_insercao = int(thresholds.get("max_insertion_detour_min") or 25)
     margem_segura_min = int(thresholds.get("safe_margin_min") or MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN)
+    limite_trecho_vizinho_min = int(
+        thresholds.get("max_neighbor_travel_min", MAX_DESLOCAMENTO_TRECHO_VIZINHO_MIN)
+    )
     bloquear_ineficiencia = bool(route_policy.get("reject_clear_inefficiency", True))
     cache_clinicas: dict[int, Optional[Clinica]] = {}
     cache_duracoes: dict[tuple[int, int, str, bool], tuple[int, str]] = {}
@@ -1035,6 +1039,27 @@ def _validar_deslocamento_agendamento(
             )
             folga_prev = _minutos_entre(anterior["fim"], inicio_dt)
             clinica_anterior_nome = anterior.get("clinica_nome") or _nome_clinica_por_id(db, anterior.get("clinica_id"))
+            if limite_trecho_vizinho_min > 0 and duracao_prev > limite_trecho_vizinho_min:
+                if confirmar_conflito_deslocamento:
+                    return
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "codigo": "CONFLITO_DESLOCAMENTO",
+                        "mensagem": (
+                            f"O tempo de deslocamento entre {clinica_anterior_nome} e {clinica_atual} "
+                            f"e de aproximadamente {duracao_prev} minutos e excede o limite operacional "
+                            f"de {limite_trecho_vizinho_min} minutos para um trecho da rota. "
+                            "Ajuste o horario ou escolha outra clinica."
+                        ),
+                        "origem_clinica": clinica_anterior_nome,
+                        "destino_clinica": clinica_atual,
+                        "duracao_min": int(duracao_prev),
+                        "limite_trecho_vizinho_min": int(limite_trecho_vizinho_min),
+                        "fonte": fonte_prev,
+                        "confirmavel": False,
+                    },
+                )
             folga_necessaria_prev = int(duracao_prev + margem_segura_min)
             if duracao_prev > 0 and folga_prev < folga_necessaria_prev:
                 if confirmar_conflito_deslocamento:
@@ -1075,6 +1100,27 @@ def _validar_deslocamento_agendamento(
             )
             folga_next = _minutos_entre(fim_dt, proximo["inicio"])
             clinica_proxima_nome = proximo.get("clinica_nome") or _nome_clinica_por_id(db, proximo.get("clinica_id"))
+            if limite_trecho_vizinho_min > 0 and duracao_next > limite_trecho_vizinho_min:
+                if confirmar_conflito_deslocamento:
+                    return
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "codigo": "CONFLITO_DESLOCAMENTO",
+                        "mensagem": (
+                            f"O tempo de deslocamento entre {clinica_atual} e {clinica_proxima_nome} "
+                            f"e de aproximadamente {duracao_next} minutos e excede o limite operacional "
+                            f"de {limite_trecho_vizinho_min} minutos para um trecho da rota. "
+                            "Ajuste o horario ou escolha outra clinica."
+                        ),
+                        "origem_clinica": clinica_atual,
+                        "destino_clinica": clinica_proxima_nome,
+                        "duracao_min": int(duracao_next),
+                        "limite_trecho_vizinho_min": int(limite_trecho_vizinho_min),
+                        "fonte": fonte_next,
+                        "confirmavel": False,
+                    },
+                )
             folga_necessaria_next = int(duracao_next + margem_segura_min)
             if duracao_next > 0 and folga_next < folga_necessaria_next:
                 if confirmar_conflito_deslocamento:
@@ -2747,6 +2793,9 @@ def sugerir_horarios_agenda(
     perfil_norm = normalizar_perfil(payload.perfil_deslocamento)
     intervalo_minutos = max(5, int(payload.intervalo_minutos))
     margem_segura_min = int(thresholds.get("safe_margin_min") or MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN)
+    limite_trecho_vizinho_min = int(
+        thresholds.get("max_neighbor_travel_min", MAX_DESLOCAMENTO_TRECHO_VIZINHO_MIN)
+    )
     ancoras_mesma_clinica_liberacao = sorted(
         [
             item["fim"] + timedelta(minutes=margem_segura_min)
@@ -2820,6 +2869,9 @@ def sugerir_horarios_agenda(
                 cache=cache_duracoes,
             )
             folga_prev = _minutos_entre(anterior["fim"], inicio_candidato)
+            if limite_trecho_vizinho_min > 0 and tempo_prev > limite_trecho_vizinho_min:
+                inicio_candidato += timedelta(minutes=intervalo_minutos)
+                continue
             if tempo_prev > 0 and folga_prev < (tempo_prev + margem_segura_min):
                 inicio_candidato += timedelta(minutes=intervalo_minutos)
                 continue
@@ -2833,6 +2885,9 @@ def sugerir_horarios_agenda(
                 cache=cache_duracoes,
             )
             folga_next = _minutos_entre(fim_candidato, proximo["inicio"])
+            if limite_trecho_vizinho_min > 0 and tempo_next > limite_trecho_vizinho_min:
+                inicio_candidato += timedelta(minutes=intervalo_minutos)
+                continue
             if tempo_next > 0 and folga_next < (tempo_next + margem_segura_min):
                 inicio_candidato += timedelta(minutes=intervalo_minutos)
                 continue
@@ -2971,6 +3026,7 @@ def sugerir_horarios_agenda(
         "intervalo_minutos": intervalo_minutos,
         "regras_aplicadas": {
             "safe_margin_min": margem_segura_min,
+            "max_neighbor_travel_min": limite_trecho_vizinho_min,
             "max_insertion_detour_min": limite_desvio_insercao,
             "nearby_anchor_max_travel_min": limite_proximo_base_min,
             "end_of_route_window_start": route_policy.get("end_of_route_window_start", "16:00"),

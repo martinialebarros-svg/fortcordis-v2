@@ -9,7 +9,7 @@ Status: in-progress
 | ID | Tipo | Evidencia | Status |
 | --- | --- | --- | --- |
 | CA-001 | aceitacao | `PUT/GET /configuracoes` e `GET /agenda/configuracao` com `agenda_rota_regras` | ok |
-| CA-002 | aceitacao | validação em `agenda.py` com `CONFLITO_DESLOCAMENTO` e `desvio_insercao_min` | ok |
+| CA-002 | aceitacao | validação em `agenda.py` com `CONFLITO_DESLOCAMENTO`, `desvio_insercao_min` e limite de trecho vizinho | ok |
 | CA-003 | aceitacao | seção "Regras de rota e oferta" em `frontend/app/configuracoes/page.tsx` | ok |
 | CA-004 | aceitacao | clique em slot fechado abre excecao somente para `admin` em `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
 | CA-005 | aceitacao | modo Lista exibe alertas de "Agenda fechada" e "Janela especial" por data no periodo filtrado | ok |
@@ -20,6 +20,7 @@ Status: in-progress
 | CA-010 | aceitacao | build do frontend conclui sem erro de prerender em `/agenda` apos ajuste da leitura de query string nas telas de Agenda | ok |
 | CA-011 | aceitacao | mensagem de proximidade detalha deslocamento com nomes das clinicas (anterior/destino/posterior), dia da semana e indicacao de ausencia de vizinho quando aplicavel em `backend/app/api/v1/endpoints/agenda.py` e `frontend/app/agenda/NovoAgendamentoModal.tsx` | ok |
 | CA-012 | aceitacao | `test_sugestoes_horario_exigem_margem_segura_entre_vizinhos` e `test_validacao_agendamento_exige_margem_segura_de_deslocamento` cobrem folga menor que deslocamento + margem | ok |
+| CA-013 | aceitacao | `test_validacao_agendamento_bloqueia_trecho_vizinho_acima_do_limite_mesmo_com_folga` e `test_sugestoes_horario_bloqueiam_trecho_vizinho_acima_do_limite` cobrem trecho acima de `max_neighbor_travel_min` | ok |
 | NFR-001 | nao funcional | cache de deslocamento por request mantido | ok |
 | NFR-002 | nao funcional | sem novos endpoints publicos; usa permissao de configuracoes existente | ok |
 | NFR-004 | nao funcional | perfis nao-admin sem acao de abertura rapida de excecao em slot fechado | ok |
@@ -48,7 +49,7 @@ cd backend && ./venv/bin/python -m pytest -q tests/test_agenda_sugestao_janela_o
 
 Resumo dos resultados:
 - Backend: ok (py_compile).
-- Backend agenda: ok (`26 passed` em `test_agenda_sugestao_janela_operacional.py`).
+- Backend agenda: ok (`28 passed` em `test_agenda_sugestao_janela_operacional.py`).
 - Frontend: ok (eslint + tsc + build), incluindo validacao das duas telas de agenda e helper de navegacao.
 - Observacao: os avisos de deprecacao de Pydantic/SQLAlchemy ja existiam no projeto.
 
@@ -63,6 +64,7 @@ Resumo dos resultados:
 - Cenario 7: no modo Lista, validar botao "Receber" para OS pendente e transicao para "Pago" apos confirmacao.
 - Cenario 8: em Agenda Lista, clicar "Ver FullCalendar" e confirmar abertura com mesma data/filtro de status; em FullCalendar, clicar "Ver Agenda Lista" e confirmar retorno com mesma data no modo Lista.
 - Cenario 9: abrir sugestao de proximidade com vizinho anterior e/ou posterior e confirmar mensagem explicita com nomes das clinicas, total de deslocamento e aviso quando nao ha vizinho anterior/posterior.
+- Cenario 10: tentar salvar e sugerir horario com trecho vizinho acima de `max_neighbor_travel_min` e confirmar bloqueio mesmo com folga suficiente.
 
 ## 4) Regressao e riscos residuais
 

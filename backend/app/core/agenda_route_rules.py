@@ -20,6 +20,7 @@ DEFAULT_AGENDA_ROTA_REGRAS = {
         "distant_clinic_min_travel_from_base_min": 35,
         "low_frequency_max_bookings_30d": 3,
         "max_insertion_detour_min": 25,
+        "max_neighbor_travel_min": 45,
         "safe_margin_min": 5,
     },
     "offer_policy": {
@@ -163,6 +164,12 @@ def normalizar_agenda_rota_regras(payload: Any) -> dict[str, Any]:
         "max_insertion_detour_min": _normalizar_int(
             thresholds_src.get("max_insertion_detour_min"),
             default["thresholds"]["max_insertion_detour_min"],
+            0,
+            360,
+        ),
+        "max_neighbor_travel_min": _normalizar_int(
+            thresholds_src.get("max_neighbor_travel_min"),
+            default["thresholds"]["max_neighbor_travel_min"],
             0,
             360,
         ),
