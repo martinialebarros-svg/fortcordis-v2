@@ -28,6 +28,7 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
 - RF-010: backend deve expor endpoint admin de metricas agregadas do funil por etapa, perfil, clinica e serie diaria.
 - RF-011: no endpoint `POST /agenda/assistente/ofertas`, quando a primeira `data_base` automatica nao retornar slots operacionais, o backend deve tentar fallback deterministico entre datas candidatas (proximidade -> datas preferenciais da politica -> data de referencia), interrompendo na primeira data com ofertas validas.
 - RF-012: no modal de novo agendamento, quando a data selecionada for passada e o panorama vier sem ofertas, o admin deve poder liberar um fluxo retroativo controlado para concluir o cadastro manual com justificativa obrigatoria.
+- RF-013: no endpoint `POST /agenda/assistente/ofertas`, o panorama deve priorizar ate 3 datas distintas em hierarquia operacional: (1) primeira data com ancora aderente na mesma clinica, exibindo apenas slots adjacentes a essa ancora; (2) segunda data distinta com ancora aderente; (3) primeira data vazia encontrada, sem outros agendamentos no dia.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -37,6 +38,7 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
 - NFR-004 (observabilidade): eventos do funil devem ser consultaveis por janela temporal para operacao.
 - NFR-005 (resiliencia operacional): ausencia de oferta na primeira data automatica nao pode encerrar prematuramente o panorama se houver datas candidatas ainda nao tentadas no mesmo contexto de negocio.
 - NFR-006 (governanca): lancamento retroativo de data passada deve permanecer controlado por papel admin e gerar trilha textual no contexto do assistente.
+- NFR-007 (objetividade operacional): o panorama multi-data deve manter a lista enxuta, limitando no maximo 2 slots por data selecionada na hierarquia.
 
 ## 4) Contratos tecnicos
 
@@ -46,6 +48,7 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
 - Endpoint novo: `POST /agenda/assistente/ofertas`.
   - Entrada: clinica, servico, data, data_contato, parametros de oferta/proximidade.
   - Saida: `politica_oferta`, `sugestao_proximidade`, `panorama_ofertas`, `data_base`, `origem_data_automatica`, `mensagem_panorama`.
+  - `panorama_ofertas` pode expor `datas_hierarquizadas`, `tem_ancora_mesma_clinica_no_dia`, `tem_agendamentos_no_dia` e marcacao de item `adjacente_ancora`/`adjacencia_tipo` para sustentar a ordenacao multi-data.
 - Endpoint novo: `GET /agenda/assistente/metricas` (admin).
   - Saida: `totais_por_etapa`, `por_perfil`, `por_clinica`, `serie_diaria`.
 - Reforcos:
@@ -80,6 +83,7 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
 - CA-008: endpoint de metricas retorna agregacao por etapa, perfil e clinica no periodo informado.
 - CA-009: `POST /agenda/assistente/ofertas` nao deve retornar vazio definitivo apos primeira data automatica sem slots quando houver outra data candidata valida no mesmo contexto; deve tentar proximas datas e retornar oferta ao encontrar disponibilidade.
 - CA-010: com data passada e zero ofertas no panorama, admin consegue liberar fluxo retroativo e salvar agendamento manual apos informar justificativa; perfil nao-admin permanece bloqueado para essa liberacao.
+- CA-011: `POST /agenda/assistente/ofertas` deve devolver panorama hierarquizado em ate 3 datas, priorizando duas datas com ancora aderente na mesma clinica e, em seguida, a primeira data vazia; nas datas com ancora, apenas slots adjacentes a ancora podem entrar na lista final.
 
 ## 7) Casos de borda
 
@@ -90,6 +94,7 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
 - CB-005: primeira data preferencial da politica sem janela operacional, mas segunda data preferencial com janela valida.
 - CB-006: todas as datas preferenciais sem janela operacional e fallback final para `data_referencia` com oferta valida.
 - CB-007: data passada selecionada, sem sugestoes operacionais e necessidade de lancamento retroativo no mesmo modal.
+- CB-008: quando existir apenas 1 data com ancora aderente no horizonte pesquisado, o panorama deve completar a lista com a melhor data vazia ou operacional encontrada, sem repetir datas nem expandir em excesso a quantidade de slots.
 
 ## 8) Fora de escopo
 

@@ -68,6 +68,9 @@ MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN = 5
 MAX_DESLOCAMENTO_TRECHO_VIZINHO_MIN = 45
 AGENDA_WRITE_LOCK_KEY = 24052301
 ASSISTENTE_BUSCA_PROGRESSIVA_MAX_DIAS = 30
+ASSISTENTE_BUSCA_DIA_VAZIO_EXTRA_MAX_DIAS = 7
+ASSISTENTE_HIERARQUIA_MAX_DATAS = 3
+ASSISTENTE_HIERARQUIA_MAX_ITENS_POR_DATA = 2
 ASSISTENTE_AGENDA_TOKEN_ENV = "ASSISTENTE_AGENDA_TOKEN"
 ASSISTENTE_AGENDA_MAX_WINDOW_ENV = "ASSISTENTE_AGENDA_MAX_WINDOW_DAYS"
 ASSISTENTE_AGENDA_DEFAULT_WINDOW_DAYS = 7
@@ -959,6 +962,107 @@ def _obter_vizinhos_horario(
             proximo = item
             break
     return anterior, proximo
+
+
+def _marcar_slots_adjacentes_ancora(
+    sugestoes: list[dict[str, Any]],
+    ancoras_mesma_clinica: list[dict[str, Any]],
+    *,
+    margem_segura_min: int,
+) -> None:
+    for sugestao in sugestoes:
+        if isinstance(sugestao, dict):
+            sugestao["adjacente_ancora"] = False
+            sugestao["adjacencia_tipo"] = None
+
+    if not sugestoes or not ancoras_mesma_clinica:
+        return
+
+    sugestoes_ordenadas: list[tuple[int, datetime, datetime]] = []
+    for idx, sugestao in enumerate(sugestoes):
+        if not isinstance(sugestao, dict):
+            continue
+        inicio_sugestao = _to_local_naive(_coerce_datetime(sugestao.get("inicio")))
+        fim_sugestao = _to_local_naive(_coerce_datetime(sugestao.get("fim")))
+        if inicio_sugestao is None or fim_sugestao is None:
+            continue
+        sugestoes_ordenadas.append((idx, inicio_sugestao, fim_sugestao))
+
+    if not sugestoes_ordenadas:
+        return
+
+    sugestoes_ordenadas.sort(key=lambda item: item[1])
+    marcacoes: dict[int, str] = {}
+
+    for ancora in sorted(
+        ancoras_mesma_clinica,
+        key=lambda item: _to_local_naive(_coerce_datetime(item.get("inicio"))) or datetime.min,
+    ):
+        inicio_ancora = _to_local_naive(_coerce_datetime(ancora.get("inicio")))
+        fim_ancora = _to_local_naive(_coerce_datetime(ancora.get("fim")))
+        if inicio_ancora is None or fim_ancora is None:
+            continue
+
+        liberacao_ancora = fim_ancora + timedelta(minutes=max(0, int(margem_segura_min)))
+
+        candidato_apos = next(
+            (idx for idx, inicio_sugestao, _fim_sugestao in sugestoes_ordenadas if inicio_sugestao >= liberacao_ancora),
+            None,
+        )
+        if candidato_apos is not None:
+            marcacoes[candidato_apos] = "apos_ancora"
+
+        for idx, _inicio_sugestao, fim_sugestao in reversed(sugestoes_ordenadas):
+            if fim_sugestao <= inicio_ancora:
+                marcacoes.setdefault(idx, "antes_ancora")
+                break
+
+    for idx, tipo in marcacoes.items():
+        if idx < 0 or idx >= len(sugestoes):
+            continue
+        sugestao = sugestoes[idx]
+        if not isinstance(sugestao, dict):
+            continue
+        sugestao["adjacente_ancora"] = True
+        sugestao["adjacencia_tipo"] = tipo
+
+
+def _classificar_panorama_data_assistente(resposta_panorama: Optional[dict[str, Any]]) -> str:
+    if not isinstance(resposta_panorama, dict):
+        return "sem_oferta"
+
+    items = resposta_panorama.get("items")
+    items_lista = items if isinstance(items, list) else []
+    if not items_lista:
+        return "sem_oferta"
+
+    tem_ancora_mesma_clinica = bool(resposta_panorama.get("tem_ancora_mesma_clinica_no_dia"))
+    if tem_ancora_mesma_clinica and any(
+        bool(item.get("adjacente_ancora")) for item in items_lista if isinstance(item, dict)
+    ):
+        return "ancora"
+
+    if not bool(resposta_panorama.get("tem_agendamentos_no_dia")):
+        return "data_vazia"
+
+    return "operacional"
+
+
+def _selecionar_items_hierarquia_data_assistente(
+    resposta_panorama: Optional[dict[str, Any]],
+    *,
+    categoria: str,
+) -> list[dict[str, Any]]:
+    if not isinstance(resposta_panorama, dict):
+        return []
+
+    items = resposta_panorama.get("items")
+    items_lista = [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+    if categoria == "ancora":
+        adjacentes = [item for item in items_lista if bool(item.get("adjacente_ancora"))]
+        if adjacentes:
+            return adjacentes
+    return items_lista
 
 
 def _validar_deslocamento_agendamento(
@@ -2796,15 +2900,20 @@ def sugerir_horarios_agenda(
     limite_trecho_vizinho_min = int(
         thresholds.get("max_neighbor_travel_min", MAX_DESLOCAMENTO_TRECHO_VIZINHO_MIN)
     )
-    ancoras_mesma_clinica_liberacao = sorted(
+    ancoras_mesma_clinica = sorted(
         [
-            item["fim"] + timedelta(minutes=margem_segura_min)
+            item
             for item in agendamentos_dia
             if int(item.get("clinica_id") or 0) == int(payload.clinica_id or 0)
             and _status_conta_como_ancora(item.get("status"))
+            and isinstance(item.get("inicio"), datetime)
             and isinstance(item.get("fim"), datetime)
-        ]
+        ],
+        key=lambda item: item["inicio"],
     )
+    ancoras_mesma_clinica_liberacao = [
+        item["fim"] + timedelta(minutes=margem_segura_min) for item in ancoras_mesma_clinica
+    ]
     limite_desvio_insercao = int(thresholds.get("max_insertion_detour_min") or 25)
     limite_proximo_base_min = int(thresholds.get("nearby_anchor_max_travel_min") or 20)
     janela_fim_rota_min = _hora_hhmm_para_minutos(
@@ -3011,6 +3120,11 @@ def sugerir_horarios_agenda(
             item["inicio"],
         )
     )
+    _marcar_slots_adjacentes_ancora(
+        sugestoes,
+        ancoras_mesma_clinica,
+        margem_segura_min=margem_segura_min,
+    )
     limite = max(1, min(50, int(payload.limite)))
     top_items = sugestoes[:limite]
     motivo_sem_item = None
@@ -3038,6 +3152,10 @@ def sugerir_horarios_agenda(
             "fim": janela_fim.strftime("%Y-%m-%d %H:%M"),
         },
         "motivo": motivo_sem_item,
+        "total_agendamentos_no_dia": len(agendamentos_dia_todos),
+        "tem_agendamentos_no_dia": bool(agendamentos_dia_todos),
+        "total_ancoras_mesma_clinica": len(ancoras_mesma_clinica),
+        "tem_ancora_mesma_clinica_no_dia": bool(ancoras_mesma_clinica),
         "total_encontrados": len(sugestoes),
         "items": top_items,
     }
@@ -3527,7 +3645,15 @@ def orquestrar_ofertas_assistente(
         _adicionar_candidato_data(data_referencia, "manual")
 
     resposta_panorama = {"ok": True, "items": [], "motivo": "", "itens_ignorados_janela": 0}
-    for data_candidata, origem_candidata in candidatos_data_base:
+    panoramas_consultados: list[dict[str, Any]] = []
+    cache_panorama_por_data: dict[str, dict[str, Any]] = {}
+    limite_total = max(1, min(50, int(payload.limite)))
+
+    def _consultar_panorama_data(data_candidata: str, origem_candidata: str) -> dict[str, Any]:
+        nonlocal resposta_panorama
+        if data_candidata in cache_panorama_por_data:
+            return cache_panorama_por_data[data_candidata]
+
         resposta_tentativa = sugerir_horarios_agenda(
             payload=SugestaoHorarioPayload(
                 data=data_candidata,
@@ -3544,17 +3670,59 @@ def orquestrar_ofertas_assistente(
         )
         datas_tentadas_panorama.append(data_candidata)
         resposta_panorama = resposta_tentativa if isinstance(resposta_tentativa, dict) else resposta_panorama
-        data_base = data_candidata
-        origem_data_automatica = origem_candidata
-        items_tentativa = resposta_panorama.get("items") if isinstance(resposta_panorama, dict) else []
-        if isinstance(items_tentativa, list) and items_tentativa:
-            break
+        categoria = _classificar_panorama_data_assistente(resposta_panorama)
+        registro = {
+            "data": data_candidata,
+            "origem": origem_candidata,
+            "categoria": categoria,
+            "resposta": resposta_panorama,
+            "items_hierarquia": _selecionar_items_hierarquia_data_assistente(
+                resposta_panorama,
+                categoria=categoria,
+            ),
+        }
+        cache_panorama_por_data[data_candidata] = registro
+        panoramas_consultados.append(registro)
+        return registro
 
-    items_panorama = resposta_panorama.get("items") if isinstance(resposta_panorama, dict) else []
-    items_panorama = items_panorama if isinstance(items_panorama, list) else []
+    def _selecionar_datas_hierarquia() -> list[dict[str, Any]]:
+        selecoes: list[dict[str, Any]] = []
+        datas_escolhidas: set[str] = set()
+
+        def _adicionar_registros(categoria_alvo: str, limite_categoria: int) -> None:
+            if limite_categoria <= 0:
+                return
+            adicionados = 0
+            for registro in panoramas_consultados:
+                if registro.get("categoria") != categoria_alvo:
+                    continue
+                data_registro = str(registro.get("data") or "").strip()
+                if not data_registro or data_registro in datas_escolhidas:
+                    continue
+                items_hierarquia = registro.get("items_hierarquia")
+                if not isinstance(items_hierarquia, list) or not items_hierarquia:
+                    continue
+                selecoes.append(registro)
+                datas_escolhidas.add(data_registro)
+                adicionados += 1
+                if adicionados >= limite_categoria or len(selecoes) >= ASSISTENTE_HIERARQUIA_MAX_DATAS:
+                    break
+
+        _adicionar_registros("ancora", 2)
+        _adicionar_registros("data_vazia", 1)
+        if len(selecoes) < 2:
+            _adicionar_registros("operacional", ASSISTENTE_HIERARQUIA_MAX_DATAS)
+        elif len(selecoes) < ASSISTENTE_HIERARQUIA_MAX_DATAS:
+            _adicionar_registros("operacional", ASSISTENTE_HIERARQUIA_MAX_DATAS)
+        return selecoes[:ASSISTENTE_HIERARQUIA_MAX_DATAS]
+
+    for data_candidata, origem_candidata in candidatos_data_base:
+        _consultar_panorama_data(data_candidata, origem_candidata)
+
+    selecoes_hierarquia = _selecionar_datas_hierarquia()
     hoje_local_ref = datetime.now(LOCAL_TZ).date()
-    if not items_panorama and data_referencia_ref >= hoje_local_ref:
-        datas_tentadas_set = set(datas_tentadas_panorama)
+    datas_tentadas_set = set(datas_tentadas_panorama)
+    if data_referencia_ref >= hoje_local_ref:
         datas_candidatas_ref: list[date] = []
         for data_candidata, _origem in candidatos_data_base:
             try:
@@ -3564,52 +3732,123 @@ def orquestrar_ofertas_assistente(
 
         data_cursor = max(datas_candidatas_ref) if datas_candidatas_ref else data_referencia_ref
         dias_busca_progressiva = 0
-        while dias_busca_progressiva < ASSISTENTE_BUSCA_PROGRESSIVA_MAX_DIAS:
+
+        while len(selecoes_hierarquia) < 2 and dias_busca_progressiva < ASSISTENTE_BUSCA_PROGRESSIVA_MAX_DIAS:
             dias_busca_progressiva += 1
             data_cursor = data_cursor + timedelta(days=1)
             data_cursor_iso = data_cursor.isoformat()
             if data_cursor_iso in datas_tentadas_set:
                 continue
 
-            resposta_tentativa = sugerir_horarios_agenda(
-                payload=SugestaoHorarioPayload(
-                    data=data_cursor_iso,
-                    clinica_id=payload.clinica_id,
-                    servico_id=payload.servico_id,
-                    duracao_minutos=payload.duracao_minutos,
-                    intervalo_minutos=payload.intervalo_minutos,
-                    limite=payload.limite,
-                    perfil_deslocamento=payload.perfil_deslocamento,
-                    ignorar_agendamento_id=payload.ignorar_agendamento_id,
-                ),
-                db=db,
-                current_user=current_user,
-            )
-            datas_tentadas_panorama.append(data_cursor_iso)
+            _consultar_panorama_data(data_cursor_iso, "progressao_dias")
             datas_tentadas_set.add(data_cursor_iso)
-            resposta_panorama = resposta_tentativa if isinstance(resposta_tentativa, dict) else resposta_panorama
-            data_base = data_cursor_iso
-            origem_data_automatica = "progressao_dias"
-            items_tentativa = resposta_panorama.get("items") if isinstance(resposta_panorama, dict) else []
-            items_panorama = items_tentativa if isinstance(items_tentativa, list) else []
-            if items_panorama:
-                break
+            selecoes_hierarquia = _selecionar_datas_hierarquia()
 
-    mudou_data_base = data_base != data_referencia
-    if origem_data_automatica == "proximidade" and mudou_data_base:
-        prefixo_mensagem = f"Sugestoes calculadas automaticamente para {data_base} com base no agendamento proximo."
+        possui_data_vazia = any(item.get("categoria") == "data_vazia" for item in selecoes_hierarquia)
+        dias_busca_vazio = 0
+        while (
+            len(selecoes_hierarquia) < ASSISTENTE_HIERARQUIA_MAX_DATAS
+            and not possui_data_vazia
+            and dias_busca_progressiva < ASSISTENTE_BUSCA_PROGRESSIVA_MAX_DIAS
+            and dias_busca_vazio < ASSISTENTE_BUSCA_DIA_VAZIO_EXTRA_MAX_DIAS
+        ):
+            dias_busca_progressiva += 1
+            dias_busca_vazio += 1
+            data_cursor = data_cursor + timedelta(days=1)
+            data_cursor_iso = data_cursor.isoformat()
+            if data_cursor_iso in datas_tentadas_set:
+                continue
+
+            _consultar_panorama_data(data_cursor_iso, "progressao_dias")
+            datas_tentadas_set.add(data_cursor_iso)
+            selecoes_hierarquia = _selecionar_datas_hierarquia()
+            possui_data_vazia = any(item.get("categoria") == "data_vazia" for item in selecoes_hierarquia)
+
+    if selecoes_hierarquia:
+        data_base = str(selecoes_hierarquia[0].get("data") or data_referencia)
+        origem_data_automatica = str(selecoes_hierarquia[0].get("origem") or "manual")
+
+    if origem_data_automatica == "proximidade":
+        prefixo_mensagem = "Sugestoes calculadas automaticamente com base no agendamento proximo."
     elif origem_data_automatica == "politica":
-        prefixo_mensagem = f"Sugestoes calculadas automaticamente para {data_base} conforme politica de oferta (rota/frequencia)."
+        prefixo_mensagem = "Sugestoes calculadas automaticamente conforme politica de oferta (rota/frequencia)."
     elif origem_data_automatica == "progressao_dias":
-        prefixo_mensagem = (
-            f"Sugestoes calculadas automaticamente para {data_base} apos busca progressiva nos dias seguintes."
-        )
+        prefixo_mensagem = "Sugestoes calculadas automaticamente apos busca progressiva nos dias seguintes."
     else:
         prefixo_mensagem = ""
+
+    items_panorama: list[dict[str, Any]] = []
+    datas_hierarquizadas: list[dict[str, Any]] = []
+    resposta_panorama_base = resposta_panorama
+    itens_ignorados_janela_total = 0
+    if selecoes_hierarquia:
+        resposta_panorama_base = (
+            selecoes_hierarquia[0].get("resposta")
+            if isinstance(selecoes_hierarquia[0].get("resposta"), dict)
+            else resposta_panorama
+        )
+        restante_total = limite_total
+        for ordem, registro in enumerate(selecoes_hierarquia, start=1):
+            if restante_total <= 0:
+                break
+            resposta_registro = registro.get("resposta")
+            if isinstance(resposta_registro, dict):
+                itens_ignorados_janela_total += int(resposta_registro.get("itens_ignorados_janela") or 0)
+            items_hierarquia = registro.get("items_hierarquia")
+            items_lista = items_hierarquia if isinstance(items_hierarquia, list) else []
+            limite_data = min(ASSISTENTE_HIERARQUIA_MAX_ITENS_POR_DATA, restante_total)
+            selecionados_data: list[dict[str, Any]] = []
+            for item in items_lista[:limite_data]:
+                if not isinstance(item, dict):
+                    continue
+                item_saida = dict(item)
+                item_saida["hierarquia_data_ordem"] = ordem
+                item_saida["hierarquia_data_categoria"] = registro.get("categoria")
+                item_saida["hierarquia_data_origem"] = registro.get("origem")
+                item_saida["hierarquia_data"] = registro.get("data")
+                items_panorama.append(item_saida)
+                selecionados_data.append(item_saida)
+                restante_total -= 1
+                if restante_total <= 0:
+                    break
+            datas_hierarquizadas.append(
+                {
+                    "ordem": ordem,
+                    "data": registro.get("data"),
+                    "categoria": registro.get("categoria"),
+                    "origem": registro.get("origem"),
+                    "total_itens": len(selecionados_data),
+                }
+            )
+
+        resposta_panorama = dict(resposta_panorama_base) if isinstance(resposta_panorama_base, dict) else {"ok": True}
+        resposta_panorama["data"] = data_base
+        resposta_panorama["items"] = items_panorama
+        resposta_panorama["total_encontrados"] = len(items_panorama)
+        resposta_panorama["itens_ignorados_janela"] = itens_ignorados_janela_total
+        resposta_panorama["datas_hierarquizadas"] = datas_hierarquizadas
+    else:
+        items_panorama = resposta_panorama.get("items") if isinstance(resposta_panorama, dict) else []
+        items_panorama = items_panorama if isinstance(items_panorama, list) else []
+        if isinstance(resposta_panorama, dict):
+            resposta_panorama["datas_hierarquizadas"] = []
 
     motivo_panorama = str((resposta_panorama or {}).get("motivo") or "").strip() if isinstance(resposta_panorama, dict) else ""
     if not items_panorama:
         mensagem_panorama = f"{prefixo_mensagem} {motivo_panorama or 'Nenhum horario operacional encontrado para essa data.'}".strip()
+    elif len(datas_hierarquizadas) > 1:
+        descricoes_hierarquia = []
+        for item in datas_hierarquizadas:
+            data_item = str(item.get("data") or "").strip()
+            categoria_item = str(item.get("categoria") or "").strip()
+            if categoria_item == "ancora":
+                sufixo = "ancora da mesma clinica"
+            elif categoria_item == "data_vazia":
+                sufixo = "agenda vazia"
+            else:
+                sufixo = "agenda operacional"
+            descricoes_hierarquia.append(f"{int(item.get('ordem') or 0)}) {data_item} - {sufixo}")
+        mensagem_panorama = f"{prefixo_mensagem} Panorama priorizado em {len(datas_hierarquizadas)} datas: {'; '.join(descricoes_hierarquia)}.".strip()
     elif all(not item.get("anterior") and not item.get("proximo") for item in items_panorama if isinstance(item, dict)):
         mensagem_panorama = f"{prefixo_mensagem} Nao ha agendamentos vizinhos nesta data; por isso o deslocamento pode aparecer como 0 min.".strip()
     else:
@@ -3627,6 +3866,7 @@ def orquestrar_ofertas_assistente(
             "data_base": data_base,
             "origem_data_automatica": origem_data_automatica,
             "datas_tentadas_panorama": datas_tentadas_panorama,
+            "datas_hierarquizadas": datas_hierarquizadas,
             "total_sugestoes": len(items_panorama),
             "houve_sugestao_proximidade": bool((resposta_proximidade or {}).get("item")),
         },

@@ -32,6 +32,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - RF-020: no assistente de proximidade, o tempo exibido/ranqueado deve usar o deslocamento total do slot sugerido, somando deslocamento do vizinho anterior e do vizinho posterior quando existirem.
 - RF-021: em bloqueio operacional por conflito de deslocamento no salvar, admin deve poder conceder excecao explicita no proprio fluxo e confirmar o agendamento.
 - RF-022: quando as datas iniciais (manual/politica/proximidade) nao retornarem nenhum slot util no panorama, o assistente deve continuar buscando automaticamente nos dias seguintes (D+N progressivo) ate encontrar a primeira data com oferta valida.
+- RF-023: no panorama do assistente, as ofertas devem ser organizadas em ate 3 datas distintas, priorizando duas datas com ancora aderente e, em seguida, uma data vazia; nas datas com ancora, apenas slots adjacentes a ancora podem ser exibidos para manter a lista objetiva.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -82,6 +83,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - CA-018: o `POST /agenda/sugestao-proximidade` deve ranquear e reportar deslocamento com base no slot operacional escolhido (`anterior + proximo`), mantendo consistencia com `POST /agenda/sugestoes-horario`.
 - CA-019: diante de `CONFLITO_DESLOCAMENTO` no `POST /agenda`, admin pode confirmar excecao operacional e reenviar com `confirmar_conflito_deslocamento=true`; perfis nao-admin devem receber `403` se tentarem o override.
 - CA-020: se o panorama vier vazio nas datas iniciais de tentativa, o `POST /agenda/assistente/ofertas` deve avancar para os dias subsequentes e retornar a primeira data futura com slots, marcando a origem automatica como busca progressiva.
+- CA-021: apos gerar ofertas, o panorama deve agrupar a lista final em ate 3 datas priorizadas, limitando 2 slots por data; quando houver ancora aderente na mesma clinica, somente os slots adjacentes a ancora podem aparecer naquela data.
 
 ## 7) Casos de borda
 
@@ -92,6 +94,7 @@ Transformar o modal de novo agendamento em fluxo guiado pelo assistente, tornand
 - CB-005: quando o fluxo de proximidade buscar slots operacionais relacionados a ancora, a selecao automatica deve respeitar a ordenacao do backend para nao antecipar slot antes de `fim da ancora + margem segura`.
 - CB-006: quando nao houver nenhum slot util em D+2/D+3/D+4 por agenda cheia/fechada, o assistente deve continuar para D+5, D+6... ate encontrar o primeiro dia viavel.
 - CB-007: se a data de proximidade (fora de `datas_preferenciais`) retornar sem ofertas no panorama, o wizard deve seguir para `datas_preferenciais` sem perder a busca progressiva.
+- CB-008: se apenas 1 data com ancora aderente for encontrada, o wizard deve completar o panorama com a melhor data vazia ou operacional disponivel, sem repetir datas na lista final.
 
 ## 8) Fora de escopo
 

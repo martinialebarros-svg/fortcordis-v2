@@ -34,6 +34,30 @@ class AgendaAssistenteOrquestradorTest(unittest.TestCase):
     def _admin(self):
         return SimpleNamespace(id=1, nome="Admin", email="admin@fortcordis.com", tem_papel=lambda p: p == "admin")
 
+    def _panorama_mock(self, data_iso: str, *, categoria: str = "operacional", total_itens: int = 1) -> dict:
+        itens = []
+        for idx in range(total_itens):
+            inicio_hora = 10 + idx
+            item = {
+                "inicio": f"{data_iso} {inicio_hora:02d}:00",
+                "fim": f"{data_iso} {inicio_hora:02d}:20",
+                "anterior": None if categoria == "data_vazia" else {},
+                "proximo": None if categoria == "data_vazia" else {},
+                "adjacente_ancora": categoria == "ancora",
+                "adjacencia_tipo": "apos_ancora" if categoria == "ancora" else None,
+            }
+            itens.append(item)
+
+        return {
+            "ok": True,
+            "data": data_iso,
+            "items": itens,
+            "motivo": "",
+            "itens_ignorados_janela": 0,
+            "tem_ancora_mesma_clinica_no_dia": categoria == "ancora",
+            "tem_agendamentos_no_dia": categoria != "data_vazia",
+        }
+
     def test_orquestrador_prioriza_data_proximidade_mesmo_fora_da_data_preferencial(self) -> None:
         payload = agenda.AssistenteOfertaPayload(
             clinica_id=1,
@@ -62,18 +86,20 @@ class AgendaAssistenteOrquestradorTest(unittest.TestCase):
                 "data_preferencial": False,
             },
         }
-        panorama_mock = {
-            "ok": True,
-            "data": "2026-05-24",
-            "items": [{"inicio": "2026-05-24 10:00", "fim": "2026-05-24 10:30", "anterior": {}, "proximo": {}}],
-            "motivo": "",
-            "itens_ignorados_janela": 0,
-        }
+
+        def _mock_panorama(*, payload, db, current_user):
+            mapa = {
+                "2026-05-24": self._panorama_mock("2026-05-24", categoria="ancora", total_itens=3),
+                "2026-05-26": self._panorama_mock("2026-05-26", categoria="ancora", total_itens=3),
+                "2026-05-27": self._panorama_mock("2026-05-27", categoria="data_vazia", total_itens=3),
+                "2026-05-23": self._panorama_mock("2026-05-23", categoria="operacional", total_itens=2),
+            }
+            return mapa[str(payload.data)]
 
         with self._session_factory() as db, patch.object(
             agenda, "sugerir_agendamento_proximo", return_value=proximidade_mock
         ), patch.object(
-            agenda, "sugerir_horarios_agenda", return_value=panorama_mock
+            agenda, "sugerir_horarios_agenda", side_effect=_mock_panorama
         ) as mocked_panorama, patch.object(
             agenda, "_registrar_evento_funil_assistente", return_value=None
         ):
@@ -87,7 +113,15 @@ class AgendaAssistenteOrquestradorTest(unittest.TestCase):
         self.assertTrue(resposta["ok"])
         self.assertEqual(resposta["origem_data_automatica"], "proximidade")
         self.assertEqual(resposta["data_base"], "2026-05-24")
-        self.assertEqual(mocked_panorama.call_args.kwargs["payload"].data, "2026-05-24")
+        datas_consultadas = [chamada.kwargs["payload"].data for chamada in mocked_panorama.call_args_list]
+        self.assertEqual(datas_consultadas, ["2026-05-24", "2026-05-26", "2026-05-27", "2026-05-23"])
+        datas_hierarquizadas = resposta["panorama_ofertas"]["datas_hierarquizadas"]
+        self.assertEqual([item["categoria"] for item in datas_hierarquizadas], ["ancora", "ancora", "data_vazia"])
+        self.assertEqual([item["data"] for item in datas_hierarquizadas], ["2026-05-24", "2026-05-26", "2026-05-27"])
+        self.assertEqual(
+            [item["hierarquia_data"] for item in resposta["panorama_ofertas"]["items"]],
+            ["2026-05-24", "2026-05-24", "2026-05-26", "2026-05-26", "2026-05-27", "2026-05-27"],
+        )
 
     def test_orquestrador_faz_fallback_para_data_politica_quando_data_proximidade_esta_sem_ofertas(self) -> None:
         payload = agenda.AssistenteOfertaPayload(
@@ -119,15 +153,13 @@ class AgendaAssistenteOrquestradorTest(unittest.TestCase):
         }
 
         def _mock_panorama(*, payload, db, current_user):
-            if str(payload.data) == "2026-05-24":
-                return {"ok": True, "data": "2026-05-24", "items": [], "motivo": "sem oferta", "itens_ignorados_janela": 0}
-            return {
-                "ok": True,
-                "data": "2026-05-26",
-                "items": [{"inicio": "2026-05-26 12:00", "fim": "2026-05-26 12:30", "anterior": {}, "proximo": {}}],
-                "motivo": "",
-                "itens_ignorados_janela": 0,
+            mapa = {
+                "2026-05-24": {"ok": True, "data": "2026-05-24", "items": [], "motivo": "sem oferta", "itens_ignorados_janela": 0},
+                "2026-05-26": self._panorama_mock("2026-05-26", categoria="ancora", total_itens=2),
+                "2026-05-27": self._panorama_mock("2026-05-27", categoria="ancora", total_itens=2),
+                "2026-05-23": self._panorama_mock("2026-05-23", categoria="data_vazia", total_itens=2),
             }
+            return mapa[str(payload.data)]
 
         with self._session_factory() as db, patch.object(
             agenda, "sugerir_agendamento_proximo", return_value=proximidade_mock
@@ -147,7 +179,7 @@ class AgendaAssistenteOrquestradorTest(unittest.TestCase):
         self.assertEqual(resposta["origem_data_automatica"], "politica")
         self.assertEqual(resposta["data_base"], "2026-05-26")
         datas_consultadas = [chamada.kwargs["payload"].data for chamada in mocked_panorama.call_args_list]
-        self.assertEqual(datas_consultadas, ["2026-05-24", "2026-05-26"])
+        self.assertEqual(datas_consultadas, ["2026-05-24", "2026-05-26", "2026-05-27", "2026-05-23"])
 
     def test_orquestrador_faz_fallback_para_proxima_data_preferencial_quando_primeira_sem_ofertas(self) -> None:
         payload = agenda.AssistenteOfertaPayload(
@@ -175,15 +207,12 @@ class AgendaAssistenteOrquestradorTest(unittest.TestCase):
         }
 
         def _mock_panorama(*, payload, db, current_user):
-            if str(payload.data) == "2026-05-26":
-                return {"ok": True, "data": "2026-05-26", "items": [], "motivo": "sem janela", "itens_ignorados_janela": 0}
-            return {
-                "ok": True,
-                "data": "2026-05-27",
-                "items": [{"inicio": "2026-05-27 12:00", "fim": "2026-05-27 12:30", "anterior": {}, "proximo": {}}],
-                "motivo": "",
-                "itens_ignorados_janela": 0,
+            mapa = {
+                "2026-05-26": {"ok": True, "data": "2026-05-26", "items": [], "motivo": "sem janela", "itens_ignorados_janela": 0},
+                "2026-05-27": self._panorama_mock("2026-05-27", categoria="ancora", total_itens=2),
+                "2026-05-23": self._panorama_mock("2026-05-23", categoria="data_vazia", total_itens=2),
             }
+            return mapa[str(payload.data)]
 
         with self._session_factory() as db, patch.object(
             agenda, "sugerir_agendamento_proximo", return_value=proximidade_mock
@@ -202,9 +231,8 @@ class AgendaAssistenteOrquestradorTest(unittest.TestCase):
         self.assertTrue(resposta["ok"])
         self.assertEqual(resposta["origem_data_automatica"], "politica")
         self.assertEqual(resposta["data_base"], "2026-05-27")
-        self.assertEqual(mocked_panorama.call_count, 2)
         datas_consultadas = [chamada.kwargs["payload"].data for chamada in mocked_panorama.call_args_list]
-        self.assertEqual(datas_consultadas, ["2026-05-26", "2026-05-27"])
+        self.assertEqual(datas_consultadas, ["2026-05-26", "2026-05-27", "2026-05-23"])
 
     def test_orquestrador_faz_fallback_para_data_referencia_quando_datas_preferenciais_sem_oferta(self) -> None:
         payload = agenda.AssistenteOfertaPayload(
@@ -232,15 +260,12 @@ class AgendaAssistenteOrquestradorTest(unittest.TestCase):
         }
 
         def _mock_panorama(*, payload, db, current_user):
-            if str(payload.data) in {"2026-05-26", "2026-05-27"}:
-                return {"ok": True, "data": str(payload.data), "items": [], "motivo": "sem janela", "itens_ignorados_janela": 0}
-            return {
-                "ok": True,
-                "data": "2026-05-23",
-                "items": [{"inicio": "2026-05-23 15:00", "fim": "2026-05-23 15:30", "anterior": {}, "proximo": {}}],
-                "motivo": "",
-                "itens_ignorados_janela": 0,
+            mapa = {
+                "2026-05-26": {"ok": True, "data": "2026-05-26", "items": [], "motivo": "sem janela", "itens_ignorados_janela": 0},
+                "2026-05-27": self._panorama_mock("2026-05-27", categoria="data_vazia", total_itens=2),
+                "2026-05-23": self._panorama_mock("2026-05-23", categoria="ancora", total_itens=2),
             }
+            return mapa[str(payload.data)]
 
         with self._session_factory() as db, patch.object(
             agenda, "sugerir_agendamento_proximo", return_value=proximidade_mock
@@ -259,7 +284,6 @@ class AgendaAssistenteOrquestradorTest(unittest.TestCase):
         self.assertTrue(resposta["ok"])
         self.assertEqual(resposta["origem_data_automatica"], "manual")
         self.assertEqual(resposta["data_base"], "2026-05-23")
-        self.assertEqual(mocked_panorama.call_count, 3)
         datas_consultadas = [chamada.kwargs["payload"].data for chamada in mocked_panorama.call_args_list]
         self.assertEqual(datas_consultadas, ["2026-05-26", "2026-05-27", "2026-05-23"])
 
@@ -289,21 +313,15 @@ class AgendaAssistenteOrquestradorTest(unittest.TestCase):
         }
 
         def _mock_panorama(*, payload, db, current_user):
-            if str(payload.data) == "2030-06-07":
-                return {
-                    "ok": True,
-                    "data": "2030-06-07",
-                    "items": [{"inicio": "2030-06-07 10:00", "fim": "2030-06-07 10:30", "anterior": {}, "proximo": {}}],
-                    "motivo": "",
-                    "itens_ignorados_janela": 0,
-                }
-            return {
-                "ok": True,
-                "data": str(payload.data),
-                "items": [],
-                "motivo": "sem horario util",
-                "itens_ignorados_janela": 0,
+            mapa = {
+                "2030-06-04": {"ok": True, "data": "2030-06-04", "items": [], "motivo": "sem horario util", "itens_ignorados_janela": 0},
+                "2030-06-05": {"ok": True, "data": "2030-06-05", "items": [], "motivo": "sem horario util", "itens_ignorados_janela": 0},
+                "2030-06-01": {"ok": True, "data": "2030-06-01", "items": [], "motivo": "sem horario util", "itens_ignorados_janela": 0},
+                "2030-06-06": {"ok": True, "data": "2030-06-06", "items": [], "motivo": "sem horario util", "itens_ignorados_janela": 0},
+                "2030-06-07": self._panorama_mock("2030-06-07", categoria="ancora", total_itens=2),
+                "2030-06-08": self._panorama_mock("2030-06-08", categoria="data_vazia", total_itens=2),
             }
+            return mapa[str(payload.data)]
 
         with self._session_factory() as db, patch.object(
             agenda, "sugerir_agendamento_proximo", return_value=proximidade_mock
@@ -324,7 +342,7 @@ class AgendaAssistenteOrquestradorTest(unittest.TestCase):
         self.assertEqual(resposta["data_base"], "2030-06-07")
         self.assertIn("busca progressiva", str(resposta.get("mensagem_panorama") or "").lower())
         datas_consultadas = [chamada.kwargs["payload"].data for chamada in mocked_panorama.call_args_list]
-        self.assertEqual(datas_consultadas, ["2030-06-04", "2030-06-05", "2030-06-01", "2030-06-06", "2030-06-07"])
+        self.assertEqual(datas_consultadas, ["2030-06-04", "2030-06-05", "2030-06-01", "2030-06-06", "2030-06-07", "2030-06-08"])
 
 
 class AgendaAssistenteMetricasTest(unittest.TestCase):

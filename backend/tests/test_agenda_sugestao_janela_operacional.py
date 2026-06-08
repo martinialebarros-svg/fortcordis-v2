@@ -544,7 +544,7 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 clinica_id=clinica_base.id,
                 duracao_minutos=20,
                 intervalo_minutos=30,
-                limite=8,
+                limite=50,
                 perfil_deslocamento="comercial",
             )
 
@@ -560,6 +560,53 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             primeiro = resposta["items"][0]
             self.assertEqual(str(primeiro.get("inicio") or ""), "2099-05-25 09:30")
             self.assertEqual(int(primeiro.get("preferencia_ancora_ordem", 99)), 0)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_sugestoes_horario_marcam_apenas_slots_adjacentes_da_ancora(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(db, excecoes=[])
+            clinica_base, _ = self._seed_clinicas(db)
+            self._criar_agendamento(
+                db,
+                clinica_id=clinica_base.id,
+                data="2099-05-25",
+                hora="10:00",
+                status="Agendado",
+                duracao_minutos=20,
+            )
+
+            payload = agenda.SugestaoHorarioPayload(
+                data="2099-05-25",
+                clinica_id=clinica_base.id,
+                duracao_minutos=20,
+                intervalo_minutos=30,
+                limite=50,
+                perfil_deslocamento="comercial",
+            )
+
+            with patch.object(agenda, "_obter_duracao_deslocamento_cacheado", return_value=(0, "mesma_clinica")):
+                resposta = agenda.sugerir_horarios_agenda(
+                    payload=payload,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertTrue(resposta["ok"])
+            self.assertTrue(bool(resposta.get("tem_ancora_mesma_clinica_no_dia")))
+            itens = resposta["items"]
+            self.assertGreaterEqual(len(itens), 3)
+            itens_adjacentes = {
+                str(item.get("inicio") or ""): str(item.get("adjacencia_tipo") or "")
+                for item in itens
+                if bool(item.get("adjacente_ancora"))
+            }
+            self.assertEqual(itens_adjacentes.get("2099-05-25 09:30"), "antes_ancora")
+            self.assertEqual(itens_adjacentes.get("2099-05-25 10:30"), "apos_ancora")
+            self.assertFalse(bool(next(item for item in itens if item["inicio"] == "2099-05-25 11:00")["adjacente_ancora"]))
         finally:
             db.close()
             engine.dispose()

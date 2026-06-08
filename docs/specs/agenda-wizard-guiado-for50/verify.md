@@ -28,6 +28,7 @@ Status: done
 | CA-018 | aceitacao | `sugerir_agendamento_proximo` passa a usar deslocamento total do slot (`anterior + proximo`) para ranking e mensagem | ok |
 | CA-019 | aceitacao | conflito operacional no salvar permite override apenas para admin via `confirmar_conflito_deslocamento`; nao-admin recebe `403` | ok |
 | CA-020 | aceitacao | `test_orquestrador_busca_dias_seguintes_quando_panorama_inicial_vazio` valida busca progressiva D+N ate primeira data com oferta | ok |
+| CA-021 | aceitacao | panorama final do assistente hierarquiza ate 3 datas e limita 2 slots por data, usando apenas adjacencias da ancora quando houver | ok |
 | NFR-002 | nao funcional | decisao anexada em `observacoesFinal` no submit | ok |
 
 ## 2) Testes automatizados executados
@@ -49,6 +50,17 @@ Resumo dos resultados:
 - Pytest `test_agenda_sugestao_janela_operacional.py` + `test_agenda_duracao_servico_create.py`: `23 passed`.
 - Pytest `test_agenda_assistente_orquestrador_metricas.py`: `6 passed`.
 - CI `Deploy to Stage (VPS)` run `26316967933`: `quality-gate=success`, `sdd-guardrail=failure` (falta de docs neste commit), sem falha funcional de codigo.
+
+Execucao adicional deste ciclo (2026-06-08):
+
+```bash
+cd backend && ./venv/bin/python -m py_compile app/api/v1/endpoints/agenda.py tests/test_agenda_assistente_orquestrador_metricas.py tests/test_agenda_sugestao_janela_operacional.py
+cd backend && ./venv/bin/python -m pytest -q tests/test_agenda_assistente_orquestrador_metricas.py tests/test_agenda_sugestao_janela_operacional.py
+```
+
+Resultado adicional:
+- `py_compile`: ok.
+- Pytest focal do panorama hierarquizado: `35 passed`.
 
 ## 3) Testes manuais sugeridos (stage)
 
@@ -78,6 +90,7 @@ Resumo dos resultados:
 - Risco residual 1: adesao operacional das secretarias depende de treinamento do novo fluxo.
 - Risco residual 2: justificativas textuais ainda nao possuem taxonomia estruturada para analytics.
 - Risco residual 3: ambiente local sem `fastapi` nao reproduz toda a suite backend fora do CI.
+- Risco residual 4: quando nao existir segunda ancora no horizonte consultado, o panorama recorre a data vazia/operacional e pode variar conforme a densidade real da agenda.
 
 ## 5) Decisao de release
 
