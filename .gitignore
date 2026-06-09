@@ -25,6 +25,7 @@ backups/
 .cursor/
 nul
 backend/preview_test*.pdf
+ops/baseline/prod/
 
 # Artefatos locais de contexto/planejamento (IA)
 ARCHITECTURE_DECISIONS.md
