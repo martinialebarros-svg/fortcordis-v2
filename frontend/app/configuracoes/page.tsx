@@ -1937,6 +1937,25 @@ export default function ConfiguracoesPage() {
                     />
                   </div>
                   <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Deslocamento maximo entre atendimentos (min)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={360}
+                      value={agendaRotaRegrasAtual.thresholds.max_neighbor_travel_min}
+                      disabled={somenteLeituraAgenda}
+                      onChange={(e) =>
+                        atualizarRegraRotaThreshold(
+                          "max_neighbor_travel_min",
+                          Number(e.target.value || 0)
+                        )
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Margem segura deslocamento (min)</label>
                     <input
                       type="number"

@@ -13,7 +13,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - RF-001: sistema deve armazenar `agenda_rota_regras` em `configuracoes` com defaults e normalizacao.
 - RF-002: sugestao de horarios deve considerar limiares de margem segura, deslocamento maximo por trecho vizinho, desvio maximo de insercao e preferencia por clinicas proximas da base no fim de rota.
 - RF-003: sugestao de proximidade deve retornar politica aplicada (dias preferenciais, sinalizacao de distancia/frequencia e override por clinica).
-- RF-004: UI de Configuracoes deve permitir editar base, thresholds, politicas e overrides por clinica.
+- RF-004: UI de Configuracoes deve permitir editar base, thresholds, politicas e overrides por clinica, incluindo o limite `max_neighbor_travel_min` como "Deslocamento maximo entre atendimentos".
 - RF-005: em slots fechados da agenda, apenas perfil `admin` pode abrir excecao diretamente pelo clique no slot (agenda normal e fullcalendar), com confirmacao explicita.
 - RF-006: estado de agenda fechada/janela especial deve ficar explicito tambem na visao Lista da agenda para todo o periodo selecionado.
 - RF-007: acoes de navegacao para clinica devem oferecer Waze e Google Maps nas interfaces de agenda.
@@ -65,7 +65,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 
 - CA-001: salvar configuracoes persiste e retorna `agenda_rota_regras` sem quebrar os campos antigos.
 - CA-002: agendamento com insercao claramente ineficiente ou com trecho vizinho acima do limite retorna conflito com dados de diagnostico.
-- CA-003: painel de configuracoes expõe edicao de regras e overrides por clinica.
+- CA-003: painel de configuracoes expõe edicao de regras, incluindo `max_neighbor_travel_min`, e overrides por clinica.
 - CA-004: ao clicar em slot fechado, `admin` consegue abrir excecao e seguir para criacao de agendamento; nao-admin permanece bloqueado.
 - CA-005: visao Lista mostra claramente dias fechados e janelas especiais dentro do periodo aplicado.
 - CA-006: agenda normal e fullcalendar exibem opcao de abrir rota no Google Maps alem do Waze.

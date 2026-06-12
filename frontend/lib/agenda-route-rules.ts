@@ -11,6 +11,7 @@ export interface AgendaRotaThresholdsConfig {
   distant_clinic_min_travel_from_base_min: number;
   low_frequency_max_bookings_30d: number;
   max_insertion_detour_min: number;
+  max_neighbor_travel_min: number;
   safe_margin_min: number;
 }
 
@@ -74,6 +75,7 @@ export const DEFAULT_AGENDA_ROTA_REGRAS: AgendaRotaRegrasConfig = {
     distant_clinic_min_travel_from_base_min: 35,
     low_frequency_max_bookings_30d: 3,
     max_insertion_detour_min: 25,
+    max_neighbor_travel_min: 45,
     safe_margin_min: 5,
   },
   offer_policy: {
@@ -256,6 +258,12 @@ export const normalizarAgendaRotaRegras = (payload: unknown): AgendaRotaRegrasCo
       max_insertion_detour_min: normalizarInt(
         thresholdsRaw.max_insertion_detour_min,
         defaultCfg.thresholds.max_insertion_detour_min,
+        0,
+        360
+      ),
+      max_neighbor_travel_min: normalizarInt(
+        thresholdsRaw.max_neighbor_travel_min,
+        defaultCfg.thresholds.max_neighbor_travel_min,
         0,
         360
       ),

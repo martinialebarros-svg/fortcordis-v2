@@ -10,7 +10,7 @@ Status: in-progress
 | --- | --- | --- | --- |
 | CA-001 | aceitacao | `PUT/GET /configuracoes` e `GET /agenda/configuracao` com `agenda_rota_regras` | ok |
 | CA-002 | aceitacao | validação em `agenda.py` com `CONFLITO_DESLOCAMENTO`, `desvio_insercao_min` e limite de trecho vizinho | ok |
-| CA-003 | aceitacao | seção "Regras de rota e oferta" em `frontend/app/configuracoes/page.tsx` | ok |
+| CA-003 | aceitacao | seção "Regras de rota e oferta" em `frontend/app/configuracoes/page.tsx`, incluindo o campo `max_neighbor_travel_min` como "Deslocamento maximo entre atendimentos" | ok |
 | CA-004 | aceitacao | clique em slot fechado abre excecao somente para `admin` em `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
 | CA-005 | aceitacao | modo Lista exibe alertas de "Agenda fechada" e "Janela especial" por data no periodo filtrado | ok |
 | CA-006 | aceitacao | botoes de rota para Google Maps adicionados em `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
@@ -51,6 +51,7 @@ Resumo dos resultados:
 - Backend: ok (py_compile).
 - Backend agenda: ok (`28 passed` em `test_agenda_sugestao_janela_operacional.py`).
 - Frontend: ok (eslint + tsc + build), incluindo validacao das duas telas de agenda e helper de navegacao.
+- Atualizacao 2026-06-12: ok (`npx eslint app/configuracoes/page.tsx lib/agenda-route-rules.ts` e `npx tsc --noEmit`) apos expor `max_neighbor_travel_min` na UI.
 - Observacao: os avisos de deprecacao de Pydantic/SQLAlchemy ja existiam no projeto.
 
 ## 3) Testes manuais
