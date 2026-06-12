@@ -21,6 +21,7 @@ Comandos:
 python3 -m py_compile scripts/prod_cost_baseline.py
 git check-ignore -v ops/baseline/prod/20260602-005340-Tplus24h/_meta.json
 git status --short --branch
+python3 scripts/ci/check_sdd_guardrail.py --base-sha 9e233c0558eea4e71ce57a8f698e12c3e65ee1f0 --head-sha <head>
 ```
 
 Resumo:
@@ -28,6 +29,8 @@ Resumo:
 - `git check-ignore -v .../_meta.json`: confirmou regra `.gitignore` para `ops/baseline/prod/`
 - `git status --short --branch`: mostrou apenas `.gitignore` e `scripts/prod_cost_baseline.py` como mudancas rastreaveis no ciclo antes do commit
 - `gh run view 27200942068 --log`: falha identificada como `sdd-guardrail` por ausencia de `spec.md` + `verify.md` para o novo script; alinhamento aplicado neste commit
+- `gh run view 27431518008 --job 81082810217 --log`: falha identificada como `sdd-guardrail` por ausencia de `intent.md` + `plan.md` em `docs/specs/prod-cost-baseline-collector`
+- Atualizacao 2026-06-12: estrutura SDD completa adicionada com `intent.md`, `spec.md`, `plan.md` e `verify.md`
 
 ## 3) Riscos residuais
 
