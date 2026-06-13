@@ -11,6 +11,7 @@ Status: done
 | CA-001 | regressao | `_gerar_pdf_cobranca_pendencias` usa `pagesize=A4` sem referencia a `agrupar` | ok |
 | CA-002 | regressao | teste focal gera bytes de PDF com item pendente de exemplo | ok |
 | CA-003 | regressao | `frontend/app/financeiro/page.tsx` extrai `detail` de erro em `blob` para o PDF de pendencias | ok |
+| HOTFIX-001 | ci | workflow `Deploy to VPS` apontou estrutura SDD incompleta; `intent.md` e `plan.md` adicionados ao mesmo diretorio da feature | ok |
 
 ## 2) Testes automatizados executados
 
