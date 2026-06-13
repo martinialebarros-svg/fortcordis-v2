@@ -1350,6 +1350,23 @@ export default function FinanceiroPage() {
     }
   };
 
+  const extrairDetalheErroDownload = async (error: any) => {
+    const payload = error?.response?.data;
+    if (payload instanceof Blob) {
+      try {
+        const texto = await payload.text();
+        const json = JSON.parse(texto);
+        return String(json?.detail || texto || "");
+      } catch {
+        return "";
+      }
+    }
+    if (typeof payload?.detail === "string") {
+      return payload.detail;
+    }
+    return "";
+  };
+
   const abrirComposerCompartilhamentoRecibo = (
     canal: "whatsapp" | "email",
     ids: number[],
@@ -1515,7 +1532,8 @@ export default function FinanceiroPage() {
       window.URL.revokeObjectURL(url);
     } catch (error: any) {
       console.error("Erro ao baixar relatorio PDF:", error);
-      alert(error?.response?.data?.detail || "Erro ao gerar relatorio PDF de pendencias.");
+      const detail = await extrairDetalheErroDownload(error);
+      alert(detail || "Erro ao gerar relatorio PDF de pendencias.");
     }
   };
 
@@ -1559,19 +1577,7 @@ export default function FinanceiroPage() {
       return { blob, filename: match?.[1] || filename };
     } catch (error: any) {
       console.error("Erro ao gerar recibo PDF:", error);
-      let detail = "";
-      const payload = error?.response?.data;
-      if (payload instanceof Blob) {
-        try {
-          const texto = await payload.text();
-          const json = JSON.parse(texto);
-          detail = String(json?.detail || texto || "");
-        } catch {
-          detail = "";
-        }
-      } else if (typeof payload?.detail === "string") {
-        detail = payload.detail;
-      }
+      const detail = await extrairDetalheErroDownload(error);
       alert(detail || "Erro ao gerar recibo das OS recebidas.");
       return null;
     }

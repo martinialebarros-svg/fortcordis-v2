@@ -314,7 +314,7 @@ def _gerar_pdf_cobranca_pendencias(
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
-        pagesize=landscape(A4) if agrupar else A4,
+        pagesize=A4,
         leftMargin=14 * mm,
         rightMargin=14 * mm,
         topMargin=14 * mm,
