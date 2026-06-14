@@ -346,6 +346,7 @@ export default function FinanceiroPage() {
   const [busca, setBusca] = useState("");
   const [abaAtiva, setAbaAtiva] = useState<"transacoes" | "cobrancas" | "ordens">("transacoes");
   const [modalReceberOS, setModalReceberOS] = useState<OrdemServico | null>(null);
+  const [modalReceberLoteOSIds, setModalReceberLoteOSIds] = useState<number[] | null>(null);
   const [modalEditarOS, setModalEditarOS] = useState<OrdemServico | null>(null);
   const [formasPagamentoDisponiveis, setFormasPagamentoDisponiveis] = useState<FormaPagamentoConfig[]>(FORMA_PAGAMENTO_FALLBACK);
   const [carregandoFormasPagamento, setCarregandoFormasPagamento] = useState(false);
@@ -381,6 +382,8 @@ export default function FinanceiroPage() {
   const [osHighlightId, setOsHighlightId] = useState<number | null>(null);
   const [osHighlightUntil, setOsHighlightUntil] = useState<number>(0);
   const [osSelecionadasRecibo, setOsSelecionadasRecibo] = useState<number[]>([]);
+  const [osSelecionadasBaixa, setOsSelecionadasBaixa] = useState<number[]>([]);
+  const [recebendoLoteOS, setRecebendoLoteOS] = useState(false);
   const [modalCompartilharRecibo, setModalCompartilharRecibo] = useState<CompartilhamentoReciboState | null>(null);
   const [enviandoCompartilhamentoRecibo, setEnviandoCompartilhamentoRecibo] = useState(false);
   const [previewRecibo, setPreviewRecibo] = useState<PreviewReciboState | null>(null);
@@ -697,6 +700,14 @@ export default function FinanceiroPage() {
     return formas[forma] || forma;
   };
 
+  const obterFormaPagamentoPadraoCodigo = () => {
+    const formaPadrao =
+      formasPagamentoDisponiveis.find(
+        (forma) => normalizarCodigoFormaPagamento(forma.codigo) === FORMA_PAGAMENTO_PADRAO
+      ) || formasPagamentoDisponiveis[0];
+    return normalizarCodigoFormaPagamento(formaPadrao?.codigo || FORMA_PAGAMENTO_PADRAO);
+  };
+
   const resumoPagamentoOS = useMemo(() => {
     const linhas = pagamentosRecebimentoOS.map((item) => {
       const codigo = normalizarCodigoFormaPagamento(item.forma_codigo);
@@ -749,6 +760,50 @@ export default function FinanceiroPage() {
     valorCreditoUtilizadoOS,
   ]);
 
+  const ordensRecebimentoLote = useMemo(
+    () =>
+      (modalReceberLoteOSIds || [])
+        .map((id) => ordensServico.find((os) => os.id === id))
+        .filter((os): os is OrdemServico => os != null && os.status === "Pendente"),
+    [modalReceberLoteOSIds, ordensServico]
+  );
+
+  const resumoPagamentoLoteOS = useMemo(() => {
+    const linhas = pagamentosRecebimentoOS.map((item) => {
+      const codigo = normalizarCodigoFormaPagamento(item.forma_codigo);
+      const forma = formasPagamentoDisponiveis.find(
+        (opcao) => normalizarCodigoFormaPagamento(opcao.codigo) === codigo
+      );
+      const valor = parseMoneyValue(item.valor);
+      const taxaPercentual = Number(forma?.taxa_percentual || 0);
+      const taxaFixa = Number(forma?.taxa_fixa || 0);
+      const taxa = Number((valor * (taxaPercentual / 100) + taxaFixa).toFixed(2));
+      const liquido = Number((valor - taxa).toFixed(2));
+      return {
+        ...item,
+        forma,
+        valor,
+        taxa,
+        liquido,
+      };
+    });
+    const totalBruto = linhas.reduce((acc, item) => acc + item.valor, 0);
+    const totalTaxa = linhas.reduce((acc, item) => acc + item.taxa, 0);
+    const totalLiquido = linhas.reduce((acc, item) => acc + item.liquido, 0);
+    const valorOS = ordensRecebimentoLote.reduce((acc, os) => acc + Number(os.valor_final || 0), 0);
+    const diferenca = Number((totalBruto - valorOS).toFixed(2));
+    return {
+      linhas,
+      totalBruto,
+      totalTaxa,
+      totalLiquido,
+      totalCoberto: totalBruto,
+      valorOS,
+      excedente: diferenca > 0 ? diferenca : 0,
+      faltante: diferenca < 0 ? Math.abs(diferenca) : 0,
+    };
+  }, [formasPagamentoDisponiveis, ordensRecebimentoLote, pagamentosRecebimentoOS]);
+
   const atualizarLinhaPagamentoOS = (id: string, campo: "forma_codigo" | "valor", valor: string) => {
     setPagamentosRecebimentoOS((prev) =>
       prev.map((item) => (item.id === id ? { ...item, [campo]: valor } : item))
@@ -756,11 +811,7 @@ export default function FinanceiroPage() {
   };
 
   const adicionarLinhaPagamentoOS = () => {
-    const formaPadrao =
-      formasPagamentoDisponiveis.find(
-        (forma) => normalizarCodigoFormaPagamento(forma.codigo) === FORMA_PAGAMENTO_PADRAO
-      ) || formasPagamentoDisponiveis[0];
-    const codigo = normalizarCodigoFormaPagamento(formaPadrao?.codigo || FORMA_PAGAMENTO_PADRAO);
+    const codigo = obterFormaPagamentoPadraoCodigo();
     setPagamentosRecebimentoOS((prev) => [
       ...prev,
       {
@@ -928,11 +979,7 @@ export default function FinanceiroPage() {
 
   const handlePagarOS = (os: OrdemServico) => {
     setModalReceberOS(os);
-    const formaPadrao =
-      formasPagamentoDisponiveis.find(
-        (forma) => normalizarCodigoFormaPagamento(forma.codigo) === FORMA_PAGAMENTO_PADRAO
-      ) || formasPagamentoDisponiveis[0];
-    const codigo = normalizarCodigoFormaPagamento(formaPadrao?.codigo || FORMA_PAGAMENTO_PADRAO);
+    const codigo = obterFormaPagamentoPadraoCodigo();
     setPagamentosRecebimentoOS([
       {
         id: gerarPagamentoId(),
@@ -945,6 +992,39 @@ export default function FinanceiroPage() {
     setSaldoCreditoClienteOS(0);
     setCarregandoSaldoCreditoClienteOS(false);
     setErroSaldoCreditoClienteOS("");
+    setUsarCreditoClienteOS(false);
+    setValorCreditoUtilizadoOS("0.00");
+  };
+
+  const abrirRecebimentoLoteOS = (ids: number[]) => {
+    const idsPendentes = Array.from(
+      new Set(
+        ids.filter((id) => {
+          const os = ordensServico.find((item) => item.id === id);
+          return os?.status === "Pendente";
+        })
+      )
+    );
+    if (idsPendentes.length === 0) {
+      alert("Selecione ao menos uma OS pendente para receber em lote.");
+      return;
+    }
+
+    const total = idsPendentes.reduce((acc, id) => {
+      const os = ordensServico.find((item) => item.id === id);
+      return acc + Number(os?.valor_final || 0);
+    }, 0);
+
+    setModalReceberLoteOSIds(idsPendentes);
+    setPagamentosRecebimentoOS([
+      {
+        id: gerarPagamentoId(),
+        forma_codigo: obterFormaPagamentoPadraoCodigo(),
+        valor: toMoneyInput(total),
+      },
+    ]);
+    setDataRecebimentoOS(hojeLocalISO());
+    setDestinoCreditoExcedenteOS("cliente");
     setUsarCreditoClienteOS(false);
     setValorCreditoUtilizadoOS("0.00");
   };
@@ -995,6 +1075,100 @@ export default function FinanceiroPage() {
     } catch (error: any) {
       console.error("Erro ao pagar OS:", error);
       alert("Erro ao processar pagamento: " + (error.response?.data?.detail || error.message));
+    }
+  };
+
+  const alocarPagamentosParaOS = (
+    os: OrdemServico,
+    pagamentos: Array<{
+      forma_pagamento: string;
+      forma_pagamento_config_id?: number;
+      valor: number;
+    }>,
+    totalLote: number,
+    ultimaOS: boolean,
+    acumuladoPorForma: Map<string, number>
+  ) => {
+    const valorOS = Number(os.valor_final || 0);
+    return pagamentos
+      .map((pagamento) => {
+        const chave = `${pagamento.forma_pagamento_config_id || ""}:${pagamento.forma_pagamento}`;
+        const acumulado = acumuladoPorForma.get(chave) || 0;
+        const valor =
+          ultimaOS
+            ? Number((pagamento.valor - acumulado).toFixed(2))
+            : Number(((pagamento.valor * valorOS) / totalLote).toFixed(2));
+        acumuladoPorForma.set(chave, Number((acumulado + valor).toFixed(2)));
+        return {
+          ...pagamento,
+          valor,
+        };
+      })
+      .filter((pagamento) => pagamento.valor > 0);
+  };
+
+  const confirmarRecebimentoLoteOS = async () => {
+    if (ordensRecebimentoLote.length === 0) {
+      alert("Nenhuma OS pendente selecionada.");
+      return;
+    }
+
+    const pagamentosPayload = resumoPagamentoLoteOS.linhas
+      .filter((item) => item.valor > 0)
+      .map((item) => ({
+        forma_pagamento: normalizarCodigoFormaPagamento(item.forma_codigo),
+        forma_pagamento_config_id: item.forma?.id ?? undefined,
+        valor: Number(item.valor.toFixed(2)),
+      }));
+    if (pagamentosPayload.length === 0) {
+      alert("Informe ao menos um pagamento com valor maior que zero.");
+      return;
+    }
+    if (resumoPagamentoLoteOS.faltante > 0) {
+      alert(`Falta cobrir ${formatarValor(resumoPagamentoLoteOS.faltante)} para receber as OS selecionadas.`);
+      return;
+    }
+    if (resumoPagamentoLoteOS.excedente > 0) {
+      alert("A baixa em lote precisa bater exatamente com o total das OS selecionadas. Ajuste o valor informado.");
+      return;
+    }
+
+    const acumuladoPorForma = new Map<string, number>();
+    const erros: string[] = [];
+    setRecebendoLoteOS(true);
+    try {
+      for (let index = 0; index < ordensRecebimentoLote.length; index += 1) {
+        const os = ordensRecebimentoLote[index];
+        const pagamentosOS = alocarPagamentosParaOS(
+          os,
+          pagamentosPayload,
+          resumoPagamentoLoteOS.valorOS,
+          index === ordensRecebimentoLote.length - 1,
+          acumuladoPorForma
+        );
+        try {
+          await api.patch(`/ordens-servico/${os.id}/receber`, {
+            pagamentos: pagamentosOS,
+            data_recebimento: dataRecebimentoOS || null,
+            valor_credito_utilizado: 0,
+            destino_credito_excedente: "cliente",
+          });
+        } catch (error: any) {
+          erros.push(`OS ${os.numero_os || os.id}: ${error.response?.data?.detail || error.message}`);
+        }
+      }
+
+      setModalReceberLoteOSIds(null);
+      setPagamentosRecebimentoOS([]);
+      setOsSelecionadasBaixa([]);
+      await carregarDados();
+      if (erros.length > 0) {
+        alert(`Baixa em lote concluida parcialmente.\n\n${erros.join("\n")}`);
+      } else {
+        alert("Baixa em lote registrada com sucesso!");
+      }
+    } finally {
+      setRecebendoLoteOS(false);
     }
   };
 
@@ -1087,10 +1261,26 @@ export default function FinanceiroPage() {
     () => osFiltradas.filter((os) => os.status === "Pago"),
     [osFiltradas]
   );
+  const osPendentesFiltradas = useMemo(
+    () => osFiltradas.filter((os) => os.status === "Pendente"),
+    [osFiltradas]
+  );
+  const totalSelecionadoBaixa = useMemo(
+    () =>
+      ordensServico
+        .filter((os) => osSelecionadasBaixa.includes(os.id) && os.status === "Pendente")
+        .reduce((acc, os) => acc + Number(os.valor_final || 0), 0),
+    [ordensServico, osSelecionadasBaixa]
+  );
 
   useEffect(() => {
     const idsRecebidas = new Set(ordensServico.filter((os) => os.status === "Pago").map((os) => os.id));
     setOsSelecionadasRecibo((prev) => prev.filter((id) => idsRecebidas.has(id)));
+  }, [ordensServico]);
+
+  useEffect(() => {
+    const idsPendentes = new Set(ordensServico.filter((os) => os.status === "Pendente").map((os) => os.id));
+    setOsSelecionadasBaixa((prev) => prev.filter((id) => idsPendentes.has(id)));
   }, [ordensServico]);
 
   useEffect(() => {
@@ -1543,12 +1733,26 @@ export default function FinanceiroPage() {
     );
   };
 
+  const toggleSelecaoBaixaOS = (osId: number) => {
+    setOsSelecionadasBaixa((prev) =>
+      prev.includes(osId) ? prev.filter((id) => id !== osId) : [...prev, osId]
+    );
+  };
+
   const selecionarTodasRecebidasVisiveis = () => {
     setOsSelecionadasRecibo(osRecebidasFiltradas.map((os) => os.id));
   };
 
+  const selecionarTodasPendentesVisiveis = () => {
+    setOsSelecionadasBaixa(osPendentesFiltradas.map((os) => os.id));
+  };
+
   const limparSelecaoRecibo = () => {
     setOsSelecionadasRecibo([]);
+  };
+
+  const limparSelecaoBaixa = () => {
+    setOsSelecionadasBaixa([]);
   };
 
   const obterReciboOSPDF = async (ids: number[], agrupar: boolean) => {
@@ -2230,6 +2434,15 @@ export default function FinanceiroPage() {
                 <Download className="w-4 h-4" />
                 Baixar relatorio pendente (PDF)
               </button>
+              <button
+                onClick={() => abrirRecebimentoLoteOS(osSelecionadasBaixa)}
+                disabled={osSelecionadasBaixa.length === 0}
+                className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+              >
+                <CheckCircle className="w-4 h-4" />
+                Receber selecionadas
+                {osSelecionadasBaixa.length > 0 ? ` (${osSelecionadasBaixa.length})` : ""}
+              </button>
             </div>
 
             <div className="p-4 border-b bg-white">
@@ -2292,6 +2505,14 @@ export default function FinanceiroPage() {
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <button
+                            onClick={() => abrirRecebimentoLoteOS(grupo.ordens.map((os) => os.id))}
+                            disabled={grupo.quantidade_os === 0}
+                            className="px-3 py-1.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg flex items-center gap-1 disabled:opacity-50"
+                          >
+                            <CheckCircle className="w-4 h-4" />
+                            Receber pendentes
+                          </button>
+                          <button
                             onClick={() => baixarRelatorioPendenciasPDF(grupo)}
                             className="px-3 py-1.5 text-sm bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-lg flex items-center gap-1"
                           >
@@ -2320,8 +2541,22 @@ export default function FinanceiroPage() {
                       {grupo.ordens.map((os) => (
                         <div key={os.id} className="p-4">
                           <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-                            <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-blue-100">
-                              <FileText className="w-5 h-5 text-blue-600" />
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="checkbox"
+                                checked={osSelecionadasBaixa.includes(os.id)}
+                                disabled={os.status !== "Pendente"}
+                                onChange={() => toggleSelecaoBaixaOS(os.id)}
+                                className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+                                title={
+                                  os.status === "Pendente"
+                                    ? "Selecionar para baixa em lote"
+                                    : "Apenas OS pendentes podem ser recebidas em lote"
+                                }
+                              />
+                              <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-blue-100">
+                                <FileText className="w-5 h-5 text-blue-600" />
+                              </div>
                             </div>
                             <div className="flex-1 min-w-0 space-y-2">
                               <div className="flex flex-wrap items-center gap-2">
@@ -2418,8 +2653,34 @@ export default function FinanceiroPage() {
                 <p className="text-xs text-emerald-700 mt-1">
                   {osRecebidasFiltradas.length} OS recebida(s) visivel(is) | {osSelecionadasRecibo.length} selecionada(s) para recibo
                 </p>
+                <p className="text-xs text-amber-700 mt-1">
+                  {osPendentesFiltradas.length} OS pendente(s) visivel(is) | {osSelecionadasBaixa.length} selecionada(s) para baixa
+                  {osSelecionadasBaixa.length > 0 ? ` | Total ${formatarValor(totalSelecionadoBaixa)}` : ""}
+                </p>
               </div>
               <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={selecionarTodasPendentesVisiveis}
+                  disabled={osPendentesFiltradas.length === 0}
+                  className="px-3 py-1.5 text-sm bg-white border border-amber-300 text-amber-800 rounded-lg hover:bg-amber-50 disabled:opacity-50"
+                >
+                  Selecionar pendentes
+                </button>
+                <button
+                  onClick={limparSelecaoBaixa}
+                  disabled={osSelecionadasBaixa.length === 0}
+                  className="px-3 py-1.5 text-sm bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Limpar baixa
+                </button>
+                <button
+                  onClick={() => abrirRecebimentoLoteOS(osSelecionadasBaixa)}
+                  disabled={osSelecionadasBaixa.length === 0}
+                  className="px-3 py-1.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg flex items-center gap-1 disabled:opacity-50"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  Receber selecionadas
+                </button>
                 <button
                   onClick={selecionarTodasRecebidasVisiveis}
                   disabled={osRecebidasFiltradas.length === 0}
@@ -2564,14 +2825,26 @@ export default function FinanceiroPage() {
                       <div className="flex items-center gap-3">
                         <input
                           type="checkbox"
-                          checked={osSelecionadasRecibo.includes(os.id)}
-                          disabled={os.status !== "Pago"}
-                          onChange={() => toggleSelecaoReciboOS(os.id)}
+                          checked={
+                            os.status === "Pago"
+                              ? osSelecionadasRecibo.includes(os.id)
+                              : osSelecionadasBaixa.includes(os.id)
+                          }
+                          disabled={os.status !== "Pago" && os.status !== "Pendente"}
+                          onChange={() => {
+                            if (os.status === "Pago") {
+                              toggleSelecaoReciboOS(os.id);
+                            } else if (os.status === "Pendente") {
+                              toggleSelecaoBaixaOS(os.id);
+                            }
+                          }}
                           className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
                           title={
                             os.status === "Pago"
                               ? "Selecionar para recibo"
-                              : "Apenas OS recebidas podem gerar recibo"
+                              : os.status === "Pendente"
+                                ? "Selecionar para baixa em lote"
+                                : "Apenas OS recebidas geram recibo e OS pendentes podem ser recebidas em lote"
                           }
                         />
                         <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-blue-100">
@@ -2992,6 +3265,151 @@ export default function FinanceiroPage() {
             </div>
             <div className="flex-1 min-h-0">
               <ReciboPdfPreview blob={previewRecibo.blob} titulo={previewRecibo.filename} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Receber OS em lote */}
+      {modalReceberLoteOSIds && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40 p-4">
+          <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Receber OS em lote</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                {ordensRecebimentoLote.length} OS pendente(s) selecionada(s)
+              </p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-amber-900">Total das OS selecionadas</span>
+                  <span className="font-semibold text-amber-950">{formatarValor(resumoPagamentoLoteOS.valorOS)}</span>
+                </div>
+                <div className="mt-2 max-h-32 overflow-auto text-xs text-amber-900">
+                  {ordensRecebimentoLote.map((os) => (
+                    <div key={os.id} className="flex justify-between gap-3 py-0.5">
+                      <span>
+                        OS {os.numero_os} - {os.paciente || "Paciente nao informado"}
+                      </span>
+                      <span className="font-medium">{formatarValor(Number(os.valor_final || 0))}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {pagamentosRecebimentoOS.map((pagamento, index) => (
+                  <div key={pagamento.id} className="rounded-lg border border-gray-200 p-3">
+                    <div className="mb-2 text-xs font-medium text-gray-500">Pagamento {index + 1}</div>
+                    <label className="block text-xs font-medium text-gray-600">Forma de pagamento</label>
+                    <select
+                      value={pagamento.forma_codigo}
+                      onChange={(event) => atualizarLinhaPagamentoOS(pagamento.id, "forma_codigo", event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    >
+                      {formasPagamentoDisponiveis.map((forma) => {
+                        const codigo = normalizarCodigoFormaPagamento(forma.codigo);
+                        return (
+                          <option key={`${codigo}-${forma.id ?? "fallback"}`} value={codigo}>
+                            {descricaoFormaPagamentoConfig(forma)}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <label className="mt-2 block text-xs font-medium text-gray-600">Valor</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={pagamento.valor}
+                      onChange={(event) => atualizarLinhaPagamentoOS(pagamento.id, "valor", event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    />
+                    <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                      <span>Taxa estimada: {formatarValor(resumoPagamentoLoteOS.linhas[index]?.taxa || 0)}</span>
+                      {pagamentosRecebimentoOS.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removerLinhaPagamentoOS(pagamento.id)}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          Remover
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={adicionarLinhaPagamentoOS}
+                  className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                >
+                  + Adicionar forma de pagamento
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Data do Recebimento</label>
+                <input
+                  type="date"
+                  value={dataRecebimentoOS}
+                  onChange={(e) => setDataRecebimentoOS(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+              </div>
+
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">
+                <div className="flex justify-between">
+                  <span>Total das OS</span>
+                  <strong>{formatarValor(resumoPagamentoLoteOS.valorOS || 0)}</strong>
+                </div>
+                <div className="mt-1 flex justify-between">
+                  <span>Total informado</span>
+                  <strong>{formatarValor(resumoPagamentoLoteOS.totalBruto || 0)}</strong>
+                </div>
+                <div className="mt-1 flex justify-between">
+                  <span>Total de taxas estimadas</span>
+                  <strong>{formatarValor(resumoPagamentoLoteOS.totalTaxa || 0)}</strong>
+                </div>
+                {resumoPagamentoLoteOS.faltante > 0 && (
+                  <p className="mt-1 text-red-700">
+                    Falta cobrir {formatarValor(resumoPagamentoLoteOS.faltante)}.
+                  </p>
+                )}
+                {resumoPagamentoLoteOS.excedente > 0 && (
+                  <p className="mt-1 text-red-700">
+                    Valor informado excede o total em {formatarValor(resumoPagamentoLoteOS.excedente)}.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="p-6 border-t flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setModalReceberLoteOSIds(null);
+                  setPagamentosRecebimentoOS([]);
+                }}
+                disabled={recebendoLoteOS}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg border disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarRecebimentoLoteOS}
+                disabled={
+                  recebendoLoteOS ||
+                  resumoPagamentoLoteOS.faltante > 0 ||
+                  resumoPagamentoLoteOS.excedente > 0 ||
+                  ordensRecebimentoLote.length === 0
+                }
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60"
+              >
+                <CheckCircle className="w-4 h-4" />
+                {recebendoLoteOS ? "Recebendo..." : "Confirmar baixa em lote"}
+              </button>
             </div>
           </div>
         </div>
