@@ -16,6 +16,7 @@ Status: done
 | CA-006 | aceitacao | UI de presets mostra aviso `usa frase inativa`. | ok |
 | CA-007 | aceitacao | teste `test_minimal_store_is_auto_recovered_from_rich_runtime_backup`. | ok |
 | CA-008 | aceitacao | teste `test_save_blocks_unexpected_store_shrink`. | ok |
+| CA-009 | aceitacao | `EcocardiogramaEstruturadoEditor.tsx` usa seletor pesquisavel, filtros por grupo clinico e resultados agrupados. | ok |
 | NFR-001 | compatibilidade | teste `test_normalize_adds_phrase_pathologies_and_order`. | ok |
 | NFR-003 | resiliencia | testes verificam backups runtime em alteracoes. | ok |
 | NFR-004 | integridade | guarda de persistencia no `_save_store` bloqueia shrink acidental fora de `import/recovery`. | ok |
@@ -29,12 +30,15 @@ cd backend
 venv/bin/python -m pytest tests/test_frases_ecocardiograma_estruturado_teste_service.py tests/test_frases_ecocardiograma_estruturado_import.py
 venv/bin/python -m py_compile app/api/v1/endpoints/frases_ecocardiograma_estruturado_teste.py app/services/frases_ecocardiograma_estruturado_teste_service.py
 venv/bin/python -m py_compile sync_frases_store.py
+cd ../frontend
+npx eslint app/laudos/components/EcocardiogramaEstruturadoEditor.tsx
+npx tsc --noEmit --pretty false
 
 ```
 
 Resumo dos resultados:
-- Backend: 12 testes passaram; `py_compile` passou.
-- Frontend: sem alteracoes nesta correção.
+- Backend: 12 testes passaram; `py_compile` passou na validacao original da feature.
+- Frontend: `npx eslint app/laudos/components/EcocardiogramaEstruturadoEditor.tsx` e `npx tsc --noEmit --pretty false` passaram para o seletor pesquisavel.
 
 ## 3) Testes manuais
 
@@ -42,6 +46,7 @@ Resumo dos resultados:
 - Cenario 2: editar frase com patologia/tag e confirmar persistencia apos recarregar.
 - Cenario 3: desativar/restaurar frase e confirmar aviso em preset que a utiliza.
 - Cenario 4: aplicar preset na aba Qualitativa apos alteracao da Biblioteca.
+- Cenario 5: abrir a aba Qualitativa, pesquisar preset por texto, filtrar por grupo clinico e selecionar um resultado agrupado.
 
 ## 4) Regressao e riscos residuais
 

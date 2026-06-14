@@ -19,6 +19,7 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - RF-007: sinalizar presets que usam frases inativas.
 - RF-008: bloquear persistencias que reduzam frases/presets sem operacao explicita de importacao.
 - RF-009: quando o store estiver reduzido ao baseline minimo e houver backup runtime mais completo, recuperar automaticamente o store mais rico.
+- RF-010: na aba Qualitativa, selecionar presets por um controle pesquisavel com filtro por grupo clinico e agrupamento visual para reduzir tempo de busca em bancos grandes.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -48,7 +49,7 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 ### Frontend
 
 - Telas afetadas: `/laudos/novo` e `/laudos/[id]/editar`.
-- Estados de UI: aba `biblioteca`, secao `frases|presets`, filtros, formulario de frase e formulario de preset.
+- Estados de UI: aba `biblioteca`, secao `frases|presets`, filtros, formulario de frase e formulario de preset; na aba Qualitativa, busca de preset, filtro por grupo clinico e dropdown agrupado.
 - Regras: salvar na Biblioteca recarrega o banco, mas nao altera diretamente o laudo em edicao.
 
 ## 5) Compatibilidade e rollout
@@ -67,12 +68,14 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - CA-006: presets que usam frase inativa exibem aviso.
 - CA-007: store minimo com backup mais rico e restaurado automaticamente no primeiro load.
 - CA-008: tentativa de shrink inesperado e bloqueada com erro de seguranca operacional.
+- CA-009: o seletor de presets da aba Qualitativa permite buscar por nome, patologia, grau ou tag e exibe resultados agrupados.
 
 ## 7) Casos de borda
 
 - CB-001: frase sem patologias deve aparecer em Sem patologia.
 - CB-002: preset com frase inativa deve continuar editavel.
 - CB-003: mover frase para aspecto ja selecionado no mesmo preset nao deve criar selecao duplicada.
+- CB-004: preset sem patologia e sem tag deve aparecer no grupo `Sem classificacao`.
 
 ## 8) Fora de escopo
 
