@@ -19,6 +19,7 @@ Status: done
 | NFR-002 | nao funcional | Copy LGPD sem anexos sensiveis fora do portal | ok |
 | NFR-003 | nao funcional | Asset local `frontend/public/brand/fortcordis-portal-hero.jpg` | ok |
 | NFR-004 | nao funcional | `isInstitutionalHost(host)` preservado em `frontend/app/page.tsx` | ok |
+| CB-005 | borda | Revisao de copy em `frontend/app/page.tsx` e `frontend/app/area-pacientes/page.tsx` sem promessa de WhatsApp antes da aprovacao Meta | ok |
 
 ## 2) Testes automatizados executados
 
@@ -30,7 +31,7 @@ npm run build
 ```
 
 Resumo dos resultados:
-- Frontend: `npm run build` concluido com sucesso em 2026-06-16.
+- Frontend: `npm run build` concluido com sucesso em 2026-06-16 e reexecutado em 2026-06-30 apos ajuste de copy email-only.
 - Backend: nao aplicavel.
 
 ## 3) Testes manuais
@@ -42,10 +43,13 @@ Resumo dos resultados:
   - H1 `FortCordis`, campos de email e senha presentes, preservando login administrativo.
 - Cenario 3: `/area-pacientes`:
   - H1 de tutor presente, sem placeholder de construcao, sem overflow em mobile e desktop.
+  - Copy preliminar orienta codigo temporario no email cadastrado, sem prometer WhatsApp antes da liberacao da API da Meta.
 - Cenario 4: `/clinica-parceira`:
   - H1 de clinica parceira presente, sem placeholder de construcao, sem overflow em mobile e desktop.
 - Cenario 5: rota interna em host institucional:
   - `curl -I -H 'Host: fortcordis.com.br' http://127.0.0.1:3002/dashboard` retornou `307` para `http://app.fortcordis.com.br/dashboard`.
+- Cenario 6: home institucional:
+  - Copy preliminar orienta codigo temporario enviado ao email cadastrado e remove mencoes de acesso por WhatsApp.
 - Console browser:
   - Sem erros de console nas rotas publicas verificadas.
 - Status: concluido.
