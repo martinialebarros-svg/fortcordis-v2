@@ -89,7 +89,56 @@ class TutorComplementarPersistenciaTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_criar_multiplos_pets_reusa_tutor_com_dados_de_portal(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            primeiro = pacientes.criar_paciente(
+                pacientes.PacienteCreate(
+                    nome="Luna",
+                    tutor="Maria Silva",
+                    tutor_email="maria@example.com",
+                    tutor_telefone="85999990000",
+                    tutor_whatsapp="85999990001",
+                    especie="Canina",
+                    raca="SRD",
+                ),
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+
+            segundo = pacientes.criar_paciente(
+                pacientes.PacienteCreate(
+                    nome="Theo",
+                    tutor_id=primeiro["tutor_id"],
+                    tutor="Maria Silva",
+                    tutor_email="maria@example.com",
+                    especie="Felina",
+                    raca="SRD",
+                ),
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+
+            self.assertIsNotNone(primeiro["tutor_id"])
+            self.assertEqual(primeiro["tutor_id"], segundo["tutor_id"])
+
+            tutor = db.query(Tutor).filter(Tutor.id == primeiro["tutor_id"]).first()
+            self.assertIsNotNone(tutor)
+            self.assertEqual(tutor.email, "maria@example.com")
+            self.assertEqual(tutor.whatsapp, "85999990001")
+
+            luna = pacientes.obter_paciente(
+                primeiro["id"],
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+            self.assertEqual(luna["tutor_email"], "maria@example.com")
+            self.assertEqual(luna["tutor_id"], primeiro["tutor_id"])
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()
-

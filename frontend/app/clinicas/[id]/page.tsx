@@ -487,6 +487,16 @@ export default function EditarClinicaPage() {
             </h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="md:col-span-2 rounded-lg border border-purple-100 bg-purple-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-purple-700">
+                  ID da clinica
+                </p>
+                <p className="mt-1 text-2xl font-bold text-purple-950">{clinicaId}</p>
+                <p className="mt-1 text-sm text-purple-800">
+                  Use este identificador para testar o portal da clinica parceira.
+                </p>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Nome Fantasia *

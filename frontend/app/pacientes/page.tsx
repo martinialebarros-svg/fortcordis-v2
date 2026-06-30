@@ -9,7 +9,9 @@ import { Users, Search, Plus, Dog, Cat, User, Edit2, Trash2 } from "lucide-react
 interface Paciente {
   id: number;
   nome: string;
+  tutor_id?: number | null;
   tutor: string;
+  tutor_email?: string;
   especie?: string;
   raca?: string;
   sexo?: string;
@@ -51,7 +53,11 @@ export default function PacientesPage() {
   const pacientesFiltrados = useMemo(
     () =>
       pacientes.filter(
-        (p) => p.nome.toLowerCase().includes(busca.toLowerCase()) || p.tutor?.toLowerCase().includes(busca.toLowerCase())
+        (p) =>
+          p.nome.toLowerCase().includes(busca.toLowerCase()) ||
+          p.tutor?.toLowerCase().includes(busca.toLowerCase()) ||
+          String(p.id).includes(busca.trim()) ||
+          String(p.tutor_id || "").includes(busca.trim())
       ),
     [busca, pacientes]
   );
@@ -271,8 +277,19 @@ export default function PacientesPage() {
                     </div>
 
                     <div className="flex-1 cursor-pointer" onClick={() => router.push(`/pacientes/${paciente.id}`)}>
-                      <h3 className="font-medium text-gray-900">{paciente.nome}</h3>
-                      <p className="text-sm text-gray-500">Tutor: {paciente.tutor || "Nao informado"}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-medium text-gray-900">{paciente.nome}</h3>
+                        <span className="rounded bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                          Pet #{paciente.id}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm text-gray-500">
+                        Tutor: {paciente.tutor || "Nao informado"}
+                        {paciente.tutor_id ? ` | Tutor #${paciente.tutor_id}` : ""}
+                      </p>
+                      {paciente.tutor_email && (
+                        <p className="text-xs text-gray-400">{paciente.tutor_email}</p>
+                      )}
                     </div>
 
                     <div className="text-right text-sm text-gray-500 hidden sm:block">

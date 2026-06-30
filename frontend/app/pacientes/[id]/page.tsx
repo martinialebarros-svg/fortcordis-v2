@@ -10,7 +10,7 @@ import {
   loadRacasCustomPorEspecie,
   saveRacasCustomPorEspecie,
 } from "@/lib/racas";
-import { Save, ArrowLeft, Dog, Trash2, AlertTriangle } from "lucide-react";
+import { Save, ArrowLeft, Trash2, AlertTriangle, UserRound } from "lucide-react";
 
 export default function EditarPacientePage() {
   const router = useRouter();
@@ -21,8 +21,20 @@ export default function EditarPacientePage() {
   const [saving, setSaving] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [paciente, setPaciente] = useState({
+    tutor_id: "",
     nome: "",
     tutor: "",
+    tutor_email: "",
+    tutor_telefone: "",
+    tutor_whatsapp: "",
+    tutor_cpf: "",
+    tutor_cep: "",
+    tutor_endereco: "",
+    tutor_numero: "",
+    tutor_complemento: "",
+    tutor_bairro: "",
+    tutor_cidade: "",
+    tutor_estado: "CE",
     especie: "Canina",
     raca: "",
     sexo: "Macho",
@@ -76,8 +88,20 @@ export default function EditarPacientePage() {
       const response = await api.get(`/pacientes/${pacienteId}`);
       const data = response.data;
       setPaciente({
+        tutor_id: data.tutor_id ? String(data.tutor_id) : "",
         nome: data.nome || "",
         tutor: data.tutor || "",
+        tutor_email: data.tutor_email || "",
+        tutor_telefone: data.tutor_telefone || "",
+        tutor_whatsapp: data.tutor_whatsapp || "",
+        tutor_cpf: data.tutor_cpf || "",
+        tutor_cep: data.tutor_cep || "",
+        tutor_endereco: data.tutor_endereco || "",
+        tutor_numero: data.tutor_numero || "",
+        tutor_complemento: data.tutor_complemento || "",
+        tutor_bairro: data.tutor_bairro || "",
+        tutor_cidade: data.tutor_cidade || "",
+        tutor_estado: data.tutor_estado || "CE",
         especie: data.especie || "Canina",
         raca: data.raca || "",
         sexo: data.sexo || "Macho",
@@ -100,6 +124,7 @@ export default function EditarPacientePage() {
     try {
       const payload = {
         ...paciente,
+        tutor_id: paciente.tutor_id ? Number(paciente.tutor_id) : null,
         peso_kg: paciente.peso_kg ? parseFloat(paciente.peso_kg) : null,
       };
       
@@ -162,6 +187,189 @@ export default function EditarPacientePage() {
         </div>
 
         <div className="bg-white rounded-lg shadow-sm border p-6">
+          <div className="mb-6 flex items-center gap-2 border-b pb-3">
+            <UserRound className="h-5 w-5 text-blue-600" />
+            <h2 className="text-lg font-semibold text-gray-900">Dados do tutor</h2>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                ID do tutor
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_id || "Sem ID vinculado"}
+                readOnly
+                className="w-full px-3 py-2 border border-gray-200 bg-gray-50 rounded-lg text-gray-700"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Nome do tutor *
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor}
+                onChange={(e) => setPaciente({...paciente, tutor: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Ex: João Silva"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                E-mail do tutor
+              </label>
+              <input
+                type="email"
+                value={paciente.tutor_email}
+                onChange={(e) => setPaciente({...paciente, tutor_email: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="email@tutor.com"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Telefone
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_telefone}
+                onChange={(e) => setPaciente({...paciente, tutor_telefone: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="(00) 00000-0000"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                WhatsApp
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_whatsapp}
+                onChange={(e) => setPaciente({...paciente, tutor_whatsapp: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="(00) 00000-0000"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                CPF
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_cpf}
+                onChange={(e) => setPaciente({...paciente, tutor_cpf: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="000.000.000-00"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                CEP
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_cep}
+                onChange={(e) => setPaciente({...paciente, tutor_cep: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="00000-000"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Endereço
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_endereco}
+                onChange={(e) => setPaciente({...paciente, tutor_endereco: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Rua / Avenida"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Número
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_numero}
+                onChange={(e) => setPaciente({...paciente, tutor_numero: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="123"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Complemento
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_complemento}
+                onChange={(e) => setPaciente({...paciente, tutor_complemento: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Apto, bloco, sala"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Bairro
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_bairro}
+                onChange={(e) => setPaciente({...paciente, tutor_bairro: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Bairro"
+              />
+            </div>
+
+            <div className="grid grid-cols-[1fr_96px] gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Cidade
+                </label>
+                <input
+                  type="text"
+                  value={paciente.tutor_cidade}
+                  onChange={(e) => setPaciente({...paciente, tutor_cidade: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Cidade"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  UF
+                </label>
+                <input
+                  type="text"
+                  value={paciente.tutor_estado}
+                  onChange={(e) => setPaciente({...paciente, tutor_estado: e.target.value.toUpperCase().slice(0, 2)})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="CE"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="my-8 flex items-center justify-between gap-3 border-b pb-3">
+            <h2 className="text-lg font-semibold text-gray-900">Dados do pet</h2>
+            <span className="rounded-lg bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-700">
+              ID do pet: {pacienteId}
+            </span>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -175,20 +383,7 @@ export default function EditarPacientePage() {
                 placeholder="Ex: Rex"
               />
             </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Tutor/Proprietário *
-              </label>
-              <input
-                type="text"
-                value={paciente.tutor}
-                onChange={(e) => setPaciente({...paciente, tutor: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                placeholder="Ex: João Silva"
-              />
-            </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Espécie
