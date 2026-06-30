@@ -1,0 +1,455 @@
+import os
+import sys
+import tempfile
+import unittest
+from datetime import datetime
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from fastapi import HTTPException
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from starlette.requests import Request
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+os.chdir(BACKEND_DIR)
+sys.path.insert(0, str(BACKEND_DIR))
+
+os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
+os.environ.setdefault("SECRET_KEY", "portal-access-foundation-test-secret-key-1234567890")
+
+from app.api.v1.endpoints import portal
+from app.core.config import settings
+from app.core.portal_security import (
+    PORTAL_DOWNLOAD_TOKEN_HEADER,
+    PortalSessionContext,
+    decode_portal_session_token,
+)
+from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
+from app.models.clinica import Clinica
+from app.models.laudo import Exame
+from app.models.paciente import Paciente
+from app.models.portal_access import PortalAccessChallenge
+from app.models.tutor import Tutor
+from app.schemas.portal import (
+    PortalClinicaSessionLinkRequest,
+    PortalCodeVerifyRequest,
+    PortalTutorSessionLinkRequest,
+)
+
+
+def _make_request(
+    *,
+    authorization: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> Request:
+    raw_headers: list[tuple[bytes, bytes]] = []
+    if authorization:
+        raw_headers.append((b"authorization", authorization.encode("utf-8")))
+    for key, value in (headers or {}).items():
+        raw_headers.append((key.lower().encode("utf-8"), value.encode("utf-8")))
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/v1/portal/test",
+        "raw_path": b"/api/v1/portal/test",
+        "query_string": b"",
+        "headers": raw_headers,
+        "client": ("testclient", 50000),
+        "server": ("testserver", 80),
+        "scheme": "http",
+        "http_version": "1.1",
+    }
+    return Request(scope)
+
+
+class PortalAccessFoundationTest(unittest.TestCase):
+    def _build_session(self):
+        tmpdir = tempfile.TemporaryDirectory()
+        db_path = Path(tmpdir.name) / "portal-access-foundation.db"
+        engine = create_engine(f"sqlite:///{db_path}")
+        for table in (
+            Tutor.__table__,
+            Paciente.__table__,
+            Clinica.__table__,
+            AtendimentoClinico.__table__,
+            Exame.__table__,
+            AnexoAtendimento.__table__,
+            PortalAccessChallenge.__table__,
+        ):
+            table.create(engine, checkfirst=True)
+        session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()
+        return tmpdir, session, engine
+
+    def _seed_portal_data(self, db: sessionmaker, tmpdir: tempfile.TemporaryDirectory):
+        tutor = Tutor(
+            nome="Maria Tutora",
+            email="maria@example.com",
+            whatsapp="(85) 99999-0000",
+            telefone="85999990000",
+            ativo=1,
+        )
+        paciente = Paciente(
+            nome="Luna",
+            especie="Canina",
+            tutor_id=1,
+            ativo=1,
+        )
+        clinica = Clinica(nome="Clinica Parceira A", email="parceira@example.com", ativo=True)
+        clinica_outra = Clinica(nome="Clinica Parceira B", email="outra@example.com", ativo=True)
+        db.add_all([tutor, paciente, clinica, clinica_outra])
+        db.flush()
+        paciente.tutor_id = tutor.id
+
+        atendimento = AtendimentoClinico(
+            paciente_id=paciente.id,
+            tutor_id=tutor.id,
+            clinica_id=clinica.id,
+            agendamento_id=None,
+            veterinario_id=77,
+            especie="Canina",
+            data_atendimento=datetime(2026, 6, 16, 9, 30),
+            status="Concluido",
+            criado_por_id=77,
+            criado_por_nome="Vet Teste",
+        )
+        db.add(atendimento)
+        db.flush()
+
+        exame = Exame(
+            atendimento_id=atendimento.id,
+            paciente_id=paciente.id,
+            tipo_exame="Ecocardiograma",
+            categoria_exame="Cardiologia",
+            prioridade="Rotina",
+            status="Concluido",
+            data_solicitacao=datetime(2026, 6, 16, 9, 0),
+            data_resultado=datetime(2026, 6, 16, 10, 0),
+            observacoes="Exame liberado para portal.",
+        )
+        db.add(exame)
+        db.flush()
+
+        file_path = Path(tmpdir.name) / "eco-luna.pdf"
+        file_path.write_bytes(b"%PDF-1.4\nportal test pdf\n")
+        anexo = AnexoAtendimento(
+            atendimento_id=atendimento.id,
+            exame_id=exame.id,
+            tipo="documento",
+            descricao="Laudo PDF",
+            url=f"/api/v1/atendimentos/anexos/{1}/arquivo",
+            nome_original="eco-luna.pdf",
+            tamanho=file_path.stat().st_size,
+            mime_type="application/pdf",
+            caminho_arquivo=str(file_path),
+            origem="upload",
+        )
+        db.add(anexo)
+        db.commit()
+        db.refresh(tutor)
+        db.refresh(paciente)
+        db.refresh(clinica)
+        db.refresh(clinica_outra)
+        db.refresh(exame)
+        db.refresh(anexo)
+        return tutor, paciente, clinica, clinica_outra, exame, anexo
+
+    def test_tutor_challenge_and_code_verification_issue_scoped_token(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            tutor, paciente, *_ = self._seed_portal_data(db, tmpdir)
+            payload = PortalTutorSessionLinkRequest(
+                tutor_id=tutor.id,
+                paciente_id=paciente.id,
+                canal="email",
+                contato=tutor.email,
+            )
+
+            with patch.object(settings, "PORTAL_DEBUG_EXPOSE_CODE", True), patch.object(
+                portal, "registrar_auditoria", return_value=None
+            ), patch.object(
+                portal,
+                "send_portal_access_code",
+                return_value=SimpleNamespace(provider="smtp", channel="email"),
+            ) as send_mock:
+                challenge_response = portal.solicitar_sessao_tutor(
+                    payload,
+                    request=_make_request(),
+                    db=db,
+                )
+
+                self.assertTrue(challenge_response.accepted)
+                self.assertEqual(
+                    db.query(PortalAccessChallenge).count(),
+                    1,
+                )
+                self.assertIsNotNone(challenge_response.debug_code)
+                send_mock.assert_called_once()
+                delivery_payload = send_mock.call_args.args[0]
+                self.assertEqual(delivery_payload.channel, "email")
+                self.assertEqual(delivery_payload.destination, tutor.email)
+
+                token_response = portal.verificar_codigo_portal(
+                    PortalCodeVerifyRequest(
+                        challenge_id=challenge_response.challenge_id,
+                        codigo=challenge_response.debug_code,
+                    ),
+                    request=_make_request(),
+                    db=db,
+                )
+
+            decoded = decode_portal_session_token(token_response.access_token)
+            self.assertEqual(decoded.actor_type, "tutor")
+            self.assertEqual(decoded.actor_id, tutor.id)
+            self.assertEqual(decoded.paciente_id, paciente.id)
+            self.assertEqual(token_response.scope, portal.PORTAL_SCOPE_TUTOR)
+
+            challenge = db.query(PortalAccessChallenge).first()
+            self.assertEqual(challenge.status, portal.PORTAL_CHALLENGE_STATUS_CONSUMED)
+            self.assertIsNotNone(challenge.consumed_at)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_invalid_tutor_request_keeps_generic_response_without_creating_challenge(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            tutor, paciente, *_ = self._seed_portal_data(db, tmpdir)
+            payload = PortalTutorSessionLinkRequest(
+                tutor_id=tutor.id,
+                paciente_id=paciente.id,
+                canal="email",
+                contato="invalido@example.com",
+            )
+
+            with patch.object(portal, "registrar_auditoria", return_value=None), patch.object(
+                portal,
+                "send_portal_access_code",
+                return_value=SimpleNamespace(provider="smtp", channel="email"),
+            ) as send_mock:
+                response = portal.solicitar_sessao_tutor(
+                    payload,
+                    request=_make_request(),
+                    db=db,
+                )
+
+            self.assertTrue(response.accepted)
+            self.assertIn("codigo temporario", response.message)
+            self.assertEqual(db.query(PortalAccessChallenge).count(), 0)
+            send_mock.assert_not_called()
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_invalid_code_locks_challenge_when_attempt_limit_is_reached(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            tutor, paciente, *_ = self._seed_portal_data(db, tmpdir)
+            with patch.object(settings, "PORTAL_DEBUG_EXPOSE_CODE", True), patch.object(
+                portal, "registrar_auditoria", return_value=None
+            ), patch.object(
+                portal,
+                "send_portal_access_code",
+                return_value=SimpleNamespace(provider="whatsapp_webhook", channel="whatsapp"),
+            ) as send_mock:
+                challenge_response = portal.solicitar_sessao_tutor(
+                    PortalTutorSessionLinkRequest(
+                        tutor_id=tutor.id,
+                        paciente_id=paciente.id,
+                        canal="whatsapp",
+                        contato=tutor.whatsapp,
+                    ),
+                    request=_make_request(),
+                    db=db,
+                )
+                send_mock.assert_called_once()
+                delivery_payload = send_mock.call_args.args[0]
+                self.assertEqual(delivery_payload.channel, "whatsapp")
+                self.assertEqual(delivery_payload.destination, tutor.whatsapp)
+
+                challenge = db.query(PortalAccessChallenge).filter(
+                    PortalAccessChallenge.challenge_id == challenge_response.challenge_id
+                ).first()
+                challenge.max_attempts = 1
+                db.commit()
+
+                with self.assertRaises(HTTPException) as ctx:
+                    portal.verificar_codigo_portal(
+                        PortalCodeVerifyRequest(
+                            challenge_id=challenge.challenge_id,
+                            codigo="000000",
+                        ),
+                        request=_make_request(),
+                        db=db,
+                    )
+
+            self.assertEqual(ctx.exception.status_code, 401)
+            db.refresh(challenge)
+            self.assertEqual(challenge.status, portal.PORTAL_CHALLENGE_STATUS_LOCKED)
+            self.assertEqual(challenge.failed_attempts, 1)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_tutor_can_list_only_scoped_pet_exams(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            tutor, paciente, *_ = self._seed_portal_data(db, tmpdir)
+            session = PortalSessionContext(
+                actor_type="tutor",
+                actor_id=tutor.id,
+                paciente_id=paciente.id,
+                clinica_id=None,
+                challenge_id="challenge-tutor",
+                display_name=tutor.nome,
+                channel="email",
+                scope=tuple(portal.PORTAL_SCOPE_TUTOR),
+                expires_at=datetime.utcnow(),
+            )
+
+            response = portal.listar_exames_pet_portal(
+                paciente.id,
+                db=db,
+                portal_session=session,
+            )
+
+            self.assertEqual(response.total, 1)
+            self.assertEqual(response.items[0].paciente_id, paciente.id)
+            self.assertEqual(len(response.items[0].anexos), 1)
+
+            with self.assertRaises(HTTPException) as ctx:
+                portal.listar_exames_pet_portal(
+                    paciente.id + 999,
+                    db=db,
+                    portal_session=session,
+                )
+
+            self.assertEqual(ctx.exception.status_code, 403)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_clinica_session_filters_exam_list_and_generates_download_token(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            _, paciente, clinica, clinica_outra, exame, anexo = self._seed_portal_data(db, tmpdir)
+            clinic_session = PortalSessionContext(
+                actor_type="clinica",
+                actor_id=clinica.id,
+                paciente_id=None,
+                clinica_id=clinica.id,
+                challenge_id="challenge-clinica",
+                display_name="Responsavel Clinica",
+                channel="email",
+                scope=tuple(portal.PORTAL_SCOPE_CLINICA),
+                expires_at=datetime.utcnow(),
+            )
+            clinic_other_session = PortalSessionContext(
+                actor_type="clinica",
+                actor_id=clinica_outra.id,
+                paciente_id=None,
+                clinica_id=clinica_outra.id,
+                challenge_id="challenge-outra",
+                display_name="Outra Clinica",
+                channel="email",
+                scope=tuple(portal.PORTAL_SCOPE_CLINICA),
+                expires_at=datetime.utcnow(),
+            )
+
+            list_response = portal.listar_exames_pet_portal(
+                paciente.id,
+                db=db,
+                portal_session=clinic_session,
+            )
+            self.assertEqual(list_response.total, 1)
+
+            list_response_other = portal.listar_exames_pet_portal(
+                paciente.id,
+                db=db,
+                portal_session=clinic_other_session,
+            )
+            self.assertEqual(list_response_other.total, 0)
+
+            download_response = portal.gerar_download_url_exame_portal(
+                exame.id,
+                db=db,
+                portal_session=clinic_session,
+            )
+            self.assertEqual(len(download_response.items), 1)
+            self.assertEqual(download_response.items[0].anexo_id, anexo.id)
+            self.assertEqual(
+                download_response.items[0].download_token_header,
+                PORTAL_DOWNLOAD_TOKEN_HEADER,
+            )
+
+            with patch.object(portal, "registrar_auditoria", return_value=None):
+                file_response = portal.baixar_arquivo_anexo_portal(
+                    anexo.id,
+                    request=_make_request(
+                        headers={
+                            PORTAL_DOWNLOAD_TOKEN_HEADER: download_response.items[0].download_token,
+                        }
+                    ),
+                    db=db,
+                )
+
+            self.assertEqual(file_response.path, anexo.caminho_arquivo)
+            self.assertEqual(file_response.filename, "eco-luna.pdf")
+
+            with self.assertRaises(HTTPException) as ctx:
+                portal.gerar_download_url_exame_portal(
+                    exame.id,
+                    db=db,
+                    portal_session=clinic_other_session,
+                )
+
+            self.assertEqual(ctx.exception.status_code, 403)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_clinica_request_creates_email_challenge(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            *_, clinica, _, _, _ = self._seed_portal_data(db, tmpdir)
+            with patch.object(settings, "PORTAL_DEBUG_EXPOSE_CODE", True), patch.object(
+                portal, "registrar_auditoria", return_value=None
+            ), patch.object(
+                portal,
+                "send_portal_access_code",
+                return_value=SimpleNamespace(provider="smtp", channel="email"),
+            ) as send_mock:
+                response = portal.solicitar_sessao_clinica(
+                    PortalClinicaSessionLinkRequest(
+                        clinica_id=clinica.id,
+                        email=clinica.email,
+                        responsavel_nome="Dra. Parceira",
+                    ),
+                    request=_make_request(),
+                    db=db,
+                )
+            send_mock.assert_called_once()
+            delivery_payload = send_mock.call_args.args[0]
+            self.assertEqual(delivery_payload.channel, "email")
+            self.assertEqual(delivery_payload.destination, clinica.email)
+
+            challenge = db.query(PortalAccessChallenge).filter(
+                PortalAccessChallenge.challenge_id == response.challenge_id
+            ).first()
+            self.assertIsNotNone(challenge)
+            self.assertEqual(challenge.actor_type, "clinica")
+            self.assertEqual(challenge.clinica_id, clinica.id)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+
+if __name__ == "__main__":
+    unittest.main()
