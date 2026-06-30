@@ -124,11 +124,11 @@ const accessFlows = [
   {
     title: "Tutores",
     description:
-      "Acesso sem senha permanente, usando link magico e codigo curto no canal cadastrado.",
+      "Acesso sem senha permanente, usando codigo temporario enviado ao email cadastrado.",
     icon: Smartphone,
     steps: [
       "Identificacao pelo cadastro do atendimento ou convite enviado pela Fort Cordis.",
-      "Confirmacao por codigo temporario via email ou WhatsApp validado.",
+      "Confirmacao por codigo temporario via email nesta fase preliminar.",
       "Downloads liberados por pet, com URL assinada e expiracao curta.",
     ],
   },
@@ -149,7 +149,7 @@ const integrationRules = [
   {
     title: "Sem anexos expostos",
     description:
-      "Emails e mensagens avisam que ha resultado disponivel, mas o arquivo fica no sistema Fort Cordis.",
+      "Emails avisam que ha resultado disponivel, mas o arquivo fica no sistema Fort Cordis.",
     icon: MailCheck,
   },
   {

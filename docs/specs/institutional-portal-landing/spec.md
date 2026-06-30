@@ -95,11 +95,13 @@ Regras recomendadas:
 - CB-002: host desconhecido deve manter comportamento administrativo atual.
 - CB-003: o asset hero deve carregar por caminho local sem depender de servico externo.
 - CB-004: conteudo do portal nao deve induzir envio de exames por email ou WhatsApp.
+- CB-005: durante o rollout preliminar email-only, a landing nao deve prometer acesso por WhatsApp antes da liberacao da API da Meta.
 
 ## 8) Fora de escopo
 
 - Login definitivo com usuario nominal persistido para clinicas parceiras.
 - Painel administrativo de convites do portal.
 - Provisao de credenciais reais de email/WhatsApp/storage para producao.
+- Ativacao de WhatsApp no portal antes da aprovacao da API Business pela Meta.
 - Criacao de storage, signed URLs ou politica RLS.
 - Deploy em producao.

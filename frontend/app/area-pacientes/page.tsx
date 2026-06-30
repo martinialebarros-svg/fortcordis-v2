@@ -15,7 +15,7 @@ const tutorAccess = [
   {
     title: "Entrada por link seguro",
     description:
-      "O tutor recebe um link magico no canal cadastrado e confirma um codigo curto antes de visualizar dados do pet.",
+      "O tutor recebe um codigo temporario no email cadastrado e confirma o acesso antes de visualizar dados do pet.",
     icon: Smartphone,
   },
   {
