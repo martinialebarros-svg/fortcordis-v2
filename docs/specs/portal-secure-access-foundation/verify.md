@@ -17,6 +17,7 @@ Status: done
 | CA-007 | aceitacao | `backend/tests/test_portal_access_foundation.py::test_clinica_session_filters_exam_list_and_generates_download_token` + `backend/tests/test_portal_access_http_flow.py::test_tutor_http_flow_downloads_remote_attachment_url` | ok |
 | CA-008 | aceitacao | `cd backend && venv/bin/python -m unittest tests/test_portal_delivery_service.py tests/test_portal_access_foundation.py tests/test_portal_access_http_flow.py tests/test_migration_ci_cycle.py -v` | ok |
 | CA-001..CA-007 | aceitacao | `backend/tests/test_portal_access_http_flow.py` cobrindo HTTP real para tutor e clinica, incluindo download de anexo local e remoto | ok |
+| RF-003b | funcional | `backend/tests/test_portal_access_foundation.py::test_whatsapp_tutor_request_is_disabled_by_default` + `backend/tests/test_portal_delivery_service.py::test_whatsapp_delivery_requires_feature_flag` | ok |
 | NFR-001 | nao funcional | `backend/app/core/portal_security.py` com `aud` separado para sessao e download | ok |
 | NFR-002 | nao funcional | respostas genericas em `POST /portal/tutores/sessao-link` e `POST /portal/clinicas/sessao-link` | ok |
 | NFR-003 | nao funcional | rejeicao de token via query string em `backend/app/core/portal_security.py` | ok |
@@ -36,11 +37,11 @@ venv/bin/python -m unittest tests/test_atendimento_upload_endpoint.py -v
 
 Resumo dos resultados:
 - Backend:
-  - `test_portal_delivery_service`: 2/2 pass
-  - `test_portal_access_foundation`: 6/6 pass
+  - `test_portal_delivery_service`: 3/3 pass
+  - `test_portal_access_foundation`: 7/7 pass
   - `test_portal_access_http_flow`: 3/3 pass
   - `test_migration_ci_cycle`: 1/1 pass
-  - suite agregada do portal: 12/12 pass
+  - suite agregada do portal: 14/14 pass
   - `test_atendimento_upload_endpoint`: 6/6 pass
 - Frontend: nao aplicavel.
 
@@ -58,7 +59,7 @@ Resumo dos resultados:
 
 ## 4) Regressao e riscos residuais
 
-- Risco residual 1: os adapters de provider real foram implementados, mas nao houve validacao contra um SMTP/webhook de terceiros nesta workspace porque nao havia credenciais reais configuradas.
+- Risco residual 1: o portal preliminar opera por email; WhatsApp fica bloqueado por `PORTAL_WHATSAPP_ENABLED=false` ate liberacao/configuracao da API da Meta.
 - Risco residual 2: fluxo de clinica parceira ainda usa desafio por cadastro de clinica, nao usuario nominal persistido com MFA definitivo.
 - Risco residual 3: o endpoint `download-url` retorna token curto em header dedicado; a integracao com storage remoto depende de `url` absoluta e, se necessario, token estatico de upstream configurado no ambiente.
 - Risco residual 4: o fluxo administrativo de upload continua gravando em `UPLOAD_DIR`/filesystem local; upload direto para object storage vendor-specific continua fora do escopo desta iteracao.

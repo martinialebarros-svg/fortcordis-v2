@@ -13,7 +13,8 @@ Adicionar a fundacao backend do portal seguro da Fort Cordis. A entrega inclui d
 - RF-001: `POST /api/v1/portal/tutores/sessao-link` deve aceitar solicitacao de acesso para tutor e responder com mensagem generica anti-enumeracao.
 - RF-002: `POST /api/v1/portal/clinicas/sessao-link` deve aceitar solicitacao de acesso para clinica parceira e responder com mensagem generica anti-enumeracao.
 - RF-003: quando os dados informados corresponderem ao cadastro existente, o backend deve criar um desafio temporario com expiracao e limite de tentativas.
-- RF-003a: quando houver match valido, o backend deve acionar o provider configurado para entregar o codigo pelo canal escolhido (`email` ou `whatsapp`).
+- RF-003a: quando houver match valido, o backend deve acionar o provider configurado para entregar o codigo pelo canal escolhido.
+- RF-003b: na fase preliminar, o canal WhatsApp deve permanecer bloqueado por `PORTAL_WHATSAPP_ENABLED=false`, permitindo uso do portal por email ate a liberacao da API da Meta.
 - RF-004: `POST /api/v1/portal/auth/verificar-codigo` deve validar o desafio e emitir token bearer do portal com escopo de tutor/pet ou clinica/unidade.
 - RF-005: `GET /api/v1/portal/pets/{paciente_id}/exames` deve listar apenas exames autorizados para a sessao do portal.
 - RF-006: `POST /api/v1/portal/exames/{exame_id}/download-url` deve retornar links de download autenticados para anexos do exame autorizados ao solicitante.
@@ -126,6 +127,7 @@ Adicionar a fundacao backend do portal seguro da Fort Cordis. A entrega inclui d
   - `PORTAL_EMAIL_FROM_NAME`
   - `PORTAL_EMAIL_SUBJECT`
 - WhatsApp real por webhook:
+  - `PORTAL_WHATSAPP_ENABLED`
   - `PORTAL_WHATSAPP_WEBHOOK_URL`
   - `PORTAL_WHATSAPP_WEBHOOK_METHOD`
   - `PORTAL_WHATSAPP_WEBHOOK_AUTH_HEADER`
@@ -172,4 +174,5 @@ Adicionar a fundacao backend do portal seguro da Fort Cordis. A entrega inclui d
 - Cadastro nominal definitivo de usuarios da clinica.
 - UI do portal consumindo os endpoints.
 - Provisionamento de credenciais reais do provider e onboarding do vendor externo em cada ambiente.
+- Liberacao da API WhatsApp Business pela Meta e ativacao de `PORTAL_WHATSAPP_ENABLED=true`.
 - Upload direto para object storage vendor-specific dentro do fluxo administrativo de anexos.

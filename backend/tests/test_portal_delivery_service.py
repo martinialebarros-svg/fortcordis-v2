@@ -15,6 +15,7 @@ os.environ.setdefault("SECRET_KEY", "portal-delivery-service-test-secret-key-123
 from app.core.config import settings
 from app.services.portal_delivery_service import (
     PortalChallengeDeliveryRequest,
+    PortalDeliveryConfigurationError,
     send_portal_access_code,
 )
 
@@ -106,6 +107,7 @@ class PortalDeliveryServiceTest(unittest.TestCase):
             return _FakeResponse()
 
         with ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", True))
             stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_WEBHOOK_URL", "https://api.example.com/whatsapp"))
             stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_WEBHOOK_METHOD", "POST"))
             stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_WEBHOOK_AUTH_HEADER", "Authorization"))
@@ -124,6 +126,12 @@ class PortalDeliveryServiceTest(unittest.TestCase):
         self.assertEqual(captured["json"]["code"], "123456")
         self.assertEqual(captured["headers"]["Authorization"], "Bearer token-123")
         self.assertEqual(captured["timeout"], 9)
+
+    def test_whatsapp_delivery_requires_feature_flag(self) -> None:
+        with self.assertRaisesRegex(PortalDeliveryConfigurationError, "WhatsApp"):
+            send_portal_access_code(
+                self._payload(channel="whatsapp", destination="85999990000")
+            )
 
 
 if __name__ == "__main__":

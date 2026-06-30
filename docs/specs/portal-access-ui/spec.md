@@ -10,7 +10,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 
 ## 2) Requisitos funcionais (RF)
 
-- RF-001: `/area-pacientes` deve permitir solicitar um codigo temporario para tutor usando `tutor_id`, `paciente_id`, `canal` e `contato`.
+- RF-001: `/area-pacientes` deve permitir solicitar um codigo temporario para tutor usando `tutor_id`, `paciente_id` e email cadastrado.
 - RF-002: `/area-pacientes` deve permitir validar o codigo recebido e abrir a sessao do pet autorizado.
 - RF-003: tutor autenticado deve conseguir listar apenas os exames do pet autorizado pelo token do portal.
 - RF-004: tutor autenticado deve conseguir baixar anexos liberados para os exames do pet.
@@ -27,6 +27,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - NFR-003 (UX): formularios devem apresentar estados claros de carregamento, sucesso e erro.
 - NFR-004 (compatibilidade): a integracao deve usar os rewrites atuais do Next.js para `/api/v1`.
 - NFR-005 (qualidade): build do frontend deve seguir passando apos a integracao.
+- NFR-006 (rollout preliminar): a UI do tutor deve operar em modo email-only enquanto a API WhatsApp Business aguarda liberacao na Meta.
 
 ## 4) Contratos tecnicos
 
@@ -36,8 +37,8 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
   - request:
     - `tutor_id`
     - `paciente_id`
-    - `canal`
-    - `contato`
+    - `canal` fixo como `email` na fase preliminar
+    - `contato` com email cadastrado
   - response:
     - `challenge_id`
     - `message`
@@ -134,10 +135,11 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CB-003: sessao expirada em `sessionStorage` deve ser descartada no load da pagina.
 - CB-004: clinica autenticada sem exames liberados para o pet consultado deve ver estado vazio claro.
 - CB-005: anexo sem item correspondente em `/download-url` deve falhar com mensagem amigavel.
+- CB-006: WhatsApp indisponivel deve ficar oculto na UI do tutor ate a flag backend ser habilitada.
 
 ## 8) Fora de escopo
 
-- Provider real para envio do codigo.
+- Provider real de WhatsApp para envio do codigo.
 - Multiunidade na mesma sessao de clinica.
 - Preview inline de laudos/PDF.
 - Automacao de convite, gestao de contas ou painel de suporte.

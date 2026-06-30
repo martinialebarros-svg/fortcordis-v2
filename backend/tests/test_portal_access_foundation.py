@@ -253,22 +253,22 @@ class PortalAccessFoundationTest(unittest.TestCase):
             ), patch.object(
                 portal,
                 "send_portal_access_code",
-                return_value=SimpleNamespace(provider="whatsapp_webhook", channel="whatsapp"),
+                return_value=SimpleNamespace(provider="smtp", channel="email"),
             ) as send_mock:
                 challenge_response = portal.solicitar_sessao_tutor(
                     PortalTutorSessionLinkRequest(
                         tutor_id=tutor.id,
                         paciente_id=paciente.id,
-                        canal="whatsapp",
-                        contato=tutor.whatsapp,
+                        canal="email",
+                        contato=tutor.email,
                     ),
                     request=_make_request(),
                     db=db,
                 )
                 send_mock.assert_called_once()
                 delivery_payload = send_mock.call_args.args[0]
-                self.assertEqual(delivery_payload.channel, "whatsapp")
-                self.assertEqual(delivery_payload.destination, tutor.whatsapp)
+                self.assertEqual(delivery_payload.channel, "email")
+                self.assertEqual(delivery_payload.destination, tutor.email)
 
                 challenge = db.query(PortalAccessChallenge).filter(
                     PortalAccessChallenge.challenge_id == challenge_response.challenge_id
@@ -290,6 +290,32 @@ class PortalAccessFoundationTest(unittest.TestCase):
             db.refresh(challenge)
             self.assertEqual(challenge.status, portal.PORTAL_CHALLENGE_STATUS_LOCKED)
             self.assertEqual(challenge.failed_attempts, 1)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_whatsapp_tutor_request_is_disabled_by_default(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            tutor, paciente, *_ = self._seed_portal_data(db, tmpdir)
+            with patch.object(portal, "send_portal_access_code") as send_mock:
+                with self.assertRaises(HTTPException) as ctx:
+                    portal.solicitar_sessao_tutor(
+                        PortalTutorSessionLinkRequest(
+                            tutor_id=tutor.id,
+                            paciente_id=paciente.id,
+                            canal="whatsapp",
+                            contato=tutor.whatsapp,
+                        ),
+                        request=_make_request(),
+                        db=db,
+                    )
+
+            self.assertEqual(ctx.exception.status_code, 400)
+            self.assertIn("WhatsApp", ctx.exception.detail)
+            self.assertEqual(db.query(PortalAccessChallenge).count(), 0)
+            send_mock.assert_not_called()
         finally:
             db.close()
             engine.dispose()

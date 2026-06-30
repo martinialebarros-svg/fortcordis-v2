@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     PORTAL_EMAIL_FROM_EMAIL: str = "portal@fortcordis.local"
     PORTAL_EMAIL_FROM_NAME: str = "Portal Fort Cordis"
     PORTAL_EMAIL_SUBJECT: str = "Seu codigo de acesso - Portal Fort Cordis"
+    PORTAL_WHATSAPP_ENABLED: bool = False
     PORTAL_WHATSAPP_WEBHOOK_URL: str = ""
     PORTAL_WHATSAPP_WEBHOOK_METHOD: str = "POST"
     PORTAL_WHATSAPP_WEBHOOK_AUTH_HEADER: str = "Authorization"

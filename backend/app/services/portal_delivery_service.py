@@ -171,5 +171,9 @@ def send_portal_access_code(payload: PortalChallengeDeliveryRequest) -> PortalDe
     if payload.channel == "email":
         return _send_email_code(payload)
     if payload.channel == "whatsapp":
+        if not settings.PORTAL_WHATSAPP_ENABLED:
+            raise PortalDeliveryConfigurationError(
+                "Canal WhatsApp do portal ainda nao esta habilitado."
+            )
         return _send_whatsapp_code(payload)
     raise PortalDeliveryConfigurationError("Canal de entrega do portal nao suportado.")

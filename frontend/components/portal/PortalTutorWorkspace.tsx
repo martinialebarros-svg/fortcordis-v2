@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, Loader2, LockKeyhole, LogOut, RefreshCcw, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Loader2, LockKeyhole, LogOut, MailCheck, RefreshCcw, ShieldCheck } from "lucide-react";
 
 import PortalExamResults from "@/components/portal/PortalExamResults";
 import {
@@ -23,7 +23,7 @@ export default function PortalTutorWorkspace() {
   const [challenge, setChallenge] = useState<PortalChallengeResponse | null>(null);
   const [tutorId, setTutorId] = useState("");
   const [pacienteId, setPacienteId] = useState("");
-  const [canal, setCanal] = useState<"email" | "whatsapp">("email");
+  const canal = "email" as const;
   const [contato, setContato] = useState("");
   const [codigo, setCodigo] = useState("");
   const [requestLoading, setRequestLoading] = useState(false);
@@ -190,26 +190,26 @@ export default function PortalTutorWorkspace() {
               </label>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-[0.9fr_1.1fr]">
+            <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">
+              <span className="inline-flex items-center gap-2 font-bold">
+                <MailCheck className="h-4 w-4" />
+                Codigo temporario por email
+              </span>
+              <p className="mt-2 leading-6">
+                WhatsApp sera habilitado apos a liberacao da API da Meta.
+              </p>
+            </div>
+
+            <div>
               <label className="text-sm font-semibold text-slate-800">
-                Canal
-                <select
-                  value={canal}
-                  onChange={(event) => setCanal(event.target.value as "email" | "whatsapp")}
-                  className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-600"
-                >
-                  <option value="email">Email</option>
-                  <option value="whatsapp">WhatsApp</option>
-                </select>
-              </label>
-              <label className="text-sm font-semibold text-slate-800">
-                Contato cadastrado
+                Email cadastrado
                 <input
                   required
+                  type="email"
                   value={contato}
                   onChange={(event) => setContato(event.target.value)}
                   className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-600"
-                  placeholder={canal === "email" ? "email@tutor.com" : "(85) 99999-0000"}
+                  placeholder="email@tutor.com"
                 />
               </label>
             </div>

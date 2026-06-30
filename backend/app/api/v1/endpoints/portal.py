@@ -147,6 +147,14 @@ def _challenge_response(
     )
 
 
+def _assert_canal_portal_habilitado(canal: str) -> None:
+    if canal == "whatsapp" and not settings.PORTAL_WHATSAPP_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Acesso por WhatsApp ainda nao esta disponivel. Use o email cadastrado.",
+        )
+
+
 def _debug_code_for_response(code: str | None) -> str | None:
     if not code:
         return None
@@ -437,6 +445,7 @@ def solicitar_sessao_tutor(
 ):
     challenge_id = _generate_challenge_id()
     debug_code = None
+    _assert_canal_portal_habilitado(payload.canal)
     tutor, paciente = _obter_tutor_e_paciente(
         db,
         tutor_id=payload.tutor_id,

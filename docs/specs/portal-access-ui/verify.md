@@ -23,6 +23,7 @@ Status: done
 | NFR-003 | nao funcional | estados de `loading`, `message` e `error` nos workspaces + validacao local de IDs invalidos | ok |
 | NFR-004 | nao funcional | rewrites existentes do Next.js para `/api/v1` | ok |
 | NFR-005 | nao funcional | `npm run build` | ok |
+| NFR-006 | nao funcional | `frontend/components/portal/PortalTutorWorkspace.tsx` fixa canal `email` e remove seletor de WhatsApp da UI preliminar | ok |
 
 ## 2) Testes automatizados executados
 
@@ -40,7 +41,7 @@ Resumo dos resultados:
 - Frontend:
   - `npm run build`: ok
 - Backend:
-  - `test_portal_access_http_flow`: 2/2 pass
+  - `test_portal_access_http_flow`: 3/3 pass
 
 ## 3) Testes manuais
 
@@ -48,6 +49,7 @@ Resumo dos resultados:
   - render desktop e mobile de `http://127.0.0.1:3004/area-pacientes`;
   - render desktop e mobile de `http://127.0.0.1:3004/clinica-parceira`;
   - validacao local de erro de ID invalido no formulario do tutor;
+  - tutor em modo email-only, sem opcao de WhatsApp visivel enquanto a API da Meta nao esta liberada;
   - validacao local de erro de ID invalido no formulario da clinica;
   - tutor com sessao ativa no navegador, pet `201`, exame `Ecocardiograma` e anexo `eco-luna-demo.pdf` visiveis;
   - clinica parceira com solicitacao de codigo, sessao validada para unidade `301`, consulta do pet `201` e exame `Ecocardiograma` visivel no navegador;
@@ -60,6 +62,7 @@ Resumo dos resultados:
 - Risco residual 1: QA manual depende de ambiente com dados validos e `debug_code` exposto.
 - Risco residual 2: a clinica ainda autentica pela unidade/cadastro, nao por usuario nominal persistente.
 - Risco residual 3: o browser embutido nao conclui downloads nativos; a verificacao do arquivo segue coberta por HTTP e teste automatizado.
+- Risco residual 4: WhatsApp deve ser reabilitado em uma fase posterior, depois de credenciais e webhook aprovados/configurados.
 
 ## 5) Itens fora de escopo entregues
 
