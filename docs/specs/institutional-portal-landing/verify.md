@@ -8,7 +8,7 @@ Status: done
 
 | ID | Tipo | Evidencia | Status |
 | --- | --- | --- | --- |
-| CA-001 | aceitacao | Browser via proxy local `127.0.0.1:3012` com upstream `Host: fortcordis.com.br` + `curl -H 'Host: fortcordis.com.br' http://127.0.0.1:3002/` | ok |
+| CA-001 | aceitacao | Browser via proxy local `127.0.0.1:3012` com upstream `Host: fortcordis.com.br` + `curl -H 'Host: fortcordis.com.br' http://127.0.0.1:3002/`; extensao do matcher para `fortcordis.com` e `www.fortcordis.com` revisada em `frontend/lib/host-routing.ts` | ok |
 | CA-002 | aceitacao | Browser `http://localhost:3002/` + `curl http://127.0.0.1:3002/` | ok |
 | CA-003 | aceitacao | Revisao de `frontend/app/page.tsx` | ok |
 | CA-004 | aceitacao | Revisao de `frontend/app/area-pacientes/page.tsx` | ok |
@@ -48,6 +48,7 @@ Resumo dos resultados:
   - H1 de clinica parceira presente, sem placeholder de construcao, sem overflow em mobile e desktop.
 - Cenario 5: rota interna em host institucional:
   - `curl -I -H 'Host: fortcordis.com.br' http://127.0.0.1:3002/dashboard` retornou `307` para `http://app.fortcordis.com.br/dashboard`.
+  - Em 2026-07-02, `frontend/lib/host-routing.ts` foi ampliado para tratar `fortcordis.com` e `www.fortcordis.com` como hosts institucionais com redirecionamento das rotas internas para `app.fortcordis.com.br`; falta publicar a mudanca e alinhar DNS/Nginx/certificado em producao.
 - Cenario 6: home institucional:
   - Copy preliminar orienta codigo temporario enviado ao email cadastrado e remove mencoes de acesso por WhatsApp.
 - Console browser:
@@ -58,6 +59,7 @@ Resumo dos resultados:
 
 - Risco residual 1: a landing foi seguida pelas fases `portal-secure-access-foundation` e `portal-access-ui`; os riscos funcionais do acesso real agora ficam rastreados nesses SDDs.
 - Risco residual 2: copy final pode precisar de revisao juridica/comercial antes de producao.
+- Risco residual 3: o host novo `www.fortcordis.com` depende de publicacao do frontend com matcher atualizado e de corte operacional no DNS/Nginx/TLS; antes disso, o dominio pode continuar servindo a origem anterior.
 
 ## 5) Itens fora de escopo entregues
 

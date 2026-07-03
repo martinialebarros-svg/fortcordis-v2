@@ -74,14 +74,14 @@ Regras recomendadas:
 
 - Backward compatibility:
   - `/` continua login administrativo em hosts nao institucionais.
-  - rotas internas do app seguem redirecionando para `app.fortcordis.com.br` quando acessadas pelo host institucional.
+  - rotas internas do app seguem redirecionando para `app.fortcordis.com.br` quando acessadas pelos hosts institucionais `fortcordis.com`, `www.fortcordis.com`, `fortcordis.com.br` e `www.fortcordis.com.br`.
 - Feature flag: nao.
 - Estrategia de rollback:
   - revert dos arquivos de frontend e remocao do asset `fortcordis-portal-hero.jpg`.
 
 ## 6) Criterios de aceitacao (CA)
 
-- CA-001: `/` com `Host: fortcordis.com.br` renderiza landing institucional.
+- CA-001: `/` com `Host: fortcordis.com`, `www.fortcordis.com`, `fortcordis.com.br` ou `www.fortcordis.com.br` renderiza landing institucional.
 - CA-002: `/` em localhost/host nao institucional renderiza login administrativo.
 - CA-003: a home tem CTAs para `/area-pacientes`, `/clinica-parceira` e app administrativo.
 - CA-004: `/area-pacientes` nao mostra mais placeholder de construcao e descreve acesso seguro para tutores.
