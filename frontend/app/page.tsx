@@ -2,7 +2,22 @@ import Link from "next/link";
 import Image from "next/image";
 import { headers } from "next/headers";
 import { Fraunces, Manrope } from "next/font/google";
-import { ArrowRight, Building2, ShieldCheck, UserRound } from "lucide-react";
+import {
+  ArrowRight,
+  BadgeCheck,
+  Building2,
+  CalendarHeart,
+  ClipboardCheck,
+  Download,
+  FileHeart,
+  HeartPulse,
+  LockKeyhole,
+  MailCheck,
+  ShieldCheck,
+  Smartphone,
+  Stethoscope,
+  UserRound,
+} from "lucide-react";
 import LoginPageClient from "./page-client";
 import {
   isInstitutionalHost,
@@ -22,96 +37,379 @@ const textFont = Manrope({
   weight: ["400", "500", "600", "700"],
 });
 
-function getLandingLinks(host: string) {
-  const appHost = resolveAppHostForInstitutionalHost(host) ?? "app.fortcordis.com.br";
+function getAppHost(host: string) {
+  return resolveAppHostForInstitutionalHost(host) ?? "app.fortcordis.com.br";
+}
+
+function getPortalLinks(host: string) {
+  const appHost = getAppHost(host);
 
   return [
-  {
-    title: "Área de pacientes",
-    description: "Espaço para serviços online e acompanhamento do cuidado cardiológico.",
-    href: "/area-pacientes",
-    icon: UserRound,
-  },
-  {
-    title: "Área da clínica parceira",
-    description: "Portal para download de laudos, consultas de status e pendências financeiras.",
-    href: "/clinica-parceira",
-    icon: Building2,
-  },
-  {
-    title: "Área administrativa",
-    description: "Acesso ao app FortCordis e configurações operacionais da equipe interna.",
-    href: `https://${appHost}/`,
-    icon: ShieldCheck,
-  },
+    {
+      title: "Portal do tutor",
+      eyebrow: "Pets e exames",
+      description:
+        "Acesso aos dados do pet, orientacoes do atendimento e downloads autorizados de exames.",
+      href: "/area-pacientes",
+      action: "Acessar como tutor",
+      icon: UserRound,
+      accent: "border-teal-200 bg-teal-50 text-teal-800",
+    },
+    {
+      title: "Clínica parceira",
+      eyebrow: "Unidades autorizadas",
+      description:
+        "Consulta de exames dos pets atendidos na unidade, com permissao por clinica e trilha de auditoria.",
+      href: "/clinica-parceira",
+      action: "Acessar como clínica",
+      icon: Building2,
+      accent: "border-rose-200 bg-rose-50 text-rose-800",
+    },
+    {
+      title: "Sistema Fort Cordis",
+      eyebrow: "Equipe interna",
+      description:
+        "Operacao administrativa, agenda, atendimento, laudos e relatorios no ambiente integrado.",
+      href: `https://${appHost}/`,
+      action: "Abrir sistema",
+      icon: ShieldCheck,
+      accent: "border-amber-200 bg-amber-50 text-amber-900",
+    },
   ] as const;
 }
+
+const trustItems = [
+  {
+    value: "LGPD",
+    label: "privacidade desde o acesso",
+  },
+  {
+    value: "MFA",
+    label: "dupla verificacao para dados sensiveis",
+  },
+  {
+    value: "Auditoria",
+    label: "registro de acessos e downloads",
+  },
+] as const;
+
+const tutorTips = [
+  {
+    title: "Antes do eco",
+    description:
+      "Leve receitas em uso, exames anteriores e relate mudancas de respiracao, apetite ou disposicao.",
+    icon: ClipboardCheck,
+  },
+  {
+    title: "Sinais de alerta",
+    description:
+      "Cansaco incomum, tosse persistente, desmaios ou respiracao ofegante merecem contato com o veterinario.",
+    icon: HeartPulse,
+  },
+  {
+    title: "Rotina em casa",
+    description:
+      "Mantenha horarios dos medicamentos e anote reacoes para facilitar a revisao do cardiologista.",
+    icon: CalendarHeart,
+  },
+  {
+    title: "Resultados",
+    description:
+      "Baixe laudos apenas pelo portal autenticado; notificacoes nao devem carregar anexos sensiveis.",
+    icon: Download,
+  },
+] as const;
+
+const accessFlows = [
+  {
+    title: "Tutores",
+    description:
+      "Acesso sem senha permanente, usando codigo temporario enviado ao email cadastrado.",
+    icon: Smartphone,
+    steps: [
+      "Identificacao pelo cadastro do atendimento ou convite enviado pela Fort Cordis.",
+      "Confirmacao por codigo temporario via email nesta fase preliminar.",
+      "Downloads liberados por pet, com URL assinada e expiracao curta.",
+    ],
+  },
+  {
+    title: "Clínicas parceiras",
+    description:
+      "Acesso por usuario nominal da unidade, com permissoes por clinica, profissional e atendimento.",
+    icon: BadgeCheck,
+    steps: [
+      "Convite aprovado pela equipe Fort Cordis para CNPJ e unidade especificos.",
+      "MFA obrigatorio para laudos e exames, com sessao curta em dispositivo novo.",
+      "Visualizacao limitada aos pacientes atendidos naquela unidade.",
+    ],
+  },
+] as const;
+
+const integrationRules = [
+  {
+    title: "Sem anexos expostos",
+    description:
+      "Emails avisam que ha resultado disponivel, mas o arquivo fica no sistema Fort Cordis.",
+    icon: MailCheck,
+  },
+  {
+    title: "Autorizacao no backend",
+    description:
+      "O frontend solicita o exame, mas a API decide se tutor ou clinica pode acessar aquele pet.",
+    icon: LockKeyhole,
+  },
+  {
+    title: "Consentimento e log",
+    description:
+      "Cada acesso guarda usuario, unidade, pet, exame, horario e finalidade de consulta.",
+    icon: FileHeart,
+  },
+] as const;
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 function InstitutionalLanding({ host }: { host: string }) {
-  const landingLinks = getLandingLinks(host);
+  const portalLinks = getPortalLinks(host);
 
   return (
     <main
-      className={`${displayFont.variable} ${textFont.variable} min-h-screen bg-slate-950 text-slate-100`}
+      className={`${displayFont.variable} ${textFont.variable} bg-white font-[family-name:var(--font-manrope)] text-slate-950`}
     >
-      <div className="relative isolate overflow-hidden">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(56,189,248,0.25),transparent_45%),radial-gradient(circle_at_80%_30%,rgba(16,185,129,0.18),transparent_40%),linear-gradient(180deg,#020617,#0f172a)]" />
-        <div className="pointer-events-none absolute -left-32 top-16 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
-        <div className="pointer-events-none absolute -right-24 bottom-0 h-96 w-96 rounded-full bg-emerald-400/10 blur-3xl" />
+      <section className="relative isolate flex min-h-[82svh] flex-col overflow-hidden bg-slate-950 text-white sm:min-h-[88svh]">
+        <Image
+          src="/brand/fortcordis-portal-hero.jpg"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="-z-20 object-cover object-center"
+        />
+        <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(2,6,23,0.94)_0%,rgba(15,23,42,0.78)_42%,rgba(15,23,42,0.18)_78%)]" />
 
-        <div className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 pb-16 pt-16 sm:px-10 lg:px-14">
-          <header className="mb-14 flex flex-col gap-6 border-b border-white/15 pb-10 lg:flex-row lg:items-end lg:justify-between">
+        <header className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-5 py-5 sm:px-8 lg:flex-row lg:items-center lg:justify-between">
+          <Link href="/" className="flex items-center gap-3">
+            <Image
+              src="/brand/fortcordis-logo-oficial.png"
+              alt="Fort Cordis"
+              width={72}
+              height={72}
+              className="h-12 w-12 rounded-lg bg-white p-1 shadow-sm"
+            />
             <div>
-              <Image
-                src="/brand/fortcordis-logo-oficial.png"
-                alt="Logomarca FortCordis"
-                width={1563}
-                height={1563}
-                priority
-                className="mb-5 h-28 w-auto rounded-2xl bg-white/92 p-2 shadow-[0_20px_55px_rgba(2,6,23,0.45)] ring-1 ring-slate-200/60 sm:h-36 lg:h-40"
-              />
-              <h1 className="font-[family-name:var(--font-display)] text-4xl leading-tight text-balance text-white sm:text-5xl lg:text-6xl">
-                Cardiologia veterinária com integração clínica e continuidade do cuidado.
-              </h1>
+              <p className="font-[family-name:var(--font-display)] text-xl font-semibold leading-none">
+                Fort Cordis
+              </p>
+              <p className="mt-1 text-xs font-semibold uppercase tracking-[0.18em] text-teal-100">
+                cardiologia veterinaria
+              </p>
             </div>
-            <p className="max-w-md font-[family-name:var(--font-manrope)] text-sm leading-relaxed text-slate-300 sm:text-base">
-              Plataforma institucional para conectar tutores, clínicas parceiras e equipe interna em um
-              fluxo único de atendimento.
-            </p>
-          </header>
+          </Link>
 
-          <section className="grid gap-5 md:grid-cols-3">
-            {landingLinks.map(({ title, description, href, icon: Icon }) => (
+          <nav className="flex flex-wrap gap-2 text-sm font-semibold text-slate-100">
+            <Link className="rounded-lg px-3 py-2 transition hover:bg-white/10" href="#portais">
+              Portais
+            </Link>
+            <Link className="rounded-lg px-3 py-2 transition hover:bg-white/10" href="#dicas">
+              Saude pet
+            </Link>
+            <Link className="rounded-lg px-3 py-2 transition hover:bg-white/10" href="#seguranca">
+              Seguranca
+            </Link>
+          </nav>
+        </header>
+
+        <div className="mx-auto flex w-full max-w-7xl flex-1 items-center px-5 pb-10 pt-6 sm:px-8 sm:pb-16 sm:pt-10 lg:pb-20">
+          <div className="max-w-3xl">
+            <p className="mb-4 inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm font-semibold text-teal-50 backdrop-blur">
+              <Stethoscope className="h-4 w-4" />
+              Portal integrado ao sistema Fort Cordis
+            </p>
+            <h1 className="font-[family-name:var(--font-display)] text-5xl font-semibold leading-[0.95] text-white sm:text-6xl lg:text-7xl">
+              Fort Cordis
+            </h1>
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-100 sm:text-xl">
+              Informacao clara para tutores, acesso controlado para clinicas parceiras e
+              continuidade do cuidado cardiologico em um ambiente preparado para dados sensiveis.
+            </p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Link
+                href="/area-pacientes"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-teal-500 px-5 py-3 text-sm font-bold text-slate-950 shadow-lg shadow-slate-950/20 transition hover:bg-teal-300 sm:w-auto"
+              >
+                <UserRound className="h-5 w-5" />
+                Portal do tutor
+              </Link>
+              <Link
+                href="/clinica-parceira"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-white/25 bg-white/10 px-5 py-3 text-sm font-bold text-white backdrop-blur transition hover:bg-white/18 sm:w-auto"
+              >
+                <Building2 className="h-5 w-5" />
+                Clinica parceira
+              </Link>
+            </div>
+            <dl className="mt-10 hidden max-w-2xl gap-3 sm:grid sm:grid-cols-3">
+              {trustItems.map((item) => (
+                <div key={item.value} className="border-l-2 border-teal-300 pl-4">
+                  <dt className="font-[family-name:var(--font-display)] text-2xl font-semibold text-white">
+                    {item.value}
+                  </dt>
+                  <dd className="mt-1 text-sm leading-5 text-slate-200">{item.label}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </div>
+      </section>
+
+      <section id="portais" className="bg-white px-5 py-16 sm:px-8 lg:py-20">
+        <div className="mx-auto max-w-7xl">
+          <div className="max-w-3xl">
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-700">Portais</p>
+            <h2 className="mt-3 font-[family-name:var(--font-display)] text-4xl font-semibold tracking-normal text-slate-950 sm:text-5xl">
+              Um ponto de entrada para cada relacao de cuidado.
+            </h2>
+            <p className="mt-4 text-base leading-7 text-slate-600">
+              Tutores acompanham seus pets, clinicas parceiras consultam casos da propria
+              unidade e a equipe interna segue operando no sistema Fort Cordis.
+            </p>
+          </div>
+
+          <div className="mt-10 grid gap-5 lg:grid-cols-3">
+            {portalLinks.map(({ title, eyebrow, description, href, action, icon: Icon, accent }) => (
               <Link
                 key={title}
                 href={href}
-                className="group relative flex min-h-56 flex-col justify-between rounded-2xl border border-white/15 bg-white/5 p-6 backdrop-blur-sm transition hover:-translate-y-0.5 hover:border-cyan-300/40 hover:bg-white/10"
+                className="group flex min-h-80 flex-col justify-between rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-slate-300 hover:shadow-xl"
               >
                 <div>
-                  <Icon className="mb-5 h-8 w-8 text-cyan-200 transition group-hover:text-cyan-100" />
-                  <h2 className="font-[family-name:var(--font-display)] text-2xl leading-tight text-white">
-                    {title}
-                  </h2>
-                  <p className="mt-3 font-[family-name:var(--font-manrope)] text-sm leading-relaxed text-slate-300">
-                    {description}
+                  <div className={`mb-6 inline-flex rounded-lg border p-3 ${accent}`}>
+                    <Icon className="h-7 w-7" />
+                  </div>
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                    {eyebrow}
                   </p>
+                  <h3 className="mt-3 font-[family-name:var(--font-display)] text-3xl font-semibold text-slate-950">
+                    {title}
+                  </h3>
+                  <p className="mt-4 text-sm leading-6 text-slate-600">{description}</p>
                 </div>
-                <span className="mt-6 inline-flex items-center gap-2 font-[family-name:var(--font-manrope)] text-sm font-semibold text-cyan-100">
-                  Acessar
-                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                <span className="mt-8 inline-flex items-center gap-2 text-sm font-bold text-teal-800">
+                  {action}
+                  <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
                 </span>
               </Link>
             ))}
-          </section>
-
-          <footer className="mt-auto pt-16 font-[family-name:var(--font-manrope)] text-xs uppercase tracking-[0.14em] text-slate-400">
-            FortCordis Sistema Integrado de Atendimento Veterinário
-          </footer>
+          </div>
         </div>
-      </div>
+      </section>
+
+      <section id="seguranca" className="bg-slate-950 px-5 py-16 text-white sm:px-8 lg:py-20">
+        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-200">
+              Acesso seguro e agil
+            </p>
+            <h2 className="mt-3 font-[family-name:var(--font-display)] text-4xl font-semibold tracking-normal sm:text-5xl">
+              O arquivo fica protegido. O acesso fica simples.
+            </h2>
+            <p className="mt-5 text-base leading-7 text-slate-300">
+              A melhor experiencia combina login sem atrito com autorizacao rigorosa no backend.
+              O tutor nao precisa decorar senha, a clinica nao acessa casos de outra unidade e
+              cada download deixa rastro auditavel.
+            </p>
+          </div>
+
+          <div className="grid gap-5 md:grid-cols-2">
+            {accessFlows.map(({ title, description, icon: Icon, steps }) => (
+              <article key={title} className="rounded-lg border border-white/15 bg-white/[0.06] p-6">
+                <Icon className="h-8 w-8 text-teal-200" />
+                <h3 className="mt-5 font-[family-name:var(--font-display)] text-3xl font-semibold">
+                  {title}
+                </h3>
+                <p className="mt-3 text-sm leading-6 text-slate-300">{description}</p>
+                <ol className="mt-6 space-y-4">
+                  {steps.map((step, index) => (
+                    <li key={step} className="flex gap-3 text-sm leading-6 text-slate-200">
+                      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-teal-300 text-xs font-bold text-slate-950">
+                        {index + 1}
+                      </span>
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                </ol>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="dicas" className="bg-[#f8fbfc] px-5 py-16 sm:px-8 lg:py-20">
+        <div className="mx-auto max-w-7xl">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-sm font-bold uppercase tracking-[0.18em] text-rose-700">
+                Saude pet
+              </p>
+              <h2 className="mt-3 font-[family-name:var(--font-display)] text-4xl font-semibold tracking-normal text-slate-950 sm:text-5xl">
+                Dicas para tutores acompanharem melhor o cuidado cardiologico.
+              </h2>
+            </div>
+            <p className="max-w-md text-sm leading-6 text-slate-600">
+              Conteudos objetivos ajudam o tutor a chegar mais preparado ao atendimento e a
+              manter o tratamento com menos duvidas no dia a dia.
+            </p>
+          </div>
+
+          <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+            {tutorTips.map(({ title, description, icon: Icon }) => (
+              <article key={title} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <Icon className="h-7 w-7 text-rose-700" />
+                <h3 className="mt-5 text-lg font-bold text-slate-950">{title}</h3>
+                <p className="mt-3 text-sm leading-6 text-slate-600">{description}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-white px-5 py-16 sm:px-8 lg:py-20">
+        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[1fr_1fr] lg:items-center">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-amber-700">
+              Integracao Fort Cordis
+            </p>
+            <h2 className="mt-3 font-[family-name:var(--font-display)] text-4xl font-semibold tracking-normal text-slate-950 sm:text-5xl">
+              Um portal publico conectado sem expor informacao sensivel.
+            </h2>
+            <p className="mt-5 text-base leading-7 text-slate-600">
+              A landing page apresenta a empresa e direciona para fluxos autenticados. A entrega
+              de laudos, imagens e documentos deve permanecer atras da API do Fort Cordis, com
+              checagem de vinculo entre tutor, pet, atendimento, clinica e unidade.
+            </p>
+          </div>
+          <div className="grid gap-4">
+            {integrationRules.map(({ title, description, icon: Icon }) => (
+              <article key={title} className="flex gap-4 rounded-lg border border-slate-200 p-5">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-800">
+                  <Icon className="h-6 w-6" />
+                </span>
+                <div>
+                  <h3 className="font-bold text-slate-950">{title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <footer className="border-t border-slate-200 bg-white px-5 py-8 sm:px-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+          <p className="font-semibold text-slate-950">Fort Cordis</p>
+          <p>Cardiologia veterinaria, informacao segura e continuidade do cuidado.</p>
+        </div>
+      </footer>
     </main>
   );
 }

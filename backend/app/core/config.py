@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
 from pydantic_settings import BaseSettings
 
@@ -17,7 +20,7 @@ class Settings(BaseSettings):
     AUTH_COOKIE_PATH: str = "/"
     AUTH_COOKIE_SAMESITE: str = "lax"
     AUTH_COOKIE_SECURE: bool = False
-    AUTH_COOKIE_DOMAIN: str | None = None
+    AUTH_COOKIE_DOMAIN: Optional[str] = None
     CSRF_PROTECTION_ENABLED: bool = True
     CSRF_COOKIE_NAME: str = "fortcordis_csrf"
     CSRF_HEADER_NAME: str = "x-csrf-token"
@@ -58,6 +61,29 @@ class Settings(BaseSettings):
     WEB_PUSH_PENDING_REMINDER_DEFAULT_HOURS: int = 6
     ASSISTENTE_AGENDA_TOKEN: str = ""
     ASSISTENTE_AGENDA_MAX_WINDOW_DAYS: int = 14
+    PORTAL_CHALLENGE_EXPIRE_MINUTES: int = 15
+    PORTAL_SESSION_TOKEN_EXPIRE_MINUTES: int = 30
+    PORTAL_DOWNLOAD_TOKEN_EXPIRE_MINUTES: int = 5
+    PORTAL_MAX_CHALLENGE_ATTEMPTS: int = 5
+    PORTAL_DEBUG_EXPOSE_CODE: bool = False
+    PORTAL_EMAIL_SMTP_HOST: str = ""
+    PORTAL_EMAIL_SMTP_PORT: int = 587
+    PORTAL_EMAIL_SMTP_USERNAME: str = ""
+    PORTAL_EMAIL_SMTP_PASSWORD: str = ""
+    PORTAL_EMAIL_SMTP_USE_TLS: bool = True
+    PORTAL_EMAIL_SMTP_USE_SSL: bool = False
+    PORTAL_EMAIL_FROM_EMAIL: str = "portal@fortcordis.local"
+    PORTAL_EMAIL_FROM_NAME: str = "Portal Fort Cordis"
+    PORTAL_EMAIL_SUBJECT: str = "Seu codigo de acesso - Portal Fort Cordis"
+    PORTAL_WHATSAPP_ENABLED: bool = False
+    PORTAL_WHATSAPP_WEBHOOK_URL: str = ""
+    PORTAL_WHATSAPP_WEBHOOK_METHOD: str = "POST"
+    PORTAL_WHATSAPP_WEBHOOK_AUTH_HEADER: str = "Authorization"
+    PORTAL_WHATSAPP_WEBHOOK_AUTH_TOKEN: str = ""
+    PORTAL_WHATSAPP_WEBHOOK_TIMEOUT_SECONDS: int = 10
+    PORTAL_REMOTE_STORAGE_AUTH_HEADER: str = "Authorization"
+    PORTAL_REMOTE_STORAGE_AUTH_TOKEN: str = ""
+    PORTAL_REMOTE_STORAGE_TIMEOUT_SECONDS: int = 20
 
     class Config:
         env_file = str(ENV_FILE_PATH)

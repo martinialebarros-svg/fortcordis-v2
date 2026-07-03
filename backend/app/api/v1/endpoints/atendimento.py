@@ -110,6 +110,7 @@ from app.services.atendimento_upload_service import (
     store_atendimento_attachment_file,
     remove_atendimento_attachment_file,
 )
+from app.services.attachment_download_service import build_attachment_download_response
 from app.services.upload_dedupe_cleanup_service import (
     UploadDedupeCleanupBusyError,
     UploadDedupeCleanupExecutionError,
@@ -3071,13 +3072,9 @@ def baixar_arquivo_anexo(
     anexo = db.query(AnexoAtendimento).filter(AnexoAtendimento.id == anexo_id).first()
     if not anexo:
         raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
-    if not anexo.caminho_arquivo or not os.path.exists(anexo.caminho_arquivo):
-        raise HTTPException(status_code=410, detail="Arquivo nao encontrado no armazenamento.")
-
-    return FileResponse(
-        path=anexo.caminho_arquivo,
-        media_type=anexo.mime_type or "application/octet-stream",
-        filename=anexo.nome_original or f"anexo_{anexo.id}",
+    return build_attachment_download_response(
+        anexo,
+        missing_detail="Arquivo nao encontrado no armazenamento.",
     )
 
 

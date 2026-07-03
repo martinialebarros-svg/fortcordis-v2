@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Check, ChevronDown, Loader2, RefreshCw, Search, X } from "lucide-react";
 
 import {
   type AspectoEcoEstruturadoTeste,
@@ -59,6 +59,29 @@ type StatusSincronizacaoAspecto = "saving" | "saved" | "error";
 interface SincronizacaoFraseOptions {
   silencioso?: boolean;
   onErroSilencioso?: () => void;
+}
+
+interface GrupoPresets {
+  label: string;
+  presets: PresetEcoEstruturadoTeste[];
+}
+
+const FILTRO_TODOS_PRESETS = "Todos";
+
+function normalizarBuscaPreset(valor: string): string {
+  return valor
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function getGrupoPreset(preset: PresetEcoEstruturadoTeste): string {
+  return (
+    String(preset.patologia || "").trim() ||
+    (preset.tags || []).find((tag) => String(tag || "").trim()) ||
+    "Sem classificacao"
+  );
 }
 
 function normalizarTagsInput(tags: string): string[] {
@@ -180,6 +203,9 @@ export default function EcocardiogramaEstruturadoEditor({
   const [error, setError] = useState("");
   const [hint, setHint] = useState("");
   const [presetSelecionadoId, setPresetSelecionadoId] = useState("");
+  const [buscaPreset, setBuscaPreset] = useState("");
+  const [grupoPresetFiltro, setGrupoPresetFiltro] = useState(FILTRO_TODOS_PRESETS);
+  const [seletorPresetsAberto, setSeletorPresetsAberto] = useState(false);
   const [fraseSelecionadaPorAspecto, setFraseSelecionadaPorAspecto] = useState<Record<string, string>>(
     {}
   );
@@ -205,6 +231,7 @@ export default function EcocardiogramaEstruturadoEditor({
     ordem: "",
     selecoes: {},
   });
+  const seletorPresetsRef = useRef<HTMLDivElement | null>(null);
 
   const estado = normalizarEcocardiogramaEstruturado(value);
 
@@ -241,6 +268,24 @@ export default function EcocardiogramaEstruturadoEditor({
     };
   }, []);
 
+  useEffect(() => {
+    if (!seletorPresetsAberto) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        seletorPresetsRef.current &&
+        !seletorPresetsRef.current.contains(event.target as Node)
+      ) {
+        setSeletorPresetsAberto(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [seletorPresetsAberto]);
+
   const aspectos = useMemo(
     () => ordenarAspectos(payload?.aspectos || []),
     [payload]
@@ -258,6 +303,52 @@ export default function EcocardiogramaEstruturadoEditor({
         }),
     [payload]
   );
+  const gruposPresetDisponiveis = useMemo(() => {
+    const grupos = new Set<string>();
+    presets.forEach((preset) => grupos.add(getGrupoPreset(preset)));
+    return [FILTRO_TODOS_PRESETS, ...Array.from(grupos).sort((a, b) => a.localeCompare(b))];
+  }, [presets]);
+  const presetsFiltrados = useMemo(() => {
+    const buscaNormalizada = normalizarBuscaPreset(buscaPreset);
+    return presets.filter((preset) => {
+      const grupo = getGrupoPreset(preset);
+      if (grupoPresetFiltro !== FILTRO_TODOS_PRESETS && grupo !== grupoPresetFiltro) {
+        return false;
+      }
+
+      if (!buscaNormalizada) {
+        return true;
+      }
+
+      const camposBusca = [
+        preset.label,
+        preset.key,
+        preset.patologia,
+        preset.grau,
+        preset.descricao,
+        ...(preset.tags || []),
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      return normalizarBuscaPreset(camposBusca).includes(buscaNormalizada);
+    });
+  }, [buscaPreset, grupoPresetFiltro, presets]);
+  const presetsAgrupados = useMemo<GrupoPresets[]>(() => {
+    const grupos = new Map<string, PresetEcoEstruturadoTeste[]>();
+    presetsFiltrados.forEach((preset) => {
+      const grupo = getGrupoPreset(preset);
+      grupos.set(grupo, [...(grupos.get(grupo) || []), preset]);
+    });
+
+    return Array.from(grupos.entries())
+      .sort(([grupoA], [grupoB]) => grupoA.localeCompare(grupoB))
+      .map(([label, itens]) => ({ label, presets: itens }));
+  }, [presetsFiltrados]);
+  const presetAtualLabel = presetSelecionadoId
+    ? presets.find((preset) => String(preset.id) === presetSelecionadoId)?.label ||
+      "Preset selecionado"
+    : "Selecione um preset";
   const totalPendentes = useMemo(
     () =>
       aspectos.filter((aspecto) => presetDeteccao[aspecto.key]?.status === "pending").length,
@@ -384,6 +475,12 @@ export default function EcocardiogramaEstruturadoEditor({
         : String(presets[0].id)
     );
   }, [presets, estado.preset_id]);
+
+  useEffect(() => {
+    if (!gruposPresetDisponiveis.includes(grupoPresetFiltro)) {
+      setGrupoPresetFiltro(FILTRO_TODOS_PRESETS);
+    }
+  }, [grupoPresetFiltro, gruposPresetDisponiveis]);
 
   useEffect(() => {
     setPresetForm((prev) => ({
@@ -1107,19 +1204,123 @@ export default function EcocardiogramaEstruturadoEditor({
         </div>
       ) : null}
 
-      <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto]">
-        <select
-          value={presetSelecionadoId}
-          onChange={(e) => setPresetSelecionadoId(e.target.value)}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
-        >
-          <option value="">Selecione um preset</option>
-          {presets.map((preset) => (
-            <option key={preset.id} value={String(preset.id)}>
-              {preset.label}
-            </option>
-          ))}
-        </select>
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
+        <div ref={seletorPresetsRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setSeletorPresetsAberto((prev) => !prev)}
+            className="flex min-h-[42px] w-full items-center justify-between gap-3 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+            aria-expanded={seletorPresetsAberto}
+          >
+            <span className={presetSelecionadoId ? "truncate text-gray-900" : "text-gray-500"}>
+              {presetAtualLabel}
+            </span>
+            <ChevronDown
+              className={`h-4 w-4 shrink-0 text-gray-500 transition-transform ${
+                seletorPresetsAberto ? "rotate-180" : ""
+              }`}
+            />
+          </button>
+
+          {seletorPresetsAberto ? (
+            <div className="absolute z-30 mt-2 w-full overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl">
+              <div className="space-y-3 border-b border-gray-100 p-3">
+                <div className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 focus-within:ring-2 focus-within:ring-teal-500">
+                  <Search className="h-4 w-4 shrink-0 text-gray-400" />
+                  <input
+                    type="text"
+                    value={buscaPreset}
+                    onChange={(e) => setBuscaPreset(e.target.value)}
+                    placeholder="Buscar por nome, patologia, grau ou tag"
+                    className="min-w-0 flex-1 border-0 p-0 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0"
+                    autoFocus
+                  />
+                  {buscaPreset ? (
+                    <button
+                      type="button"
+                      onClick={() => setBuscaPreset("")}
+                      className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                      aria-label="Limpar busca"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {gruposPresetDisponiveis.map((grupo) => (
+                    <button
+                      key={grupo}
+                      type="button"
+                      onClick={() => setGrupoPresetFiltro(grupo)}
+                      className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium ${
+                        grupoPresetFiltro === grupo
+                          ? "border-teal-500 bg-teal-50 text-teal-700"
+                          : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      {grupo}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="max-h-80 overflow-y-auto p-2">
+                {presetsAgrupados.length ? (
+                  presetsAgrupados.map((grupo) => (
+                    <div key={grupo.label} className="py-1">
+                      <div className="px-2 py-1 text-xs font-semibold uppercase text-gray-500">
+                        {grupo.label}
+                      </div>
+                      <div className="space-y-1">
+                        {grupo.presets.map((preset) => {
+                          const selecionado = String(preset.id) === presetSelecionadoId;
+                          return (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              onClick={() => {
+                                setPresetSelecionadoId(String(preset.id));
+                                setSeletorPresetsAberto(false);
+                              }}
+                              className={`flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-sm ${
+                                selecionado
+                                  ? "bg-blue-50 text-blue-700"
+                                  : "text-gray-700 hover:bg-gray-50"
+                              }`}
+                            >
+                              <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
+                                {selecionado ? <Check className="h-4 w-4" /> : null}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block font-medium">{preset.label}</span>
+                                {[preset.grau, ...(preset.tags || [])]
+                                  .filter(Boolean)
+                                  .slice(0, 3)
+                                  .length ? (
+                                  <span className="mt-0.5 block truncate text-xs text-gray-500">
+                                    {[preset.grau, ...(preset.tags || [])]
+                                      .filter(Boolean)
+                                      .slice(0, 3)
+                                      .join(" | ")}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="px-3 py-6 text-center text-sm text-gray-500">
+                    Nenhum preset encontrado.
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </div>
         <button
           type="button"
           onClick={() => aplicarPreset("merge")}

@@ -1,4 +1,5 @@
 """Servicos de negocio para o modulo fiscal."""
+from __future__ import annotations
 
 import logging
 from datetime import datetime, time

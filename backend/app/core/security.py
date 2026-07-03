@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from fastapi import HTTPException, Depends, Request, WebSocket, WebSocketException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt

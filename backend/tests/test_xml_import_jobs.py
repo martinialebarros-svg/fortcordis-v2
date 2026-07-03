@@ -37,7 +37,7 @@ class XmlImportJobsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Conteudo base64 invalido"):
             decode_xml_import_base64("%%%")
 
-    @patch("app.services.xml_import_jobs.parse_xml_eco", return_value={"paciente": {"nome": "Bob"}})
+    @patch("app.utils.xml_parser.parse_xml_eco", return_value={"paciente": {"nome": "Bob"}})
     def test_parse_xml_import_content_returns_parser_payload(self, parser_mock) -> None:
         result = parse_xml_import_content("exame.xml", b"<xml></xml>")
 

@@ -49,3 +49,4 @@ from app.models.frase_atendimento_clinico import FraseAtendimentoClinico
 from app.models.push_subscription import PushSubscription
 from app.models.push_scheduled_notification import PushScheduledNotification
 from app.models.google_maps_usage_metrica import GoogleMapsUsageMetrica
+from app.models.portal_access import PortalAccessChallenge
