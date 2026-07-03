@@ -1,6 +1,6 @@
 # Verify - institutional-portal-prod-cutover
 
-Data: 2026-07-02  
+Data: 2026-07-03  
 Responsavel: Equipe FortCordis  
 Status: done
 
@@ -12,6 +12,7 @@ Status: done
 | CA-002 | aceitacao | workflow manual compartilha `concurrency.group: fortcordis-vps-deploy` | ok |
 | CA-003 | aceitacao | run manual do workflow `Provision Institutional Host (Manual)` com `enable_tls=false` concluido com sucesso; script logou probes HTTP locais e fim da provisao | ok |
 | CA-004 | aceitacao | `scripts/provision_institutional_nginx.sh` exige `CERTBOT_EMAIL` e valida DNS contra `EXPECTED_PUBLIC_IP` antes do `certbot --nginx` | ok |
+| CA-005 | aceitacao | `ENABLE_TLS=true` vindo do `workflow_dispatch` entra no ramo de TLS e nao fica preso ao valor literal `1` | ok |
 | NFR-001 | nao funcional | automacao usa `VPS_SUDO_PASSWORD` via environment do workflow, sem depender de senha interativa no chat | ok |
 | NFR-002 | nao funcional | workflow serializado com o mesmo grupo dos deploys da VPS | ok |
 | NFR-003 | nao funcional | logs do script incluem backup, `nginx -t`, probes HTTP e etapa TLS | ok |
@@ -29,6 +30,7 @@ Resumo dos resultados:
 - Script shell com sintaxe valida.
 - Workflow YAML parseado com sucesso antes da publicacao.
 - Workflow manual executado via GitHub Actions apos push.
+- Regressao do parser booleano coberta por leitura do log do run 28688119715 e pela nova execucao TLS apos a correcao.
 
 ## 3) Testes manuais
 
@@ -39,11 +41,15 @@ Resumo dos resultados:
 - Cenario 3: probes locais na VPS:
   - `curl -I -H 'Host: fortcordis.com' http://127.0.0.1/` respondeu com sucesso.
   - `curl -I -H 'Host: www.fortcordis.com' http://127.0.0.1/dashboard` respondeu com sucesso via proxy local.
+- Cenario 4: diagnostico da primeira tentativa TLS em 2026-07-03:
+  - o run `28688119715` concluiu verde, mas o log registrou `TLS provisioning skipped (ENABLE_TLS=true)`, identificando incompatibilidade entre o input booleano do workflow e a checagem literal do script.
+- Cenario 5: rerun apos a correcao:
+  - a automacao deve executar `certbot --nginx` e concluir probes HTTPS locais para `fortcordis.com` e `www.fortcordis.com`.
 
 ## 4) Regressao e riscos residuais
 
 - Risco residual 1: enquanto o DNS continuar no Squarespace, o publico ainda nao vera a landing pela VPS.
-- Risco residual 2: o TLS ainda depende de uma segunda execucao do workflow com `enable_tls=true` depois da propagacao do DNS.
+- Risco residual 2: a emissao do TLS depende apenas da rerun do workflow corrigido com o DNS ja propagado.
 
 ## 5) Itens fora de escopo entregues
 

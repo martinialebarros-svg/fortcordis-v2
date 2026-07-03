@@ -18,6 +18,17 @@ log() {
   printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"
 }
 
+is_truthy() {
+  case "${1,,}" in
+    1|true|yes|y|on)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 run_with_sudo() {
   if command -v sudo >/dev/null 2>&1; then
     if sudo -n true >/dev/null 2>&1; then
@@ -117,7 +128,7 @@ curl -fsSI -H "Host: ${DOMAIN_WWW}" http://127.0.0.1/area-pacientes >/dev/null
 curl -fsSI -H "Host: ${DOMAIN_WWW}" http://127.0.0.1/dashboard >/dev/null
 log "HTTP probes OK"
 
-if [[ "${ENABLE_TLS}" == "1" ]]; then
+if is_truthy "${ENABLE_TLS}"; then
   require_cmd certbot
 
   if [[ -z "${CERTBOT_EMAIL}" ]]; then
