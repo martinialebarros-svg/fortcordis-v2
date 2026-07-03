@@ -22,6 +22,8 @@ Implementar drill pos-deploy para:
 - RF-005: script deve validar `PRAGMA integrity_check` no SQLite restaurado.
 - RF-006: integrar execucao no `scripts/deploy_prod_vps.sh`.
 - RF-007: permitir desativacao controlada por env (`ENABLE_BACKUP_RESTORE_DRILL=0`).
+- RF-008: nomes de snapshot/manifest devem ser unicos por execucao mesmo quando `stage` e `main` rodarem no mesmo host no mesmo segundo.
+- RF-009: workflows de deploy que apontam para a mesma VPS devem serializar execucao para evitar contencao de runtime e artefatos.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -29,6 +31,7 @@ Implementar drill pos-deploy para:
 - NFR-002: logs objetivos para diagnostico operacional.
 - NFR-003: limpeza automatica do diretorio temporario ao final (sucesso/falha).
 - NFR-004: overhead maximo alvo <= 15s em ambiente nominal.
+- NFR-005: o backup dir compartilhado nao pode sofrer colisao de nomes entre deploys concorrentes.
 
 ## 4) Criterios de aceitacao (CA)
 
@@ -37,3 +40,5 @@ Implementar drill pos-deploy para:
 - CA-003: deploy falha quando restauracao apresentar divergencia de hash.
 - CA-004: deploy falha quando `integrity_check` do SQLite restaurado retornar erro.
 - CA-005: deploy conclui normalmente quando drill passa integralmente.
+- CA-006: execucoes concorrentes em `stage` e `main` geram `snapshot` e `manifest` distintos no backup dir compartilhado.
+- CA-007: `.github/workflows/deploy-stage.yml` e `.github/workflows/deploy.yml` compartilham um `concurrency.group` unico com `cancel-in-progress: false`.

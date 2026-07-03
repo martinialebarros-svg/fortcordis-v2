@@ -13,6 +13,8 @@ Status: done
 | CA-003 | aceitacao | validacao de hashes detecta divergencia no restore (`_verify_restored_files`) | ok |
 | CA-004 | aceitacao | drill valida SQLite restaurado com `PRAGMA integrity_check` | ok |
 | CA-005 | aceitacao | deploy segue quando drill passa e etapa loga `Backup restore drill OK` | ok |
+| CA-006 | aceitacao | `scripts/deploy_backup_restore_drill.py` gera stamp padrao com timestamp UTC em microssegundos + slug do app + PID, evitando colisao entre `stage` e `main` no mesmo segundo | ok |
+| CA-007 | aceitacao | `.github/workflows/deploy-stage.yml` e `.github/workflows/deploy.yml` compartilham `concurrency.group: fortcordis-vps-deploy` com fila (`cancel-in-progress: false`) | ok |
 
 ## 2) Validacoes executadas
 
@@ -27,13 +29,15 @@ bash -n scripts/deploy_stage_vps.sh
 
 Resumo:
 - Script de drill compilando corretamente.
-- Testes unitarios focados aprovados (3 testes).
+- Testes unitarios focados aprovados (5 testes).
 - Scripts de deploy com sintaxe valida apos integracao da nova etapa.
+- Workflows de stage/prod atualizados para fila unica de deploy na VPS compartilhada.
 
 ## 3) Riscos residuais
 
 - Risco residual 1: drill valida integridade de artefatos runtime locais, mas nao substitui teste de restore em host alternativo.
 - Risco residual 2: em cenarios com arquivos runtime muito grandes, o tempo da etapa pode aumentar.
+- Risco residual 3: a fila unica elimina a corrida entre stage/prod, mas aumenta o tempo de espera quando houver deploys encadeados no mesmo intervalo.
 
 ## 4) Decisao de release
 

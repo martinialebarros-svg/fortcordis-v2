@@ -5,6 +5,10 @@ on:
     branches:
       - stage
 
+concurrency:
+  group: fortcordis-vps-deploy
+  cancel-in-progress: false
+
 jobs:
   quality-gate:
     runs-on: ubuntu-latest

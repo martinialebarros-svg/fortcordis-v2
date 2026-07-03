@@ -43,6 +43,14 @@ class DeployBackupRestoreDrillTest(unittest.TestCase):
                 errors = DRILL._verify_restored_files(str(restore_dir), manifest)
                 self.assertEqual(errors, [])
 
+    def test_default_stamp_includes_app_slug(self) -> None:
+        prod_stamp = DRILL._build_default_stamp("/var/www/fortcordis-v2")
+        stage_stamp = DRILL._build_default_stamp("/var/www/fortcordis-stage")
+
+        self.assertIn("fortcordis-v2", prod_stamp)
+        self.assertIn("fortcordis-stage", stage_stamp)
+        self.assertNotEqual(prod_stamp, stage_stamp)
+
     def test_verify_restored_files_detects_hash_divergence(self) -> None:
         with tempfile.TemporaryDirectory() as app_dir:
             source_file = Path(app_dir) / "backend" / "data" / "patologias.json"
