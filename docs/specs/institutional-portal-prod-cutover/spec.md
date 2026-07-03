@@ -16,6 +16,7 @@ Provisionar a borda Nginx de producao para o host institucional `fortcordis.com`
 - RF-004: o script deve executar probes locais com `Host` header institucional apos o reload.
 - RF-005: o workflow manual deve copiar e executar o script na VPS usando os secrets existentes do GitHub.
 - RF-006: o workflow deve aceitar uma opcao para emitir TLS com Certbot somente quando explicitamente solicitado.
+- RF-007: a opcao de TLS deve aceitar os formatos booleanos usados pelo `workflow_dispatch` (`true`/`false`) sem depender de conversao manual para `1`/`0`.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -66,6 +67,7 @@ Provisionar a borda Nginx de producao para o host institucional `fortcordis.com`
 - CB-001: se o site file ja existir, o script cria backup antes de sobrescrever.
 - CB-002: se o DNS ainda nao apontar para a VPS, a etapa TLS falha com mensagem explicita sem alterar a publicacao HTTP.
 - CB-003: se o usuario remoto nao tiver `sudo` sem senha, a automacao usa `VPS_SUDO_PASSWORD`.
+- CB-004: se o workflow manual enviar `ENABLE_TLS=true`, a etapa TLS deve ser executada de fato e nao apenas logada como ignorada.
 
 ## 8) Fora de escopo
 
