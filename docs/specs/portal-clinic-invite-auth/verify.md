@@ -73,6 +73,10 @@ Resumo dos resultados:
   - ESLint dos arquivos afetados: ok.
   - ESLint do card administrativo de convite apos mensagem contextual: ok.
   - `npm run build`: ok.
+- Stage smoke:
+  - `https://stage.fortcordis.com.br/clinica-parceira`: 200 OK.
+  - `https://stage.fortcordis.com.br/clinica-parceira/ativar/teste`: 200 OK.
+  - Copy da pagina de ativacao revisada para remover a etapa antiga de codigo no primeiro acesso.
 
 ## 3) Testes manuais sugeridos (stage)
 

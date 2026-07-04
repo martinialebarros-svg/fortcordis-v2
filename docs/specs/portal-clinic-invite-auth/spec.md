@@ -28,6 +28,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
 - RF-014: a operacao/admin deve conseguir revogar convite pendente, conta da clinica e sessoes ativas da unidade.
 - RF-015: enquanto o novo fluxo nao estiver ativo em producao, a experiencia publica atual de clinica com codigo temporario deve poder permanecer disponivel por feature flag para migracao gradual.
 - RF-016: caso o provider oficial de WhatsApp ainda nao esteja habilitado, a operacao deve conseguir copiar manualmente o link seguro do convite junto de uma mensagem contextual para envio controlado a clinica.
+- RF-017: a tela publica de ativacao deve orientar a clinica a conferir o email institucional, cadastrar responsavel/senha e entrar direto no portal, sem instruir confirmacao de codigo no primeiro cadastro.
 
 ## 3) Requisitos nao funcionais (NFR)
 

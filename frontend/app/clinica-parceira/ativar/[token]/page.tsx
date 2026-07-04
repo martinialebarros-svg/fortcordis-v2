@@ -32,12 +32,12 @@ export default async function ClinicaParceiraAtivarPage({
               Ativacao segura da unidade parceira
             </h1>
             <p className="mt-4 text-sm leading-7 text-slate-600">
-              Este link apenas autoriza o cadastro inicial. O acesso aos exames continua protegido por email institucional, senha e verificacao adicional quando necessario.
+              Este link apenas autoriza o cadastro inicial. O acesso aos exames continua protegido por email institucional, senha e verificacao adicional em acoes sensiveis.
             </p>
             <div className="mt-6 space-y-3 text-sm leading-6 text-slate-600">
-              <p>1. Informe o email institucional que sera usado pela unidade.</p>
-              <p>2. Cadastre uma senha forte para o portal.</p>
-              <p>3. Confirme o codigo enviado por email antes do primeiro acesso.</p>
+              <p>1. Confira o email institucional definido para a unidade.</p>
+              <p>2. Cadastre o responsavel e uma senha forte para o portal.</p>
+              <p>3. Ao concluir, a unidade ja entra no portal da clinica.</p>
             </div>
           </div>
 
