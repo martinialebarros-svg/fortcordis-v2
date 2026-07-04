@@ -59,6 +59,9 @@ class PortalExamAttachmentResponse(BaseModel):
 class PortalExamSummaryResponse(BaseModel):
     id: int
     paciente_id: int
+    paciente_nome: Optional[str] = None
+    tutor_nome: Optional[str] = None
+    especie: Optional[str] = None
     atendimento_id: Optional[int] = None
     laudo_id: Optional[int] = None
     tipo_exame: str
@@ -73,6 +76,8 @@ class PortalExamSummaryResponse(BaseModel):
 
 class PortalExamListResponse(BaseModel):
     total: int
+    clinica_id: Optional[int] = None
+    clinica_nome: Optional[str] = None
     items: list[PortalExamSummaryResponse] = Field(default_factory=list)
 
 

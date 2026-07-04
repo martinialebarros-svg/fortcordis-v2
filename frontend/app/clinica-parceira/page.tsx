@@ -28,7 +28,7 @@ const clinicRules = [
   {
     title: "MFA em dados sensiveis",
     description:
-      "Sessao nova, dispositivo novo ou download de exame exige segunda verificacao.",
+      "Reset de senha, risco de acesso e acoes sensiveis podem exigir segunda verificacao.",
     icon: KeyRound,
   },
   {
@@ -133,7 +133,7 @@ export default function ClinicaParceiraPage() {
           <div className="space-y-3">
             {[
               "Busca por protocolo, pet ou tutor somente dentro da unidade autorizada.",
-              "Preview de metadados do exame antes do download para evitar arquivo errado.",
+              "Visao panoramica com filtros por pet, tutor, especie, tipo de exame e periodo.",
               "URL assinada com expiracao curta, sem token em query string exposto em logs internos.",
             ].map((item) => (
               <div key={item} className="flex gap-3 rounded-lg border border-slate-200 bg-white p-4">

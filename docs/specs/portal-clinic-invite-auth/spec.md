@@ -29,6 +29,8 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
 - RF-015: enquanto o novo fluxo nao estiver ativo em producao, a experiencia publica atual de clinica com codigo temporario deve poder permanecer disponivel por feature flag para migracao gradual.
 - RF-016: caso o provider oficial de WhatsApp ainda nao esteja habilitado, a operacao deve conseguir copiar manualmente o link seguro do convite junto de uma mensagem contextual para envio controlado a clinica.
 - RF-017: a tela publica de ativacao deve orientar a clinica a conferir o email institucional, cadastrar responsavel/senha e entrar direto no portal, sem instruir confirmacao de codigo no primeiro cadastro.
+- RF-018: apos login com sucesso, a clinica deve entrar em um ambiente operacional explicito de `clinica parceira`, separado da pagina institucional, com identificacao da unidade autenticada.
+- RF-019: o ambiente da clinica deve exibir visao panoramica dos exames liberados da propria unidade, com filtros por busca geral, pet, tutor, especie, tipo de exame e periodo, alem de ordenacao por data, tipo, pet, tutor ou especie.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -42,6 +44,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
 - NFR-008 (compatibilidade): endpoints atuais de listagem/download de exames do portal devem continuar compatíveis e sem impacto no fluxo administrativo interno.
 - NFR-009 (operacao): o modelo deve permitir rollout progressivo por clinica/unidade sem exigir migracao atomica de todos os parceiros.
 - NFR-010 (UX): o portal da clinica deve informar claramente expiracao do convite, email institucional do acesso, sessao ativa ate horario estimado e expiracao da sessao estendida.
+- NFR-011 (UX/adesao): a rotina diaria da clinica deve priorizar busca e download em uma tela unica, reduzindo dependencia de IDs internos do pet para localizar exames.
 
 ## 4) Contratos tecnicos
 
@@ -210,6 +213,29 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
   - resposta:
     - `success`
     - `message`
+
+- `GET /api/v1/portal/clinicas/exames`
+  - auth:
+    - `Authorization: Bearer <portal token>` de clinica
+  - query params:
+    - `q` busca geral por pet, tutor, tipo ou categoria
+    - `pet`
+    - `tutor`
+    - `especie`
+    - `tipo_exame`
+    - `status_exame`
+    - `data_inicio`
+    - `data_fim`
+    - `sort_by` (`data`, `tipo_exame`, `especie`, `pet`, `tutor`, `status`)
+    - `sort_dir` (`asc`, `desc`)
+    - `limit`, `offset`
+  - resposta:
+    - `total`
+    - `clinica_id`
+    - `clinica_nome`
+    - `items[]` com `paciente_nome`, `tutor_nome`, `especie`, metadados do exame e anexos disponiveis
+  - regra:
+    - deve retornar apenas exames associados ao `clinica_id` da sessao por atendimento ou laudo, sem vazar exames de outras unidades.
 
 #### Endpoints reaproveitados
 

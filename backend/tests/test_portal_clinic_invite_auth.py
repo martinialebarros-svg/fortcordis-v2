@@ -27,7 +27,7 @@ from app.core.config import settings
 from app.db.database import get_db
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
 from app.models.clinica import Clinica
-from app.models.laudo import Exame
+from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
 from app.models.portal_clinic_auth import (
     PortalAuthChallenge,
@@ -61,6 +61,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
             Paciente.__table__,
             Clinica.__table__,
             AtendimentoClinico.__table__,
+            Laudo.__table__,
             Exame.__table__,
             AnexoAtendimento.__table__,
             PortalClinicInvite.__table__,
@@ -101,7 +102,12 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                 email="parceira@example.com",
                 ativo=True,
             )
-            db.add_all([tutor, clinica])
+            outra_clinica = Clinica(
+                nome="Clinica Parceira B",
+                email="outra@example.com",
+                ativo=True,
+            )
+            db.add_all([tutor, clinica, outra_clinica])
             db.flush()
 
             paciente = Paciente(
@@ -111,6 +117,15 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                 ativo=1,
             )
             db.add(paciente)
+            db.flush()
+
+            outro_paciente = Paciente(
+                tutor_id=tutor.id,
+                nome="Bolt",
+                especie="Felina",
+                ativo=1,
+            )
+            db.add(outro_paciente)
             db.flush()
 
             atendimento = AtendimentoClinico(
@@ -128,6 +143,21 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
             db.add(atendimento)
             db.flush()
 
+            outro_atendimento = AtendimentoClinico(
+                paciente_id=outro_paciente.id,
+                tutor_id=tutor.id,
+                clinica_id=outra_clinica.id,
+                agendamento_id=None,
+                veterinario_id=77,
+                especie="Felina",
+                data_atendimento=datetime(2026, 7, 4, 9, 30),
+                status="Concluido",
+                criado_por_id=77,
+                criado_por_nome="Vet Teste",
+            )
+            db.add(outro_atendimento)
+            db.flush()
+
             exame = Exame(
                 atendimento_id=atendimento.id,
                 paciente_id=paciente.id,
@@ -140,6 +170,20 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                 observacoes="Exame liberado para portal.",
             )
             db.add(exame)
+            db.flush()
+
+            outro_exame = Exame(
+                atendimento_id=outro_atendimento.id,
+                paciente_id=outro_paciente.id,
+                tipo_exame="Ultrassom abdominal",
+                categoria_exame="Imagem",
+                prioridade="Rotina",
+                status="Concluido",
+                data_solicitacao=datetime(2026, 7, 4, 9, 0),
+                data_resultado=datetime(2026, 7, 4, 10, 0),
+                observacoes="Exame de outra unidade.",
+            )
+            db.add(outro_exame)
             db.flush()
 
             attachment_bytes = b"%PDF-1.4\nportal clinic invite auth\n"
@@ -304,6 +348,36 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                 )
                 self.assertEqual(exams_response.status_code, 200)
                 self.assertEqual(exams_response.json()["total"], 1)
+                self.assertEqual(exams_response.json()["items"][0]["paciente_nome"], "Luna")
+                self.assertEqual(exams_response.json()["items"][0]["tutor_nome"], "Maria Tutora")
+
+                clinic_exams_response = client.get(
+                    "/api/v1/portal/clinicas/exames",
+                    headers=auth_headers,
+                )
+                self.assertEqual(clinic_exams_response.status_code, 200)
+                clinic_exams_payload = clinic_exams_response.json()
+                self.assertEqual(clinic_exams_payload["clinica_id"], seed["clinica_id"])
+                self.assertEqual(clinic_exams_payload["clinica_nome"], seed["clinica_nome"])
+                self.assertEqual(clinic_exams_payload["total"], 1)
+                self.assertEqual(clinic_exams_payload["items"][0]["paciente_nome"], "Luna")
+                self.assertEqual(clinic_exams_payload["items"][0]["tutor_nome"], "Maria Tutora")
+                self.assertEqual(clinic_exams_payload["items"][0]["especie"], "Canina")
+                self.assertEqual(clinic_exams_payload["items"][0]["tipo_exame"], "Ecocardiograma")
+
+                filtered_exams_response = client.get(
+                    "/api/v1/portal/clinicas/exames?pet=Luna&tutor=Maria&especie=Canina&tipo_exame=Eco&sort_by=pet&sort_dir=asc",
+                    headers=auth_headers,
+                )
+                self.assertEqual(filtered_exams_response.status_code, 200)
+                self.assertEqual(filtered_exams_response.json()["total"], 1)
+
+                no_scope_leak_response = client.get(
+                    "/api/v1/portal/clinicas/exames?pet=Bolt",
+                    headers=auth_headers,
+                )
+                self.assertEqual(no_scope_leak_response.status_code, 200)
+                self.assertEqual(no_scope_leak_response.json()["total"], 0)
 
                 refresh_response = client.post("/api/v1/portal/auth/refresh")
                 self.assertEqual(refresh_response.status_code, 200)

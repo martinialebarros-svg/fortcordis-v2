@@ -5,10 +5,11 @@ import json
 import logging
 import re
 import secrets
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Iterable, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -392,10 +393,15 @@ def _serialize_exam_attachment(anexo: AnexoAtendimento) -> PortalExamAttachmentR
 def _build_exam_summary(
     exam: Exame,
     attachments: list[AnexoAtendimento],
+    paciente: Paciente | None = None,
+    tutor: Tutor | None = None,
 ) -> PortalExamSummaryResponse:
     return PortalExamSummaryResponse(
         id=exam.id,
         paciente_id=exam.paciente_id,
+        paciente_nome=getattr(paciente, "nome", None),
+        tutor_nome=getattr(tutor, "nome", None),
+        especie=getattr(paciente, "especie", None),
         atendimento_id=exam.atendimento_id,
         laudo_id=exam.laudo_id,
         tipo_exame=exam.tipo_exame,
@@ -435,6 +441,53 @@ def _assert_portal_exam_access(
         _assert_clinica_scope_for_exam(session, exam, atendimentos_map, laudos_map)
         return
     raise HTTPException(status_code=403, detail="Sessao do portal sem escopo reconhecido.")
+
+
+def _date_start(value: date) -> datetime:
+    return datetime.combine(value, datetime.min.time())
+
+
+def _date_end_exclusive(value: date) -> datetime:
+    return _date_start(value) + timedelta(days=1)
+
+
+def _portal_exam_sort_expression(sort_by: str):
+    data_expr = func.coalesce(Exame.data_resultado, Exame.data_solicitacao, Exame.created_at)
+    mapping = {
+        "data": data_expr,
+        "tipo_exame": func.lower(func.coalesce(Exame.tipo_exame, "")),
+        "especie": func.lower(func.coalesce(Paciente.especie, "")),
+        "pet": func.lower(func.coalesce(Paciente.nome, "")),
+        "tutor": func.lower(func.coalesce(Tutor.nome, "")),
+        "status": func.lower(func.coalesce(Exame.status, "")),
+    }
+    return mapping.get(sort_by, data_expr)
+
+
+def _load_exam_related_maps(
+    db: Session,
+    exams: list[Exame],
+) -> tuple[dict[int, list[AnexoAtendimento]], dict[int, Paciente], dict[int, Tutor]]:
+    exam_ids = [exam.id for exam in exams]
+    attachments: list[AnexoAtendimento] = []
+    if exam_ids:
+        attachments = (
+            db.query(AnexoAtendimento)
+            .filter(AnexoAtendimento.exame_id.in_(exam_ids))
+            .order_by(AnexoAtendimento.created_at.desc(), AnexoAtendimento.id.desc())
+            .all()
+        )
+    attachments_by_exam: dict[int, list[AnexoAtendimento]] = {}
+    for attachment in attachments:
+        attachments_by_exam.setdefault(int(attachment.exame_id or 0), []).append(attachment)
+
+    pacientes_map = _load_map(db, Paciente, [exam.paciente_id for exam in exams])
+    tutores_map = _load_map(
+        db,
+        Tutor,
+        [paciente.tutor_id for paciente in pacientes_map.values() if paciente and paciente.tutor_id],
+    )
+    return attachments_by_exam, pacientes_map, tutores_map
 
 
 @router.post("/tutores/sessao-link", response_model=PortalChallengeResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -656,6 +709,97 @@ def verificar_codigo_portal(
     return token_response
 
 
+@router.get("/clinicas/exames", response_model=PortalExamListResponse)
+def listar_exames_clinica_portal(
+    q: str | None = Query(default=None, max_length=120),
+    pet: str | None = Query(default=None, max_length=120),
+    tutor: str | None = Query(default=None, max_length=120),
+    especie: str | None = Query(default=None, max_length=80),
+    tipo_exame: str | None = Query(default=None, max_length=120),
+    status_exame: str | None = Query(default=None, max_length=80),
+    data_inicio: date | None = None,
+    data_fim: date | None = None,
+    sort_by: str = Query(default="data", pattern="^(data|tipo_exame|especie|pet|tutor|status)$"),
+    sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    portal_session: PortalSessionContext = Depends(get_current_portal_session),
+):
+    if portal_session.actor_type != "clinica" or portal_session.clinica_id is None:
+        raise HTTPException(status_code=403, detail="Sessao do portal sem acesso para clinica.")
+
+    clinica = _obter_clinica_ativa(db, portal_session.clinica_id)
+    if not clinica:
+        raise HTTPException(status_code=403, detail="Clinica sem acesso ativo ao portal.")
+
+    clinic_filter = or_(
+        AtendimentoClinico.clinica_id == portal_session.clinica_id,
+        Laudo.clinic_id == portal_session.clinica_id,
+    )
+    query = (
+        db.query(Exame)
+        .outerjoin(AtendimentoClinico, AtendimentoClinico.id == Exame.atendimento_id)
+        .outerjoin(Laudo, Laudo.id == Exame.laudo_id)
+        .join(Paciente, Paciente.id == Exame.paciente_id)
+        .outerjoin(Tutor, Tutor.id == Paciente.tutor_id)
+        .filter(clinic_filter)
+    )
+
+    def _like(value: str) -> str:
+        return f"%{value.strip()}%"
+
+    if q and q.strip():
+        term = _like(q)
+        query = query.filter(
+            or_(
+                Paciente.nome.ilike(term),
+                Tutor.nome.ilike(term),
+                Exame.tipo_exame.ilike(term),
+                Exame.categoria_exame.ilike(term),
+            )
+        )
+    if pet and pet.strip():
+        query = query.filter(Paciente.nome.ilike(_like(pet)))
+    if tutor and tutor.strip():
+        query = query.filter(Tutor.nome.ilike(_like(tutor)))
+    if especie and especie.strip():
+        query = query.filter(Paciente.especie.ilike(_like(especie)))
+    if tipo_exame and tipo_exame.strip():
+        query = query.filter(Exame.tipo_exame.ilike(_like(tipo_exame)))
+    if status_exame and status_exame.strip():
+        query = query.filter(Exame.status.ilike(_like(status_exame)))
+
+    date_expr = func.coalesce(Exame.data_resultado, Exame.data_solicitacao, Exame.created_at)
+    if data_inicio:
+        query = query.filter(date_expr >= _date_start(data_inicio))
+    if data_fim:
+        query = query.filter(date_expr < _date_end_exclusive(data_fim))
+
+    total = query.count()
+    sort_expr = _portal_exam_sort_expression(sort_by)
+    primary_order = sort_expr.asc() if sort_dir == "asc" else sort_expr.desc()
+    exams = query.order_by(primary_order, Exame.id.desc()).offset(offset).limit(limit).all()
+
+    attachments_by_exam, pacientes_map, tutores_map = _load_exam_related_maps(db, exams)
+    items = [
+        _build_exam_summary(
+            exam,
+            attachments_by_exam.get(exam.id, []),
+            pacientes_map.get(exam.paciente_id),
+            tutores_map.get(getattr(pacientes_map.get(exam.paciente_id), "tutor_id", None)),
+        )
+        for exam in exams
+    ]
+
+    return PortalExamListResponse(
+        total=total,
+        clinica_id=clinica.id,
+        clinica_nome=clinica.nome,
+        items=items,
+    )
+
+
 @router.get("/pets/{paciente_id}/exames", response_model=PortalExamListResponse)
 def listar_exames_pet_portal(
     paciente_id: int,
@@ -672,19 +816,7 @@ def listar_exames_pet_portal(
         .all()
     )
 
-    exam_ids = [exam.id for exam in exams]
-    attachments = []
-    if exam_ids:
-        attachments = (
-            db.query(AnexoAtendimento)
-            .filter(AnexoAtendimento.exame_id.in_(exam_ids))
-            .order_by(AnexoAtendimento.created_at.desc(), AnexoAtendimento.id.desc())
-            .all()
-        )
-    attachments_by_exam: dict[int, list[AnexoAtendimento]] = {}
-    for attachment in attachments:
-        attachments_by_exam.setdefault(int(attachment.exame_id or 0), []).append(attachment)
-
+    attachments_by_exam, pacientes_map, tutores_map = _load_exam_related_maps(db, exams)
     atendimentos_map = _load_map(db, AtendimentoClinico, [exam.atendimento_id for exam in exams if exam.atendimento_id])
     laudos_map = _load_map(db, Laudo, [exam.laudo_id for exam in exams if exam.laudo_id])
 
@@ -695,9 +827,11 @@ def listar_exames_pet_portal(
                 _assert_clinica_scope_for_exam(portal_session, exam, atendimentos_map, laudos_map)
             except HTTPException:
                 continue
-        items.append(_build_exam_summary(exam, attachments_by_exam.get(exam.id, [])))
+        paciente = pacientes_map.get(exam.paciente_id)
+        tutor = tutores_map.get(getattr(paciente, "tutor_id", None))
+        items.append(_build_exam_summary(exam, attachments_by_exam.get(exam.id, []), paciente, tutor))
 
-    return PortalExamListResponse(total=len(items), items=items)
+    return PortalExamListResponse(total=len(items), clinica_id=portal_session.clinica_id, items=items)
 
 
 @router.post("/exames/{exame_id}/download-url", response_model=PortalDownloadUrlResponse)

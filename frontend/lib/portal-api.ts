@@ -129,6 +129,9 @@ export type PortalExamAttachment = {
 export type PortalExamItem = {
   id: number;
   paciente_id: number;
+  paciente_nome?: string | null;
+  tutor_nome?: string | null;
+  especie?: string | null;
   atendimento_id: number | null;
   laudo_id: number | null;
   tipo_exame: string;
@@ -143,6 +146,8 @@ export type PortalExamItem = {
 
 export type PortalExamListResponse = {
   total: number;
+  clinica_id?: number | null;
+  clinica_nome?: string | null;
   items: PortalExamItem[];
 };
 
@@ -501,6 +506,45 @@ export async function listPortalPetExams(pacienteId: number, token: string): Pro
       },
     },
     "Nao foi possivel carregar os exames.",
+  );
+}
+
+export type PortalClinicExamFilters = {
+  q?: string;
+  pet?: string;
+  tutor?: string;
+  especie?: string;
+  tipo_exame?: string;
+  status_exame?: string;
+  data_inicio?: string;
+  data_fim?: string;
+  sort_by?: "data" | "tipo_exame" | "especie" | "pet" | "tutor" | "status";
+  sort_dir?: "asc" | "desc";
+  limit?: number;
+  offset?: number;
+};
+
+export async function listPortalClinicExams(
+  filters: PortalClinicExamFilters,
+  token: string,
+): Promise<PortalExamListResponse> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+    params.set(key, String(value));
+  });
+
+  const query = params.toString();
+  return portalFetchJson<PortalExamListResponse>(
+    `/api/v1/portal/clinicas/exames${query ? `?${query}` : ""}`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+    "Nao foi possivel carregar os exames da clinica.",
   );
 }
 
