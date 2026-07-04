@@ -43,7 +43,9 @@ MERGED_TMP="$(mktemp)"
 trap 'rm -f "${STAGE_TMP}" "${PROD_TMP}" "${MERGED_TMP}"' EXIT
 
 log "Reading portal email config from stage env"
-run_with_sudo python3 - "${STAGE_ENV_FILE}" >"${STAGE_TMP}" <<'PY'
+run_with_sudo grep -E '^PORTAL_EMAIL_' "${STAGE_ENV_FILE}" >"${STAGE_TMP}"
+
+python3 - "${STAGE_TMP}" <<'PY'
 from pathlib import Path
 import sys
 
@@ -62,19 +64,14 @@ required_keys = [
 
 values = {}
 for raw_line in env_path.read_text().splitlines():
-    line = raw_line.strip()
-    if not line or line.startswith("#") or "=" not in raw_line:
+    if not raw_line or raw_line.lstrip().startswith("#") or "=" not in raw_line:
         continue
     key, value = raw_line.split("=", 1)
-    if key.startswith("PORTAL_EMAIL_"):
-        values[key] = value
+    values[key] = value
 
 missing = [key for key in required_keys if not values.get(key)]
 if missing:
     raise SystemExit(f"[ERROR] Stage env is missing required portal email keys: {', '.join(missing)}")
-
-for key in required_keys:
-    print(f"{key}={values[key]}")
 PY
 
 log "Backing up prod env"
