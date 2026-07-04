@@ -5,6 +5,7 @@ import {
   Copy,
   Link2,
   Loader2,
+  MessageCircle,
   RefreshCcw,
   ShieldCheck,
   Smartphone,
@@ -43,6 +44,29 @@ function formatDateTime(value?: string | null): string {
   }).format(new Date(value));
 }
 
+function buildClinicInviteMessage({
+  clinicaNome,
+  activationUrl,
+  expiresAt,
+}: {
+  clinicaNome: string;
+  activationUrl: string;
+  expiresAt?: string | null;
+}): string {
+  const expirationText = expiresAt ? formatDateTime(expiresAt) : "no prazo informado no portal";
+
+  return [
+    `Ola, equipe ${clinicaNome}.`,
+    "",
+    "A Fort Cordis criou um acesso seguro para a clinica parceira consultar exames e laudos liberados no Portal Fort Cordis.",
+    "Use o link abaixo para cadastrar o email institucional e criar a senha da unidade:",
+    activationUrl,
+    "",
+    `Este link e individual, expira em ${expirationText} e nao deve ser compartilhado fora da equipe autorizada.`,
+    "Depois da ativacao, o acesso sera feito pelo portal com email, senha e confirmacao adicional quando necessario.",
+  ].join("\n");
+}
+
 export default function ClinicaPortalAccessCard({
   clinicaId,
   clinicaNome,
@@ -59,6 +83,16 @@ export default function ClinicaPortalAccessCard({
 
   const currentInvite = summary?.invite || null;
   const currentAccount = summary?.account || null;
+  const inviteMessage = useMemo(() => {
+    if (!lastInvite?.activation_url) {
+      return "";
+    }
+    return buildClinicInviteMessage({
+      clinicaNome,
+      activationUrl: lastInvite.activation_url,
+      expiresAt: lastInvite.expires_at,
+    });
+  }, [clinicaNome, lastInvite?.activation_url, lastInvite?.expires_at]);
 
   const canRevokeInvite = useMemo(
     () => currentInvite && currentInvite.status === "pending",
@@ -123,6 +157,18 @@ export default function ClinicaPortalAccessCard({
       setMessage("Link de ativacao copiado.");
     } catch {
       setError("Nao foi possivel copiar o link automaticamente.");
+    }
+  }
+
+  async function handleCopyInviteMessage() {
+    if (!inviteMessage) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(inviteMessage);
+      setMessage("Mensagem com link de ativacao copiada.");
+    } catch {
+      setError("Nao foi possivel copiar a mensagem automaticamente.");
     }
   }
 
@@ -259,7 +305,25 @@ export default function ClinicaPortalAccessCard({
               <div className="mt-4 rounded-lg border border-teal-200 bg-teal-50 p-4">
                 <p className="text-sm font-semibold text-teal-950">Ultimo link gerado nesta sessao</p>
                 <p className="mt-2 break-all text-sm text-teal-900">{lastInvite.activation_url}</p>
+                <label className="mt-4 block text-sm font-semibold text-teal-950">
+                  Mensagem sugerida para WhatsApp
+                  <textarea
+                    readOnly
+                    value={inviteMessage}
+                    rows={8}
+                    className="mt-2 min-h-44 w-full resize-y rounded-lg border border-teal-200 bg-white px-3 py-2 text-sm leading-6 text-teal-950 outline-none"
+                    aria-label="Mensagem sugerida para envio do convite da clinica"
+                  />
+                </label>
                 <div className="mt-3 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyInviteMessage()}
+                    className="inline-flex items-center gap-2 rounded-lg border border-teal-300 px-3 py-2 text-sm font-medium text-teal-900 hover:bg-white"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    Copiar mensagem
+                  </button>
                   <button
                     type="button"
                     onClick={() => void handleCopyLink()}

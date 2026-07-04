@@ -27,7 +27,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
 - RF-013: a clinica deve conseguir iniciar fluxo de `esqueci minha senha` com resposta generica anti-enumeracao e redefinicao segura por email.
 - RF-014: a operacao/admin deve conseguir revogar convite pendente, conta da clinica e sessoes ativas da unidade.
 - RF-015: enquanto o novo fluxo nao estiver ativo em producao, a experiencia publica atual de clinica com codigo temporario deve poder permanecer disponivel por feature flag para migracao gradual.
-- RF-016: caso o provider oficial de WhatsApp ainda nao esteja habilitado, a operacao deve conseguir copiar manualmente o link seguro do convite para envio controlado a clinica.
+- RF-016: caso o provider oficial de WhatsApp ainda nao esteja habilitado, a operacao deve conseguir copiar manualmente o link seguro do convite junto de uma mensagem contextual para envio controlado a clinica.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -285,7 +285,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
   - `frontend/app/clinicas/[id]/page.tsx` ou tela equivalente de gestao da clinica
   - adicionar secao para:
     - gerar convite
-    - copiar link seguro
+    - copiar link seguro e mensagem pronta explicando o convite
     - ver status do convite
     - revogar conta/sessoes
 
@@ -341,7 +341,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
 
 ## 6) Criterios de aceitacao (CA)
 
-- CA-001: a operacao consegue gerar convite seguro de clinica com expiracao e copiar/enviar o link.
+- CA-001: a operacao consegue gerar convite seguro de clinica com expiracao e copiar/enviar uma mensagem contextual com o link.
 - CA-002: o link do convite nao autentica a clinica sozinho e exige cadastro com email e senha.
 - CA-003: a conta da clinica so e ativada apos verificacao do codigo enviado ao email institucional.
 - CA-004: a clinica consegue entrar com email e senha apos a ativacao.
@@ -360,7 +360,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
 - CB-004: se o email de verificacao nao chegar, deve existir reenvio controlado com rate limit.
 - CB-005: redefinicao de senha deve invalidar sessoes anteriores e exigir novo login.
 - CB-006: troca de email institucional deve exigir verificacao do novo email antes de efetivar a mudanca.
-- CB-007: se o provider oficial de WhatsApp nao estiver habilitado, a operacao deve conseguir copiar o link do convite manualmente sem quebrar o fluxo.
+- CB-007: se o provider oficial de WhatsApp nao estiver habilitado, a operacao deve conseguir copiar a mensagem com o link do convite manualmente sem quebrar o fluxo.
 - CB-008: dispositivos compartilhados da clinica nao devem herdar sessao apos logout manual ou expiracao do periodo confiavel.
 
 ## 8) Fora de escopo

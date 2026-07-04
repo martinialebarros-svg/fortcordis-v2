@@ -8,7 +8,7 @@ Status: in-progress
 
 | ID | Tipo | Evidencia | Status |
 | --- | --- | --- | --- |
-| CA-001 | aceitacao | `frontend/app/clinicas/[id]/page.tsx` + `frontend/app/clinicas/components/ClinicaPortalAccessCard.tsx` | ok |
+| CA-001 | aceitacao | `frontend/app/clinicas/[id]/page.tsx` + `frontend/app/clinicas/components/ClinicaPortalAccessCard.tsx` com mensagem contextual de WhatsApp | ok |
 | CA-002 | aceitacao | `backend/app/api/v1/endpoints/portal_clinic_auth.py::criar_convite_clinica` + `::revogar_convite_clinica` | ok |
 | CA-003 | aceitacao | `frontend/app/clinica-parceira/ativar/[token]/page.tsx` + `frontend/components/portal/PortalClinicActivationWorkspace.tsx` + `test_invite_activation_login_mfa_refresh_and_exam_scope` | ok |
 | CA-004 | aceitacao | `frontend/components/portal/PortalClinicaWorkspace.tsx` + `backend/app/api/v1/endpoints/portal_clinic_auth.py::login_clinica_com_senha` | ok |
@@ -56,6 +56,10 @@ cd frontend && npx eslint \
   lib/portal-api.ts \
   --max-warnings=0
 
+cd frontend && npx eslint \
+  app/clinicas/components/ClinicaPortalAccessCard.tsx \
+  --max-warnings=0
+
 cd frontend && npm run build
 ```
 
@@ -66,11 +70,12 @@ Resumo dos resultados:
   - `test_portal_access_http_flow`: 3/3 pass.
 - Frontend:
   - ESLint dos arquivos afetados: ok.
+  - ESLint do card administrativo de convite apos mensagem contextual: ok.
   - `npm run build`: ok.
 
 ## 3) Testes manuais sugeridos (stage)
 
-- Cenario 1: admin abre cadastro da clinica, gera convite, copia link e envia pelo WhatsApp institucional.
+- Cenario 1: admin abre cadastro da clinica, gera convite, copia a mensagem contextual com link e envia pelo WhatsApp institucional.
 - Cenario 2: clinica abre `/clinica-parceira/ativar/[token]`, cadastra email institucional, senha e valida o codigo recebido por email.
 - Cenario 3: clinica entra em `/clinica-parceira`, marca `manter acesso neste computador` e confirma MFA.
 - Cenario 4: clinica fecha/reabre o navegador no mesmo computador e valida restauracao da sessao via refresh seguro.
