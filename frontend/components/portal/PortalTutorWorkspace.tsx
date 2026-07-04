@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, LockKeyhole, LogOut, MailCheck, RefreshCcw, ShieldCheck } from "lucide-react";
 
 import PortalExamResults from "@/components/portal/PortalExamResults";
+import { formatPortalDateTime } from "@/lib/portal-datetime";
 import {
   clearPortalSession,
   createPortalExamDownloadUrls,
@@ -284,7 +285,7 @@ export default function PortalTutorWorkspace() {
           <div className="mt-5 rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">
             <p className="font-bold">Pet autorizado no portal</p>
             <p className="mt-1">ID do pet: {session.paciente_id ?? "-"}</p>
-            <p className="mt-1">Sessao valida ate {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(session.expires_at))}</p>
+            <p className="mt-1">Sessao valida ate {formatPortalDateTime(session.expires_at)}</p>
           </div>
 
           <div className="mt-5 flex gap-3">

@@ -13,6 +13,7 @@ import {
   type PortalClinicInviteStatusResponse,
   type PortalSessionResponse,
 } from "@/lib/portal-api";
+import { formatPortalDateTime } from "@/lib/portal-datetime";
 
 type PortalClinicActivationWorkspaceProps = {
   inviteToken: string;
@@ -117,9 +118,7 @@ export default function PortalClinicActivationWorkspace({
             <p className="mt-2 text-sm leading-6 text-slate-600">
               Status atual: <span className="font-semibold text-slate-950">{statusData.status}</span>. Expira em{" "}
               <span className="font-semibold text-slate-950">
-                {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(
-                  new Date(statusData.expires_at),
-                )}
+                {formatPortalDateTime(statusData.expires_at)}
               </span>
               .
             </p>

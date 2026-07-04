@@ -15,6 +15,7 @@ import {
 
 import api from "@/lib/axios";
 import { extractApiErrorMessageSync } from "@/lib/api-error";
+import { formatPortalDateTime } from "@/lib/portal-datetime";
 import type {
   PortalAdminClinicAccessSummaryResponse,
   PortalAdminClinicInviteResponse,
@@ -35,16 +36,6 @@ function getAuthHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-function formatDateTime(value?: string | null): string {
-  if (!value) {
-    return "-";
-  }
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
-
 function buildClinicInviteMessage({
   clinicaNome,
   activationUrl,
@@ -56,7 +47,7 @@ function buildClinicInviteMessage({
   expiresAt?: string | null;
   accountEmailMasked?: string | null;
 }): string {
-  const expirationText = expiresAt ? formatDateTime(expiresAt) : "no prazo informado no portal";
+  const expirationText = expiresAt ? formatPortalDateTime(expiresAt) : "no prazo informado no portal";
   const emailLine = accountEmailMasked
     ? `O email institucional definido para este acesso e ${accountEmailMasked}.`
     : "A clinica usara o email institucional cadastrado no portal.";
@@ -419,7 +410,7 @@ export default function ClinicaPortalAccessCard({
                       <p>Status: <span className="font-semibold">{summary.invite.status}</span></p>
                       <p>Canal: {summary.invite.delivery_channel}</p>
                       <p>Destino: {summary.invite.delivery_target_masked || "-"}</p>
-                      <p>Expira em: {formatDateTime(summary.invite.expires_at)}</p>
+                      <p>Expira em: {formatPortalDateTime(summary.invite.expires_at)}</p>
                     </div>
                   ) : (
                     <p className="mt-2 text-gray-500">Nenhum convite registrado.</p>
@@ -433,7 +424,7 @@ export default function ClinicaPortalAccessCard({
                       <p>Status: <span className="font-semibold">{summary.account.status}</span></p>
                       <p>Email: {summary.account.email_masked || "-"}</p>
                       <p>Responsavel: {summary.account.responsavel_nome}</p>
-                      <p>Ultimo login: {formatDateTime(summary.account.last_login_at)}</p>
+                      <p>Ultimo login: {formatPortalDateTime(summary.account.last_login_at)}</p>
                     </div>
                   ) : (
                     <p className="mt-2 text-gray-500">Nenhuma conta ativada para esta clinica.</p>
@@ -450,8 +441,8 @@ export default function ClinicaPortalAccessCard({
                       {summary.active_sessions.map((session) => (
                         <div key={session.id} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                           <p className="font-medium text-gray-900">Sessao #{session.id}</p>
-                          <p>Valida ate: {formatDateTime(session.trusted_until)}</p>
-                          <p>Ultima atividade: {formatDateTime(session.last_seen_at)}</p>
+                          <p>Valida ate: {formatPortalDateTime(session.trusted_until)}</p>
+                          <p>Ultima atividade: {formatPortalDateTime(session.last_seen_at)}</p>
                         </div>
                       ))}
                     </div>

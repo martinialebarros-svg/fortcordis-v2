@@ -45,6 +45,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
 - NFR-009 (operacao): o modelo deve permitir rollout progressivo por clinica/unidade sem exigir migracao atomica de todos os parceiros.
 - NFR-010 (UX): o portal da clinica deve informar claramente expiracao do convite, email institucional do acesso, sessao ativa ate horario estimado e expiracao da sessao estendida.
 - NFR-011 (UX/adesao): a rotina diaria da clinica deve priorizar busca e download em uma tela unica, reduzindo dependencia de IDs internos do pet para localizar exames.
+- NFR-012 (auditoria/tempo): timestamps do portal retornados sem timezone explicito devem ser tratados pelo frontend como UTC e exibidos em `America/Fortaleza`, evitando mostrar horarios de auditoria tres horas adiantados.
 
 ## 4) Contratos tecnicos
 

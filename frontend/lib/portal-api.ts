@@ -1,5 +1,7 @@
 "use client";
 
+import { portalDateTimeMillis } from "@/lib/portal-datetime";
+
 export type PortalActorType = "tutor" | "clinica";
 
 export type PortalChallengeResponse = {
@@ -260,7 +262,7 @@ function shouldPersistClinicSession(session: PortalSessionResponse): boolean {
   if (!session.trusted_session_expires_at) {
     return false;
   }
-  return new Date(session.trusted_session_expires_at).getTime() > Date.now();
+  return portalDateTimeMillis(session.trusted_session_expires_at) > Date.now();
 }
 
 export async function requestTutorPortalChallenge(payload: {
@@ -624,7 +626,7 @@ export function loadPortalSession(expectedActorType?: PortalActorType): PortalSe
         candidate.storage.removeItem(key);
         continue;
       }
-      if (new Date(parsed.expires_at).getTime() <= Date.now()) {
+      if (portalDateTimeMillis(parsed.expires_at) <= Date.now()) {
         candidate.storage.removeItem(key);
         continue;
       }

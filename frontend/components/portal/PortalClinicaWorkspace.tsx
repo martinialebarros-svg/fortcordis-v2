@@ -40,6 +40,7 @@ import {
   type PortalExamItem,
   type PortalSessionResponse,
 } from "@/lib/portal-api";
+import { formatPortalDate, formatPortalDateTime, portalDateTimeMillis } from "@/lib/portal-datetime";
 
 type ClinicSortBy = NonNullable<PortalClinicExamFilters["sort_by"]>;
 type ClinicSortDir = NonNullable<PortalClinicExamFilters["sort_dir"]>;
@@ -69,35 +70,6 @@ const INITIAL_FILTERS: ClinicExamFiltersState = {
   sort_by: "data",
   sort_dir: "desc",
 };
-
-function formatDateTime(value?: string | null): string {
-  if (!value) {
-    return "-";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(date);
-}
-
-function formatDate(value?: string | null): string {
-  if (!value) {
-    return "-";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(date);
-}
 
 function formatFileSize(value: number | null): string {
   if (!value || value <= 0) {
@@ -181,10 +153,7 @@ export default function PortalClinicaWorkspace() {
       0,
     );
     const latestTimestamp = exams
-      .map((exam) => {
-        const value = examDateValue(exam);
-        return value ? new Date(value).getTime() : Number.NaN;
-      })
+      .map((exam) => portalDateTimeMillis(examDateValue(exam)))
       .filter((value) => Number.isFinite(value))
       .sort((a, b) => b - a)[0];
 
@@ -193,7 +162,7 @@ export default function PortalClinicaWorkspace() {
       visibleExams: exams.length,
       pets: petIds.size,
       attachments,
-      latestDate: latestTimestamp ? formatDate(new Date(latestTimestamp).toISOString()) : "-",
+      latestDate: latestTimestamp ? formatPortalDate(new Date(latestTimestamp).toISOString()) : "-",
     };
   }, [exams, totalAvailable]);
 
@@ -218,7 +187,7 @@ export default function PortalClinicaWorkspace() {
   }
 
   async function ensureClinicSession(currentSession: PortalSessionResponse | null): Promise<PortalSessionResponse> {
-    if (currentSession && new Date(currentSession.expires_at).getTime() > Date.now() + 30_000) {
+    if (currentSession && portalDateTimeMillis(currentSession.expires_at) > Date.now() + 30_000) {
       return currentSession;
     }
 
@@ -465,10 +434,10 @@ export default function PortalClinicaWorkspace() {
             <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
               <p className="font-bold text-slate-950">Sessao ativa</p>
               <p className="mt-2">ID da clinica: {session.clinica_id ?? "-"}</p>
-              <p className="mt-1">Valida ate {formatDateTime(session.expires_at)}</p>
+              <p className="mt-1">Valida ate {formatPortalDateTime(session.expires_at)}</p>
               {session.trusted_session_expires_at ? (
                 <p className="mt-1">
-                  Acesso neste computador ate {formatDateTime(session.trusted_session_expires_at)}
+                  Acesso neste computador ate {formatPortalDateTime(session.trusted_session_expires_at)}
                 </p>
               ) : null}
             </div>
@@ -707,7 +676,7 @@ export default function PortalClinicaWorkspace() {
                           </div>
                           <div>
                             <dt className="font-bold text-slate-900">Data</dt>
-                            <dd className="mt-1">{formatDate(examDateValue(exam))}</dd>
+                            <dd className="mt-1">{formatPortalDate(examDateValue(exam))}</dd>
                           </div>
                         </dl>
                       </div>

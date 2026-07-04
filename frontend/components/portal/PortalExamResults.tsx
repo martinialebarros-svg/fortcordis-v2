@@ -2,26 +2,8 @@
 
 import { Download, FileCheck2, Loader2 } from "lucide-react";
 
+import { formatPortalDateTime } from "@/lib/portal-datetime";
 import type { PortalExamItem } from "@/lib/portal-api";
-
-function formatDate(value: string | null): string {
-  if (!value) {
-    return "-";
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
 
 function formatFileSize(value: number | null): string {
   if (!value || value <= 0) {
@@ -74,11 +56,11 @@ export default function PortalExamResults({
             <dl className="grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
               <div>
                 <dt className="font-semibold text-slate-900">Solicitado em</dt>
-                <dd>{formatDate(exam.data_solicitacao)}</dd>
+                <dd>{formatPortalDateTime(exam.data_solicitacao)}</dd>
               </div>
               <div>
                 <dt className="font-semibold text-slate-900">Resultado em</dt>
-                <dd>{formatDate(exam.data_resultado)}</dd>
+                <dd>{formatPortalDateTime(exam.data_resultado)}</dd>
               </div>
             </dl>
           </div>

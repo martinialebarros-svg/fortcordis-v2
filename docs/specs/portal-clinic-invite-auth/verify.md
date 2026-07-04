@@ -20,6 +20,7 @@ Status: in-progress
 | CA-010 | aceitacao | `frontend/app/clinicas/components/ClinicaPortalAccessCard.tsx` + `test_admin_can_inspect_and_revoke_pending_invite` | ok |
 | CA-011 | aceitacao | `GET /api/v1/portal/clinicas/exames` + `frontend/components/portal/PortalClinicaWorkspace.tsx` com filtros e ordenacao | ok |
 | CA-012 | seguranca | `test_invite_activation_autologin_refresh_and_exam_scope` valida que exame de outra unidade nao aparece no painel da clinica | ok |
+| CA-013 | auditoria | `frontend/lib/portal-datetime.ts` trata timestamp ISO sem timezone como UTC e exibe em `America/Fortaleza` | ok |
 
 ## 2) Testes automatizados executados
 
@@ -62,6 +63,11 @@ cd frontend && npx eslint \
 
 cd frontend && npx eslint \
   components/portal/PortalClinicaWorkspace.tsx \
+  components/portal/PortalClinicActivationWorkspace.tsx \
+  components/portal/PortalExamResults.tsx \
+  components/portal/PortalTutorWorkspace.tsx \
+  app/clinicas/components/ClinicaPortalAccessCard.tsx \
+  lib/portal-datetime.ts \
   lib/portal-api.ts \
   app/clinica-parceira/page.tsx \
   --max-warnings=0
@@ -82,6 +88,7 @@ Resumo dos resultados:
 - Frontend:
   - ESLint dos arquivos afetados: ok.
   - ESLint especifico do dashboard da clinica: ok.
+  - Helper `portal-datetime` centraliza exibicao de timestamps do portal em `America/Fortaleza`.
   - ESLint do card administrativo de convite apos mensagem contextual: ok.
   - `npm run build`: ok.
 - Stage smoke:
@@ -100,6 +107,7 @@ Resumo dos resultados:
 - Cenario 7: clinica baixa um anexo a partir do painel e confirma que o download continua usando URL temporaria.
 - Cenario 8: admin revoga sessoes ativas e confirma perda de acesso no dispositivo da unidade.
 - Cenario 9: tutor continua acessando o portal atual por codigo temporario sem regressao.
+- Cenario 10: no resumo administrativo da clinica, `Ultimo login`, `Valida ate`, `Ultima atividade` e `Expira em` aparecem no horario de Fortaleza, nao em UTC bruto.
 
 ## 4) Regressao e riscos residuais
 
