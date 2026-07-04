@@ -1,0 +1,51 @@
+name: Sync Portal Email Env (Prod)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: fortcordis-vps-deploy
+  cancel-in-progress: false
+
+jobs:
+  sync-prod-email-env:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup SSH key
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s' "$VPS_SSH_KEY" > ~/.ssh/id_vps
+          chmod 600 ~/.ssh/id_vps
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Copy sync script to VPS
+        run: |
+          scp -i ~/.ssh/id_vps -o IdentitiesOnly=yes scripts/sync_portal_email_env.sh \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/sync_portal_email_env.sh
+
+      - name: Sync prod portal email env
+        run: |
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "export SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}'; bash -s" <<'EOF'
+            set -euo pipefail
+            chmod +x /tmp/sync_portal_email_env.sh
+            PROD_ENV_FILE="/var/www/fortcordis-v2/backend/.env" \
+            STAGE_ENV_FILE="/var/www/fortcordis-stage/backend/.env" \
+            BACKEND_SERVICE="fortcordis-backend" \
+            /tmp/sync_portal_email_env.sh
+          EOF
+
+      - name: Cleanup remote temp script
+        if: always()
+        run: |
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            'rm -f /tmp/sync_portal_email_env.sh'
