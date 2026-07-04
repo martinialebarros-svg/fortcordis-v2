@@ -521,6 +521,11 @@ def solicitar_sessao_clinica(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    if not settings.PORTAL_CLINIC_LEGACY_CODE_LOGIN_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Fluxo legado de codigo da clinica indisponivel.",
+        )
     challenge_id = _generate_challenge_id()
     debug_code = None
     clinica = _obter_clinica_ativa(db, payload.clinica_id)

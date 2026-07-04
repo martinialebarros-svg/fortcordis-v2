@@ -26,6 +26,7 @@ from app.api.v1.endpoints import (
     ordens_servico,
     pacientes,
     portal,
+    portal_clinic_auth,
     relatorios,
     referencias_eco,
     servicos,
@@ -401,6 +402,7 @@ app.include_router(ordens_servico.router, prefix="/api/v1/ordens-servico", tags=
 app.include_router(configuracoes.router, prefix="/api/v1", tags=["configuracoes"])
 app.include_router(tutores.router, prefix="/api/v1/tutores", tags=["tutores"])
 app.include_router(portal.router, prefix="/api/v1/portal", tags=["portal"])
+app.include_router(portal_clinic_auth.router, prefix="/api/v1/portal", tags=["portal"])
 app.include_router(referencias_eco.router, prefix="/api/v1/referencias-eco", tags=["referencias_eco"])
 app.include_router(atendimento.router, prefix="/api/v1/atendimentos", tags=["atendimento"])
 app.include_router(logistica.router, prefix="/api/v1/logistica", tags=["logistica"])

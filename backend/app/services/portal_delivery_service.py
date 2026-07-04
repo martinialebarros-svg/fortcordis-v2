@@ -4,6 +4,7 @@ import smtplib
 from dataclasses import dataclass
 from email.message import EmailMessage
 from email.utils import formataddr
+from typing import Any
 
 import httpx
 
@@ -37,6 +38,48 @@ class PortalChallengeDeliveryRequest:
 class PortalDeliveryResult:
     provider: str
     channel: str
+
+
+def send_portal_email_message(*, destination: str, subject: str, body: str) -> PortalDeliveryResult:
+    host = str(settings.PORTAL_EMAIL_SMTP_HOST or "").strip()
+    from_email = str(settings.PORTAL_EMAIL_FROM_EMAIL or "").strip()
+    if not host or not from_email:
+        raise PortalDeliveryConfigurationError(
+            "Provider de email do portal nao configurado."
+        )
+
+    msg = EmailMessage()
+    from_name = str(settings.PORTAL_EMAIL_FROM_NAME or "").strip()
+    msg["Subject"] = (subject or "").strip() or _render_email_subject()
+    msg["From"] = formataddr((from_name, from_email)) if from_name else from_email
+    msg["To"] = destination
+    msg.set_content(body)
+
+    port = int(settings.PORTAL_EMAIL_SMTP_PORT or 587)
+    username = str(settings.PORTAL_EMAIL_SMTP_USERNAME or "").strip()
+    password = str(settings.PORTAL_EMAIL_SMTP_PASSWORD or "")
+    use_ssl = bool(settings.PORTAL_EMAIL_SMTP_USE_SSL)
+    use_tls = bool(settings.PORTAL_EMAIL_SMTP_USE_TLS)
+
+    try:
+        if use_ssl:
+            with smtplib.SMTP_SSL(host, port, timeout=15) as smtp:
+                if username:
+                    smtp.login(username, password)
+                smtp.send_message(msg)
+        else:
+            with smtplib.SMTP(host, port, timeout=15) as smtp:
+                smtp.ehlo()
+                if use_tls:
+                    smtp.starttls()
+                    smtp.ehlo()
+                if username:
+                    smtp.login(username, password)
+                smtp.send_message(msg)
+    except Exception as exc:
+        raise PortalDeliveryError("Falha ao enviar mensagem por email.") from exc
+
+    return PortalDeliveryResult(provider="smtp", channel="email")
 
 
 def _render_email_subject() -> str:
@@ -78,45 +121,11 @@ def _render_whatsapp_message(payload: PortalChallengeDeliveryRequest) -> str:
 
 
 def _send_email_code(payload: PortalChallengeDeliveryRequest) -> PortalDeliveryResult:
-    host = str(settings.PORTAL_EMAIL_SMTP_HOST or "").strip()
-    from_email = str(settings.PORTAL_EMAIL_FROM_EMAIL or "").strip()
-    if not host or not from_email:
-        raise PortalDeliveryConfigurationError(
-            "Provider de email do portal nao configurado."
-        )
-
-    msg = EmailMessage()
-    from_name = str(settings.PORTAL_EMAIL_FROM_NAME or "").strip()
-    msg["Subject"] = _render_email_subject()
-    msg["From"] = formataddr((from_name, from_email)) if from_name else from_email
-    msg["To"] = payload.destination
-    msg.set_content(_render_email_body(payload))
-
-    port = int(settings.PORTAL_EMAIL_SMTP_PORT or 587)
-    username = str(settings.PORTAL_EMAIL_SMTP_USERNAME or "").strip()
-    password = str(settings.PORTAL_EMAIL_SMTP_PASSWORD or "")
-    use_ssl = bool(settings.PORTAL_EMAIL_SMTP_USE_SSL)
-    use_tls = bool(settings.PORTAL_EMAIL_SMTP_USE_TLS)
-
-    try:
-        if use_ssl:
-            with smtplib.SMTP_SSL(host, port, timeout=15) as smtp:
-                if username:
-                    smtp.login(username, password)
-                smtp.send_message(msg)
-        else:
-            with smtplib.SMTP(host, port, timeout=15) as smtp:
-                smtp.ehlo()
-                if use_tls:
-                    smtp.starttls()
-                    smtp.ehlo()
-                if username:
-                    smtp.login(username, password)
-                smtp.send_message(msg)
-    except Exception as exc:
-        raise PortalDeliveryError("Falha ao enviar codigo por email.") from exc
-
-    return PortalDeliveryResult(provider="smtp", channel="email")
+    return send_portal_email_message(
+        destination=payload.destination,
+        subject=_render_email_subject(),
+        body=_render_email_body(payload),
+    )
 
 
 def _build_whatsapp_headers() -> dict[str, str]:
@@ -131,7 +140,12 @@ def _build_whatsapp_headers() -> dict[str, str]:
     return headers
 
 
-def _send_whatsapp_code(payload: PortalChallengeDeliveryRequest) -> PortalDeliveryResult:
+def send_portal_whatsapp_message(
+    *,
+    destination: str,
+    message: str,
+    metadata: dict[str, Any] | None = None,
+) -> PortalDeliveryResult:
     webhook_url = str(settings.PORTAL_WHATSAPP_WEBHOOK_URL or "").strip()
     if not webhook_url:
         raise PortalDeliveryConfigurationError(
@@ -140,17 +154,11 @@ def _send_whatsapp_code(payload: PortalChallengeDeliveryRequest) -> PortalDelive
 
     body = {
         "channel": "whatsapp",
-        "challenge_id": payload.challenge_id,
-        "actor_type": payload.actor_type,
-        "actor_id": payload.actor_id,
-        "destination": payload.destination,
-        "code": payload.code,
-        "expires_in_minutes": payload.expires_in_minutes,
-        "display_name": payload.display_name,
-        "paciente_nome": payload.paciente_nome,
-        "clinica_nome": payload.clinica_nome,
-        "message": _render_whatsapp_message(payload),
+        "destination": destination,
+        "message": message,
     }
+    if metadata:
+        body.update(metadata)
 
     try:
         response = httpx.request(
@@ -165,6 +173,23 @@ def _send_whatsapp_code(payload: PortalChallengeDeliveryRequest) -> PortalDelive
         raise PortalDeliveryError("Falha ao enviar codigo por WhatsApp.") from exc
 
     return PortalDeliveryResult(provider="whatsapp_webhook", channel="whatsapp")
+
+
+def _send_whatsapp_code(payload: PortalChallengeDeliveryRequest) -> PortalDeliveryResult:
+    return send_portal_whatsapp_message(
+        destination=payload.destination,
+        message=_render_whatsapp_message(payload),
+        metadata={
+            "challenge_id": payload.challenge_id,
+            "actor_type": payload.actor_type,
+            "actor_id": payload.actor_id,
+            "code": payload.code,
+            "expires_in_minutes": payload.expires_in_minutes,
+            "display_name": payload.display_name,
+            "paciente_nome": payload.paciente_nome,
+            "clinica_nome": payload.clinica_nome,
+        },
+    )
 
 
 def send_portal_access_code(payload: PortalChallengeDeliveryRequest) -> PortalDeliveryResult:

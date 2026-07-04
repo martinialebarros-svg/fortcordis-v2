@@ -14,9 +14,9 @@ import PortalClinicaWorkspace from "@/components/portal/PortalClinicaWorkspace";
 
 const clinicRules = [
   {
-    title: "Usuario nominal",
+    title: "Conta da unidade",
     description:
-      "Cada profissional entra com sua propria credencial; contas compartilhadas nao devem acessar exames.",
+      "A ativacao nasce de um convite da Fort Cordis e vincula email institucional e senha a uma unidade parceira.",
     icon: UserCheck,
   },
   {
@@ -61,9 +61,9 @@ export default function ClinicaParceiraPage() {
                 Exames acessiveis para a unidade certa, no momento certo.
               </h1>
               <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300">
-                O portal da clinica deve agilizar a rotina de consulta e download sem abrir
-                acesso amplo ao acervo da Fort Cordis. A regra central e simples: a unidade ve
-                apenas os pets atendidos sob sua responsabilidade.
+                O portal da clinica agiliza consulta e download sem abrir acesso amplo ao acervo
+                da Fort Cordis. A unidade ativa seu convite, confirma o email institucional e
+                passa a ver apenas os pets atendidos sob sua responsabilidade.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <a
@@ -98,8 +98,8 @@ export default function ClinicaParceiraPage() {
               Acesso rapido precisa de limite operacional claro.
             </h2>
             <p className="mt-4 text-sm leading-6 text-slate-600">
-              O modelo recomendado combina convite aprovado pela Fort Cordis, credencial nominal,
-              MFA e autorizacao por unidade no backend.
+              O modelo combina convite aprovado pela Fort Cordis, email institucional, senha,
+              MFA contextual e autorizacao por unidade no backend.
             </p>
           </div>
 

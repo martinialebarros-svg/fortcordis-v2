@@ -6,6 +6,7 @@ import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import { Save, ArrowLeft, Building2, Trash2, AlertTriangle, MapPin, DollarSign, Calculator, Percent } from "lucide-react";
 import ManualPinModal from "../components/ManualPinModal";
+import ClinicaPortalAccessCard from "../components/ClinicaPortalAccessCard";
 
 const ESTADOS = [
   "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA",
@@ -955,6 +956,12 @@ export default function EditarClinicaPage() {
               </div>
             )}
           </div>
+
+          <ClinicaPortalAccessCard
+            clinicaId={Number.parseInt(clinicaId, 10)}
+            clinicaNome={clinica.nome || "Clinica parceira"}
+            defaultWhatsapp={clinica.telefone || ""}
+          />
 
           {/* Resumo */}
           <div className="bg-gray-50 rounded-lg border p-4">

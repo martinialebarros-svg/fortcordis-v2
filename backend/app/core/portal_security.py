@@ -27,6 +27,9 @@ class PortalSessionContext:
     channel: str | None
     scope: tuple[str, ...]
     expires_at: datetime
+    account_id: int | None = None
+    session_id: int | None = None
+    auth_method: str | None = None
 
 
 @dataclass(frozen=True)
@@ -118,6 +121,9 @@ def create_portal_session_token(
     display_name: str | None = None,
     channel: str | None = None,
     scope: list[str] | tuple[str, ...] | None = None,
+    account_id: int | None = None,
+    session_id: int | None = None,
+    auth_method: str | None = None,
 ) -> tuple[str, datetime]:
     claims = {
         "sub": f"portal-session:{actor_type}:{actor_id}",
@@ -129,6 +135,9 @@ def create_portal_session_token(
         "portal_display_name": (display_name or "").strip() or None,
         "portal_channel": (channel or "").strip() or None,
         "portal_scope": list(scope or []),
+        "portal_account_id": account_id,
+        "portal_session_id": session_id,
+        "portal_auth_method": (auth_method or "").strip() or None,
     }
     return _encode_portal_token(
         audience=PORTAL_SESSION_AUDIENCE,
@@ -195,6 +204,9 @@ def decode_portal_session_token(token: str) -> PortalSessionContext:
         channel=str(payload.get("portal_channel") or "").strip() or None,
         scope=_coerce_scope(payload.get("portal_scope")),
         expires_at=_coerce_expiration(payload.get("exp")),
+        account_id=_coerce_optional_int(payload.get("portal_account_id")),
+        session_id=_coerce_optional_int(payload.get("portal_session_id")),
+        auth_method=str(payload.get("portal_auth_method") or "").strip() or None,
     )
 
 

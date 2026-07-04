@@ -42,6 +42,9 @@ class PortalTokenResponse(BaseModel):
     actor_id: int
     paciente_id: Optional[int] = None
     clinica_id: Optional[int] = None
+    account_id: Optional[int] = None
+    auth_method: Optional[str] = None
+    trusted_session_expires_at: Optional[datetime] = None
     scope: list[str] = Field(default_factory=list)
 
 
@@ -86,3 +89,161 @@ class PortalDownloadLinkItemResponse(BaseModel):
 class PortalDownloadUrlResponse(BaseModel):
     exame_id: int
     items: list[PortalDownloadLinkItemResponse] = Field(default_factory=list)
+
+
+class PortalAdminClinicInviteCreateRequest(BaseModel):
+    delivery_channel: Literal["whatsapp"] = "whatsapp"
+    delivery_target: str = Field(..., min_length=8, max_length=255)
+    expires_in_hours: int = Field(default=72, ge=1, le=168)
+    allow_manual_copy: bool = True
+
+
+class PortalAdminClinicInviteResponse(BaseModel):
+    invite_id: int
+    status: str
+    expires_at: datetime
+    activation_url: str
+    delivery_channel: str
+    delivery_target_masked: Optional[str] = None
+    delivery_status: str = "manual_copy"
+    delivery_provider: Optional[str] = None
+
+
+class PortalAdminClinicInviteRevokeRequest(BaseModel):
+    reason: str = Field(default="revogado pela operacao", min_length=3, max_length=255)
+
+
+class PortalAdminClinicInviteRevokeResponse(BaseModel):
+    status: str
+    revoked_at: datetime
+
+
+class PortalAdminClinicInviteSnapshot(BaseModel):
+    id: int
+    status: str
+    delivery_channel: str
+    delivery_target_masked: Optional[str] = None
+    expires_at: datetime
+    created_at: datetime
+    delivered_at: Optional[datetime] = None
+    used_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+
+
+class PortalAdminClinicAccountSnapshot(BaseModel):
+    id: int
+    status: str
+    email_masked: Optional[str] = None
+    responsavel_nome: str
+    email_verified_at: Optional[datetime] = None
+    activated_at: Optional[datetime] = None
+    last_login_at: Optional[datetime] = None
+    force_mfa_on_next_login: bool = False
+    revoked_at: Optional[datetime] = None
+
+
+class PortalAdminClinicSessionSnapshot(BaseModel):
+    id: int
+    status: str
+    trusted_until: datetime
+    created_at: datetime
+    last_seen_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+    device_label: Optional[str] = None
+
+
+class PortalAdminClinicAccessSummaryResponse(BaseModel):
+    clinica_id: int
+    clinica_nome: str
+    invite: Optional[PortalAdminClinicInviteSnapshot] = None
+    account: Optional[PortalAdminClinicAccountSnapshot] = None
+    active_session_count: int = 0
+    active_sessions: list[PortalAdminClinicSessionSnapshot] = Field(default_factory=list)
+
+
+class PortalAdminClinicAccountRevokeRequest(BaseModel):
+    reason: str = Field(default="revogada pela operacao", min_length=3, max_length=255)
+    revoke_sessions: bool = True
+
+
+class PortalAdminClinicAccountRevokeResponse(BaseModel):
+    status: str
+    revoked_at: datetime
+
+
+class PortalAdminClinicSessionsRevokeRequest(BaseModel):
+    clinica_id: int = Field(..., gt=0)
+    session_id: Optional[int] = Field(default=None, gt=0)
+    reason: str = Field(default="revogada pela operacao", min_length=3, max_length=255)
+
+
+class PortalAdminClinicSessionsRevokeResponse(BaseModel):
+    revoked_count: int
+
+
+class PortalClinicInviteStatusResponse(BaseModel):
+    status: str
+    clinica_id: int
+    clinica_nome: str
+    unidade_nome: str
+    expires_at: datetime
+    can_activate: bool
+    email_hint: Optional[str] = None
+
+
+class PortalClinicActivationRequest(BaseModel):
+    invite_token: str = Field(..., min_length=16, max_length=255)
+    email: str = Field(..., min_length=5, max_length=255)
+    responsavel_nome: str = Field(..., min_length=2, max_length=255)
+    password: str = Field(..., min_length=12, max_length=255)
+    password_confirmation: str = Field(..., min_length=12, max_length=255)
+
+
+class PortalClinicActivationResponse(BaseModel):
+    activation_id: int
+    email_challenge_id: str
+    message: str
+    expires_in_seconds: int
+
+
+class PortalClinicLoginRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=255)
+    password: str = Field(..., min_length=1, max_length=255)
+    remember_device_until_shift_end: bool = False
+
+
+class PortalClinicMfaVerifyRequest(BaseModel):
+    challenge_id: str = Field(..., min_length=16, max_length=128)
+    codigo: str = Field(..., min_length=4, max_length=12)
+    remember_device_until_shift_end: bool = False
+
+
+class PortalClinicAuthResponse(BaseModel):
+    access_token: Optional[str] = None
+    token_type: str = "bearer"
+    expires_at: Optional[datetime] = None
+    actor_type: Optional[str] = None
+    actor_id: Optional[int] = None
+    clinica_id: Optional[int] = None
+    account_id: Optional[int] = None
+    auth_method: Optional[str] = None
+    trusted_session_expires_at: Optional[datetime] = None
+    scope: list[str] = Field(default_factory=list)
+    mfa_required: bool = False
+    challenge_id: Optional[str] = None
+    message: Optional[str] = None
+
+
+class PortalSimpleAcceptedResponse(BaseModel):
+    accepted: bool = True
+    message: str
+
+
+class PortalPasswordResetRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=255)
+
+
+class PortalPasswordResetConfirmRequest(BaseModel):
+    reset_token: str = Field(..., min_length=16, max_length=255)
+    password: str = Field(..., min_length=12, max_length=255)
+    password_confirmation: str = Field(..., min_length=12, max_length=255)
