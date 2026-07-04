@@ -24,6 +24,7 @@ type ClinicaPortalAccessCardProps = {
   clinicaId: number;
   clinicaNome: string;
   defaultWhatsapp?: string;
+  defaultEmail?: string;
 };
 
 function getAuthHeaders() {
@@ -48,20 +49,26 @@ function buildClinicInviteMessage({
   clinicaNome,
   activationUrl,
   expiresAt,
+  accountEmailMasked,
 }: {
   clinicaNome: string;
   activationUrl: string;
   expiresAt?: string | null;
+  accountEmailMasked?: string | null;
 }): string {
   const expirationText = expiresAt ? formatDateTime(expiresAt) : "no prazo informado no portal";
+  const emailLine = accountEmailMasked
+    ? `O email institucional definido para este acesso e ${accountEmailMasked}.`
+    : "A clinica usara o email institucional cadastrado no portal.";
 
   return [
     `Ola, equipe ${clinicaNome}.`,
     "",
     "A Fort Cordis criou um acesso seguro para a clinica parceira consultar exames e laudos liberados no Portal Fort Cordis.",
-    "Use o link abaixo para cadastrar o email institucional e criar a senha da unidade:",
+    "Use o link abaixo para criar a senha da unidade e entrar no portal:",
     activationUrl,
     "",
+    emailLine,
     `Este link e individual, expira em ${expirationText} e nao deve ser compartilhado fora da equipe autorizada.`,
     "Depois da ativacao, o acesso sera feito pelo portal com email, senha e confirmacao adicional quando necessario.",
   ].join("\n");
@@ -71,11 +78,13 @@ export default function ClinicaPortalAccessCard({
   clinicaId,
   clinicaNome,
   defaultWhatsapp = "",
+  defaultEmail = "",
 }: ClinicaPortalAccessCardProps) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [summary, setSummary] = useState<PortalAdminClinicAccessSummaryResponse | null>(null);
   const [deliveryTarget, setDeliveryTarget] = useState(defaultWhatsapp);
+  const [inviteEmail, setInviteEmail] = useState(defaultEmail);
   const [expiresInHours, setExpiresInHours] = useState("72");
   const [lastInvite, setLastInvite] = useState<PortalAdminClinicInviteResponse | null>(null);
   const [message, setMessage] = useState("");
@@ -91,8 +100,9 @@ export default function ClinicaPortalAccessCard({
       clinicaNome,
       activationUrl: lastInvite.activation_url,
       expiresAt: lastInvite.expires_at,
+      accountEmailMasked: lastInvite.account_email_masked,
     });
-  }, [clinicaNome, lastInvite?.activation_url, lastInvite?.expires_at]);
+  }, [clinicaNome, lastInvite?.account_email_masked, lastInvite?.activation_url, lastInvite?.expires_at]);
 
   const canRevokeInvite = useMemo(
     () => currentInvite && currentInvite.status === "pending",
@@ -129,6 +139,7 @@ export default function ClinicaPortalAccessCard({
         {
           delivery_channel: "whatsapp",
           delivery_target: deliveryTarget.trim(),
+          account_email: inviteEmail.trim(),
           expires_in_hours: Number.parseInt(expiresInHours, 10) || 72,
           allow_manual_copy: true,
         },
@@ -138,7 +149,7 @@ export default function ClinicaPortalAccessCard({
       setMessage(
         response.data.delivery_status === "sent"
           ? "Convite enviado com sucesso para a clinica."
-          : "Convite gerado. Copie o link e encaminhe pelo WhatsApp institucional.",
+          : "Convite gerado. Copie a mensagem e encaminhe pelo WhatsApp institucional.",
       );
       await loadSummary();
     } catch (err) {
@@ -269,7 +280,7 @@ export default function ClinicaPortalAccessCard({
         <div className="space-y-4">
           <div className="rounded-lg border border-gray-200 p-4">
             <p className="text-sm font-semibold text-gray-900">Gerar convite para {clinicaNome}</p>
-            <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_120px]">
+            <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr_120px]">
               <label className="block text-sm font-medium text-gray-700">
                 WhatsApp da unidade
                 <input
@@ -277,6 +288,18 @@ export default function ClinicaPortalAccessCard({
                   onChange={(event) => setDeliveryTarget(event.target.value)}
                   className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-teal-600"
                   placeholder="85999990000"
+                />
+              </label>
+
+              <label className="block text-sm font-medium text-gray-700">
+                Email institucional
+                <input
+                  required
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(event) => setInviteEmail(event.target.value)}
+                  className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-teal-600"
+                  placeholder="portal@clinica.com"
                 />
               </label>
 
@@ -294,7 +317,7 @@ export default function ClinicaPortalAccessCard({
             <button
               type="button"
               onClick={() => void handleGenerateInvite()}
-              disabled={submitting || !deliveryTarget.trim()}
+              disabled={submitting || !deliveryTarget.trim() || !inviteEmail.trim()}
               className="mt-4 inline-flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-teal-300"
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Smartphone className="w-4 h-4" />}

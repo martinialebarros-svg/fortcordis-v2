@@ -222,15 +222,25 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                 self.assertEqual(summary_after_revoke.status_code, 200)
                 self.assertEqual(summary_after_revoke.json()["invite"]["status"], "revoked")
 
-    def test_invite_activation_login_mfa_refresh_and_exam_scope(self) -> None:
+    def test_invite_activation_autologin_refresh_and_exam_scope(self) -> None:
         seed = self._seed_portal_data()
         self._install_overrides()
+        db = self._session_factory()
+        try:
+            db.add(
+                PortalClinicAccount(
+                    clinica_id=seed["clinica_id"],
+                    email_normalized="portal.clinica@example.com",
+                    responsavel_nome="Cadastro pendente antigo",
+                    password_hash="pending-password-hash",
+                    status="pending_verification",
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
 
         captured_codes: dict[str, str] = {}
-
-        def _capture_email_verification(*, code: str, **kwargs):
-            captured_codes["email_verification"] = code
-            return SimpleNamespace(provider="smtp", channel="email")
 
         def _capture_login_mfa(*, code: str, **kwargs):
             captured_codes["login_mfa"] = code
@@ -243,12 +253,6 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
             stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
             stack.enter_context(
                 patch(
-                    "app.api.v1.endpoints.portal_clinic_auth.send_email_verification_code",
-                    side_effect=_capture_email_verification,
-                )
-            )
-            stack.enter_context(
-                patch(
                     "app.api.v1.endpoints.portal_clinic_auth.send_login_mfa_code",
                     side_effect=_capture_login_mfa,
                 )
@@ -259,6 +263,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                     json={
                         "delivery_channel": "whatsapp",
                         "delivery_target": "85999990000",
+                        "account_email": "portal.clinica@example.com",
                         "expires_in_hours": 72,
                         "allow_manual_copy": True,
                     },
@@ -275,7 +280,6 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                     "/api/v1/portal/clinicas/ativacao",
                     json={
                         "invite_token": invite_token,
-                        "email": "portal.clinica@example.com",
                         "responsavel_nome": "Dra. Parceira",
                         "password": "Senha-forte-123",
                         "password_confirmation": "Senha-forte-123",
@@ -283,48 +287,17 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                 )
                 self.assertEqual(activation_response.status_code, 200)
                 activation_payload = activation_response.json()
-                self.assertTrue(activation_payload["email_challenge_id"])
-                self.assertEqual(captured_codes["email_verification"], captured_codes["email_verification"])
+                self.assertEqual(activation_payload["actor_type"], "clinica")
+                self.assertEqual(activation_payload["clinica_id"], seed["clinica_id"])
+                self.assertTrue(activation_payload["access_token"])
+                self.assertEqual(activation_payload["auth_method"], "invite_activation")
+                self.assertTrue(activation_payload["trusted_session_expires_at"])
 
-                verify_email_response = client.post(
-                    "/api/v1/portal/auth/email/verificar",
-                    json={
-                        "challenge_id": activation_payload["email_challenge_id"],
-                        "codigo": captured_codes["email_verification"],
-                    },
-                )
-                self.assertEqual(verify_email_response.status_code, 200)
+                status_after_activation = client.get(f"/api/v1/portal/clinicas/convites/{invite_token}")
+                self.assertEqual(status_after_activation.status_code, 200)
+                self.assertEqual(status_after_activation.json()["status"], "used")
 
-                login_response = client.post(
-                    "/api/v1/portal/auth/login",
-                    json={
-                        "email": "portal.clinica@example.com",
-                        "password": "Senha-forte-123",
-                        "remember_device_until_shift_end": True,
-                    },
-                )
-                self.assertEqual(login_response.status_code, 200)
-                login_payload = login_response.json()
-                self.assertTrue(login_payload["mfa_required"])
-                self.assertTrue(login_payload["challenge_id"])
-
-                mfa_response = client.post(
-                    "/api/v1/portal/auth/mfa/verificar",
-                    json={
-                        "challenge_id": login_payload["challenge_id"],
-                        "codigo": captured_codes["login_mfa"],
-                        "remember_device_until_shift_end": True,
-                    },
-                )
-                self.assertEqual(mfa_response.status_code, 200)
-                mfa_payload = mfa_response.json()
-                self.assertEqual(mfa_payload["actor_type"], "clinica")
-                self.assertEqual(mfa_payload["clinica_id"], seed["clinica_id"])
-                self.assertTrue(mfa_payload["access_token"])
-                self.assertEqual(mfa_payload["auth_method"], "password_mfa")
-                self.assertTrue(mfa_payload["trusted_session_expires_at"])
-
-                auth_headers = {"Authorization": f"Bearer {mfa_payload['access_token']}"}
+                auth_headers = {"Authorization": f"Bearer {activation_payload['access_token']}"}
                 exams_response = client.get(
                     f"/api/v1/portal/pets/{seed['paciente_id']}/exames",
                     headers=auth_headers,
@@ -343,16 +316,26 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                 blocked_refresh_response = client.post("/api/v1/portal/auth/refresh")
                 self.assertEqual(blocked_refresh_response.status_code, 401)
 
+                login_response = client.post(
+                    "/api/v1/portal/auth/login",
+                    json={
+                        "email": "portal.clinica@example.com",
+                        "password": "Senha-forte-123",
+                        "remember_device_until_shift_end": True,
+                    },
+                )
+                self.assertEqual(login_response.status_code, 200)
+                self.assertFalse(login_response.json()["mfa_required"])
+                self.assertTrue(login_response.json()["access_token"])
+                self.assertTrue(login_response.json()["trusted_session_expires_at"])
+                self.assertNotIn("login_mfa", captured_codes)
+
     def test_password_reset_revokes_session_and_forces_mfa_on_next_login(self) -> None:
         seed = self._seed_portal_data()
         self._install_overrides()
 
         captured_codes: dict[str, str] = {}
         captured_reset: dict[str, str] = {}
-
-        def _capture_email_verification(*, code: str, **kwargs):
-            captured_codes["email_verification"] = code
-            return SimpleNamespace(provider="smtp", channel="email")
 
         def _capture_login_mfa(*, code: str, **kwargs):
             captured_codes["login_mfa"] = code
@@ -367,12 +350,6 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED", True))
             stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
             stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
-            stack.enter_context(
-                patch(
-                    "app.api.v1.endpoints.portal_clinic_auth.send_email_verification_code",
-                    side_effect=_capture_email_verification,
-                )
-            )
             stack.enter_context(
                 patch(
                     "app.api.v1.endpoints.portal_clinic_auth.send_login_mfa_code",
@@ -391,6 +368,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                     json={
                         "delivery_channel": "whatsapp",
                         "delivery_target": "85999990000",
+                        "account_email": "portal.reset@example.com",
                         "expires_in_hours": 72,
                         "allow_manual_copy": True,
                     },
@@ -401,39 +379,13 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                     "/api/v1/portal/clinicas/ativacao",
                     json={
                         "invite_token": invite_token,
-                        "email": "portal.reset@example.com",
                         "responsavel_nome": "Dra. Reset",
                         "password": "Senha-forte-123",
                         "password_confirmation": "Senha-forte-123",
                     },
                 )
-                activation_payload = activation_response.json()
-
-                client.post(
-                    "/api/v1/portal/auth/email/verificar",
-                    json={
-                        "challenge_id": activation_payload["email_challenge_id"],
-                        "codigo": captured_codes["email_verification"],
-                    },
-                )
-
-                login_response = client.post(
-                    "/api/v1/portal/auth/login",
-                    json={
-                        "email": "portal.reset@example.com",
-                        "password": "Senha-forte-123",
-                        "remember_device_until_shift_end": True,
-                    },
-                )
-                mfa_response = client.post(
-                    "/api/v1/portal/auth/mfa/verificar",
-                    json={
-                        "challenge_id": login_response.json()["challenge_id"],
-                        "codigo": captured_codes["login_mfa"],
-                        "remember_device_until_shift_end": True,
-                    },
-                )
-                self.assertEqual(mfa_response.status_code, 200)
+                self.assertEqual(activation_response.status_code, 200)
+                self.assertTrue(activation_response.json()["access_token"])
 
                 forgot_response = client.post(
                     "/api/v1/portal/auth/esqueci-senha",

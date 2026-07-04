@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { BadgeCheck, Loader2, ShieldCheck } from "lucide-react";
 
 import {
   activateClinicInvite,
   getClinicInviteStatus,
-  verifyClinicEmailCode,
+  savePortalSession,
+  type PortalClinicActivationResponse,
   type PortalClinicInviteStatusResponse,
+  type PortalSessionResponse,
 } from "@/lib/portal-api";
 
 type PortalClinicActivationWorkspaceProps = {
@@ -18,19 +21,37 @@ type PortalClinicActivationWorkspaceProps = {
 export default function PortalClinicActivationWorkspace({
   inviteToken,
 }: PortalClinicActivationWorkspaceProps) {
+  const router = useRouter();
   const [statusData, setStatusData] = useState<PortalClinicInviteStatusResponse | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [verifying, setVerifying] = useState(false);
   const [email, setEmail] = useState("");
   const [responsavelNome, setResponsavelNome] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
-  const [challengeId, setChallengeId] = useState("");
-  const [emailCode, setEmailCode] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [verified, setVerified] = useState(false);
+  const [activated, setActivated] = useState(false);
+
+  function normalizeActivationSession(payload: PortalClinicActivationResponse): PortalSessionResponse {
+    if (!payload.access_token || !payload.expires_at || payload.actor_type !== "clinica" || !payload.actor_id) {
+      throw new Error("Sessao da clinica retornou incompleta.");
+    }
+    return {
+      access_token: payload.access_token,
+      token_type: payload.token_type || "bearer",
+      expires_at: payload.expires_at,
+      actor_type: "clinica",
+      actor_id: payload.actor_id,
+      clinica_id: payload.clinica_id ?? payload.actor_id,
+      paciente_id: null,
+      account_id: payload.account_id ?? null,
+      auth_method: payload.auth_method ?? null,
+      trusted_session_expires_at: payload.trusted_session_expires_at ?? null,
+      scope: payload.scope || [],
+      message: payload.message ?? null,
+    };
+  }
 
   async function loadInviteStatus() {
     setLoadingStatus(true);
@@ -58,39 +79,20 @@ export default function PortalClinicActivationWorkspace({
     try {
       const response = await activateClinicInvite({
         invite_token: inviteToken,
-        email: email.trim(),
+        email: statusData?.email_hint ? undefined : email.trim(),
         responsavel_nome: responsavelNome.trim(),
         password,
         password_confirmation: passwordConfirmation,
       });
-      setChallengeId(response.email_challenge_id);
-      setMessage(response.message);
-      await loadInviteStatus();
+      const nextSession = normalizeActivationSession(response);
+      savePortalSession(nextSession);
+      setActivated(true);
+      setMessage(response.message || "Conta criada com sucesso. Redirecionando para o portal da clinica.");
+      router.replace("/clinica-parceira");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Nao foi possivel iniciar a ativacao.");
     } finally {
       setSubmitting(false);
-    }
-  }
-
-  async function handleVerify(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setVerifying(true);
-    setError("");
-    setMessage("");
-
-    try {
-      const response = await verifyClinicEmailCode({
-        challenge_id: challengeId,
-        codigo: emailCode.trim(),
-      });
-      setVerified(true);
-      setMessage(response.message || "Email institucional verificado com sucesso.");
-      await loadInviteStatus();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao foi possivel validar o codigo.");
-    } finally {
-      setVerifying(false);
     }
   }
 
@@ -128,47 +130,20 @@ export default function PortalClinicActivationWorkspace({
             ) : null}
           </div>
 
-          {verified ? (
+          {activated ? (
             <div className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 p-5">
               <BadgeCheck className="h-8 w-8 text-emerald-700" />
               <h3 className="mt-4 text-lg font-bold text-emerald-950">Conta ativada com sucesso</h3>
               <p className="mt-2 text-sm leading-6 text-emerald-900">
-                O email institucional da unidade foi confirmado. A partir de agora o acesso acontece em{" "}
-                <span className="font-semibold">email + senha</span>.
+                A senha da unidade foi criada. Estamos abrindo o portal da clinica.
               </p>
               <Link
                 href="/clinica-parceira"
                 className="mt-5 inline-flex rounded-lg bg-emerald-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-800"
               >
-                Ir para o login da clinica
+                Abrir portal da clinica
               </Link>
             </div>
-          ) : challengeId ? (
-            <form className="mt-5 space-y-4" onSubmit={handleVerify}>
-              <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm leading-6 text-teal-950">
-                Enviamos um codigo para o email institucional informado. Use-o abaixo para concluir a ativacao.
-              </div>
-
-              <label className="block text-sm font-semibold text-slate-900">
-                Codigo de verificacao
-                <input
-                  required
-                  value={emailCode}
-                  onChange={(event) => setEmailCode(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-600"
-                  placeholder="Digite o codigo enviado por email"
-                />
-              </label>
-
-              <button
-                type="submit"
-                disabled={verifying}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-              >
-                {verifying ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-                {verifying ? "Validando..." : "Confirmar email institucional"}
-              </button>
-            </form>
           ) : inviteUnavailable ? (
             <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-950">
               Este convite nao pode mais ser usado para ativacao. Solicite um novo link a equipe Fort Cordis ou entre com a conta ja cadastrada.
@@ -183,17 +158,24 @@ export default function PortalClinicActivationWorkspace({
             </div>
           ) : (
             <form className="mt-5 space-y-4" onSubmit={handleActivate}>
-              <label className="block text-sm font-semibold text-slate-900">
-                Email institucional
-                <input
-                  required
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-600"
-                  placeholder="portal@clinica.com"
-                />
-              </label>
+              {statusData.email_hint ? (
+                <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm leading-6 text-teal-950">
+                  Email institucional definido para este acesso:{" "}
+                  <span className="font-semibold">{statusData.email_hint}</span>
+                </div>
+              ) : (
+                <label className="block text-sm font-semibold text-slate-900">
+                  Email institucional
+                  <input
+                    required
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-600"
+                    placeholder="portal@clinica.com"
+                  />
+                </label>
+              )}
 
               <label className="block text-sm font-semibold text-slate-900">
                 Responsavel pelo acesso
@@ -238,7 +220,7 @@ export default function PortalClinicActivationWorkspace({
                 className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
               >
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-                {submitting ? "Enviando codigo..." : "Cadastrar email e senha da unidade"}
+                {submitting ? "Criando acesso..." : "Criar acesso e entrar no portal"}
               </button>
             </form>
           )}

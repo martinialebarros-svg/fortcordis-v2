@@ -6,7 +6,7 @@ Status: approved
 
 ## 1) Escopo funcional
 
-Substituir o fluxo recorrente de codigo temporario da clinica parceira por um modelo de convite e conta persistente da unidade. A entrega inclui convite individual enviado por WhatsApp, ativacao com email institucional e senha, verificacao obrigatoria do email, login recorrente com email e senha, MFA contextual para eventos de risco, sessao estendida opcional no computador da unidade e manutencao do escopo de acesso por clinica/unidade aos exames do portal.
+Substituir o fluxo recorrente de codigo temporario da clinica parceira por um modelo de convite e conta persistente da unidade. A entrega inclui convite individual enviado por WhatsApp, email institucional definido pela operacao, ativacao com responsavel e senha sem codigo no primeiro cadastro, login recorrente com email e senha, MFA contextual para eventos de risco, sessao estendida opcional no computador da unidade e manutencao do escopo de acesso por clinica/unidade aos exames do portal.
 
 O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao.
 
@@ -15,9 +15,9 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
 - RF-001: a operacao/admin deve conseguir gerar um convite individual para uma clinica/unidade parceira a partir de cadastro interno existente.
 - RF-002: o convite deve produzir um link seguro de ativacao que possa ser enviado por WhatsApp sem autenticar o destinatario automaticamente.
 - RF-003: o link de convite deve abrir uma tela publica de ativacao com contexto da clinica/unidade e estado do convite (`pending`, `expired`, `used`, `revoked`).
-- RF-004: a ativacao da conta da unidade deve exigir `email institucional`, `responsavel_nome`, `senha` e `confirmacao de senha`.
-- RF-005: apos a submissao da ativacao, o sistema deve enviar um codigo de verificacao para o email institucional informado antes de ativar a conta.
-- RF-006: somente apos a verificacao do codigo enviado ao email a conta da unidade deve ser marcada como ativa.
+- RF-004: a geracao do convite deve permitir definir o `email institucional` que sera usado pela unidade.
+- RF-005: a ativacao da conta da unidade deve exigir `responsavel_nome`, `senha` e `confirmacao de senha`; se um convite legado nao tiver email predefinido, a tela pode pedir `email institucional`.
+- RF-006: apos submissao valida da ativacao, o sistema deve consumir o convite, criar a conta como ativa e emitir sessao inicial da clinica sem pedir codigo no primeiro cadastro.
 - RF-007: clinica ativada deve conseguir entrar no portal com `email + senha`.
 - RF-008: o login da clinica deve oferecer a opcao `manter acesso neste computador da unidade ate o fim do expediente`.
 - RF-009: quando a opcao de sessao estendida estiver marcada, o sistema deve manter a unidade autenticada por ate 8 horas no mesmo navegador/dispositivo, com renovacao automatica da sessao curta.
@@ -37,10 +37,10 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
 - NFR-004 (seguranca/anti-enumeracao): login, ativacao, reenviar codigo, esqueci-senha e redefinicao devem responder com mensagens genericas quando o contexto nao puder ser revelado.
 - NFR-005 (LGPD): notificacoes por WhatsApp e email nao devem carregar anexos sensiveis; devem apenas orientar acesso ao portal autenticado.
 - NFR-006 (LGPD/minimizacao): o cadastro da conta da clinica deve coletar apenas os dados necessarios para autenticacao, comunicacao e auditoria da unidade.
-- NFR-007 (auditoria): criacao de convite, abertura do link, ativacao, verificacao de email, login, MFA, refresh, reset de senha, revogacao e download devem gerar evento de auditoria best-effort.
+- NFR-007 (auditoria): criacao de convite, abertura do link, ativacao, login, MFA, refresh, reset de senha, revogacao e download devem gerar evento de auditoria best-effort.
 - NFR-008 (compatibilidade): endpoints atuais de listagem/download de exames do portal devem continuar compatíveis e sem impacto no fluxo administrativo interno.
 - NFR-009 (operacao): o modelo deve permitir rollout progressivo por clinica/unidade sem exigir migracao atomica de todos os parceiros.
-- NFR-010 (UX): o portal da clinica deve informar claramente expiracao do convite, conta pendente de verificacao, sessao ativa ate horario estimado e expiracao da sessao estendida.
+- NFR-010 (UX): o portal da clinica deve informar claramente expiracao do convite, email institucional do acesso, sessao ativa ate horario estimado e expiracao da sessao estendida.
 
 ## 4) Contratos tecnicos
 
@@ -54,6 +54,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
   - payload:
     - `delivery_channel` (`whatsapp`)
     - `delivery_target` (telefone/contato da unidade)
+    - `account_email` (email institucional da unidade)
     - `expires_in_hours` (default 72)
     - `allow_manual_copy` (bool)
   - resposta:
@@ -63,6 +64,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
     - `activation_url`
     - `delivery_channel`
     - `delivery_target_masked`
+    - `account_email_masked`
 
 - `POST /api/v1/portal/admin/clinica-accounts/{account_id}/revogar`
   - auth:
@@ -96,24 +98,34 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
     - `unidade_nome`
     - `expires_at`
     - `can_activate`
-    - `email_hint` opcional quando ja houver pre-cadastro
+    - `email_hint` opcional quando ja houver email predefinido ou conta criada
 
 - `POST /api/v1/portal/clinicas/ativacao`
   - auth:
     - nao
   - payload:
     - `invite_token`
-    - `email`
+    - `email` opcional quando o convite nao tiver email predefinido
     - `responsavel_nome`
     - `password`
     - `password_confirmation`
   - resposta:
     - `activation_id`
-    - `email_challenge_id`
+    - `access_token`
+    - `token_type`
+    - `expires_at`
+    - `actor_type`
+    - `actor_id`
+    - `clinica_id`
+    - `account_id`
+    - `auth_method`
+    - `trusted_session_expires_at`
+    - `scope`
     - `message`
-    - `expires_in_seconds`
 
 - `POST /api/v1/portal/auth/email/verificar`
+  - compatibilidade:
+    - mantido apenas para desafios de email legados ou futuros eventos sensiveis, nao faz parte da ativacao inicial simplificada
   - auth:
     - nao
   - payload:
@@ -229,7 +241,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
     - `used_at`
     - `revoked_at`
     - `created_by_user_id`
-    - `contexto_json`
+    - `contexto_json` incluindo `account_email` quando definido no convite
   - `portal_clinic_accounts`
     - `id`
     - `clinica_id`
@@ -237,7 +249,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
     - `responsavel_nome`
     - `password_hash`
     - `email_verified_at`
-    - `status` (`pending_verification`, `active`, `locked`, `revoked`)
+    - `status` (`pending_verification`, `active`, `locked`, `revoked`; nova ativacao entra como `active`)
     - `last_login_at`
     - `activated_at`
     - `revoked_at`
@@ -285,6 +297,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
   - `frontend/app/clinicas/[id]/page.tsx` ou tela equivalente de gestao da clinica
   - adicionar secao para:
     - gerar convite
+    - informar email institucional da unidade
     - copiar link seguro e mensagem pronta explicando o convite
     - ver status do convite
     - revogar conta/sessoes
@@ -301,7 +314,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
   - convite expirado
   - convite ja utilizado
   - convite revogado
-  - aguardando verificacao de email
+  - email institucional predefinido
   - conta ativada
   - login com email e senha
   - MFA adicional requerido
@@ -312,6 +325,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
   - o link do convite nunca deve logar automaticamente
   - o portal deve ocultar detalhes sensiveis quando o convite nao for valido
   - mensagens de login e esqueci-senha devem ser genericas
+  - o uso valido do convite com senha deve criar sessao inicial e redirecionar para o portal da clinica
   - o checkbox `manter acesso neste computador da unidade ate o fim do expediente` aparece apenas para clinica
   - o tutor continua na UI atual com codigo temporario e sem senha persistente
 
@@ -342,9 +356,9 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
 ## 6) Criterios de aceitacao (CA)
 
 - CA-001: a operacao consegue gerar convite seguro de clinica com expiracao e copiar/enviar uma mensagem contextual com o link.
-- CA-002: o link do convite nao autentica a clinica sozinho e exige cadastro com email e senha.
-- CA-003: a conta da clinica so e ativada apos verificacao do codigo enviado ao email institucional.
-- CA-004: a clinica consegue entrar com email e senha apos a ativacao.
+- CA-002: o link do convite nao autentica a clinica sozinho e exige criacao de senha para consumir o convite.
+- CA-003: a conta da clinica e ativada no uso valido do convite e recebe sessao inicial sem codigo no primeiro cadastro.
+- CA-004: a clinica consegue entrar com email e senha apos a ativacao, sem codigo em login de rotina.
 - CA-005: em dispositivo confiavel com sessao estendida habilitada, a clinica consegue operar por ate 8 horas sem pedir codigo a cada acesso.
 - CA-006: em evento de risco ou sensivel, o sistema exige MFA adicional por codigo no email institucional.
 - CA-007: a clinica autenticada continua vendo apenas exames da propria unidade.
@@ -357,7 +371,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
 - CB-001: convite expirado deve oferecer orientacao para solicitar novo convite, sem reaproveitar o token antigo.
 - CB-002: convite usado nao deve permitir segunda ativacao.
 - CB-003: tentativa de ativar com email diferente da politica da unidade pode ser bloqueada por regra operacional configuravel.
-- CB-004: se o email de verificacao nao chegar, deve existir reenvio controlado com rate limit.
+- CB-004: se o email institucional definido no convite estiver errado, a operacao deve revogar/gerar novo convite com o email correto.
 - CB-005: redefinicao de senha deve invalidar sessoes anteriores e exigir novo login.
 - CB-006: troca de email institucional deve exigir verificacao do novo email antes de efetivar a mudanca.
 - CB-007: se o provider oficial de WhatsApp nao estiver habilitado, a operacao deve conseguir copiar a mensagem com o link do convite manualmente sem quebrar o fluxo.

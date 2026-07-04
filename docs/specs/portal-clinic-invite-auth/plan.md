@@ -41,12 +41,12 @@ Status: in-progress
 ### Fase 3
 
 - [x] T3.1 Criar rota publica de ativacao por convite com estados `pending`, `used`, `expired` e `revoked`.
-- [x] T3.2 Implementar formulario de cadastro com email institucional, responsavel e senha.
-- [x] T3.3 Implementar verificacao obrigatoria por codigo enviado ao email.
+- [x] T3.2 Implementar formulario de cadastro com email institucional predefinido, responsavel e senha.
+- [x] T3.3 Simplificar ativacao para criar conta ativa e sessao inicial sem codigo no primeiro cadastro.
 - [x] T3.4 Substituir o login recorrente da clinica por email + senha, mantendo opcao de sessao estendida no computador da unidade.
 - [x] T3.5 Implementar fluxo de MFA contextual, esqueci-senha e redefinicao segura.
 - Criterio de conclusao:
-  - clinica consegue ativar conta, validar email, entrar com senha e recuperar acesso com seguranca.
+  - clinica consegue ativar conta pelo convite, entrar automaticamente, usar senha recorrente e recuperar acesso com seguranca.
 - Risco:
   - front misturar storage/cookies do app administrativo com a sessao da clinica.
 - Rollback:
@@ -81,7 +81,7 @@ Status: in-progress
 - Testes unitarios/backend:
   - hash/validacao de senha;
   - expiracao e consumo de convite;
-  - verificacao de email;
+  - ativacao direta por convite com sessao inicial;
   - refresh/logout/revogacao;
   - reset de senha e invalidacao de sessoes.
 - Testes de integracao:
@@ -92,8 +92,7 @@ Status: in-progress
 - Testes manuais:
   - gerar convite no admin;
   - ativar conta pelo link;
-  - validar email;
-  - entrar no portal da clinica;
+  - criar senha e cair direto no portal da clinica;
   - usar sessao estendida por dispositivo;
   - testar esqueci-senha;
   - revogar sessao e confirmar bloqueio.

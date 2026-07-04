@@ -12,8 +12,8 @@ O portal da clinica parceira hoje depende de codigo temporario por email a cada 
 
 Criar um fluxo mais confortavel e mais maduro para clinicas parceiras, com:
 - convite seguro enviado por WhatsApp;
-- ativacao da conta com email institucional e senha;
-- verificacao obrigatoria do email antes do primeiro uso;
+- email institucional definido pela operacao no convite;
+- ativacao da conta com responsavel e senha, sem codigo no primeiro cadastro;
 - login recorrente com email + senha;
 - MFA apenas quando houver evento de risco ou acao sensivel;
 - sessao estendida opcional no computador da unidade;
@@ -38,8 +38,8 @@ Criar um fluxo mais confortavel e mais maduro para clinicas parceiras, com:
   - a entrega deve nascer compatível com rollout progressivo e conviver com o login legado por codigo.
 - Restricoes regulatorio/operacional:
   - notificacoes devem apenas avisar disponibilidade no portal;
-  - o email usado pela clinica deve ser institucional da unidade;
-  - o link de convite pode ser enviado por WhatsApp, mas a confianca principal deve ser consolidada por email verificado e senha.
+  - o email usado pela clinica deve ser institucional da unidade e definido pela operacao;
+  - o link de convite pode ser enviado por WhatsApp, mas nao concede acesso sozinho: a confianca principal combina convite unico, senha criada pela unidade e escopo por clinica.
 
 ## 5) Impacto esperado
 
@@ -59,7 +59,7 @@ Criar um fluxo mais confortavel e mais maduro para clinicas parceiras, com:
 - Risco 1: usar o link do WhatsApp como login direto criaria um atalho perigoso para dados sensiveis.
 - Risco 2: login persistente da clinica pode deixar sessao longa demais em computador compartilhado se o refresh token nao for bem protegido.
 - Risco 3: rollout sem convivio entre fluxo legado e novo pode travar clinicas ja acostumadas com o acesso atual.
-- Risco 4: reset de senha e MFA mal desenhados podem reabrir enumeracao de contas ou bypass de verificacao.
+- Risco 4: reset de senha e MFA mal desenhados podem reabrir enumeracao de contas ou bypass de verificacao em eventos sensiveis.
 
 ## 7) Perguntas abertas
 

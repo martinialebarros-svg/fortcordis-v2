@@ -94,6 +94,7 @@ class PortalDownloadUrlResponse(BaseModel):
 class PortalAdminClinicInviteCreateRequest(BaseModel):
     delivery_channel: Literal["whatsapp"] = "whatsapp"
     delivery_target: str = Field(..., min_length=8, max_length=255)
+    account_email: Optional[str] = Field(default=None, min_length=5, max_length=255)
     expires_in_hours: int = Field(default=72, ge=1, le=168)
     allow_manual_copy: bool = True
 
@@ -105,6 +106,7 @@ class PortalAdminClinicInviteResponse(BaseModel):
     activation_url: str
     delivery_channel: str
     delivery_target_masked: Optional[str] = None
+    account_email_masked: Optional[str] = None
     delivery_status: str = "manual_copy"
     delivery_provider: Optional[str] = None
 
@@ -193,7 +195,7 @@ class PortalClinicInviteStatusResponse(BaseModel):
 
 class PortalClinicActivationRequest(BaseModel):
     invite_token: str = Field(..., min_length=16, max_length=255)
-    email: str = Field(..., min_length=5, max_length=255)
+    email: Optional[str] = Field(default=None, min_length=5, max_length=255)
     responsavel_nome: str = Field(..., min_length=2, max_length=255)
     password: str = Field(..., min_length=12, max_length=255)
     password_confirmation: str = Field(..., min_length=12, max_length=255)
@@ -201,9 +203,17 @@ class PortalClinicActivationRequest(BaseModel):
 
 class PortalClinicActivationResponse(BaseModel):
     activation_id: int
-    email_challenge_id: str
+    access_token: Optional[str] = None
+    token_type: str = "bearer"
+    expires_at: Optional[datetime] = None
+    actor_type: Optional[str] = None
+    actor_id: Optional[int] = None
+    clinica_id: Optional[int] = None
+    account_id: Optional[int] = None
+    auth_method: Optional[str] = None
+    trusted_session_expires_at: Optional[datetime] = None
+    scope: list[str] = Field(default_factory=list)
     message: str
-    expires_in_seconds: int
 
 
 class PortalClinicLoginRequest(BaseModel):

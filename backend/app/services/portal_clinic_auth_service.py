@@ -286,11 +286,13 @@ def create_clinic_invite(
     clinica_id: int,
     delivery_channel: str,
     delivery_target: str,
+    account_email: str | None = None,
     expires_in_hours: int,
     created_by_user_id: int | None,
 ) -> tuple[PortalClinicInvite, str]:
     revoke_active_invites_for_clinica(db, clinica_id)
     raw_token = generate_opaque_token()
+    normalized_account_email = normalize_email(account_email)
     invite = PortalClinicInvite(
         clinica_id=clinica_id,
         token_hash=hash_secret("portal_clinic_invite", raw_token),
@@ -299,7 +301,12 @@ def create_clinic_invite(
         delivery_target_masked=mask_phone(delivery_target) if delivery_channel == "whatsapp" else mask_email(delivery_target),
         expires_at=utcnow() + timedelta(hours=max(1, int(expires_in_hours))),
         created_by_user_id=created_by_user_id,
-        contexto_json=json_dump({"delivery_target": delivery_target}),
+        contexto_json=json_dump(
+            {
+                "delivery_target": delivery_target,
+                "account_email": normalized_account_email or None,
+            }
+        ),
     )
     db.add(invite)
     db.commit()
@@ -351,7 +358,11 @@ def create_or_replace_pending_account(
     normalized_email = normalize_email(email)
     existing_by_email = get_account_by_email(db, normalized_email)
     if existing_by_email and existing_by_email.status != ACCOUNT_STATUS_REVOKED:
-        raise HTTPException(status_code=409, detail="Ja existe uma conta para este email.")
+        if existing_by_email.status == ACCOUNT_STATUS_PENDING and existing_by_email.clinica_id == clinica_id:
+            existing_by_email.status = ACCOUNT_STATUS_REVOKED
+            existing_by_email.revoked_at = utcnow()
+        else:
+            raise HTTPException(status_code=409, detail="Ja existe uma conta para este email.")
 
     existing_for_clinica = get_active_account_by_clinica(db, clinica_id)
     if existing_for_clinica and existing_for_clinica.status == ACCOUNT_STATUS_ACTIVE:
@@ -521,8 +532,8 @@ def send_whatsapp_invite(
     return send_portal_whatsapp_message(
         destination=destination,
         message=(
-            f"Fort Cordis: ative o acesso da clinica {clinica_nome} pelo link seguro: "
-            f"{activation_url} . Este convite expira em {expires_in_hours} hora(s). "
+            f"Fort Cordis: crie a senha de acesso da clinica {clinica_nome} pelo link seguro: "
+            f"{activation_url} . Este convite e individual e expira em {expires_in_hours} hora(s). "
             "Nao compartilhe este link com pessoas nao autorizadas."
         ),
         metadata={
@@ -682,7 +693,7 @@ def issue_clinic_session(
 
 
 def maybe_require_mfa(account: PortalClinicAccount, *, remember_device_until_shift_end: bool) -> bool:
-    return bool(remember_device_until_shift_end or account.force_mfa_on_next_login)
+    return bool(account.force_mfa_on_next_login)
 
 
 def create_password_reset_token(db: Session, *, account_id: int) -> tuple[PortalPasswordResetToken, str]:

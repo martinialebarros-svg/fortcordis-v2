@@ -10,11 +10,11 @@ Status: in-progress
 | --- | --- | --- | --- |
 | CA-001 | aceitacao | `frontend/app/clinicas/[id]/page.tsx` + `frontend/app/clinicas/components/ClinicaPortalAccessCard.tsx` com mensagem contextual de WhatsApp | ok |
 | CA-002 | aceitacao | `backend/app/api/v1/endpoints/portal_clinic_auth.py::criar_convite_clinica` + `::revogar_convite_clinica` | ok |
-| CA-003 | aceitacao | `frontend/app/clinica-parceira/ativar/[token]/page.tsx` + `frontend/components/portal/PortalClinicActivationWorkspace.tsx` + `test_invite_activation_login_mfa_refresh_and_exam_scope` | ok |
+| CA-003 | aceitacao | `frontend/app/clinica-parceira/ativar/[token]/page.tsx` + `frontend/components/portal/PortalClinicActivationWorkspace.tsx` + `test_invite_activation_autologin_refresh_and_exam_scope` | ok |
 | CA-004 | aceitacao | `frontend/components/portal/PortalClinicaWorkspace.tsx` + `backend/app/api/v1/endpoints/portal_clinic_auth.py::login_clinica_com_senha` | ok |
 | CA-005 | aceitacao | refresh cookie + `frontend/lib/portal-api.ts` (`refreshClinicPortalSession`) + `trusted_session_expires_at` | ok |
 | CA-006 | aceitacao | `backend/app/api/v1/endpoints/portal_clinic_auth.py::verificar_mfa_clinica` + `frontend/components/portal/PortalClinicaWorkspace.tsx` | ok |
-| CA-007 | aceitacao | `backend/tests/test_portal_clinic_invite_auth.py::test_invite_activation_login_mfa_refresh_and_exam_scope` | ok |
+| CA-007 | aceitacao | `backend/tests/test_portal_clinic_invite_auth.py::test_invite_activation_autologin_refresh_and_exam_scope` | ok |
 | CA-008 | aceitacao | `backend/tests/test_portal_access_http_flow.py` com smoke do tutor/clinica legado | ok |
 | CA-009 | aceitacao | `frontend/app/clinica-parceira/redefinir-senha/page.tsx` + `frontend/components/portal/PortalClinicResetPasswordWorkspace.tsx` + `test_password_reset_revokes_session_and_forces_mfa_on_next_login` | ok |
 | CA-010 | aceitacao | `frontend/app/clinicas/components/ClinicaPortalAccessCard.tsx` + `test_admin_can_inspect_and_revoke_pending_invite` | ok |
@@ -26,6 +26,7 @@ Comandos:
 ```bash
 backend/venv/bin/python -m py_compile \
   backend/app/api/v1/endpoints/portal_clinic_auth.py \
+  backend/app/services/portal_clinic_auth_service.py \
   backend/app/schemas/portal.py \
   backend/tests/test_portal_clinic_invite_auth.py
 
@@ -76,8 +77,8 @@ Resumo dos resultados:
 ## 3) Testes manuais sugeridos (stage)
 
 - Cenario 1: admin abre cadastro da clinica, gera convite, copia a mensagem contextual com link e envia pelo WhatsApp institucional.
-- Cenario 2: clinica abre `/clinica-parceira/ativar/[token]`, cadastra email institucional, senha e valida o codigo recebido por email.
-- Cenario 3: clinica entra em `/clinica-parceira`, marca `manter acesso neste computador` e confirma MFA.
+- Cenario 2: clinica abre `/clinica-parceira/ativar/[token]`, confere o email institucional, cadastra responsavel/senha e cai direto no portal.
+- Cenario 3: clinica entra depois em `/clinica-parceira` com email/senha e usa `manter acesso neste computador` sem codigo em rotina normal.
 - Cenario 4: clinica fecha/reabre o navegador no mesmo computador e valida restauracao da sessao via refresh seguro.
 - Cenario 5: clinica consulta um pet autorizado e confirma listagem/download de exames.
 - Cenario 6: admin revoga sessoes ativas e confirma perda de acesso no dispositivo da unidade.

@@ -45,9 +45,17 @@ export type PortalClinicInviteStatusResponse = {
 
 export type PortalClinicActivationResponse = {
   activation_id: number;
-  email_challenge_id: string;
+  access_token?: string | null;
+  token_type?: string;
+  expires_at?: string | null;
+  actor_type?: PortalActorType | null;
+  actor_id?: number | null;
+  clinica_id?: number | null;
+  account_id?: number | null;
+  auth_method?: string | null;
+  trusted_session_expires_at?: string | null;
+  scope?: string[];
   message: string;
-  expires_in_seconds: number;
 };
 
 export type PortalSimpleAcceptedResponse = {
@@ -62,6 +70,7 @@ export type PortalAdminClinicInviteResponse = {
   activation_url: string;
   delivery_channel: string;
   delivery_target_masked?: string | null;
+  account_email_masked?: string | null;
   delivery_status: string;
   delivery_provider?: string | null;
 };
@@ -296,7 +305,7 @@ export async function getClinicInviteStatus(inviteToken: string): Promise<Portal
 
 export async function activateClinicInvite(payload: {
   invite_token: string;
-  email: string;
+  email?: string;
   responsavel_nome: string;
   password: string;
   password_confirmation: string;

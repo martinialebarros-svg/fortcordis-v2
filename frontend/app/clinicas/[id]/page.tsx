@@ -961,6 +961,7 @@ export default function EditarClinicaPage() {
             clinicaId={Number.parseInt(clinicaId, 10)}
             clinicaNome={clinica.nome || "Clinica parceira"}
             defaultWhatsapp={clinica.telefone || ""}
+            defaultEmail={clinica.email || ""}
           />
 
           {/* Resumo */}

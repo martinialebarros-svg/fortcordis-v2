@@ -78,7 +78,6 @@ from app.services.portal_clinic_auth_service import (
     request_user_agent_hash,
     revoke_session,
     revoke_sessions_for_clinica,
-    send_email_verification_code,
     send_login_mfa_code,
     send_password_reset_email,
     send_whatsapp_invite,
@@ -232,6 +231,7 @@ def criar_convite_clinica(
         clinica_id=clinica.id,
         delivery_channel=payload.delivery_channel,
         delivery_target=payload.delivery_target,
+        account_email=payload.account_email,
         expires_in_hours=payload.expires_in_hours,
         created_by_user_id=current_user.id,
     )
@@ -284,6 +284,7 @@ def criar_convite_clinica(
         activation_url=activation_url,
         delivery_channel=invite.delivery_channel,
         delivery_target_masked=invite.delivery_target_masked,
+        account_email_masked=mask_email(payload.account_email) if payload.account_email else None,
         delivery_status=delivery_status,
         delivery_provider=delivery_provider,
     )
@@ -433,6 +434,14 @@ def consultar_convite_clinica(
         .order_by(PortalClinicAccount.id.desc())
         .first()
     )
+    invite_context = json_load_dict(invite.contexto_json)
+    invite_account_email = invite_context.get("account_email")
+    if account:
+        email_hint = mask_email(account.email_normalized)
+    elif invite_account_email:
+        email_hint = mask_email(invite_account_email)
+    else:
+        email_hint = None
     return PortalClinicInviteStatusResponse(
         status=invite.status,
         clinica_id=clinica.id,
@@ -440,7 +449,7 @@ def consultar_convite_clinica(
         unidade_nome=clinica.nome,
         expires_at=invite.expires_at,
         can_activate=invite.status == INVITE_STATUS_PENDING and not expire_invite_if_needed(db, invite),
-        email_hint=mask_email(account.email_normalized) if account else None,
+        email_hint=email_hint,
     )
 
 
@@ -448,6 +457,7 @@ def consultar_convite_clinica(
 def ativar_conta_clinica(
     payload: PortalClinicActivationRequest,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
 ):
     _assert_invite_auth_enabled()
@@ -461,57 +471,75 @@ def ativar_conta_clinica(
         raise HTTPException(status_code=409, detail="Convite da clinica indisponivel para ativacao.")
 
     clinica = get_active_clinica_or_404(db, invite.clinica_id)
+    invite_context = json_load_dict(invite.contexto_json)
+    invite_email = normalize_email(invite_context.get("account_email"))
+    requested_email = normalize_email(payload.email)
+    account_email = invite_email or requested_email
+    if not account_email:
+        raise HTTPException(status_code=422, detail="Informe o email institucional da clinica.")
+    if invite_email and requested_email and requested_email != invite_email:
+        raise HTTPException(status_code=422, detail="Email institucional diferente do convite.")
+
     account = create_or_replace_pending_account(
         db,
         clinica_id=clinica.id,
-        email=payload.email,
+        email=account_email,
         responsavel_nome=payload.responsavel_nome,
         password=payload.password,
     )
-    challenge, raw_code = create_auth_challenge(
+    now = utcnow()
+    account.status = ACCOUNT_STATUS_ACTIVE
+    account.email_verified_at = now
+    account.activated_at = now
+    account.force_mfa_on_next_login = False
+    invite.status = INVITE_STATUS_USED
+    invite.used_at = now
+    db.commit()
+
+    result = issue_clinic_session(
         db,
-        account_id=account.id,
-        clinica_id=clinica.id,
-        challenge_type=CHALLENGE_TYPE_EMAIL_VERIFICATION,
-        context={"invite_id": invite.id},
-        expires_minutes=settings.PORTAL_CLINIC_EMAIL_CHALLENGE_EXPIRE_MINUTES,
+        account=account,
+        request=request,
+        remember_device_until_shift_end=True,
+        auth_reference=f"invite:{invite.id}:{account.id}:{int(datetime.utcnow().timestamp())}",
+        auth_method="invite_activation",
     )
-    try:
-        send_email_verification_code(
-            destination=account.email_normalized,
-            responsavel_nome=account.responsavel_nome,
-            clinica_nome=clinica.nome,
-            code=raw_code,
-            expires_in_minutes=settings.PORTAL_CLINIC_EMAIL_CHALLENGE_EXPIRE_MINUTES,
+    if result.refresh_token and result.trusted_session_expires_at:
+        set_portal_refresh_cookie(
+            response,
+            result.refresh_token,
+            expires_at=result.trusted_session_expires_at,
+            request=request,
         )
-    except Exception:
-        account.status = ACCOUNT_STATUS_REVOKED
-        account.revoked_at = utcnow()
-        challenge.status = "expired"
-        db.commit()
-        raise HTTPException(
-            status_code=502,
-            detail="Nao foi possivel enviar o codigo de verificacao do email.",
-        )
+    account.last_login_at = utcnow()
+    db.commit()
 
     registrar_auditoria(
         current_user=None,
         modulo="portal",
         entidade="portal_clinic_account",
-        acao="PORTAL_CLINIC_ACCOUNT_ACTIVATION_STARTED",
-        descricao="Ativacao de conta da clinica iniciada.",
+        acao="PORTAL_CLINIC_ACCOUNT_ACTIVATED_BY_INVITE",
+        descricao="Conta da clinica ativada por convite seguro.",
         entidade_id=account.id,
         detalhes={
             "clinica_id": clinica.id,
             "invite_id": invite.id,
+            "auto_session": True,
         },
         request=request,
     )
     return PortalClinicActivationResponse(
         activation_id=account.id,
-        email_challenge_id=challenge.challenge_id,
-        message="Enviamos um codigo de verificacao para o email institucional informado.",
-        expires_in_seconds=settings.PORTAL_CLINIC_EMAIL_CHALLENGE_EXPIRE_MINUTES * 60,
+        access_token=result.access_token,
+        expires_at=result.expires_at,
+        actor_type="clinica",
+        actor_id=result.clinica_id,
+        clinica_id=result.clinica_id,
+        account_id=result.account_id,
+        auth_method=result.auth_method,
+        trusted_session_expires_at=result.trusted_session_expires_at,
+        scope=result.scope,
+        message="Conta da clinica criada com sucesso. Acesso liberado neste computador.",
     )
 
 
@@ -633,13 +661,21 @@ def login_clinica_com_senha(
         db,
         account=account,
         request=request,
-        remember_device_until_shift_end=False,
+        remember_device_until_shift_end=payload.remember_device_until_shift_end,
         auth_reference=f"login:{account.id}:{int(datetime.utcnow().timestamp())}",
         auth_method="password",
     )
+    if result.refresh_token and result.trusted_session_expires_at:
+        set_portal_refresh_cookie(
+            response,
+            result.refresh_token,
+            expires_at=result.trusted_session_expires_at,
+            request=request,
+        )
+    else:
+        clear_portal_refresh_cookie(response, request)
     account.last_login_at = utcnow()
     db.commit()
-    clear_portal_refresh_cookie(response, request)
     registrar_auditoria(
         current_user=None,
         modulo="portal",
