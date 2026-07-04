@@ -13,7 +13,7 @@ Sincronizar a configuracao `PORTAL_EMAIL_*` do backend stage para o backend de p
 - RF-001: fornecer um script versionado para copiar apenas as chaves `PORTAL_EMAIL_*` do `.env` stage para o `.env` prod.
 - RF-002: o script deve criar backup do `.env` prod antes da alteracao.
 - RF-003: o script deve reiniciar o servico `fortcordis-backend` apos atualizar o `.env`.
-- RF-004: o script deve validar a autenticacao SMTP usando as credenciais sincronizadas sem expor segredos no log.
+- RF-004: o script deve validar o handshake SMTP usando a configuracao sincronizada sem expor segredos no log, com login apenas quando `PORTAL_EMAIL_SMTP_USERNAME` estiver definido.
 - RF-005: disponibilizar um workflow manual para executar a sincronizacao remota na VPS com os secrets existentes.
 
 ## 3) Requisitos nao funcionais (NFR)
@@ -38,5 +38,6 @@ Sincronizar a configuracao `PORTAL_EMAIL_*` do backend stage para o backend de p
 ## 6) Casos de borda
 
 - CB-001: se alguma chave obrigatoria `PORTAL_EMAIL_*` estiver ausente no stage, a execucao falha sem sobrescrever o prod.
+- CB-004: se o relay SMTP do stage usar autenticacao por IP, a ausencia de `PORTAL_EMAIL_SMTP_USERNAME` e `PORTAL_EMAIL_SMTP_PASSWORD` nao deve bloquear a sincronizacao.
 - CB-002: se o backend restart falhar, o erro aparece no workflow e o backup permanece disponivel.
 - CB-003: o script nao deve duplicar chaves `PORTAL_EMAIL_*` no `.env` prod.
