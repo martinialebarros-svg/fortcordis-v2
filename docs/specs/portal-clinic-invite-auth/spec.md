@@ -257,6 +257,9 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
   - `portal_password_reset_tokens`
   - `portal_auth_challenges`
 
+- Compatibilidade de schema:
+  - `laudos.clinic_id` deve existir para manter o escopo de exames por unidade quando o exame estiver associado a um laudo, com migracao idempotente para ambientes legados.
+
 - Campos principais sugeridos:
   - `portal_clinic_invites`
     - `id`
