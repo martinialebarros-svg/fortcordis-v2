@@ -140,6 +140,14 @@ type Anexo = {
   created_at?: string;
 };
 
+const PORTAL_RELEASE_STATUS = "Liberado no portal";
+
+const isPdfAttachment = (anexo: Anexo) => {
+  const mime = (anexo.mime_type || "").toLowerCase();
+  const nome = (anexo.nome_original || anexo.url || anexo.download_url || "").toLowerCase();
+  return mime === "application/pdf" || nome.endsWith(".pdf");
+};
+
 type DocumentoAtendimentoTemplate = {
   id: number;
   nome: string;
@@ -1314,6 +1322,7 @@ export default function AtendimentoPage() {
   const [uploadingAttachmentKey, setUploadingAttachmentKey] = useState<string | null>(null);
   const [uploadProgressByKey, setUploadProgressByKey] = useState<Record<string, number | null>>({});
   const [openingAttachmentId, setOpeningAttachmentId] = useState<number | null>(null);
+  const [releasingPortalExamId, setReleasingPortalExamId] = useState<number | null>(null);
   const [attachmentPreview, setAttachmentPreview] = useState<AttachmentPreview | null>(null);
   const [attachmentImageZoom, setAttachmentImageZoom] = useState(1);
   const [attachmentImageOffset, setAttachmentImageOffset] = useState({ x: 0, y: 0 });
@@ -3592,6 +3601,67 @@ export default function AtendimentoPage() {
         };
       }),
     }));
+  };
+
+  const mergeReleasedPortalExam = (exame: ExameSolicitacao) => {
+    setForm((current) => {
+      const anexosResultado = exame.anexos_resultado || [];
+      const anexosResultadoIds = new Set(anexosResultado.map((item) => item.id));
+      return {
+        ...current,
+        anexos: [
+          ...anexosResultado,
+          ...current.anexos.filter((item) => !anexosResultadoIds.has(item.id)),
+        ],
+        exames: current.exames.map((item) => {
+          if (!exame.id || item.id !== exame.id) return item;
+          return {
+            ...item,
+            ...exame,
+            anexos_resultado: anexosResultado.length ? anexosResultado : item.anexos_resultado || [],
+          };
+        }),
+      };
+    });
+  };
+
+  const liberarExameNoPortal = async (exame: ExameSolicitacao) => {
+    if (!exame.id) {
+      setErro("Salve o exame antes de liberar no portal.");
+      return;
+    }
+    if (!formRef.current.clinica_id) {
+      setErro("Vincule uma clinica ao atendimento antes de liberar no portal.");
+      return;
+    }
+    const anexosDoExame = [
+      ...formRef.current.anexos.filter((item) => item.exame_id === exame.id),
+      ...(exame.anexos_resultado || []),
+    ];
+    if (!anexosDoExame.some(isPdfAttachment)) {
+      setErro("Anexe o PDF do resultado antes de liberar no portal.");
+      return;
+    }
+
+    setReleasingPortalExamId(exame.id);
+    setErro("");
+    try {
+      const response = await api.post(`/atendimentos/exames/${exame.id}/portal/liberar`);
+      if (response.data?.exame) {
+        mergeReleasedPortalExam(response.data.exame);
+      } else {
+        mergeReleasedPortalExam({
+          ...exame,
+          status: PORTAL_RELEASE_STATUS,
+          data_resultado: new Date().toISOString(),
+        });
+      }
+      setSucesso(response.data?.message || "Exame liberado no portal da clinica parceira.");
+    } catch (e: any) {
+      setErro(extractApiErrorMessageSync(e, "Erro ao liberar exame no portal."));
+    } finally {
+      setReleasingPortalExamId(null);
+    }
   };
 
   const removerAnexoDoFormulario = (anexoId: number) => {
@@ -5908,6 +5978,8 @@ export default function AtendimentoPage() {
                     goLaudo={goLaudo}
                     hasExamRequest={hasExamRequest}
                     imprimirSolicitacaoExames={imprimirSolicitacaoExames}
+                    isPdfAttachment={isPdfAttachment}
+                    liberarExameNoPortal={liberarExameNoPortal}
                     openingAttachmentId={openingAttachmentId}
                     painelEmEdicao={painelEmEdicao}
                     painelExameAtual={painelExameAtual}
@@ -5922,6 +5994,7 @@ export default function AtendimentoPage() {
                     paineisExames={paineisExames}
                     removerExamesVazios={removerExamesVazios}
                     resolvePreviewKind={resolvePreviewKind}
+                    releasingPortalExamId={releasingPortalExamId}
                     resumoExamesFluxo={resumoExamesFluxo}
                     salvando={salvando}
                     salvarPainelExame={salvarPainelExame}

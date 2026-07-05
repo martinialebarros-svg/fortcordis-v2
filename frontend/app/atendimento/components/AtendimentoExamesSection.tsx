@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Download,
@@ -21,6 +22,13 @@ import PainelExamesModal from "./PainelExamesModal";
 import type { LooseAtendimentoComponentProps } from "./component-props";
 
 type AtendimentoExamesSectionProps = LooseAtendimentoComponentProps;
+
+type AtendimentoAnexoResultado = {
+  mime_type?: string;
+  nome_original?: string;
+  url?: string;
+  download_url?: string;
+};
 
 export default function AtendimentoExamesSection(props: AtendimentoExamesSectionProps) {
   const {
@@ -57,6 +65,8 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
     goLaudo,
     hasExamRequest,
     imprimirSolicitacaoExames,
+    isPdfAttachment,
+    liberarExameNoPortal,
     openingAttachmentId,
     painelEmEdicao,
     painelExameAtual,
@@ -71,6 +81,7 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
     paineisExames,
     removerExamesVazios,
     resolvePreviewKind,
+    releasingPortalExamId,
     resumoExamesFluxo,
     salvando,
     salvarPainelExame,
@@ -370,6 +381,9 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
           const uploadDraft = examUploadDrafts[index] || null;
           const dropAtivo = examDropActive[index] || false;
           const flowMeta = EXAME_STATUS_META[flowStatus];
+          const hasPdfAnexo = anexosResultado.some((anexo: AtendimentoAnexoResultado) => isPdfAttachment(anexo));
+          const isPortalReleased = exame.status === "Liberado no portal";
+          const isReleasingPortal = releasingPortalExamId === exame.id;
 
           return (
             <div key={`${index}-${exame.id || "novo"}`} className={`rounded-[22px] border p-4 ${flowMeta.cardClass}`}>
@@ -498,6 +512,36 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
                             PDF, JPG, JPEG, PNG e WEBP entram no prontuario e na timeline.
                           </p>
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => liberarExameNoPortal(exame)}
+                          disabled={!exame.id || !hasPdfAnexo || isPortalReleased || isReleasingPortal}
+                          title={
+                            isPortalReleased
+                              ? "Exame ja liberado no portal"
+                              : hasPdfAnexo
+                                ? "Liberar este exame e seus arquivos para a clinica parceira"
+                                : "Anexe o PDF do resultado antes de liberar no portal"
+                          }
+                          className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                            isPortalReleased
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-teal-600 text-white hover:bg-teal-700"
+                          }`}
+                        >
+                          {isReleasingPortal ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : isPortalReleased ? (
+                            <CheckCircle2 className="h-4 w-4" />
+                          ) : (
+                            <FileText className="h-4 w-4" />
+                          )}
+                          {isReleasingPortal
+                            ? "Liberando..."
+                            : isPortalReleased
+                              ? "Liberado no portal"
+                              : "Liberar no portal"}
+                        </button>
                       </div>
 
                       <div
