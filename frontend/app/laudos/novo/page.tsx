@@ -23,6 +23,7 @@ import {
   qualitativaEcoLegadaIgual,
   serializarEcocardiogramaEstruturado,
 } from "@/lib/ecocardiograma-estruturado";
+import { listarTodasClinicas } from "@/lib/clinicas";
 import { TIPO_LAUDO_PRESSAO_ARTERIAL } from "@/lib/laudos";
 import { extrairIdadePaciente, normalizarSexoPaciente } from "@/lib/paciente";
 
@@ -507,8 +508,8 @@ export default function NovoLaudoPage() {
 
   const carregarClinicas = async () => {
     try {
-      const response = await api.get("/clinicas");
-      setClinicas(response.data.items || []);
+      const items = await listarTodasClinicas<Clinica>();
+      setClinicas(items);
     } catch (error) {
       console.error("Erro ao carregar clínicas:", error);
     }

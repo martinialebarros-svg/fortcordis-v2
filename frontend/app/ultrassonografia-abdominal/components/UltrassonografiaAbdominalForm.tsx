@@ -17,6 +17,7 @@ import {
   getLaudoViewPath,
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
+import { listarTodasClinicas } from "@/lib/clinicas";
 import {
   ArrowLeft,
   Image as ImageIcon,
@@ -285,8 +286,8 @@ export default function UltrassonografiaAbdominalForm({
 
   const carregarClinicas = async () => {
     try {
-      const response = await api.get("/clinicas");
-      setClinicas(response.data.items || []);
+      const items = await listarTodasClinicas<Clinica>();
+      setClinicas(items);
     } catch (error) {
       console.error("Erro ao carregar clinicas:", error);
     }
