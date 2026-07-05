@@ -31,6 +31,7 @@ import {
   qualitativaEcoLegadaIgual,
   serializarEcocardiogramaEstruturado,
 } from "@/lib/ecocardiograma-estruturado";
+import { listarTodasClinicas } from "@/lib/clinicas";
 import { extrairIdadePaciente, normalizarSexoPaciente } from "@/lib/paciente";
 
 // Componente de input de medida com botÃµes +/-
@@ -490,8 +491,8 @@ export default function EditarLaudoPage() {
 
   const carregarClinicas = async () => {
     try {
-      const response = await api.get("/clinicas");
-      setClinicas(response.data.items || []);
+      const items = await listarTodasClinicas<Clinica>();
+      setClinicas(items);
     } catch (error) {
       console.error("Erro ao carregar clÃ­nicas:", error);
     }

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
-import api from "@/lib/axios";
+import { listarTodasClinicas } from "@/lib/clinicas";
 import { Building2, Search, Plus, MapPin, Phone, Edit2 } from "lucide-react";
 
 interface Clinica {
@@ -33,8 +33,8 @@ export default function ClinicasPage() {
 
   const carregarClinicas = async () => {
     try {
-      const response = await api.get("/clinicas");
-      setClinicas(response.data.items || []);
+      const items = await listarTodasClinicas<Clinica>();
+      setClinicas(items);
     } catch (error) {
       console.error("Erro ao carregar clínicas:", error);
     } finally {
