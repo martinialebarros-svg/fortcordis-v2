@@ -108,6 +108,10 @@ function examDateValue(exam: PortalExamItem): string | null {
   return exam.data_exame || exam.data_solicitacao || exam.data_resultado || null;
 }
 
+function examExecutionDateValue(exam: PortalExamItem): string | null {
+  return exam.data_exame || exam.data_solicitacao || null;
+}
+
 function compactFilters(filters: ClinicExamFiltersState): PortalClinicExamFilters {
   return {
     q: filters.q.trim() || undefined,
@@ -474,7 +478,7 @@ export default function PortalClinicaWorkspace() {
               {
                 label: "Mais recente",
                 value: dashboardStats.latestDate,
-                detail: "por data do exame",
+                detail: "por data de realizacao",
                 icon: CalendarDays,
               },
             ].map(({ label, value, detail, icon: Icon }) => (
@@ -575,7 +579,7 @@ export default function PortalClinicaWorkspace() {
               </label>
 
               <label className="block text-sm font-semibold text-slate-800">
-                De
+                Data de realizacao - De
                 <input
                   type="date"
                   value={filters.data_inicio}
@@ -585,7 +589,7 @@ export default function PortalClinicaWorkspace() {
               </label>
 
               <label className="block text-sm font-semibold text-slate-800">
-                Ate
+                Data de realizacao - Ate
                 <input
                   type="date"
                   value={filters.data_fim}
@@ -605,8 +609,8 @@ export default function PortalClinicaWorkspace() {
                   }}
                   className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-500"
                 >
-                  <option value="data:desc">Mais recentes</option>
-                  <option value="data:asc">Mais antigos</option>
+                  <option value="data:desc">Mais recentes por realizacao</option>
+                  <option value="data:asc">Mais antigos por realizacao</option>
                   <option value="tipo_exame:asc">Tipo A-Z</option>
                   <option value="pet:asc">Pet A-Z</option>
                   <option value="tutor:asc">Tutor A-Z</option>
@@ -669,7 +673,7 @@ export default function PortalClinicaWorkspace() {
                           </span>
                         </div>
                         <h3 className="mt-3 text-xl font-bold text-slate-950">{exam.tipo_exame}</h3>
-                        <dl className="mt-4 grid gap-3 text-sm text-slate-600 md:grid-cols-2 xl:grid-cols-4">
+                        <dl className="mt-4 grid gap-3 text-sm text-slate-600 md:grid-cols-2 xl:grid-cols-5">
                           <div>
                             <dt className="font-bold text-slate-900">Pet</dt>
                             <dd className="mt-1">{exam.paciente_nome || `Pet #${exam.paciente_id}`}</dd>
@@ -683,8 +687,12 @@ export default function PortalClinicaWorkspace() {
                             <dd className="mt-1">{exam.especie || "Nao informada"}</dd>
                           </div>
                           <div>
-                            <dt className="font-bold text-slate-900">Data</dt>
-                            <dd className="mt-1">{formatPortalDate(examDateValue(exam))}</dd>
+                            <dt className="font-bold text-slate-900">Data de realizacao</dt>
+                            <dd className="mt-1">{formatPortalDate(examExecutionDateValue(exam))}</dd>
+                          </div>
+                          <div>
+                            <dt className="font-bold text-slate-900">Data de liberacao</dt>
+                            <dd className="mt-1">{formatPortalDate(exam.data_resultado)}</dd>
                           </div>
                         </dl>
                       </div>

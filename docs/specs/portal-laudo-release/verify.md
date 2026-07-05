@@ -20,6 +20,7 @@ Status: in-progress
 | CA-010 | aceitacao | `backend/tests/test_portal_access_foundation.py::test_clinica_date_filter_uses_exam_execution_date_not_release_date` | ok |
 | CA-011 | aceitacao | `backend/tests/test_portal_access_foundation.py::test_clinica_date_filter_uses_exam_execution_date_not_release_date` | ok |
 | CA-012 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx::handleStartDateChange` + eslint focado | ok |
+| CA-013 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx` e `frontend/components/portal/PortalExamResults.tsx` rotulam datas explicitamente + eslint focado | ok |
 
 ## 2) Testes automatizados planejados
 
@@ -65,6 +66,7 @@ Resultados executados:
 - `cd backend && venv/bin/python - <<'PY' ... tests.test_portal_access_http_flow ... PY`: 3/3 pass, com stub temporario de `app.services.cnpj_consulta` por exclusao local fora do escopo.
 - `cd frontend && npx eslint app/laudos/page.tsx 'app/laudos/[id]/page.tsx' --max-warnings=0`: ok.
 - `cd frontend && npx eslint components/portal/PortalClinicaWorkspace.tsx components/portal/PortalExamResults.tsx lib/portal-api.ts --max-warnings=0`: ok.
+- `cd frontend && npx eslint components/portal/PortalClinicaWorkspace.tsx components/portal/PortalExamResults.tsx --max-warnings=0`: ok.
 - `cd frontend && npm run build`: ok.
 - `git diff --check`: ok.
 

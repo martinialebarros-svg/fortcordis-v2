@@ -29,6 +29,7 @@ Status: in-progress
 - [x] Atualizar badge visual para `Liberado no portal`.
 - [x] Preencher `Ate` automaticamente ao selecionar `De` no painel da clinica.
 - [x] Exibir data de realizacao do exame antes da data de liberacao nos resultados do portal.
+- [x] Rotular explicitamente data de realizacao e data de liberacao nos resultados do portal.
 
 ## Fase 4 - Validacao e rollout
 

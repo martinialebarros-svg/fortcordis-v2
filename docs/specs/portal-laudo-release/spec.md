@@ -26,6 +26,7 @@ Implementar o primeiro controle operacional de publicacao de laudos no portal. A
 - RF-014: a tela `/laudos` deve exibir status `Liberado no portal` e oferecer botao para liberar laudos ainda nao publicados.
 - RF-015: a tela de visualizacao de laudo deve oferecer a mesma acao antes do download/impressao, para apoiar revisao final.
 - RF-016: no painel da clinica, ao selecionar a data inicial vazia, a data final deve ser preenchida automaticamente com a mesma data para orientar busca de dia unico.
+- RF-017: o portal deve rotular separadamente `Data de realizacao` e `Data de liberacao` nos resultados exibidos para clinicas e tutores.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -80,6 +81,7 @@ Implementar o primeiro controle operacional de publicacao de laudos no portal. A
 - CA-010: filtro de data da clinica encontra laudos pela data de realizacao do exame, mesmo quando a liberacao ocorreu em outro dia.
 - CA-011: data inicial sem data final busca apenas aquele dia.
 - CA-012: painel da clinica preenche `Ate` com a mesma data ao escolher `De` vazio, permitindo alterar depois para periodo.
+- CA-013: resultados do portal exibem explicitamente `Data de realizacao` e `Data de liberacao`, evitando campo generico `Data`.
 
 ## 6) Fora de escopo
 
