@@ -2,7 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -26,9 +26,10 @@ from app.core.portal_security import (
     PortalSessionContext,
     decode_portal_session_token,
 )
+from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
 from app.models.clinica import Clinica
-from app.models.laudo import Exame
+from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
 from app.models.portal_access import PortalAccessChallenge
 from app.models.tutor import Tutor
@@ -74,6 +75,7 @@ class PortalAccessFoundationTest(unittest.TestCase):
             Paciente.__table__,
             Clinica.__table__,
             AtendimentoClinico.__table__,
+            Laudo.__table__,
             Exame.__table__,
             AnexoAtendimento.__table__,
             PortalAccessChallenge.__table__,
@@ -123,12 +125,26 @@ class PortalAccessFoundationTest(unittest.TestCase):
             tipo_exame="Ecocardiograma",
             categoria_exame="Cardiologia",
             prioridade="Rotina",
-            status="Concluido",
+            status=PORTAL_RELEASED_STATUS,
             data_solicitacao=datetime(2026, 6, 16, 9, 0),
             data_resultado=datetime(2026, 6, 16, 10, 0),
             observacoes="Exame liberado para portal.",
         )
         db.add(exame)
+        db.flush()
+
+        exame_interno = Exame(
+            atendimento_id=atendimento.id,
+            paciente_id=paciente.id,
+            tipo_exame="Eletrocardiograma",
+            categoria_exame="Cardiologia",
+            prioridade="Rotina",
+            status="Concluido",
+            data_solicitacao=datetime(2026, 6, 16, 9, 15),
+            data_resultado=datetime(2026, 6, 16, 10, 15),
+            observacoes="Exame concluido internamente, ainda nao liberado no portal.",
+        )
+        db.add(exame_interno)
         db.flush()
 
         file_path = Path(tmpdir.name) / "eco-luna.pdf"
@@ -343,6 +359,7 @@ class PortalAccessFoundationTest(unittest.TestCase):
                 portal_session=session,
             )
 
+            self.assertEqual(db.query(Exame).count(), 2)
             self.assertEqual(response.total, 1)
             self.assertEqual(response.items[0].paciente_id, paciente.id)
             self.assertEqual(len(response.items[0].anexos), 1)
@@ -435,6 +452,112 @@ class PortalAccessFoundationTest(unittest.TestCase):
                 )
 
             self.assertEqual(ctx.exception.status_code, 403)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_clinica_date_filter_uses_exam_execution_date_not_release_date(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            tutor, paciente, clinica, *_ = self._seed_portal_data(db, tmpdir)
+            laudo = Laudo(
+                paciente_id=paciente.id,
+                veterinario_id=77,
+                tipo="ecocardiograma",
+                titulo="Eco Luna",
+                status=PORTAL_RELEASED_STATUS,
+                clinic_id=clinica.id,
+                data_exame=datetime(2026, 6, 14, 9, 30),
+                criado_por_id=77,
+                criado_por_nome="Vet Teste",
+            )
+            db.add(laudo)
+            db.flush()
+            exame = Exame(
+                laudo_id=laudo.id,
+                paciente_id=paciente.id,
+                tipo_exame="Ecocardiograma controle",
+                categoria_exame="Cardiologia",
+                prioridade="Rotina",
+                status=PORTAL_RELEASED_STATUS,
+                data_solicitacao=datetime(2026, 6, 14, 9, 30),
+                data_resultado=datetime(2026, 6, 18, 16, 0),
+                observacoes="Laudo liberado depois da realizacao.",
+            )
+            db.add(exame)
+            db.commit()
+
+            clinic_session = PortalSessionContext(
+                actor_type="clinica",
+                actor_id=clinica.id,
+                paciente_id=None,
+                clinica_id=clinica.id,
+                challenge_id="challenge-clinica",
+                display_name="Responsavel Clinica",
+                channel="email",
+                scope=tuple(portal.PORTAL_SCOPE_CLINICA),
+                expires_at=datetime.utcnow(),
+            )
+
+            same_day_response = portal.listar_exames_clinica_portal(
+                q=None,
+                pet=None,
+                tutor=None,
+                especie=None,
+                tipo_exame="controle",
+                status_exame=None,
+                data_inicio=date(2026, 6, 14),
+                data_fim=None,
+                sort_by="data",
+                sort_dir="desc",
+                limit=100,
+                offset=0,
+                db=db,
+                portal_session=clinic_session,
+            )
+            self.assertEqual(same_day_response.total, 1)
+            self.assertEqual(same_day_response.items[0].laudo_id, laudo.id)
+            self.assertEqual(
+                same_day_response.items[0].data_exame,
+                "2026-06-14T09:30:00",
+            )
+
+            release_day_response = portal.listar_exames_clinica_portal(
+                q=None,
+                pet=None,
+                tutor=None,
+                especie=None,
+                tipo_exame="controle",
+                status_exame=None,
+                data_inicio=date(2026, 6, 18),
+                data_fim=None,
+                sort_by="data",
+                sort_dir="desc",
+                limit=100,
+                offset=0,
+                db=db,
+                portal_session=clinic_session,
+            )
+            self.assertEqual(release_day_response.total, 0)
+
+            period_response = portal.listar_exames_clinica_portal(
+                q=None,
+                pet=None,
+                tutor=None,
+                especie=None,
+                tipo_exame="controle",
+                status_exame=None,
+                data_inicio=date(2026, 6, 14),
+                data_fim=date(2026, 6, 18),
+                sort_by="data",
+                sort_dir="desc",
+                limit=100,
+                offset=0,
+                db=db,
+                portal_session=clinic_session,
+            )
+            self.assertEqual(period_response.total, 1)
         finally:
             db.close()
             engine.dispose()

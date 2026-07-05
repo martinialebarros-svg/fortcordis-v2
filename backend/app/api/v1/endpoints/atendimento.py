@@ -42,6 +42,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.core.security import _authorize_request_by_matrix, get_current_user, get_request_token
 from app.db.database import get_db
 from app.models.agendamento import Agendamento
@@ -130,6 +131,8 @@ from app.utils.pdf_laudo import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+PORTAL_EXAME_RELEASE_MESSAGE = "Exame liberado no portal da clinica parceira."
 
 UPLOAD_DEDUPE_EVENT_UPLOAD_NOVO = "upload_novo"
 UPLOAD_DEDUPE_EVENT_PRECHECK = "dedupe_precheck"
@@ -1109,6 +1112,17 @@ def _map_exame(exame: Exame) -> dict:
     }
 
 
+def _normalizar_tipo_exame_portal_externo(value: Optional[str]) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return "Exame"
+    normalizado = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii")
+    normalizado = " ".join(normalizado.lower().split())
+    if normalizado in {"ecg", "eletro", "eletrocardiograma"} or "eletrocardio" in normalizado:
+        return "Eletrocardiograma"
+    return raw
+
+
 def _normalizar_status(value: Optional[str]) -> str:
     status = (value or "").strip().lower()
     if not status:
@@ -1122,6 +1136,12 @@ def _normalizar_status(value: Optional[str]) -> str:
 def _status_exame_concluido(value: Optional[str]) -> bool:
     status = _normalizar_status(value)
     return status in {"concluido", "concluida"} or status.startswith("concluid")
+
+
+def _anexo_eh_pdf(anexo: AnexoAtendimento) -> bool:
+    mime = (anexo.mime_type or "").strip().lower()
+    nome = (anexo.nome_original or anexo.url or anexo.caminho_arquivo or "").strip().lower()
+    return mime == "application/pdf" or nome.endswith(".pdf")
 
 
 def _serialize_anexo(anexo: AnexoAtendimento) -> dict:
@@ -2840,6 +2860,71 @@ def consultar_status_cleanup_upload_dedupe_metricas(
 ):
     _require_admin_cleanup_access(current_user)
     return get_upload_dedupe_cleanup_status()
+
+
+@router.post("/exames/{exame_id}/portal/liberar")
+def liberar_exame_no_portal(
+    exame_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    exame = db.query(Exame).filter(Exame.id == exame_id).first()
+    if not exame:
+        raise HTTPException(status_code=404, detail="Exame nao encontrado.")
+    if not exame.atendimento_id:
+        raise HTTPException(status_code=422, detail="Exame sem atendimento vinculado.")
+
+    atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == exame.atendimento_id).first()
+    if not atendimento:
+        raise HTTPException(status_code=404, detail="Atendimento do exame nao encontrado.")
+    if not atendimento.clinica_id:
+        raise HTTPException(status_code=422, detail="Vincule uma clinica ao atendimento antes de liberar no portal.")
+    if not exame.paciente_id:
+        raise HTTPException(status_code=422, detail="Exame sem paciente vinculado.")
+
+    anexos = (
+        db.query(AnexoAtendimento)
+        .filter(AnexoAtendimento.exame_id == exame.id)
+        .order_by(AnexoAtendimento.created_at.desc(), AnexoAtendimento.id.desc())
+        .all()
+    )
+    if not any(_anexo_eh_pdf(anexo) for anexo in anexos):
+        raise HTTPException(status_code=422, detail="Anexe o PDF do resultado antes de liberar no portal.")
+
+    released_at = datetime.utcnow()
+    exame.tipo_exame = _normalizar_tipo_exame_portal_externo(exame.tipo_exame)
+    if exame.tipo_exame == "Eletrocardiograma" and not (exame.categoria_exame or "").strip():
+        exame.categoria_exame = "Cardiologia"
+    exame.status = PORTAL_RELEASED_STATUS
+    exame.data_resultado = released_at
+    exame.observacoes = PORTAL_EXAME_RELEASE_MESSAGE
+    if not exame.criado_por_id:
+        exame.criado_por_id = getattr(current_user, "id", None)
+    if not exame.criado_por_nome:
+        exame.criado_por_nome = getattr(current_user, "nome", None)
+
+    db.commit()
+    db.refresh(exame)
+    anexos_atualizados = (
+        db.query(AnexoAtendimento)
+        .filter(AnexoAtendimento.exame_id == exame.id)
+        .order_by(AnexoAtendimento.created_at.desc(), AnexoAtendimento.id.desc())
+        .all()
+    )
+    exame_payload = {
+        **_map_exame(exame),
+        "anexos_resultado": [_serialize_anexo(anexo) for anexo in anexos_atualizados],
+    }
+    return {
+        "message": "Exame liberado no portal da clinica parceira.",
+        "exame_id": exame.id,
+        "paciente_id": exame.paciente_id,
+        "atendimento_id": exame.atendimento_id,
+        "clinic_id": atendimento.clinica_id,
+        "status": exame.status,
+        "released_at": _to_iso(exame.data_resultado),
+        "exame": exame_payload,
+    }
 
 
 @router.get("/{atendimento_id}/anexos")

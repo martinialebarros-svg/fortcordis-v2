@@ -4,8 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
-import { getLaudoEditPath, getLaudoViewPath, getTipoLaudoLabel } from "@/lib/laudos";
-import { baixarLaudoPdf } from "@/lib/laudo-pdf";
+import {
+  getLaudoEditPath,
+  getLaudoViewPath,
+  getTipoLaudoLabel,
+  TIPO_LAUDO_ELETROCARDIOGRAMA,
+} from "@/lib/laudos";
+import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
 import {
   Calendar,
   Clock,
@@ -16,6 +21,7 @@ import {
   FileText,
   Plus,
   Search,
+  Send,
   Trash2,
   User,
 } from "lucide-react";
@@ -26,11 +32,13 @@ interface Laudo {
   paciente_nome?: string;
   paciente_tutor?: string;
   clinica?: string;
+  clinic_id?: number | null;
   tipo: string;
   titulo: string;
   status: string;
   data_laudo: string;
   data_exame?: string;
+  tem_pdf_externo?: boolean;
 }
 
 interface Exame {
@@ -43,6 +51,15 @@ interface Exame {
 }
 
 const LAUDOS_PAGE_SIZE = 100;
+const PORTAL_RELEASE_STATUS = "Liberado no portal";
+
+function isPortalReleased(status?: string) {
+  return status === PORTAL_RELEASE_STATUS;
+}
+
+function isLaudoPdfExterno(laudo: Laudo) {
+  return laudo.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA || Boolean(laudo.tem_pdf_externo);
+}
 
 function getResponseTotal(payload: { total?: number } | undefined, fallback: number) {
   return typeof payload?.total === "number" ? payload.total : fallback;
@@ -56,6 +73,7 @@ function getStatusColor(status: string) {
     Solicitado: "bg-yellow-100 text-yellow-800",
     "Em andamento": "bg-blue-100 text-blue-800",
     Concluido: "bg-green-100 text-green-800",
+    [PORTAL_RELEASE_STATUS]: "bg-teal-100 text-teal-800",
   };
   return colors[status] || "bg-gray-100 text-gray-800";
 }
@@ -72,6 +90,7 @@ export default function LaudosPage() {
   const [loadingLaudos, setLoadingLaudos] = useState(true);
   const [loadingExames, setLoadingExames] = useState(true);
   const [loadingMoreLaudos, setLoadingMoreLaudos] = useState(false);
+  const [liberandoLaudoId, setLiberandoLaudoId] = useState<number | null>(null);
   const laudosRequestIdRef = useRef(0);
   const router = useRouter();
 
@@ -204,9 +223,43 @@ export default function LaudosPage() {
 
   const downloadPDF = async (laudoId: number, titulo: string) => {
     try {
-      await baixarLaudoPdf(laudoId, `${titulo.replace(/\s+/g, "_")}.pdf`);
+      const laudo = laudos.find((item) => item.id === laudoId);
+      const filename = `${titulo.replace(/\s+/g, "_")}.pdf`;
+      if (laudo && isLaudoPdfExterno(laudo)) {
+        await baixarLaudoPdfOriginal(laudoId, filename);
+        return;
+      }
+      await baixarLaudoPdf(laudoId, filename);
     } catch (error) {
       alert("Erro ao gerar PDF. Tente novamente.");
+    }
+  };
+
+  const liberarNoPortalClinica = async (laudo: Laudo) => {
+    if (isPortalReleased(laudo.status)) {
+      return;
+    }
+    if (!laudo.clinic_id) {
+      alert("Vincule uma clinica ao laudo antes de liberar no portal.");
+      return;
+    }
+    if (!confirm("Liberar este laudo para o portal da clinica parceira?")) {
+      return;
+    }
+
+    setLiberandoLaudoId(laudo.id);
+    try {
+      const response = await api.post(`/laudos/${laudo.id}/portal/liberar-clinica`);
+      const novoStatus = response.data?.status || PORTAL_RELEASE_STATUS;
+      setLaudos((prev) =>
+        prev.map((item) => (item.id === laudo.id ? { ...item, status: novoStatus } : item))
+      );
+      alert("Laudo liberado no portal da clinica parceira.");
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      alert(detail || "Erro ao liberar laudo no portal. Tente novamente.");
+    } finally {
+      setLiberandoLaudoId(null);
     }
   };
 
@@ -432,6 +485,16 @@ export default function LaudosPage() {
                           <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(laudo.status)}`}>
                             {laudo.status}
                           </span>
+                          {!isPortalReleased(laudo.status) && (
+                            <button
+                              onClick={() => liberarNoPortalClinica(laudo)}
+                              disabled={liberandoLaudoId === laudo.id}
+                              className="p-2 text-gray-600 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition-colors disabled:opacity-50"
+                              title="Liberar no portal da clinica"
+                            >
+                              <Send className="w-4 h-4" />
+                            </button>
+                          )}
                           <button
                             onClick={() => router.push(getLaudoViewPath(laudo.id, laudo.tipo))}
                             className="p-2 text-gray-600 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
@@ -439,13 +502,15 @@ export default function LaudosPage() {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => router.push(getLaudoEditPath(laudo.id, laudo.tipo))}
-                            className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="Editar"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
+                          {!isLaudoPdfExterno(laudo) && (
+                            <button
+                              onClick={() => router.push(getLaudoEditPath(laudo.id, laudo.tipo))}
+                              className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Editar"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                          )}
                           <button
                             onClick={() => downloadPDF(laudo.id, laudo.titulo)}
                             className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"

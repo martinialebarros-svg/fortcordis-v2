@@ -4,7 +4,11 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import DashboardLayout from "../../../layout-dashboard";
 import api from "@/lib/axios";
-import { getLaudoEditPath, TIPO_LAUDO_ULTRASSOM_ABDOMINAL } from "@/lib/laudos";
+import {
+  getLaudoEditPath,
+  TIPO_LAUDO_PRESSAO_ARTERIAL,
+  TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
+} from "@/lib/laudos";
 import {
   addRacaCustomPorEspecie,
   getRacaOptions,
@@ -441,7 +445,7 @@ export default function EditarLaudoPage() {
     pacienteForm.peso,
   ]);
 
-  const laudoEhPressao = (laudo?.tipo || "").toLowerCase() === "pressao_arterial";
+  const laudoEhPressao = (laudo?.tipo || "").toLowerCase() === TIPO_LAUDO_PRESSAO_ARTERIAL;
 
   const pasMediaCalculada = (() => {
     const valores = [
@@ -702,6 +706,7 @@ export default function EditarLaudoPage() {
         decubito_outro: decubito && decubitoConhecido === "Outro" ? decubito : "",
         obs_extra: String(pressao.obs_extra || ""),
       });
+      setAba((laudoData.tipo || "").toLowerCase() === TIPO_LAUDO_PRESSAO_ARTERIAL ? "pressao" : "paciente");
 
       // Carregar imagens (converter para data URLs)
       if (laudoData.imagens && laudoData.imagens.length > 0) {
@@ -987,8 +992,12 @@ export default function EditarLaudoPage() {
               <ArrowLeft className="w-5 h-5 text-gray-600" />
             </button>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Editar Laudo</h1>
-              <p className="text-gray-500">{pacienteForm.nome}</p>
+              <h1 className="text-2xl font-bold text-gray-900">
+                {laudoEhPressao ? "Editar Laudo de Pressao Arterial" : "Editar Laudo"}
+              </h1>
+              <p className="text-gray-500">
+                {laudoEhPressao ? `${pacienteForm.nome} · fluxo dedicado de PA` : pacienteForm.nome}
+              </p>
             </div>
           </div>
           <button
@@ -1004,41 +1013,62 @@ export default function EditarLaudoPage() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Coluna Esquerda - Importadores */}
           <div className="lg:col-span-1 space-y-6">
-            <div className="bg-white p-6 rounded-lg shadow-sm border">
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <Activity className="w-5 h-5 text-teal-600" />
-                Importar XML
-              </h2>
+            {laudoEhPressao ? (
+              <div className="bg-white p-6 rounded-lg shadow-sm border space-y-4">
+                <h2 className="text-lg font-semibold mb-2 flex items-center gap-2">
+                  <Heart className="w-5 h-5 text-teal-600" />
+                  Fluxo de PA
+                </h2>
 
-              {mensagemSucesso && (
-                <div className="mb-4 p-3 bg-green-100 border border-green-300 text-green-800 rounded-lg text-sm">
-                  {mensagemSucesso}
+                {mensagemSucesso && (
+                  <div className="p-3 bg-green-100 border border-green-300 text-green-800 rounded-lg text-sm">
+                    {mensagemSucesso}
+                  </div>
+                )}
+
+                <div className="rounded-lg border border-teal-100 bg-teal-50 p-4 text-sm text-teal-900">
+                  Este laudo esta configurado como exame dedicado de pressao arterial. A aba de pressao concentra o que voce precisa revisar.
                 </div>
-              )}
-
-              <XmlUploader onDadosImportados={handleDadosImportados} />
-
-              <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-                <p className="text-sm text-blue-800">
-                  <strong>Dica:</strong> Arraste o arquivo XML exportado do aparelho de ecocardiograma para preencher automaticamente os dados e medidas.
-                </p>
               </div>
-            </div>
+            ) : (
+              <>
+                <div className="bg-white p-6 rounded-lg shadow-sm border">
+                  <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-teal-600" />
+                    Importar XML
+                  </h2>
 
-            <div className="bg-white p-6 rounded-lg shadow-sm border">
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <ImageIcon className="w-5 h-5 text-teal-600" />
-                Importar Cabecalho (Imagem)
-              </h2>
+                  {mensagemSucesso && (
+                    <div className="mb-4 p-3 bg-green-100 border border-green-300 text-green-800 rounded-lg text-sm">
+                      {mensagemSucesso}
+                    </div>
+                  )}
 
-              <ImageHeaderUploader onDadosImportados={handleDadosImportados} />
+                  <XmlUploader onDadosImportados={handleDadosImportados} />
 
-              <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-                <p className="text-sm text-blue-800">
-                  <strong>Dica:</strong> Envie a imagem gerada pelo equipamento para preencher automaticamente os campos de cabecalho.
-                </p>
-              </div>
-            </div>
+                  <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                    <p className="text-sm text-blue-800">
+                      <strong>Dica:</strong> Arraste o arquivo XML exportado do aparelho de ecocardiograma para preencher automaticamente os dados e medidas.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-lg shadow-sm border">
+                  <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <ImageIcon className="w-5 h-5 text-teal-600" />
+                    Importar Cabecalho (Imagem)
+                  </h2>
+
+                  <ImageHeaderUploader onDadosImportados={handleDadosImportados} />
+
+                  <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                    <p className="text-sm text-blue-800">
+                      <strong>Dica:</strong> Envie a imagem gerada pelo equipamento para preencher automaticamente os campos de cabecalho.
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Coluna Direita - Abas */}
@@ -1056,6 +1086,17 @@ export default function EditarLaudoPage() {
                 >
                   <User className="w-4 h-4" />
                   Paciente
+                </button>
+                <button
+                  onClick={() => setAba("pressao")}
+                  className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
+                    aba === "pressao"
+                      ? "text-teal-600 border-b-2 border-teal-600"
+                      : "text-gray-600 hover:text-gray-800"
+                  }`}
+                >
+                  <Heart className="w-4 h-4" />
+                  Pressao
                 </button>
                 <button
                   onClick={() => setAba("medidas")}
@@ -1100,17 +1141,6 @@ export default function EditarLaudoPage() {
                 >
                   <ImageIcon className="w-4 h-4" />
                   Imagens
-                </button>
-                <button
-                  onClick={() => setAba("pressao")}
-                  className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
-                    aba === "pressao"
-                      ? "text-teal-600 border-b-2 border-teal-600"
-                      : "text-gray-600 hover:text-gray-800"
-                  }`}
-                >
-                  <Heart className="w-4 h-4" />
-                  PressÃ£o
                 </button>
                 <button
                   onClick={() => setAba("referencias")}

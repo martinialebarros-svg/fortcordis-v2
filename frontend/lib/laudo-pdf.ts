@@ -111,3 +111,13 @@ export async function baixarLaudoPdf(
     await downloadSynchronously(laudoId, fallbackFilename);
   }
 }
+
+export async function baixarLaudoPdfOriginal(
+  laudoId: number,
+  fallbackFilename: string,
+): Promise<void> {
+  const response = await fetch(`/api/v1/laudos/${laudoId}/pdf-original`, {
+    credentials: "include",
+  });
+  await triggerBrowserDownload(response, fallbackFilename);
+}

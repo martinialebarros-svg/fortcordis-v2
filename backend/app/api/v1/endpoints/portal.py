@@ -5,10 +5,11 @@ import json
 import logging
 import re
 import secrets
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Iterable, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -20,6 +21,11 @@ from app.core.portal_security import (
     create_portal_session_token,
     get_current_portal_download_token,
     get_current_portal_session,
+)
+from app.core.portal_release import (
+    PORTAL_RELEASED_EXAM_STATUSES,
+    PORTAL_RELEASED_LAUDO_STATUSES,
+    is_portal_released_status,
 )
 from app.db.database import get_db
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
@@ -379,6 +385,23 @@ def _assert_clinica_scope_for_exam(
         raise HTTPException(status_code=403, detail="Sessao do portal sem acesso a este exame.")
 
 
+def _portal_exam_release_filter():
+    return or_(
+        Exame.status.in_(PORTAL_RELEASED_EXAM_STATUSES),
+        Laudo.status.in_(PORTAL_RELEASED_LAUDO_STATUSES),
+    )
+
+
+def _is_exam_released_to_portal(exam: Exame, laudos_map: dict[int, Laudo]) -> bool:
+    if is_portal_released_status(exam.status):
+        return True
+    if exam.laudo_id:
+        laudo = laudos_map.get(exam.laudo_id)
+        if laudo and is_portal_released_status(laudo.status, kind="laudo"):
+            return True
+    return False
+
+
 def _serialize_exam_attachment(anexo: AnexoAtendimento) -> PortalExamAttachmentResponse:
     return PortalExamAttachmentResponse(
         anexo_id=anexo.id,
@@ -392,16 +415,23 @@ def _serialize_exam_attachment(anexo: AnexoAtendimento) -> PortalExamAttachmentR
 def _build_exam_summary(
     exam: Exame,
     attachments: list[AnexoAtendimento],
+    paciente: Paciente | None = None,
+    tutor: Tutor | None = None,
+    laudo: Laudo | None = None,
 ) -> PortalExamSummaryResponse:
     return PortalExamSummaryResponse(
         id=exam.id,
         paciente_id=exam.paciente_id,
+        paciente_nome=getattr(paciente, "nome", None),
+        tutor_nome=getattr(tutor, "nome", None),
+        especie=getattr(paciente, "especie", None),
         atendimento_id=exam.atendimento_id,
         laudo_id=exam.laudo_id,
         tipo_exame=exam.tipo_exame,
         categoria_exame=exam.categoria_exame,
         prioridade=exam.prioridade,
         status=exam.status,
+        data_exame=laudo.data_exame.isoformat() if laudo and laudo.data_exame else None,
         data_solicitacao=exam.data_solicitacao.isoformat() if exam.data_solicitacao else None,
         data_resultado=exam.data_resultado.isoformat() if exam.data_resultado else None,
         observacoes=exam.observacoes,
@@ -428,6 +458,8 @@ def _assert_portal_exam_access(
     atendimentos_map: dict[int, AtendimentoClinico],
     laudos_map: dict[int, Laudo],
 ) -> None:
+    if not _is_exam_released_to_portal(exam, laudos_map):
+        raise HTTPException(status_code=403, detail="Exame nao liberado no portal.")
     if session.actor_type == "tutor":
         _assert_tutor_scope(db, session, exam.paciente_id)
         return
@@ -435,6 +467,58 @@ def _assert_portal_exam_access(
         _assert_clinica_scope_for_exam(session, exam, atendimentos_map, laudos_map)
         return
     raise HTTPException(status_code=403, detail="Sessao do portal sem escopo reconhecido.")
+
+
+def _date_start(value: date) -> datetime:
+    return datetime.combine(value, datetime.min.time())
+
+
+def _date_end_exclusive(value: date) -> datetime:
+    return _date_start(value) + timedelta(days=1)
+
+
+def _portal_exam_date_expression():
+    return func.coalesce(Laudo.data_exame, Exame.data_solicitacao, Exame.data_resultado)
+
+
+def _portal_exam_sort_expression(sort_by: str):
+    data_expr = _portal_exam_date_expression()
+    mapping = {
+        "data": data_expr,
+        "tipo_exame": func.lower(func.coalesce(Exame.tipo_exame, "")),
+        "especie": func.lower(func.coalesce(Paciente.especie, "")),
+        "pet": func.lower(func.coalesce(Paciente.nome, "")),
+        "tutor": func.lower(func.coalesce(Tutor.nome, "")),
+        "status": func.lower(func.coalesce(Exame.status, "")),
+    }
+    return mapping.get(sort_by, data_expr)
+
+
+def _load_exam_related_maps(
+    db: Session,
+    exams: list[Exame],
+) -> tuple[dict[int, list[AnexoAtendimento]], dict[int, Paciente], dict[int, Tutor], dict[int, Laudo]]:
+    exam_ids = [exam.id for exam in exams]
+    attachments: list[AnexoAtendimento] = []
+    if exam_ids:
+        attachments = (
+            db.query(AnexoAtendimento)
+            .filter(AnexoAtendimento.exame_id.in_(exam_ids))
+            .order_by(AnexoAtendimento.created_at.desc(), AnexoAtendimento.id.desc())
+            .all()
+        )
+    attachments_by_exam: dict[int, list[AnexoAtendimento]] = {}
+    for attachment in attachments:
+        attachments_by_exam.setdefault(int(attachment.exame_id or 0), []).append(attachment)
+
+    pacientes_map = _load_map(db, Paciente, [exam.paciente_id for exam in exams])
+    tutores_map = _load_map(
+        db,
+        Tutor,
+        [paciente.tutor_id for paciente in pacientes_map.values() if paciente and paciente.tutor_id],
+    )
+    laudos_map = _load_map(db, Laudo, [exam.laudo_id for exam in exams if exam.laudo_id])
+    return attachments_by_exam, pacientes_map, tutores_map, laudos_map
 
 
 @router.post("/tutores/sessao-link", response_model=PortalChallengeResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -521,6 +605,11 @@ def solicitar_sessao_clinica(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    if not settings.PORTAL_CLINIC_LEGACY_CODE_LOGIN_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Fluxo legado de codigo da clinica indisponivel.",
+        )
     challenge_id = _generate_challenge_id()
     debug_code = None
     clinica = _obter_clinica_ativa(db, payload.clinica_id)
@@ -651,6 +740,102 @@ def verificar_codigo_portal(
     return token_response
 
 
+@router.get("/clinicas/exames", response_model=PortalExamListResponse)
+def listar_exames_clinica_portal(
+    q: str | None = Query(default=None, max_length=120),
+    pet: str | None = Query(default=None, max_length=120),
+    tutor: str | None = Query(default=None, max_length=120),
+    especie: str | None = Query(default=None, max_length=80),
+    tipo_exame: str | None = Query(default=None, max_length=120),
+    status_exame: str | None = Query(default=None, max_length=80),
+    data_inicio: date | None = None,
+    data_fim: date | None = None,
+    sort_by: str = Query(default="data", pattern="^(data|tipo_exame|especie|pet|tutor|status)$"),
+    sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    portal_session: PortalSessionContext = Depends(get_current_portal_session),
+):
+    if portal_session.actor_type != "clinica" or portal_session.clinica_id is None:
+        raise HTTPException(status_code=403, detail="Sessao do portal sem acesso para clinica.")
+
+    clinica = _obter_clinica_ativa(db, portal_session.clinica_id)
+    if not clinica:
+        raise HTTPException(status_code=403, detail="Clinica sem acesso ativo ao portal.")
+
+    clinic_filter = or_(
+        AtendimentoClinico.clinica_id == portal_session.clinica_id,
+        Laudo.clinic_id == portal_session.clinica_id,
+    )
+    query = (
+        db.query(Exame)
+        .outerjoin(AtendimentoClinico, AtendimentoClinico.id == Exame.atendimento_id)
+        .outerjoin(Laudo, Laudo.id == Exame.laudo_id)
+        .join(Paciente, Paciente.id == Exame.paciente_id)
+        .outerjoin(Tutor, Tutor.id == Paciente.tutor_id)
+        .filter(clinic_filter)
+        .filter(_portal_exam_release_filter())
+    )
+
+    def _like(value: str) -> str:
+        return f"%{value.strip()}%"
+
+    if q and q.strip():
+        term = _like(q)
+        query = query.filter(
+            or_(
+                Paciente.nome.ilike(term),
+                Tutor.nome.ilike(term),
+                Exame.tipo_exame.ilike(term),
+                Exame.categoria_exame.ilike(term),
+            )
+        )
+    if pet and pet.strip():
+        query = query.filter(Paciente.nome.ilike(_like(pet)))
+    if tutor and tutor.strip():
+        query = query.filter(Tutor.nome.ilike(_like(tutor)))
+    if especie and especie.strip():
+        query = query.filter(Paciente.especie.ilike(_like(especie)))
+    if tipo_exame and tipo_exame.strip():
+        query = query.filter(Exame.tipo_exame.ilike(_like(tipo_exame)))
+    if status_exame and status_exame.strip():
+        query = query.filter(Exame.status.ilike(_like(status_exame)))
+    if data_inicio and data_fim and data_inicio > data_fim:
+        raise HTTPException(status_code=422, detail="data_inicio nao pode ser maior que data_fim.")
+
+    effective_data_fim = data_fim or data_inicio
+    date_expr = _portal_exam_date_expression()
+    if data_inicio:
+        query = query.filter(date_expr >= _date_start(data_inicio))
+    if effective_data_fim:
+        query = query.filter(date_expr < _date_end_exclusive(effective_data_fim))
+
+    total = query.count()
+    sort_expr = _portal_exam_sort_expression(sort_by)
+    primary_order = sort_expr.asc() if sort_dir == "asc" else sort_expr.desc()
+    exams = query.order_by(primary_order, Exame.id.desc()).offset(offset).limit(limit).all()
+
+    attachments_by_exam, pacientes_map, tutores_map, laudos_map = _load_exam_related_maps(db, exams)
+    items = [
+        _build_exam_summary(
+            exam,
+            attachments_by_exam.get(exam.id, []),
+            pacientes_map.get(exam.paciente_id),
+            tutores_map.get(getattr(pacientes_map.get(exam.paciente_id), "tutor_id", None)),
+            laudos_map.get(exam.laudo_id) if exam.laudo_id else None,
+        )
+        for exam in exams
+    ]
+
+    return PortalExamListResponse(
+        total=total,
+        clinica_id=clinica.id,
+        clinica_nome=clinica.nome,
+        items=items,
+    )
+
+
 @router.get("/pets/{paciente_id}/exames", response_model=PortalExamListResponse)
 def listar_exames_pet_portal(
     paciente_id: int,
@@ -662,26 +847,15 @@ def listar_exames_pet_portal(
 
     exams = (
         db.query(Exame)
+        .outerjoin(Laudo, Laudo.id == Exame.laudo_id)
         .filter(Exame.paciente_id == paciente_id)
-        .order_by(Exame.data_resultado.desc(), Exame.id.desc())
+        .filter(_portal_exam_release_filter())
+        .order_by(_portal_exam_date_expression().desc(), Exame.id.desc())
         .all()
     )
 
-    exam_ids = [exam.id for exam in exams]
-    attachments = []
-    if exam_ids:
-        attachments = (
-            db.query(AnexoAtendimento)
-            .filter(AnexoAtendimento.exame_id.in_(exam_ids))
-            .order_by(AnexoAtendimento.created_at.desc(), AnexoAtendimento.id.desc())
-            .all()
-        )
-    attachments_by_exam: dict[int, list[AnexoAtendimento]] = {}
-    for attachment in attachments:
-        attachments_by_exam.setdefault(int(attachment.exame_id or 0), []).append(attachment)
-
+    attachments_by_exam, pacientes_map, tutores_map, laudos_map = _load_exam_related_maps(db, exams)
     atendimentos_map = _load_map(db, AtendimentoClinico, [exam.atendimento_id for exam in exams if exam.atendimento_id])
-    laudos_map = _load_map(db, Laudo, [exam.laudo_id for exam in exams if exam.laudo_id])
 
     items: list[PortalExamSummaryResponse] = []
     for exam in exams:
@@ -690,9 +864,19 @@ def listar_exames_pet_portal(
                 _assert_clinica_scope_for_exam(portal_session, exam, atendimentos_map, laudos_map)
             except HTTPException:
                 continue
-        items.append(_build_exam_summary(exam, attachments_by_exam.get(exam.id, [])))
+        paciente = pacientes_map.get(exam.paciente_id)
+        tutor = tutores_map.get(getattr(paciente, "tutor_id", None))
+        items.append(
+            _build_exam_summary(
+                exam,
+                attachments_by_exam.get(exam.id, []),
+                paciente,
+                tutor,
+                laudos_map.get(exam.laudo_id) if exam.laudo_id else None,
+            )
+        )
 
-    return PortalExamListResponse(total=len(items), items=items)
+    return PortalExamListResponse(total=len(items), clinica_id=portal_session.clinica_id, items=items)
 
 
 @router.post("/exames/{exame_id}/download-url", response_model=PortalDownloadUrlResponse)

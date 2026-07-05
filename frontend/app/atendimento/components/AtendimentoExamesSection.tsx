@@ -370,7 +370,6 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
           const uploadDraft = examUploadDrafts[index] || null;
           const dropAtivo = examDropActive[index] || false;
           const flowMeta = EXAME_STATUS_META[flowStatus];
-
           return (
             <div key={`${index}-${exame.id || "novo"}`} className={`rounded-[22px] border p-4 ${flowMeta.cardClass}`}>
               <div className="flex flex-col gap-3">
