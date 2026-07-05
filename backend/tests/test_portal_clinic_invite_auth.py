@@ -25,6 +25,7 @@ os.environ.setdefault("SECRET_KEY", "portal-clinic-invite-auth-test-secret-key-1
 from app.api.v1.endpoints import portal
 from app.api.v1.endpoints import portal_clinic_auth
 from app.core.config import settings
+from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.db.database import get_db
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
 from app.models.clinica import Clinica
@@ -177,7 +178,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                 tipo_exame="Ecocardiograma",
                 categoria_exame="Cardiologia",
                 prioridade="Rotina",
-                status="Concluido",
+                status=PORTAL_RELEASED_STATUS,
                 data_solicitacao=datetime(2026, 7, 3, 9, 0),
                 data_resultado=datetime(2026, 7, 3, 10, 0),
                 observacoes="Exame liberado para portal.",

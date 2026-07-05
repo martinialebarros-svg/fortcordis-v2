@@ -58,7 +58,7 @@ Implementar o primeiro controle operacional de publicacao de laudos no portal. A
 - CA-001: liberar um laudo com clinica cria ou atualiza exame com status `Liberado no portal`.
 - CA-002: liberar laudo sem clinica retorna erro 422 e nao cria exame.
 - CA-003: portal do tutor lista apenas exames liberados para o pet escopado.
-- CA-004: portal da clinica lista apenas exames liberados dentro da propria unidade.
+- CA-004: portal da clinica lista apenas exames liberados dentro da propria unidade, incluindo o fluxo de conta ativada por convite.
 - CA-005: download-url do portal nega exame nao liberado.
 - CA-006: tela de laudos permite acionar a liberacao e atualiza o status exibido.
 - CA-007: tela de visualizacao de laudo exibe estado liberado e bloqueia nova liberacao.
