@@ -369,15 +369,14 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
   - fluxo atual de clinica por codigo temporario pode coexistir temporariamente enquanto a migracao por convite e concluida
 
 - Feature flag:
-  - `PORTAL_CLINIC_INVITE_AUTH_ENABLED`
-  - `PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED`
-  - `PORTAL_CLINIC_LEGACY_CODE_LOGIN_ENABLED`
+  - `PORTAL_CLINIC_INVITE_AUTH_ENABLED` e `PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED` permanecem disponiveis para override por ambiente, mas o default do backend passa a ser `true` para evitar producao com UI liberada e endpoints novos desligados por ausencia de chave no `.env`.
+  - `PORTAL_CLINIC_LEGACY_CODE_LOGIN_ENABLED` permanece `true` para convivencia e rollback operacional.
 
 - Estrategia de rollout:
   - fase 1: disponibilizar geracao de convite e ativacao para clinicas piloto, mantendo login legado por codigo
   - fase 2: ativar login por email+senha para clinicas piloto e validar operacao diaria
   - fase 3: habilitar sessao estendida de 8 horas e MFA contextual
-  - fase 4: migrar novas clinicas apenas para convite e descontinuar gradualmente o login legado por codigo
+  - fase 4: liberar producao com o novo fluxo habilitado por padrao e convivio temporario com o login legado por codigo
 
 - Estrategia de rollback:
   - desabilitar `PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED`

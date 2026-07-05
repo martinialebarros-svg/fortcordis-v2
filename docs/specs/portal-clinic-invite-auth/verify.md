@@ -1,8 +1,8 @@
 # Verify - portal-clinic-invite-auth
 
-Data: 2026-07-03
+Data: 2026-07-05
 Responsavel: Equipe FortCordis
-Status: in-progress
+Status: done
 
 ## 1) Matriz de rastreabilidade
 
@@ -82,6 +82,17 @@ cd frontend && npx eslint \
   --max-warnings=0
 
 cd frontend && npm run build
+
+cd backend && venv/bin/python -m py_compile \
+  app/core/config.py \
+  app/api/v1/endpoints/portal.py \
+  app/api/v1/endpoints/portal_clinic_auth.py \
+  app/services/portal_clinic_auth_service.py
+
+cd backend && venv/bin/python -m unittest \
+  tests.test_portal_clinic_invite_auth \
+  tests.test_portal_access_foundation \
+  tests.test_portal_delivery_service
 ```
 
 Resumo dos resultados:
@@ -101,8 +112,12 @@ Resumo dos resultados:
   - `https://stage.fortcordis.com.br/clinica-parceira`: 200 OK.
   - `https://stage.fortcordis.com.br/clinica-parceira/ativar/teste`: 200 OK.
   - Copy da pagina de ativacao revisada para remover a etapa antiga de codigo no primeiro acesso.
+- Rollout prod:
+  - o teste manual em producao expôs `404 Fluxo de convite da clinica indisponivel.` ao gerar convite no admin, indicando ausencia de `PORTAL_CLINIC_INVITE_AUTH_ENABLED` e `PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED` no `.env` prod apesar da UI ja estar publicada.
+  - `backend/app/core/config.py` passou a usar default `true` para ambos os flags, preservando override explicito por ambiente e evitando regressao silenciosa em novos deploys.
+  - `venv/bin/python -m unittest tests.test_portal_clinic_invite_auth tests.test_portal_access_foundation tests.test_portal_delivery_service`: 15/15 pass apos o ajuste dos defaults.
 
-## 3) Testes manuais sugeridos (stage)
+## 3) Testes manuais sugeridos
 
 - Cenario 1: admin abre cadastro da clinica, gera convite, copia a mensagem contextual com link e envia pelo WhatsApp institucional.
 - Cenario 2: clinica abre `/clinica-parceira/ativar/[token]`, confere o email institucional, cadastra responsavel/senha e cai direto no portal.
@@ -118,11 +133,11 @@ Resumo dos resultados:
 ## 4) Regressao e riscos residuais
 
 - Risco residual 1: o smoke HTTP legado precisou de stub temporario para `app.services.cnpj_consulta`, porque existe uma exclusao fora do escopo atual no worktree que impede importar `app.main` sem esse modulo.
-- Risco residual 2: ainda nao houve QA manual em stage com provider real de email + clinica piloto.
+- Risco residual 2: ainda nao houve QA manual completa em producao com clinica piloto ativando conta, saindo e entrando novamente por email/senha.
 - Risco residual 3: o link bruto de ativacao fica disponivel apenas na resposta de criacao do convite; depois disso a operacao depende do link copiado ou de gerar um novo convite.
 
 ## 5) Decisao de release
 
 - [x] Aprovado para stage.
-- [ ] Aprovado para producao.
+- [x] Aprovado para producao.
 - [ ] Nao aprovado.
