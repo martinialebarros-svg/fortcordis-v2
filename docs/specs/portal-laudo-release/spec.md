@@ -19,10 +19,13 @@ Implementar o primeiro controle operacional de publicacao de laudos no portal. A
 - RF-007: quando houver atendimento clinico associado ao exame/laudo, o anexo deve preservar esse `atendimento_id`; quando nao houver, o portal deve depender do vinculo por `exame_id`/`laudo_id`.
 - RF-008: a resposta da liberacao deve retornar tambem `anexo_id`, `pdf_nome` e `pdf_tamanho`.
 - RF-009: a listagem do portal da clinica deve retornar apenas exames com status de portal liberado ou laudo vinculado com status de portal liberado.
-- RF-010: a listagem do portal do tutor deve seguir a mesma regra de liberacao explicita.
-- RF-011: o endpoint de download do portal deve negar exame que ainda nao esteja liberado, mesmo que o solicitante conheca o ID.
-- RF-012: a tela `/laudos` deve exibir status `Liberado no portal` e oferecer botao para liberar laudos ainda nao publicados.
-- RF-013: a tela de visualizacao de laudo deve oferecer a mesma acao antes do download/impressao, para apoiar revisao final.
+- RF-010: filtros e ordenacao por data no portal devem usar a data operacional do exame, priorizando `Laudo.data_exame`, depois `Exame.data_solicitacao` e por ultimo `Exame.data_resultado`.
+- RF-011: quando a clinica informar apenas `data_inicio`, a busca deve tratar essa data como um dia unico; quando informar `data_inicio` e `data_fim`, deve buscar o periodo fechado selecionado.
+- RF-012: a listagem do portal do tutor deve seguir a mesma regra de liberacao explicita e ordenacao por data operacional.
+- RF-013: o endpoint de download do portal deve negar exame que ainda nao esteja liberado, mesmo que o solicitante conheca o ID.
+- RF-014: a tela `/laudos` deve exibir status `Liberado no portal` e oferecer botao para liberar laudos ainda nao publicados.
+- RF-015: a tela de visualizacao de laudo deve oferecer a mesma acao antes do download/impressao, para apoiar revisao final.
+- RF-016: no painel da clinica, ao selecionar a data inicial vazia, a data final deve ser preenchida automaticamente com a mesma data para orientar busca de dia unico.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -55,8 +58,11 @@ Implementar o primeiro controle operacional de publicacao de laudos no portal. A
 
 - `GET /api/v1/portal/clinicas/exames`
   - deve aplicar filtro de liberacao antes de filtros de busca/ordenacao.
+  - `data_inicio` sem `data_fim` deve filtrar somente o dia de `data_inicio`.
+  - `data_inicio` e `data_fim` devem filtrar intervalo fechado por data operacional do exame.
 - `GET /api/v1/portal/pets/{paciente_id}/exames`
   - deve aplicar filtro de liberacao antes de montar a resposta.
+  - deve ordenar por data operacional do exame.
 - `POST /api/v1/portal/exames/{exame_id}/download-url`
   - deve negar exame nao liberado.
 
@@ -71,6 +77,9 @@ Implementar o primeiro controle operacional de publicacao de laudos no portal. A
 - CA-007: download-url do portal nega exame nao liberado.
 - CA-008: tela de laudos permite acionar a liberacao e atualiza o status exibido.
 - CA-009: tela de visualizacao de laudo exibe estado liberado e bloqueia nova liberacao.
+- CA-010: filtro de data da clinica encontra laudos pela data de realizacao do exame, mesmo quando a liberacao ocorreu em outro dia.
+- CA-011: data inicial sem data final busca apenas aquele dia.
+- CA-012: painel da clinica preenche `Ate` com a mesma data ao escolher `De` vazio, permitindo alterar depois para periodo.
 
 ## 6) Fora de escopo
 

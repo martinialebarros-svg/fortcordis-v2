@@ -417,6 +417,7 @@ def _build_exam_summary(
     attachments: list[AnexoAtendimento],
     paciente: Paciente | None = None,
     tutor: Tutor | None = None,
+    laudo: Laudo | None = None,
 ) -> PortalExamSummaryResponse:
     return PortalExamSummaryResponse(
         id=exam.id,
@@ -430,6 +431,7 @@ def _build_exam_summary(
         categoria_exame=exam.categoria_exame,
         prioridade=exam.prioridade,
         status=exam.status,
+        data_exame=laudo.data_exame.isoformat() if laudo and laudo.data_exame else None,
         data_solicitacao=exam.data_solicitacao.isoformat() if exam.data_solicitacao else None,
         data_resultado=exam.data_resultado.isoformat() if exam.data_resultado else None,
         observacoes=exam.observacoes,
@@ -476,7 +478,7 @@ def _date_end_exclusive(value: date) -> datetime:
 
 
 def _portal_exam_date_expression():
-    return func.coalesce(Exame.data_resultado, Exame.data_solicitacao)
+    return func.coalesce(Laudo.data_exame, Exame.data_solicitacao, Exame.data_resultado)
 
 
 def _portal_exam_sort_expression(sort_by: str):
@@ -495,7 +497,7 @@ def _portal_exam_sort_expression(sort_by: str):
 def _load_exam_related_maps(
     db: Session,
     exams: list[Exame],
-) -> tuple[dict[int, list[AnexoAtendimento]], dict[int, Paciente], dict[int, Tutor]]:
+) -> tuple[dict[int, list[AnexoAtendimento]], dict[int, Paciente], dict[int, Tutor], dict[int, Laudo]]:
     exam_ids = [exam.id for exam in exams]
     attachments: list[AnexoAtendimento] = []
     if exam_ids:
@@ -515,7 +517,8 @@ def _load_exam_related_maps(
         Tutor,
         [paciente.tutor_id for paciente in pacientes_map.values() if paciente and paciente.tutor_id],
     )
-    return attachments_by_exam, pacientes_map, tutores_map
+    laudos_map = _load_map(db, Laudo, [exam.laudo_id for exam in exams if exam.laudo_id])
+    return attachments_by_exam, pacientes_map, tutores_map, laudos_map
 
 
 @router.post("/tutores/sessao-link", response_model=PortalChallengeResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -798,25 +801,29 @@ def listar_exames_clinica_portal(
         query = query.filter(Exame.tipo_exame.ilike(_like(tipo_exame)))
     if status_exame and status_exame.strip():
         query = query.filter(Exame.status.ilike(_like(status_exame)))
+    if data_inicio and data_fim and data_inicio > data_fim:
+        raise HTTPException(status_code=422, detail="data_inicio nao pode ser maior que data_fim.")
 
+    effective_data_fim = data_fim or data_inicio
     date_expr = _portal_exam_date_expression()
     if data_inicio:
         query = query.filter(date_expr >= _date_start(data_inicio))
-    if data_fim:
-        query = query.filter(date_expr < _date_end_exclusive(data_fim))
+    if effective_data_fim:
+        query = query.filter(date_expr < _date_end_exclusive(effective_data_fim))
 
     total = query.count()
     sort_expr = _portal_exam_sort_expression(sort_by)
     primary_order = sort_expr.asc() if sort_dir == "asc" else sort_expr.desc()
     exams = query.order_by(primary_order, Exame.id.desc()).offset(offset).limit(limit).all()
 
-    attachments_by_exam, pacientes_map, tutores_map = _load_exam_related_maps(db, exams)
+    attachments_by_exam, pacientes_map, tutores_map, laudos_map = _load_exam_related_maps(db, exams)
     items = [
         _build_exam_summary(
             exam,
             attachments_by_exam.get(exam.id, []),
             pacientes_map.get(exam.paciente_id),
             tutores_map.get(getattr(pacientes_map.get(exam.paciente_id), "tutor_id", None)),
+            laudos_map.get(exam.laudo_id) if exam.laudo_id else None,
         )
         for exam in exams
     ]
@@ -843,13 +850,12 @@ def listar_exames_pet_portal(
         .outerjoin(Laudo, Laudo.id == Exame.laudo_id)
         .filter(Exame.paciente_id == paciente_id)
         .filter(_portal_exam_release_filter())
-        .order_by(Exame.data_resultado.desc(), Exame.id.desc())
+        .order_by(_portal_exam_date_expression().desc(), Exame.id.desc())
         .all()
     )
 
-    attachments_by_exam, pacientes_map, tutores_map = _load_exam_related_maps(db, exams)
+    attachments_by_exam, pacientes_map, tutores_map, laudos_map = _load_exam_related_maps(db, exams)
     atendimentos_map = _load_map(db, AtendimentoClinico, [exam.atendimento_id for exam in exams if exam.atendimento_id])
-    laudos_map = _load_map(db, Laudo, [exam.laudo_id for exam in exams if exam.laudo_id])
 
     items: list[PortalExamSummaryResponse] = []
     for exam in exams:
@@ -860,7 +866,15 @@ def listar_exames_pet_portal(
                 continue
         paciente = pacientes_map.get(exam.paciente_id)
         tutor = tutores_map.get(getattr(paciente, "tutor_id", None))
-        items.append(_build_exam_summary(exam, attachments_by_exam.get(exam.id, []), paciente, tutor))
+        items.append(
+            _build_exam_summary(
+                exam,
+                attachments_by_exam.get(exam.id, []),
+                paciente,
+                tutor,
+                laudos_map.get(exam.laudo_id) if exam.laudo_id else None,
+            )
+        )
 
     return PortalExamListResponse(total=len(items), clinica_id=portal_session.clinica_id, items=items)
 

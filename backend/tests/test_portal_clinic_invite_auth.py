@@ -97,8 +97,9 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
             )
         )
 
-        self.assertIn("exames.data_resultado", compiled)
+        self.assertIn("laudos.data_exame", compiled)
         self.assertIn("exames.data_solicitacao", compiled)
+        self.assertIn("exames.data_resultado", compiled)
         self.assertNotIn("exames.created_at", compiled)
 
     def _seed_portal_data(self):

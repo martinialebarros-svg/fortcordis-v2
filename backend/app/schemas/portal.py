@@ -68,6 +68,7 @@ class PortalExamSummaryResponse(BaseModel):
     categoria_exame: Optional[str] = None
     prioridade: Optional[str] = None
     status: Optional[str] = None
+    data_exame: Optional[str] = None
     data_solicitacao: Optional[str] = None
     data_resultado: Optional[str] = None
     observacoes: Optional[str] = None

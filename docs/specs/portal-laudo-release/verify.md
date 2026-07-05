@@ -17,6 +17,9 @@ Status: in-progress
 | CA-007 | seguranca | `backend/app/api/v1/endpoints/portal.py::_assert_portal_exam_access` | ok |
 | CA-008 | frontend | `frontend/app/laudos/page.tsx` com botao de liberacao e status local atualizado | ok |
 | CA-009 | frontend | `frontend/app/laudos/[id]/page.tsx` com botao/estado `No portal` | ok |
+| CA-010 | aceitacao | `backend/tests/test_portal_access_foundation.py::test_clinica_date_filter_uses_exam_execution_date_not_release_date` | ok |
+| CA-011 | aceitacao | `backend/tests/test_portal_access_foundation.py::test_clinica_date_filter_uses_exam_execution_date_not_release_date` | ok |
+| CA-012 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx::handleStartDateChange` + eslint focado | ok |
 
 ## 2) Testes automatizados planejados
 
@@ -38,6 +41,9 @@ cd backend && venv/bin/python -m unittest \
 cd frontend && npx eslint \
   app/laudos/page.tsx \
   'app/laudos/[id]/page.tsx' \
+  components/portal/PortalClinicaWorkspace.tsx \
+  components/portal/PortalExamResults.tsx \
+  lib/portal-api.ts \
   --max-warnings=0
 
 cd frontend && npm run build
@@ -49,12 +55,16 @@ python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/stage --head-sha HEA
 Resultados executados:
 
 - `env PYTHONPYCACHEPREFIX=/private/tmp/fortcordis-pycache python3 -m py_compile backend/app/api/v1/endpoints/laudos.py backend/tests/test_laudo_portal_release.py`: ok.
+- `env PYTHONPYCACHEPREFIX=/private/tmp/fortcordis-pycache python3 -m py_compile backend/app/api/v1/endpoints/portal.py backend/app/schemas/portal.py backend/tests/test_portal_access_foundation.py backend/tests/test_portal_clinic_invite_auth.py`: ok.
 - `cd backend && venv/bin/python -m unittest tests/test_laudo_portal_release.py -v`: 3/3 pass.
 - `cd backend && venv/bin/python -m unittest tests/test_laudo_portal_release.py tests/test_portal_access_foundation.py -v`: 10/10 pass.
+- `cd backend && venv/bin/python -m unittest tests/test_portal_access_foundation.py tests/test_portal_clinic_invite_auth.py -v`: 12/12 pass.
+- `cd backend && venv/bin/python -m unittest tests/test_laudo_portal_release.py tests/test_portal_access_foundation.py tests/test_portal_clinic_invite_auth.py tests/test_portal_access_http_flow.py -v`: 18/18 pass.
 - `cd backend && venv/bin/python -m unittest tests/test_portal_clinic_invite_auth.py -v`: 4/4 pass.
 - `cd backend && venv/bin/python - <<'PY' ... unittest discover('tests') ... PY`: 260/260 pass, com stub temporario de `app.services.cnpj_consulta` por exclusao local fora do escopo.
 - `cd backend && venv/bin/python - <<'PY' ... tests.test_portal_access_http_flow ... PY`: 3/3 pass, com stub temporario de `app.services.cnpj_consulta` por exclusao local fora do escopo.
 - `cd frontend && npx eslint app/laudos/page.tsx 'app/laudos/[id]/page.tsx' --max-warnings=0`: ok.
+- `cd frontend && npx eslint components/portal/PortalClinicaWorkspace.tsx components/portal/PortalExamResults.tsx lib/portal-api.ts --max-warnings=0`: ok.
 - `cd frontend && npm run build`: ok.
 - `git diff --check`: ok.
 

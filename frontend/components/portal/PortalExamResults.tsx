@@ -55,11 +55,11 @@ export default function PortalExamResults({
             </div>
             <dl className="grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
               <div>
-                <dt className="font-semibold text-slate-900">Solicitado em</dt>
-                <dd>{formatPortalDateTime(exam.data_solicitacao)}</dd>
+                <dt className="font-semibold text-slate-900">Realizado em</dt>
+                <dd>{formatPortalDateTime(exam.data_exame || exam.data_solicitacao)}</dd>
               </div>
               <div>
-                <dt className="font-semibold text-slate-900">Resultado em</dt>
+                <dt className="font-semibold text-slate-900">Liberado em</dt>
                 <dd>{formatPortalDateTime(exam.data_resultado)}</dd>
               </div>
             </dl>

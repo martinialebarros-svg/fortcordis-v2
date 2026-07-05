@@ -140,6 +140,7 @@ export type PortalExamItem = {
   categoria_exame: string | null;
   prioridade: string | null;
   status: string | null;
+  data_exame: string | null;
   data_solicitacao: string | null;
   data_resultado: string | null;
   observacoes: string | null;

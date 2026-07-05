@@ -105,7 +105,7 @@ function normalizeClinicSession(payload: PortalClinicAuthResponse): PortalSessio
 }
 
 function examDateValue(exam: PortalExamItem): string | null {
-  return exam.data_resultado || exam.data_solicitacao || null;
+  return exam.data_exame || exam.data_solicitacao || exam.data_resultado || null;
 }
 
 function compactFilters(filters: ClinicExamFiltersState): PortalClinicExamFilters {
@@ -329,6 +329,14 @@ export default function PortalClinicaWorkspace() {
     setFilters((current) => ({
       ...current,
       [key]: value,
+    }));
+  }
+
+  function handleStartDateChange(value: string) {
+    setFilters((current) => ({
+      ...current,
+      data_inicio: value,
+      data_fim: !value || !current.data_fim || current.data_fim < value ? value : current.data_fim,
     }));
   }
 
@@ -571,7 +579,7 @@ export default function PortalClinicaWorkspace() {
                 <input
                   type="date"
                   value={filters.data_inicio}
-                  onChange={(event) => updateFilter("data_inicio", event.target.value)}
+                  onChange={(event) => handleStartDateChange(event.target.value)}
                   className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-500"
                 />
               </label>
