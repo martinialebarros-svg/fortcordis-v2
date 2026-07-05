@@ -6,7 +6,13 @@ import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import { getLaudoViewPath, TIPO_LAUDO_ULTRASSOM_ABDOMINAL } from "@/lib/laudos";
 import { baixarLaudoPdf } from "@/lib/laudo-pdf";
-import { ArrowLeft, FileText, Download, Edit, Printer } from "lucide-react";
+import { ArrowLeft, CheckCircle, FileText, Download, Edit, Printer, Send } from "lucide-react";
+
+const PORTAL_RELEASE_STATUS = "Liberado no portal";
+
+function isPortalReleased(status?: string) {
+  return status === PORTAL_RELEASE_STATUS;
+}
 
 interface Paciente {
   id: number;
@@ -33,6 +39,7 @@ interface Laudo {
   data_laudo: string;
   data_exame?: string;
   clinica?: string;
+  clinic_id?: number | null;
   criado_por_nome: string;
 }
 
@@ -45,6 +52,7 @@ export default function VisualizarLaudoPage() {
   const [paciente, setPaciente] = useState<Paciente | null>(null);
   const [medidas, setMedidas] = useState<Record<string, string>>({});
   const [qualitativa, setQualitativa] = useState<Record<string, string>>({});
+  const [liberandoPortal, setLiberandoPortal] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -156,6 +164,33 @@ export default function VisualizarLaudoPage() {
     window.print();
   };
 
+  const liberarNoPortalClinica = async () => {
+    if (!laudo || !laudoId || isPortalReleased(laudo.status)) {
+      return;
+    }
+    if (!laudo.clinic_id) {
+      alert("Vincule uma clinica ao laudo antes de liberar no portal.");
+      return;
+    }
+    if (!confirm("Liberar este laudo para o portal da clinica parceira?")) {
+      return;
+    }
+
+    setLiberandoPortal(true);
+    try {
+      const response = await api.post(`/laudos/${laudoId}/portal/liberar-clinica`);
+      setLaudo((current) =>
+        current ? { ...current, status: response.data?.status || PORTAL_RELEASE_STATUS } : current
+      );
+      alert("Laudo liberado no portal da clinica parceira.");
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      alert(detail || "Erro ao liberar laudo no portal. Tente novamente.");
+    } finally {
+      setLiberandoPortal(false);
+    }
+  };
+
   if (loading) {
     return (
       <DashboardLayout>
@@ -200,6 +235,31 @@ export default function VisualizarLaudoPage() {
           </div>
 
           <div className="flex gap-2">
+            <button
+              onClick={liberarNoPortalClinica}
+              disabled={liberandoPortal || isPortalReleased(laudo.status)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors disabled:cursor-not-allowed ${
+                isPortalReleased(laudo.status)
+                  ? "bg-teal-100 text-teal-800"
+                  : "bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60"
+              }`}
+              title={
+                isPortalReleased(laudo.status)
+                  ? "Laudo ja liberado no portal"
+                  : "Liberar no portal da clinica"
+              }
+            >
+              {isPortalReleased(laudo.status) ? (
+                <CheckCircle className="w-4 h-4" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
+              {isPortalReleased(laudo.status)
+                ? "No portal"
+                : liberandoPortal
+                  ? "Liberando..."
+                  : "Liberar portal"}
+            </button>
             <button
               onClick={downloadPDF}
               className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
@@ -286,7 +346,10 @@ export default function VisualizarLaudoPage() {
 
           {/* Status */}
           <div className="mb-6">
-            <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${laudo.status === 'Finalizado'
+            <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
+              laudo.status === PORTAL_RELEASE_STATUS
+                ? 'bg-teal-100 text-teal-800'
+                : laudo.status === 'Finalizado'
                 ? 'bg-green-100 text-green-800'
                 : laudo.status === 'Rascunho'
                   ? 'bg-gray-100 text-gray-800'

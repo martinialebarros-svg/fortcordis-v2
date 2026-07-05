@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -11,9 +11,11 @@ import re
 import unicodedata
 
 from app.db.database import get_db
+from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.models.laudo import Laudo, Exame
 from app.models.user import User
 from app.core.security import get_current_user
+from app.services.auditoria_service import registrar_auditoria
 from app.services.laudo_pdf_jobs import (
     JOB_STATUS_COMPLETED,
     JOB_STATUS_PENDING,
@@ -34,6 +36,8 @@ router = APIRouter()
 
 
 _ANEXOS_UNSET = object()
+
+PORTAL_LAUDO_RELEASE_MESSAGE = "Laudo liberado no portal da clinica parceira."
 
 ULTRASSOM_ORGAOS_ABDOMINAIS = [
     ("figado", "Figado"),
@@ -112,6 +116,60 @@ def _parse_data_exame(value: Any) -> Optional[datetime]:
             except ValueError:
                 return None
     return None
+
+
+def _label_tipo_exame_portal(laudo: Laudo) -> str:
+    tipo = str(laudo.tipo or "").strip().lower()
+    labels = {
+        "ecocardiograma": "Ecocardiograma",
+        "pressao_arterial": "Pressao arterial",
+        "ultrassonografia_abdominal": "Ultrassonografia abdominal",
+    }
+    if tipo in labels:
+        return labels[tipo]
+    return str(laudo.titulo or laudo.tipo or "Laudo").strip() or "Laudo"
+
+
+def _sincronizar_exame_liberado_para_portal(
+    db: Session,
+    laudo: Laudo,
+    current_user: User,
+    released_at: datetime,
+) -> Exame:
+    exame = (
+        db.query(Exame)
+        .filter(Exame.laudo_id == laudo.id)
+        .order_by(Exame.id.desc())
+        .first()
+    )
+    if not exame:
+        exame = Exame(
+            laudo_id=laudo.id,
+            paciente_id=laudo.paciente_id,
+            tipo_exame=_label_tipo_exame_portal(laudo),
+            categoria_exame="Laudo",
+            prioridade="Rotina",
+            status=PORTAL_RELEASED_STATUS,
+            valor=0,
+            criado_por_id=getattr(current_user, "id", None),
+            criado_por_nome=getattr(current_user, "nome", None),
+        )
+        db.add(exame)
+
+    exame.laudo_id = laudo.id
+    exame.paciente_id = laudo.paciente_id
+    exame.tipo_exame = _label_tipo_exame_portal(laudo)
+    exame.categoria_exame = exame.categoria_exame or "Laudo"
+    exame.prioridade = exame.prioridade or "Rotina"
+    exame.status = PORTAL_RELEASED_STATUS
+    exame.data_solicitacao = laudo.data_exame or laudo.data_laudo or released_at
+    exame.data_resultado = released_at
+    exame.observacoes = PORTAL_LAUDO_RELEASE_MESSAGE
+    if not exame.criado_por_id:
+        exame.criado_por_id = getattr(current_user, "id", None)
+    if not exame.criado_por_nome:
+        exame.criado_por_nome = getattr(current_user, "nome", None)
+    return exame
 
 
 def _parse_filtro_data(value: Optional[str]) -> Optional[date]:
@@ -1479,8 +1537,67 @@ def deletar_laudo(
     # Remover o laudo
     db.delete(laudo)
     db.commit()
-    
+
     return {"message": "Laudo e imagens removidos com sucesso"}
+
+
+@router.post("/laudos/{laudo_id}/portal/liberar-clinica")
+def liberar_laudo_para_portal_clinica(
+    laudo_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Libera explicitamente um laudo para o portal da clinica parceira."""
+    laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
+    if not laudo:
+        raise HTTPException(status_code=404, detail="Laudo nao encontrado")
+    if not laudo.clinic_id:
+        raise HTTPException(
+            status_code=422,
+            detail="Vincule uma clinica ao laudo antes de liberar no portal.",
+        )
+    if not laudo.paciente_id:
+        raise HTTPException(
+            status_code=422,
+            detail="Vincule um paciente ao laudo antes de liberar no portal.",
+        )
+
+    released_at = datetime.utcnow()
+    laudo.status = PORTAL_RELEASED_STATUS
+    laudo.updated_at = released_at
+    exame = _sincronizar_exame_liberado_para_portal(db, laudo, current_user, released_at)
+
+    db.commit()
+    db.refresh(laudo)
+    db.refresh(exame)
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="laudos",
+        entidade="laudo",
+        acao="LAUDO_LIBERADO_PORTAL_CLINICA",
+        descricao="Laudo liberado para o portal da clinica parceira.",
+        entidade_id=laudo.id,
+        detalhes={
+            "laudo_id": laudo.id,
+            "exame_id": exame.id,
+            "paciente_id": laudo.paciente_id,
+            "clinic_id": laudo.clinic_id,
+            "status": laudo.status,
+        },
+        request=request,
+    )
+
+    return {
+        "message": "Laudo liberado no portal da clinica parceira.",
+        "laudo_id": laudo.id,
+        "exame_id": exame.id,
+        "paciente_id": laudo.paciente_id,
+        "clinic_id": laudo.clinic_id,
+        "status": laudo.status,
+        "released_at": released_at.isoformat(),
+    }
 
 
 @router.post("/laudos/{laudo_id}/pdf-jobs", response_model=dict)
@@ -1945,4 +2062,3 @@ def deletar_exame(
     db.commit()
     
     return {"message": "Exame removido com sucesso"}
-

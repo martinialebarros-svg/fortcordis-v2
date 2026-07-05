@@ -22,6 +22,11 @@ from app.core.portal_security import (
     get_current_portal_download_token,
     get_current_portal_session,
 )
+from app.core.portal_release import (
+    PORTAL_RELEASED_EXAM_STATUSES,
+    PORTAL_RELEASED_LAUDO_STATUSES,
+    is_portal_released_status,
+)
 from app.db.database import get_db
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
 from app.models.clinica import Clinica
@@ -380,6 +385,23 @@ def _assert_clinica_scope_for_exam(
         raise HTTPException(status_code=403, detail="Sessao do portal sem acesso a este exame.")
 
 
+def _portal_exam_release_filter():
+    return or_(
+        Exame.status.in_(PORTAL_RELEASED_EXAM_STATUSES),
+        Laudo.status.in_(PORTAL_RELEASED_LAUDO_STATUSES),
+    )
+
+
+def _is_exam_released_to_portal(exam: Exame, laudos_map: dict[int, Laudo]) -> bool:
+    if is_portal_released_status(exam.status):
+        return True
+    if exam.laudo_id:
+        laudo = laudos_map.get(exam.laudo_id)
+        if laudo and is_portal_released_status(laudo.status, kind="laudo"):
+            return True
+    return False
+
+
 def _serialize_exam_attachment(anexo: AnexoAtendimento) -> PortalExamAttachmentResponse:
     return PortalExamAttachmentResponse(
         anexo_id=anexo.id,
@@ -434,6 +456,8 @@ def _assert_portal_exam_access(
     atendimentos_map: dict[int, AtendimentoClinico],
     laudos_map: dict[int, Laudo],
 ) -> None:
+    if not _is_exam_released_to_portal(exam, laudos_map):
+        raise HTTPException(status_code=403, detail="Exame nao liberado no portal.")
     if session.actor_type == "tutor":
         _assert_tutor_scope(db, session, exam.paciente_id)
         return
@@ -748,6 +772,7 @@ def listar_exames_clinica_portal(
         .join(Paciente, Paciente.id == Exame.paciente_id)
         .outerjoin(Tutor, Tutor.id == Paciente.tutor_id)
         .filter(clinic_filter)
+        .filter(_portal_exam_release_filter())
     )
 
     def _like(value: str) -> str:
@@ -815,7 +840,9 @@ def listar_exames_pet_portal(
 
     exams = (
         db.query(Exame)
+        .outerjoin(Laudo, Laudo.id == Exame.laudo_id)
         .filter(Exame.paciente_id == paciente_id)
+        .filter(_portal_exam_release_filter())
         .order_by(Exame.data_resultado.desc(), Exame.id.desc())
         .all()
     )

@@ -26,9 +26,10 @@ from app.core.portal_security import (
     PortalSessionContext,
     decode_portal_session_token,
 )
+from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
 from app.models.clinica import Clinica
-from app.models.laudo import Exame
+from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
 from app.models.portal_access import PortalAccessChallenge
 from app.models.tutor import Tutor
@@ -74,6 +75,7 @@ class PortalAccessFoundationTest(unittest.TestCase):
             Paciente.__table__,
             Clinica.__table__,
             AtendimentoClinico.__table__,
+            Laudo.__table__,
             Exame.__table__,
             AnexoAtendimento.__table__,
             PortalAccessChallenge.__table__,
@@ -123,12 +125,26 @@ class PortalAccessFoundationTest(unittest.TestCase):
             tipo_exame="Ecocardiograma",
             categoria_exame="Cardiologia",
             prioridade="Rotina",
-            status="Concluido",
+            status=PORTAL_RELEASED_STATUS,
             data_solicitacao=datetime(2026, 6, 16, 9, 0),
             data_resultado=datetime(2026, 6, 16, 10, 0),
             observacoes="Exame liberado para portal.",
         )
         db.add(exame)
+        db.flush()
+
+        exame_interno = Exame(
+            atendimento_id=atendimento.id,
+            paciente_id=paciente.id,
+            tipo_exame="Eletrocardiograma",
+            categoria_exame="Cardiologia",
+            prioridade="Rotina",
+            status="Concluido",
+            data_solicitacao=datetime(2026, 6, 16, 9, 15),
+            data_resultado=datetime(2026, 6, 16, 10, 15),
+            observacoes="Exame concluido internamente, ainda nao liberado no portal.",
+        )
+        db.add(exame_interno)
         db.flush()
 
         file_path = Path(tmpdir.name) / "eco-luna.pdf"
@@ -343,6 +359,7 @@ class PortalAccessFoundationTest(unittest.TestCase):
                 portal_session=session,
             )
 
+            self.assertEqual(db.query(Exame).count(), 2)
             self.assertEqual(response.total, 1)
             self.assertEqual(response.items[0].paciente_id, paciente.id)
             self.assertEqual(len(response.items[0].anexos), 1)
