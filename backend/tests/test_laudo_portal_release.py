@@ -1,3 +1,5 @@
+import asyncio
+import io
 import os
 import sys
 import tempfile
@@ -10,6 +12,7 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from starlette.datastructures import Headers, UploadFile
 from starlette.requests import Request
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -39,6 +42,16 @@ def _make_request() -> Request:
         "http_version": "1.1",
     }
     return Request(scope)
+
+
+def _make_upload_file(filename: str, content_type: str, content: bytes) -> UploadFile:
+    headers = Headers({"content-type": content_type})
+    return UploadFile(
+        io.BytesIO(content),
+        filename=filename,
+        headers=headers,
+        size=len(content),
+    )
 
 
 class LaudoPortalReleaseTest(unittest.TestCase):
@@ -287,6 +300,201 @@ class LaudoPortalReleaseTest(unittest.TestCase):
             self.assertEqual(db.query(Exame).count(), 0)
             self.assertEqual(db.query(AnexoAtendimento).count(), 0)
             render_mock.assert_not_called()
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_substituir_pdf_eletrocardiograma_antes_da_liberacao_reaproveita_anexo(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            old_pdf_path = Path(tmpdir.name) / "eletro-antigo.pdf"
+            old_pdf_path.write_bytes(b"%PDF-1.4\neletro antigo\n")
+
+            laudo = Laudo(
+                paciente_id=182,
+                veterinario_id=7,
+                tipo=laudos.TIPO_LAUDO_ELETROCARDIOGRAMA,
+                titulo="Laudo de Eletrocardiograma - Luke",
+                status="Finalizado",
+                clinic_id=8,
+                data_exame=datetime(2026, 7, 5, 11, 0),
+                criado_por_id=7,
+                criado_por_nome="Dr. Martiniano",
+            )
+            db.add(laudo)
+            db.flush()
+
+            anexo = AnexoAtendimento(
+                atendimento_id=0,
+                exame_id=None,
+                tipo="documento",
+                descricao="PDF do eletrocardiograma.",
+                url="",
+                nome_original="eletro-antigo.pdf",
+                tamanho=old_pdf_path.stat().st_size,
+                mime_type="application/pdf",
+                arquivo_hash="oldhash",
+                dedupe_key=f"laudo:{laudo.id}|sha256:oldhash",
+                caminho_arquivo=str(old_pdf_path),
+                origem=laudos.ELETROCARDIOGRAMA_UPLOAD_ORIGIN,
+            )
+            db.add(anexo)
+            db.flush()
+            laudo.anexos = laudos._serializar_pdf_externo_laudo(
+                laudo.anexos,
+                {
+                    "anexo_id": anexo.id,
+                    "nome_original": anexo.nome_original,
+                    "mime_type": anexo.mime_type,
+                    "tamanho": anexo.tamanho,
+                    "arquivo_hash": anexo.arquivo_hash,
+                },
+            )
+            db.commit()
+            db.refresh(laudo)
+            db.refresh(anexo)
+
+            arquivo = _make_upload_file(
+                "eletro-correto.pdf",
+                "application/pdf",
+                b"%PDF-1.4\neletro correto\n",
+            )
+            current_user = SimpleNamespace(id=7, nome="Dr. Martiniano", email="vet@example.com")
+            with (
+                patch.object(laudos, "store_atendimento_attachment_file", side_effect=self._fake_store(tmpdir)),
+                patch.object(laudos, "registrar_auditoria", return_value=None) as audit_mock,
+            ):
+                response = asyncio.run(
+                    laudos.substituir_pdf_eletrocardiograma(
+                        laudo.id,
+                        request=_make_request(),
+                        arquivo=arquivo,
+                        db=db,
+                        current_user=current_user,
+                    )
+                )
+
+            db.refresh(laudo)
+            db.refresh(anexo)
+
+            self.assertEqual(response["laudo_id"], laudo.id)
+            self.assertEqual(response["anexo_id"], anexo.id)
+            self.assertFalse(response["liberado_no_portal"])
+            self.assertEqual(anexo.origem, laudos.ELETROCARDIOGRAMA_UPLOAD_ORIGIN)
+            self.assertEqual(anexo.exame_id, None)
+            self.assertEqual(anexo.nome_original, "eletro-correto.pdf")
+            self.assertEqual(anexo.url, f"/api/v1/atendimentos/anexos/{anexo.id}/arquivo")
+            self.assertFalse(old_pdf_path.exists())
+            self.assertIn("eletro-correto.pdf", anexo.caminho_arquivo)
+            audit_mock.assert_called_once()
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_substituir_pdf_eletrocardiograma_liberado_atualiza_portal(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            old_pdf_path = Path(tmpdir.name) / "eletro-portal-antigo.pdf"
+            old_pdf_path.write_bytes(b"%PDF-1.4\neletro portal antigo\n")
+
+            laudo = Laudo(
+                paciente_id=182,
+                veterinario_id=7,
+                tipo=laudos.TIPO_LAUDO_ELETROCARDIOGRAMA,
+                titulo="Laudo de Eletrocardiograma - Luke",
+                status=PORTAL_RELEASED_STATUS,
+                clinic_id=8,
+                data_exame=datetime(2026, 7, 5, 11, 0),
+                criado_por_id=7,
+                criado_por_nome="Dr. Martiniano",
+            )
+            db.add(laudo)
+            db.flush()
+
+            exame = Exame(
+                laudo_id=laudo.id,
+                atendimento_id=55,
+                paciente_id=laudo.paciente_id,
+                tipo_exame="Eletrocardiograma",
+                categoria_exame="Laudo",
+                prioridade="Rotina",
+                status=PORTAL_RELEASED_STATUS,
+                valor=0,
+            )
+            db.add(exame)
+            db.flush()
+
+            anexo = AnexoAtendimento(
+                atendimento_id=55,
+                exame_id=exame.id,
+                tipo="documento",
+                descricao="PDF do eletrocardiograma.",
+                url="",
+                nome_original="eletro-portal-antigo.pdf",
+                tamanho=old_pdf_path.stat().st_size,
+                mime_type="application/pdf",
+                arquivo_hash="portaloldhash",
+                dedupe_key=laudos.build_upload_dedupe_key(exame.id, "portaloldhash"),
+                caminho_arquivo=str(old_pdf_path),
+                origem=laudos.PORTAL_LAUDO_ATTACHMENT_ORIGIN,
+            )
+            db.add(anexo)
+            db.flush()
+            anexo.url = f"/api/v1/portal/anexos/{anexo.id}/arquivo"
+            laudo.anexos = laudos._serializar_pdf_externo_laudo(
+                laudo.anexos,
+                {
+                    "anexo_id": anexo.id,
+                    "nome_original": anexo.nome_original,
+                    "mime_type": anexo.mime_type,
+                    "tamanho": anexo.tamanho,
+                    "arquivo_hash": anexo.arquivo_hash,
+                },
+            )
+            db.commit()
+            db.refresh(laudo)
+            db.refresh(exame)
+            db.refresh(anexo)
+
+            arquivo = _make_upload_file(
+                "eletro-portal-correto.pdf",
+                "application/pdf",
+                b"%PDF-1.4\neletro portal correto\n",
+            )
+            current_user = SimpleNamespace(id=7, nome="Dr. Martiniano", email="vet@example.com")
+            with (
+                patch.object(laudos, "store_atendimento_attachment_file", side_effect=self._fake_store(tmpdir)),
+                patch.object(laudos, "registrar_auditoria", return_value=None) as audit_mock,
+            ):
+                response = asyncio.run(
+                    laudos.substituir_pdf_eletrocardiograma(
+                        laudo.id,
+                        request=_make_request(),
+                        arquivo=arquivo,
+                        db=db,
+                        current_user=current_user,
+                    )
+                )
+
+            db.refresh(laudo)
+            db.refresh(exame)
+            db.refresh(anexo)
+
+            self.assertEqual(response["laudo_id"], laudo.id)
+            self.assertEqual(response["anexo_id"], anexo.id)
+            self.assertTrue(response["liberado_no_portal"])
+            self.assertEqual(response["exame_id"], exame.id)
+            self.assertEqual(anexo.origem, laudos.PORTAL_LAUDO_ATTACHMENT_ORIGIN)
+            self.assertEqual(anexo.exame_id, exame.id)
+            self.assertEqual(anexo.atendimento_id, 55)
+            self.assertEqual(anexo.nome_original, "eletro-portal-correto.pdf")
+            self.assertEqual(anexo.url, f"/api/v1/portal/anexos/{anexo.id}/arquivo")
+            self.assertEqual(anexo.dedupe_key, laudos.build_upload_dedupe_key(exame.id, anexo.arquivo_hash))
+            self.assertFalse(old_pdf_path.exists())
+            self.assertIn("eletro-portal-correto.pdf", anexo.caminho_arquivo)
+            audit_mock.assert_called_once()
         finally:
             db.close()
             engine.dispose()

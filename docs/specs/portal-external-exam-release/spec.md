@@ -6,7 +6,7 @@ Status: ready-for-stage
 
 ## 1) Escopo funcional
 
-Permitir registrar em `Laudos` um eletrocardiograma cujo PDF final foi emitido fora do Fort Cordis. O usuario deve acessar o upload pelo dropdown `Laudar`, salvar o PDF como laudo finalizado e liberar o arquivo no portal da clinica parceira pela propria listagem/tela de `Laudos`, sem expor origem de software externo.
+Permitir registrar em `Laudos` um eletrocardiograma cujo PDF final foi emitido fora do Fort Cordis. O usuario deve acessar o upload pelo dropdown `Laudar`, salvar o PDF como laudo finalizado, corrigir o arquivo anexado quando necessario e liberar o arquivo no portal da clinica parceira pela propria listagem/tela de `Laudos`, sem expor origem de software externo.
 
 ## 2) Requisitos funcionais (RF)
 
@@ -19,6 +19,9 @@ Permitir registrar em `Laudos` um eletrocardiograma cujo PDF final foi emitido f
 - RF-007: a liberacao de eletrocardiograma deve reutilizar o PDF original enviado, e nao gerar outro PDF interno.
 - RF-008: a listagem atual do portal da clinica deve exibir o exame liberado e seus anexos baixaveis pelo escopo da unidade.
 - RF-009: a interface de atendimento nao deve exibir o botao de liberacao direta para esse fluxo.
+- RF-010: a tela do laudo de `Eletrocardiograma` deve permitir substituir o PDF anexado sem criar um novo laudo.
+- RF-011: quando o laudo de eletrocardiograma ja estiver liberado no portal, a substituicao deve atualizar o mesmo arquivo baixavel da clinica parceira.
+- RF-012: a substituicao do PDF deve registrar auditoria com metadados do arquivo anterior e do novo arquivo.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -54,6 +57,23 @@ Permitir registrar em `Laudos` um eletrocardiograma cujo PDF final foi emitido f
 - `GET /api/v1/laudos/{laudo_id}/pdf-original`
   - faz download do PDF externo anexado ao laudo.
 
+- `PUT /api/v1/laudos/{laudo_id}/eletrocardiograma/pdf`
+  - auth:
+    - token administrativo atual
+  - multipart:
+    - `arquivo`
+  - comportamento:
+    - substitui o PDF externo referenciado no laudo.
+    - se o laudo ja estiver liberado no portal, reutiliza o mesmo anexo/publicacao para a clinica.
+  - resposta:
+    - `laudo_id`
+    - `anexo_id`
+    - `exame_id`
+    - `status`
+    - `pdf_nome`
+    - `pdf_tamanho`
+    - `liberado_no_portal`
+
 - `POST /api/v1/laudos/{laudo_id}/portal/liberar-clinica`
   - deve reutilizar o PDF externo quando o laudo tiver `eletrocardiograma_pdf`.
 
@@ -71,7 +91,9 @@ Permitir registrar em `Laudos` um eletrocardiograma cujo PDF final foi emitido f
 - CA-003: `Laudos` baixa o PDF original do eletrocardiograma.
 - CA-004: liberacao pelo botao em `Laudos` publica exame `Eletrocardiograma` com o anexo original.
 - CA-005: card de exame do atendimento nao exibe mais acao direta de liberacao para portal.
-- CA-006: build/lint frontend e testes backend passam.
+- CA-006: a tela do laudo permite substituir o PDF do eletrocardiograma e manter o mesmo registro do laudo.
+- CA-007: se o laudo ja estiver no portal, a substituicao atualiza o arquivo baixavel da clinica sem criar outro laudo.
+- CA-008: build/lint frontend e testes backend passam.
 
 ## 6) Fora de escopo
 

@@ -10,7 +10,7 @@ import {
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
 import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
-import { ArrowLeft, CheckCircle, FileText, Download, Edit, Printer, Send } from "lucide-react";
+import { ArrowLeft, CheckCircle, Download, FileText, Loader2, Printer, Send, Upload } from "lucide-react";
 
 const PORTAL_RELEASE_STATUS = "Liberado no portal";
 
@@ -61,6 +61,9 @@ export default function VisualizarLaudoPage() {
   const [medidas, setMedidas] = useState<Record<string, string>>({});
   const [qualitativa, setQualitativa] = useState<Record<string, string>>({});
   const [liberandoPortal, setLiberandoPortal] = useState(false);
+  const [arquivoSubstituicao, setArquivoSubstituicao] = useState<File | null>(null);
+  const [substituindoPdf, setSubstituindoPdf] = useState(false);
+  const [fileInputKey, setFileInputKey] = useState(0);
   const laudoEhEletrocardiograma = laudo?.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA;
 
   useEffect(() => {
@@ -200,6 +203,61 @@ export default function VisualizarLaudoPage() {
       alert(detail || "Erro ao liberar laudo no portal. Tente novamente.");
     } finally {
       setLiberandoPortal(false);
+    }
+  };
+
+  const selecionarPdfSubstituto = (file: File | null) => {
+    if (!file) {
+      setArquivoSubstituicao(null);
+      return;
+    }
+
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (!isPdf) {
+      alert("Selecione um arquivo PDF.");
+      setArquivoSubstituicao(null);
+      setFileInputKey((current) => current + 1);
+      return;
+    }
+
+    setArquivoSubstituicao(file);
+  };
+
+  const substituirPdfEletrocardiograma = async () => {
+    if (!laudoId || !laudoEhEletrocardiograma) {
+      return;
+    }
+    if (!arquivoSubstituicao) {
+      alert("Selecione o novo PDF antes de substituir.");
+      return;
+    }
+
+    const confirmMessage = isPortalReleased(laudo?.status)
+      ? "Este laudo ja foi liberado no portal. Deseja trocar o PDF e atualizar imediatamente o arquivo baixavel da clinica parceira?"
+      : "Deseja substituir o PDF anexado a este laudo de eletrocardiograma?";
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("arquivo", arquivoSubstituicao);
+
+    setSubstituindoPdf(true);
+    try {
+      await api.put(`/laudos/${laudoId}/eletrocardiograma/pdf`, formData);
+      setArquivoSubstituicao(null);
+      setFileInputKey((current) => current + 1);
+      await carregarLaudo();
+      alert(
+        isPortalReleased(laudo?.status)
+          ? "PDF substituido e portal atualizado."
+          : "PDF substituido com sucesso.",
+      );
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      alert(detail || "Erro ao substituir PDF do eletrocardiograma.");
+    } finally {
+      setSubstituindoPdf(false);
     }
   };
 
@@ -379,6 +437,37 @@ export default function VisualizarLaudoPage() {
               <p className="mt-1">
                 Use o botao PDF para baixar o eletrocardiograma enviado. A liberacao para o portal da clinica fica no botao Liberar portal.
               </p>
+              <div className="mt-4 rounded-lg border border-teal-200 bg-white/70 p-4">
+                <p className="text-sm font-semibold text-slate-900">Trocar arquivo do eletrocardiograma</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  {laudo.pdf_externo?.nome_original
+                    ? `Arquivo atual: ${laudo.pdf_externo.nome_original}`
+                    : "Nenhum PDF externo encontrado para este laudo."}
+                </p>
+                <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center">
+                  <input
+                    key={fileInputKey}
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    onChange={(event) => selecionarPdfSubstituto(event.target.files?.[0] || null)}
+                    className="block w-full text-sm text-slate-700 file:mr-4 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-slate-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={substituirPdfEletrocardiograma}
+                    disabled={substituindoPdf || !arquivoSubstituicao}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {substituindoPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    {substituindoPdf ? "Substituindo..." : "Trocar PDF"}
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  {isPortalReleased(laudo.status)
+                    ? "Como este laudo ja esta no portal, a troca atualiza imediatamente o arquivo disponivel para a clinica parceira."
+                    : "A troca atualiza o PDF deste laudo sem criar um novo registro."}
+                </p>
+              </div>
             </div>
           )}
 

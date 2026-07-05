@@ -232,7 +232,12 @@ def _buscar_anexo_portal_laudo_existente(
     )
 
 
-def _buscar_anexo_pdf_externo_laudo(db: Session, laudo: Laudo) -> AnexoAtendimento | None:
+def _buscar_anexo_pdf_externo_laudo(
+    db: Session,
+    laudo: Laudo,
+    *,
+    require_existing_file: bool = True,
+) -> AnexoAtendimento | None:
     pdf_externo = _extrair_pdf_externo_laudo(laudo.anexos)
     if not pdf_externo:
         return None
@@ -242,9 +247,40 @@ def _buscar_anexo_pdf_externo_laudo(db: Session, laudo: Laudo) -> AnexoAtendimen
         return None
 
     anexo = db.query(AnexoAtendimento).filter(AnexoAtendimento.id == anexo_id).first()
-    if not anexo or not anexo.caminho_arquivo or not os.path.exists(anexo.caminho_arquivo):
+    if not anexo:
+        return None
+    if require_existing_file and (not anexo.caminho_arquivo or not os.path.exists(anexo.caminho_arquivo)):
         return None
     return anexo
+
+
+def _resolver_atendimento_id_para_anexo_laudo(
+    db: Session,
+    *,
+    laudo: Laudo,
+    anexo: AnexoAtendimento | None = None,
+    exame: Exame | None = None,
+) -> int:
+    if anexo and anexo.atendimento_id is not None:
+        return int(anexo.atendimento_id)
+
+    if exame and exame.atendimento_id is not None:
+        return int(exame.atendimento_id)
+
+    if laudo.agendamento_id and laudo.paciente_id:
+        atendimento = (
+            db.query(AtendimentoClinico)
+            .filter(
+                AtendimentoClinico.agendamento_id == laudo.agendamento_id,
+                AtendimentoClinico.paciente_id == laudo.paciente_id,
+            )
+            .order_by(AtendimentoClinico.id.desc())
+            .first()
+        )
+        if atendimento:
+            return int(atendimento.id)
+
+    return 0
 
 
 def _vincular_pdf_externo_ao_portal(
@@ -1220,6 +1256,169 @@ async def criar_laudo_eletrocardiograma_por_pdf(
         "agendamento_id": laudo.agendamento_id,
         "anexo_id": anexo.id,
         "message": "Laudo de eletrocardiograma criado com PDF anexado.",
+    }
+
+
+@router.put("/laudos/{laudo_id}/eletrocardiograma/pdf")
+async def substituir_pdf_eletrocardiograma(
+    laudo_id: int,
+    request: Request,
+    arquivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
+    if not laudo:
+        raise HTTPException(status_code=404, detail="Laudo nao encontrado.")
+
+    if (laudo.tipo or "").strip().lower() != TIPO_LAUDO_ELETROCARDIOGRAMA:
+        raise HTTPException(
+            status_code=422,
+            detail="A troca de PDF esta disponivel apenas para laudos de eletrocardiograma.",
+        )
+
+    content = await arquivo.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Arquivo vazio.")
+
+    anexo_existente = _buscar_anexo_pdf_externo_laudo(db, laudo, require_existing_file=False)
+    exame_portal = (
+        db.query(Exame)
+        .filter(Exame.laudo_id == laudo.id)
+        .order_by(Exame.id.desc())
+        .first()
+    )
+
+    released_to_portal = (
+        laudo.status == PORTAL_RELEASED_STATUS
+        or (anexo_existente and anexo_existente.origem == PORTAL_LAUDO_ATTACHMENT_ORIGIN)
+        or exame_portal is not None
+    )
+    if released_to_portal and not exame_portal:
+        exame_portal = _sincronizar_exame_liberado_para_portal(
+            db,
+            laudo,
+            current_user,
+            datetime.utcnow(),
+        )
+        db.flush()
+
+    atendimento_id_storage = _resolver_atendimento_id_para_anexo_laudo(
+        db,
+        laudo=laudo,
+        anexo=anexo_existente,
+        exame=exame_portal,
+    )
+
+    try:
+        storage_path, normalized_name, normalized_mime_type = store_atendimento_attachment_file(
+            atendimento_id_storage,
+            arquivo.filename,
+            content,
+            arquivo.content_type,
+        )
+    except AttachmentTooLargeError as exc:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(exc)) from exc
+    except AttachmentTypeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    arquivo_hash = calculate_attachment_sha256(content)
+    old_path = anexo_existente.caminho_arquivo if anexo_existente else None
+    old_nome = anexo_existente.nome_original if anexo_existente else None
+    old_hash = anexo_existente.arquivo_hash if anexo_existente else None
+
+    try:
+        anexo = anexo_existente or AnexoAtendimento(
+            atendimento_id=atendimento_id_storage,
+            exame_id=exame_portal.id if exame_portal else None,
+            tipo="documento",
+            descricao=ELETROCARDIOGRAMA_UPLOAD_ATTACHMENT_DESCRIPTION,
+            url="",
+            origem=ELETROCARDIOGRAMA_UPLOAD_ORIGIN,
+        )
+        if anexo_existente is None:
+            db.add(anexo)
+            db.flush()
+
+        anexo.atendimento_id = atendimento_id_storage
+        anexo.exame_id = exame_portal.id if exame_portal else None
+        anexo.tipo = "documento"
+        anexo.descricao = ELETROCARDIOGRAMA_UPLOAD_ATTACHMENT_DESCRIPTION
+        anexo.nome_original = normalized_name
+        anexo.tamanho = len(content)
+        anexo.mime_type = normalized_mime_type
+        anexo.arquivo_hash = arquivo_hash
+        anexo.caminho_arquivo = storage_path
+
+        if exame_portal is not None:
+            anexo.origem = PORTAL_LAUDO_ATTACHMENT_ORIGIN
+            anexo.dedupe_key = build_upload_dedupe_key(exame_portal.id, arquivo_hash)
+            anexo.url = f"/api/v1/portal/anexos/{anexo.id}/arquivo"
+        else:
+            anexo.origem = ELETROCARDIOGRAMA_UPLOAD_ORIGIN
+            anexo.dedupe_key = f"laudo:{laudo.id}|sha256:{arquivo_hash}"
+            anexo.url = f"/api/v1/atendimentos/anexos/{anexo.id}/arquivo"
+
+        laudo.anexos = _serializar_pdf_externo_laudo(
+            laudo.anexos,
+            {
+                "anexo_id": anexo.id,
+                "nome_original": normalized_name,
+                "mime_type": normalized_mime_type,
+                "tamanho": len(content),
+                "arquivo_hash": arquivo_hash,
+            },
+        )
+        laudo.updated_at = datetime.utcnow()
+
+        db.commit()
+        db.refresh(laudo)
+        db.refresh(anexo)
+        if exame_portal is not None:
+            db.refresh(exame_portal)
+    except Exception:
+        db.rollback()
+        remove_atendimento_attachment_file(storage_path)
+        raise
+
+    if old_path and old_path != storage_path:
+        remove_atendimento_attachment_file(old_path)
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="laudos",
+        entidade="laudo",
+        acao="LAUDO_ELETROCARDIOGRAMA_PDF_SUBSTITUIDO",
+        descricao="PDF do eletrocardiograma substituido no laudo.",
+        entidade_id=laudo.id,
+        detalhes={
+            "laudo_id": laudo.id,
+            "anexo_id": anexo.id,
+            "exame_id": exame_portal.id if exame_portal else None,
+            "paciente_id": laudo.paciente_id,
+            "clinic_id": laudo.clinic_id,
+            "status": laudo.status,
+            "liberado_no_portal": exame_portal is not None,
+            "pdf_nome_anterior": old_nome,
+            "pdf_hash_anterior": old_hash,
+            "pdf_nome_novo": anexo.nome_original,
+            "pdf_hash_novo": anexo.arquivo_hash,
+            "pdf_tamanho_novo": anexo.tamanho,
+        },
+        request=request,
+    )
+
+    return {
+        "message": "PDF do eletrocardiograma atualizado com sucesso.",
+        "laudo_id": laudo.id,
+        "anexo_id": anexo.id,
+        "exame_id": exame_portal.id if exame_portal else None,
+        "status": laudo.status,
+        "pdf_nome": anexo.nome_original,
+        "pdf_tamanho": anexo.tamanho,
+        "liberado_no_portal": exame_portal is not None,
     }
 
 

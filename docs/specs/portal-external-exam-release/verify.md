@@ -13,7 +13,9 @@ Status: ready-for-stage
 | CA-003 | frontend/backend | `baixarLaudoPdfOriginal` + `GET /api/v1/laudos/{laudo_id}/pdf-original` | ok |
 | CA-004 | aceitacao | `backend/tests/test_laudo_portal_release.py::test_liberar_eletrocardiograma_usa_pdf_externo_anexado` | ok |
 | CA-005 | frontend | `frontend/app/atendimento/components/AtendimentoExamesSection.tsx` sem botao direto | ok |
-| CA-006 | validacao | eslint/build/frontend + backend tests | ok |
+| CA-006 | frontend/backend | `frontend/app/laudos/[id]/page.tsx` + `PUT /api/v1/laudos/{laudo_id}/eletrocardiograma/pdf` | ok |
+| CA-007 | backend | `backend/tests/test_laudo_portal_release.py::test_substituir_pdf_eletrocardiograma_liberado_atualiza_portal` | ok |
+| CA-008 | validacao | eslint/build/frontend + backend tests | ok |
 
 ## 2) Testes automatizados planejados
 
@@ -53,6 +55,9 @@ Resultados executados:
 - `cd frontend && npx eslint app/agenda/page.tsx app/agenda/fullcalendar/page.tsx app/laudos/page.tsx app/laudos/[id]/page.tsx app/laudos/eletrocardiograma/upload/page.tsx app/atendimento/page.tsx app/atendimento/components/AtendimentoExamesSection.tsx --max-warnings=0`: ok.
 - `cd frontend && npm run build`: ok.
 - `git diff --check`: ok.
+- `env PYTHONPYCACHEPREFIX=/private/tmp/fortcordis-pycache python3 -m py_compile backend/app/api/v1/endpoints/laudos.py backend/tests/test_laudo_portal_release.py`: ok.
+- `cd backend && venv/bin/python -m unittest tests/test_laudo_portal_release.py -v`: 6/6 pass.
+- `cd frontend && npx eslint app/laudos/[id]/page.tsx --max-warnings=0`: ok.
 
 ## 3) Testes manuais sugeridos em stage
 
@@ -61,6 +66,8 @@ Resultados executados:
 - Cenario 3: baixar PDF em `Laudos` e confirmar que e o arquivo original enviado.
 - Cenario 4: clicar em `Liberar portal` no laudo de eletrocardiograma.
 - Cenario 5: entrar no portal da clinica e confirmar que o exame aparece como `Eletrocardiograma`.
+- Cenario 6: abrir o laudo de eletrocardiograma, selecionar outro PDF e clicar em `Trocar PDF`.
+- Cenario 7: repetir a troca depois de o laudo ja estar liberado no portal e confirmar que o download da clinica passou a servir o arquivo novo.
 
 ## 4) Riscos residuais
 
