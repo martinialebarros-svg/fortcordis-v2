@@ -12,6 +12,7 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import sessionmaker
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -86,6 +87,18 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                 db.close()
 
         return _get_db_override
+
+    def test_clinic_exam_date_sort_does_not_use_legacy_created_at(self) -> None:
+        compiled = str(
+            portal._portal_exam_sort_expression("data").compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+
+        self.assertIn("exames.data_resultado", compiled)
+        self.assertIn("exames.data_solicitacao", compiled)
+        self.assertNotIn("exames.created_at", compiled)
 
     def _seed_portal_data(self):
         db = self._session_factory()

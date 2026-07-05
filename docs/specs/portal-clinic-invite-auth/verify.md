@@ -22,6 +22,7 @@ Status: in-progress
 | CA-012 | seguranca | `test_invite_activation_autologin_refresh_and_exam_scope` valida que exame de outra unidade nao aparece no painel da clinica | ok |
 | CA-013 | auditoria | `frontend/lib/portal-datetime.ts` trata timestamp ISO sem timezone como UTC e exibe em `America/Fortaleza` | ok |
 | CA-014 | schema | `backend/migrations/versions/20260704_44_laudos_clinic_id_alignment.py` garante `laudos.clinic_id` para escopo por laudo no portal da clinica | ok |
+| CA-015 | schema | `test_clinic_exam_date_sort_does_not_use_legacy_created_at` evita `COALESCE` entre timestamp e `exames.created_at` textual em banco legado | ok |
 
 ## 2) Testes automatizados executados
 
@@ -86,7 +87,7 @@ cd frontend && npm run build
 Resumo dos resultados:
 - Backend:
   - `py_compile`: ok.
-  - `test_portal_clinic_invite_auth`: 3/3 pass, incluindo `GET /api/v1/portal/clinicas/exames` com filtros e bloqueio de exame de outra unidade.
+  - `test_portal_clinic_invite_auth`: inclui `GET /api/v1/portal/clinicas/exames` com filtros, bloqueio de exame de outra unidade e regressao da ordenacao por data sem `exames.created_at`.
   - `test_portal_clinic_invite_auth` + `test_portal_access_foundation` + `test_portal_delivery_service`: 13/13 pass.
   - `test_laudos_clinic_id_migration`: valida `laudos.clinic_id` e idempotencia da migracao de schema.
   - `test_portal_access_http_flow`: 3/3 pass.

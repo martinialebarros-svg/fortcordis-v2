@@ -259,6 +259,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
 
 - Compatibilidade de schema:
   - `laudos.clinic_id` deve existir para manter o escopo de exames por unidade quando o exame estiver associado a um laudo, com migracao idempotente para ambientes legados.
+  - a data operacional da listagem de exames da clinica deve usar `exames.data_resultado` e `exames.data_solicitacao`, sem depender de `exames.created_at`, pois ambientes legados podem manter esse campo como texto.
 
 - Campos principais sugeridos:
   - `portal_clinic_invites`

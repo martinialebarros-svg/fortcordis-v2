@@ -451,8 +451,12 @@ def _date_end_exclusive(value: date) -> datetime:
     return _date_start(value) + timedelta(days=1)
 
 
+def _portal_exam_date_expression():
+    return func.coalesce(Exame.data_resultado, Exame.data_solicitacao)
+
+
 def _portal_exam_sort_expression(sort_by: str):
-    data_expr = func.coalesce(Exame.data_resultado, Exame.data_solicitacao, Exame.created_at)
+    data_expr = _portal_exam_date_expression()
     mapping = {
         "data": data_expr,
         "tipo_exame": func.lower(func.coalesce(Exame.tipo_exame, "")),
@@ -770,7 +774,7 @@ def listar_exames_clinica_portal(
     if status_exame and status_exame.strip():
         query = query.filter(Exame.status.ilike(_like(status_exame)))
 
-    date_expr = func.coalesce(Exame.data_resultado, Exame.data_solicitacao, Exame.created_at)
+    date_expr = _portal_exam_date_expression()
     if data_inicio:
         query = query.filter(date_expr >= _date_start(data_inicio))
     if data_fim:
