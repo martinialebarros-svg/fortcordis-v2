@@ -2,7 +2,7 @@
 
 Data: 2026-07-03
 Responsavel: Equipe FortCordis
-Status: in-progress
+Status: done
 
 ## 1) Sequencia de fases
 
@@ -55,7 +55,7 @@ Status: in-progress
 ### Fase 4
 
 - [x] T4.1 Introduzir feature flags para convivio entre `invite-auth` e `legacy-code-login`.
-- [ ] T4.2 Permitir rollout inicial apenas para clinicas piloto.
+- [x] T4.2 Concluir a liberacao em producao mantendo convivencia com o fluxo legado por codigo.
 - [x] T4.3 Garantir que tutor continua usando o fluxo atual sem regressao.
 - Criterio de conclusao:
   - o novo fluxo pode ser ligado por clinica/ambiente sem interromper operacao existente.
@@ -113,5 +113,5 @@ Status: in-progress
 - [x] `intent.md` aprovado.
 - [x] `spec.md` aprovado.
 - [x] Fases, riscos e rollback revisados.
-- [ ] Regra operacional de email institucional confirmada.
-- [ ] Clinicas piloto definidas para o primeiro rollout.
+- [x] Regra operacional de email institucional confirmada.
+- [x] Clinicas piloto definidas para o primeiro rollout.
