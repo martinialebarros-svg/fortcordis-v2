@@ -12,10 +12,17 @@ import unicodedata
 
 from app.db.database import get_db
 from app.core.portal_release import PORTAL_RELEASED_STATUS
+from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
 from app.models.laudo import Laudo, Exame
 from app.models.user import User
 from app.core.security import get_current_user
 from app.services.auditoria_service import registrar_auditoria
+from app.services.atendimento_upload_service import (
+    build_upload_dedupe_key,
+    calculate_attachment_sha256,
+    remove_atendimento_attachment_file,
+    store_atendimento_attachment_file,
+)
 from app.services.laudo_pdf_jobs import (
     JOB_STATUS_COMPLETED,
     JOB_STATUS_PENDING,
@@ -38,6 +45,8 @@ router = APIRouter()
 _ANEXOS_UNSET = object()
 
 PORTAL_LAUDO_RELEASE_MESSAGE = "Laudo liberado no portal da clinica parceira."
+PORTAL_LAUDO_ATTACHMENT_DESCRIPTION = "PDF do laudo liberado no portal da clinica parceira."
+PORTAL_LAUDO_ATTACHMENT_ORIGIN = "portal_laudo"
 
 ULTRASSOM_ORGAOS_ABDOMINAIS = [
     ("figado", "Figado"),
@@ -170,6 +179,106 @@ def _sincronizar_exame_liberado_para_portal(
     if not exame.criado_por_nome:
         exame.criado_por_nome = getattr(current_user, "nome", None)
     return exame
+
+
+def _resolver_atendimento_id_para_anexo_portal(
+    db: Session,
+    laudo: Laudo,
+    exame: Exame,
+) -> int:
+    if exame.atendimento_id:
+        return int(exame.atendimento_id)
+
+    if laudo.agendamento_id:
+        atendimento = (
+            db.query(AtendimentoClinico)
+            .filter(
+                AtendimentoClinico.agendamento_id == laudo.agendamento_id,
+                AtendimentoClinico.paciente_id == laudo.paciente_id,
+            )
+            .order_by(AtendimentoClinico.id.desc())
+            .first()
+        )
+        if atendimento:
+            exame.atendimento_id = atendimento.id
+            return int(atendimento.id)
+
+    return 0
+
+
+def _buscar_anexo_portal_laudo_existente(
+    db: Session,
+    *,
+    exame_id: int,
+    dedupe_key: str,
+) -> AnexoAtendimento | None:
+    return (
+        db.query(AnexoAtendimento)
+        .filter(
+            AnexoAtendimento.exame_id == exame_id,
+            AnexoAtendimento.origem == PORTAL_LAUDO_ATTACHMENT_ORIGIN,
+            AnexoAtendimento.dedupe_key == dedupe_key,
+        )
+        .order_by(AnexoAtendimento.id.desc())
+        .first()
+    )
+
+
+def _persistir_pdf_laudo_para_portal(
+    db: Session,
+    *,
+    laudo: Laudo,
+    exame: Exame,
+    current_user: User,
+) -> AnexoAtendimento:
+    if not exame.id:
+        db.flush()
+
+    pdf = render_laudo_pdf(db, laudo.id, current_user)
+    arquivo_hash = calculate_attachment_sha256(pdf.content)
+    dedupe_key = build_upload_dedupe_key(exame.id, arquivo_hash)
+    anexo_existente = _buscar_anexo_portal_laudo_existente(
+        db,
+        exame_id=exame.id,
+        dedupe_key=dedupe_key,
+    )
+    if anexo_existente and anexo_existente.caminho_arquivo and os.path.exists(anexo_existente.caminho_arquivo):
+        return anexo_existente
+
+    atendimento_id = _resolver_atendimento_id_para_anexo_portal(db, laudo, exame)
+    storage_path = None
+    try:
+        storage_path, normalized_name, normalized_mime_type = store_atendimento_attachment_file(
+            atendimento_id,
+            pdf.filename,
+            pdf.content,
+            "application/pdf",
+        )
+        anexo = anexo_existente or AnexoAtendimento(
+            atendimento_id=atendimento_id,
+            exame_id=exame.id,
+            origem=PORTAL_LAUDO_ATTACHMENT_ORIGIN,
+        )
+        anexo.atendimento_id = atendimento_id
+        anexo.exame_id = exame.id
+        anexo.tipo = "documento"
+        anexo.descricao = PORTAL_LAUDO_ATTACHMENT_DESCRIPTION
+        anexo.nome_original = normalized_name
+        anexo.tamanho = len(pdf.content)
+        anexo.mime_type = normalized_mime_type
+        anexo.arquivo_hash = arquivo_hash
+        anexo.dedupe_key = dedupe_key
+        anexo.caminho_arquivo = storage_path
+        anexo.origem = PORTAL_LAUDO_ATTACHMENT_ORIGIN
+        if anexo_existente is None:
+            anexo.url = ""
+            db.add(anexo)
+            db.flush()
+        anexo.url = f"/api/v1/portal/anexos/{anexo.id}/arquivo"
+        return anexo
+    except Exception:
+        remove_atendimento_attachment_file(storage_path)
+        raise
 
 
 def _parse_filtro_data(value: Optional[str]) -> Optional[date]:
@@ -1567,10 +1676,17 @@ def liberar_laudo_para_portal_clinica(
     laudo.status = PORTAL_RELEASED_STATUS
     laudo.updated_at = released_at
     exame = _sincronizar_exame_liberado_para_portal(db, laudo, current_user, released_at)
+    anexo = _persistir_pdf_laudo_para_portal(
+        db,
+        laudo=laudo,
+        exame=exame,
+        current_user=current_user,
+    )
 
     db.commit()
     db.refresh(laudo)
     db.refresh(exame)
+    db.refresh(anexo)
 
     registrar_auditoria(
         current_user=current_user,
@@ -1582,20 +1698,26 @@ def liberar_laudo_para_portal_clinica(
         detalhes={
             "laudo_id": laudo.id,
             "exame_id": exame.id,
+            "anexo_id": anexo.id,
             "paciente_id": laudo.paciente_id,
             "clinic_id": laudo.clinic_id,
             "status": laudo.status,
+            "pdf_nome": anexo.nome_original,
+            "pdf_tamanho": anexo.tamanho,
         },
         request=request,
     )
 
     return {
-        "message": "Laudo liberado no portal da clinica parceira.",
+        "message": "Laudo liberado no portal da clinica parceira com PDF disponivel para download.",
         "laudo_id": laudo.id,
         "exame_id": exame.id,
+        "anexo_id": anexo.id,
         "paciente_id": laudo.paciente_id,
         "clinic_id": laudo.clinic_id,
         "status": laudo.status,
+        "pdf_nome": anexo.nome_original,
+        "pdf_tamanho": anexo.tamanho,
         "released_at": released_at.isoformat(),
     }
 
