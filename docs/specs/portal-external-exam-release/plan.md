@@ -10,15 +10,20 @@ Status: ready-for-stage
 - [x] Validar atendimento, clinica, paciente e PDF anexado antes da liberacao.
 - [x] Normalizar `ECG` para `Eletrocardiograma` ao publicar.
 - [x] Retornar exame atualizado com anexos para atualizacao imediata da interface.
+- [x] Criar upload administrativo de PDF para laudo `eletrocardiograma`.
+- [x] Reutilizar PDF externo na liberacao de laudo para o portal.
+- [x] Expor download do PDF original para laudos externos.
 
 ## Fase 2 - Frontend
 
-- [x] Adicionar botao `Liberar no portal` no card do exame do atendimento.
-- [x] Bloquear acao visualmente quando nao houver PDF anexado.
-- [x] Atualizar o card para `Liberado no portal` apos sucesso.
+- [x] Adicionar `Eletrocardiograma` no dropdown `Laudar` da agenda.
+- [x] Criar tela de upload de PDF do eletrocardiograma.
+- [x] Remover acao direta `Liberar no portal` do card de exame do atendimento.
+- [x] Usar PDF original em `Laudos` para eletrocardiograma.
 
 ## Fase 3 - Validacao e rollout
 
 - [x] Adicionar testes backend para liberacao e bloqueio sem PDF.
+- [x] Adicionar teste backend para liberacao de eletrocardiograma com PDF externo.
 - [x] Executar suites alvo.
 - [ ] Publicar em stage.

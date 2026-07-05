@@ -22,9 +22,10 @@ import {
 import {
   getLaudoEditPath,
   TIPO_LAUDO_ECOCARDIOGRAMA,
+  TIPO_LAUDO_ELETROCARDIOGRAMA,
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
-import { baixarLaudoPdf as baixarLaudoPdfUtil } from "@/lib/laudo-pdf";
+import { baixarLaudoPdf as baixarLaudoPdfUtil, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
 import {
   AGENDA_STATUS_LIST,
   FORMA_PAGAMENTO_FALLBACK,
@@ -1396,6 +1397,9 @@ export default function AgendaPage() {
   };
 
   const getRotaNovoLaudo = (tipo: string, agendamentoId: number) => {
+    if (tipo === TIPO_LAUDO_ELETROCARDIOGRAMA) {
+      return `/laudos/eletrocardiograma/upload?agendamento_id=${agendamentoId}`;
+    }
     const basePath =
       tipo === TIPO_LAUDO_ULTRASSOM_ABDOMINAL ? "/ultrassonografia-abdominal/novo" : "/laudos/novo";
     return `${basePath}?agendamento_id=${agendamentoId}`;
@@ -1424,6 +1428,10 @@ export default function AgendaPage() {
     if (!laudoVinculado?.id) return;
 
     try {
+      if (laudoVinculado.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA) {
+        await baixarLaudoPdfOriginal(laudoVinculado.id, `eletrocardiograma_agendamento_${ag.id}.pdf`);
+        return;
+      }
       await baixarLaudoPdfUtil(laudoVinculado.id, `laudo_agendamento_${ag.id}.pdf`);
     } catch (error) {
       console.error("Erro ao baixar PDF do laudo:", error);
@@ -2143,6 +2151,7 @@ export default function AgendaPage() {
                 const laudoVinculado = obterUltimoLaudoVinculado(ag.id);
                 const laudoPronto = podeBaixarLaudo(laudoVinculado?.status);
                 const laudoEco = obterLaudoVinculado(ag.id, TIPO_LAUDO_ECOCARDIOGRAMA);
+                const laudoEletro = obterLaudoVinculado(ag.id, TIPO_LAUDO_ELETROCARDIOGRAMA);
                 const laudoUltrassom = obterLaudoVinculado(ag.id, TIPO_LAUDO_ULTRASSOM_ABDOMINAL);
                 const osVinculada = ordensServicoPorAgendamento[ag.id];
                 const osPaga = osEstaPaga(osVinculada?.status);
@@ -2361,6 +2370,16 @@ export default function AgendaPage() {
                               <span>US abdominal</span>
                               <span className="text-xs text-gray-500">
                                 {laudoUltrassom ? "Editar existente" : "Novo laudo"}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => abrirFluxoLaudo(ag, TIPO_LAUDO_ELETROCARDIOGRAMA)}
+                              className="flex w-full items-center justify-between gap-3 border-t px-4 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
+                            >
+                              <span>Eletrocardiograma</span>
+                              <span className="text-xs text-gray-500">
+                                {laudoEletro ? "Ver existente" : "Upload PDF"}
                               </span>
                             </button>
                           </div>

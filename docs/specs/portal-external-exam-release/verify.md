@@ -8,27 +8,36 @@ Status: ready-for-stage
 
 | ID | Tipo | Evidencia | Status |
 | --- | --- | --- | --- |
-| CA-001 | aceitacao | `backend/tests/test_atendimento_portal_exam_release.py::test_liberar_ecg_importado_normaliza_tipo_e_publica_exame` | ok |
-| CA-002 | aceitacao | `backend/tests/test_atendimento_portal_exam_release.py::test_liberar_ecg_importado_normaliza_tipo_e_publica_exame` | ok |
-| CA-003 | aceitacao | `backend/tests/test_atendimento_portal_exam_release.py::test_liberar_exame_sem_pdf_e_bloqueado` | ok |
-| CA-004 | frontend | `frontend/app/atendimento/components/AtendimentoExamesSection.tsx` com acao e estado visual | ok |
-| CA-005 | validacao | eslint/build frontend | ok |
+| CA-001 | frontend | `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
+| CA-002 | backend | `POST /api/v1/laudos/eletrocardiograma/upload-pdf` | ok |
+| CA-003 | frontend/backend | `baixarLaudoPdfOriginal` + `GET /api/v1/laudos/{laudo_id}/pdf-original` | ok |
+| CA-004 | aceitacao | `backend/tests/test_laudo_portal_release.py::test_liberar_eletrocardiograma_usa_pdf_externo_anexado` | ok |
+| CA-005 | frontend | `frontend/app/atendimento/components/AtendimentoExamesSection.tsx` sem botao direto | ok |
+| CA-006 | validacao | eslint/build/frontend + backend tests | ok |
 
 ## 2) Testes automatizados planejados
 
 ```bash
 env PYTHONPYCACHEPREFIX=/private/tmp/fortcordis-pycache python3 -m py_compile \
   backend/app/api/v1/endpoints/atendimento.py \
-  backend/tests/test_atendimento_portal_exam_release.py
+  backend/app/api/v1/endpoints/laudos.py \
+  backend/tests/test_atendimento_portal_exam_release.py \
+  backend/tests/test_laudo_portal_release.py
 
 cd backend && venv/bin/python -m unittest \
   tests/test_atendimento_portal_exam_release.py \
+  tests/test_laudo_portal_release.py \
   tests/test_portal_access_foundation.py \
   tests/test_portal_access_http_flow.py -v
 
 cd frontend && npx eslint \
   app/atendimento/page.tsx \
   app/atendimento/components/AtendimentoExamesSection.tsx \
+  app/agenda/page.tsx \
+  app/agenda/fullcalendar/page.tsx \
+  app/laudos/page.tsx \
+  app/laudos/[id]/page.tsx \
+  app/laudos/eletrocardiograma/upload/page.tsx \
   --max-warnings=0
 
 cd frontend && npm run build
@@ -39,19 +48,19 @@ python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/stage --head-sha HEA
 
 Resultados executados:
 
-- `env PYTHONPYCACHEPREFIX=/private/tmp/fortcordis-pycache python3 -m py_compile backend/app/api/v1/endpoints/atendimento.py backend/tests/test_atendimento_portal_exam_release.py`: ok.
-- `cd backend && venv/bin/python -m unittest tests/test_atendimento_portal_exam_release.py -v`: 2/2 pass.
-- `cd backend && venv/bin/python -m unittest tests/test_atendimento_portal_exam_release.py tests/test_portal_access_foundation.py tests/test_portal_access_http_flow.py -v`: 13/13 pass.
-- `cd frontend && npx eslint app/atendimento/page.tsx app/atendimento/components/AtendimentoExamesSection.tsx --max-warnings=0`: ok.
+- `env PYTHONPYCACHEPREFIX=/private/tmp/fortcordis-pycache python3 -m py_compile backend/app/api/v1/endpoints/laudos.py backend/tests/test_laudo_portal_release.py backend/app/api/v1/endpoints/atendimento.py backend/tests/test_atendimento_portal_exam_release.py`: ok.
+- `cd backend && venv/bin/python -m unittest tests/test_laudo_portal_release.py tests/test_atendimento_portal_exam_release.py tests/test_portal_access_foundation.py tests/test_portal_access_http_flow.py -v`: 17/17 pass.
+- `cd frontend && npx eslint app/agenda/page.tsx app/agenda/fullcalendar/page.tsx app/laudos/page.tsx app/laudos/[id]/page.tsx app/laudos/eletrocardiograma/upload/page.tsx app/atendimento/page.tsx app/atendimento/components/AtendimentoExamesSection.tsx --max-warnings=0`: ok.
 - `cd frontend && npm run build`: ok.
 - `git diff --check`: ok.
 
 ## 3) Testes manuais sugeridos em stage
 
-- Cenario 1: abrir atendimento com exame `ECG`, anexar PDF e clicar em `Liberar no portal`.
-- Cenario 2: confirmar que o card muda para `Liberado no portal`.
-- Cenario 3: entrar no portal da clinica e confirmar que o exame aparece como `Eletrocardiograma`.
-- Cenario 4: tentar liberar exame sem PDF e confirmar bloqueio.
+- Cenario 1: abrir agenda, menu `Laudar`, selecionar `Eletrocardiograma`.
+- Cenario 2: enviar PDF e confirmar criacao do laudo em `Laudos`.
+- Cenario 3: baixar PDF em `Laudos` e confirmar que e o arquivo original enviado.
+- Cenario 4: clicar em `Liberar portal` no laudo de eletrocardiograma.
+- Cenario 5: entrar no portal da clinica e confirmar que o exame aparece como `Eletrocardiograma`.
 
 ## 4) Riscos residuais
 

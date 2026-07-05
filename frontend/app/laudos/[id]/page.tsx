@@ -4,8 +4,12 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
-import { getLaudoViewPath, TIPO_LAUDO_ULTRASSOM_ABDOMINAL } from "@/lib/laudos";
-import { baixarLaudoPdf } from "@/lib/laudo-pdf";
+import {
+  getLaudoViewPath,
+  TIPO_LAUDO_ELETROCARDIOGRAMA,
+  TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
+} from "@/lib/laudos";
+import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
 import { ArrowLeft, CheckCircle, FileText, Download, Edit, Printer, Send } from "lucide-react";
 
 const PORTAL_RELEASE_STATUS = "Liberado no portal";
@@ -41,6 +45,10 @@ interface Laudo {
   clinica?: string;
   clinic_id?: number | null;
   criado_por_nome: string;
+  pdf_externo?: {
+    anexo_id?: number;
+    nome_original?: string;
+  } | null;
 }
 
 export default function VisualizarLaudoPage() {
@@ -53,6 +61,7 @@ export default function VisualizarLaudoPage() {
   const [medidas, setMedidas] = useState<Record<string, string>>({});
   const [qualitativa, setQualitativa] = useState<Record<string, string>>({});
   const [liberandoPortal, setLiberandoPortal] = useState(false);
+  const laudoEhEletrocardiograma = laudo?.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA;
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -123,6 +132,9 @@ export default function VisualizarLaudoPage() {
   const downloadPDF = async () => {
     if (!laudoId) return;
     try {
+      if (laudo?.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA) {
+        return await baixarLaudoPdfOriginal(Number(laudoId), laudo.pdf_externo?.nome_original || `eletrocardiograma_${laudoId}.pdf`);
+      }
       return await baixarLaudoPdf(Number(laudoId), `laudo_${laudoId}.pdf`);
       const token = localStorage.getItem("token");
       const response = await fetch(`/api/v1/laudos/${laudoId}/pdf`, {
@@ -281,7 +293,9 @@ export default function VisualizarLaudoPage() {
         <div className="bg-white rounded-lg shadow-sm border p-8 print:shadow-none print:border-none">
           {/* Cabeçalho do Laudo */}
           <div className="text-center mb-8">
-            <h2 className="text-xl font-bold text-gray-900">LAUDO ECOCARDIOGRÁFICO</h2>
+            <h2 className="text-xl font-bold text-gray-900">
+              {laudoEhEletrocardiograma ? "LAUDO DE ELETROCARDIOGRAMA" : "LAUDO ECOCARDIOGRAFICO"}
+            </h2>
             <div className="w-full h-px bg-gray-300 mt-4"></div>
           </div>
 
@@ -358,6 +372,15 @@ export default function VisualizarLaudoPage() {
               {laudo.status}
             </span>
           </div>
+
+          {laudoEhEletrocardiograma && (
+            <div className="mb-6 rounded-lg border border-teal-100 bg-teal-50 p-4 text-sm text-teal-900">
+              <p className="font-semibold">PDF original anexado</p>
+              <p className="mt-1">
+                Use o botao PDF para baixar o eletrocardiograma enviado. A liberacao para o portal da clinica fica no botao Liberar portal.
+              </p>
+            </div>
+          )}
 
           {/* Medidas */}
           {Object.keys(medidas).length > 0 && (

@@ -4,8 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
-import { getLaudoEditPath, getLaudoViewPath, getTipoLaudoLabel } from "@/lib/laudos";
-import { baixarLaudoPdf } from "@/lib/laudo-pdf";
+import {
+  getLaudoEditPath,
+  getLaudoViewPath,
+  getTipoLaudoLabel,
+  TIPO_LAUDO_ELETROCARDIOGRAMA,
+} from "@/lib/laudos";
+import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
 import {
   Calendar,
   Clock,
@@ -33,6 +38,7 @@ interface Laudo {
   status: string;
   data_laudo: string;
   data_exame?: string;
+  tem_pdf_externo?: boolean;
 }
 
 interface Exame {
@@ -49,6 +55,10 @@ const PORTAL_RELEASE_STATUS = "Liberado no portal";
 
 function isPortalReleased(status?: string) {
   return status === PORTAL_RELEASE_STATUS;
+}
+
+function isLaudoPdfExterno(laudo: Laudo) {
+  return laudo.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA || Boolean(laudo.tem_pdf_externo);
 }
 
 function getResponseTotal(payload: { total?: number } | undefined, fallback: number) {
@@ -213,7 +223,13 @@ export default function LaudosPage() {
 
   const downloadPDF = async (laudoId: number, titulo: string) => {
     try {
-      await baixarLaudoPdf(laudoId, `${titulo.replace(/\s+/g, "_")}.pdf`);
+      const laudo = laudos.find((item) => item.id === laudoId);
+      const filename = `${titulo.replace(/\s+/g, "_")}.pdf`;
+      if (laudo && isLaudoPdfExterno(laudo)) {
+        await baixarLaudoPdfOriginal(laudoId, filename);
+        return;
+      }
+      await baixarLaudoPdf(laudoId, filename);
     } catch (error) {
       alert("Erro ao gerar PDF. Tente novamente.");
     }
@@ -486,13 +502,15 @@ export default function LaudosPage() {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => router.push(getLaudoEditPath(laudo.id, laudo.tipo))}
-                            className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="Editar"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
+                          {!isLaudoPdfExterno(laudo) && (
+                            <button
+                              onClick={() => router.push(getLaudoEditPath(laudo.id, laudo.tipo))}
+                              className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Editar"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                          )}
                           <button
                             onClick={() => downloadPDF(laudo.id, laudo.titulo)}
                             className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"

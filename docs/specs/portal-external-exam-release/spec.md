@@ -6,19 +6,19 @@ Status: ready-for-stage
 
 ## 1) Escopo funcional
 
-Permitir liberar no portal da clinica parceira um exame cujo laudo final foi emitido fora do Fort Cordis e anexado ao atendimento como PDF. O primeiro caso de uso e o eletrocardiograma: o arquivo PDF anexado ao exame deve ficar disponivel para download no portal, sem expor origem de software externo.
+Permitir registrar em `Laudos` um eletrocardiograma cujo PDF final foi emitido fora do Fort Cordis. O usuario deve acessar o upload pelo dropdown `Laudar`, salvar o PDF como laudo finalizado e liberar o arquivo no portal da clinica parceira pela propria listagem/tela de `Laudos`, sem expor origem de software externo.
 
 ## 2) Requisitos funcionais (RF)
 
-- RF-001: o backend deve expor acao administrativa para liberar um `Exame` vinculado a atendimento no portal.
-- RF-002: a liberacao deve exigir exame existente, atendimento vinculado, paciente vinculado e clinica vinculada ao atendimento.
-- RF-003: a liberacao deve exigir pelo menos um anexo PDF vinculado ao exame.
-- RF-004: ao liberar, o exame deve assumir status `Liberado no portal`.
-- RF-005: ao liberar, o exame deve registrar `data_resultado` como data de liberacao.
-- RF-006: exames do tipo `ECG` ou variacoes devem aparecer no portal como `Eletrocardiograma`.
-- RF-007: a listagem atual do portal da clinica deve exibir o exame liberado e seus anexos baixaveis pelo escopo da unidade.
-- RF-008: a interface de atendimento deve exibir acao `Liberar no portal` no card do exame quando houver PDF anexado.
-- RF-009: depois da liberacao, a interface deve indicar `Liberado no portal` sem exigir recarregar o atendimento.
+- RF-001: o backend deve expor upload administrativo de PDF para criar laudo do tipo `eletrocardiograma`.
+- RF-002: o upload deve aceitar contexto por `agendamento_id`, `atendimento_id`, `paciente_id` e `clinic_id`, preenchendo paciente e clinica quando possivel.
+- RF-003: o upload deve aceitar apenas PDF valido e persistir o arquivo original como anexo do laudo.
+- RF-004: o dropdown `Laudar` deve incluir a opcao `Eletrocardiograma` com destino para upload de PDF.
+- RF-005: o laudo criado deve aparecer em `Laudos` como `Eletrocardiograma` e status `Finalizado`.
+- RF-006: a liberacao pelo botao de `Laudos` deve publicar o exame como `Eletrocardiograma`.
+- RF-007: a liberacao de eletrocardiograma deve reutilizar o PDF original enviado, e nao gerar outro PDF interno.
+- RF-008: a listagem atual do portal da clinica deve exibir o exame liberado e seus anexos baixaveis pelo escopo da unidade.
+- RF-009: a interface de atendimento nao deve exibir o botao de liberacao direta para esse fluxo.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -31,18 +31,31 @@ Permitir liberar no portal da clinica parceira um exame cujo laudo final foi emi
 
 ### API administrativa
 
-- `POST /api/v1/atendimentos/exames/{exame_id}/portal/liberar`
+- `POST /api/v1/laudos/eletrocardiograma/upload-pdf`
   - auth:
     - token administrativo atual
-  - resposta:
-    - `message`
-    - `exame_id`
-    - `paciente_id`
+  - multipart:
+    - `arquivo`
+    - `agendamento_id`
     - `atendimento_id`
+    - `paciente_id`
     - `clinic_id`
+    - `data_exame`
+  - resposta:
+    - `id`
+    - `tipo`
+    - `titulo`
     - `status`
-    - `released_at`
-    - `exame` serializado com `anexos_resultado`
+    - `paciente_id`
+    - `clinic_id`
+    - `agendamento_id`
+    - `anexo_id`
+
+- `GET /api/v1/laudos/{laudo_id}/pdf-original`
+  - faz download do PDF externo anexado ao laudo.
+
+- `POST /api/v1/laudos/{laudo_id}/portal/liberar-clinica`
+  - deve reutilizar o PDF externo quando o laudo tiver `eletrocardiograma_pdf`.
 
 ### API portal
 
@@ -53,11 +66,12 @@ Permitir liberar no portal da clinica parceira um exame cujo laudo final foi emi
 
 ## 5) Criterios de aceitacao (CA)
 
-- CA-001: liberar exame `ECG` com PDF anexo retorna status `Liberado no portal`.
-- CA-002: exame `ECG` liberado passa a ter tipo `Eletrocardiograma`.
-- CA-003: liberar exame sem PDF retorna erro 422 e nao altera o status para liberado.
-- CA-004: card de exame no atendimento exibe botao `Liberar no portal` e estado `Liberado no portal`.
-- CA-005: build/lint frontend passam apos incluir o novo botao.
+- CA-001: dropdown `Laudar` exibe `Eletrocardiograma` e leva ao upload de PDF.
+- CA-002: upload de PDF cria laudo `eletrocardiograma` finalizado.
+- CA-003: `Laudos` baixa o PDF original do eletrocardiograma.
+- CA-004: liberacao pelo botao em `Laudos` publica exame `Eletrocardiograma` com o anexo original.
+- CA-005: card de exame do atendimento nao exibe mais acao direta de liberacao para portal.
+- CA-006: build/lint frontend e testes backend passam.
 
 ## 6) Fora de escopo
 

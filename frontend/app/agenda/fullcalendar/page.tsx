@@ -36,6 +36,7 @@ import { montarGoogleMapsDestinoClinica, montarWazeDestinoClinica } from "@/lib/
 import {
   getLaudoEditPath,
   TIPO_LAUDO_ECOCARDIOGRAMA,
+  TIPO_LAUDO_ELETROCARDIOGRAMA,
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
 import {
@@ -1269,6 +1270,9 @@ export default function AgendaFullCalendarPage() {
   }, [router, selecionado]);
 
   const getRotaNovoLaudo = useCallback((tipo: string, agendamentoId: number) => {
+    if (tipo === TIPO_LAUDO_ELETROCARDIOGRAMA) {
+      return `/laudos/eletrocardiograma/upload?agendamento_id=${agendamentoId}`;
+    }
     const basePath =
       tipo === TIPO_LAUDO_ULTRASSOM_ABDOMINAL ? "/ultrassonografia-abdominal/novo" : "/laudos/novo";
     return `${basePath}?agendamento_id=${agendamentoId}`;
@@ -1295,7 +1299,14 @@ export default function AgendaFullCalendarPage() {
     }
 
     try {
-      const { baixarLaudoPdf } = await import("@/lib/laudo-pdf");
+      const { baixarLaudoPdf, baixarLaudoPdfOriginal } = await import("@/lib/laudo-pdf");
+      if (laudoSelecionado.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA) {
+        await baixarLaudoPdfOriginal(
+          laudoSelecionado.id,
+          `eletrocardiograma_agendamento_${selecionado.id}.pdf`,
+        );
+        return;
+      }
       await baixarLaudoPdf(
         laudoSelecionado.id,
         `laudo_agendamento_${selecionado.id}.pdf`,
@@ -1304,7 +1315,7 @@ export default function AgendaFullCalendarPage() {
       console.error("Erro ao baixar PDF do laudo:", error);
       setErro("Nao foi possivel baixar o PDF do laudo agora.");
     }
-  }, [laudoSelecionado?.id, selecionado]);
+  }, [laudoSelecionado?.id, laudoSelecionado?.tipo, selecionado]);
 
   const abrirModalCriacao = useCallback((data: Date, allDay = false) => {
     setDataControleAgenda(toDateInput(data));
@@ -2483,6 +2494,18 @@ export default function AgendaFullCalendarPage() {
                           {obterLaudoVinculado(selecionado.id, TIPO_LAUDO_ULTRASSOM_ABDOMINAL)
                             ? "Editar existente"
                             : "Novo laudo"}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => laudarSelecionado(TIPO_LAUDO_ELETROCARDIOGRAMA)}
+                        className="flex w-full items-center justify-between gap-3 border-t px-4 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        <span>Eletrocardiograma</span>
+                        <span className="text-xs text-gray-500">
+                          {obterLaudoVinculado(selecionado.id, TIPO_LAUDO_ELETROCARDIOGRAMA)
+                            ? "Ver existente"
+                            : "Upload PDF"}
                         </span>
                       </button>
                     </div>

@@ -1,10 +1,12 @@
 export const TIPO_LAUDO_ECOCARDIOGRAMA = "ecocardiograma";
+export const TIPO_LAUDO_ELETROCARDIOGRAMA = "eletrocardiograma";
 export const TIPO_LAUDO_PRESSAO_ARTERIAL = "pressao_arterial";
 export const TIPO_LAUDO_ULTRASSOM_ABDOMINAL = "ultrassonografia_abdominal";
 
 export function getTipoLaudoLabel(tipo?: string): string {
   const mapa: Record<string, string> = {
     [TIPO_LAUDO_ECOCARDIOGRAMA]: "Ecocardiograma",
+    [TIPO_LAUDO_ELETROCARDIOGRAMA]: "Eletrocardiograma",
     [TIPO_LAUDO_PRESSAO_ARTERIAL]: "Pressao Arterial",
     [TIPO_LAUDO_ULTRASSOM_ABDOMINAL]: "Ultrassonografia Abdominal",
   };
@@ -23,5 +25,8 @@ export function getLaudoViewPath(id: string | number, tipo?: string): string {
 }
 
 export function getLaudoEditPath(id: string | number, tipo?: string): string {
+  if (tipo === TIPO_LAUDO_ELETROCARDIOGRAMA) {
+    return getLaudoViewPath(id, tipo);
+  }
   return `${getLaudoBasePath(tipo)}/${id}/editar`;
 }
