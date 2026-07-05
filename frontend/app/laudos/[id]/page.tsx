@@ -7,6 +7,7 @@ import api from "@/lib/axios";
 import {
   getLaudoViewPath,
   TIPO_LAUDO_ELETROCARDIOGRAMA,
+  TIPO_LAUDO_PRESSAO_ARTERIAL,
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
 import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
@@ -49,6 +50,17 @@ interface Laudo {
     anexo_id?: number;
     nome_original?: string;
   } | null;
+  pressao_arterial?: {
+    pas_1?: number | null;
+    pas_2?: number | null;
+    pas_3?: number | null;
+    pas_media?: number | null;
+    metodo?: string | null;
+    manguito?: string | null;
+    membro?: string | null;
+    decubito?: string | null;
+    obs_extra?: string | null;
+  } | null;
 }
 
 export default function VisualizarLaudoPage() {
@@ -65,6 +77,7 @@ export default function VisualizarLaudoPage() {
   const [substituindoPdf, setSubstituindoPdf] = useState(false);
   const [fileInputKey, setFileInputKey] = useState(0);
   const laudoEhEletrocardiograma = laudo?.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA;
+  const laudoEhPressao = laudo?.tipo === TIPO_LAUDO_PRESSAO_ARTERIAL;
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -352,7 +365,11 @@ export default function VisualizarLaudoPage() {
           {/* Cabeçalho do Laudo */}
           <div className="text-center mb-8">
             <h2 className="text-xl font-bold text-gray-900">
-              {laudoEhEletrocardiograma ? "LAUDO DE ELETROCARDIOGRAMA" : "LAUDO ECOCARDIOGRAFICO"}
+              {laudoEhEletrocardiograma
+                ? "LAUDO DE ELETROCARDIOGRAMA"
+                : laudoEhPressao
+                  ? "LAUDO DE PRESSAO ARTERIAL"
+                  : "LAUDO ECOCARDIOGRAFICO"}
             </h2>
             <div className="w-full h-px bg-gray-300 mt-4"></div>
           </div>
@@ -471,8 +488,54 @@ export default function VisualizarLaudoPage() {
             </div>
           )}
 
+          {laudoEhPressao && (
+            <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+              <p className="font-semibold">Resumo da afericao de pressao arterial</p>
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
+                <div className="rounded-lg border border-amber-200 bg-white px-3 py-2">
+                  <span className="text-xs uppercase tracking-wide text-amber-700">PAS 1</span>
+                  <p className="mt-1 font-medium">{laudo.pressao_arterial?.pas_1 ?? "-"} mmHg</p>
+                </div>
+                <div className="rounded-lg border border-amber-200 bg-white px-3 py-2">
+                  <span className="text-xs uppercase tracking-wide text-amber-700">PAS 2</span>
+                  <p className="mt-1 font-medium">{laudo.pressao_arterial?.pas_2 ?? "-"} mmHg</p>
+                </div>
+                <div className="rounded-lg border border-amber-200 bg-white px-3 py-2">
+                  <span className="text-xs uppercase tracking-wide text-amber-700">PAS 3</span>
+                  <p className="mt-1 font-medium">{laudo.pressao_arterial?.pas_3 ?? "-"} mmHg</p>
+                </div>
+                <div className="rounded-lg border border-amber-200 bg-white px-3 py-2">
+                  <span className="text-xs uppercase tracking-wide text-amber-700">Media</span>
+                  <p className="mt-1 font-medium">{laudo.pressao_arterial?.pas_media ?? "-"} mmHg</p>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div>
+                  <span className="text-xs uppercase tracking-wide text-amber-700">Metodo</span>
+                  <p className="mt-1">{laudo.pressao_arterial?.metodo || "Doppler"}</p>
+                </div>
+                <div>
+                  <span className="text-xs uppercase tracking-wide text-amber-700">Manguito</span>
+                  <p className="mt-1">{laudo.pressao_arterial?.manguito || "-"}</p>
+                </div>
+                <div>
+                  <span className="text-xs uppercase tracking-wide text-amber-700">Membro / decubito</span>
+                  <p className="mt-1">
+                    {[laudo.pressao_arterial?.membro, laudo.pressao_arterial?.decubito].filter(Boolean).join(" · ") || "-"}
+                  </p>
+                </div>
+              </div>
+              {laudo.pressao_arterial?.obs_extra ? (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2">
+                  <span className="text-xs uppercase tracking-wide text-amber-700">Observacoes da afericao</span>
+                  <p className="mt-1 whitespace-pre-wrap">{laudo.pressao_arterial.obs_extra}</p>
+                </div>
+              ) : null}
+            </div>
+          )}
+
           {/* Medidas */}
-          {Object.keys(medidas).length > 0 && (
+          {!laudoEhPressao && Object.keys(medidas).length > 0 && (
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-3">Medidas Ecocardiográficas</h3>
               <div className="bg-gray-50 rounded-lg p-4">
@@ -497,7 +560,7 @@ export default function VisualizarLaudoPage() {
           )}
 
           {/* Qualitativa */}
-          {Object.keys(qualitativa).length > 0 && (
+          {!laudoEhPressao && Object.keys(qualitativa).length > 0 && (
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-3">Avaliação Qualitativa</h3>
               <div className="space-y-3">
