@@ -22,8 +22,10 @@ def parse_datetime(value):
 
 class AgendamentoBase(BaseModel):
     paciente_id: Optional[int] = None
+    tutor_id: Optional[int] = None
     clinica_id: Optional[int] = None
     servico_id: Optional[int] = None
+    origem_atendimento: Optional[str] = "clinica_parceira"
     inicio: datetime
     fim: Optional[datetime] = None
     status: str = "Agendado"
@@ -41,8 +43,10 @@ class AgendamentoCreate(AgendamentoBase):
 
 class AgendamentoUpdate(BaseModel):
     paciente_id: Optional[int] = None
+    tutor_id: Optional[int] = None
     clinica_id: Optional[int] = None
     servico_id: Optional[int] = None
+    origem_atendimento: Optional[str] = None
     inicio: Optional[datetime] = None
     fim: Optional[datetime] = None
     status: Optional[str] = None
@@ -58,8 +62,10 @@ class AgendamentoUpdate(BaseModel):
 class AgendamentoResponse(BaseModel):
     id: int
     paciente_id: Optional[int] = None
+    tutor_id: Optional[int] = None
     clinica_id: Optional[int] = None
     servico_id: Optional[int] = None
+    origem_atendimento: Optional[str] = None
     inicio: Optional[str] = None  # Retorna como string para evitar problemas de formato
     fim: Optional[str] = None  # Retorna como string
     status: str

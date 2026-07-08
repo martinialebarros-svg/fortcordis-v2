@@ -44,7 +44,12 @@ class AgendaConcorrenciaSlotTest(unittest.TestCase):
         self._session_factory = sessionmaker(bind=self._engine, autocommit=False, autoflush=False)
 
         with self._session_factory() as db:
-            clinica = Clinica(nome="Casa Pet", ativo=True)
+            clinica = Clinica(
+                nome="Casa Pet",
+                ativo=True,
+                latitude=-3.7319,
+                longitude=-38.5267,
+            )
             servico = Servico(nome="Consulta", duracao_minutos=30, ativo=True)
             db.add_all([clinica, servico])
             db.commit()

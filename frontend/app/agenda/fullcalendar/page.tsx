@@ -25,6 +25,8 @@ import {
   FORMA_PAGAMENTO_PADRAO,
   descricaoFormaPagamentoConfig,
   normalizarCodigoFormaPagamento,
+  obterOrigemAtendimentoMeta,
+  obterTituloAgendamentoPorOrigem,
   type AgendaStatus,
   type AgendaStatusAction,
   type FormaPagamentoConfig,
@@ -32,7 +34,11 @@ import {
   osEstaPaga,
 } from "@/lib/agenda-shared-actions";
 import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
-import { montarGoogleMapsDestinoClinica, montarWazeDestinoClinica } from "@/lib/waze";
+import {
+  montarGoogleMapsDestinoLocal,
+  montarWazeDestinoLocal,
+  type WazeDestinoLocal,
+} from "@/lib/waze";
 import {
   getLaudoEditPath,
   TIPO_LAUDO_ECOCARDIOGRAMA,
@@ -73,8 +79,10 @@ const NovoAgendamentoModal = dynamic(() => import("../NovoAgendamentoModal"));
 interface Agendamento {
   id: number;
   paciente_id?: number | null;
+  tutor_id?: number | null;
   clinica_id?: number | null;
   servico_id?: number | null;
+  origem_atendimento?: "clinica_parceira" | "domiciliar" | string | null;
   paciente: string | null;
   tutor: string | null;
   clinica: string | null;
@@ -126,6 +134,8 @@ interface ClinicaEndereco {
   longitude?: number | null;
   endereco_normalizado?: string | null;
 }
+
+type TutorEndereco = ClinicaEndereco;
 
 interface OrdemServicoResumo {
   id: number;
@@ -458,6 +468,7 @@ export default function AgendaFullCalendarPage() {
   const [intervalo, setIntervalo] = useState<IntervaloConsulta | null>(null);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [clinicasEndereco, setClinicasEndereco] = useState<Record<number, ClinicaEndereco>>({});
+  const [tutoresEndereco, setTutoresEndereco] = useState<Record<number, TutorEndereco>>({});
   const [ordensServicoPorAgendamento, setOrdensServicoPorAgendamento] = useState<Record<number, OrdemServicoResumo>>(
     {}
   );
@@ -485,6 +496,7 @@ export default function AgendaFullCalendarPage() {
   );
   const [erro, setErro] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("todos");
+  const [filtroOrigemAtendimento, setFiltroOrigemAtendimento] = useState("todos");
   const [mensagemStatus, setMensagemStatus] = useState("");
   const [dataControleAgenda, setDataControleAgenda] = useState(() => toDateInput(new Date()));
   const [modalRecorrenciaAberto, setModalRecorrenciaAberto] = useState(false);
@@ -525,6 +537,32 @@ export default function AgendaFullCalendarPage() {
   const acoesStatusDisponiveis = useMemo<AgendaStatusAction[]>(
     () => obterAcoesStatusPorFluxo(selecionado?.status),
     [selecionado]
+  );
+  const origemSelecionadoMeta = useMemo(
+    () => (selecionado ? obterOrigemAtendimentoMeta(selecionado.origem_atendimento) : null),
+    [selecionado]
+  );
+  const resolverDestinoAgendamento = useCallback(
+    (agendamento?: Agendamento | null): { destino: WazeDestinoLocal | null; nome: string } => {
+      if (!agendamento) {
+        return { destino: null, nome: "destino" };
+      }
+
+      const atendimentoDomiciliar =
+        String(agendamento.origem_atendimento || "").trim().toLowerCase() === "domiciliar";
+      if (atendimentoDomiciliar) {
+        return {
+          destino: agendamento.tutor_id ? tutoresEndereco[agendamento.tutor_id] || null : null,
+          nome: String(agendamento.tutor || "atendimento domiciliar").trim() || "atendimento domiciliar",
+        };
+      }
+
+      return {
+        destino: agendamento.clinica_id ? clinicasEndereco[agendamento.clinica_id] || null : null,
+        nome: String(agendamento.clinica || "clinica").trim() || "clinica",
+      };
+    },
+    [clinicasEndereco, tutoresEndereco]
   );
   const laudoSelecionado = useMemo(() => {
     if (!selecionado) return null;
@@ -590,6 +628,7 @@ export default function AgendaFullCalendarPage() {
     const urlParams = new URLSearchParams(window.location.search);
     const dataQuery = urlParams.get("data");
     const statusQuery = urlParams.get("status");
+    const origemQuery = urlParams.get("origem_atendimento") || urlParams.get("origem");
 
     if (isDateInputValida(dataQuery)) {
       setDataControleAgenda(dataQuery);
@@ -597,6 +636,14 @@ export default function AgendaFullCalendarPage() {
 
     if (statusQuery && STATUS_FILTRO.includes(statusQuery)) {
       setFiltroStatus(statusQuery);
+    }
+
+    if (
+      origemQuery === "todos" ||
+      origemQuery === "clinica_parceira" ||
+      origemQuery === "domiciliar"
+    ) {
+      setFiltroOrigemAtendimento(origemQuery);
     }
 
     filtrosIniciaisAplicadosRef.current = true;
@@ -806,25 +853,23 @@ export default function AgendaFullCalendarPage() {
     };
   }, []);
 
-  const montarWazeWebUrl = useCallback((clinica: ClinicaEndereco | null | undefined): string => {
-    return montarWazeDestinoClinica(clinica)?.webUrl || "";
+  const montarWazeWebUrl = useCallback((destino: WazeDestinoLocal | null | undefined): string => {
+    return montarWazeDestinoLocal(destino)?.webUrl || "";
   }, []);
 
-  const montarGoogleMapsWebUrl = useCallback((clinica: ClinicaEndereco | null | undefined): string => {
-    return montarGoogleMapsDestinoClinica(clinica) || "";
+  const montarGoogleMapsWebUrl = useCallback((destino: WazeDestinoLocal | null | undefined): string => {
+    return montarGoogleMapsDestinoLocal(destino) || "";
   }, []);
 
   const wazeSelecionadoUrl = useMemo(() => {
-    if (!selecionado) return "";
-    const clinica = clinicasEndereco[Number(selecionado.clinica_id)];
-    return montarWazeWebUrl(clinica);
-  }, [clinicasEndereco, montarWazeWebUrl, selecionado]);
+    const { destino } = resolverDestinoAgendamento(selecionado);
+    return montarWazeWebUrl(destino);
+  }, [montarWazeWebUrl, resolverDestinoAgendamento, selecionado]);
 
   const googleMapsSelecionadoUrl = useMemo(() => {
-    if (!selecionado) return "";
-    const clinica = clinicasEndereco[Number(selecionado.clinica_id)];
-    return montarGoogleMapsWebUrl(clinica);
-  }, [clinicasEndereco, montarGoogleMapsWebUrl, selecionado]);
+    const { destino } = resolverDestinoAgendamento(selecionado);
+    return montarGoogleMapsWebUrl(destino);
+  }, [montarGoogleMapsWebUrl, resolverDestinoAgendamento, selecionado]);
 
   const carregarClinicasComEndereco = useCallback(async (items: Agendamento[]) => {
     const idsClinica = Array.from(
@@ -870,6 +915,53 @@ export default function AgendaFullCalendarPage() {
     } catch (error) {
       console.error("Erro ao carregar enderecos de clinicas no FullCalendar:", error);
       setClinicasEndereco({});
+    }
+  }, []);
+
+  const carregarTutoresComEndereco = useCallback(async (items: Agendamento[]) => {
+    const idsTutor = Array.from(
+      new Set(
+        items
+          .map((item) => Number(item.tutor_id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      )
+    );
+
+    if (idsTutor.length === 0) {
+      setTutoresEndereco({});
+      return;
+    }
+
+    try {
+      const respTutores = await api.get("/tutores?limit=2000");
+      const listaTutores = Array.isArray(respTutores.data?.items) ? respTutores.data.items : [];
+
+      const mapa: Record<number, TutorEndereco> = {};
+      for (const tutor of listaTutores) {
+        const tutorId = Number(tutor?.id);
+        if (!Number.isFinite(tutorId) || !idsTutor.includes(tutorId)) {
+          continue;
+        }
+
+        mapa[tutorId] = {
+          id: tutorId,
+          nome: tutor?.nome || null,
+          endereco: tutor?.endereco || null,
+          numero: tutor?.numero || null,
+          bairro: tutor?.bairro || null,
+          cidade: tutor?.cidade || null,
+          estado: tutor?.estado || null,
+          cep: tutor?.cep || null,
+          latitude: Number.isFinite(Number(tutor?.latitude)) ? Number(tutor.latitude) : null,
+          longitude: Number.isFinite(Number(tutor?.longitude)) ? Number(tutor.longitude) : null,
+          endereco_normalizado: tutor?.endereco_normalizado || null,
+        };
+      }
+
+      setTutoresEndereco(mapa);
+    } catch (error) {
+      console.error("Erro ao carregar enderecos de tutores no FullCalendar:", error);
+      setTutoresEndereco({});
     }
   }, []);
 
@@ -1033,6 +1125,7 @@ export default function AgendaFullCalendarPage() {
       if (includeRelated) {
         await Promise.all([
           carregarClinicasComEndereco(items),
+          carregarTutoresComEndereco(items),
           carregarOrdensServicoVinculadas(items, periodo),
           carregarLaudosVinculados(items),
         ]);
@@ -1044,7 +1137,7 @@ export default function AgendaFullCalendarPage() {
     } finally {
       setLoading(false);
     }
-  }, [carregarClinicasComEndereco, carregarLaudosVinculados, carregarOrdensServicoVinculadas]);
+  }, [carregarClinicasComEndereco, carregarLaudosVinculados, carregarOrdensServicoVinculadas, carregarTutoresComEndereco]);
 
   const carregarConfiguracaoAgenda = useCallback(async () => {
     try {
@@ -1570,8 +1663,11 @@ export default function AgendaFullCalendarPage() {
     if (filtroStatus !== "todos") {
       params.set("status", filtroStatus);
     }
+    if (filtroOrigemAtendimento !== "todos") {
+      params.set("origem_atendimento", filtroOrigemAtendimento);
+    }
     router.push(`/agenda?${params.toString()}`);
-  }, [dataControleAgenda, filtroStatus, router]);
+  }, [dataControleAgenda, filtroOrigemAtendimento, filtroStatus, router]);
 
   const receberPagamentoSelecionado = useCallback(async () => {
     if (!selecionado) return;
@@ -1978,8 +2074,10 @@ export default function AgendaFullCalendarPage() {
         try {
           await api.post("/agenda", {
             paciente_id: agendamento.paciente_id ?? null,
+            tutor_id: agendamento.tutor_id ?? null,
             clinica_id: agendamento.clinica_id ?? null,
             servico_id: agendamento.servico_id ?? null,
+            origem_atendimento: agendamento.origem_atendimento || "clinica_parceira",
             inicio: toApiDateTime(inicioRecorrente),
             fim: toApiDateTime(fimRecorrente),
             status: agendamento.status || "Agendado",
@@ -2044,6 +2142,10 @@ export default function AgendaFullCalendarPage() {
       if (filtroStatus !== "todos" && ag.status !== filtroStatus) {
         continue;
       }
+      const origemAtual = String(ag.origem_atendimento || "clinica_parceira").trim() || "clinica_parceira";
+      if (filtroOrigemAtendimento !== "todos" && origemAtual !== filtroOrigemAtendimento) {
+        continue;
+      }
 
       const inicio = parseInicioLocal(ag);
       if (!inicio) {
@@ -2056,12 +2158,12 @@ export default function AgendaFullCalendarPage() {
         border: "#9ca3af",
         text: "#111827",
       };
-      const clinica = clinicasEndereco[Number(ag.clinica_id)];
-      const wazeUrl = montarWazeWebUrl(clinica);
+      const { destino } = resolverDestinoAgendamento(ag);
+      const wazeUrl = montarWazeWebUrl(destino);
 
       lista.push({
         id: String(ag.id),
-        title: ag.clinica || "Clinica nao informada",
+        title: obterTituloAgendamentoPorOrigem(ag.origem_atendimento, ag.clinica),
         start: inicio,
         end: fim,
         backgroundColor: statusVisual.bg,
@@ -2075,7 +2177,7 @@ export default function AgendaFullCalendarPage() {
     }
 
     return lista;
-  }, [agendamentos, clinicasEndereco, filtroStatus, montarWazeWebUrl]);
+  }, [agendamentos, filtroOrigemAtendimento, filtroStatus, montarWazeWebUrl, resolverDestinoAgendamento]);
 
   const handleEventClick = useCallback((arg: EventClickArg) => {
     const agendamento = arg.event.extendedProps.agendamento as Agendamento | undefined;
@@ -2215,9 +2317,18 @@ export default function AgendaFullCalendarPage() {
   );
 
   const renderEventContent = useCallback((eventInfo: EventContentArg) => {
-    const nomeClinica = String(eventInfo.event.title || "Clinica nao informada");
+    const agendamento = eventInfo.event.extendedProps.agendamento as Agendamento | undefined;
+    const origemMeta = obterOrigemAtendimentoMeta(agendamento?.origem_atendimento);
+    const titulo = String(
+      eventInfo.event.title || obterTituloAgendamentoPorOrigem(agendamento?.origem_atendimento, agendamento?.clinica)
+    );
 
-    return <span className="block truncate text-[11px] font-semibold leading-tight">{nomeClinica}</span>;
+    return (
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className={origemMeta.compactBadgeClassName}>{origemMeta.label}</span>
+        <span className="block truncate text-[11px] font-semibold leading-tight">{titulo}</span>
+      </div>
+    );
   }, []);
 
   const permiteInteracaoHorarioAgenda = useCallback(
@@ -2329,6 +2440,16 @@ export default function AgendaFullCalendarPage() {
                   {status === "todos" ? "Todos os status" : status}
                 </option>
               ))}
+            </select>
+
+            <select
+              value={filtroOrigemAtendimento}
+              onChange={(event) => setFiltroOrigemAtendimento(event.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            >
+              <option value="todos">Todas as origens</option>
+              <option value="clinica_parceira">Clinica parceira</option>
+              <option value="domiciliar">Atendimento domiciliar</option>
             </select>
 
             <input
@@ -2453,6 +2574,12 @@ export default function AgendaFullCalendarPage() {
               <p className="text-sm text-gray-500">Clique em um evento para ver os detalhes e abrir as acoes.</p>
             ) : (
               <div className="space-y-3">
+                {origemSelecionadoMeta && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-medium text-gray-500">Origem do atendimento</span>
+                    <span className={origemSelecionadoMeta.badgeClassName}>{origemSelecionadoMeta.descricao}</span>
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={abrirEdicaoSelecionado}
@@ -2642,8 +2769,12 @@ export default function AgendaFullCalendarPage() {
                     <span className="text-gray-900">{selecionado.tutor || "Nao informado"}</span>
                   </p>
                   <p>
-                    <span className="font-medium text-gray-700">Clinica:</span>{" "}
-                    <span className="text-gray-900">{selecionado.clinica || "Nao informada"}</span>
+                    <span className="font-medium text-gray-700">
+                      {origemSelecionadoMeta?.codigo === "domiciliar" ? "Local:" : "Clinica:"}
+                    </span>{" "}
+                    <span className="text-gray-900">
+                      {obterTituloAgendamentoPorOrigem(selecionado.origem_atendimento, selecionado.clinica)}
+                    </span>
                   </p>
                   <p>
                     <span className="font-medium text-gray-700">Servico:</span>{" "}

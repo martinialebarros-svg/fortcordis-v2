@@ -14,8 +14,10 @@ class Agendamento(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     paciente_id = Column(Integer, nullable=True)
+    tutor_id = Column(Integer, nullable=True)
     clinica_id = Column(Integer, nullable=True)
     servico_id = Column(Integer, nullable=True)
+    origem_atendimento = Column(String, default="clinica_parceira")
     
     # Data/hora
     inicio = Column(DateTime(timezone=True), nullable=False)

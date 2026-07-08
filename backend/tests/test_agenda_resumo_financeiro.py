@@ -56,7 +56,18 @@ class AgendaResumoFinanceiroTest(unittest.TestCase):
 
         return tutor, paciente, clinica, servico
 
-    def _create_agendamento(self, db, *, data: str, hora: str, status: str, paciente_id: int, clinica_id: int, servico_id: int):
+    def _create_agendamento(
+        self,
+        db,
+        *,
+        data: str,
+        hora: str,
+        status: str,
+        paciente_id: int,
+        clinica_id: int | None,
+        servico_id: int,
+        origem_atendimento: str = "clinica_parceira",
+    ):
         inicio = datetime.fromisoformat(f"{data}T{hora}:00")
         agendamento = Agendamento(
             paciente_id=paciente_id,
@@ -67,6 +78,7 @@ class AgendaResumoFinanceiroTest(unittest.TestCase):
             data=data,
             hora=hora,
             status=status,
+            origem_atendimento=origem_atendimento,
         )
         db.add(agendamento)
         db.flush()
@@ -80,6 +92,7 @@ class AgendaResumoFinanceiroTest(unittest.TestCase):
                 paciente_id=agendamento.paciente_id,
                 clinica_id=agendamento.clinica_id,
                 servico_id=agendamento.servico_id,
+                origem_atendimento=agendamento.origem_atendimento,
                 data_atendimento=agendamento.inicio,
                 tipo_horario="comercial",
                 valor_servico=valor_final,
@@ -137,7 +150,53 @@ class AgendaResumoFinanceiroTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_resumo_financeiro_filtra_por_origem_atendimento(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            tutor, paciente, clinica, servico = self._seed_base(db)
+
+            ag_clinica = self._create_agendamento(
+                db,
+                data="2026-05-19",
+                hora="09:00",
+                status="Realizado",
+                paciente_id=paciente.id,
+                clinica_id=clinica.id,
+                servico_id=servico.id,
+                origem_atendimento="clinica_parceira",
+            )
+            ag_domiciliar = self._create_agendamento(
+                db,
+                data="2026-05-19",
+                hora="11:00",
+                status="Realizado",
+                paciente_id=paciente.id,
+                clinica_id=None,
+                servico_id=servico.id,
+                origem_atendimento="domiciliar",
+            )
+            self._create_os(db, numero="OS-CLINICA", agendamento=ag_clinica, valor_final=Decimal("150.00"))
+            self._create_os(db, numero="OS-DOMICILIAR", agendamento=ag_domiciliar, valor_final=Decimal("210.00"))
+            db.commit()
+
+            resultado = agenda.resumo_financeiro_agenda(
+                data_inicio="2026-05-19",
+                data_fim="2026-05-19",
+                origem_atendimento="domiciliar",
+                tutor_nome=tutor.nome,
+                db=db,
+                current_user=SimpleNamespace(tem_papel=lambda role: role == "admin"),
+            )
+
+            self.assertEqual(resultado["qtd_realizados"], 1)
+            self.assertEqual(resultado["qtd_agendados"], 0)
+            self.assertAlmostEqual(resultado["valor_realizado"], 210.0, places=2)
+            self.assertAlmostEqual(resultado["valor_agendado"], 0.0, places=2)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()
-

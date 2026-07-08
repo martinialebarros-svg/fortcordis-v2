@@ -21,8 +21,9 @@ class OrdemServico(Base):
     # Relacionamentos
     agendamento_id = Column(Integer, nullable=False)
     paciente_id = Column(Integer, nullable=False)
-    clinica_id = Column(Integer, nullable=False)
+    clinica_id = Column(Integer, nullable=True)
     servico_id = Column(Integer, nullable=False)
+    origem_atendimento = Column(String(32), default="clinica_parceira")
     
     # Dados do serviço
     data_atendimento = Column(DateTime(timezone=True))

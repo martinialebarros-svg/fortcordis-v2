@@ -351,10 +351,18 @@ def _process_pending_os_row(db: Session, row: PushScheduledNotification) -> None
         return
 
     payload_base = _deserialize_payload(row.payload_json)
+    clinica_label = (
+        str(clinica_nome or "").strip()
+        or (
+            "Atendimento domiciliar"
+            if str(getattr(os_data, "origem_atendimento", None) or "").strip().lower() == "domiciliar"
+            else ""
+        )
+    )
     data_payload = {
         "numero_os": os_data.numero_os,
         "paciente_nome": paciente_nome,
-        "clinica_nome": clinica_nome,
+        "clinica_nome": clinica_label,
         "servico_nome": servico_nome,
         "valor_final": f"{float(os_data.valor_final or 0):.2f}",
     }

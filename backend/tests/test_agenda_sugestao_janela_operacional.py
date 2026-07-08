@@ -61,8 +61,8 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
         self,
         db,
         *,
-        clinica_base_coords: tuple[float | None, float | None] = (None, None),
-        clinica_ancora_coords: tuple[float | None, float | None] = (None, None),
+        clinica_base_coords: tuple[float | None, float | None] = (-3.7319, -38.5267),
+        clinica_ancora_coords: tuple[float | None, float | None] = (-3.7342, -38.5434),
         clinica_base_cidade: str = "Fortaleza",
         clinica_base_estado: str = "CE",
         clinica_ancora_cidade: str = "Fortaleza",
@@ -1293,7 +1293,14 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
                 clinica_base_cidade="Fortaleza",
                 clinica_ancora_cidade="Fortaleza",
             )
-            clinica_ancora_2 = Clinica(nome="Casa Pet", ativo=True, cidade="Fortaleza", estado="CE")
+            clinica_ancora_2 = Clinica(
+                nome="Casa Pet",
+                ativo=True,
+                cidade="Fortaleza",
+                estado="CE",
+                latitude=-3.7355,
+                longitude=-38.5308,
+            )
             db.add(clinica_ancora_2)
             db.commit()
             db.refresh(clinica_ancora_2)

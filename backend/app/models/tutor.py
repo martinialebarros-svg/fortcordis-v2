@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Integer, Text
+from sqlalchemy import Column, DateTime, Float, Integer, Text
 from sqlalchemy.sql import func
 from app.db.database import Base
 
@@ -20,6 +20,10 @@ class Tutor(Base):
     bairro = Column(Text)
     cidade = Column(Text)
     estado = Column(Text)
+    latitude = Column(Float)
+    longitude = Column(Float)
+    place_id = Column(Text)
+    endereco_normalizado = Column(Text)
     ativo = Column(Integer)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

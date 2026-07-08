@@ -33,6 +33,8 @@ import {
   FORMA_PAGAMENTO_PADRAO,
   descricaoFormaPagamentoConfig,
   normalizarCodigoFormaPagamento,
+  obterOrigemAtendimentoMeta,
+  obterTituloAgendamentoPorOrigem,
   type AgendaStatus,
   type FormaPagamentoConfig,
   obterProximosStatus,
@@ -44,7 +46,11 @@ import {
   type AgendaRotaRenderingPolicyConfig,
 } from "@/lib/agenda-route-rules";
 import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
-import { montarGoogleMapsDestinoClinica, montarWazeDestinoClinica } from "@/lib/waze";
+import {
+  montarGoogleMapsDestinoLocal,
+  montarWazeDestinoLocal,
+  type WazeDestinoLocal,
+} from "@/lib/waze";
 import { 
   Calendar, Clock, User, Building, Plus, RefreshCw, X, Trash2,
   CheckCircle2, PlayCircle, CheckCircle, XCircle, AlertCircle,
@@ -55,8 +61,10 @@ import NovoAgendamentoModal from "./NovoAgendamentoModal";
 interface Agendamento {
   id: number;
   paciente_id?: number | null;
+  tutor_id?: number | null;
   clinica_id?: number | null;
   servico_id?: number | null;
+  origem_atendimento?: "clinica_parceira" | "domiciliar" | string | null;
   paciente: string | null;
   tutor: string | null;
   clinica: string | null;
@@ -102,6 +110,8 @@ interface ClinicaEndereco {
   longitude?: number | null;
   endereco_normalizado?: string | null;
 }
+
+type TutorEndereco = ClinicaEndereco;
 
 interface FiltroOption {
   id: number;
@@ -324,6 +334,7 @@ export default function AgendaPage() {
   const [filtroPeriodoFim, setFiltroPeriodoFim] = useState<string>(() => hojeLocal());
   const [filtroPacienteNome, setFiltroPacienteNome] = useState("");
   const [filtroTutorNome, setFiltroTutorNome] = useState("");
+  const [filtroOrigemAtendimento, setFiltroOrigemAtendimento] = useState<string>("todos");
   const [filtroClinicaId, setFiltroClinicaId] = useState<string>("todos");
   const [filtroServicoId, setFiltroServicoId] = useState<string>("todos");
   const [busca, setBusca] = useState("");
@@ -352,6 +363,7 @@ export default function AgendaPage() {
   const [valorCreditoUtilizadoPagamento, setValorCreditoUtilizadoPagamento] = useState("0.00");
   const [descontoPagamento, setDescontoPagamento] = useState("0.00");
   const [clinicasEndereco, setClinicasEndereco] = useState<Record<number, ClinicaEndereco>>({});
+  const [tutoresEndereco, setTutoresEndereco] = useState<Record<number, TutorEndereco>>({});
   const [agendaSemanal, setAgendaSemanal] = useState<AgendaSemanalConfig>(() =>
     normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL)
   );
@@ -382,6 +394,7 @@ export default function AgendaPage() {
     const dataQuery = urlParams.get("data");
     const visaoQuery = urlParams.get("visao");
     const statusQuery = urlParams.get("status");
+    const origemQuery = urlParams.get("origem_atendimento") || urlParams.get("origem");
 
     if (isDateInputValida(dataQuery)) {
       setFiltroData(dataQuery);
@@ -399,6 +412,14 @@ export default function AgendaPage() {
       if (statusEhValido) {
         setFiltroStatus(statusNormalizado);
       }
+    }
+
+    if (
+      origemQuery === "todos" ||
+      origemQuery === "clinica_parceira" ||
+      origemQuery === "domiciliar"
+    ) {
+      setFiltroOrigemAtendimento(origemQuery);
     }
 
     filtrosIniciaisAplicadosRef.current = true;
@@ -502,8 +523,11 @@ export default function AgendaPage() {
     if (filtroStatus !== "todos") {
       params.set("status", filtroStatus);
     }
+    if (filtroOrigemAtendimento !== "todos") {
+      params.set("origem_atendimento", filtroOrigemAtendimento);
+    }
     router.push(`/agenda/fullcalendar?${params.toString()}`);
-  }, [filtroData, filtroPeriodoInicio, filtroStatus, modoVisualizacao, router]);
+  }, [filtroData, filtroOrigemAtendimento, filtroPeriodoInicio, filtroStatus, modoVisualizacao, router]);
 
   const periodoConsulta = useMemo(() => {
     const dataBase = filtroData || hojeLocal();
@@ -707,6 +731,7 @@ export default function AgendaPage() {
     modoVisualizacao,
     periodoConsulta.inicio,
     periodoConsulta.fim,
+    filtroOrigemAtendimento,
     filtroClinicaId,
     filtroServicoId,
     filtroPacienteNome,
@@ -739,6 +764,9 @@ export default function AgendaPage() {
       }
       if (filtroClinicaId !== "todos") {
         params.append("clinica_id", filtroClinicaId);
+      }
+      if (filtroOrigemAtendimento !== "todos") {
+        params.append("origem_atendimento", filtroOrigemAtendimento);
       }
       if (filtroServicoId !== "todos") {
         params.append("servico_id", filtroServicoId);
@@ -773,6 +801,7 @@ export default function AgendaPage() {
           carregarLaudosVinculados(items),
           carregarOrdensServicoVinculadas(items),
           carregarClinicasComEndereco(items),
+          carregarTutoresComEndereco(items),
         ]);
       }
       if (includeResumo) {
@@ -1032,6 +1061,53 @@ export default function AgendaPage() {
     }
   };
 
+  const carregarTutoresComEndereco = async (items: Agendamento[]) => {
+    const idsTutor = Array.from(
+      new Set(
+        items
+          .map((item) => Number(item.tutor_id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      )
+    );
+
+    if (idsTutor.length === 0) {
+      setTutoresEndereco({});
+      return;
+    }
+
+    try {
+      const respTutores = await api.get("/tutores?limit=2000");
+      const listaTutores = Array.isArray(respTutores.data?.items) ? respTutores.data.items : [];
+
+      const mapa: Record<number, TutorEndereco> = {};
+      for (const tutor of listaTutores) {
+        const tutorId = Number(tutor?.id);
+        if (!Number.isFinite(tutorId) || !idsTutor.includes(tutorId)) {
+          continue;
+        }
+
+        mapa[tutorId] = {
+          id: tutorId,
+          nome: tutor?.nome || null,
+          endereco: tutor?.endereco || null,
+          numero: tutor?.numero || null,
+          bairro: tutor?.bairro || null,
+          cidade: tutor?.cidade || null,
+          estado: tutor?.estado || null,
+          cep: tutor?.cep || null,
+          latitude: Number.isFinite(Number(tutor?.latitude)) ? Number(tutor.latitude) : null,
+          longitude: Number.isFinite(Number(tutor?.longitude)) ? Number(tutor.longitude) : null,
+          endereco_normalizado: tutor?.endereco_normalizado || null,
+        };
+      }
+
+      setTutoresEndereco(mapa);
+    } catch (error) {
+      console.error("Erro ao carregar enderecos dos tutores:", error);
+      setTutoresEndereco({});
+    }
+  };
+
   const carregarResumoFinanceiro = async () => {
     if (!isAdmin || modoVisualizacao !== "lista") {
       setResumoFinanceiro(null);
@@ -1050,6 +1126,9 @@ export default function AgendaPage() {
       params.append("data_fim", fim);
       if (filtroClinicaId !== "todos") {
         params.append("clinica_id", filtroClinicaId);
+      }
+      if (filtroOrigemAtendimento !== "todos") {
+        params.append("origem_atendimento", filtroOrigemAtendimento);
       }
       if (filtroServicoId !== "todos") {
         params.append("servico_id", filtroServicoId);
@@ -1077,10 +1156,10 @@ export default function AgendaPage() {
     }
   };
 
-  const abrirWazeParaClinica = (clinica: ClinicaEndereco | null | undefined, nomeClinica?: string | null) => {
-    const destino = montarWazeDestinoClinica(clinica);
+  const abrirWazeParaDestino = (destinoLocal: WazeDestinoLocal | null | undefined, nomeDestino?: string | null) => {
+    const destino = montarWazeDestinoLocal(destinoLocal);
     if (!destino) {
-      alert(`A clinica ${nomeClinica || ""} nao possui endereco ou coordenadas cadastradas.`);
+      alert(`Nao ha endereco ou coordenadas cadastradas para ${nomeDestino || "este destino"}.`);
       return;
     }
 
@@ -1103,13 +1182,13 @@ export default function AgendaPage() {
     window.open(destino.webUrl, "_blank", "noopener,noreferrer");
   };
 
-  const abrirGoogleMapsParaClinica = (
-    clinica: ClinicaEndereco | null | undefined,
-    nomeClinica?: string | null
+  const abrirGoogleMapsParaDestino = (
+    destinoLocal: WazeDestinoLocal | null | undefined,
+    nomeDestino?: string | null
   ) => {
-    const destino = montarGoogleMapsDestinoClinica(clinica);
+    const destino = montarGoogleMapsDestinoLocal(destinoLocal);
     if (!destino) {
-      alert(`A clinica ${nomeClinica || ""} nao possui endereco ou coordenadas cadastradas.`);
+      alert(`Nao ha endereco ou coordenadas cadastradas para ${nomeDestino || "este destino"}.`);
       return;
     }
 
@@ -1478,13 +1557,16 @@ export default function AgendaPage() {
   const agendamentosFiltrados = [...agendamentos]
     .filter((a) => {
       const matchStatus = filtroStatus === "todos" || a.status === filtroStatus;
+      const origemAtual = String(a.origem_atendimento || "clinica_parceira").trim() || "clinica_parceira";
+      const matchOrigem =
+        filtroOrigemAtendimento === "todos" || origemAtual === filtroOrigemAtendimento;
       const termo = busca.toLowerCase();
       const matchBusca = !busca ||
         (a.paciente?.toLowerCase().includes(termo)) ||
         (a.tutor?.toLowerCase().includes(termo)) ||
         (a.clinica?.toLowerCase().includes(termo)) ||
         (a.servico?.toLowerCase().includes(termo));
-      return matchStatus && matchBusca;
+      return matchStatus && matchOrigem && matchBusca;
     })
     .sort((a, b) => {
       const diff = getOrdenacaoTimestamp(a) - getOrdenacaoTimestamp(b);
@@ -1698,6 +1780,7 @@ export default function AgendaPage() {
     setBusca("");
     setFiltroPacienteNome("");
     setFiltroTutorNome("");
+    setFiltroOrigemAtendimento("todos");
     setFiltroClinicaId("todos");
     setFiltroServicoId("todos");
     setFiltroPeriodoInicio(hoje);
@@ -1992,6 +2075,16 @@ export default function AgendaPage() {
                 {AGENDA_STATUS_LIST.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
 
+              <select
+                value={filtroOrigemAtendimento}
+                onChange={(e) => setFiltroOrigemAtendimento(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="todos">Todas as origens</option>
+                <option value="clinica_parceira">Clinica parceira</option>
+                <option value="domiciliar">Atendimento domiciliar</option>
+              </select>
+
               <button
                 onClick={() => carregarAgendamentos()}
                 className="flex items-center justify-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
@@ -2158,9 +2251,18 @@ export default function AgendaPage() {
                 const laudoEletro = obterLaudoVinculado(ag.id, TIPO_LAUDO_ELETROCARDIOGRAMA);
                 const osVinculada = ordensServicoPorAgendamento[ag.id];
                 const osPaga = osEstaPaga(osVinculada?.status);
-                const clinicaComEndereco = ag.clinica_id ? clinicasEndereco[ag.clinica_id] : undefined;
-                const podeAbrirWaze = Boolean(montarWazeDestinoClinica(clinicaComEndereco));
-                const podeAbrirGoogleMaps = Boolean(montarGoogleMapsDestinoClinica(clinicaComEndereco));
+                const origemMeta = obterOrigemAtendimentoMeta(ag.origem_atendimento);
+                const tituloAgendamento = obterTituloAgendamentoPorOrigem(ag.origem_atendimento, ag.clinica);
+                const atendimentoDomiciliar =
+                  String(ag.origem_atendimento || "").trim().toLowerCase() === "domiciliar";
+                const destinoNavegacao = atendimentoDomiciliar
+                  ? (ag.tutor_id ? tutoresEndereco[ag.tutor_id] : undefined)
+                  : (ag.clinica_id ? clinicasEndereco[ag.clinica_id] : undefined);
+                const nomeDestinoNavegacao = atendimentoDomiciliar
+                  ? (ag.tutor || "atendimento domiciliar")
+                  : (ag.clinica || "clinica");
+                const podeAbrirWaze = Boolean(montarWazeDestinoLocal(destinoNavegacao));
+                const podeAbrirGoogleMaps = Boolean(montarGoogleMapsDestinoLocal(destinoNavegacao));
                 
                 return (
                   <div key={ag.id} className="p-5 hover:bg-gray-50 transition-colors">
@@ -2170,8 +2272,9 @@ export default function AgendaPage() {
                         <div className="flex items-center gap-3 mb-1 flex-wrap">
                           <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                             <Building className="w-4 h-4 text-gray-400" />
-                            {ag.clinica || "Clinica nao informada"}
+                            {tituloAgendamento}
                           </h3>
+                          <span className={origemMeta.badgeClassName}>{origemMeta.descricao}</span>
                           <span className={`px-3 py-1 rounded-full text-xs font-medium border flex items-center gap-1 ${getStatusColor(ag.status)}`}>
                             <StatusIcon className="w-3 h-3" />
                             {ag.status}
@@ -2305,7 +2408,7 @@ export default function AgendaPage() {
                         </button>
 
                         <button
-                          onClick={() => abrirWazeParaClinica(clinicaComEndereco, ag.clinica)}
+                          onClick={() => abrirWazeParaDestino(destinoNavegacao, nomeDestinoNavegacao)}
                           disabled={!podeAbrirWaze}
                           className={`px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center gap-1 ${
                             podeAbrirWaze
@@ -2314,8 +2417,8 @@ export default function AgendaPage() {
                           }`}
                           title={
                             podeAbrirWaze
-                              ? `Abrir Waze para ${ag.clinica || "clinica"}`
-                              : "Clinica sem endereco cadastrado"
+                              ? `Abrir Waze para ${nomeDestinoNavegacao || "destino"}`
+                              : "Destino sem endereco cadastrado"
                           }
                         >
                           <img
@@ -2328,7 +2431,7 @@ export default function AgendaPage() {
                         </button>
 
                         <button
-                          onClick={() => abrirGoogleMapsParaClinica(clinicaComEndereco, ag.clinica)}
+                          onClick={() => abrirGoogleMapsParaDestino(destinoNavegacao, nomeDestinoNavegacao)}
                           disabled={!podeAbrirGoogleMaps}
                           className={`px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center gap-1 ${
                             podeAbrirGoogleMaps
@@ -2337,8 +2440,8 @@ export default function AgendaPage() {
                           }`}
                           title={
                             podeAbrirGoogleMaps
-                              ? `Abrir Google Maps para ${ag.clinica || "clinica"}`
-                              : "Clinica sem endereco cadastrado"
+                              ? `Abrir Google Maps para ${nomeDestinoNavegacao || "destino"}`
+                              : "Destino sem endereco cadastrado"
                           }
                         >
                           <MapPin className="h-4 w-4" />
@@ -2512,6 +2615,8 @@ export default function AgendaPage() {
 
                     const primeiro = itens[0];
                     const statusPrimeiro = String(primeiro.status || "");
+                    const origemPrimeiro = obterOrigemAtendimentoMeta(primeiro.origem_atendimento);
+                    const tituloPrimeiro = obterTituloAgendamentoPorOrigem(primeiro.origem_atendimento, primeiro.clinica);
                     const slotReservado = statusPrimeiro === "Reservado";
                     const slotClasses = slotReservado
                       ? {
@@ -2535,9 +2640,10 @@ export default function AgendaPage() {
                         className={slotClasses.container}
                       >
                         <div className={slotClasses.titulo}>
-                          {primeiro.clinica || "Clinica nao informada"}
+                          {tituloPrimeiro}
                         </div>
-                        <div className="mt-1 mb-1">
+                        <div className="mt-1 mb-1 flex flex-wrap gap-1">
+                          <span className={origemPrimeiro.compactBadgeClassName}>{origemPrimeiro.label}</span>
                           <span className={slotClasses.badge}>{statusPrimeiro || "Agendado"}</span>
                         </div>
                         <div className={slotClasses.texto}>
