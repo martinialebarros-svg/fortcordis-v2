@@ -14,7 +14,7 @@ from typing import Any, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, exists, func, or_, text
+from sqlalchemy import and_, exists, func, inspect, or_, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -64,6 +64,9 @@ LOCAL_TZ = timezone(timedelta(hours=-3))
 AGENDA_STATUS_PERMITIDOS = ["Agendado", "Reservado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"]
 AGENDA_STATUS_PRE_AGENDADOS = {"Agendado", "Reservado", "Confirmado"}
 AGENDA_STATUS_NAO_ANCORA = {"Cancelado", "Faltou"}
+ORIGENS_ATENDIMENTO_PERMITIDAS = {"clinica_parceira", "domiciliar"}
+ORIGEM_ATENDIMENTO_PADRAO = "clinica_parceira"
+ORIGEM_ATENDIMENTO_DOMICILIAR = "domiciliar"
 MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN = 5
 MAX_DESLOCAMENTO_TRECHO_VIZINHO_MIN = 45
 AGENDA_WRITE_LOCK_KEY = 24052301
@@ -95,6 +98,98 @@ def _usuario_tem_papel(usuario: Any, papel: str) -> bool:
         except Exception:
             return False
     return False
+
+
+def _ensure_agendamento_workflow_columns(db: Session) -> None:
+    if db.info.get("_agenda_workflow_columns_checked"):
+        return
+
+    bind = db.get_bind()
+    insp = inspect(bind)
+    if "agendamentos" not in insp.get_table_names():
+        db.info["_agenda_workflow_columns_checked"] = True
+        return
+
+    colunas = {col["name"] for col in insp.get_columns("agendamentos")}
+    alteracoes: dict[str, str] = {
+        "tutor_id": 'ALTER TABLE "agendamentos" ADD COLUMN tutor_id INTEGER',
+        "origem_atendimento": 'ALTER TABLE "agendamentos" ADD COLUMN origem_atendimento VARCHAR(32) DEFAULT \'clinica_parceira\'',
+    }
+
+    faltantes = [sql for coluna, sql in alteracoes.items() if coluna not in colunas]
+    if not faltantes:
+        db.info["_agenda_workflow_columns_checked"] = True
+        return
+
+    for sql in faltantes:
+        db.execute(text(sql))
+    db.execute(
+        text(
+            "UPDATE agendamentos SET origem_atendimento = 'clinica_parceira' "
+            "WHERE origem_atendimento IS NULL OR TRIM(origem_atendimento) = ''"
+        )
+    )
+    db.commit()
+    db.info["_agenda_workflow_columns_checked"] = True
+
+
+def _normalizar_origem_atendimento(value: Optional[str]) -> str:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return ORIGEM_ATENDIMENTO_PADRAO
+    aliases = {
+        "clinica": ORIGEM_ATENDIMENTO_PADRAO,
+        "clinica_parceira": ORIGEM_ATENDIMENTO_PADRAO,
+        "parceira": ORIGEM_ATENDIMENTO_PADRAO,
+        "domiciliar": ORIGEM_ATENDIMENTO_DOMICILIAR,
+    }
+    origem = aliases.get(raw, raw)
+    if origem not in ORIGENS_ATENDIMENTO_PERMITIDAS:
+        raise HTTPException(
+            status_code=422,
+            detail="Origem de atendimento invalida. Use clinica_parceira ou domiciliar.",
+        )
+    return origem
+
+
+def _resolver_tutor_agendamento(db: Session, agendamento: Agendamento) -> Optional[Tutor]:
+    tutor_id = int(getattr(agendamento, "tutor_id", 0) or 0)
+    if tutor_id > 0:
+        tutor = db.query(Tutor).filter(Tutor.id == tutor_id).first()
+        if tutor:
+            return tutor
+
+    paciente_id = int(getattr(agendamento, "paciente_id", 0) or 0)
+    if paciente_id <= 0:
+        return None
+    paciente = db.query(Paciente).filter(Paciente.id == paciente_id).first()
+    if not paciente or not paciente.tutor_id:
+        return None
+    tutor = db.query(Tutor).filter(Tutor.id == paciente.tutor_id).first()
+    if tutor and tutor_id <= 0:
+        agendamento.tutor_id = tutor.id
+    return tutor
+
+
+def _resolver_tutor_id_relacionado(
+    agendamento: Agendamento,
+    tutor_id_relacionado: Optional[int] = None,
+) -> Optional[int]:
+    try:
+        tutor_id_atual = int(getattr(agendamento, "tutor_id", 0) or 0)
+    except (TypeError, ValueError):
+        tutor_id_atual = 0
+    if tutor_id_atual > 0:
+        return tutor_id_atual
+
+    try:
+        tutor_id_fallback = int(tutor_id_relacionado or 0)
+    except (TypeError, ValueError):
+        tutor_id_fallback = 0
+    if tutor_id_fallback > 0:
+        agendamento.tutor_id = tutor_id_fallback
+        return tutor_id_fallback
+    return None
 
 
 class SugestaoHorarioPayload(BaseModel):
@@ -313,6 +408,71 @@ def _clinica_tem_localizacao_confiavel(clinica: Optional[Clinica]) -> bool:
     if abs(lat) < 0.000001 and abs(lng) < 0.000001:
         return False
     return True
+
+
+def _assert_clinica_georreferenciada(clinica: Optional[Clinica], *, contexto: str) -> None:
+    if clinica is None:
+        raise HTTPException(status_code=404, detail="Clinica nao encontrada.")
+    if _clinica_tem_localizacao_confiavel(clinica):
+        return
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            f"Nao foi possivel {contexto} porque a clinica selecionada ainda nao possui "
+            "endereco georreferenciado pela API Google. Atualize o cadastro da clinica antes de continuar."
+        ),
+    )
+
+
+def _assert_tutor_georreferenciado(tutor: Optional[Tutor], *, contexto: str) -> None:
+    if tutor is None:
+        raise HTTPException(status_code=422, detail="Selecione um tutor valido para o atendimento domiciliar.")
+    if tutor.latitude is not None and tutor.longitude is not None:
+        return
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            f"Nao foi possivel {contexto} porque o tutor selecionado ainda nao possui "
+            "endereco georreferenciado pela API Google. Atualize o cadastro do tutor antes de continuar."
+        ),
+    )
+
+
+def _validar_regras_origem_agendamento(
+    db: Session,
+    agendamento: Agendamento,
+    *,
+    contexto: str,
+) -> str:
+    origem = _normalizar_origem_atendimento(getattr(agendamento, "origem_atendimento", None))
+    agendamento.origem_atendimento = origem
+
+    tutor = _resolver_tutor_agendamento(db, agendamento)
+    if tutor and not getattr(agendamento, "tutor_id", None):
+        agendamento.tutor_id = tutor.id
+
+    if origem == ORIGEM_ATENDIMENTO_DOMICILIAR:
+        agendamento.clinica_id = None
+        _assert_tutor_georreferenciado(tutor, contexto=contexto)
+    else:
+        if agendamento.clinica_id:
+            clinica_agendamento = db.query(Clinica).filter(Clinica.id == agendamento.clinica_id).first()
+            _assert_clinica_georreferenciada(clinica_agendamento, contexto=contexto)
+
+    return origem
+
+
+def _rotulo_clinica_agendamento(
+    agendamento: Agendamento,
+    clinica_nome: Optional[str] = None,
+) -> str:
+    nome = str(clinica_nome or getattr(agendamento, "clinica", None) or "").strip()
+    if nome:
+        return nome
+    origem = _normalizar_origem_atendimento(getattr(agendamento, "origem_atendimento", None))
+    if origem == ORIGEM_ATENDIMENTO_DOMICILIAR:
+        return "Atendimento domiciliar"
+    return ""
 
 
 def _hora_hhmm_para_minutos(value: Optional[str], fallback: int = 16 * 60) -> int:
@@ -844,6 +1004,7 @@ def _listar_agendamentos_ativos_periodo(
     *,
     agendamento_id_excluir: Optional[int] = None,
 ) -> list[dict]:
+    _ensure_agendamento_workflow_columns(db)
     data_sem_vazio = func.nullif(func.trim(Agendamento.data), "")
     query = (
         db.query(Agendamento)
@@ -1339,12 +1500,18 @@ def _montar_payload_realtime(
     payload = dict(base or {})
 
     if agendamento is not None:
+        tutor_id_relacionado = _resolver_tutor_id_relacionado(
+            agendamento,
+            (related or {}).get("tutor_id_relacionado") if isinstance(related, dict) else None,
+        )
         payload.setdefault("status", agendamento.status)
         payload.setdefault("data", agendamento.data)
         payload.setdefault("hora", agendamento.hora)
         payload.setdefault("paciente_id", agendamento.paciente_id)
+        payload.setdefault("tutor_id", tutor_id_relacionado)
         payload.setdefault("clinica_id", agendamento.clinica_id)
         payload.setdefault("servico_id", agendamento.servico_id)
+        payload.setdefault("origem_atendimento", _normalizar_origem_atendimento(getattr(agendamento, "origem_atendimento", None)))
 
     rel = related or {}
     paciente_nome = _texto_realtime(rel.get("paciente_nome")) or _texto_realtime(getattr(agendamento, "paciente", None))
@@ -1686,21 +1853,34 @@ def _adquirir_lock_escrita_agenda(db: Session) -> None:
 
 
 def _fetch_related_names(db: Session, agendamento: Agendamento) -> dict:
+    _ensure_agendamento_workflow_columns(db)
     paciente_nome = None
     tutor_nome = None
     tutor_telefone = None
+    tutor_id_relacionado = None
     clinica_nome = None
     servico_nome = None
 
+    tutor = None
     if agendamento.paciente_id:
         paciente = db.query(Paciente).filter(Paciente.id == agendamento.paciente_id).first()
         if paciente:
             paciente_nome = paciente.nome
             if paciente.tutor_id:
+                tutor_id_relacionado = int(paciente.tutor_id)
                 tutor = db.query(Tutor).filter(Tutor.id == paciente.tutor_id).first()
                 if tutor:
+                    tutor_id_relacionado = tutor.id
+                    agendamento.tutor_id = _resolver_tutor_id_relacionado(agendamento, tutor.id)
                     tutor_nome = tutor.nome
                     tutor_telefone = tutor.telefone
+
+    if tutor is None:
+        tutor = _resolver_tutor_agendamento(db, agendamento)
+        if tutor:
+            tutor_id_relacionado = tutor.id
+            tutor_nome = tutor.nome
+            tutor_telefone = tutor.telefone
 
     if agendamento.clinica_id:
         clinica = db.query(Clinica).filter(Clinica.id == agendamento.clinica_id).first()
@@ -1716,6 +1896,7 @@ def _fetch_related_names(db: Session, agendamento: Agendamento) -> dict:
         "paciente_nome": paciente_nome,
         "tutor_nome": tutor_nome,
         "tutor_telefone": tutor_telefone,
+        "tutor_id_relacionado": _resolver_tutor_id_relacionado(agendamento, tutor_id_relacionado),
         "clinica_nome": clinica_nome,
         "servico_nome": servico_nome,
     }
@@ -1734,8 +1915,12 @@ def _sync_denormalized_fields(agendamento: Agendamento, related: dict) -> None:
         agendamento.tutor = tutor_nome
     if tutor_telefone:
         agendamento.telefone = tutor_telefone
+    origem = _normalizar_origem_atendimento(getattr(agendamento, "origem_atendimento", None))
+
     if clinica_nome:
         agendamento.clinica = clinica_nome
+    elif origem == ORIGEM_ATENDIMENTO_DOMICILIAR:
+        agendamento.clinica = "Atendimento domiciliar"
     if servico_nome:
         agendamento.servico = servico_nome
 
@@ -1755,7 +1940,9 @@ def _contexto_agendamento_auditoria(agendamento: Agendamento, related: Optional[
 
     paciente = (str(rel.get("paciente_nome") or agendamento.paciente or "").strip() or "Nao informado")
     tutor = (str(rel.get("tutor_nome") or agendamento.tutor or "").strip() or "Nao informado")
-    clinica = (str(rel.get("clinica_nome") or agendamento.clinica or "").strip() or "Nao informada")
+    origem = _normalizar_origem_atendimento(getattr(agendamento, "origem_atendimento", None))
+    clinica_padrao = "Atendimento domiciliar" if origem == ORIGEM_ATENDIMENTO_DOMICILIAR else "Nao informada"
+    clinica = (str(rel.get("clinica_nome") or agendamento.clinica or "").strip() or clinica_padrao)
 
     return {
         "data": data or "-",
@@ -1898,11 +2085,13 @@ def _serialize_agendamento(
     paciente_nome: Optional[str] = None,
     tutor_nome: Optional[str] = None,
     tutor_telefone: Optional[str] = None,
+    tutor_id_relacionado: Optional[int] = None,
     clinica_nome: Optional[str] = None,
     servico_nome: Optional[str] = None,
 ) -> dict:
     inicio_dt = _coerce_datetime(agendamento.inicio)
     fim_dt = _coerce_datetime(agendamento.fim)
+    tutor_id_resolvido = _resolver_tutor_id_relacionado(agendamento, tutor_id_relacionado)
 
     data = agendamento.data
     hora = agendamento.hora
@@ -1915,8 +2104,10 @@ def _serialize_agendamento(
     return {
         "id": agendamento.id,
         "paciente_id": agendamento.paciente_id,
+        "tutor_id": tutor_id_resolvido,
         "clinica_id": agendamento.clinica_id,
         "servico_id": agendamento.servico_id,
+        "origem_atendimento": _normalizar_origem_atendimento(getattr(agendamento, "origem_atendimento", None)),
         "inicio": inicio_dt.strftime("%Y-%m-%d %H:%M:%S") if inicio_dt else None,
         "fim": fim_dt.strftime("%Y-%m-%d %H:%M:%S") if fim_dt else None,
         "status": agendamento.status,
@@ -1927,7 +2118,11 @@ def _serialize_agendamento(
         "tutor": tutor_nome or agendamento.tutor or "Tutor nao informado",
         "telefone": tutor_telefone or agendamento.telefone or "",
         "servico": servico_nome or agendamento.servico or "",
-        "clinica": clinica_nome or agendamento.clinica or "Clinica nao informada",
+        "clinica": clinica_nome or agendamento.clinica or (
+            "Atendimento domiciliar"
+            if _normalizar_origem_atendimento(getattr(agendamento, "origem_atendimento", None)) == ORIGEM_ATENDIMENTO_DOMICILIAR
+            else "Clinica nao informada"
+        ),
         "criado_por_nome": agendamento.criado_por_nome,
         "confirmado_por_nome": agendamento.confirmado_por_nome,
         "created_at": str(agendamento.created_at) if agendamento.created_at else None,
@@ -1935,6 +2130,7 @@ def _serialize_agendamento(
 
 
 def _query_agendamentos_com_relacionados(db: Session):
+    _ensure_agendamento_workflow_columns(db)
     return (
         db.query(
             Agendamento,
@@ -1943,11 +2139,18 @@ def _query_agendamentos_com_relacionados(db: Session):
             Servico.nome.label("servico_nome"),
             Tutor.nome.label("tutor_nome"),
             Tutor.telefone.label("tutor_telefone"),
+            func.coalesce(Agendamento.tutor_id, Paciente.tutor_id).label("tutor_id_relacionado"),
         )
         .outerjoin(Paciente, Agendamento.paciente_id == Paciente.id)
         .outerjoin(Clinica, Agendamento.clinica_id == Clinica.id)
         .outerjoin(Servico, Agendamento.servico_id == Servico.id)
-        .outerjoin(Tutor, Paciente.tutor_id == Tutor.id)
+        .outerjoin(
+            Tutor,
+            or_(
+                Paciente.tutor_id == Tutor.id,
+                and_(Paciente.id.is_(None), Agendamento.tutor_id == Tutor.id),
+            ),
+        )
     )
 
 
@@ -2305,6 +2508,7 @@ def _aplicar_filtros_lista_agenda(
     data_inicio: Optional[str],
     data_fim: Optional[str],
     status: Optional[str],
+    origem_atendimento: Optional[str],
     clinica_id: Optional[int],
     servico_id: Optional[int],
     paciente_id: Optional[int],
@@ -2322,6 +2526,9 @@ def _aplicar_filtros_lista_agenda(
         query = query.filter(Agendamento.data <= data_fim_filtro)
     if status:
         query = query.filter(Agendamento.status == status)
+    if origem_atendimento and str(origem_atendimento).strip().lower() != "todos":
+        origem_normalizada = _normalizar_origem_atendimento(origem_atendimento)
+        query = query.filter(Agendamento.origem_atendimento == origem_normalizada)
     if clinica_id:
         query = query.filter(Agendamento.clinica_id == clinica_id)
     if servico_id:
@@ -2386,6 +2593,7 @@ def listar_agendamentos(
     data_inicio: Optional[str] = None,
     data_fim: Optional[str] = None,
     status: Optional[str] = None,
+    origem_atendimento: Optional[str] = None,
     clinica_id: Optional[int] = None,
     servico_id: Optional[int] = None,
     paciente_id: Optional[int] = None,
@@ -2404,6 +2612,7 @@ def listar_agendamentos(
         data_inicio=data_inicio,
         data_fim=data_fim,
         status=status,
+        origem_atendimento=origem_atendimento,
         clinica_id=clinica_id,
         servico_id=servico_id,
         paciente_id=paciente_id,
@@ -2436,8 +2645,9 @@ def listar_agendamentos(
             servico_nome=servico_nome,
             tutor_nome=tutor_nome,
             tutor_telefone=tutor_telefone,
+            tutor_id_relacionado=tutor_id_relacionado,
         )
-        for ag, paciente_nome, clinica_nome, servico_nome, tutor_nome, tutor_telefone in results
+        for ag, paciente_nome, clinica_nome, servico_nome, tutor_nome, tutor_telefone, tutor_id_relacionado in results
     ]
 
     agenda_semanal, agenda_feriados, agenda_excecoes = _obter_regras_agenda(db)
@@ -2452,7 +2662,10 @@ def listar_agendamentos(
 
 
 def _calcular_previsao_agendamento(db: Session, agendamento: Agendamento) -> Decimal:
-    if not agendamento.clinica_id or not agendamento.servico_id:
+    origem = _normalizar_origem_atendimento(getattr(agendamento, "origem_atendimento", None))
+    if not agendamento.servico_id:
+        return Decimal("0.00")
+    if origem != ORIGEM_ATENDIMENTO_DOMICILIAR and not agendamento.clinica_id:
         return Decimal("0.00")
 
     try:
@@ -2462,6 +2675,7 @@ def _calcular_previsao_agendamento(db: Session, agendamento: Agendamento) -> Dec
             servico_id=agendamento.servico_id,
             tipo_horario="comercial",
             usar_preco_clinica=True,
+            origem_atendimento=origem,
         ))
     except HTTPException as exc:
         logger.warning(
@@ -2485,6 +2699,7 @@ def resumo_financeiro_agenda(
     data: Optional[str] = None,
     data_inicio: Optional[str] = None,
     data_fim: Optional[str] = None,
+    origem_atendimento: Optional[str] = None,
     clinica_id: Optional[int] = None,
     servico_id: Optional[int] = None,
     paciente_id: Optional[int] = None,
@@ -2515,6 +2730,7 @@ def resumo_financeiro_agenda(
         data_inicio=inicio,
         data_fim=fim,
         status=None,
+        origem_atendimento=origem_atendimento,
         clinica_id=clinica_id,
         servico_id=servico_id,
         paciente_id=paciente_id,
@@ -2629,6 +2845,7 @@ def obter_contexto_assistente_agenda_readonly(
         data_inicio=inicio,
         data_fim=fim,
         status=status,
+        origem_atendimento=None,
         clinica_id=clinica_id,
         servico_id=servico_id,
         paciente_id=None,
@@ -2658,7 +2875,7 @@ def obter_contexto_assistente_agenda_readonly(
     por_data: dict[str, int] = {}
     por_status: dict[str, int] = {}
     por_clinica: dict[str, int] = {}
-    for agendamento, paciente_nome, clinica_nome, servico_nome, _tutor_nome, _tutor_telefone in rows:
+    for agendamento, paciente_nome, clinica_nome, servico_nome, _tutor_nome, _tutor_telefone, _tutor_id_relacionado in rows:
         item = _serialize_agendamento_assistente_readonly(
             agendamento,
             paciente_nome=paciente_nome,
@@ -2783,8 +3000,9 @@ def agendamentos_hoje(
             servico_nome=servico_nome,
             tutor_nome=tutor_nome,
             tutor_telefone=tutor_telefone,
+            tutor_id_relacionado=tutor_id_relacionado,
         )
-        for agendamento, paciente_nome, clinica_nome, servico_nome, tutor_nome, tutor_telefone in results
+        for agendamento, paciente_nome, clinica_nome, servico_nome, tutor_nome, tutor_telefone, tutor_id_relacionado in results
     ]
     return {"total": len(items), "items": items}
 
@@ -2855,8 +3073,7 @@ def sugerir_horarios_agenda(
         }
 
     clinica_base = db.query(Clinica).filter(Clinica.id == payload.clinica_id).first()
-    if not clinica_base:
-        raise HTTPException(status_code=404, detail="Clinica nao encontrada.")
+    _assert_clinica_georreferenciada(clinica_base, contexto="sugerir horarios")
     regras_rota = _obter_regras_rota_agenda(db)
     thresholds = regras_rota.get("thresholds") if isinstance(regras_rota.get("thresholds"), dict) else {}
     route_policy = regras_rota.get("route_policy") if isinstance(regras_rota.get("route_policy"), dict) else {}
@@ -3169,8 +3386,7 @@ def sugerir_agendamento_proximo(
 ):
     """Sugere aproveitamento de agenda existente em clinica proxima."""
     clinica_base = db.query(Clinica).filter(Clinica.id == payload.clinica_id).first()
-    if not clinica_base:
-        raise HTTPException(status_code=404, detail="Clinica nao encontrada.")
+    _assert_clinica_georreferenciada(clinica_base, contexto="consultar sugestoes de proximidade")
     clinica_destino_nome = _nome_clinica_legivel(clinica_base.nome)
     regras_rota = _obter_regras_rota_agenda(db)
     thresholds = regras_rota.get("thresholds") if isinstance(regras_rota.get("thresholds"), dict) else {}
@@ -4111,6 +4327,7 @@ def obter_agendamento(
     current_user: User = Depends(get_current_user)
 ):
     """Obtem um agendamento especifico"""
+    _ensure_agendamento_workflow_columns(db)
     agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
     if not agendamento:
         raise HTTPException(status_code=404, detail="Agendamento nao encontrado")
@@ -4125,6 +4342,7 @@ def criar_agendamento(
     current_user: User = Depends(get_current_user)
 ):
     """Cria novo agendamento"""
+    _ensure_agendamento_workflow_columns(db)
     _adquirir_lock_escrita_agenda(db)
 
     override_conflito_deslocamento = bool(agendamento.confirmar_conflito_deslocamento)
@@ -4167,6 +4385,7 @@ def criar_agendamento(
     db_agendamento.criado_em = now
     db_agendamento.created_at = now
     db_agendamento.updated_at = now
+    _validar_regras_origem_agendamento(db, db_agendamento, contexto="salvar o agendamento")
 
     _apply_service_duration_if_needed(db, db_agendamento, force_from_service=True)
     _validar_agendamento_no_funcionamento(db, db_agendamento)
@@ -4200,9 +4419,11 @@ def criar_agendamento(
         descricao=f"Agendamento criado - {_descricao_contexto_agendamento(contexto)}",
         detalhes={
             "paciente_id": db_agendamento.paciente_id,
+            "tutor_id": getattr(db_agendamento, "tutor_id", None),
             "clinica_id": db_agendamento.clinica_id,
             "servico_id": db_agendamento.servico_id,
             "status": db_agendamento.status,
+            "origem_atendimento": _normalizar_origem_atendimento(getattr(db_agendamento, "origem_atendimento", None)),
             "override_conflito_deslocamento": override_conflito_deslocamento,
             "contexto_agendamento": contexto,
         },
@@ -4253,6 +4474,7 @@ def atualizar_agendamento(
     current_user: User = Depends(get_current_user)
 ):
     """Atualiza agendamento"""
+    _ensure_agendamento_workflow_columns(db)
     _adquirir_lock_escrita_agenda(db)
 
     db_agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
@@ -4264,8 +4486,10 @@ def atualizar_agendamento(
         "fim": str(db_agendamento.fim) if db_agendamento.fim else None,
         "status": db_agendamento.status,
         "paciente_id": db_agendamento.paciente_id,
+        "tutor_id": getattr(db_agendamento, "tutor_id", None),
         "clinica_id": db_agendamento.clinica_id,
         "servico_id": db_agendamento.servico_id,
+        "origem_atendimento": _normalizar_origem_atendimento(getattr(db_agendamento, "origem_atendimento", None)),
     }
 
     inicio_original = _coerce_datetime(db_agendamento.inicio)
@@ -4311,6 +4535,7 @@ def atualizar_agendamento(
     if db_agendamento.status == "Reservado" and not db_agendamento.paciente_id:
         # Compatibilidade com bancos legados onde paciente_id ainda esta NOT NULL.
         db_agendamento.paciente_id = 0
+    _validar_regras_origem_agendamento(db, db_agendamento, contexto="salvar o agendamento")
 
     campos_horario = "inicio" in update_data or "fim" in update_data or "servico_id" in update_data or "clinica_id" in update_data
     reativando_cancelado = status_anterior == "Cancelado" and db_agendamento.status != "Cancelado"
@@ -4386,8 +4611,10 @@ def atualizar_agendamento(
                 "fim": str(db_agendamento.fim) if db_agendamento.fim else None,
                 "status": db_agendamento.status,
                 "paciente_id": db_agendamento.paciente_id,
+                "tutor_id": getattr(db_agendamento, "tutor_id", None),
                 "clinica_id": db_agendamento.clinica_id,
                 "servico_id": db_agendamento.servico_id,
+                "origem_atendimento": _normalizar_origem_atendimento(getattr(db_agendamento, "origem_atendimento", None)),
             },
             "override_conflito_deslocamento": override_conflito_deslocamento,
             "contexto_agendamento": contexto,
@@ -4452,6 +4679,7 @@ def atualizar_status(
     """Atualiza apenas o status do agendamento."""
     from decimal import Decimal
     from app.models.ordem_servico import OrdemServico
+    _ensure_agendamento_workflow_columns(db)
     _adquirir_lock_escrita_agenda(db)
 
     def _gerar_numero_os() -> str:
@@ -4611,6 +4839,7 @@ def atualizar_status(
     # Se status for "Realizado", tenta gerar Ordem de Servico automaticamente.
     if status_normalizado == "Realizado":
         try:
+            origem_os = _normalizar_origem_atendimento(getattr(db_agendamento, "origem_atendimento", None))
             os_existente = (
                 db.query(OrdemServico)
                 .filter(
@@ -4628,9 +4857,16 @@ def atualizar_status(
                     "valor_final": float(os_existente.valor_final or 0),
                 }
                 os_reutilizada = True
-            elif not (db_agendamento.paciente_id and db_agendamento.clinica_id and db_agendamento.servico_id):
+            elif not (
+                db_agendamento.paciente_id
+                and db_agendamento.servico_id
+                and (
+                    origem_os == ORIGEM_ATENDIMENTO_DOMICILIAR
+                    or db_agendamento.clinica_id
+                )
+            ):
                 mensagens_adicionais.append(
-                    "Status atualizado, mas OS nao foi gerada por falta de paciente, clinica ou servico."
+                    "Status atualizado, mas OS nao foi gerada por falta de paciente, servico ou base operacional."
                 )
             else:
                 valor_servico = Decimal("0.00")
@@ -4642,6 +4878,7 @@ def atualizar_status(
                         servico_id=db_agendamento.servico_id,
                         tipo_horario=tipo_horario or "comercial",
                         usar_preco_clinica=True,
+                        origem_atendimento=origem_os,
                     )
                 except HTTPException as exc:
                     if exc.status_code in (404, 422):
@@ -4659,6 +4896,7 @@ def atualizar_status(
                         paciente_id=db_agendamento.paciente_id,
                         clinica_id=db_agendamento.clinica_id,
                         servico_id=db_agendamento.servico_id,
+                        origem_atendimento=origem_os,
                         data_atendimento=db_agendamento.inicio,
                         tipo_horario=tipo_horario or "comercial",
                         valor_servico=valor_servico,
@@ -4684,12 +4922,16 @@ def atualizar_status(
 
     related_status = _fetch_related_names(db, db_agendamento)
     contexto_status = _contexto_agendamento_auditoria(db_agendamento, related_status)
+    clinica_label_status = _rotulo_clinica_agendamento(
+        db_agendamento,
+        related_status.get("clinica_nome"),
+    )
 
     resposta = {
         "id": db_agendamento.id,
         "status": db_agendamento.status,
         "paciente": related_status.get("paciente_nome") or "",
-        "clinica": related_status.get("clinica_nome") or "",
+        "clinica": clinica_label_status,
         "servico": related_status.get("servico_nome") or "",
         "mensagem": f"Status atualizado para {status_normalizado}",
     }
@@ -4713,7 +4955,7 @@ def atualizar_status(
                     "numero_os": os_gerada.get("numero_os"),
                     "valor_final": f"{float(os_gerada.get('valor_final') or 0):.2f}",
                     "paciente_nome": related_status.get("paciente_nome"),
-                    "clinica_nome": related_status.get("clinica_nome"),
+                    "clinica_nome": clinica_label_status,
                     "servico_nome": related_status.get("servico_nome"),
                 },
             )
@@ -4751,7 +4993,7 @@ def atualizar_status(
                         "numero_os": os_gerada.get("numero_os"),
                         "valor_final": f"{float(os_gerada.get('valor_final') or 0):.2f}",
                         "paciente_nome": related_status.get("paciente_nome"),
-                        "clinica_nome": related_status.get("clinica_nome"),
+                        "clinica_nome": clinica_label_status,
                         "servico_nome": related_status.get("servico_nome"),
                         "lembrete_horas": str(lembrete_horas),
                     },
@@ -4815,6 +5057,7 @@ def deletar_agendamento(
 ):
     """Deleta agendamento (sÃƒÆ’Ã‚Â³ admin)"""
     from sqlalchemy import text
+    _ensure_agendamento_workflow_columns(db)
     papel = db.execute(
         text("SELECT p.nome FROM papeis p JOIN usuario_papel up ON p.id = up.papel_id WHERE up.usuario_id = :uid"),
         {"uid": current_user.id}
@@ -4831,11 +5074,13 @@ def deletar_agendamento(
 
     snapshot = {
         "paciente_id": db_agendamento.paciente_id,
+        "tutor_id": getattr(db_agendamento, "tutor_id", None),
         "clinica_id": db_agendamento.clinica_id,
         "servico_id": db_agendamento.servico_id,
         "status": db_agendamento.status,
         "data": db_agendamento.data,
         "hora": db_agendamento.hora,
+        "origem_atendimento": _normalizar_origem_atendimento(getattr(db_agendamento, "origem_atendimento", None)),
         "contexto_agendamento": contexto_delete,
     }
     realtime_delete_payload = _montar_payload_realtime(

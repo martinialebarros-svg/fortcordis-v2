@@ -42,7 +42,12 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
     def test_criar_agendamento_forca_duracao_do_servico_quando_payload_traz_fim_maior(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
-            clinica = Clinica(nome="Casa Pet", ativo=True)
+            clinica = Clinica(
+                nome="Casa Pet",
+                ativo=True,
+                latitude=-3.7319,
+                longitude=-38.5267,
+            )
             servico = Servico(nome="Eletrocardiograma", duracao_minutos=20, ativo=True)
             db.add_all([clinica, servico])
             db.commit()
@@ -114,7 +119,12 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
     def test_criar_agendamento_repasse_override_conflito_quando_admin(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
-            clinica = Clinica(nome="Clinica Admin", ativo=True)
+            clinica = Clinica(
+                nome="Clinica Admin",
+                ativo=True,
+                latitude=-3.7319,
+                longitude=-38.5267,
+            )
             db.add(clinica)
             db.commit()
             db.refresh(clinica)
@@ -192,7 +202,12 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
     def test_criar_agendamento_admin_registra_evento_excecao_operacional(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
-            clinica = Clinica(nome="Clinica Admin Excecao", ativo=True)
+            clinica = Clinica(
+                nome="Clinica Admin Excecao",
+                ativo=True,
+                latitude=-3.7319,
+                longitude=-38.5267,
+            )
             db.add(clinica)
             db.commit()
             db.refresh(clinica)

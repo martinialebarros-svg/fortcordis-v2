@@ -12,12 +12,6 @@ import {
   validarHorarioAgendamento,
 } from "@/lib/agenda-config";
 
-const TABELA_PRECO_PADRAO = [
-  { id: 1, nome: "Fortaleza" },
-  { id: 2, nome: "Regiao Metropolitana" },
-  { id: 3, nome: "Domiciliar" },
-  { id: 4, nome: "Personalizado" },
-];
 const LIMITE_MINUTOS_PROXIMIDADE = 25;
 const LIMITE_ESTENDIDO_EXTRA_MIN = 15;
 const COOLDOWN_POPUP_PROXIMIDADE_MS = 60_000;
@@ -173,6 +167,12 @@ interface TutorOption {
   id: number;
   nome: string;
   telefone?: string | null;
+  email?: string | null;
+  cidade?: string | null;
+  endereco_resumo?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  georreferenciado?: boolean;
 }
 
 interface PacienteOption {
@@ -194,6 +194,8 @@ interface ClinicaOption {
   cidade?: string | null;
   estado?: string | null;
   cep?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 interface SearchableSelectOption {
@@ -215,7 +217,10 @@ interface SearchableSelectProps {
   showSelectedDescription?: boolean;
 }
 
+type OrigemAtendimento = "clinica_parceira" | "domiciliar";
+
 interface FormDataAgenda {
+  origem_atendimento: OrigemAtendimento;
   tutor_id: string;
   paciente_id: string;
   clinica_id: string;
@@ -230,10 +235,23 @@ interface FormDataAgenda {
 }
 
 interface NovoTutorForm {
+  id?: string;
   nome: string;
   telefone: string;
   whatsapp: string;
   email: string;
+  cpf: string;
+  cep: string;
+  endereco: string;
+  numero: string;
+  complemento: string;
+  bairro: string;
+  cidade: string;
+  estado: string;
+  latitude: number | null;
+  longitude: number | null;
+  place_id: string;
+  endereco_normalizado: string;
 }
 
 interface NovoAnimalForm {
@@ -248,7 +266,47 @@ interface NovoAnimalForm {
   observacoes: string;
 }
 
+interface TutorPanoramaPet {
+  id: number;
+  nome: string;
+  especie?: string | null;
+  raca?: string | null;
+  sexo?: string | null;
+  ativo?: string | number | boolean | null;
+}
+
+interface TutorPanoramaData {
+  tutor: {
+    id: number;
+    nome: string;
+    telefone?: string | null;
+    whatsapp?: string | null;
+    email?: string | null;
+    cpf?: string | null;
+    cep?: string | null;
+    endereco?: string | null;
+    numero?: string | null;
+    complemento?: string | null;
+    bairro?: string | null;
+    cidade?: string | null;
+    estado?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    place_id?: string | null;
+    endereco_normalizado?: string | null;
+    georreferenciado?: boolean;
+  };
+  pets: TutorPanoramaPet[];
+  resumo?: {
+    total_pets?: number;
+    pets_ativos?: number;
+    endereco_preenchido?: boolean;
+    georreferenciado?: boolean;
+  };
+}
+
 const buildInitialFormData = (defaultDate?: string, defaultTime?: string): FormDataAgenda => ({
+  origem_atendimento: "clinica_parceira",
   tutor_id: "",
   paciente_id: "",
   clinica_id: "",
@@ -263,10 +321,23 @@ const buildInitialFormData = (defaultDate?: string, defaultTime?: string): FormD
 });
 
 const buildInitialTutorForm = (): NovoTutorForm => ({
+  id: "",
   nome: "",
   telefone: "",
   whatsapp: "",
   email: "",
+  cpf: "",
+  cep: "",
+  endereco: "",
+  numero: "",
+  complemento: "",
+  bairro: "",
+  cidade: "",
+  estado: "CE",
+  latitude: null,
+  longitude: null,
+  place_id: "",
+  endereco_normalizado: "",
 });
 
 const buildInitialAnimalForm = (tutorId = ""): NovoAnimalForm => ({
@@ -329,6 +400,46 @@ const formatarResumoPaciente = (paciente: PacienteOption): string => {
   ].filter(Boolean);
 
   return detalhes.join(" - ");
+};
+
+const tutorTemGeorreferenciamento = (tutor?: {
+  latitude?: number | null;
+  longitude?: number | null;
+  georreferenciado?: boolean;
+} | null): boolean => {
+  if (!tutor) return false;
+  if (tutor.georreferenciado) return true;
+  return Number.isFinite(Number(tutor.latitude)) && Number.isFinite(Number(tutor.longitude));
+};
+
+const clinicaTemGeorreferenciamento = (clinica?: ClinicaOption | null): boolean =>
+  Number.isFinite(Number(clinica?.latitude)) && Number.isFinite(Number(clinica?.longitude));
+
+const resumoEnderecoTutor = (tutor?: {
+  endereco?: string | null;
+  numero?: string | null;
+  complemento?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
+  cep?: string | null;
+} | null): string => {
+  if (!tutor) return "";
+
+  const linha1 = [tutor.endereco, tutor.numero, tutor.complemento]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join(", ");
+  const linha2 = [
+    tutor.bairro,
+    [tutor.cidade, tutor.estado].map((item) => String(item || "").trim()).filter(Boolean).join("/"),
+    tutor.cep,
+  ]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join(" - ");
+
+  return [linha1, linha2].filter(Boolean).join(" - ");
 };
 
 const formatarMoedaBRL = (valor: number): string => {
@@ -599,8 +710,9 @@ export default function NovoAgendamentoModal({
   const [tutores, setTutores] = useState<TutorOption[]>([]);
   const [clinicas, setClinicas] = useState<ClinicaOption[]>([]);
   const [servicos, setServicos] = useState<any[]>([]);
-  const [tabelasPreco, setTabelasPreco] = useState<{ id: number; nome: string }[]>(TABELA_PRECO_PADRAO);
   const [tutorSelecionado, setTutorSelecionado] = useState<string>("");
+  const [tutorPanorama, setTutorPanorama] = useState<TutorPanoramaData | null>(null);
+  const [carregandoTutorPanorama, setCarregandoTutorPanorama] = useState(false);
   const [erroCarregamento, setErroCarregamento] = useState<string>("");
   const [carregandoSugestoes, setCarregandoSugestoes] = useState(false);
   const [sugestoesHorario, setSugestoesHorario] = useState<SugestaoHorarioItem[]>([]);
@@ -629,6 +741,8 @@ export default function NovoAgendamentoModal({
   const [salvandoAnimal, setSalvandoAnimal] = useState(false);
   const [novoTutor, setNovoTutor] = useState<NovoTutorForm>(buildInitialTutorForm());
   const [novoAnimal, setNovoAnimal] = useState<NovoAnimalForm>(buildInitialAnimalForm());
+  const [geocodificandoTutor, setGeocodificandoTutor] = useState(false);
+  const [statusEnderecoTutor, setStatusEnderecoTutor] = useState("");
   const [saldoCreditoCliente, setSaldoCreditoCliente] = useState(0);
   const [carregandoCreditoCliente, setCarregandoCreditoCliente] = useState(false);
   const [erroCreditoCliente, setErroCreditoCliente] = useState("");
@@ -645,6 +759,7 @@ export default function NovoAgendamentoModal({
     ? (agendamento?.status || "Agendado")
     : (formData.marcar_como_reserva ? "Reservado" : "Agendado");
   const permiteSemPacienteTutor = statusFormulario === "Reservado";
+  const atendimentoDomiciliar = formData.origem_atendimento === "domiciliar";
 
   const parseApiDateTime = (value?: string): Date | null => {
     if (!value) return null;
@@ -799,13 +914,18 @@ export default function NovoAgendamentoModal({
       agendamento.paciente_id && agendamento.paciente_id > 0
         ? pacientes.find((p) => p.id === agendamento.paciente_id)
         : null;
+    const origemAtendimento: OrigemAtendimento =
+      agendamento?.origem_atendimento === "domiciliar" ? "domiciliar" : "clinica_parceira";
 
     setFormData({
+      origem_atendimento: origemAtendimento,
       tutor_id:
-        pacienteSelecionado?.tutor_id !== null &&
-        pacienteSelecionado?.tutor_id !== undefined
-          ? pacienteSelecionado.tutor_id.toString()
-          : "",
+        agendamento?.tutor_id
+          ? String(agendamento.tutor_id)
+          : pacienteSelecionado?.tutor_id !== null &&
+              pacienteSelecionado?.tutor_id !== undefined
+            ? pacienteSelecionado.tutor_id.toString()
+            : "",
       paciente_id:
         agendamento.paciente_id && agendamento.paciente_id > 0
           ? agendamento.paciente_id.toString()
@@ -821,7 +941,7 @@ export default function NovoAgendamentoModal({
       observacoes: agendamento.observacoes || "",
     });
 
-    setTutorSelecionado(pacienteSelecionado?.tutor || "");
+    setTutorSelecionado(pacienteSelecionado?.tutor || agendamento?.tutor || "");
     setSugestoesHorario([]);
     setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
@@ -850,6 +970,10 @@ export default function NovoAgendamentoModal({
     setSalvandoAnimal(false);
     setNovoTutor(buildInitialTutorForm());
     setNovoAnimal(buildInitialAnimalForm());
+    setTutorPanorama(null);
+    setCarregandoTutorPanorama(false);
+    setGeocodificandoTutor(false);
+    setStatusEnderecoTutor("");
     setFormData(buildInitialFormData(defaultDate, defaultTime));
     setTutorSelecionado("");
     setSugestoesHorario([]);
@@ -933,7 +1057,6 @@ export default function NovoAgendamentoModal({
       api.get("/pacientes?limit=1000"),
       api.get("/tutores?limit=1000"),
       api.get("/clinicas?limit=1000"),
-      api.get("/clinicas/tabelas-preco/opcoes"),
       api.get("/servicos?limit=1000"),
     ]);
 
@@ -963,20 +1086,7 @@ export default function NovoAgendamentoModal({
       falhas.push("clinicas");
     }
 
-    const tabelasResp = resultados[3];
-    if (tabelasResp.status === "fulfilled") {
-      const itens = extrairItems(tabelasResp.value?.data);
-      if (itens.length > 0) {
-        setTabelasPreco(itens);
-      } else {
-        setTabelasPreco(TABELA_PRECO_PADRAO);
-      }
-    } else {
-      setTabelasPreco(TABELA_PRECO_PADRAO);
-      falhas.push("tabelas de preco");
-    }
-
-    const servicosResp = resultados[4];
+    const servicosResp = resultados[3];
     if (servicosResp.status === "fulfilled") {
       setServicos(extrairItems(servicosResp.value?.data));
     } else {
@@ -993,6 +1103,108 @@ export default function NovoAgendamentoModal({
     }
   };
 
+  const preencherModalTutor = (tutor?: TutorPanoramaData["tutor"] | null) => {
+    if (!tutor) {
+      setNovoTutor(buildInitialTutorForm());
+      setStatusEnderecoTutor("");
+      return;
+    }
+
+    setNovoTutor({
+      id: String(tutor.id || ""),
+      nome: String(tutor.nome || ""),
+      telefone: String(tutor.telefone || ""),
+      whatsapp: String(tutor.whatsapp || ""),
+      email: String(tutor.email || ""),
+      cpf: String(tutor.cpf || ""),
+      cep: String(tutor.cep || ""),
+      endereco: String(tutor.endereco || ""),
+      numero: String(tutor.numero || ""),
+      complemento: String(tutor.complemento || ""),
+      bairro: String(tutor.bairro || ""),
+      cidade: String(tutor.cidade || ""),
+      estado: String(tutor.estado || "CE"),
+      latitude: Number.isFinite(Number(tutor.latitude)) ? Number(tutor.latitude) : null,
+      longitude: Number.isFinite(Number(tutor.longitude)) ? Number(tutor.longitude) : null,
+      place_id: String(tutor.place_id || ""),
+      endereco_normalizado: String(tutor.endereco_normalizado || ""),
+    });
+    setStatusEnderecoTutor(
+      tutorTemGeorreferenciamento(tutor)
+        ? "Endereco do tutor georreferenciado com sucesso."
+        : "Complete o endereco e execute o georreferenciamento antes de usar o tutor no fluxo domiciliar."
+    );
+  };
+
+  const carregarPanoramaTutor = async (tutorId: string) => {
+    const idNumerico = Number.parseInt(tutorId || "", 10);
+    if (!Number.isFinite(idNumerico) || idNumerico <= 0) {
+      setTutorPanorama(null);
+      return;
+    }
+
+    try {
+      setCarregandoTutorPanorama(true);
+      const response = await api.get(`/tutores/${idNumerico}/panorama`);
+      const panorama = response?.data as TutorPanoramaData;
+      setTutorPanorama(panorama);
+      preencherModalTutor(panorama?.tutor);
+    } catch (error) {
+      console.error("Erro ao carregar panorama do tutor:", error);
+      setTutorPanorama(null);
+    } finally {
+      setCarregandoTutorPanorama(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!formData.tutor_id) {
+      setTutorPanorama(null);
+      return;
+    }
+    void carregarPanoramaTutor(formData.tutor_id);
+  }, [formData.tutor_id, isOpen]);
+
+  const geocodificarTutorEndereco = async () => {
+    if (!novoTutor.endereco.trim() || !novoTutor.numero.trim() || !novoTutor.cidade.trim() || !novoTutor.estado.trim()) {
+      setStatusEnderecoTutor("Preencha endereco, numero, cidade e UF para georreferenciar o tutor.");
+      return;
+    }
+
+    try {
+      setGeocodificandoTutor(true);
+      setStatusEnderecoTutor("");
+      const response = await api.post("/tutores/geocode-endereco", {
+        endereco: novoTutor.endereco,
+        numero: novoTutor.numero,
+        complemento: novoTutor.complemento,
+        bairro: novoTutor.bairro,
+        cidade: novoTutor.cidade,
+        estado: novoTutor.estado,
+        cep: novoTutor.cep,
+      });
+      const item = response?.data?.item || {};
+      setNovoTutor((prev) => ({
+        ...prev,
+        bairro: item.bairro || prev.bairro,
+        cidade: item.cidade || prev.cidade,
+        estado: item.estado || prev.estado,
+        cep: item.cep || prev.cep,
+        latitude: Number.isFinite(Number(item.latitude)) ? Number(item.latitude) : prev.latitude,
+        longitude: Number.isFinite(Number(item.longitude)) ? Number(item.longitude) : prev.longitude,
+        place_id: item.place_id || prev.place_id,
+        endereco_normalizado: item.endereco_normalizado || prev.endereco_normalizado,
+      }));
+      setStatusEnderecoTutor("Endereco do tutor georreferenciado com sucesso.");
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || "Falha ao georreferenciar o tutor.";
+      setStatusEnderecoTutor(String(detail));
+    } finally {
+      setGeocodificandoTutor(false);
+    }
+  };
+
   const resetFluxoAssistente = (preservarMensagemProximidade = true) => {
     setSugestoesHorario([]);
     setOfertasPanoramicasConsultadas(false);
@@ -1004,6 +1216,21 @@ export default function NovoAgendamentoModal({
     setErroSugestoes("");
     setMensagemSugestoes("");
     if (!preservarMensagemProximidade) {
+      setMensagemProximidade("");
+      setSugestaoProximidade(null);
+    }
+  };
+
+  const handleOrigemAtendimentoChange = (origem: OrigemAtendimento) => {
+    if (!isEditando) {
+      resetFluxoAssistente(false);
+    }
+    setFormData((prev) => ({
+      ...prev,
+      origem_atendimento: origem,
+      clinica_id: origem === "domiciliar" ? "" : prev.clinica_id,
+    }));
+    if (origem === "domiciliar") {
       setMensagemProximidade("");
       setSugestaoProximidade(null);
     }
@@ -1033,6 +1260,11 @@ export default function NovoAgendamentoModal({
   };
 
   const buscarSugestaoProximidade = async (clinicaId: string, dataISO: string) => {
+    if (atendimentoDomiciliar) {
+      setMensagemProximidade("Atendimento domiciliar nao usa sugestoes automaticas por clinica nesta versao.");
+      setSugestaoProximidade(null);
+      return;
+    }
     const clinicaIdNum = Number.parseInt(clinicaId, 10);
     if (!Number.isFinite(clinicaIdNum)) {
       setMensagemProximidade("");
@@ -1041,6 +1273,14 @@ export default function NovoAgendamentoModal({
     }
     if (!dataISO) {
       setMensagemProximidade("Selecione a data para ativar o assistente inteligente de proximidade.");
+      setSugestaoProximidade(null);
+      return;
+    }
+    const clinicaAtual = clinicas.find((item) => item.id === clinicaIdNum) || null;
+    if (!clinicaTemGeorreferenciamento(clinicaAtual)) {
+      setMensagemProximidade(
+        "Georreferencie o endereco da clinica na tela de Clinicas antes de consultar sugestoes de proximidade."
+      );
       setSugestaoProximidade(null);
       return;
     }
@@ -1283,8 +1523,19 @@ export default function NovoAgendamentoModal({
 
   useEffect(() => {
     if (!isOpen) return;
+    if (atendimentoDomiciliar) {
+      setMensagemProximidade("Atendimento domiciliar usa o endereco georreferenciado do tutor e nao ativa o assistente por clinica.");
+      setSugestaoProximidade(null);
+      return;
+    }
     if (!formData.clinica_id) {
       setMensagemProximidade("");
+      setSugestaoProximidade(null);
+      return;
+    }
+    const clinicaAtual = clinicas.find((clinica) => clinica.id.toString() === formData.clinica_id) || null;
+    if (!clinicaTemGeorreferenciamento(clinicaAtual)) {
+      setMensagemProximidade("A clinica selecionada ainda nao possui georreferenciamento confirmado.");
       setSugestaoProximidade(null);
       return;
     }
@@ -1304,6 +1555,8 @@ export default function NovoAgendamentoModal({
     formData.data,
     interacaoProximidade.clinica,
     interacaoProximidade.servico,
+    clinicas,
+    atendimentoDomiciliar,
   ]);
 
   const pacientesFiltradosPorTutor = formData.tutor_id
@@ -1313,8 +1566,13 @@ export default function NovoAgendamentoModal({
   const tutorOptions: SearchableSelectOption[] = tutores.map((tutor) => ({
     value: tutor.id.toString(),
     label: tutor.nome,
-    description: tutor.telefone ? `Telefone: ${tutor.telefone}` : undefined,
-    searchText: [tutor.nome, tutor.telefone || ""].filter(Boolean).join(" "),
+    description: [
+      tutor.telefone ? `Telefone: ${tutor.telefone}` : "",
+      tutor.georreferenciado ? "Endereco georreferenciado" : "Endereco pendente",
+    ]
+      .filter(Boolean)
+      .join(" - "),
+    searchText: [tutor.nome, tutor.telefone || "", tutor.email || "", tutor.cidade || ""].filter(Boolean).join(" "),
   }));
 
   const pacienteOptions: SearchableSelectOption[] = pacientesFiltradosPorTutor.map((paciente) => ({
@@ -1332,10 +1590,17 @@ export default function NovoAgendamentoModal({
     return {
       value: clinica.id.toString(),
       label: clinica.nome,
-      description: endereco,
+      description: `${endereco} - ${clinicaTemGeorreferenciamento(clinica) ? "georreferenciada" : "pendente de georreferenciamento"}`,
       searchText: [clinica.nome, endereco].filter(Boolean).join(" "),
     };
   });
+
+  const clinicaSelecionada = clinicas.find((clinica) => clinica.id.toString() === formData.clinica_id) || null;
+  const clinicaSelecionadaGeorreferenciada = clinicaTemGeorreferenciamento(clinicaSelecionada);
+  const tutorSelecionadoOption = tutores.find((tutor) => tutor.id.toString() === formData.tutor_id) || null;
+  const tutorSelecionadoGeorreferenciado = tutorPanorama?.tutor
+    ? tutorTemGeorreferenciamento(tutorPanorama.tutor)
+    : tutorTemGeorreferenciamento(tutorSelecionadoOption);
 
   const obterDuracaoServicoSelecionado = (): number => {
     const servicoSelecionado = servicos.find((s) => s.id?.toString() === formData.servico_id);
@@ -1513,9 +1778,19 @@ export default function NovoAgendamentoModal({
     setSugestoesHorario([]);
     setOfertasPanoramicasConsultadas(false);
 
+    if (atendimentoDomiciliar) {
+      setErroSugestoes("Atendimento domiciliar nao utiliza sugestoes automaticas por clinica nesta versao.");
+      return;
+    }
+
     const clinicaId = Number.parseInt(formData.clinica_id || "", 10);
     if (!Number.isFinite(clinicaId)) {
       setErroSugestoes("Selecione uma clinica cadastrada para sugerir horarios.");
+      return;
+    }
+    const clinicaAtual = clinicas.find((item) => item.id === clinicaId) || null;
+    if (!clinicaTemGeorreferenciamento(clinicaAtual)) {
+      setErroSugestoes("Georreferencie a clinica selecionada antes de gerar sugestoes de horario.");
       return;
     }
     if (!formData.servico_id) {
@@ -1623,7 +1898,12 @@ export default function NovoAgendamentoModal({
   };
 
   const abrirModalTutor = () => {
-    setNovoTutor(buildInitialTutorForm());
+    if (tutorPanorama?.tutor) {
+      preencherModalTutor(tutorPanorama.tutor);
+    } else {
+      setNovoTutor(buildInitialTutorForm());
+      setStatusEnderecoTutor("");
+    }
     setModalTutorAberto(true);
   };
 
@@ -1647,12 +1927,27 @@ export default function NovoAgendamentoModal({
 
     try {
       setSalvandoTutor(true);
-      const response = await api.post("/tutores", {
+      const payload = {
         nome,
         telefone: novoTutor.telefone || null,
         whatsapp: novoTutor.whatsapp || novoTutor.telefone || null,
         email: novoTutor.email || null,
-      });
+        cpf: novoTutor.cpf || null,
+        cep: novoTutor.cep || null,
+        endereco: novoTutor.endereco || null,
+        numero: novoTutor.numero || null,
+        complemento: novoTutor.complemento || null,
+        bairro: novoTutor.bairro || null,
+        cidade: novoTutor.cidade || null,
+        estado: novoTutor.estado || null,
+        latitude: Number.isFinite(Number(novoTutor.latitude)) ? Number(novoTutor.latitude) : null,
+        longitude: Number.isFinite(Number(novoTutor.longitude)) ? Number(novoTutor.longitude) : null,
+        place_id: novoTutor.place_id || null,
+        endereco_normalizado: novoTutor.endereco_normalizado || null,
+      };
+      const response = novoTutor.id
+        ? await api.put(`/tutores/${novoTutor.id}`, payload)
+        : await api.post("/tutores", payload);
 
       const tutorId = response?.data?.id;
       const tutorNome = response?.data?.nome || nome;
@@ -1665,6 +1960,12 @@ export default function NovoAgendamentoModal({
           id: Number(tutorId),
           nome: tutorNome,
           telefone: novoTutor.telefone || null,
+          email: novoTutor.email || null,
+          cidade: novoTutor.cidade || null,
+          endereco_resumo: resumoEnderecoTutor(novoTutor),
+          latitude: Number.isFinite(Number(novoTutor.latitude)) ? Number(novoTutor.latitude) : null,
+          longitude: Number.isFinite(Number(novoTutor.longitude)) ? Number(novoTutor.longitude) : null,
+          georreferenciado: tutorTemGeorreferenciamento(novoTutor),
         };
         const restantes = prev.filter((item) => item.id !== Number(tutorId));
         return [...restantes, tutorNormalizado].sort((a, b) => a.nome.localeCompare(b.nome));
@@ -1678,6 +1979,8 @@ export default function NovoAgendamentoModal({
       setTutorSelecionado(tutorNome);
       setModalTutorAberto(false);
       setNovoTutor(buildInitialTutorForm());
+      setStatusEnderecoTutor("");
+      await carregarPanoramaTutor(String(tutorId));
     } catch (error: any) {
       const detail = error?.response?.data?.detail ?? error?.message;
       fortinho.notify({
@@ -1772,6 +2075,7 @@ export default function NovoAgendamentoModal({
       setTutorSelecionado(tutor.nome);
       setModalAnimalAberto(false);
       setNovoAnimal(buildInitialAnimalForm(String(tutor.id)));
+      await carregarPanoramaTutor(String(tutor.id));
     } catch (error: any) {
       const detail = error?.response?.data?.detail ?? error?.message;
       fortinho.notify({
@@ -1793,26 +2097,42 @@ export default function NovoAgendamentoModal({
     try {
       if (!isEditando) {
         if (!formData.servico_id) {
-          throw new Error("Selecione o servico antes de concluir o agendamento guiado.");
-        }
-        if (!formData.clinica_id && !(formData.clinica_nova_nome || "").trim()) {
-          throw new Error("Informe a clinica para iniciar o assistente de agendamento.");
-        }
-        if (decisaoAssistente === "pendente") {
           throw new Error(
-            "Conclua o assistente guiado: confirme aceite do cliente ou marque que nenhuma opcao atendeu."
+            atendimentoDomiciliar
+              ? "Selecione o servico antes de concluir o agendamento domiciliar."
+              : "Selecione o servico antes de concluir o agendamento guiado."
           );
         }
-        if (decisaoAssistente === "sem_opcao" && !(motivoSemOpcao || "").trim()) {
-          throw new Error("Descreva o motivo da recusa das sugestoes para seguir com horario manual.");
-        }
-        if (decisaoAssistente === "sem_opcao" && (!isAdmin || !excecaoConcedida)) {
-          if (isAdmin) {
-            throw new Error("Conceda excecao de horario ou encerre sem agendamento antes de salvar.");
+        if (atendimentoDomiciliar) {
+          if (!formData.tutor_id) {
+            throw new Error("Selecione um tutor com endereco georreferenciado para o atendimento domiciliar.");
           }
-          throw new Error(
-            "Seu perfil nao pode liberar horario manual. Solicite excecao ao administrador ou encerre sem agendamento."
-          );
+          if (!tutorSelecionadoGeorreferenciado) {
+            throw new Error("Georreferencie o endereco do tutor antes de salvar o atendimento domiciliar.");
+          }
+        } else {
+          if (!formData.clinica_id) {
+            throw new Error("Selecione uma clinica ja cadastrada para iniciar o assistente de agendamento.");
+          }
+          if (!clinicaSelecionadaGeorreferenciada) {
+            throw new Error("Georreferencie a clinica selecionada na tela de Clinicas antes de continuar.");
+          }
+          if (decisaoAssistente === "pendente") {
+            throw new Error(
+              "Conclua o assistente guiado: confirme aceite do cliente ou marque que nenhuma opcao atendeu."
+            );
+          }
+          if (decisaoAssistente === "sem_opcao" && !(motivoSemOpcao || "").trim()) {
+            throw new Error("Descreva o motivo da recusa das sugestoes para seguir com horario manual.");
+          }
+          if (decisaoAssistente === "sem_opcao" && (!isAdmin || !excecaoConcedida)) {
+            if (isAdmin) {
+              throw new Error("Conceda excecao de horario ou encerre sem agendamento antes de salvar.");
+            }
+            throw new Error(
+              "Seu perfil nao pode liberar horario manual. Solicite excecao ao administrador ou encerre sem agendamento."
+            );
+          }
         }
       }
 
@@ -1836,6 +2156,7 @@ export default function NovoAgendamentoModal({
       }
 
       let pacienteId = formData.paciente_id ? parseInt(formData.paciente_id, 10) : NaN;
+      let tutorId = formData.tutor_id ? parseInt(formData.tutor_id, 10) : NaN;
 
       if (!Number.isFinite(pacienteId) && !permiteSemPacienteTutor) {
         if (formData.tutor_id) {
@@ -1845,27 +2166,20 @@ export default function NovoAgendamentoModal({
       }
 
       let clinicaId = formData.clinica_id ? parseInt(formData.clinica_id, 10) : NaN;
-      if (!Number.isFinite(clinicaId) && (formData.clinica_nova_nome || "").trim()) {
-        const respostaClinica = await api.post("/clinicas", {
-          nome: (formData.clinica_nova_nome || "").trim(),
-          razao_social: (formData.clinica_nova_razao_social || "").trim(),
-          cnpj: "",
-          telefone: "",
-          email: "",
-          endereco: "",
-          cidade: "",
-          estado: "",
-          cep: "",
-          observacoes: "",
-          tabela_preco_id: parseInt(formData.clinica_nova_tabela_preco_id || "1", 10),
-          preco_personalizado_km: 0,
-          preco_personalizado_base: 0,
-          observacoes_preco: "Cadastro rapido via agenda panoramica",
-        });
-
-        clinicaId = respostaClinica?.data?.id;
-        if (!clinicaId) {
-          throw new Error("Nao foi possivel criar a clinica rapidamente.");
+      if (atendimentoDomiciliar) {
+        clinicaId = NaN;
+        if (!Number.isFinite(tutorId)) {
+          throw new Error("Selecione um tutor antes de salvar o atendimento domiciliar.");
+        }
+        if (!tutorSelecionadoGeorreferenciado) {
+          throw new Error("Georreferencie o endereco do tutor antes de salvar o atendimento domiciliar.");
+        }
+      } else {
+        if (!Number.isFinite(clinicaId)) {
+          throw new Error("Selecione uma clinica ja cadastrada antes de salvar o agendamento.");
+        }
+        if (!clinicaSelecionadaGeorreferenciada) {
+          throw new Error("Georreferencie a clinica selecionada na tela de Clinicas antes de salvar o agendamento.");
         }
       }
 
@@ -1898,8 +2212,10 @@ export default function NovoAgendamentoModal({
 
       const payloadBase = {
         paciente_id: Number.isFinite(pacienteId) ? pacienteId : null,
+        tutor_id: Number.isFinite(tutorId) ? tutorId : null,
         clinica_id: Number.isFinite(clinicaId) ? clinicaId : null,
         servico_id: formData.servico_id ? parseInt(formData.servico_id, 10) : null,
+        origem_atendimento: formData.origem_atendimento,
         inicio: toApiDateTime(inicio),
         fim: toApiDateTime(fim),
         status: statusFormulario,
@@ -1998,8 +2314,13 @@ export default function NovoAgendamentoModal({
     }
   };
 
-  const clinicaInformada = Boolean(formData.clinica_id) || Boolean((formData.clinica_nova_nome || "").trim());
-  const assistenteProntoParaSugerir = clinicaInformada && Boolean(formData.servico_id) && Boolean(formData.data);
+  const clinicaInformada = !atendimentoDomiciliar && Boolean(formData.clinica_id);
+  const assistenteProntoParaSugerir =
+    !atendimentoDomiciliar &&
+    clinicaInformada &&
+    clinicaSelecionadaGeorreferenciada &&
+    Boolean(formData.servico_id) &&
+    Boolean(formData.data);
   const totalSugestoes = sugestoesHorario.length;
   const indiceEtapaWizardNovo = resolverIndiceEtapaWizardNovo(
     assistenteProntoParaSugerir,
@@ -2007,7 +2328,7 @@ export default function NovoAgendamentoModal({
   );
   const etapaWizardAtual = !isEditando ? ETAPAS_WIZARD_NOVO[indiceEtapaWizardNovo] : null;
   const excecaoManualLiberada = !isEditando && decisaoAssistente === "sem_opcao" && isAdmin && excecaoConcedida;
-  const bloqueioManualAssistenteAtivo = !isEditando && !excecaoManualLiberada;
+  const bloqueioManualAssistenteAtivo = !isEditando && !atendimentoDomiciliar && !excecaoManualLiberada;
   const bloquearDataManual = bloqueioManualAssistenteAtivo && assistenteProntoParaSugerir;
   const bloquearHoraManual = bloqueioManualAssistenteAtivo;
   const semOpcaoSemExcecao = !isEditando && decisaoAssistente === "sem_opcao" && !excecaoManualLiberada;
@@ -2015,6 +2336,7 @@ export default function NovoAgendamentoModal({
   const clienteComCredito = !isEditando && saldoCreditoCliente > 0;
   const bloquearSalvarNovo =
     !isEditando &&
+    !atendimentoDomiciliar &&
     (
       decisaoAssistente === "pendente" ||
       (decisaoAssistente === "sem_opcao" && (!(motivoSemOpcao || "").trim() || semOpcaoSemExcecao))
@@ -2041,6 +2363,39 @@ export default function NovoAgendamentoModal({
             </div>
           )}
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Origem do atendimento</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => handleOrigemAtendimentoChange("clinica_parceira")}
+                className={`rounded-lg border px-3 py-2 text-sm ${
+                  !atendimentoDomiciliar
+                    ? "border-blue-300 bg-blue-50 text-blue-900"
+                    : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                Clinica parceira
+              </button>
+              <button
+                type="button"
+                onClick={() => handleOrigemAtendimentoChange("domiciliar")}
+                className={`rounded-lg border px-3 py-2 text-sm ${
+                  atendimentoDomiciliar
+                    ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                    : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                Domiciliar
+              </button>
+            </div>
+            <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              {atendimentoDomiciliar
+                ? "Use o endereco georreferenciado do tutor. Nao e necessario cadastrar uma clinica ficticia."
+                : "Fluxo com clinica parceira, usando a clinica georreferenciada como base do assistente e da operacao."}
+            </div>
+          </div>
+
           {/* Tutor */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -2062,9 +2417,91 @@ export default function NovoAgendamentoModal({
                 onClick={abrirModalTutor}
                 className="px-3 py-2 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50"
               >
-                Novo tutor
+                {formData.tutor_id ? "Ver tutor" : "Novo tutor"}
               </button>
             </div>
+            {formData.tutor_id && (
+              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                {carregandoTutorPanorama ? (
+                  <div className="text-sm text-slate-600">Carregando panorama do tutor...</div>
+                ) : tutorPanorama?.tutor ? (
+                  <div className="space-y-3">
+                    <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-900">{tutorPanorama.tutor.nome}</div>
+                        <div className="text-xs text-slate-600">
+                          {[tutorPanorama.tutor.telefone, tutorPanorama.tutor.email].filter(Boolean).join(" - ") || "Contato ainda incompleto"}
+                        </div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {resumoEnderecoTutor(tutorPanorama.tutor) || "Endereco do tutor ainda nao preenchido."}
+                        </div>
+                      </div>
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          tutorTemGeorreferenciamento(tutorPanorama.tutor)
+                            ? "bg-emerald-100 text-emerald-800"
+                            : "bg-amber-100 text-amber-800"
+                        }`}
+                      >
+                        {tutorTemGeorreferenciamento(tutorPanorama.tutor) ? "Endereco georreferenciado" : "Endereco pendente"}
+                      </span>
+                    </div>
+
+                    <div className="rounded-md border border-slate-200 bg-white p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-medium text-slate-900">
+                            Animais vinculados: {Number(tutorPanorama.resumo?.total_pets || tutorPanorama.pets.length || 0)}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            Selecione um pet existente ou cadastre outro a partir deste tutor.
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={abrirModalAnimal}
+                          className="px-3 py-1.5 rounded-md border border-blue-200 text-blue-700 text-xs hover:bg-blue-50"
+                        >
+                          Adicionar pet
+                        </button>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {tutorPanorama.pets.length > 0 ? (
+                          tutorPanorama.pets.map((pet) => {
+                            const selecionado = String(pet.id) === formData.paciente_id;
+                            const descricao = [pet.especie, pet.raca].filter(Boolean).join(" - ");
+                            return (
+                              <button
+                                key={pet.id}
+                                type="button"
+                                onClick={() => handlePacienteChange(String(pet.id))}
+                                className={`rounded-lg border px-3 py-2 text-left text-xs ${
+                                  selecionado
+                                    ? "border-blue-300 bg-blue-50 text-blue-900"
+                                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                                }`}
+                              >
+                                <div className="font-semibold">{pet.nome}</div>
+                                {descricao ? <div className="mt-0.5 text-[11px] opacity-80">{descricao}</div> : null}
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <div className="text-xs text-slate-500">Este tutor ainda nao tem pets vinculados.</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-sm text-slate-600">Selecione um tutor para ver os animais vinculados.</div>
+                )}
+              </div>
+            )}
+            {atendimentoDomiciliar && formData.tutor_id && !tutorSelecionadoGeorreferenciado && (
+              <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                O tutor selecionado ainda nao possui endereco georreferenciado. Abra o cadastro do tutor e conclua o georreferenciamento antes de salvar.
+              </div>
+            )}
           </div>
 
           {/* Animal */}
@@ -2106,62 +2543,47 @@ export default function NovoAgendamentoModal({
           </div>
 
           {/* Clínica */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              <Building className="w-4 h-4 inline mr-1" />
-              Clínica
-            </label>
-            <SearchableSelect
-              value={formData.clinica_id}
-              onChange={handleClinicaChange}
-              options={clinicaOptions}
-              placeholder="Selecione..."
-              searchPlaceholder="Buscar clinica ou endereco..."
-              emptyText="Nenhuma clinica encontrada."
-              clearLabel="Selecione..."
-              showSelectedDescription
-            />
-            {mensagemProximidade && (
-              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                <strong>Assistente inteligente:</strong> {mensagemProximidade}
-                {!isEditando && (
-                  <div className="mt-1 text-xs text-amber-900">
-                    Proximo passo: gerar melhor oferta para visualizar o panorama completo antes de confirmar com o cliente.
-                  </div>
-                )}
+          {!atendimentoDomiciliar ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                <Building className="w-4 h-4 inline mr-1" />
+                Clínica
+              </label>
+              <SearchableSelect
+                value={formData.clinica_id}
+                onChange={handleClinicaChange}
+                options={clinicaOptions}
+                placeholder="Selecione..."
+                searchPlaceholder="Buscar clinica ou endereco..."
+                emptyText="Nenhuma clinica encontrada."
+                clearLabel="Selecione..."
+                showSelectedDescription
+              />
+              {mensagemProximidade && (
+                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  <strong>Assistente inteligente:</strong> {mensagemProximidade}
+                  {!isEditando && (
+                    <div className="mt-1 text-xs text-amber-900">
+                      Proximo passo: gerar melhor oferta para visualizar o panorama completo antes de confirmar com o cliente.
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                O modal nao cria mais clinicas rapidamente. Para usar o assistente, selecione uma clinica ja cadastrada e
+                com georreferenciamento concluido na tela de Clinicas.
               </div>
-            )}
-
-            {!formData.clinica_id && (
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
-                <input
-                  type="text"
-                  value={formData.clinica_nova_nome}
-                  onChange={(e) => setFormData({ ...formData, clinica_nova_nome: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="Nome fantasia (cadastro rápido)"
-                />
-                <input
-                  type="text"
-                  value={formData.clinica_nova_razao_social}
-                  onChange={(e) => setFormData({ ...formData, clinica_nova_razao_social: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="Razão social"
-                />
-                <select
-                  value={formData.clinica_nova_tabela_preco_id}
-                  onChange={(e) => setFormData({ ...formData, clinica_nova_tabela_preco_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                >
-                  {tabelasPreco.map((opcao) => (
-                    <option key={opcao.id} value={opcao.id.toString()}>
-                      {opcao.nome}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
+              {formData.clinica_id && !clinicaSelecionadaGeorreferenciada && (
+                <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  A clinica selecionada ainda nao esta georreferenciada. Corrija o cadastro dela antes de sugerir ou salvar.
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900">
+              Este atendimento sera tratado como domiciliar e usara o endereco do tutor como referencia operacional.
+            </div>
+          )}
 
           {/* Serviço */}
           <div>
@@ -2245,7 +2667,8 @@ export default function NovoAgendamentoModal({
             </div>
           )}
 
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-3">
+          {!atendimentoDomiciliar ? (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-3">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div className="text-sm font-medium text-blue-900 flex items-center gap-2">
                 <Sparkles className="h-4 w-4" />
@@ -2263,8 +2686,8 @@ export default function NovoAgendamentoModal({
 
             <p className="text-xs text-blue-800">
               {isEditando
-                ? "Considera conflitos de agenda e tempo de deslocamento entre clinicas."
-                : "Fluxo obrigatorio: selecionar clinica/servico, oferecer sugestao, registrar aceite ou recusa do cliente."}
+                ? "Considera conflitos de agenda e tempo de deslocamento entre clinicas georreferenciadas."
+                : "Fluxo obrigatorio: selecionar clinica georreferenciada/servico, oferecer sugestao, registrar aceite ou recusa do cliente."}
             </p>
 
             {!isEditando && etapaWizardAtual && (
@@ -2308,7 +2731,7 @@ export default function NovoAgendamentoModal({
 
             {!isEditando && !assistenteProntoParaSugerir && (
               <div className="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs text-blue-700">
-                Preencha clinica, servico e data para iniciar o assistente guiado.
+                Preencha clinica georreferenciada, servico e data para iniciar o assistente guiado.
               </div>
             )}
 
@@ -2508,7 +2931,21 @@ export default function NovoAgendamentoModal({
                 ))}
               </div>
             )}
-          </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 space-y-2">
+              <div className="text-sm font-medium text-emerald-900">Fluxo domiciliar</div>
+              <div className="text-xs text-emerald-800">
+                O agendamento domiciliar usa o endereco georreferenciado do tutor e segue com escolha manual de data e hora.
+              </div>
+              <div className="text-xs text-emerald-800">
+                Nesta primeira versao, o assistente de sugestao por clinica nao entra no fluxo domiciliar.
+              </div>
+              <div className="rounded-md border border-amber-300 bg-white px-3 py-2 text-xs text-amber-900">
+                Ao concluir como <strong>Realizado</strong>, o sistema gera a OS com o preco domiciliar do servico conforme o tipo de horario.
+              </div>
+            </div>
+          )}
 
           {!isEditando && (
             <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -2568,9 +3005,11 @@ export default function NovoAgendamentoModal({
 
       {modalTutorAberto && (
         <div className="fixed inset-0 z-[60] bg-black bg-opacity-40 flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-lg bg-white shadow-xl">
+          <div className="w-full max-w-3xl rounded-lg bg-white shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b px-5 py-4">
-              <h3 className="text-lg font-semibold text-gray-900">Cadastrar Tutor</h3>
+              <h3 className="text-lg font-semibold text-gray-900">
+                {novoTutor.id ? "Cadastro do Tutor" : "Cadastrar Tutor"}
+              </h3>
               <button
                 type="button"
                 onClick={() => setModalTutorAberto(false)}
@@ -2581,17 +3020,27 @@ export default function NovoAgendamentoModal({
               </button>
             </div>
             <div className="space-y-3 px-5 py-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nome *</label>
-                <input
-                  type="text"
-                  value={novoTutor.nome}
-                  onChange={(e) => setNovoTutor((prev) => ({ ...prev, nome: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="Nome do tutor"
-                />
-              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nome *</label>
+                  <input
+                    type="text"
+                    value={novoTutor.nome}
+                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, nome: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="Nome do tutor"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
+                  <input
+                    type="text"
+                    value={novoTutor.cpf}
+                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, cpf: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="000.000.000-00"
+                  />
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
                   <input
@@ -2612,17 +3061,150 @@ export default function NovoAgendamentoModal({
                     placeholder="(00) 00000-0000"
                   />
                 </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={novoTutor.email}
+                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, email: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="email@exemplo.com"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={novoTutor.email}
-                  onChange={(e) => setNovoTutor((prev) => ({ ...prev, email: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="email@exemplo.com"
-                />
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900">Endereco do tutor</div>
+                    <div className="text-xs text-slate-500">
+                      O agendamento domiciliar depende do endereco georreferenciado pela API Google.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={geocodificarTutorEndereco}
+                    disabled={geocodificandoTutor}
+                    className="px-3 py-1.5 rounded-md border border-blue-200 text-blue-700 text-xs hover:bg-blue-50 disabled:opacity-60"
+                  >
+                    {geocodificandoTutor ? "Georreferenciando..." : "Georreferenciar endereco"}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">CEP</label>
+                    <input
+                      type="text"
+                      value={novoTutor.cep}
+                      onChange={(e) => setNovoTutor((prev) => ({ ...prev, cep: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="00000-000"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Bairro</label>
+                    <input
+                      type="text"
+                      value={novoTutor.bairro}
+                      onChange={(e) => setNovoTutor((prev) => ({ ...prev, bairro: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="Bairro"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Endereco</label>
+                    <input
+                      type="text"
+                      value={novoTutor.endereco}
+                      onChange={(e) => setNovoTutor((prev) => ({ ...prev, endereco: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="Rua / Avenida"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Numero</label>
+                    <input
+                      type="text"
+                      value={novoTutor.numero}
+                      onChange={(e) => setNovoTutor((prev) => ({ ...prev, numero: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="123"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Complemento</label>
+                    <input
+                      type="text"
+                      value={novoTutor.complemento}
+                      onChange={(e) => setNovoTutor((prev) => ({ ...prev, complemento: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="Apto, bloco, sala"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Cidade</label>
+                    <input
+                      type="text"
+                      value={novoTutor.cidade}
+                      onChange={(e) => setNovoTutor((prev) => ({ ...prev, cidade: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="Cidade"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">UF</label>
+                    <input
+                      type="text"
+                      value={novoTutor.estado}
+                      onChange={(e) => setNovoTutor((prev) => ({ ...prev, estado: e.target.value.toUpperCase().slice(0, 2) }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="CE"
+                    />
+                  </div>
+                </div>
+                {statusEnderecoTutor && (
+                  <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+                    {statusEnderecoTutor}
+                  </div>
+                )}
+                {(novoTutor.latitude !== null || novoTutor.longitude !== null) && (
+                  <div className="text-xs text-slate-500">
+                    Lat/Lng: {novoTutor.latitude ?? "-"}, {novoTutor.longitude ?? "-"}
+                    {novoTutor.endereco_normalizado ? ` - ${novoTutor.endereco_normalizado}` : ""}
+                  </div>
+                )}
               </div>
+
+              {tutorPanorama?.tutor?.id && String(tutorPanorama.tutor.id) === String(novoTutor.id || "") && (
+                <div className="rounded-lg border border-slate-200 p-4">
+                  <div className="text-sm font-semibold text-slate-900">Panorama dos animais do tutor</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {Number(tutorPanorama.resumo?.total_pets || tutorPanorama.pets.length || 0)} pet(s) vinculado(s)
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {tutorPanorama.pets.length > 0 ? (
+                      tutorPanorama.pets.map((pet) => (
+                        <button
+                          key={pet.id}
+                          type="button"
+                          onClick={() => {
+                            handlePacienteChange(String(pet.id));
+                            setModalTutorAberto(false);
+                          }}
+                          className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs text-slate-700 hover:border-blue-300 hover:bg-blue-50"
+                        >
+                          <div className="font-semibold">{pet.nome}</div>
+                          <div className="mt-0.5 opacity-80">
+                            {[pet.especie, pet.raca].filter(Boolean).join(" - ") || "Sem detalhes"}
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="text-xs text-slate-500">Nenhum pet vinculado ainda.</div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex justify-end gap-2 border-t px-5 py-4">
               <button
@@ -2639,7 +3221,7 @@ export default function NovoAgendamentoModal({
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                 disabled={salvandoTutor}
               >
-                {salvandoTutor ? "Salvando..." : "Salvar Tutor"}
+                {salvandoTutor ? "Salvando..." : novoTutor.id ? "Salvar Tutor" : "Criar Tutor"}
               </button>
             </div>
           </div>

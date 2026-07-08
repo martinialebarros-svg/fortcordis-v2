@@ -63,10 +63,23 @@ def _ensure_tutores_timestamp_columns(db: Session) -> None:
     colunas = {col["name"] for col in insp.get_columns("tutores")}
     alteracoes: list[str] = []
 
-    if "created_at" not in colunas:
-        alteracoes.append('ALTER TABLE "tutores" ADD COLUMN created_at DATETIME')
-    if "updated_at" not in colunas:
-        alteracoes.append('ALTER TABLE "tutores" ADD COLUMN updated_at DATETIME')
+    colunas_texto = {
+        "created_at": 'ALTER TABLE "tutores" ADD COLUMN created_at DATETIME',
+        "updated_at": 'ALTER TABLE "tutores" ADD COLUMN updated_at DATETIME',
+        "place_id": 'ALTER TABLE "tutores" ADD COLUMN place_id TEXT',
+        "endereco_normalizado": 'ALTER TABLE "tutores" ADD COLUMN endereco_normalizado TEXT',
+    }
+    colunas_float = {
+        "latitude": 'ALTER TABLE "tutores" ADD COLUMN latitude FLOAT',
+        "longitude": 'ALTER TABLE "tutores" ADD COLUMN longitude FLOAT',
+    }
+
+    for nome_coluna, sql in colunas_texto.items():
+        if nome_coluna not in colunas:
+            alteracoes.append(sql)
+    for nome_coluna, sql in colunas_float.items():
+        if nome_coluna not in colunas:
+            alteracoes.append(sql)
 
     if not alteracoes:
         return
@@ -147,6 +160,10 @@ def _serialize_tutor_fields(tutor: Tutor | None) -> dict[str, Optional[str] | Op
         "tutor_bairro": tutor.bairro if tutor else None,
         "tutor_cidade": tutor.cidade if tutor else None,
         "tutor_estado": tutor.estado if tutor else None,
+        "tutor_latitude": float(tutor.latitude) if tutor and tutor.latitude is not None else None,
+        "tutor_longitude": float(tutor.longitude) if tutor and tutor.longitude is not None else None,
+        "tutor_place_id": tutor.place_id if tutor else None,
+        "tutor_endereco_normalizado": tutor.endereco_normalizado if tutor else None,
     }
 
 
