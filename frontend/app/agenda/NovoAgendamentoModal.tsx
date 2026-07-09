@@ -34,7 +34,9 @@ interface NovoAgendamentoModalProps {
 
 interface SugestaoHorarioVizinho {
   agendamento_id: number;
-  clinica_id: number;
+  clinica_id?: number | null;
+  tutor_id?: number | null;
+  tipo?: OrigemAtendimento;
   clinica: string;
   inicio?: string;
   fim?: string;
@@ -51,6 +53,8 @@ interface SugestaoHorarioItem {
   risco: number;
   tempo_deslocamento_total_min: number;
   ociosidade_min: number;
+  destino_operacional?: string;
+  destino_operacional_tipo?: OrigemAtendimento;
   anterior: SugestaoHorarioVizinho | null;
   proximo: SugestaoHorarioVizinho | null;
 }
@@ -58,7 +62,10 @@ interface SugestaoHorarioItem {
 interface SugestoesHorarioResponse {
   ok: boolean;
   data: string;
-  clinica_id: number;
+  clinica_id?: number | null;
+  tutor_id?: number | null;
+  origem_atendimento?: OrigemAtendimento;
+  destino_operacional?: string;
   duracao_minutos: number;
   perfil_deslocamento: string;
   intervalo_minutos?: number;
@@ -80,7 +87,7 @@ const ETAPAS_WIZARD_NOVO: EtapaWizardNovo[] = [
   {
     id: "preparo",
     titulo: "Preparar dados",
-    descricao: "Selecionar clinica, servico e data.",
+    descricao: "Selecionar destino operacional, servico e data.",
   },
   {
     id: "ofertas",
@@ -121,6 +128,10 @@ interface SugestaoProximidadeResponse {
   ok: boolean;
   sugerir: boolean;
   mensagem: string;
+  clinica_id?: number | null;
+  tutor_id?: number | null;
+  origem_atendimento?: OrigemAtendimento;
+  destino_operacional?: string;
   limite_minutos?: number;
   acima_do_limite?: boolean;
   politica_oferta?: {
@@ -132,9 +143,12 @@ interface SugestaoProximidadeResponse {
   };
   item?: {
     agendamento_id: number;
-    clinica_id: number;
+    clinica_id?: number | null;
+    tutor_id?: number | null;
     clinica: string;
     clinica_destino?: string;
+    destino_operacional?: string;
+    destino_operacional_tipo?: OrigemAtendimento;
     clinica_anterior?: string | null;
     clinica_posterior?: string | null;
     ha_agendamento_anterior?: boolean;
@@ -154,7 +168,9 @@ interface SugestaoProximidadeResponse {
 
 interface AssistenteOfertaResponse {
   ok: boolean;
-  clinica_id: number;
+  clinica_id?: number | null;
+  tutor_id?: number | null;
+  origem_atendimento?: OrigemAtendimento;
   data_referencia: string;
   data_contato?: string;
   data_base: string;
@@ -464,14 +480,14 @@ const rotularFonteDeslocamento = (fonte?: string | null): string => {
 
 const nomeClinicaLegivel = (nome?: string | null): string => {
   const valor = String(nome || "").trim();
-  return valor || "clinica nao informada";
+  return valor || "destino nao informado";
 };
 
 const fraseDeslocamentoEntreClinicas = (origem?: string | null, destino?: string | null, duracaoMin = 0): string => {
   const origemNome = nomeClinicaLegivel(origem);
   const destinoNome = nomeClinicaLegivel(destino);
   if (origemNome.toLocaleLowerCase("pt-BR") === destinoNome.toLocaleLowerCase("pt-BR")) {
-    return `Deslocamento dentro da clinica ${origemNome}: ${duracaoMin} min.`;
+    return `Deslocamento local em ${origemNome}: ${duracaoMin} min.`;
   }
   return `Deslocamento entre ${origemNome} e ${destinoNome} de ${duracaoMin} min.`;
 };
@@ -489,7 +505,7 @@ const detalharComposicaoDeslocamento = (
   const total = Number.isFinite(Number(totalMinutos)) ? Math.max(0, Number(totalMinutos)) : 0;
   const anterior = Number.isFinite(Number(anteriorMinutos)) ? Math.max(0, Number(anteriorMinutos)) : 0;
   const proximo = Number.isFinite(Number(proximoMinutos)) ? Math.max(0, Number(proximoMinutos)) : 0;
-  const destino = String(clinicaDestino || "").trim() || "clinica selecionada";
+  const destino = String(clinicaDestino || "").trim() || "destino selecionado";
   const partes: string[] = [];
 
   if (haAgendamentoAnterior) {
@@ -1295,6 +1311,10 @@ export default function NovoAgendamentoModal({
 
   const handleTutorChange = (tutorId: string) => {
     const tutor = tutores.find((t) => t.id.toString() === tutorId);
+    if (!isEditando && atendimentoDomiciliar) {
+      resetFluxoAssistente(false);
+    }
+    setInteracaoProximidade((prev) => ({ ...prev, clinica: true }));
     setTutorSelecionado(tutor?.nome || "");
     setFormData((prev) => ({
       ...prev,
@@ -1317,36 +1337,51 @@ export default function NovoAgendamentoModal({
   };
 
   const buscarSugestaoProximidade = async (clinicaId: string, dataISO: string) => {
-    if (atendimentoDomiciliar) {
-      setMensagemProximidade("Atendimento domiciliar nao usa sugestoes automaticas por clinica nesta versao.");
-      setSugestaoProximidade(null);
-      return;
-    }
     const clinicaIdNum = Number.parseInt(clinicaId, 10);
+    const tutorIdNum = Number.parseInt(formData.tutor_id || "", 10);
     if (!Number.isFinite(clinicaIdNum)) {
-      setMensagemProximidade("");
-      setSugestaoProximidade(null);
-      return;
+      if (!atendimentoDomiciliar) {
+        setMensagemProximidade("");
+        setSugestaoProximidade(null);
+        return;
+      }
     }
     if (!dataISO) {
       setMensagemProximidade("Selecione a data para ativar o assistente inteligente de proximidade.");
       setSugestaoProximidade(null);
       return;
     }
-    const clinicaAtual = clinicas.find((item) => item.id === clinicaIdNum) || null;
-    if (!clinicaTemGeorreferenciamento(clinicaAtual)) {
-      setMensagemProximidade(
-        "Georreferencie o endereco da clinica na tela de Clinicas antes de consultar sugestoes de proximidade."
-      );
-      setSugestaoProximidade(null);
-      return;
+    if (atendimentoDomiciliar) {
+      if (!Number.isFinite(tutorIdNum)) {
+        setMensagemProximidade("Selecione um tutor georreferenciado para ativar a sugestao de proximidade.");
+        setSugestaoProximidade(null);
+        return;
+      }
+      if (!tutorSelecionadoGeorreferenciado) {
+        setMensagemProximidade(
+          "Georreferencie o endereco do tutor antes de consultar sugestoes de proximidade para o atendimento domiciliar."
+        );
+        setSugestaoProximidade(null);
+        return;
+      }
+    } else {
+      const clinicaAtual = clinicas.find((item) => item.id === clinicaIdNum) || null;
+      if (!clinicaTemGeorreferenciamento(clinicaAtual)) {
+        setMensagemProximidade(
+          "Georreferencie o endereco da clinica na tela de Clinicas antes de consultar sugestoes de proximidade."
+        );
+        setSugestaoProximidade(null);
+        return;
+      }
     }
     const consultaId = ++sequenciaConsultaProximidadeRef.current;
 
     try {
       const dataContato = !isEditando ? (dataContatoAssistente || hojeLocalIso()) : undefined;
       const response = await api.post<SugestaoProximidadeResponse>("/agenda/sugestao-proximidade", {
-        clinica_id: clinicaIdNum,
+        origem_atendimento: formData.origem_atendimento,
+        clinica_id: atendimentoDomiciliar ? null : clinicaIdNum,
+        tutor_id: atendimentoDomiciliar ? tutorIdNum : null,
         data: dataISO,
         data_contato: dataContato,
         servico_id: formData.servico_id ? Number.parseInt(formData.servico_id, 10) : null,
@@ -1389,8 +1424,15 @@ export default function NovoAgendamentoModal({
       const dataSugerida = String(item?.data || dataISO || "").trim();
       const horaSugerida = String(item?.inicio || "").trim();
       const clinicaSugerida = String(item?.clinica || "").trim();
+      const nomeTutorAtual = String(tutorPanorama?.tutor?.nome || tutorSelecionadoOption?.nome || tutorSelecionado || "").trim();
       const clinicaDestino = String(
-        clinicas.find((c) => String(c?.id || "") === String(clinicaIdNum))?.nome || ""
+        atendimentoDomiciliar
+          ? data?.destino_operacional || item?.destino_operacional || item?.clinica_destino || (nomeTutorAtual ? `Domicilio de ${nomeTutorAtual}` : "Atendimento domiciliar")
+          : clinicas.find((c) => String(c?.id || "") === String(clinicaIdNum))?.nome ||
+              data?.destino_operacional ||
+              item?.destino_operacional ||
+              item?.clinica_destino ||
+              ""
       ).trim();
       const mesmoDestino = !!clinicaDestino && clinicaDestino === clinicaSugerida;
       const detalheHora = horaSugerida ? ` às ${horaSugerida}` : "";
@@ -1408,7 +1450,7 @@ export default function NovoAgendamentoModal({
           ? `e a composicao do deslocamento para ${clinicaDestino} é de ${detalheComposicao}`
           : `com composicao estimada de deslocamento em ${detalheComposicao}`;
       const textoBase = `Encontramos uma opção melhor de horário para reduzir deslocamento. Temos um atendimento ${
-        clinicaSugerida ? `na ${clinicaSugerida}` : "próximo"
+        clinicaSugerida ? `de referencia em ${clinicaSugerida}` : "proximo"
       } no dia ${resumoHorario} ${textoDeslocamento}.`;
       const mensagemAssistente = acimaDoLimite
         ? `${textoBase} (limite configurado: ${limiteBase} min).`
@@ -1426,6 +1468,8 @@ export default function NovoAgendamentoModal({
       }
 
       const chavePopup = [
+        formData.origem_atendimento,
+        String(atendimentoDomiciliar ? tutorIdNum : clinicaIdNum),
         String(clinicaIdNum),
         String(formData.servico_id || ""),
         String(item?.agendamento_id || ""),
@@ -1467,7 +1511,7 @@ export default function NovoAgendamentoModal({
 
       if (confirmou && dataSugerida) {
         try {
-          const { items, itensIgnorados } = await buscarSugestoesOperacionais(dataSugerida, clinicaIdNum);
+          const { items, itensIgnorados } = await buscarSugestoesOperacionais(dataSugerida);
           setItensIgnoradosJanela(itensIgnorados);
           setSugestoesHorario(items);
           setOfertasPanoramicasConsultadas(true);
@@ -1578,28 +1622,40 @@ export default function NovoAgendamentoModal({
     }));
   };
 
+  const tutorSelecionadoGeorreferenciadoAtual = tutorPanorama?.tutor
+    ? tutorTemGeorreferenciamento(tutorPanorama.tutor)
+    : tutorTemGeorreferenciamento(tutores.find((tutor) => tutor.id.toString() === formData.tutor_id) || null);
+
   useEffect(() => {
     if (!isOpen) return;
-    if (atendimentoDomiciliar) {
-      setMensagemProximidade("Atendimento domiciliar usa o endereco georreferenciado do tutor e nao ativa o assistente por clinica.");
-      setSugestaoProximidade(null);
-      return;
-    }
-    if (!formData.clinica_id) {
-      setMensagemProximidade("");
-      setSugestaoProximidade(null);
-      return;
-    }
-    const clinicaAtual = clinicas.find((clinica) => clinica.id.toString() === formData.clinica_id) || null;
-    if (!clinicaTemGeorreferenciamento(clinicaAtual)) {
-      setMensagemProximidade("A clinica selecionada ainda nao possui georreferenciamento confirmado.");
-      setSugestaoProximidade(null);
-      return;
-    }
     if (!formData.servico_id) {
       setMensagemProximidade("Selecione o servico para ativar o assistente inteligente de proximidade.");
       setSugestaoProximidade(null);
       return;
+    }
+    if (atendimentoDomiciliar) {
+      if (!formData.tutor_id) {
+        setMensagemProximidade("Selecione um tutor georreferenciado para ativar o assistente inteligente.");
+        setSugestaoProximidade(null);
+        return;
+      }
+      if (!tutorSelecionadoGeorreferenciadoAtual) {
+        setMensagemProximidade("O tutor selecionado ainda nao possui georreferenciamento confirmado.");
+        setSugestaoProximidade(null);
+        return;
+      }
+    } else {
+      if (!formData.clinica_id) {
+        setMensagemProximidade("");
+        setSugestaoProximidade(null);
+        return;
+      }
+      const clinicaAtual = clinicas.find((clinica) => clinica.id.toString() === formData.clinica_id) || null;
+      if (!clinicaTemGeorreferenciamento(clinicaAtual)) {
+        setMensagemProximidade("A clinica selecionada ainda nao possui georreferenciamento confirmado.");
+        setSugestaoProximidade(null);
+        return;
+      }
     }
     if (!interacaoProximidade.clinica || !interacaoProximidade.servico) {
       return;
@@ -1614,6 +1670,8 @@ export default function NovoAgendamentoModal({
     interacaoProximidade.servico,
     clinicas,
     atendimentoDomiciliar,
+    formData.tutor_id,
+    tutorSelecionadoGeorreferenciadoAtual,
   ]);
 
   const pacientesFiltradosPorTutor = formData.tutor_id
@@ -1658,6 +1716,14 @@ export default function NovoAgendamentoModal({
   const tutorSelecionadoGeorreferenciado = tutorPanorama?.tutor
     ? tutorTemGeorreferenciamento(tutorPanorama.tutor)
     : tutorTemGeorreferenciamento(tutorSelecionadoOption);
+  const destinoOperacionalAtualLabel = atendimentoDomiciliar
+    ? (() => {
+        const nomeTutor = String(
+          tutorPanorama?.tutor?.nome || tutorSelecionadoOption?.nome || tutorSelecionado || ""
+        ).trim();
+        return nomeTutor ? `Domicilio de ${nomeTutor}` : "Atendimento domiciliar";
+      })()
+    : String(clinicaSelecionada?.nome || "").trim() || "Clinica selecionada";
 
   const obterDuracaoServicoSelecionado = (): number => {
     const servicoSelecionado = servicos.find((s) => s.id?.toString() === formData.servico_id);
@@ -1669,12 +1735,15 @@ export default function NovoAgendamentoModal({
   };
 
   const buscarSugestoesOperacionais = async (
-    dataBaseBusca: string,
-    clinicaId: number
+    dataBaseBusca: string
   ): Promise<{ items: SugestaoHorarioItem[]; motivo: string; itensIgnorados: number }> => {
+    const clinicaId = Number.parseInt(formData.clinica_id || "", 10);
+    const tutorId = Number.parseInt(formData.tutor_id || "", 10);
     const payload = {
       data: dataBaseBusca,
-      clinica_id: clinicaId,
+      origem_atendimento: formData.origem_atendimento,
+      clinica_id: atendimentoDomiciliar ? null : (Number.isFinite(clinicaId) ? clinicaId : null),
+      tutor_id: atendimentoDomiciliar && Number.isFinite(tutorId) ? tutorId : null,
       servico_id: formData.servico_id ? parseInt(formData.servico_id, 10) : null,
       duracao_minutos: obterDuracaoServicoSelecionado(),
       intervalo_minutos: intervaloSugestaoMinutos,
@@ -1767,11 +1836,14 @@ export default function NovoAgendamentoModal({
     try {
       setRegistrandoEncerramento(true);
       const clinicaId = Number.parseInt(formData.clinica_id || "", 10);
+      const tutorId = Number.parseInt(formData.tutor_id || "", 10);
       const servicoId = Number.parseInt(formData.servico_id || "", 10);
       await api.post("/agenda/assistente/encerramento", {
         tipo,
         motivo,
-        clinica_id: Number.isFinite(clinicaId) ? clinicaId : null,
+        origem_atendimento: formData.origem_atendimento,
+        clinica_id: atendimentoDomiciliar ? null : (Number.isFinite(clinicaId) ? clinicaId : null),
+        tutor_id: atendimentoDomiciliar && Number.isFinite(tutorId) ? tutorId : null,
         servico_id: Number.isFinite(servicoId) ? servicoId : null,
         data_referencia: String(formData.data || "").trim() || null,
         data_contato: String(dataContatoAssistente || "").trim() || null,
@@ -1779,6 +1851,7 @@ export default function NovoAgendamentoModal({
           total_sugestoes: totalSugestoes,
           indice_sugestao_atual: indiceSugestaoAtual + 1,
           decisao_assistente: decisaoAssistente,
+          destino_operacional: destinoOperacionalAtualLabel,
           perfil: isAdmin ? "admin" : "nao_admin",
         },
       });
@@ -1835,20 +1908,27 @@ export default function NovoAgendamentoModal({
     setSugestoesHorario([]);
     setOfertasPanoramicasConsultadas(false);
 
-    if (atendimentoDomiciliar) {
-      setErroSugestoes("Atendimento domiciliar nao utiliza sugestoes automaticas por clinica nesta versao.");
-      return;
-    }
-
     const clinicaId = Number.parseInt(formData.clinica_id || "", 10);
-    if (!Number.isFinite(clinicaId)) {
-      setErroSugestoes("Selecione uma clinica cadastrada para sugerir horarios.");
-      return;
-    }
-    const clinicaAtual = clinicas.find((item) => item.id === clinicaId) || null;
-    if (!clinicaTemGeorreferenciamento(clinicaAtual)) {
-      setErroSugestoes("Georreferencie a clinica selecionada antes de gerar sugestoes de horario.");
-      return;
+    const tutorId = Number.parseInt(formData.tutor_id || "", 10);
+    if (atendimentoDomiciliar) {
+      if (!Number.isFinite(tutorId)) {
+        setErroSugestoes("Selecione um tutor georreferenciado para sugerir horarios.");
+        return;
+      }
+      if (!tutorSelecionadoGeorreferenciado) {
+        setErroSugestoes("Georreferencie o tutor selecionado antes de gerar sugestoes de horario.");
+        return;
+      }
+    } else {
+      if (!Number.isFinite(clinicaId)) {
+        setErroSugestoes("Selecione uma clinica cadastrada para sugerir horarios.");
+        return;
+      }
+      const clinicaAtual = clinicas.find((item) => item.id === clinicaId) || null;
+      if (!clinicaTemGeorreferenciamento(clinicaAtual)) {
+        setErroSugestoes("Georreferencie a clinica selecionada antes de gerar sugestoes de horario.");
+        return;
+      }
     }
     if (!formData.servico_id) {
       setErroSugestoes("Selecione o servico para sugerir horarios operacionais com duracao correta.");
@@ -1861,7 +1941,9 @@ export default function NovoAgendamentoModal({
       setCarregandoSugestoes(true);
       const dataContato = !isEditando ? (dataContatoAssistente || hojeLocalIso()) : undefined;
       const response = await api.post<AssistenteOfertaResponse>("/agenda/assistente/ofertas", {
-        clinica_id: clinicaId,
+        origem_atendimento: formData.origem_atendimento,
+        clinica_id: atendimentoDomiciliar ? null : clinicaId,
+        tutor_id: atendimentoDomiciliar ? tutorId : null,
         data: dataSelecionada || null,
         data_contato: dataContato,
         servico_id: formData.servico_id ? parseInt(formData.servico_id, 10) : null,
@@ -2179,22 +2261,22 @@ export default function NovoAgendamentoModal({
           if (!clinicaSelecionadaGeorreferenciada) {
             throw new Error("Georreferencie a clinica selecionada na tela de Clinicas antes de continuar.");
           }
-          if (decisaoAssistente === "pendente") {
-            throw new Error(
-              "Conclua o assistente guiado: confirme aceite do cliente ou marque que nenhuma opcao atendeu."
-            );
+        }
+        if (decisaoAssistente === "pendente") {
+          throw new Error(
+            "Conclua o assistente guiado: confirme aceite do cliente ou marque que nenhuma opcao atendeu."
+          );
+        }
+        if (decisaoAssistente === "sem_opcao" && !(motivoSemOpcao || "").trim()) {
+          throw new Error("Descreva o motivo da recusa das sugestoes para seguir com horario manual.");
+        }
+        if (decisaoAssistente === "sem_opcao" && (!isAdmin || !excecaoConcedida)) {
+          if (isAdmin) {
+            throw new Error("Conceda excecao de horario ou encerre sem agendamento antes de salvar.");
           }
-          if (decisaoAssistente === "sem_opcao" && !(motivoSemOpcao || "").trim()) {
-            throw new Error("Descreva o motivo da recusa das sugestoes para seguir com horario manual.");
-          }
-          if (decisaoAssistente === "sem_opcao" && (!isAdmin || !excecaoConcedida)) {
-            if (isAdmin) {
-              throw new Error("Conceda excecao de horario ou encerre sem agendamento antes de salvar.");
-            }
-            throw new Error(
-              "Seu perfil nao pode liberar horario manual. Solicite excecao ao administrador ou encerre sem agendamento."
-            );
-          }
+          throw new Error(
+            "Seu perfil nao pode liberar horario manual. Solicite excecao ao administrador ou encerre sem agendamento."
+          );
         }
       }
 
@@ -2311,7 +2393,7 @@ export default function NovoAgendamentoModal({
             throw new Error(
               extrairMensagemErro(
                 conflito,
-                "Conflito operacional de deslocamento. Ajuste o horario ou escolha outra clinica."
+                "Conflito operacional de deslocamento. Ajuste o horario ou revise o destino do atendimento."
               )
             );
           }
@@ -2321,7 +2403,7 @@ export default function NovoAgendamentoModal({
             throw new Error(
               extrairMensagemErro(
                 conflito,
-                "Conflito operacional de deslocamento. Ajuste o horario ou escolha outra clinica."
+                "Conflito operacional de deslocamento. Ajuste o horario ou revise o destino do atendimento."
               )
             );
           }
@@ -2334,7 +2416,7 @@ export default function NovoAgendamentoModal({
               throw new Error(
                 extrairMensagemErro(
                   conflitoOverride,
-                  "Nao foi possivel concluir mesmo com excecao. Ajuste o horario ou escolha outra clinica."
+                  "Nao foi possivel concluir mesmo com excecao. Ajuste o horario ou revise o destino do atendimento."
                 )
               );
             }
@@ -2376,13 +2458,21 @@ export default function NovoAgendamentoModal({
     }
   };
 
-  const clinicaInformada = !atendimentoDomiciliar && Boolean(formData.clinica_id);
+  const destinoPrincipalInformado = atendimentoDomiciliar ? Boolean(formData.tutor_id) : Boolean(formData.clinica_id);
   const assistenteProntoParaSugerir =
-    !atendimentoDomiciliar &&
-    clinicaInformada &&
-    clinicaSelecionadaGeorreferenciada &&
+    destinoPrincipalInformado &&
+    (atendimentoDomiciliar ? tutorSelecionadoGeorreferenciado : clinicaSelecionadaGeorreferenciada) &&
     Boolean(formData.servico_id) &&
     Boolean(formData.data);
+  const tituloAssistente = isEditando ? "Sugerir horarios operacionais" : "Assistente guiado de agendamento";
+  const descricaoAssistente = isEditando
+    ? "Considera conflitos de agenda e tempo de deslocamento usando o destino operacional georreferenciado."
+    : atendimentoDomiciliar
+      ? "Fluxo obrigatorio: selecionar tutor georreferenciado/servico, oferecer sugestao, registrar aceite ou recusa do cliente."
+      : "Fluxo obrigatorio: selecionar clinica georreferenciada/servico, oferecer sugestao, registrar aceite ou recusa do cliente.";
+  const rotuloBotaoAssistente = carregandoSugestoes
+    ? "Buscando..."
+    : (isEditando ? "Sugerir horarios" : "Gerar melhor oferta");
   const totalSugestoes = sugestoesHorario.length;
   const indiceEtapaWizardNovo = resolverIndiceEtapaWizardNovo(
     assistenteProntoParaSugerir,
@@ -2390,7 +2480,7 @@ export default function NovoAgendamentoModal({
   );
   const etapaWizardAtual = !isEditando ? ETAPAS_WIZARD_NOVO[indiceEtapaWizardNovo] : null;
   const excecaoManualLiberada = !isEditando && decisaoAssistente === "sem_opcao" && isAdmin && excecaoConcedida;
-  const bloqueioManualAssistenteAtivo = !isEditando && !atendimentoDomiciliar && !excecaoManualLiberada;
+  const bloqueioManualAssistenteAtivo = !isEditando && !excecaoManualLiberada;
   const bloquearDataManual = bloqueioManualAssistenteAtivo && assistenteProntoParaSugerir;
   const bloquearHoraManual = bloqueioManualAssistenteAtivo;
   const semOpcaoSemExcecao = !isEditando && decisaoAssistente === "sem_opcao" && !excecaoManualLiberada;
@@ -2398,7 +2488,6 @@ export default function NovoAgendamentoModal({
   const clienteComCredito = !isEditando && saldoCreditoCliente > 0;
   const bloquearSalvarNovo =
     !isEditando &&
-    !atendimentoDomiciliar &&
     (
       decisaoAssistente === "pendente" ||
       (decisaoAssistente === "sem_opcao" && (!(motivoSemOpcao || "").trim() || semOpcaoSemExcecao))
@@ -2621,16 +2710,6 @@ export default function NovoAgendamentoModal({
                 clearLabel="Selecione..."
                 showSelectedDescription
               />
-              {mensagemProximidade && (
-                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                  <strong>Assistente inteligente:</strong> {mensagemProximidade}
-                  {!isEditando && (
-                    <div className="mt-1 text-xs text-amber-900">
-                      Proximo passo: gerar melhor oferta para visualizar o panorama completo antes de confirmar com o cliente.
-                    </div>
-                  )}
-                </div>
-              )}
               <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
                 O modal nao cria mais clinicas rapidamente. Para usar o assistente, selecione uma clinica ja cadastrada e
                 com georreferenciamento concluido na tela de Clinicas.
@@ -2708,6 +2787,27 @@ export default function NovoAgendamentoModal({
               />
             </div>
           </div>
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-3">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-1">
+                <div className="text-sm font-medium text-blue-900 flex items-center gap-2">
+                  <Sparkles className="h-4 w-4" />
+                  {tituloAssistente}
+                </div>
+                <p className="text-xs text-blue-800">
+                  {descricaoAssistente}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={buscarSugestoesHorario}
+                disabled={carregandoSugestoes || (!isEditando && !assistenteProntoParaSugerir)}
+                className="w-full md:w-auto px-3 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60"
+              >
+                {rotuloBotaoAssistente}
+              </button>
+            </div>
+          </div>
           {!isEditando && bloqueioManualAssistenteAtivo && (
             <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
               {decisaoAssistente !== "sem_opcao" && (
@@ -2729,28 +2829,26 @@ export default function NovoAgendamentoModal({
             </div>
           )}
 
-          {!atendimentoDomiciliar ? (
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-3">
-            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <div className="text-sm font-medium text-blue-900 flex items-center gap-2">
-                <Sparkles className="h-4 w-4" />
-                {isEditando ? "Sugerir horarios operacionais" : "Assistente guiado de agendamento"}
-              </div>
-              <button
-                type="button"
-                onClick={buscarSugestoesHorario}
-                disabled={carregandoSugestoes || (!isEditando && !assistenteProntoParaSugerir)}
-                className="px-3 py-1.5 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60"
-              >
-                {carregandoSugestoes ? "Buscando..." : (isEditando ? "Sugerir horarios" : "Gerar melhor oferta")}
-              </button>
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-3">
+            <div className="text-sm font-medium text-blue-900 flex items-center gap-2">
+              <Sparkles className="h-4 w-4" />
+              Panorama e desfecho do assistente
             </div>
 
             <p className="text-xs text-blue-800">
-              {isEditando
-                ? "Considera conflitos de agenda e tempo de deslocamento entre clinicas georreferenciadas."
-                : "Fluxo obrigatorio: selecionar clinica georreferenciada/servico, oferecer sugestao, registrar aceite ou recusa do cliente."}
+              {descricaoAssistente}
             </p>
+
+            {mensagemProximidade && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                <strong>Assistente inteligente:</strong> {mensagemProximidade}
+                {!isEditando && (
+                  <div className="mt-1">
+                    Proximo passo: gerar melhor oferta para visualizar o panorama completo antes de confirmar com o cliente.
+                  </div>
+                )}
+              </div>
+            )}
 
             {!isEditando && etapaWizardAtual && (
               <div className="rounded-md border border-blue-200 bg-white px-2 py-2 space-y-2">
@@ -2793,7 +2891,7 @@ export default function NovoAgendamentoModal({
 
             {!isEditando && !assistenteProntoParaSugerir && (
               <div className="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs text-blue-700">
-                Preencha clinica georreferenciada, servico e data para iniciar o assistente guiado.
+                Preencha {atendimentoDomiciliar ? "tutor georreferenciado" : "clinica georreferenciada"}, servico e data para iniciar o assistente guiado.
               </div>
             )}
 
@@ -2993,21 +3091,7 @@ export default function NovoAgendamentoModal({
                 ))}
               </div>
             )}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 space-y-2">
-              <div className="text-sm font-medium text-emerald-900">Fluxo domiciliar</div>
-              <div className="text-xs text-emerald-800">
-                O agendamento domiciliar usa o endereco georreferenciado do tutor e segue com escolha manual de data e hora.
-              </div>
-              <div className="text-xs text-emerald-800">
-                Nesta primeira versao, o assistente de sugestao por clinica nao entra no fluxo domiciliar.
-              </div>
-              <div className="rounded-md border border-amber-300 bg-white px-3 py-2 text-xs text-amber-900">
-                Ao concluir como <strong>Realizado</strong>, o sistema gera a OS com o preco domiciliar do servico conforme o tipo de horario.
-              </div>
-            </div>
-          )}
+          </div>
 
           {!isEditando && (
             <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">

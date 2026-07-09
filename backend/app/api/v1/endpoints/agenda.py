@@ -9,6 +9,7 @@ import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from queue import Empty
+from types import SimpleNamespace
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -48,7 +49,7 @@ from app.core.agenda_route_rules import carregar_agenda_rota_regras
 from app.core.agenda_realtime import agenda_realtime_manager
 from app.core.config import settings
 from app.core.security import get_current_user
-from app.services.logistica_service import normalizar_perfil, obter_duracao_deslocamento
+from app.services.logistica_service import estimar_deslocamento, normalizar_perfil, obter_duracao_deslocamento
 from app.services.precos_service import calcular_preco_servico, to_decimal
 from app.services.auditoria_service import registrar_auditoria
 from app.services.push_notifications import (
@@ -194,7 +195,9 @@ def _resolver_tutor_id_relacionado(
 
 class SugestaoHorarioPayload(BaseModel):
     data: str = Field(..., description="Data no formato YYYY-MM-DD")
-    clinica_id: int = Field(..., ge=1)
+    origem_atendimento: Literal["clinica_parceira", "domiciliar"] = Field(default=ORIGEM_ATENDIMENTO_PADRAO)
+    clinica_id: Optional[int] = Field(default=None, ge=1)
+    tutor_id: Optional[int] = Field(default=None, ge=1)
     servico_id: Optional[int] = Field(default=None, ge=1)
     duracao_minutos: Optional[int] = Field(default=None, ge=5, le=720)
     intervalo_minutos: int = Field(default=15, ge=5, le=120)
@@ -204,7 +207,9 @@ class SugestaoHorarioPayload(BaseModel):
 
 
 class SugestaoProximidadePayload(BaseModel):
-    clinica_id: int = Field(..., ge=1)
+    origem_atendimento: Literal["clinica_parceira", "domiciliar"] = Field(default=ORIGEM_ATENDIMENTO_PADRAO)
+    clinica_id: Optional[int] = Field(default=None, ge=1)
+    tutor_id: Optional[int] = Field(default=None, ge=1)
     data: Optional[str] = Field(default=None, description="Data no formato YYYY-MM-DD")
     data_contato: Optional[str] = Field(default=None, description="Data do contato no formato YYYY-MM-DD")
     servico_id: Optional[int] = Field(default=None, ge=1)
@@ -221,7 +226,9 @@ class SugestaoProximidadePayload(BaseModel):
 class AssistenteEncerramentoPayload(BaseModel):
     tipo: Literal["solicitacao_excecao", "encerramento_sem_agendamento"] = Field(...)
     motivo: str = Field(..., min_length=5, max_length=1200)
+    origem_atendimento: Optional[Literal["clinica_parceira", "domiciliar"]] = Field(default=None)
     clinica_id: Optional[int] = Field(default=None, ge=1)
+    tutor_id: Optional[int] = Field(default=None, ge=1)
     servico_id: Optional[int] = Field(default=None, ge=1)
     data_referencia: Optional[str] = Field(default=None, description="Data no formato YYYY-MM-DD")
     data_contato: Optional[str] = Field(default=None, description="Data do primeiro contato no formato YYYY-MM-DD")
@@ -229,7 +236,9 @@ class AssistenteEncerramentoPayload(BaseModel):
 
 
 class AssistenteOfertaPayload(BaseModel):
-    clinica_id: int = Field(..., ge=1)
+    origem_atendimento: Literal["clinica_parceira", "domiciliar"] = Field(default=ORIGEM_ATENDIMENTO_PADRAO)
+    clinica_id: Optional[int] = Field(default=None, ge=1)
+    tutor_id: Optional[int] = Field(default=None, ge=1)
     data: Optional[str] = Field(default=None, description="Data no formato YYYY-MM-DD")
     data_contato: Optional[str] = Field(default=None, description="Data do contato no formato YYYY-MM-DD")
     servico_id: Optional[int] = Field(default=None, ge=1)
@@ -325,7 +334,7 @@ def _obter_duracao_deslocamento_cacheado(
     return resultado
 
 
-def _nome_clinica_legivel(nome: Optional[str], fallback: str = "clinica nao informada") -> str:
+def _nome_clinica_legivel(nome: Optional[str], fallback: str = "destino nao informado") -> str:
     valor = str(nome or "").strip()
     return valor or fallback
 
@@ -345,7 +354,7 @@ def _frase_deslocamento_entre_clinicas(origem: str, destino: str, duracao_min: i
     origem_nome = _nome_clinica_legivel(origem)
     destino_nome = _nome_clinica_legivel(destino)
     if origem_nome.casefold() == destino_nome.casefold():
-        return f"Deslocamento dentro da clinica {origem_nome}: {duracao_min} min."
+        return f"Deslocamento local em {origem_nome}: {duracao_min} min."
     return f"Deslocamento entre {origem_nome} e {destino_nome} de {duracao_min} min."
 
 
@@ -389,6 +398,15 @@ def _nome_clinica_por_id(db: Session, clinica_id: Optional[int]) -> str:
     if clinica and clinica.nome:
         return str(clinica.nome).strip()
     return f"Clinica #{int(clinica_id)}"
+
+
+def _nome_tutor_por_id(db: Session, tutor_id: Optional[int]) -> str:
+    if not tutor_id:
+        return "Tutor nao informado"
+    tutor = db.query(Tutor).filter(Tutor.id == int(tutor_id)).first()
+    if tutor and tutor.nome:
+        return str(tutor.nome).strip()
+    return f"Tutor #{int(tutor_id)}"
 
 
 def _clinica_tem_localizacao_confiavel(clinica: Optional[Clinica]) -> bool:
@@ -466,6 +484,275 @@ def _assert_tutor_georreferenciado(tutor: Optional[Tutor], *, contexto: str) -> 
             "endereco georreferenciado pela API Google. Atualize o cadastro do tutor antes de continuar."
         ),
     )
+
+
+def _criar_destino_operacional_clinica(
+    clinica: Optional[Clinica],
+    *,
+    fallback_nome: Optional[str] = None,
+) -> dict[str, Any]:
+    clinica_id = int(getattr(clinica, "id", 0) or 0) if clinica is not None else 0
+    nome = str(getattr(clinica, "nome", None) or fallback_nome or "").strip()
+    if not nome:
+        nome = f"Clinica #{clinica_id}" if clinica_id > 0 else "Clinica nao informada"
+    return {
+        "tipo": ORIGEM_ATENDIMENTO_PADRAO,
+        "entity_id": clinica_id or None,
+        "clinica_id": clinica_id or None,
+        "tutor_id": None,
+        "nome": nome,
+        "label": nome,
+        "latitude": getattr(clinica, "latitude", None) if clinica is not None else None,
+        "longitude": getattr(clinica, "longitude", None) if clinica is not None else None,
+        "place_id": getattr(clinica, "place_id", None) if clinica is not None else None,
+        "endereco": getattr(clinica, "endereco", None) if clinica is not None else None,
+        "numero": getattr(clinica, "numero", None) if clinica is not None else None,
+        "complemento": getattr(clinica, "complemento", None) if clinica is not None else None,
+        "bairro": getattr(clinica, "bairro", None) if clinica is not None else None,
+        "cidade": getattr(clinica, "cidade", None) if clinica is not None else None,
+        "estado": getattr(clinica, "estado", None) if clinica is not None else None,
+        "cep": getattr(clinica, "cep", None) if clinica is not None else None,
+        "localizacao_confiavel": _clinica_tem_localizacao_confiavel(clinica),
+        "obj": clinica,
+    }
+
+
+def _criar_destino_operacional_tutor(
+    tutor: Optional[Tutor],
+    *,
+    fallback_nome: Optional[str] = None,
+) -> dict[str, Any]:
+    tutor_id = int(getattr(tutor, "id", 0) or 0) if tutor is not None else 0
+    nome_tutor = str(getattr(tutor, "nome", None) or fallback_nome or "").strip()
+    if not nome_tutor:
+        nome_tutor = f"Tutor #{tutor_id}" if tutor_id > 0 else "Tutor nao informado"
+    label = f"Domicilio de {nome_tutor}" if nome_tutor != "Tutor nao informado" else "Atendimento domiciliar"
+    return {
+        "tipo": ORIGEM_ATENDIMENTO_DOMICILIAR,
+        "entity_id": tutor_id or None,
+        "clinica_id": None,
+        "tutor_id": tutor_id or None,
+        "nome": nome_tutor,
+        "label": label,
+        "latitude": getattr(tutor, "latitude", None) if tutor is not None else None,
+        "longitude": getattr(tutor, "longitude", None) if tutor is not None else None,
+        "place_id": getattr(tutor, "place_id", None) if tutor is not None else None,
+        "endereco": getattr(tutor, "endereco", None) if tutor is not None else None,
+        "numero": getattr(tutor, "numero", None) if tutor is not None else None,
+        "complemento": getattr(tutor, "complemento", None) if tutor is not None else None,
+        "bairro": getattr(tutor, "bairro", None) if tutor is not None else None,
+        "cidade": getattr(tutor, "cidade", None) if tutor is not None else None,
+        "estado": getattr(tutor, "estado", None) if tutor is not None else None,
+        "cep": getattr(tutor, "cep", None) if tutor is not None else None,
+        "localizacao_confiavel": _tutor_tem_localizacao_confiavel(tutor),
+        "obj": tutor,
+    }
+
+
+def _rotulo_destino_operacional(destino: Optional[dict[str, Any]], fallback: str = "Destino nao informado") -> str:
+    if isinstance(destino, dict):
+        label = str(destino.get("label") or destino.get("nome") or "").strip()
+        if label:
+            return label
+        if str(destino.get("tipo") or "").strip() == ORIGEM_ATENDIMENTO_DOMICILIAR:
+            return "Atendimento domiciliar"
+    return fallback
+
+
+def _destinos_operacionais_mesma_referencia(
+    origem: Optional[dict[str, Any]],
+    destino: Optional[dict[str, Any]],
+) -> bool:
+    if not isinstance(origem, dict) or not isinstance(destino, dict):
+        return False
+    if str(origem.get("tipo") or "").strip() != str(destino.get("tipo") or "").strip():
+        return False
+    origem_id = int(origem.get("entity_id") or 0)
+    destino_id = int(destino.get("entity_id") or 0)
+    return origem_id > 0 and origem_id == destino_id
+
+
+def _adaptar_destino_operacional_para_logistica(destino: Optional[dict[str, Any]]) -> Optional[SimpleNamespace]:
+    if not isinstance(destino, dict):
+        return None
+    lat = destino.get("latitude")
+    lng = destino.get("longitude")
+    if lat is None or lng is None:
+        return None
+    entity_id = int(destino.get("entity_id") or 0)
+    tipo = str(destino.get("tipo") or "").strip() or ORIGEM_ATENDIMENTO_PADRAO
+    adapter_id = entity_id if tipo == ORIGEM_ATENDIMENTO_PADRAO else (-entity_id if entity_id > 0 else -1)
+    return SimpleNamespace(
+        id=adapter_id,
+        nome=destino.get("nome"),
+        latitude=lat,
+        longitude=lng,
+        place_id=destino.get("place_id"),
+        endereco=destino.get("endereco"),
+        numero=destino.get("numero"),
+        complemento=destino.get("complemento"),
+        bairro=destino.get("bairro"),
+        cidade=destino.get("cidade"),
+        estado=destino.get("estado"),
+        cep=destino.get("cep"),
+    )
+
+
+def _tempo_estimado_destino_operacional_ate_base_min(
+    destino: Optional[dict[str, Any]],
+    *,
+    base_lat: Optional[float],
+    base_lng: Optional[float],
+    perfil_deslocamento: str = "comercial",
+) -> Optional[int]:
+    destino_adaptado = _adaptar_destino_operacional_para_logistica(destino)
+    if destino_adaptado is None:
+        return None
+    return _tempo_estimado_clinica_ate_base_min(
+        destino_adaptado,
+        base_lat=base_lat,
+        base_lng=base_lng,
+        perfil_deslocamento=perfil_deslocamento,
+    )
+
+
+def _destinos_operacionais_mesma_regiao(
+    destino_a: Optional[dict[str, Any]],
+    destino_b: Optional[dict[str, Any]],
+) -> bool:
+    if _destinos_operacionais_mesma_referencia(destino_a, destino_b):
+        return True
+    origem = _adaptar_destino_operacional_para_logistica(destino_a)
+    destino = _adaptar_destino_operacional_para_logistica(destino_b)
+    if origem is None or destino is None:
+        return False
+    return _clinicas_mesma_regiao_operacional(origem, destino)
+
+
+def _resolver_destino_operacional_payload(
+    db: Session,
+    *,
+    origem_atendimento: Optional[str],
+    clinica_id: Optional[int],
+    tutor_id: Optional[int],
+    contexto: str,
+) -> dict[str, Any]:
+    origem = _normalizar_origem_atendimento(origem_atendimento)
+    if origem == ORIGEM_ATENDIMENTO_DOMICILIAR:
+        tutor = db.query(Tutor).filter(Tutor.id == int(tutor_id or 0)).first() if tutor_id else None
+        _assert_tutor_georreferenciado(tutor, contexto=contexto)
+        return _criar_destino_operacional_tutor(tutor)
+
+    clinica = db.query(Clinica).filter(Clinica.id == int(clinica_id or 0)).first() if clinica_id else None
+    _assert_clinica_georreferenciada(clinica, contexto=contexto)
+    return _criar_destino_operacional_clinica(clinica)
+
+
+def _obter_duracao_deslocamento_operacional(
+    db: Session,
+    *,
+    origem: Optional[dict[str, Any]],
+    destino: Optional[dict[str, Any]],
+    perfil: str,
+    cache_clinicas: Optional[dict[tuple[int, int, str, bool], tuple[int, str]]] = None,
+    cache_operacional: Optional[dict[tuple[str, int, str, int, str], tuple[int, str]]] = None,
+    cache_google: Optional[dict] = None,
+) -> tuple[int, str]:
+    if not isinstance(origem, dict) or not isinstance(destino, dict):
+        return 0, "indefinido"
+    if _destinos_operacionais_mesma_referencia(origem, destino):
+        return 0, "mesmo_destino"
+
+    perfil_norm = normalizar_perfil(perfil)
+    origem_tipo = str(origem.get("tipo") or "").strip() or ORIGEM_ATENDIMENTO_PADRAO
+    destino_tipo = str(destino.get("tipo") or "").strip() or ORIGEM_ATENDIMENTO_PADRAO
+    origem_entity_id = int(origem.get("entity_id") or 0)
+    destino_entity_id = int(destino.get("entity_id") or 0)
+
+    if (
+        origem_tipo == ORIGEM_ATENDIMENTO_PADRAO
+        and destino_tipo == ORIGEM_ATENDIMENTO_PADRAO
+        and origem_entity_id > 0
+        and destino_entity_id > 0
+    ):
+        return _obter_duracao_deslocamento_cacheado(
+            db,
+            origem_clinica_id=origem_entity_id,
+            destino_clinica_id=destino_entity_id,
+            perfil=perfil_norm,
+            permitir_estimativa_fallback=True,
+            cache=cache_clinicas,
+        )
+
+    chave = (origem_tipo, origem_entity_id, destino_tipo, destino_entity_id, perfil_norm)
+    if isinstance(cache_operacional, dict) and chave in cache_operacional:
+        return cache_operacional[chave]
+
+    origem_adaptado = _adaptar_destino_operacional_para_logistica(origem)
+    destino_adaptado = _adaptar_destino_operacional_para_logistica(destino)
+    if origem_adaptado is None or destino_adaptado is None:
+        resultado = (0, "indefinido")
+    else:
+        _distancia_km, duracao_min, fonte = estimar_deslocamento(
+            origem_adaptado,
+            destino_adaptado,
+            perfil=perfil_norm,
+            permitir_google_lookup=True,
+            google_cache=cache_google,
+        )
+        resultado = (max(0, int(duracao_min or 0)), str(fonte or "indefinido"))
+
+    if isinstance(cache_operacional, dict):
+        cache_operacional[chave] = resultado
+    return resultado
+
+
+def _resolver_destino_operacional_agendamento(
+    db: Session,
+    agendamento: Agendamento,
+    *,
+    cache_clinicas: Optional[dict[int, Optional[Clinica]]] = None,
+    cache_tutores: Optional[dict[int, Optional[Tutor]]] = None,
+    cache_pacientes: Optional[dict[int, Optional[Paciente]]] = None,
+) -> dict[str, Any]:
+    origem = _normalizar_origem_atendimento(getattr(agendamento, "origem_atendimento", None))
+    clinicas_cache = cache_clinicas if isinstance(cache_clinicas, dict) else {}
+    tutores_cache = cache_tutores if isinstance(cache_tutores, dict) else {}
+    pacientes_cache = cache_pacientes if isinstance(cache_pacientes, dict) else {}
+
+    def _get_clinica(cid: Optional[int]) -> Optional[Clinica]:
+        clinica_id = int(cid or 0)
+        if clinica_id <= 0:
+            return None
+        if clinica_id not in clinicas_cache:
+            clinicas_cache[clinica_id] = db.query(Clinica).filter(Clinica.id == clinica_id).first()
+        return clinicas_cache[clinica_id]
+
+    def _get_tutor(tid: Optional[int]) -> Optional[Tutor]:
+        tutor_id = int(tid or 0)
+        if tutor_id <= 0:
+            return None
+        if tutor_id not in tutores_cache:
+            tutores_cache[tutor_id] = db.query(Tutor).filter(Tutor.id == tutor_id).first()
+        return tutores_cache[tutor_id]
+
+    def _get_paciente(pid: Optional[int]) -> Optional[Paciente]:
+        paciente_id = int(pid or 0)
+        if paciente_id <= 0:
+            return None
+        if paciente_id not in pacientes_cache:
+            pacientes_cache[paciente_id] = db.query(Paciente).filter(Paciente.id == paciente_id).first()
+        return pacientes_cache[paciente_id]
+
+    if origem == ORIGEM_ATENDIMENTO_DOMICILIAR:
+        tutor = _get_tutor(getattr(agendamento, "tutor_id", None))
+        if tutor is None:
+            paciente = _get_paciente(getattr(agendamento, "paciente_id", None))
+            tutor = _get_tutor(getattr(paciente, "tutor_id", None))
+        return _criar_destino_operacional_tutor(tutor, fallback_nome=getattr(agendamento, "tutor", None))
+
+    clinica = _get_clinica(getattr(agendamento, "clinica_id", None))
+    return _criar_destino_operacional_clinica(clinica, fallback_nome=getattr(agendamento, "clinica", None))
 
 
 def _validar_regras_origem_agendamento(
@@ -1056,6 +1343,9 @@ def _listar_agendamentos_ativos_periodo(
     if agendamento_id_excluir is not None:
         query = query.filter(Agendamento.id != agendamento_id_excluir)
 
+    cache_clinicas: dict[int, Optional[Clinica]] = {}
+    cache_tutores: dict[int, Optional[Tutor]] = {}
+    cache_pacientes: dict[int, Optional[Paciente]] = {}
     registros: list[dict] = []
     for item in query.order_by(Agendamento.inicio.asc(), Agendamento.id.asc()).all():
         inicio_dt, fim_dt = _intervalo_local_agendamento(item)
@@ -1065,15 +1355,27 @@ def _listar_agendamentos_ativos_periodo(
         if fim_dt is None or fim_dt <= inicio_dt:
             fim_dt = inicio_dt + timedelta(minutes=30)
 
+        destino_operacional = _resolver_destino_operacional_agendamento(
+            db,
+            item,
+            cache_clinicas=cache_clinicas,
+            cache_tutores=cache_tutores,
+            cache_pacientes=cache_pacientes,
+        )
+
         registros.append(
             {
                 "id": item.id,
                 "inicio": inicio_dt,
                 "fim": fim_dt,
+                "origem_atendimento": _normalizar_origem_atendimento(getattr(item, "origem_atendimento", None)),
                 "clinica_id": item.clinica_id,
                 "clinica_nome": (str(item.clinica or "").strip() or None),
+                "tutor_id": getattr(item, "tutor_id", None),
                 "servico_id": item.servico_id,
                 "status": item.status,
+                "destino_operacional": destino_operacional,
+                "destino_operacional_label": _rotulo_destino_operacional(destino_operacional),
             }
         )
 
@@ -1268,9 +1570,6 @@ def _validar_deslocamento_agendamento(
     if status_atual == "Cancelado":
         return
 
-    if not agendamento.clinica_id:
-        return
-
     inicio_dt = _to_local_naive(_coerce_datetime(agendamento.inicio))
     if inicio_dt is None:
         raise HTTPException(status_code=422, detail="Horario de inicio invalido para validar deslocamento.")
@@ -1287,7 +1586,6 @@ def _validar_deslocamento_agendamento(
     )
     anterior, proximo = _obter_vizinhos_horario(agendamentos_dia, inicio_dt, fim_dt)
     perfil_norm = normalizar_perfil(perfil_deslocamento)
-    clinica_atual = _nome_clinica_por_id(db, agendamento.clinica_id)
     regras_rota = _obter_regras_rota_agenda(db)
     thresholds = regras_rota.get("thresholds") if isinstance(regras_rota.get("thresholds"), dict) else {}
     route_policy = regras_rota.get("route_policy") if isinstance(regras_rota.get("route_policy"), dict) else {}
@@ -1298,42 +1596,46 @@ def _validar_deslocamento_agendamento(
     )
     bloquear_ineficiencia = bool(route_policy.get("reject_clear_inefficiency", True))
     cache_clinicas: dict[int, Optional[Clinica]] = {}
-    cache_duracoes: dict[tuple[int, int, str, bool], tuple[int, str]] = {}
+    cache_tutores: dict[int, Optional[Tutor]] = {}
+    cache_pacientes: dict[int, Optional[Paciente]] = {}
+    cache_duracoes_clinicas: dict[tuple[int, int, str, bool], tuple[int, str]] = {}
+    cache_duracoes_operacionais: dict[tuple[str, int, str, int, str], tuple[int, str]] = {}
+    cache_google: dict = {}
     duracao_prev = 0
     folga_prev = None
     fonte_prev = "indefinido"
-    clinica_anterior_nome = None
+    destino_anterior_nome = None
     duracao_next = 0
     folga_next = None
     fonte_next = "indefinido"
-    clinica_proxima_nome = None
+    destino_proximo_nome = None
 
-    def _get_clinica(clinica_id: Optional[int]) -> Optional[Clinica]:
-        cid = int(clinica_id or 0)
-        if cid <= 0:
-            return None
-        if cid not in cache_clinicas:
-            cache_clinicas[cid] = db.query(Clinica).filter(Clinica.id == cid).first()
-        return cache_clinicas[cid]
-
-    clinica_atual_obj = _get_clinica(agendamento.clinica_id)
-    if not _clinica_tem_localizacao_confiavel(clinica_atual_obj):
+    destino_atual = _resolver_destino_operacional_agendamento(
+        db,
+        agendamento,
+        cache_clinicas=cache_clinicas,
+        cache_tutores=cache_tutores,
+        cache_pacientes=cache_pacientes,
+    )
+    destino_atual_nome = _rotulo_destino_operacional(destino_atual)
+    if not bool(destino_atual.get("localizacao_confiavel")):
         # Fase de implantacao: sem geolocalizacao validada, nao bloquear agendamento por deslocamento.
         return
 
-    if anterior and anterior.get("clinica_id"):
-        clinica_anterior_obj = _get_clinica(anterior.get("clinica_id"))
-        if _clinica_tem_localizacao_confiavel(clinica_anterior_obj):
-            duracao_prev, fonte_prev = _obter_duracao_deslocamento_cacheado(
+    if anterior:
+        destino_anterior = anterior.get("destino_operacional") if isinstance(anterior, dict) else None
+        if isinstance(destino_anterior, dict) and bool(destino_anterior.get("localizacao_confiavel")):
+            duracao_prev, fonte_prev = _obter_duracao_deslocamento_operacional(
                 db,
-                origem_clinica_id=anterior.get("clinica_id"),
-                destino_clinica_id=agendamento.clinica_id,
+                origem=destino_anterior,
+                destino=destino_atual,
                 perfil=perfil_norm,
-                permitir_estimativa_fallback=True,
-                cache=cache_duracoes,
+                cache_clinicas=cache_duracoes_clinicas,
+                cache_operacional=cache_duracoes_operacionais,
+                cache_google=cache_google,
             )
             folga_prev = _minutos_entre(anterior["fim"], inicio_dt)
-            clinica_anterior_nome = anterior.get("clinica_nome") or _nome_clinica_por_id(db, anterior.get("clinica_id"))
+            destino_anterior_nome = _rotulo_destino_operacional(destino_anterior)
             if limite_trecho_vizinho_min > 0 and duracao_prev > limite_trecho_vizinho_min:
                 if confirmar_conflito_deslocamento:
                     return
@@ -1342,13 +1644,15 @@ def _validar_deslocamento_agendamento(
                     detail={
                         "codigo": "CONFLITO_DESLOCAMENTO",
                         "mensagem": (
-                            f"O tempo de deslocamento entre {clinica_anterior_nome} e {clinica_atual} "
+                            f"O tempo de deslocamento entre {destino_anterior_nome} e {destino_atual_nome} "
                             f"e de aproximadamente {duracao_prev} minutos e excede o limite operacional "
                             f"de {limite_trecho_vizinho_min} minutos para um trecho da rota. "
-                            "Ajuste o horario ou escolha outra clinica."
+                            "Ajuste o horario ou revise o destino do atendimento."
                         ),
-                        "origem_clinica": clinica_anterior_nome,
-                        "destino_clinica": clinica_atual,
+                        "origem_clinica": destino_anterior_nome,
+                        "destino_clinica": destino_atual_nome,
+                        "origem_operacional": destino_anterior_nome,
+                        "destino_operacional": destino_atual_nome,
                         "duracao_min": int(duracao_prev),
                         "limite_trecho_vizinho_min": int(limite_trecho_vizinho_min),
                         "fonte": fonte_prev,
@@ -1364,15 +1668,17 @@ def _validar_deslocamento_agendamento(
                     detail={
                         "codigo": "CONFLITO_DESLOCAMENTO",
                         "mensagem": (
-                            f"O tempo de deslocamento entre {clinica_anterior_nome} e {clinica_atual} "
+                            f"O tempo de deslocamento entre {destino_anterior_nome} e {destino_atual_nome} "
                             f"e de aproximadamente {duracao_prev} minutos. "
                             f"Disponivel: {max(0, folga_prev)} minutos. "
                             f"Necessario com margem segura: {folga_necessaria_prev} minutos "
                             f"({duracao_prev} min de deslocamento + {margem_segura_min} min de margem). "
-                            "Ajuste o horario ou escolha outra clinica."
+                            "Ajuste o horario ou revise o destino do atendimento."
                         ),
-                        "origem_clinica": clinica_anterior_nome,
-                        "destino_clinica": clinica_atual,
+                        "origem_clinica": destino_anterior_nome,
+                        "destino_clinica": destino_atual_nome,
+                        "origem_operacional": destino_anterior_nome,
+                        "destino_operacional": destino_atual_nome,
                         "duracao_min": int(duracao_prev),
                         "folga_min": max(0, int(folga_prev)),
                         "margem_segura_min": int(margem_segura_min),
@@ -1382,19 +1688,20 @@ def _validar_deslocamento_agendamento(
                     },
                 )
 
-    if proximo and proximo.get("clinica_id"):
-        clinica_proxima_obj = _get_clinica(proximo.get("clinica_id"))
-        if _clinica_tem_localizacao_confiavel(clinica_proxima_obj):
-            duracao_next, fonte_next = _obter_duracao_deslocamento_cacheado(
+    if proximo:
+        destino_proximo = proximo.get("destino_operacional") if isinstance(proximo, dict) else None
+        if isinstance(destino_proximo, dict) and bool(destino_proximo.get("localizacao_confiavel")):
+            duracao_next, fonte_next = _obter_duracao_deslocamento_operacional(
                 db,
-                origem_clinica_id=agendamento.clinica_id,
-                destino_clinica_id=proximo.get("clinica_id"),
+                origem=destino_atual,
+                destino=destino_proximo,
                 perfil=perfil_norm,
-                permitir_estimativa_fallback=True,
-                cache=cache_duracoes,
+                cache_clinicas=cache_duracoes_clinicas,
+                cache_operacional=cache_duracoes_operacionais,
+                cache_google=cache_google,
             )
             folga_next = _minutos_entre(fim_dt, proximo["inicio"])
-            clinica_proxima_nome = proximo.get("clinica_nome") or _nome_clinica_por_id(db, proximo.get("clinica_id"))
+            destino_proximo_nome = _rotulo_destino_operacional(destino_proximo)
             if limite_trecho_vizinho_min > 0 and duracao_next > limite_trecho_vizinho_min:
                 if confirmar_conflito_deslocamento:
                     return
@@ -1403,13 +1710,15 @@ def _validar_deslocamento_agendamento(
                     detail={
                         "codigo": "CONFLITO_DESLOCAMENTO",
                         "mensagem": (
-                            f"O tempo de deslocamento entre {clinica_atual} e {clinica_proxima_nome} "
+                            f"O tempo de deslocamento entre {destino_atual_nome} e {destino_proximo_nome} "
                             f"e de aproximadamente {duracao_next} minutos e excede o limite operacional "
                             f"de {limite_trecho_vizinho_min} minutos para um trecho da rota. "
-                            "Ajuste o horario ou escolha outra clinica."
+                            "Ajuste o horario ou revise o destino do atendimento."
                         ),
-                        "origem_clinica": clinica_atual,
-                        "destino_clinica": clinica_proxima_nome,
+                        "origem_clinica": destino_atual_nome,
+                        "destino_clinica": destino_proximo_nome,
+                        "origem_operacional": destino_atual_nome,
+                        "destino_operacional": destino_proximo_nome,
                         "duracao_min": int(duracao_next),
                         "limite_trecho_vizinho_min": int(limite_trecho_vizinho_min),
                         "fonte": fonte_next,
@@ -1425,15 +1734,17 @@ def _validar_deslocamento_agendamento(
                     detail={
                         "codigo": "CONFLITO_DESLOCAMENTO",
                         "mensagem": (
-                            f"O tempo de deslocamento entre {clinica_atual} e {clinica_proxima_nome} "
+                            f"O tempo de deslocamento entre {destino_atual_nome} e {destino_proximo_nome} "
                             f"e de aproximadamente {duracao_next} minutos. "
                             f"Disponivel: {max(0, folga_next)} minutos. "
                             f"Necessario com margem segura: {folga_necessaria_next} minutos "
                             f"({duracao_next} min de deslocamento + {margem_segura_min} min de margem). "
-                            "Ajuste o horario ou escolha outra clinica."
+                            "Ajuste o horario ou revise o destino do atendimento."
                         ),
-                        "origem_clinica": clinica_atual,
-                        "destino_clinica": clinica_proxima_nome,
+                        "origem_clinica": destino_atual_nome,
+                        "destino_clinica": destino_proximo_nome,
+                        "origem_operacional": destino_atual_nome,
+                        "destino_operacional": destino_proximo_nome,
                         "duracao_min": int(duracao_next),
                         "folga_min": max(0, int(folga_next)),
                         "margem_segura_min": int(margem_segura_min),
@@ -1447,19 +1758,20 @@ def _validar_deslocamento_agendamento(
         bloquear_ineficiencia
         and limite_desvio_insercao > 0
         and anterior
-        and anterior.get("clinica_id")
         and proximo
-        and proximo.get("clinica_id")
         and duracao_prev > 0
         and duracao_next > 0
     ):
-        duracao_direta, fonte_direta = _obter_duracao_deslocamento_cacheado(
+        destino_anterior = anterior.get("destino_operacional") if isinstance(anterior, dict) else None
+        destino_proximo = proximo.get("destino_operacional") if isinstance(proximo, dict) else None
+        duracao_direta, fonte_direta = _obter_duracao_deslocamento_operacional(
             db,
-            origem_clinica_id=anterior.get("clinica_id"),
-            destino_clinica_id=proximo.get("clinica_id"),
+            origem=destino_anterior,
+            destino=destino_proximo,
             perfil=perfil_norm,
-            permitir_estimativa_fallback=True,
-            cache=cache_duracoes,
+            cache_clinicas=cache_duracoes_clinicas,
+            cache_operacional=cache_duracoes_operacionais,
+            cache_google=cache_google,
         )
         if duracao_direta > 0:
             duracao_via_novo = int(duracao_prev + duracao_next)
@@ -1467,21 +1779,24 @@ def _validar_deslocamento_agendamento(
             if desvio_insercao > limite_desvio_insercao:
                 if confirmar_conflito_deslocamento:
                     return
-                origem = clinica_anterior_nome or _nome_clinica_por_id(db, anterior.get("clinica_id"))
-                destino = clinica_proxima_nome or _nome_clinica_por_id(db, proximo.get("clinica_id"))
+                origem = destino_anterior_nome or _rotulo_destino_operacional(destino_anterior)
+                destino = destino_proximo_nome or _rotulo_destino_operacional(destino_proximo)
                 raise HTTPException(
                     status_code=409,
                     detail={
                         "codigo": "CONFLITO_DESLOCAMENTO",
                         "mensagem": (
-                            f"A insercao de {clinica_atual} entre {origem} e {destino} "
+                            f"A insercao de {destino_atual_nome} entre {origem} e {destino} "
                             f"gera desvio estimado de {desvio_insercao} minutos "
                             f"(limite: {limite_desvio_insercao} minutos). "
-                            "Ajuste o horario ou escolha outra clinica."
+                            "Ajuste o horario ou revise o destino do atendimento."
                         ),
                         "origem_clinica": origem,
                         "destino_clinica": destino,
-                        "clinica_inserida": clinica_atual,
+                        "origem_operacional": origem,
+                        "destino_operacional": destino,
+                        "clinica_inserida": destino_atual_nome,
+                        "destino_inserido": destino_atual_nome,
                         "desvio_insercao_min": desvio_insercao,
                         "limite_desvio_min": limite_desvio_insercao,
                         "duracao_direta_min": int(duracao_direta),
@@ -3085,16 +3400,19 @@ def sugerir_horarios_agenda(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Sugere horarios operacionais considerando conflito de agenda e deslocamento entre clinicas."""
+    """Sugere horarios operacionais considerando conflito de agenda e deslocamento entre destinos operacionais."""
     data_iso = _extract_date_filter(payload.data)
     if not data_iso:
         raise HTTPException(status_code=422, detail="Data invalida. Use o formato YYYY-MM-DD.")
+    origem_atendimento = _normalizar_origem_atendimento(payload.origem_atendimento)
     hoje_local_iso = datetime.now(LOCAL_TZ).date().isoformat()
     if data_iso < hoje_local_iso:
         return {
             "ok": True,
             "data": data_iso,
             "clinica_id": payload.clinica_id,
+            "tutor_id": payload.tutor_id,
+            "origem_atendimento": origem_atendimento,
             "duracao_minutos": max(5, int(payload.duracao_minutos or 30)),
             "perfil_deslocamento": normalizar_perfil(payload.perfil_deslocamento),
             "motivo": "Nao sugerimos horarios para datas passadas. Selecione hoje ou uma data futura.",
@@ -3102,8 +3420,13 @@ def sugerir_horarios_agenda(
             "items": [],
         }
 
-    clinica_base = db.query(Clinica).filter(Clinica.id == payload.clinica_id).first()
-    _assert_clinica_georreferenciada(clinica_base, contexto="sugerir horarios")
+    destino_base = _resolver_destino_operacional_payload(
+        db,
+        origem_atendimento=origem_atendimento,
+        clinica_id=payload.clinica_id,
+        tutor_id=payload.tutor_id,
+        contexto="sugerir horarios",
+    )
     regras_rota = _obter_regras_rota_agenda(db)
     thresholds = regras_rota.get("thresholds") if isinstance(regras_rota.get("thresholds"), dict) else {}
     route_policy = regras_rota.get("route_policy") if isinstance(regras_rota.get("route_policy"), dict) else {}
@@ -3124,6 +3447,8 @@ def sugerir_horarios_agenda(
             "ok": True,
             "data": data_iso,
             "clinica_id": payload.clinica_id,
+            "tutor_id": payload.tutor_id,
+            "origem_atendimento": origem_atendimento,
             "duracao_minutos": duracao_minutos,
             "perfil_deslocamento": normalizar_perfil(payload.perfil_deslocamento),
             "motivo": motivo_fechado or "Sem janela valida para sugerir horarios.",
@@ -3151,7 +3476,7 @@ def sugerir_horarios_agenda(
         [
             item
             for item in agendamentos_dia
-            if int(item.get("clinica_id") or 0) == int(payload.clinica_id or 0)
+            if _destinos_operacionais_mesma_referencia(item.get("destino_operacional"), destino_base)
             and _status_conta_como_ancora(item.get("status"))
             and isinstance(item.get("inicio"), datetime)
             and isinstance(item.get("fim"), datetime)
@@ -3171,13 +3496,15 @@ def sugerir_horarios_agenda(
     bonus_base_score = abs(int(route_policy.get("bonus_near_base_score") or 15))
     penalty_far_score = int(route_policy.get("penalty_far_base_score") or 10)
     bloquear_ineficiencia = bool(route_policy.get("reject_clear_inefficiency", True))
-    tempo_ate_base_min = _tempo_estimado_clinica_ate_base_min(
-        clinica_base,
+    tempo_ate_base_min = _tempo_estimado_destino_operacional_ate_base_min(
+        destino_base,
         base_lat=base_cfg.get("lat"),
         base_lng=base_cfg.get("lng"),
         perfil_deslocamento=perfil_norm,
     )
-    cache_duracoes: dict[tuple[int, int, str, bool], tuple[int, str]] = {}
+    cache_duracoes_clinicas: dict[tuple[int, int, str, bool], tuple[int, str]] = {}
+    cache_duracoes_operacionais: dict[tuple[str, int, str, int, str], tuple[int, str]] = {}
+    cache_google: dict = {}
 
     sugestoes: list[dict] = []
     inicio_candidato = janela_inicio
@@ -3215,14 +3542,18 @@ def sugerir_horarios_agenda(
         folga_next = None
         fonte_prev = "indefinido"
         fonte_next = "indefinido"
+        destino_anterior = anterior.get("destino_operacional") if isinstance(anterior, dict) else None
+        destino_proximo = proximo.get("destino_operacional") if isinstance(proximo, dict) else None
 
-        if anterior and anterior.get("clinica_id"):
-            tempo_prev, fonte_prev = _obter_duracao_deslocamento_cacheado(
+        if isinstance(destino_anterior, dict) and bool(destino_anterior.get("localizacao_confiavel")):
+            tempo_prev, fonte_prev = _obter_duracao_deslocamento_operacional(
                 db,
-                origem_clinica_id=anterior.get("clinica_id"),
-                destino_clinica_id=payload.clinica_id,
+                origem=destino_anterior,
+                destino=destino_base,
                 perfil=perfil_norm,
-                cache=cache_duracoes,
+                cache_clinicas=cache_duracoes_clinicas,
+                cache_operacional=cache_duracoes_operacionais,
+                cache_google=cache_google,
             )
             folga_prev = _minutos_entre(anterior["fim"], inicio_candidato)
             if limite_trecho_vizinho_min > 0 and tempo_prev > limite_trecho_vizinho_min:
@@ -3232,13 +3563,15 @@ def sugerir_horarios_agenda(
                 inicio_candidato += timedelta(minutes=intervalo_minutos)
                 continue
 
-        if proximo and proximo.get("clinica_id"):
-            tempo_next, fonte_next = _obter_duracao_deslocamento_cacheado(
+        if isinstance(destino_proximo, dict) and bool(destino_proximo.get("localizacao_confiavel")):
+            tempo_next, fonte_next = _obter_duracao_deslocamento_operacional(
                 db,
-                origem_clinica_id=payload.clinica_id,
-                destino_clinica_id=proximo.get("clinica_id"),
+                origem=destino_base,
+                destino=destino_proximo,
                 perfil=perfil_norm,
-                cache=cache_duracoes,
+                cache_clinicas=cache_duracoes_clinicas,
+                cache_operacional=cache_duracoes_operacionais,
+                cache_google=cache_google,
             )
             folga_next = _minutos_entre(fim_candidato, proximo["inicio"])
             if limite_trecho_vizinho_min > 0 and tempo_next > limite_trecho_vizinho_min:
@@ -3251,19 +3584,19 @@ def sugerir_horarios_agenda(
         if (
             bloquear_ineficiencia
             and limite_desvio_insercao > 0
-            and anterior
-            and anterior.get("clinica_id")
-            and proximo
-            and proximo.get("clinica_id")
+            and isinstance(destino_anterior, dict)
+            and isinstance(destino_proximo, dict)
             and tempo_prev > 0
             and tempo_next > 0
         ):
-            duracao_direta, _fonte_direta = _obter_duracao_deslocamento_cacheado(
+            duracao_direta, _fonte_direta = _obter_duracao_deslocamento_operacional(
                 db,
-                origem_clinica_id=anterior.get("clinica_id"),
-                destino_clinica_id=proximo.get("clinica_id"),
+                origem=destino_anterior,
+                destino=destino_proximo,
                 perfil=perfil_norm,
-                cache=cache_duracoes,
+                cache_clinicas=cache_duracoes_clinicas,
+                cache_operacional=cache_duracoes_operacionais,
+                cache_google=cache_google,
             )
             if duracao_direta > 0:
                 desvio_insercao = max(0, int((tempo_prev + tempo_next) - duracao_direta))
@@ -3321,11 +3654,15 @@ def sugerir_horarios_agenda(
                 "ajuste_base_score": ajuste_base_score,
                 "tempo_deslocamento_total_min": tempo_deslocamento_total,
                 "ociosidade_min": ociosidade_min,
+                "destino_operacional": _rotulo_destino_operacional(destino_base),
+                "destino_operacional_tipo": destino_base.get("tipo"),
                 "anterior": (
                     {
                         "agendamento_id": anterior.get("id"),
                         "clinica_id": anterior.get("clinica_id"),
-                        "clinica": anterior.get("clinica_nome") or _nome_clinica_por_id(db, anterior.get("clinica_id")),
+                        "tutor_id": anterior.get("tutor_id"),
+                        "tipo": (destino_anterior or {}).get("tipo"),
+                        "clinica": _rotulo_destino_operacional(destino_anterior),
                         "fim": anterior["fim"].strftime("%Y-%m-%d %H:%M"),
                         "duracao_deslocamento_min": tempo_prev,
                         "folga_min": folga_prev,
@@ -3339,7 +3676,9 @@ def sugerir_horarios_agenda(
                     {
                         "agendamento_id": proximo.get("id"),
                         "clinica_id": proximo.get("clinica_id"),
-                        "clinica": proximo.get("clinica_nome") or _nome_clinica_por_id(db, proximo.get("clinica_id")),
+                        "tutor_id": proximo.get("tutor_id"),
+                        "tipo": (destino_proximo or {}).get("tipo"),
+                        "clinica": _rotulo_destino_operacional(destino_proximo),
                         "inicio": proximo["inicio"].strftime("%Y-%m-%d %H:%M"),
                         "duracao_deslocamento_min": tempo_next,
                         "folga_min": folga_next,
@@ -3382,6 +3721,9 @@ def sugerir_horarios_agenda(
         "ok": True,
         "data": data_iso,
         "clinica_id": payload.clinica_id,
+        "tutor_id": payload.tutor_id,
+        "origem_atendimento": origem_atendimento,
+        "destino_operacional": _rotulo_destino_operacional(destino_base),
         "duracao_minutos": duracao_minutos,
         "perfil_deslocamento": perfil_norm,
         "intervalo_minutos": intervalo_minutos,
@@ -3414,10 +3756,16 @@ def sugerir_agendamento_proximo(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Sugere aproveitamento de agenda existente em clinica proxima."""
-    clinica_base = db.query(Clinica).filter(Clinica.id == payload.clinica_id).first()
-    _assert_clinica_georreferenciada(clinica_base, contexto="consultar sugestoes de proximidade")
-    clinica_destino_nome = _nome_clinica_legivel(clinica_base.nome)
+    """Sugere aproveitamento de agenda existente proximo ao destino operacional selecionado."""
+    origem_atendimento = _normalizar_origem_atendimento(payload.origem_atendimento)
+    destino_base = _resolver_destino_operacional_payload(
+        db,
+        origem_atendimento=origem_atendimento,
+        clinica_id=payload.clinica_id,
+        tutor_id=payload.tutor_id,
+        contexto="consultar sugestoes de proximidade",
+    )
+    destino_operacional_nome = _rotulo_destino_operacional(destino_base)
     regras_rota = _obter_regras_rota_agenda(db)
     thresholds = regras_rota.get("thresholds") if isinstance(regras_rota.get("thresholds"), dict) else {}
     limite_proximidade_default = int(thresholds.get("nearby_anchor_max_travel_min") or 20)
@@ -3431,6 +3779,9 @@ def sugerir_agendamento_proximo(
             "ok": True,
             "data": data_iso,
             "clinica_id": payload.clinica_id,
+            "tutor_id": payload.tutor_id,
+            "origem_atendimento": origem_atendimento,
+            "destino_operacional": destino_operacional_nome,
             "sugerir": False,
             "limite_minutos": limite_proximidade_default,
             "itens_ignorados_janela": 0,
@@ -3464,14 +3815,36 @@ def sugerir_agendamento_proximo(
     if limite_minutos <= 0:
         limite_minutos = limite_proximidade_default
 
-    politica_oferta = _classificar_politica_oferta(
-        db,
-        clinica_id=payload.clinica_id,
-        data_contato_iso=data_contato_iso,
-        perfil_deslocamento=payload.perfil_deslocamento,
-        regras_rota=regras_rota,
-        agendamento_id_excluir=payload.ignorar_agendamento_id,
-    )
+    if origem_atendimento == ORIGEM_ATENDIMENTO_PADRAO and payload.clinica_id:
+        politica_oferta = _classificar_politica_oferta(
+            db,
+            clinica_id=payload.clinica_id,
+            data_contato_iso=data_contato_iso,
+            perfil_deslocamento=payload.perfil_deslocamento,
+            regras_rota=regras_rota,
+            agendamento_id_excluir=payload.ignorar_agendamento_id,
+        )
+    else:
+        politica_oferta = {
+            "dias_preferenciais": [],
+            "distante_base": False,
+            "base_proxima": False,
+            "baixa_frequencia": False,
+            "agendamentos_30d": 0,
+            "tempo_base_estimado_min": _tempo_estimado_destino_operacional_ate_base_min(
+                destino_base,
+                base_lat=(regras_rota.get("base") or {}).get("lat") if isinstance(regras_rota.get("base"), dict) else None,
+                base_lng=(regras_rota.get("base") or {}).get("lng") if isinstance(regras_rota.get("base"), dict) else None,
+                perfil_deslocamento=payload.perfil_deslocamento,
+            ),
+            "ancora_d0": False,
+            "ancora_d2": False,
+            "ancora_d3": False,
+            "override": None,
+            "override_ancora_obrigatoria": False,
+            "prioridade_d0_aplicada": False,
+            "sem_agendamentos_d0": False,
+        }
     datas_preferenciais = [
         (
             datetime.strptime(data_contato_iso, "%Y-%m-%d").date() + timedelta(days=int(dia))
@@ -3514,7 +3887,9 @@ def sugerir_agendamento_proximo(
 
         payload_sugestoes = SugestaoHorarioPayload(
             data=data_busca_iso,
+            origem_atendimento=origem_atendimento,
             clinica_id=payload.clinica_id,
+            tutor_id=payload.tutor_id,
             servico_id=payload.servico_id,
             duracao_minutos=payload.duracao_minutos,
             intervalo_minutos=payload.intervalo_minutos,
@@ -3571,10 +3946,11 @@ def sugerir_agendamento_proximo(
             if not possui_slot_aderente:
                 continue
 
+        destino_item = item.get("destino_operacional") if isinstance(item, dict) else None
         clinica_item_id = int(item.get("clinica_id") or 0)
-        if clinica_item_id <= 0:
+        if not isinstance(destino_item, dict):
             continue
-        if clinica_item_id == payload.clinica_id and not payload.incluir_mesma_clinica:
+        if _destinos_operacionais_mesma_referencia(destino_item, destino_base) and not payload.incluir_mesma_clinica:
             continue
 
         slots_aderentes = (
@@ -3628,14 +4004,21 @@ def sugerir_agendamento_proximo(
             elif duracao_proximo > 0:
                 fonte = f"proximo:{fonte_proximo or 'indefinido'}"
             else:
-                if clinica_item_id == payload.clinica_id:
-                    fonte = "mesma_clinica"
-                elif _clinicas_mesma_cidade_uf(
-                    db,
-                    clinica_a_id=payload.clinica_id,
-                    clinica_b_id=clinica_item_id,
-                    cache=cache_clinicas,
+                if _destinos_operacionais_mesma_referencia(destino_item, destino_base):
+                    fonte = "mesmo_destino"
+                elif (
+                    origem_atendimento == ORIGEM_ATENDIMENTO_PADRAO
+                    and clinica_item_id > 0
+                    and payload.clinica_id
+                    and _clinicas_mesma_cidade_uf(
+                        db,
+                        clinica_a_id=payload.clinica_id,
+                        clinica_b_id=clinica_item_id,
+                        cache=cache_clinicas,
+                    )
                 ):
+                    fonte = "fallback_mesma_cidade"
+                elif _destinos_operacionais_mesma_regiao(destino_base, destino_item):
                     fonte = "fallback_mesma_cidade"
                 else:
                     fonte = "sem_vizinhos"
@@ -3657,8 +4040,9 @@ def sugerir_agendamento_proximo(
                 melhor_tempo = int(duracao_total)
                 melhor_item = {
                     "agendamento_id": item.get("id"),
-                    "clinica_id": clinica_item_id,
-                    "clinica": item.get("clinica_nome") or _nome_clinica_por_id(db, clinica_item_id),
+                    "clinica_id": clinica_item_id or None,
+                    "tutor_id": item.get("tutor_id"),
+                    "clinica": _rotulo_destino_operacional(destino_item),
                     "data": data_slot_iso,
                     "inicio": inicio_slot.strftime("%H:%M"),
                     "fim": fim_slot_raw.split(" ")[1] if " " in fim_slot_raw else (fim_slot_raw or None),
@@ -3666,7 +4050,9 @@ def sugerir_agendamento_proximo(
                     "tempo_deslocamento_total_min": duracao_total,
                     "duracao_deslocamento_anterior_min": duracao_anterior,
                     "duracao_deslocamento_proximo_min": duracao_proximo,
-                    "clinica_destino": clinica_destino_nome,
+                    "clinica_destino": destino_operacional_nome,
+                    "destino_operacional": destino_operacional_nome,
+                    "destino_operacional_tipo": origem_atendimento,
                     "clinica_anterior": clinica_anterior_nome or None,
                     "clinica_posterior": clinica_posterior_nome or None,
                     "ha_agendamento_anterior": ha_agendamento_anterior,
@@ -3698,6 +4084,9 @@ def sugerir_agendamento_proximo(
             "ok": True,
             "data": data_iso,
             "clinica_id": payload.clinica_id,
+            "tutor_id": payload.tutor_id,
+            "origem_atendimento": origem_atendimento,
+            "destino_operacional": destino_operacional_nome,
             "sugerir": False,
             "limite_minutos": limite_minutos,
             "itens_ignorados_janela": itens_ignorados_janela,
@@ -3725,7 +4114,7 @@ def sugerir_agendamento_proximo(
         )
         mensagem_limite = (
             f"Opcao mais proxima encontrada na data {data_item_legivel} as {melhor_item.get('inicio')} "
-            f"proximo ao atendimento na clinica {_nome_clinica_legivel(melhor_item.get('clinica'))}. "
+            f"proximo ao atendimento em {_nome_clinica_legivel(melhor_item.get('clinica'))}. "
             f"{detalhe_deslocamento} O deslocamento total estimado ({melhor_tempo} min) "
             f"esta acima do limite configurado de {limite_minutos} min."
         )
@@ -3733,6 +4122,9 @@ def sugerir_agendamento_proximo(
             "ok": True,
             "data": data_iso,
             "clinica_id": payload.clinica_id,
+            "tutor_id": payload.tutor_id,
+            "origem_atendimento": origem_atendimento,
+            "destino_operacional": destino_operacional_nome,
             "sugerir": False,
             "limite_minutos": limite_minutos,
             "itens_ignorados_janela": itens_ignorados_janela,
@@ -3759,17 +4151,17 @@ def sugerir_agendamento_proximo(
         ha_agendamento_anterior=bool(melhor_item.get("ha_agendamento_anterior")),
         ha_agendamento_posterior=bool(melhor_item.get("ha_agendamento_posterior")),
     )
-    if int(melhor_item.get("clinica_id") or 0) == payload.clinica_id:
+    if _nome_clinica_legivel(melhor_item.get("clinica")) == _nome_clinica_legivel(destino_operacional_nome):
         mensagem = (
             f"Encontramos horario livre na data {data_item_legivel} as {melhor_item['inicio']} "
-            f"na clinica {_nome_clinica_legivel(melhor_item.get('clinica_destino') or clinica_destino_nome)}. "
+            f"no destino {_nome_clinica_legivel(melhor_item.get('clinica_destino') or destino_operacional_nome)}. "
             f"{detalhe_deslocamento} "
             "Sugira esse horario para o cliente e confirme a disponibilidade."
         )
     else:
         mensagem = (
             f"Encontramos horario livre na data {data_item_legivel} as {melhor_item['inicio']} "
-            f"proximo ao atendimento na clinica {_nome_clinica_legivel(melhor_item.get('clinica'))}. "
+            f"proximo ao atendimento em {_nome_clinica_legivel(melhor_item.get('clinica'))}. "
             f"{detalhe_deslocamento} "
             "Sugira esse horario para o cliente e confirme a disponibilidade."
         )
@@ -3777,7 +4169,7 @@ def sugerir_agendamento_proximo(
         dias_txt = ", ".join([f"D+{int(dia)}" for dia in politica_oferta.get("dias_preferenciais", [])])
         if dias_txt:
             mensagem = (
-                f"{mensagem} Politica recomendada para esta clinica: priorizar {dias_txt} "
+                f"{mensagem} Politica recomendada para este destino: priorizar {dias_txt} "
                 "quando nao houver atendimento proximo em D+2."
             )
     if datas_preferenciais and not bool(melhor_item.get("data_preferencial")):
@@ -3789,6 +4181,9 @@ def sugerir_agendamento_proximo(
         "ok": True,
         "data": data_iso,
         "clinica_id": payload.clinica_id,
+        "tutor_id": payload.tutor_id,
+        "origem_atendimento": origem_atendimento,
+        "destino_operacional": destino_operacional_nome,
         "sugerir": True,
         "limite_minutos": limite_minutos,
         "itens_ignorados_janela": itens_ignorados_janela,
@@ -3810,6 +4205,7 @@ def orquestrar_ofertas_assistente(
     current_user: User = Depends(get_current_user),
 ):
     """Orquestra politica de oferta + sugestao de proximidade + panorama de horarios em resposta unica."""
+    origem_atendimento = _normalizar_origem_atendimento(payload.origem_atendimento)
     data_referencia = _extract_date_filter(payload.data) if payload.data else datetime.now(LOCAL_TZ).date().isoformat()
     if not data_referencia:
         raise HTTPException(status_code=422, detail="Data invalida. Use o formato YYYY-MM-DD.")
@@ -3827,7 +4223,9 @@ def orquestrar_ofertas_assistente(
 
     resposta_proximidade = sugerir_agendamento_proximo(
         payload=SugestaoProximidadePayload(
+            origem_atendimento=origem_atendimento,
             clinica_id=payload.clinica_id,
+            tutor_id=payload.tutor_id,
             data=data_referencia,
             data_contato=data_contato,
             servico_id=payload.servico_id,
@@ -3903,7 +4301,9 @@ def orquestrar_ofertas_assistente(
         resposta_tentativa = sugerir_horarios_agenda(
             payload=SugestaoHorarioPayload(
                 data=data_candidata,
+                origem_atendimento=origem_atendimento,
                 clinica_id=payload.clinica_id,
+                tutor_id=payload.tutor_id,
                 servico_id=payload.servico_id,
                 duracao_minutos=payload.duracao_minutos,
                 intervalo_minutos=payload.intervalo_minutos,
@@ -4284,7 +4684,16 @@ def registrar_encerramento_assistente(
             detail="Para registrar recusa sem agendamento, e obrigatorio ter ao menos 1 oferta exibida.",
         )
 
-    clinica_nome = _nome_clinica_por_id(db, payload.clinica_id) if payload.clinica_id else "Nao informada"
+    origem_atendimento = _normalizar_origem_atendimento(
+        payload.origem_atendimento or (ORIGEM_ATENDIMENTO_DOMICILIAR if payload.tutor_id else ORIGEM_ATENDIMENTO_PADRAO)
+    )
+    if origem_atendimento == ORIGEM_ATENDIMENTO_DOMICILIAR:
+        tutor = db.query(Tutor).filter(Tutor.id == int(payload.tutor_id or 0)).first() if payload.tutor_id else None
+        clinica_nome = _rotulo_destino_operacional(
+            _criar_destino_operacional_tutor(tutor, fallback_nome=_nome_tutor_por_id(db, payload.tutor_id))
+        )
+    else:
+        clinica_nome = _nome_clinica_por_id(db, payload.clinica_id) if payload.clinica_id else "Nao informada"
     servico_nome = "Nao informado"
     if payload.servico_id:
         servico = db.query(Servico).filter(Servico.id == payload.servico_id).first()
@@ -4317,8 +4726,11 @@ def registrar_encerramento_assistente(
         detalhes={
             "tipo": tipo,
             "motivo": motivo,
+            "origem_atendimento": origem_atendimento,
             "clinica_id": payload.clinica_id,
             "clinica_nome": clinica_nome,
+            "tutor_id": payload.tutor_id,
+            "destino_operacional": clinica_nome,
             "servico_id": payload.servico_id,
             "servico_nome": servico_nome,
             "data_referencia": data_referencia,
@@ -4333,7 +4745,10 @@ def registrar_encerramento_assistente(
         request=request,
         evento="ASSISTENTE_AGENDA_SEM_OPCAO",
         detalhes={
+            "origem_atendimento": origem_atendimento,
             "clinica_id": payload.clinica_id,
+            "tutor_id": payload.tutor_id,
+            "destino_operacional": clinica_nome,
             "servico_id": payload.servico_id,
             "perfil_usuario": "admin" if eh_admin else "nao_admin",
             "tipo_desfecho": tipo,

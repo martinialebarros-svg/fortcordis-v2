@@ -21,13 +21,14 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
 - RF-007: agendamentos legados sem `agendamentos.tutor_id` devem continuar retornando o tutor correto a partir de `pacientes.tutor_id`, inclusive apos migration de backfill.
 - RF-008: quando um agendamento domiciliar for concluido, a OS gerada ou editada deve usar o preco domiciliar do servico conforme o tipo de horario.
 - RF-009: listagens, filtros e relatorios de OS devem aceitar `origem_atendimento="domiciliar"` e tratar o tutor como destinatario do recebimento quando nao houver clinica.
+- RF-010: `POST /api/v1/agenda/sugestoes-horario`, `POST /api/v1/agenda/sugestao-proximidade` e `POST /api/v1/agenda/assistente/ofertas` devem aceitar `origem_atendimento="domiciliar"` e `tutor_id`, tratando o tutor georreferenciado como destino operacional para sugerir horarios, calcular deslocamento e bloquear conflitos.
 
 ## 3) Requisitos nao funcionais (NFR)
 
 - NFR-001 (compatibilidade): fluxos antigos de agenda continuam operando com `origem_atendimento="clinica_parceira"` como default.
 - NFR-002 (integridade de dados): migrations do pacote devem ser idempotentes e seguras para bases legadas.
 - NFR-003 (usabilidade): o fluxo domiciliar nao deve depender do cadastro improvisado de uma clinica `DOMICILIAR`.
-- NFR-004 (governanca operacional): sugestoes automaticas por clinica permanecem condicionadas a clinica georreferenciada; o domiciliar segue fluxo manual nesta fase.
+- NFR-004 (governanca operacional): sugestoes automaticas e validacoes de deslocamento permanecem condicionadas a destino operacional georreferenciado; no domiciliar, o tutor entra nas mesmas regras de folga, trecho vizinho e desvio de insercao.
 
 ## 4) Contratos tecnicos
 
@@ -41,6 +42,9 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
   - recebe endereco do tutor e retorna payload geocodificado do Google.
 - `POST /api/v1/agenda` e `PUT /api/v1/agenda/{agendamento_id}`
   - aceitam `origem_atendimento` (`clinica_parceira` ou `domiciliar`) e `tutor_id`.
+- `POST /api/v1/agenda/sugestoes-horario`, `POST /api/v1/agenda/sugestao-proximidade` e `POST /api/v1/agenda/assistente/ofertas`
+  - aceitam `origem_atendimento` (`clinica_parceira` ou `domiciliar`) e usam `clinica_id` ou `tutor_id` como destino operacional georreferenciado;
+  - retornam metadados do destino operacional para o frontend manter o mesmo assistente guiado em fluxos domiciliares.
 - `GET /api/v1/agenda`, `GET /api/v1/agenda/{agendamento_id}` e payload realtime
   - retornam `origem_atendimento` e resolvem `tutor_id` legado a partir de `paciente.tutor_id` quando necessario.
 - `GET /api/v1/ordens-servico`, `PUT /api/v1/ordens-servico/{os_id}` e `GET /api/v1/ordens-servico/relatorios/pendencias/pdf`
@@ -80,7 +84,7 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
   - sem tutor georreferenciado, o save deve ser bloqueado;
   - o campo de CEP do tutor deve autopreencher endereco base assim que completar 8 digitos validos;
   - coordenadas ausentes nao podem ser normalizadas para `0,0` durante cadastro/edicao do tutor;
-  - sugestoes automaticas por clinica nao entram no fluxo domiciliar nesta versao.
+  - o mesmo assistente guiado de agenda deve funcionar para clinica parceira e domiciliar, trocando apenas o destino operacional de referencia.
 
 ## 5) Compatibilidade e rollout
 
@@ -103,6 +107,7 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
 - CA-003: agenda lista/detalhe/realtime e migration preservam ou recuperam `tutor_id` em agendamentos legados.
 - CA-004: OS domiciliar pode existir sem clinica, usa preco domiciliar e aparece em listagens/relatorios com o tutor como destinatario.
 - CA-005: agenda em lista e FullCalendar gera links de rota usando o endereco do tutor para itens domiciliares.
+- CA-006: o assistente de agenda sugere horarios e proximidade para atendimentos domiciliares usando o tutor georreferenciado como destino operacional e bloqueia conflitos de deslocamento com as mesmas regras aplicadas a clinicas.
 
 ## 7) Casos de borda
 
@@ -112,10 +117,10 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
 - CB-002: agendamento legado com `paciente_id` valido e `tutor_id` nulo deve continuar retornando tutor corretamente.
 - CB-003: OS domiciliar sem clinica nao deve quebrar filtros, resumo financeiro nem relatorio de pendencias.
 - CB-004: clinica sem georreferenciamento continua bloqueada nas sugestoes automaticas de agenda.
+- CB-007: atendimento domiciliar sem tutor georreferenciado nao pode ativar sugestao de proximidade nem panorama de horarios, e rotas mistas clinica-domiciliar devem respeitar a mesma margem segura do fluxo convencional.
 
 ## 8) Fora de escopo
 
-- Sugestao automatica de horarios baseada em tutor/endereco domiciliar.
 - Roteirizacao multi-parada domiciliar.
 - Eliminacao de duplicidade historica de tutores.
 - Convites e ativacao do portal da clinica parceira.
