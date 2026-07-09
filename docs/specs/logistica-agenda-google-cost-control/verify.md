@@ -41,8 +41,15 @@ Resumo:
 - Risco residual 2: ativar gate de refresh pode elevar chamadas externas; requer decisao operacional.
 - Risco residual 3: estimativas de custo dependem de modelo local por SKU e devem ser calibradas periodicamente com faturamento real.
 
-## 4) Decisao de release
+## 4) Validacao operacional em producao (2026-07-09)
+
+- Ambiente validado: `https://app.fortcordis.com.br` com deploy do commit `718fa30`.
+- Configuracao efetiva confirmada no backend de producao: `LOGISTICA_ALLOW_LIVE_GOOGLE_LOOKUPS_ON_READ=True`, `LOGISTICA_GOOGLE_TRAFFIC_AWARE=False` e `GOOGLE_MAPS_API_KEY` presente.
+- Evidencia de comportamento: pares operacionais com tutor domiciliar foram encontrados em `clinica_deslocamentos` com ID sintetico negativo e consultas recentes registradas em `google_maps_usage_metricas`, confirmando materializacao da matriz e reuso posterior no fluxo domiciliar.
+- Decisao operacional registrada: manter `LOGISTICA_ALLOW_LIVE_GOOGLE_LOOKUPS_ON_READ=true` explicitamente no `.env` de producao para permitir lookup ao vivo apenas no primeiro miss, com persistencia do resultado para leituras seguintes do mesmo par.
+
+## 5) Decisao de release
 
 - [x] Aprovado para stage.
-- [ ] Aprovado para producao.
+- [x] Aprovado para producao.
 - [ ] Nao aprovado.

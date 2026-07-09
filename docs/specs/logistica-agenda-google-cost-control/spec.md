@@ -52,6 +52,7 @@ O ciclo endurece o controle de custo de Google Maps na agenda/logistica com cach
 - Backward compatibility: mantida; comportamento padrao fica conservador (`False` no gate).
 - Backward compatibility: mantida; lookup ao vivo na leitura permanece habilitado por padrao para evitar regressao de precisao.
 - Feature flags/settings: `LOGISTICA_FORCE_REFRESH_HEURISTICA_COM_API_KEY`, `LOGISTICA_ALLOW_LIVE_GOOGLE_LOOKUPS_ON_READ`, `LOGISTICA_GOOGLE_TRAFFIC_AWARE`.
+- Politica operacional recomendada: quando a precisao do deslocamento deve prevalecer sobre heuristica local, declarar `LOGISTICA_ALLOW_LIVE_GOOGLE_LOOKUPS_ON_READ=true` explicitamente no `.env` do ambiente. Nesse modo, o primeiro miss de matriz pode consultar o Google, persiste o par operacional materializado e leituras seguintes devem reutilizar a linha fresca sem nova chamada externa.
 - Rollback: reverter commit da feature.
 
 ## 6) Criterios de aceitacao (CA)
