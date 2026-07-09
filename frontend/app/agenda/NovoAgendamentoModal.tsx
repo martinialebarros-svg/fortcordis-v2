@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check } from "lucide-react";
 import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
+import { formatarCepVisual, normalizarCep } from "@/lib/atendimento-cadastro";
 import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
 import { coordenadasSaoConfiaveis, normalizarCoordenadaOpcional } from "@/lib/coordinates";
 import {
@@ -741,8 +742,11 @@ export default function NovoAgendamentoModal({
   const [salvandoAnimal, setSalvandoAnimal] = useState(false);
   const [novoTutor, setNovoTutor] = useState<NovoTutorForm>(buildInitialTutorForm());
   const [novoAnimal, setNovoAnimal] = useState<NovoAnimalForm>(buildInitialAnimalForm());
+  const [consultandoCepTutor, setConsultandoCepTutor] = useState(false);
   const [geocodificandoTutor, setGeocodificandoTutor] = useState(false);
   const [statusEnderecoTutor, setStatusEnderecoTutor] = useState("");
+  const ultimoCepConsultadoTutorRef = useRef("");
+  const consultaCepTutorSequenciaRef = useRef(0);
   const [saldoCreditoCliente, setSaldoCreditoCliente] = useState(0);
   const [carregandoCreditoCliente, setCarregandoCreditoCliente] = useState(false);
   const [erroCreditoCliente, setErroCreditoCliente] = useState("");
@@ -1107,6 +1111,7 @@ export default function NovoAgendamentoModal({
     if (!tutor) {
       setNovoTutor(buildInitialTutorForm());
       setStatusEnderecoTutor("");
+      ultimoCepConsultadoTutorRef.current = "";
       return;
     }
 
@@ -1129,6 +1134,7 @@ export default function NovoAgendamentoModal({
       place_id: String(tutor.place_id || ""),
       endereco_normalizado: String(tutor.endereco_normalizado || ""),
     });
+    ultimoCepConsultadoTutorRef.current = normalizarCep(tutor.cep || "");
     setStatusEnderecoTutor(
       tutorTemGeorreferenciamento(tutor)
         ? "Endereco do tutor georreferenciado com sucesso."
@@ -1165,6 +1171,57 @@ export default function NovoAgendamentoModal({
     }
     void carregarPanoramaTutor(formData.tutor_id);
   }, [formData.tutor_id, isOpen]);
+
+  const consultarCepTutor = async (cepFonte = novoTutor.cep) => {
+    const cep = normalizarCep(cepFonte || "");
+    if (cep.length !== 8) return;
+    if (ultimoCepConsultadoTutorRef.current === cep) return;
+
+    const sequencia = consultaCepTutorSequenciaRef.current + 1;
+    consultaCepTutorSequenciaRef.current = sequencia;
+
+    try {
+      setConsultandoCepTutor(true);
+      setStatusEnderecoTutor("Consultando CEP...");
+      const response = await api.get(`/clinicas/cep/${cep}`);
+      const item = response?.data?.item || {};
+
+      if (sequencia !== consultaCepTutorSequenciaRef.current) {
+        return;
+      }
+
+      setNovoTutor((prev) => ({
+        ...prev,
+        cep: formatarCepVisual(item.cep || cep),
+        endereco: item.logradouro || prev.endereco,
+        complemento: prev.complemento || item.complemento || "",
+        bairro: item.bairro || prev.bairro,
+        cidade: item.cidade || prev.cidade,
+        estado: item.estado || prev.estado,
+        latitude: null,
+        longitude: null,
+        place_id: "",
+        endereco_normalizado: "",
+      }));
+      ultimoCepConsultadoTutorRef.current = normalizarCep(item.cep || cep);
+      setStatusEnderecoTutor(
+        item?.bairro_origem === "aprendizado"
+          ? "CEP preenchido com bairro aprendido. Informe o numero e georreferencie o endereco."
+          : "CEP preenchido pelo ViaCEP. Informe o numero e georreferencie o endereco."
+      );
+    } catch (error: any) {
+      if (sequencia !== consultaCepTutorSequenciaRef.current) {
+        return;
+      }
+      ultimoCepConsultadoTutorRef.current = "";
+      const detail = error?.response?.data?.detail || error?.message || "Falha ao consultar CEP.";
+      setStatusEnderecoTutor(String(detail));
+    } finally {
+      if (sequencia === consultaCepTutorSequenciaRef.current) {
+        setConsultandoCepTutor(false);
+      }
+    }
+  };
 
   const geocodificarTutorEndereco = async () => {
     if (!novoTutor.endereco.trim() || !novoTutor.numero.trim() || !novoTutor.cidade.trim() || !novoTutor.estado.trim()) {
@@ -1903,6 +1960,9 @@ export default function NovoAgendamentoModal({
     } else {
       setNovoTutor(buildInitialTutorForm());
       setStatusEnderecoTutor("");
+      setConsultandoCepTutor(false);
+      ultimoCepConsultadoTutorRef.current = "";
+      consultaCepTutorSequenciaRef.current += 1;
     }
     setModalTutorAberto(true);
   };
@@ -1980,6 +2040,8 @@ export default function NovoAgendamentoModal({
       setModalTutorAberto(false);
       setNovoTutor(buildInitialTutorForm());
       setStatusEnderecoTutor("");
+      ultimoCepConsultadoTutorRef.current = "";
+      consultaCepTutorSequenciaRef.current += 1;
       await carregarPanoramaTutor(String(tutorId));
     } catch (error: any) {
       const detail = error?.response?.data?.detail ?? error?.message;
@@ -3096,7 +3158,42 @@ export default function NovoAgendamentoModal({
                     <input
                       type="text"
                       value={novoTutor.cep}
-                      onChange={(e) => setNovoTutor((prev) => ({ ...prev, cep: e.target.value }))}
+                      inputMode="numeric"
+                      onChange={(e) => {
+                        const valor = formatarCepVisual(e.target.value);
+                        const cepAtual = normalizarCep(valor);
+                        const cepAnterior = normalizarCep(novoTutor.cep);
+                        const mudouCep = cepAtual !== cepAnterior;
+
+                        if (mudouCep) {
+                          ultimoCepConsultadoTutorRef.current = "";
+                          consultaCepTutorSequenciaRef.current += 1;
+                          setConsultandoCepTutor(false);
+                          setStatusEnderecoTutor("");
+                        }
+
+                        setNovoTutor((prev) => ({
+                          ...prev,
+                          cep: valor,
+                          ...(mudouCep
+                            ? {
+                                latitude: null,
+                                longitude: null,
+                                place_id: "",
+                                endereco_normalizado: "",
+                              }
+                            : {}),
+                        }));
+
+                        if (cepAtual.length === 8) {
+                          void consultarCepTutor(valor);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (normalizarCep(novoTutor.cep).length === 8) {
+                          void consultarCepTutor();
+                        }
+                      }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       placeholder="00000-000"
                     />
@@ -3164,7 +3261,7 @@ export default function NovoAgendamentoModal({
                 </div>
                 {statusEnderecoTutor && (
                   <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
-                    {statusEnderecoTutor}
+                    {consultandoCepTutor ? "Consultando CEP..." : statusEnderecoTutor}
                   </div>
                 )}
                 {(novoTutor.latitude !== null || novoTutor.longitude !== null) && (
