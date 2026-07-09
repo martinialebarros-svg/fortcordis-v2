@@ -424,10 +424,40 @@ def _assert_clinica_georreferenciada(clinica: Optional[Clinica], *, contexto: st
     )
 
 
+def _tutor_tem_endereco_preenchido(tutor: Optional[Tutor]) -> bool:
+    if not tutor:
+        return False
+    return all(
+        str(valor or "").strip()
+        for valor in [tutor.endereco, tutor.numero, tutor.cidade, tutor.estado]
+    )
+
+
+def _tutor_tem_localizacao_confiavel(tutor: Optional[Tutor]) -> bool:
+    if not tutor:
+        return False
+    if not _tutor_tem_endereco_preenchido(tutor):
+        return False
+    if tutor.latitude is None or tutor.longitude is None:
+        return False
+    try:
+        lat = float(tutor.latitude)
+        lng = float(tutor.longitude)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(lat) or not math.isfinite(lng):
+        return False
+    if lat < -90.0 or lat > 90.0 or lng < -180.0 or lng > 180.0:
+        return False
+    if abs(lat) < 0.000001 and abs(lng) < 0.000001:
+        return False
+    return True
+
+
 def _assert_tutor_georreferenciado(tutor: Optional[Tutor], *, contexto: str) -> None:
     if tutor is None:
         raise HTTPException(status_code=422, detail="Selecione um tutor valido para o atendimento domiciliar.")
-    if tutor.latitude is not None and tutor.longitude is not None:
+    if _tutor_tem_localizacao_confiavel(tutor):
         return
     raise HTTPException(
         status_code=422,

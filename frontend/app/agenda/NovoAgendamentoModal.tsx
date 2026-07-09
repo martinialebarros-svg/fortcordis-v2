@@ -5,6 +5,7 @@ import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Chec
 import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
+import { coordenadasSaoConfiaveis, normalizarCoordenadaOpcional } from "@/lib/coordinates";
 import {
   AgendaExcecaoConfig,
   AgendaFeriadoConfig,
@@ -408,12 +409,11 @@ const tutorTemGeorreferenciamento = (tutor?: {
   georreferenciado?: boolean;
 } | null): boolean => {
   if (!tutor) return false;
-  if (tutor.georreferenciado) return true;
-  return Number.isFinite(Number(tutor.latitude)) && Number.isFinite(Number(tutor.longitude));
+  return coordenadasSaoConfiaveis(tutor.latitude, tutor.longitude);
 };
 
 const clinicaTemGeorreferenciamento = (clinica?: ClinicaOption | null): boolean =>
-  Number.isFinite(Number(clinica?.latitude)) && Number.isFinite(Number(clinica?.longitude));
+  coordenadasSaoConfiaveis(clinica?.latitude, clinica?.longitude);
 
 const resumoEnderecoTutor = (tutor?: {
   endereco?: string | null;
@@ -1124,8 +1124,8 @@ export default function NovoAgendamentoModal({
       bairro: String(tutor.bairro || ""),
       cidade: String(tutor.cidade || ""),
       estado: String(tutor.estado || "CE"),
-      latitude: Number.isFinite(Number(tutor.latitude)) ? Number(tutor.latitude) : null,
-      longitude: Number.isFinite(Number(tutor.longitude)) ? Number(tutor.longitude) : null,
+      latitude: normalizarCoordenadaOpcional(tutor.latitude),
+      longitude: normalizarCoordenadaOpcional(tutor.longitude),
       place_id: String(tutor.place_id || ""),
       endereco_normalizado: String(tutor.endereco_normalizado || ""),
     });
@@ -1191,8 +1191,8 @@ export default function NovoAgendamentoModal({
         cidade: item.cidade || prev.cidade,
         estado: item.estado || prev.estado,
         cep: item.cep || prev.cep,
-        latitude: Number.isFinite(Number(item.latitude)) ? Number(item.latitude) : prev.latitude,
-        longitude: Number.isFinite(Number(item.longitude)) ? Number(item.longitude) : prev.longitude,
+        latitude: normalizarCoordenadaOpcional(item.latitude) ?? prev.latitude,
+        longitude: normalizarCoordenadaOpcional(item.longitude) ?? prev.longitude,
         place_id: item.place_id || prev.place_id,
         endereco_normalizado: item.endereco_normalizado || prev.endereco_normalizado,
       }));
@@ -1940,8 +1940,8 @@ export default function NovoAgendamentoModal({
         bairro: novoTutor.bairro || null,
         cidade: novoTutor.cidade || null,
         estado: novoTutor.estado || null,
-        latitude: Number.isFinite(Number(novoTutor.latitude)) ? Number(novoTutor.latitude) : null,
-        longitude: Number.isFinite(Number(novoTutor.longitude)) ? Number(novoTutor.longitude) : null,
+        latitude: normalizarCoordenadaOpcional(novoTutor.latitude),
+        longitude: normalizarCoordenadaOpcional(novoTutor.longitude),
         place_id: novoTutor.place_id || null,
         endereco_normalizado: novoTutor.endereco_normalizado || null,
       };
@@ -1963,8 +1963,8 @@ export default function NovoAgendamentoModal({
           email: novoTutor.email || null,
           cidade: novoTutor.cidade || null,
           endereco_resumo: resumoEnderecoTutor(novoTutor),
-          latitude: Number.isFinite(Number(novoTutor.latitude)) ? Number(novoTutor.latitude) : null,
-          longitude: Number.isFinite(Number(novoTutor.longitude)) ? Number(novoTutor.longitude) : null,
+          latitude: normalizarCoordenadaOpcional(novoTutor.latitude),
+          longitude: normalizarCoordenadaOpcional(novoTutor.longitude),
           georreferenciado: tutorTemGeorreferenciamento(novoTutor),
         };
         const restantes = prev.filter((item) => item.id !== Number(tutorId));

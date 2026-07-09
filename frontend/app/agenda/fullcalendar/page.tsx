@@ -17,6 +17,7 @@ import { CalendarDays, ChevronDown, Download, FileText, MapPin, RefreshCw, Steth
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
+import { normalizarCoordenadaOpcional } from "@/lib/coordinates";
 import { montarToastAgendaRealtime } from "@/lib/agenda-realtime-toast";
 import { useAgendaRealtime, type AgendaRealtimePayload } from "@/lib/useAgendaRealtime";
 import {
@@ -905,8 +906,8 @@ export default function AgendaFullCalendarPage() {
           cidade: clinica?.cidade || null,
           estado: clinica?.estado || null,
           cep: clinica?.cep || null,
-          latitude: Number.isFinite(Number(clinica?.latitude)) ? Number(clinica.latitude) : null,
-          longitude: Number.isFinite(Number(clinica?.longitude)) ? Number(clinica.longitude) : null,
+          latitude: normalizarCoordenadaOpcional(clinica?.latitude),
+          longitude: normalizarCoordenadaOpcional(clinica?.longitude),
           endereco_normalizado: clinica?.endereco_normalizado || null,
         };
       }
@@ -952,8 +953,8 @@ export default function AgendaFullCalendarPage() {
           cidade: tutor?.cidade || null,
           estado: tutor?.estado || null,
           cep: tutor?.cep || null,
-          latitude: Number.isFinite(Number(tutor?.latitude)) ? Number(tutor.latitude) : null,
-          longitude: Number.isFinite(Number(tutor?.longitude)) ? Number(tutor.longitude) : null,
+          latitude: normalizarCoordenadaOpcional(tutor?.latitude),
+          longitude: normalizarCoordenadaOpcional(tutor?.longitude),
           endereco_normalizado: tutor?.endereco_normalizado || null,
         };
       }

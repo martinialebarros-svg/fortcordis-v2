@@ -1,4 +1,5 @@
 from datetime import datetime
+import math
 import re
 import unicodedata
 from typing import Optional
@@ -59,7 +60,36 @@ def _ensure_tutores_georef_columns(db: Session) -> None:
     db.commit()
 
 
+def _tutor_tem_endereco_preenchido(tutor: Optional[Tutor]) -> bool:
+    if not tutor:
+        return False
+    return all(
+        str(valor or "").strip()
+        for valor in [tutor.endereco, tutor.numero, tutor.cidade, tutor.estado]
+    )
+
+
+def _coordenadas_tutor_confiaveis(tutor: Optional[Tutor]) -> tuple[Optional[float], Optional[float]]:
+    if not tutor or not _tutor_tem_endereco_preenchido(tutor):
+        return None, None
+    if tutor.latitude is None or tutor.longitude is None:
+        return None, None
+    try:
+        lat = float(tutor.latitude)
+        lng = float(tutor.longitude)
+    except (TypeError, ValueError):
+        return None, None
+    if not math.isfinite(lat) or not math.isfinite(lng):
+        return None, None
+    if lat < -90.0 or lat > 90.0 or lng < -180.0 or lng > 180.0:
+        return None, None
+    if abs(lat) < 0.000001 and abs(lng) < 0.000001:
+        return None, None
+    return lat, lng
+
+
 def _serialize_tutor(tutor: Tutor) -> dict:
+    latitude, longitude = _coordenadas_tutor_confiaveis(tutor)
     return {
         "id": tutor.id,
         "nome": tutor.nome,
@@ -74,11 +104,34 @@ def _serialize_tutor(tutor: Tutor) -> dict:
         "bairro": tutor.bairro,
         "cidade": tutor.cidade,
         "estado": tutor.estado,
-        "latitude": float(tutor.latitude) if tutor.latitude is not None else None,
-        "longitude": float(tutor.longitude) if tutor.longitude is not None else None,
+        "latitude": latitude,
+        "longitude": longitude,
         "place_id": tutor.place_id,
         "endereco_normalizado": tutor.endereco_normalizado,
-        "georreferenciado": tutor.latitude is not None and tutor.longitude is not None,
+        "georreferenciado": latitude is not None and longitude is not None,
+    }
+
+
+def _serialize_tutor_lista_item(tutor: Tutor) -> dict:
+    latitude, longitude = _coordenadas_tutor_confiaveis(tutor)
+    return {
+        "id": tutor.id,
+        "nome": tutor.nome,
+        "telefone": tutor.telefone,
+        "email": tutor.email,
+        "endereco": tutor.endereco,
+        "numero": tutor.numero,
+        "bairro": tutor.bairro,
+        "cidade": tutor.cidade,
+        "estado": tutor.estado,
+        "cep": tutor.cep,
+        "endereco_normalizado": tutor.endereco_normalizado,
+        "endereco_resumo": ", ".join(
+            [item for item in [tutor.endereco, tutor.numero, tutor.bairro, tutor.cidade] if str(item or "").strip()]
+        ),
+        "latitude": latitude,
+        "longitude": longitude,
+        "georreferenciado": latitude is not None and longitude is not None,
     }
 
 
@@ -151,28 +204,7 @@ def listar_tutores(
 
     return {
         "total": total,
-        "items": [
-            {
-                "id": t.id,
-                "nome": t.nome,
-                "telefone": t.telefone,
-                "email": t.email,
-                "endereco": t.endereco,
-                "numero": t.numero,
-                "bairro": t.bairro,
-                "cidade": t.cidade,
-                "estado": t.estado,
-                "cep": t.cep,
-                "endereco_normalizado": t.endereco_normalizado,
-                "endereco_resumo": ", ".join(
-                    [item for item in [t.endereco, t.numero, t.bairro, t.cidade] if str(item or "").strip()]
-                ),
-                "latitude": float(t.latitude) if t.latitude is not None else None,
-                "longitude": float(t.longitude) if t.longitude is not None else None,
-                "georreferenciado": t.latitude is not None and t.longitude is not None,
-            }
-            for t in items
-        ]
+        "items": [_serialize_tutor_lista_item(t) for t in items]
     }
 
 
@@ -291,11 +323,9 @@ def obter_panorama_tutor(
         for pet in pets
     ]
 
-    endereco_preenchido = all(
-        str(valor or "").strip()
-        for valor in [tutor.endereco, tutor.numero, tutor.cidade, tutor.estado]
-    )
-    georreferenciado = tutor.latitude is not None and tutor.longitude is not None
+    endereco_preenchido = _tutor_tem_endereco_preenchido(tutor)
+    latitude, longitude = _coordenadas_tutor_confiaveis(tutor)
+    georreferenciado = latitude is not None and longitude is not None
 
     return {
         "tutor": _serialize_tutor(tutor),

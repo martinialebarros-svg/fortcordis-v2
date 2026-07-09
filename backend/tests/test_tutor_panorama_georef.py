@@ -148,6 +148,30 @@ class TutorPanoramaGeorefTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_listar_tutores_nao_marca_coordenadas_zero_como_georreferenciadas(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            tutor = Tutor(
+                nome="Tutor invalido",
+                telefone="85988887777",
+                latitude=0.0,
+                longitude=0.0,
+                ativo=1,
+            )
+            db.add(tutor)
+            db.commit()
+
+            response = tutores.listar_tutores(limit=50, db=db, current_user=SimpleNamespace(id=1))
+
+            self.assertEqual(response["total"], 1)
+            self.assertIsNone(response["items"][0]["latitude"])
+            self.assertIsNone(response["items"][0]["longitude"])
+            self.assertFalse(response["items"][0]["georreferenciado"])
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_sugestao_horario_exige_clinica_georreferenciada(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
