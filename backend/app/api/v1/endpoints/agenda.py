@@ -49,7 +49,11 @@ from app.core.agenda_route_rules import carregar_agenda_rota_regras
 from app.core.agenda_realtime import agenda_realtime_manager
 from app.core.config import settings
 from app.core.security import get_current_user
-from app.services.logistica_service import estimar_deslocamento, normalizar_perfil, obter_duracao_deslocamento
+from app.services.logistica_service import (
+    normalizar_perfil,
+    obter_duracao_deslocamento,
+    obter_duracao_deslocamento_entidades,
+)
 from app.services.precos_service import calcular_preco_servico, to_decimal
 from app.services.auditoria_service import registrar_auditoria
 from app.services.push_notifications import (
@@ -512,6 +516,7 @@ def _criar_destino_operacional_clinica(
         "cidade": getattr(clinica, "cidade", None) if clinica is not None else None,
         "estado": getattr(clinica, "estado", None) if clinica is not None else None,
         "cep": getattr(clinica, "cep", None) if clinica is not None else None,
+        "geocode_at": getattr(clinica, "geocode_at", None) if clinica is not None else None,
         "localizacao_confiavel": _clinica_tem_localizacao_confiavel(clinica),
         "obj": clinica,
     }
@@ -544,6 +549,7 @@ def _criar_destino_operacional_tutor(
         "cidade": getattr(tutor, "cidade", None) if tutor is not None else None,
         "estado": getattr(tutor, "estado", None) if tutor is not None else None,
         "cep": getattr(tutor, "cep", None) if tutor is not None else None,
+        "geocode_at": getattr(tutor, "updated_at", None) if tutor is not None else None,
         "localizacao_confiavel": _tutor_tem_localizacao_confiavel(tutor),
         "obj": tutor,
     }
@@ -595,6 +601,7 @@ def _adaptar_destino_operacional_para_logistica(destino: Optional[dict[str, Any]
         cidade=destino.get("cidade"),
         estado=destino.get("estado"),
         cep=destino.get("cep"),
+        geocode_at=destino.get("geocode_at"),
     )
 
 
@@ -693,11 +700,12 @@ def _obter_duracao_deslocamento_operacional(
     if origem_adaptado is None or destino_adaptado is None:
         resultado = (0, "indefinido")
     else:
-        _distancia_km, duracao_min, fonte = estimar_deslocamento(
-            origem_adaptado,
-            destino_adaptado,
+        duracao_min, fonte = obter_duracao_deslocamento_entidades(
+            db,
+            origem=origem_adaptado,
+            destino=destino_adaptado,
             perfil=perfil_norm,
-            permitir_google_lookup=True,
+            permitir_estimativa_fallback=True,
             google_cache=cache_google,
         )
         resultado = (max(0, int(duracao_min or 0)), str(fonte or "indefinido"))

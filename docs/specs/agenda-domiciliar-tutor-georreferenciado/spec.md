@@ -22,6 +22,7 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
 - RF-008: quando um agendamento domiciliar for concluido, a OS gerada ou editada deve usar o preco domiciliar do servico conforme o tipo de horario.
 - RF-009: listagens, filtros e relatorios de OS devem aceitar `origem_atendimento="domiciliar"` e tratar o tutor como destinatario do recebimento quando nao houver clinica.
 - RF-010: `POST /api/v1/agenda/sugestoes-horario`, `POST /api/v1/agenda/sugestao-proximidade` e `POST /api/v1/agenda/assistente/ofertas` devem aceitar `origem_atendimento="domiciliar"` e `tutor_id`, tratando o tutor georreferenciado como destino operacional para sugerir horarios, calcular deslocamento e bloquear conflitos.
+- RF-010.a: rotas operacionais que envolvam tutor (`clinica` x `domiciliar` ou `domiciliar` x `domiciliar`) devem reaproveitar a mesma matriz persistida de duracao usada no fluxo entre clinicas, com ID sintetico para o tutor e sem obrigar novo lookup Google para o mesmo par enquanto o cache estiver fresco.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -29,6 +30,7 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
 - NFR-002 (integridade de dados): migrations do pacote devem ser idempotentes e seguras para bases legadas.
 - NFR-003 (usabilidade): o fluxo domiciliar nao deve depender do cadastro improvisado de uma clinica `DOMICILIAR`.
 - NFR-004 (governanca operacional): sugestoes automaticas e validacoes de deslocamento permanecem condicionadas a destino operacional georreferenciado; no domiciliar, o tutor entra nas mesmas regras de folga, trecho vizinho e desvio de insercao.
+- NFR-005 (controle de custo Google Maps): fluxo domiciliar deve obedecer ao mesmo gate de lookup ao vivo das clinicas (`LOGISTICA_ALLOW_LIVE_GOOGLE_LOOKUPS_ON_READ`), persistindo heuristica ou resposta Google por par operacional e evitando chamada redundante entre requisicoes para o mesmo destino enquanto a linha estiver fresca.
 
 ## 4) Contratos tecnicos
 
@@ -108,6 +110,7 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
 - CA-004: OS domiciliar pode existir sem clinica, usa preco domiciliar e aparece em listagens/relatorios com o tutor como destinatario.
 - CA-005: agenda em lista e FullCalendar gera links de rota usando o endereco do tutor para itens domiciliares.
 - CA-006: o assistente de agenda sugere horarios e proximidade para atendimentos domiciliares usando o tutor georreferenciado como destino operacional e bloqueia conflitos de deslocamento com as mesmas regras aplicadas a clinicas.
+- CA-007: com lookup ao vivo desligado, um par operacional domiciliar novo e materializado por heuristica sem chamar Google; com lookup ao vivo ligado, o mesmo par operacional reutiliza a linha persistida em leituras seguintes sem novo consumo da API.
 
 ## 7) Casos de borda
 
@@ -118,6 +121,7 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
 - CB-003: OS domiciliar sem clinica nao deve quebrar filtros, resumo financeiro nem relatorio de pendencias.
 - CB-004: clinica sem georreferenciamento continua bloqueada nas sugestoes automaticas de agenda.
 - CB-007: atendimento domiciliar sem tutor georreferenciado nao pode ativar sugestao de proximidade nem panorama de horarios, e rotas mistas clinica-domiciliar devem respeitar a mesma margem segura do fluxo convencional.
+- CB-008: repetir consultas de sugestao para o mesmo par clinica-tutor nao deve gerar novo lookup Google enquanto a linha operacional persistida continuar fresca.
 
 ## 8) Fora de escopo
 

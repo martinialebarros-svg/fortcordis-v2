@@ -14,10 +14,12 @@ Status: done
 | CA-004 | aceitacao | `backend/tests/test_agenda_origem_domiciliar.py::test_realizado_domiciliar_gera_os_com_preco_do_servico`, `backend/tests/test_ordens_servico_domiciliar.py::test_listar_ordens_rotula_domiciliar_corretamente`, `::test_atualizar_ordem_recalcula_preco_domiciliar_sem_clinica` e `::test_relatorio_pendencias_domiciliar_filtra_e_agrupa_por_tutor` | ok |
 | CA-005 | frontend | `frontend/app/agenda/NovoAgendamentoModal.tsx` com autofill de CEP via ViaCEP, limpeza de georreferencia antiga e validacao por ESLint/`tsc --noEmit` | ok |
 | CA-006 | aceitacao | `backend/tests/test_agenda_sugestao_janela_operacional.py::test_sugestoes_horario_domiciliar_usam_tutor_como_destino_operacional`, `::test_validacao_agendamento_domiciliar_exige_margem_segura_operacional` e `::test_sugestao_proximidade_domiciliar_reaproveita_ancora_operacional` | ok |
+| CA-007 | aceitacao | `backend/tests/test_logistica_google_cost_controls.py::test_obter_duracao_entidades_operacionais_respeita_gate_live_lookup_desligado` e `::test_obter_duracao_entidades_operacionais_reutiliza_cache_persistido_sem_novo_google` | ok |
 | NFR-001 | nao funcional | `backend/tests/test_agenda_busca_periodo_filtros.py` e `backend/tests/test_agenda_n_plus_one.py` mantiveram a listagem da agenda funcional com o novo `tutor_id_relacionado` | ok |
 | NFR-002 | nao funcional | `backend/tests/test_migration_ci_cycle.py` validou o runner com o conjunto atual de migrations | ok |
 | NFR-003 | nao funcional | `frontend/app/agenda/NovoAgendamentoModal.tsx` explicita fluxo domiciliar sem clinica ficticia e bloqueia save sem georreferenciamento do tutor | ok |
 | NFR-004 | nao funcional | `backend/tests/test_agenda_sugestao_janela_operacional.py`, `backend/tests/test_agenda_assistente_orquestrador_metricas.py` e `frontend/app/agenda/NovoAgendamentoModal.tsx` mantiveram o mesmo assistente guiado para clinica e domiciliar usando destino operacional georreferenciado | ok |
+| NFR-005 | nao funcional | `backend/tests/test_logistica_google_cost_controls.py` validou gate de lookup ao vivo, persistencia de matriz operacional e reuso sem novo consumo do Google para o mesmo par tutor-clinica | ok |
 
 ## 2) Testes automatizados executados
 
@@ -25,6 +27,7 @@ Comandos:
 
 ```bash
 backend/venv/bin/python -m pytest \
+  backend/tests/test_logistica_google_cost_controls.py \
   backend/tests/test_agenda_sugestao_janela_operacional.py \
   backend/tests/test_agenda_assistente_orquestrador_metricas.py \
   backend/tests/test_tutor_panorama_georef.py \
@@ -41,7 +44,7 @@ git diff --check
 ```
 
 Resumo dos resultados:
-- Backend: 49 testes focados passaram, incluindo sugestao de horario, proximidade, orquestrador, tutor georreferenciado e fluxo domiciliar.
+- Backend: 54 testes focados passaram, incluindo sugestao de horario, proximidade, orquestrador, tutor georreferenciado, fluxo domiciliar e controles de custo Google Maps para pares operacionais com tutor.
 - Frontend: ESLint focado e `tsc --noEmit` passaram com o novo fluxo de CEP automatico no modal do tutor.
 - Integridade textual: `git diff --check` passou sem whitespace ou marcacao quebrada.
 
@@ -53,6 +56,7 @@ Resumo dos resultados:
 - Cenario 2.a: cadastrar tutor sem endereco, tentar salvar/agendar e confirmar que nenhum `0,0` e inferido no frontend.
 - Cenario 2.b: alterar o CEP depois de um georreferenciamento existente e confirmar que latitude/longitude anteriores sao limpas.
 - Cenario 2.c: com tutor georreferenciado, gerar melhor oferta no fluxo domiciliar e confirmar que o assistente sugere data/hora considerando deslocamento e agenda vizinha.
+- Cenario 2.d: repetir a consulta de sugestao para o mesmo par clinica-tutor em seguida e confirmar que o sistema reaproveita a matriz operacional persistida, sem depender de novo lookup Google enquanto o registro estiver fresco.
 - Cenario 3: abrir o mesmo item na agenda lista e no FullCalendar e confirmar que o Waze/Google Maps usa o endereco do tutor.
 - Cenario 4: concluir o agendamento domiciliar como `Realizado` e validar na tela financeira que a OS ficou sem clinica e com preco domiciliar do servico.
 - Cenario 4.a: tentar salvar um domiciliar em horario que viole a margem entre um atendimento de clinica e outro destino e confirmar bloqueio por conflito operacional.
@@ -63,6 +67,7 @@ Resumo dos resultados:
 - Risco residual 1: o fluxo domiciliar ainda nao implementa roteirizacao multi-parada otimizada; a decisao continua local por slot/ancoras vizinhas.
 - Risco residual 2: registros historicos sem `paciente_id` continuam sem caminho de recuperacao automatica de `tutor_id`.
 - Risco residual 3: a validacao final mais fiel depende de smoke em producao, onde existem casos reais de legado e operacao domiciliar mista.
+- Risco residual 4: o reuso da matriz operacional para tutor depende de IDs sinteticos negativos na tabela `clinica_deslocamentos`; funcionalmente atende ao requisito e reduz custo, mas merece observacao em futuras evolucoes de schema e analytics.
 
 ## 5) Itens fora de escopo entregues
 

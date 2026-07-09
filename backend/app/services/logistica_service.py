@@ -452,10 +452,17 @@ def _clinic_geocode_datetime(clinica: Optional[Clinica]) -> Optional[datetime]:
     return _normalize_datetime(getattr(clinica, "geocode_at", None)) if clinica else None
 
 
+def _entity_lookup_id(entity: Optional[Clinica]) -> int:
+    try:
+        return int(getattr(entity, "id", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _build_google_metric_context(origem: Clinica, destino: Clinica, perfil: str) -> dict:
     return {
-        "origem_clinica_id": int(getattr(origem, "id", 0) or 0) or None,
-        "destino_clinica_id": int(getattr(destino, "id", 0) or 0) or None,
+        "origem_clinica_id": _entity_lookup_id(origem) or None,
+        "destino_clinica_id": _entity_lookup_id(destino) or None,
         "perfil": normalizar_perfil(perfil),
     }
 
@@ -1020,6 +1027,9 @@ def materializar_deslocamento_par(
     perfis: Optional[Iterable[str]] = None,
     force_override: bool = False,
     permitir_google_lookup: bool = True,
+    google_cache: Optional[dict] = None,
+    telemetry_events: Optional[list[dict]] = None,
+    commit: bool = True,
 ) -> dict[str, ClinicaDeslocamento]:
     """Resolve a route once and persist the requested profiles.
 
@@ -1028,8 +1038,8 @@ def materializar_deslocamento_par(
     """
     perfis_norm = normalizar_perfis(perfis)
     rows: dict[str, ClinicaDeslocamento] = {}
-    google_cache: dict = {}
-    telemetry_events: list[dict] = []
+    cache_lookup = google_cache if isinstance(google_cache, dict) else {}
+    eventos_google = telemetry_events if isinstance(telemetry_events, list) else []
 
     for perfil in perfis_norm:
         distancia_km, duracao_min, fonte = estimar_deslocamento(
@@ -1037,8 +1047,8 @@ def materializar_deslocamento_par(
             destino,
             perfil=perfil,
             permitir_google_lookup=permitir_google_lookup,
-            google_cache=google_cache,
-            telemetry_events=telemetry_events,
+            google_cache=cache_lookup,
+            telemetry_events=eventos_google,
         )
         row, _changed, _skipped = upsert_deslocamento(
             db,
@@ -1052,8 +1062,9 @@ def materializar_deslocamento_par(
         )
         rows[perfil] = row
 
-    registrar_google_maps_metricas(db, telemetry_events)
-    db.commit()
+    registrar_google_maps_metricas(db, eventos_google)
+    if commit:
+        db.commit()
     return rows
 
 
@@ -1314,6 +1325,67 @@ def obter_duracao_deslocamento(
         destino=destino,
         perfis=["comercial", "plantao"],
         permitir_google_lookup=_allow_live_google_lookups_on_read(),
+    )
+    row = rows.get(perfil_norm)
+    if row and row.duracao_min is not None:
+        return max(0, int(row.duracao_min)), str(row.fonte or "matriz")
+    return 0, "sem_matriz"
+
+
+def obter_duracao_deslocamento_entidades(
+    db: Session,
+    *,
+    origem: Clinica,
+    destino: Clinica,
+    perfil: str = "comercial",
+    permitir_estimativa_fallback: bool = True,
+    permitir_google_lookup_on_refresh: Optional[bool] = None,
+    google_cache: Optional[dict] = None,
+    telemetry_events: Optional[list[dict]] = None,
+) -> tuple[int, str]:
+    """Retorna duracao para quaisquer entidades operacionais persistidas na matriz.
+
+    Clinicas seguem usando IDs positivos. Entidades nao-clinica podem usar IDs
+    sinteticos (por exemplo, tutor como inteiro negativo) sem alterar o
+    contrato da tabela `clinica_deslocamentos`.
+    """
+
+    origem_id = _entity_lookup_id(origem)
+    destino_id = _entity_lookup_id(destino)
+    if origem_id == 0 or destino_id == 0:
+        return 0, "clinica_indefinida"
+    if origem_id == destino_id:
+        return 0, "mesma_clinica"
+
+    perfil_norm = normalizar_perfil(perfil)
+    row = (
+        db.query(ClinicaDeslocamento)
+        .filter(
+            ClinicaDeslocamento.origem_clinica_id == origem_id,
+            ClinicaDeslocamento.destino_clinica_id == destino_id,
+            ClinicaDeslocamento.perfil == perfil_norm,
+        )
+        .first()
+    )
+    if row and row.duracao_min is not None and _deslocamento_esta_atual(row, origem=origem, destino=destino):
+        return max(0, int(row.duracao_min)), str(row.fonte or "matriz")
+
+    if not permitir_estimativa_fallback:
+        return 0, "sem_matriz"
+
+    permitir_google_lookup = (
+        _allow_live_google_lookups_on_read()
+        if permitir_google_lookup_on_refresh is None
+        else bool(permitir_google_lookup_on_refresh)
+    )
+    rows = materializar_deslocamento_par(
+        db,
+        origem=origem,
+        destino=destino,
+        perfis=["comercial", "plantao"],
+        permitir_google_lookup=permitir_google_lookup,
+        google_cache=google_cache,
+        telemetry_events=telemetry_events,
     )
     row = rows.get(perfil_norm)
     if row and row.duracao_min is not None:
