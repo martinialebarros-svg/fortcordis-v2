@@ -14,6 +14,7 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
 - RF-002: a API deve permitir geocodificar o endereco do tutor e retornar `latitude`, `longitude`, `place_id` e `endereco_normalizado`.
 - RF-003: o modal de novo agendamento deve permitir alternar entre `clinica_parceira` e `domiciliar`.
 - RF-004: agendamentos domiciliares devem exigir tutor com endereco georreferenciado antes de salvar.
+- RF-004.a: tutor sem endereco base completo (`endereco`, `numero`, `cidade`, `estado`) ou com coordenadas ausentes/invalidas (ex.: `null`, fora da faixa ou `0,0`) deve ser tratado como nao georreferenciado tanto no frontend quanto no backend.
 - RF-005: ao salvar um agendamento domiciliar, o backend deve persistir `origem_atendimento="domiciliar"`, manter `tutor_id` e nao exigir `clinica_id`.
 - RF-006: agenda em lista, detalhe e FullCalendar deve rotular atendimentos domiciliares como `Atendimento domiciliar` e usar o endereco do tutor para abrir Waze/Google Maps.
 - RF-007: agendamentos legados sem `agendamentos.tutor_id` devem continuar retornando o tutor correto a partir de `pacientes.tutor_id`, inclusive apos migration de backfill.
@@ -32,7 +33,7 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
 ### API
 
 - `GET /api/v1/tutores`
-  - passa a retornar endereco estruturado, coordenadas, `endereco_normalizado` e `georreferenciado`.
+  - passa a retornar endereco estruturado, coordenadas confiaveis, `endereco_normalizado` e `georreferenciado`.
 - `GET /api/v1/tutores/{tutor_id}/panorama`
   - retorna `tutor`, `pets` e `resumo` com total de pets, endereco preenchido e status de georreferenciamento.
 - `POST /api/v1/tutores/geocode-endereco`
@@ -70,11 +71,13 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
   - `frontend/app/agenda/fullcalendar/page.tsx`
   - `frontend/app/financeiro/page.tsx`
 - Helpers afetados:
+  - `frontend/lib/coordinates.ts`
   - `frontend/lib/waze.ts`
   - `frontend/lib/agenda-shared-actions.ts`
 - Regras de UI:
   - atendimento domiciliar usa tutor como referencia operacional;
   - sem tutor georreferenciado, o save deve ser bloqueado;
+  - coordenadas ausentes nao podem ser normalizadas para `0,0` durante cadastro/edicao do tutor;
   - sugestoes automaticas por clinica nao entram no fluxo domiciliar nesta versao.
 
 ## 5) Compatibilidade e rollout
@@ -93,14 +96,15 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
 ## 6) Criterios de aceitacao (CA)
 
 - CA-001: o tutor exibe panorama de pets e status de georreferenciamento, e a API de geocode retorna payload reutilizavel pelo cadastro.
-- CA-002: o sistema bloqueia agendamento domiciliar sem tutor georreferenciado e salva corretamente quando o tutor possui endereco valido.
+- CA-002: o sistema bloqueia agendamento domiciliar sem tutor georreferenciado, inclusive quando houver coordenadas invalidas como `0,0`, e salva corretamente quando o tutor possui endereco valido.
 - CA-003: agenda lista/detalhe/realtime e migration preservam ou recuperam `tutor_id` em agendamentos legados.
 - CA-004: OS domiciliar pode existir sem clinica, usa preco domiciliar e aparece em listagens/relatorios com o tutor como destinatario.
 - CA-005: agenda em lista e FullCalendar gera links de rota usando o endereco do tutor para itens domiciliares.
 
 ## 7) Casos de borda
 
-- CB-001: tutor com endereco textual mas sem coordenadas nao pode ser usado no save domiciliar.
+- CB-001: tutor com endereco textual mas sem coordenadas confiaveis nao pode ser usado no save domiciliar.
+- CB-005: tutor salvo sem endereco base nao pode virar agendavel por conversao indevida de `null` para `0,0`.
 - CB-002: agendamento legado com `paciente_id` valido e `tutor_id` nulo deve continuar retornando tutor corretamente.
 - CB-003: OS domiciliar sem clinica nao deve quebrar filtros, resumo financeiro nem relatorio de pendencias.
 - CB-004: clinica sem georreferenciamento continua bloqueada nas sugestoes automaticas de agenda.

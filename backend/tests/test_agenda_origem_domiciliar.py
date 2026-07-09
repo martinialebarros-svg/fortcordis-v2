@@ -93,6 +93,48 @@ class AgendaOrigemDomiciliarTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_criar_agendamento_domiciliar_rejeita_tutor_com_coordenadas_zero_sem_endereco(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            tutor = Tutor(
+                nome="Teste georef",
+                telefone="85999990000",
+                latitude=0.0,
+                longitude=0.0,
+                ativo=1,
+            )
+            db.add(tutor)
+            db.commit()
+            db.refresh(tutor)
+
+            inicio = datetime(2099, 6, 2, 9, 30, 0)
+            payload = agenda.AgendamentoCreate(
+                paciente_id=None,
+                tutor_id=tutor.id,
+                clinica_id=None,
+                servico_id=None,
+                origem_atendimento="domiciliar",
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                status="Reservado",
+                observacoes="teste domiciliar com coordenada invalida",
+            )
+
+            with self.assertRaises(HTTPException) as ctx:
+                agenda.criar_agendamento(
+                    agendamento=payload,
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=SimpleNamespace(id=1, nome="Teste", tem_papel=lambda _: False),
+                )
+
+            self.assertEqual(int(ctx.exception.status_code), 422)
+            self.assertIn("georreferenciado", str(ctx.exception.detail).lower())
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_criar_agendamento_domiciliar_persiste_origem_e_rotulo_operacional(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
