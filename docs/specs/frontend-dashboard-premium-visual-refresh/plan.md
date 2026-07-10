@@ -1,0 +1,21 @@
+# Plan - frontend-dashboard-premium-visual-refresh
+
+Responsavel: Equipe FortCordis
+Data: 2026-07-10
+
+## Plano de execucao
+
+1. Revisar o dashboard atual a partir da captura enviada e mapear problemas de hierarquia, proporcao e usabilidade.
+2. Refatorar o dashboard com componentes locais reutilizaveis para ECG, metricas, loading, erro, empty state e atalhos.
+3. Refinar tokens visuais em Tailwind/CSS para paleta Fort Cordis, cards, sidebar, hover, foco e responsividade.
+4. Organizar a sidebar por grupos funcionais e preservar branding configuravel da clinica.
+5. Validar lint, typecheck, build e guardrail SDD antes do push para stage.
+6. Apos stage verde, promover para producao seguindo o fluxo existente de release.
+
+## Rollback
+
+Reverter o commit deste ciclo restaura o dashboard e a sidebar anteriores. Como nao ha migracoes nem mudancas de contrato, rollback e limitado ao frontend e documentacao SDD.
+
+## Proxima fase
+
+Aplicar o mesmo sistema visual, de forma incremental, nas telas Agenda, Pacientes, Clinicas, Financeiro, Laudos e Atendimento, priorizando componentes compartilhaveis e consistencia de densidade operacional.

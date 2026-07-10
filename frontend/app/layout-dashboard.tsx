@@ -45,24 +45,46 @@ const DashboardPushSnoozeHandler = dynamic(
   { ssr: false }
 );
 
-const menuItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/agenda", label: "Agenda", icon: Calendar },
-  { href: "/agenda/fullcalendar", label: "Agenda FullCalendar", icon: CalendarDays },
-  { href: "/pacientes", label: "Pacientes", icon: Users },
-  { href: "/clinicas", label: "Clínicas", icon: Building2 },
-  { href: "/servicos", label: "Serviços", icon: Stethoscope },
-  { href: "/laudos", label: "Laudos", icon: FileText },
-  { href: "/atendimento", label: "Atendimento", icon: ClipboardPlus },
-  { href: "/referencias-eco", label: "Referências Eco", icon: BookOpen },
-  { href: "/logistica", label: "Logistica", icon: MapPin },
-  { href: "/financeiro", label: "Financeiro", icon: DollarSign },
-  { href: "/financeiro/frota", label: "Custos Frota", icon: Car },
-  { href: "/fiscal", label: "Exportacao Fiscal", icon: Receipt },
-  { href: "/whatsapp-stage", label: "WhatsApp Stage", icon: MessageSquare },
-  { href: "/relatorios", label: "Relatorios", icon: BarChart3 },
-  { href: "/configuracoes", label: "Configurações", icon: Settings },
+const menuGroups = [
+  {
+    label: "Comando",
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/agenda", label: "Agenda", icon: Calendar },
+      { href: "/agenda/fullcalendar", label: "Calendário", icon: CalendarDays },
+      { href: "/atendimento", label: "Atendimento", icon: ClipboardPlus },
+    ],
+  },
+  {
+    label: "Clínica",
+    items: [
+      { href: "/pacientes", label: "Pacientes", icon: Users },
+      { href: "/clinicas", label: "Clínicas", icon: Building2 },
+      { href: "/servicos", label: "Serviços", icon: Stethoscope },
+      { href: "/laudos", label: "Laudos", icon: FileText },
+      { href: "/referencias-eco", label: "Referências Eco", icon: BookOpen },
+    ],
+  },
+  {
+    label: "Gestão",
+    items: [
+      { href: "/logistica", label: "Logística", icon: MapPin },
+      { href: "/financeiro", label: "Financeiro", icon: DollarSign },
+      { href: "/financeiro/frota", label: "Custos Frota", icon: Car },
+      { href: "/fiscal", label: "Exportação Fiscal", icon: Receipt },
+      { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
+    ],
+  },
+  {
+    label: "Sistema",
+    items: [
+      { href: "/whatsapp-stage", label: "WhatsApp Stage", icon: MessageSquare },
+      { href: "/configuracoes", label: "Configurações", icon: Settings },
+    ],
+  },
 ];
+
+const menuItems = menuGroups.flatMap((group) => group.items);
 
 export default function DashboardLayout({
   children,
@@ -306,46 +328,51 @@ export default function DashboardLayout({
     router.push("/");
   };
 
+  const activeHref = menuItems
+    .filter((item) => pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`)))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
+
   if (!authChecked) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-gray-500">Carregando...</div>
+      <div className="flex min-h-screen items-center justify-center bg-shell">
+        <div className="text-ink-500">Carregando...</div>
       </div>
     );
   }
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-gray-500">Redirecionando para login...</div>
+      <div className="flex min-h-screen items-center justify-center bg-shell">
+        <div className="text-ink-500">Redirecionando para login...</div>
       </div>
     );
   }
 
   const dashboardContent = (
-    <div className="min-h-screen bg-gray-50">
+    <div className="fc-app-shell">
         <PushNotificationsBootstrap enabled={authChecked && Boolean(user)} />
         <DashboardPushSnoozeHandler enabled={authChecked && Boolean(user)} />
         <DashboardOverlayCleanup />
         {/* Header mobile */}
-        <div className="lg:hidden bg-white border-b px-4 py-3 flex justify-between items-center">
+        <div className="fc-mobile-header flex items-center justify-between lg:hidden">
           <div className="flex items-center gap-2 min-w-0">
             {logoUrl ? (
               <img
                 src={logoUrl}
                 alt="Logomarca da clinica"
-                className="w-8 h-8 rounded-lg object-contain border bg-white"
+                className="h-8 w-8 fc-brand-logo"
               />
             ) : (
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+              <div className="h-8 w-8 fc-brand-mark">
                 <span className="text-white font-bold text-sm">FC</span>
               </div>
             )}
-            <h1 className="text-lg font-bold text-gray-900 truncate">{nomeClinica}</h1>
+            <h1 className="truncate text-lg font-bold text-ink-900">{nomeClinica}</h1>
           </div>
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 text-gray-600 hover:text-gray-900"
+            aria-label={sidebarOpen ? "Fechar menu" : "Abrir menu"}
+            className="p-2 text-ink-500 hover:text-ink-900"
           >
             {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
@@ -356,20 +383,20 @@ export default function DashboardLayout({
           <aside
             className={`${
               sidebarOpen ? "translate-x-0" : "-translate-x-full"
-            } lg:translate-x-0 fixed lg:static inset-y-0 left-0 z-[60] w-64 bg-white border-r transition-transform duration-200 ease-in-out`}
+            } fixed inset-y-0 left-0 z-[60] w-64 fc-sidebar transition-transform duration-200 ease-in-out lg:static lg:translate-x-0`}
           >
             <div className="h-full flex flex-col">
               {/* Logo */}
-              <div className="hidden lg:flex flex-col gap-3 px-4 py-4 border-b">
-                <div className="flex items-center gap-3">
+              <div className="fc-sidebar-head">
+                <div className="flex items-start gap-3">
                   {logoUrl ? (
                     <img
                       src={logoUrl}
                       alt="Logomarca da clinica"
-                      className="w-9 h-9 rounded-lg object-contain border bg-white"
+                      className="h-9 w-9 shrink-0 fc-brand-logo"
                     />
                   ) : (
-                    <div className="w-9 h-9 bg-blue-600 rounded-lg flex items-center justify-center">
+                    <div className="h-9 w-9 shrink-0 fc-brand-mark">
                       <span className="text-white font-bold text-sm">FC</span>
                     </div>
                   )}
@@ -388,11 +415,11 @@ export default function DashboardLayout({
                             setEditandoNomeClinica(false);
                           }
                         }}
-                        className="w-full px-2 py-1 text-sm font-semibold text-gray-900 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full rounded-md border border-ink-100 px-2 py-1 text-sm font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-cordis-500"
                         autoFocus
                       />
                     ) : (
-                      <span className="block text-base font-bold text-gray-900 truncate">
+                      <span className="block whitespace-normal break-words text-base font-bold leading-snug text-white">
                         {nomeClinica}
                       </span>
                     )}
@@ -402,7 +429,7 @@ export default function DashboardLayout({
                     <button
                       onClick={salvarNomeClinica}
                       disabled={salvandoNomeClinica}
-                      className="p-1.5 rounded-md text-green-700 hover:bg-green-50 disabled:opacity-60"
+                      className="shrink-0 rounded-md p-1.5 text-vital-100 hover:bg-white/10 disabled:opacity-60"
                       title="Salvar nome da clinica"
                     >
                       {salvandoNomeClinica ? (
@@ -414,7 +441,7 @@ export default function DashboardLayout({
                   ) : (
                     <button
                       onClick={() => setEditandoNomeClinica(true)}
-                      className="p-1.5 rounded-md text-gray-600 hover:bg-gray-100"
+                      className="shrink-0 rounded-md p-1.5 text-white/60 hover:bg-white/10 hover:text-white"
                       title="Editar nome da clinica"
                     >
                       <Pencil className="w-4 h-4" />
@@ -423,55 +450,65 @@ export default function DashboardLayout({
                 </div>
 
                 {editandoNomeClinica && (
-                  <p className="text-[11px] leading-4 text-gray-500 px-1">
+                  <p className="px-1 text-[11px] leading-4 text-white/50">
                     Pressione Enter para salvar ou Esc para cancelar.
                   </p>
                 )}
               </div>
 
               {/* Menu */}
-              <nav className="flex-1 px-4 py-4 space-y-1">
-                {menuItems.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = pathname === item.href;
+              <nav className="fc-sidebar-nav" aria-label="Navegação principal">
+                {menuGroups.map((group) => (
+                  <div key={group.label} className="fc-nav-group">
+                    <p className="fc-nav-group-label">{group.label}</p>
+                    <div className="space-y-1">
+                      {group.items.map((item) => {
+                        const Icon = item.icon;
+                        const isActive = activeHref === item.href;
 
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      onClick={() => setSidebarOpen(false)}
-                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                        isActive
-                          ? "bg-blue-50 text-blue-700"
-                          : "text-gray-700 hover:bg-gray-100"
-                      }`}
-                    >
-                      <Icon className={`w-5 h-5 ${isActive ? "text-blue-600" : "text-gray-400"}`} />
-                      {item.label}
-                    </Link>
-                  );
-                })}
+                        return (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            onClick={() => setSidebarOpen(false)}
+                            aria-current={isActive ? "page" : undefined}
+                            className={`fc-nav-link ${
+                              isActive
+                                ? "fc-nav-link-active"
+                                : "fc-nav-link-idle"
+                            }`}
+                          >
+                            <span className="fc-nav-icon">
+                              <Icon className={`w-5 h-5 ${isActive ? "text-white" : "text-white/50"}`} />
+                            </span>
+                            <span className="truncate">{item.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </nav>
 
               {/* User & Logout */}
-              <div className="border-t p-4">
-                <div className="flex items-center gap-3 mb-3 px-3">
-                  <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
-                    <User className="w-4 h-4 text-gray-600" />
+              <div className="fc-sidebar-footer">
+                <div className="fc-user-chip">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10">
+                    <User className="w-4 h-4 text-vital-100" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{user.nome}</p>
-                    <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                    <p className="truncate text-sm font-medium text-white">{user.nome}</p>
+                    <p className="truncate text-xs text-white/50">{user.email}</p>
                   </div>
                 </div>
                 <button
                   onClick={handleLogout}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  className="fc-logout-button"
                 >
                   <LogOut className="w-5 h-5" />
                   Sair
                 </button>
-                <p className="mt-3 px-3 text-[11px] leading-4 text-gray-400">
+                <p className="mt-3 px-3 text-[11px] leading-4 text-white/40">
                   Sistema proprietario da FortCordis. Desenvolvido por Martiniano Le Barros.
                 </p>
               </div>
