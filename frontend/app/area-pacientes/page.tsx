@@ -16,27 +16,27 @@ const tutorAccess = [
   {
     title: "Entrada por link seguro",
     description:
-      "O tutor recebe um codigo temporario no email cadastrado e confirma o acesso antes de visualizar dados do pet.",
+      "O tutor recebe um código temporário no e-mail cadastrado e confirma o acesso antes de visualizar dados do pet.",
     icon: Smartphone,
   },
   {
-    title: "Permissao por pet",
+    title: "Permissão por pet",
     description:
       "A API libera apenas pets vinculados ao tutor e ao atendimento, sem listar dados por busca aberta.",
     icon: FileHeart,
   },
   {
-    title: "Download temporario",
+    title: "Download temporário",
     description:
-      "Laudos e exames sao baixados por URLs assinadas, com expiracao curta e registro de auditoria.",
+      "Laudos e exames são baixados por URLs assinadas, com expiração curta e registro de auditoria.",
     icon: Download,
   },
 ] as const;
 
 const healthNotes = [
-  "Tenha em maos receitas, exames antigos e a lista de medicamentos em uso.",
-  "Avise a equipe se houve tosse, cansaco, desmaio, apetite reduzido ou mudanca na respiracao.",
-  "Depois do exame, acompanhe orientacoes e retornos pelo historico do pet.",
+  "Tenha em mãos receitas, exames antigos e a lista de medicamentos em uso.",
+  "Avise a equipe se houve tosse, cansaço, desmaio, apetite reduzido ou mudança na respiração.",
+  "Depois do exame, acompanhe orientações e retornos pelo histórico do pet.",
 ] as const;
 
 export default function AreaPacientesPage() {
@@ -59,14 +59,14 @@ export default function AreaPacientesPage() {
                 <span><strong>FORT CORDIS</strong><small>Cardiologia Veterinária</small></span>
               </div>
               <p className="fc-public-portal-kicker">
-                Area do tutor
+                Área do tutor
               </p>
               <h1>
-                Informacoes do pet e exames com acesso simples, mas protegido.
+                Informações do pet e exames com acesso simples, mas protegido.
               </h1>
               <p className="fc-public-portal-lead">
-                O portal do tutor deve reunir historico cardiologico, orientacoes do atendimento
-                e download de documentos liberados pela Fort Cordis, sem expor dados sensiveis em
+                O portal do tutor deve reunir histórico cardiológico, orientações do atendimento
+                e download de documentos liberados pela Fort Cordis, sem expor dados sensíveis em
                 links permanentes ou anexos enviados por mensagem.
               </p>
               <div className="fc-public-portal-actions">
@@ -92,14 +92,14 @@ export default function AreaPacientesPage() {
         </div>
       </section>
 
-      <section id="acesso" className="fc-public-portal-section">
+      <section id="acesso" className="fc-public-portal-section fc-scroll-section">
         <div className="fc-public-portal-inner">
           <div className="fc-public-portal-section-heading">
             <p className="fc-public-portal-eyebrow">
               Acesso recomendado
             </p>
             <h2>
-              Rapido para o tutor, restrito para o dado sensivel.
+              Rápido para o tutor, restrito para o dado sensível.
             </h2>
           </div>
           <div className="fc-public-portal-feature-grid fc-public-portal-feature-grid-three">
@@ -114,14 +114,14 @@ export default function AreaPacientesPage() {
         </div>
       </section>
 
-      <section id="saude-pet" className="fc-public-portal-band">
+      <section id="saude-pet" className="fc-public-portal-band fc-scroll-section">
         <div className="fc-public-portal-band-grid">
           <div>
             <p className="fc-public-portal-eyebrow">
-              Saude pet
+              Saúde pet
             </p>
             <h2 className="mt-3 text-3xl font-bold sm:text-4xl">
-              Pequenos registros melhoram a consulta cardiologica.
+              Pequenos registros melhoram a consulta cardiológica.
             </h2>
           </div>
           <div className="space-y-3">
@@ -135,14 +135,14 @@ export default function AreaPacientesPage() {
         </div>
       </section>
 
-      <section className="fc-public-portal-section fc-public-portal-final">
+      <section className="fc-public-portal-section fc-public-portal-final fc-scroll-section">
         <div className="fc-public-portal-callout">
           <MessageCircle className="h-8 w-8 text-rose-700" />
           <h2 className="mt-5 text-2xl font-bold text-slate-950">
-            Notificacoes podem ser simples. Dados clinicos, nao.
+            Notificações podem ser simples. Dados clínicos, não.
           </h2>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-            O canal ideal avisa que existe resultado disponivel e leva o tutor ao login seguro.
+            O canal ideal avisa que existe resultado disponível e leva o tutor ao login seguro.
             O PDF, imagens e dados do pet permanecem protegidos dentro do sistema Fort Cordis.
           </p>
         </div>

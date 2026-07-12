@@ -20,6 +20,8 @@ Status: done
 | NFR-003 | nao funcional | Asset local `frontend/public/brand/fortcordis-portal-hero.jpg` | ok |
 | NFR-004 | nao funcional | `isInstitutionalHost(host)` preservado em `frontend/app/page.tsx` | ok |
 | CB-005 | borda | Revisao de copy em `frontend/app/page.tsx` e `frontend/app/area-pacientes/page.tsx` sem promessa de WhatsApp antes da aprovacao Meta | ok |
+| CA-008 | aceitacao | Browser em 1280x720 e 390x844: `scroll-behavior: smooth`, `animation-timeline: view()`, destinos com margem e copy acentuada | ok |
+| NFR-005 | nao funcional | `prefers-reduced-motion: reduce` restaura rolagem automatica e remove animacoes de entrada | ok |
 
 ## 2) Testes automatizados executados
 
@@ -54,6 +56,17 @@ Resumo dos resultados:
 - Console browser:
   - Sem erros de console nas rotas publicas verificadas.
 - Status: concluido.
+
+### Refinamento de 2026-07-12
+
+- Links `#acesso` e `#saude-pet` navegados no browser sem alteracao de dados.
+- Secoes de destino chegaram com margem visual e sem overflow horizontal.
+- Copy visivel da home institucional e da area do tutor revisada para acentos e cedilhas.
+- Copy visivel da pagina da clinica parceira revisada, incluindo as secoes de governanca e downloads.
+- Links `#governanca` e `#downloads` validados em 1280x720 e 390x844; destinos com 16px de margem, `scroll-behavior: smooth` e animacao `fc-public-section-reveal` com `animation-timeline: view()`.
+- Pagina da clinica parceira sem overflow horizontal nas duas resolucoes.
+- Console do navegador sem erros em desktop e mobile.
+- `npm run lint`, `npx tsc --noEmit --pretty false` e `npm run build`: ok; 33 paginas compiladas.
 
 ## 4) Regressao e riscos residuais
 

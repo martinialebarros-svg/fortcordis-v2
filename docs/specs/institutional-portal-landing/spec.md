@@ -18,6 +18,8 @@ Criar a experiencia institucional inicial da Fort Cordis no frontend Next.js. A 
 - RF-006: `/area-pacientes` deve substituir o placeholder por uma pagina de entrada para tutores.
 - RF-007: `/clinica-parceira` deve substituir o placeholder por uma pagina de entrada para clinicas parceiras.
 - RF-008: as paginas publicas nao devem implementar download fake, token estatico ou exposicao de dado real.
+- RF-009: links para secoes da mesma pagina devem usar rolagem suave e manter margem visual no destino.
+- RF-010: textos publicos em portugues devem preservar acentos, cedilhas e grafia adequada.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -25,6 +27,7 @@ Criar a experiencia institucional inicial da Fort Cordis no frontend Next.js. A 
 - NFR-002 (LGPD): o site deve orientar que notificacoes nao carregam anexos sensiveis e que arquivos ficam protegidos no sistema Fort Cordis.
 - NFR-003 (UX/performance): o hero institucional deve usar asset local otimizado e chamadas claras para tutor e clinica.
 - NFR-004 (compatibilidade): o roteamento por host existente deve ser mantido.
+- NFR-005 (acessibilidade): animacoes de entrada e rolagem suave devem respeitar `prefers-reduced-motion`.
 
 ## 4) Contratos tecnicos
 
@@ -88,6 +91,7 @@ Regras recomendadas:
 - CA-005: `/clinica-parceira` nao mostra mais placeholder de construcao e descreve governanca por unidade.
 - CA-006: build do frontend passa sem erro.
 - CA-007: verificacao visual em desktop e mobile nao mostra hero quebrado, texto sobreposto ou asset ausente.
+- CA-008: navegacao por ancora e animacoes sao suaves, sem overflow, e a copy publica auditada da home, area do tutor e clinica parceira nao exibe palavras sem diacriticos necessarios.
 
 ## 7) Casos de borda
 

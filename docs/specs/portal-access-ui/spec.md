@@ -28,6 +28,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - NFR-004 (compatibilidade): a integracao deve usar os rewrites atuais do Next.js para `/api/v1`.
 - NFR-005 (qualidade): build do frontend deve seguir passando apos a integracao.
 - NFR-006 (rollout preliminar): a UI do tutor deve operar em modo email-only enquanto a API WhatsApp Business aguarda liberacao na Meta.
+- NFR-007 (copy): labels, mensagens e estados visiveis dos portais do tutor e da clinica devem usar grafia correta em portugues, sem alterar nomes de campos ou payloads da API.
 
 ## 4) Contratos tecnicos
 
@@ -93,9 +94,13 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - Telas afetadas:
   - `frontend/app/area-pacientes/page.tsx`
   - `frontend/app/clinica-parceira/page.tsx`
+  - `frontend/app/clinica-parceira/ativar/[token]/page.tsx`
+  - `frontend/app/clinica-parceira/redefinir-senha/page.tsx`
 - Componentes novos/alterados:
   - `frontend/components/portal/PortalTutorWorkspace.tsx`
   - `frontend/components/portal/PortalClinicaWorkspace.tsx`
+  - `frontend/components/portal/PortalClinicActivationWorkspace.tsx`
+  - `frontend/components/portal/PortalClinicResetPasswordWorkspace.tsx`
   - `frontend/components/portal/PortalExamResults.tsx`
   - `frontend/lib/portal-api.ts`
 - Regras de exibicao/erro:
@@ -127,6 +132,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CA-008: clinica autenticada consegue iniciar download de anexo liberado.
 - CA-009: logout do portal nao remove a autenticacao administrativa interna.
 - CA-010: build do frontend passa localmente.
+- CA-011: formularios, estados e resultados dos portais do tutor e da clinica exibem acentos e cedilhas corretamente, preservando os contratos do portal.
 
 ## 7) Casos de borda
 

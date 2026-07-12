@@ -23,7 +23,7 @@ export default async function ClinicaParceiraAtivarPage({
           className="fc-portal-auth-back"
         >
           <ArrowLeft className="h-4 w-4" />
-          Voltar para o portal da clinica
+          Voltar para o portal da clínica
         </Link>
 
         <section className="fc-portal-auth-grid">
@@ -31,15 +31,15 @@ export default async function ClinicaParceiraAtivarPage({
             <Image src="/brand/fortcordis-logo-oficial.png" alt="Fort Cordis" width={56} height={56} priority />
             <ShieldCheck className="h-8 w-8 text-teal-700" />
             <h1 className="mt-5 text-3xl font-bold text-slate-950">
-              Ativacao segura da unidade parceira
+              Ativação segura da unidade parceira
             </h1>
             <p className="mt-4 text-sm leading-7 text-slate-600">
-              Este link apenas autoriza o cadastro inicial. O acesso aos exames continua protegido por email institucional, senha e verificacao adicional em acoes sensiveis.
+              Este link apenas autoriza o cadastro inicial. O acesso aos exames continua protegido por e-mail institucional, senha e verificação adicional em ações sensíveis.
             </p>
             <div className="mt-6 space-y-3 text-sm leading-6 text-slate-600">
-              <p>1. Confira o email institucional definido para a unidade.</p>
-              <p>2. Cadastre o responsavel e uma senha forte para o portal.</p>
-              <p>3. Ao concluir, a unidade ja entra no portal da clinica.</p>
+              <p>1. Confira o e-mail institucional definido para a unidade.</p>
+              <p>2. Cadastre o responsável e uma senha forte para o portal.</p>
+              <p>3. Ao concluir, a unidade já entra no portal da clínica.</p>
             </div>
           </div>
 

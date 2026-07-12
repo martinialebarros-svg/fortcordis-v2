@@ -37,7 +37,7 @@ export default function PortalClinicResetPasswordWorkspace({
       setPassword("");
       setPasswordConfirmation("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao foi possivel redefinir a senha.");
+      setError(err instanceof Error ? err.message : "Não foi possível redefinir a senha.");
     } finally {
       setSubmitting(false);
     }
@@ -46,7 +46,7 @@ export default function PortalClinicResetPasswordWorkspace({
   if (!resetToken) {
     return (
       <div className="fc-portal-auth-card rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-950">
-        O link de redefinicao esta incompleto. Solicite um novo email de acesso pelo portal da clinica.
+        O link de redefinição está incompleto. Solicite um novo e-mail de acesso pelo portal da clínica.
       </div>
     );
   }
@@ -58,13 +58,13 @@ export default function PortalClinicResetPasswordWorkspace({
           <ShieldCheck className="h-8 w-8 text-emerald-700" />
           <h2 className="mt-5 text-2xl font-bold text-slate-950">Senha atualizada</h2>
           <p className="mt-3 text-sm leading-6 text-slate-600">
-            Sua senha foi redefinida. No proximo login, o portal pode pedir um codigo extra para confirmar que o acesso voltou para a unidade correta.
+            Sua senha foi redefinida. No próximo login, o portal pode pedir um código extra para confirmar que o acesso voltou para a unidade correta.
           </p>
           <Link
             href="/clinica-parceira"
             className="mt-5 inline-flex rounded-lg bg-slate-950 px-4 py-3 text-sm font-bold text-white transition hover:bg-slate-800"
           >
-            Voltar para o login da clinica
+            Voltar para o login da clínica
           </Link>
         </div>
       ) : (
@@ -86,12 +86,12 @@ export default function PortalClinicResetPasswordWorkspace({
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-600"
-              placeholder="Minimo de 12 caracteres"
+              placeholder="Mínimo de 12 caracteres"
             />
           </label>
 
           <label className="block text-sm font-semibold text-slate-900">
-            Confirmacao de senha
+            Confirmação de senha
             <input
               required
               type="password"

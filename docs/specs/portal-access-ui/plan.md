@@ -86,3 +86,10 @@ Status: done
 - [x] `spec.md` aprovado.
 - [x] Fases e rollback revisados.
 - [x] Ambiente de teste definido (frontend Next + backend FastAPI local).
+
+## 6) Refinamento de copy - 2026-07-12
+
+- [x] Revisar labels, placeholders, mensagens de erro/sucesso e metadados de exames do tutor.
+- [x] Revisar a pagina, o login, a ativacao, a redefinicao de senha e o painel autenticado da clinica.
+- [x] Preservar identificadores internos como `codigo`, `sessao` e campos de payload.
+- [x] Validar render local sem enviar codigo, iniciar sessao ou baixar anexos.
