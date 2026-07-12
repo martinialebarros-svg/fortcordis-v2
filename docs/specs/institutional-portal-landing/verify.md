@@ -21,6 +21,7 @@ Status: done
 | NFR-004 | nao funcional | `isInstitutionalHost(host)` preservado em `frontend/app/page.tsx` | ok |
 | CB-005 | borda | Revisao de copy em `frontend/app/page.tsx` e `frontend/app/area-pacientes/page.tsx` sem promessa de WhatsApp antes da aprovacao Meta | ok |
 | CA-008 | aceitacao | Browser em 1280x720 e 390x844: `scroll-behavior: smooth`, `animation-timeline: view()`, destinos com margem e copy acentuada | ok |
+| CA-009 | aceitacao | Revisao da hierarquia de copy em `frontend/app/page.tsx`, `frontend/app/area-pacientes/page.tsx` e `frontend/app/clinica-parceira/page.tsx` | ok |
 | NFR-005 | nao funcional | `prefers-reduced-motion: reduce` restaura rolagem automatica e remove animacoes de entrada | ok |
 
 ## 2) Testes automatizados executados
@@ -67,6 +68,8 @@ Resumo dos resultados:
 - Pagina da clinica parceira sem overflow horizontal nas duas resolucoes.
 - Console do navegador sem erros em desktop e mobile.
 - `npm run lint`, `npx tsc --noEmit --pretty false` e `npm run build`: ok; 33 paginas compiladas.
+- Copy reposicionada para qualidade do servico na home, area do tutor e clinica parceira; referencias
+  a protecao de dados permanecem como apoio, sem protagonismo na mensagem institucional.
 
 ## 4) Regressao e riscos residuais
 
