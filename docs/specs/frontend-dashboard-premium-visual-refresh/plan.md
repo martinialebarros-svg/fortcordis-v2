@@ -22,6 +22,14 @@ Data: 2026-07-11
 6. Executar auditoria final de classes, mojibake, rotas, lint, typecheck, build e higiene do diff.
 7. Atualizar os artefatos SDD antes do commit/push de stage.
 
+## Correcao de cobertura - modal de agendamento
+
+1. Incluir `NovoAgendamentoModal.tsx`, que permaneceu com o estilo anterior apos a fase 2.
+2. Aplicar o mesmo shell visual ao dialogo principal, seletores pesquisaveis e cadastros rapidos de tutor e animal.
+3. Preservar regras, validacoes, assistente guiado e chamadas de API existentes.
+4. Validar empilhamento sobre a sidebar, rolagem interna e ausencia de overflow em 1280x720 e 390x844.
+5. Executar lint, typecheck, build, higiene do diff e guardrail SDD antes do push para stage.
+
 ## Rollback
 
 Reverter o commit deste ciclo restaura o dashboard e a sidebar anteriores. Como nao ha migracoes nem mudancas de contrato, rollback e limitado ao frontend e documentacao SDD.

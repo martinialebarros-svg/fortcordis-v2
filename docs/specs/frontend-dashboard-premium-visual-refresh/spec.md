@@ -28,6 +28,7 @@ Em 2026-07-11, a fase 2 ampliou o mesmo sistema visual para as principais superf
 - RF-015: O frontend deve oferecer estados globais coerentes para carregamento, erro e rota nao encontrada.
 - RF-016: Relatorios financeiros devem apresentar resumo derivado dos dados carregados, filtros de periodo e abas para categorias, comparativo e evolucao grafica.
 - RF-017: Complexos ECG/QRS e graficos devem manter conteudo integral dentro de containers responsivos, sem cortes incoerentes.
+- RF-018: O modal de novo/editar agendamento e os cadastros rapidos de tutor e animal devem seguir o sistema visual Fort Cordis sem alterar o fluxo do assistente, validacoes ou payloads.
 
 ## 3) Requisitos nao funcionais
 
@@ -43,6 +44,7 @@ Em 2026-07-11, a fase 2 ampliou o mesmo sistema visual para as principais superf
 - NFR-010: A fase 2 nao deve adicionar dependencia, migracao ou mudanca de contrato backend.
 - NFR-011: A landing, o login e os portais devem usar assets locais versionados em `frontend/public/brand/`.
 - NFR-012: Textos alterados nao devem conter mojibake ou caracteres de substituicao.
+- NFR-013: Os dialogos de agendamento devem permanecer acima do shell protegido, usar rolagem interna e nao gerar overflow horizontal em desktop ou mobile de 390 px.
 
 ## 4) Arquivos afetados
 
@@ -56,6 +58,7 @@ Em 2026-07-11, a fase 2 ampliou o mesmo sistema visual para as principais superf
 - `frontend/app/error.tsx`
 - `frontend/app/not-found.tsx`
 - `frontend/app/agenda/`
+- `frontend/app/agenda/NovoAgendamentoModal.tsx`
 - `frontend/app/atendimento/`
 - `frontend/app/pacientes/`
 - `frontend/app/clinicas/`
@@ -89,3 +92,4 @@ Em 2026-07-11, a fase 2 ampliou o mesmo sistema visual para as principais superf
 - CA-011: A rota inexistente usa o estado global 404 com retorno ao inicio e acesso ao dashboard.
 - CA-012: A varredura dos arquivos alterados nao encontra mojibake.
 - CA-013: `spec.md`, `plan.md` e `verify.md` descrevem a fase 2 no mesmo ciclo do codigo.
+- CA-014: O modal de agendamento e os submodais de tutor e animal exibem cabecalho, campos, seletores e acoes coerentes com a identidade Fort Cordis em 1280x720 e 390x844.

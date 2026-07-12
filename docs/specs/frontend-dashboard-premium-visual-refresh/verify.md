@@ -20,6 +20,7 @@ Data: 2026-07-11
 | CA-011 | estados globais | loading, error e not-found compilados; 404 validado no navegador | ok |
 | CA-012 | integridade textual | varredura `rg 'Ã|Â|�|ðŸ'` nos arquivos alterados sem ocorrencias | ok |
 | CA-013 | SDD fase 2 | `spec.md`, `plan.md` e `verify.md` atualizados no mesmo ciclo | ok |
+| CA-014 | QA modal agenda | dialogo principal e cadastros rapidos validados em 1280x720 e 390x844 | ok |
 
 ## QA visual esperado
 
@@ -32,6 +33,8 @@ Data: 2026-07-11
 - Login interno prioriza o formulario no mobile e preserva os links dos portais externos.
 - Portais usam logo e fotografia locais sem enviar credenciais ou dados durante QA.
 - Tabelas, graficos e abas rolam dentro do proprio painel quando necessario.
+- Modal de agendamento acima da sidebar, com cabecalho Fort Cordis, foco verde-petroleo, acoes persistentes e rolagem interna.
+- Cadastros rapidos de tutor e animal compartilham o mesmo padrao visual e nao cortam campos ou rodapes no mobile.
 
 ## Evidencias da fase 2
 
@@ -42,6 +45,17 @@ Data: 2026-07-11
 - Smoke local: `/`, `/agenda`, `/agenda/fullcalendar`, `/area-pacientes`, `/atendimento`, `/clinica-parceira`, `/clinica-parceira/redefinir-senha`, `/clinicas`, `/clinicas/novo`, `/configuracoes`, `/financeiro`, `/financeiro/frota`, `/financeiro/relatorios`, `/fiscal`, `/laudos`, `/laudos/novo`, `/laudos/eletrocardiograma/upload`, `/logistica`, `/pacientes`, `/pacientes/novo`, `/referencias-eco`, `/relatorios`, `/servicos`, `/servicos/novo`, `/ultrassonografia-abdominal`, `/ultrassonografia-abdominal/novo` e `/whatsapp-stage`: `200`.
 - QA browser: desktop e mobile em Dashboard, Agenda, cadastros, Laudos, Ultrassonografia, Financeiro, Relatorios, portais e login.
 - Acoes evitadas durante QA: login real, envio de formulario, upload, download, exclusao e alteracao de dados clinicos.
+
+## Evidencias da correcao do modal de agendamento
+
+- `cd frontend && npm run lint`: ok.
+- `cd frontend && npx tsc --noEmit --pretty false`: ok.
+- `cd frontend && npm run build`: ok, 33 paginas compiladas.
+- `python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/stage --head-sha HEAD`: `PASSED` para `frontend-dashboard-premium-visual-refresh`.
+- QA browser em 1280x720: modal de 896 px acima da sidebar, sem overflow horizontal e com rolagem interna do formulario.
+- QA browser em 390x844: modal de 374 px, acoes empilhadas e campos auxiliares em largura integral, sem overflow horizontal.
+- Submodais de tutor e animal abertos e fechados sem preencher ou salvar dados; rolagem interna e nomes acessiveis validados.
+- Console do navegador sem erros durante a rodada de QA.
 
 ## Guardrail da proxima etapa
 

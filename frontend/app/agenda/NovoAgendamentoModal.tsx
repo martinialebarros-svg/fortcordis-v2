@@ -606,12 +606,12 @@ function SearchableSelect({
   };
 
   return (
-    <div ref={wrapperRef} className="relative">
+    <div ref={wrapperRef} className="fc-appointment-select relative">
       <button
         type="button"
         disabled={disabled}
         onClick={() => setOpen((prev) => !prev)}
-        className={`flex w-full items-center justify-between gap-3 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left transition focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+        className={`fc-appointment-select-trigger flex w-full items-center justify-between gap-3 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left transition focus:outline-none ${
           disabled ? "cursor-not-allowed bg-gray-100 text-gray-400" : "hover:border-gray-400"
         }`}
         aria-expanded={open}
@@ -630,9 +630,9 @@ function SearchableSelect({
       </button>
 
       {open && (
-        <div className="absolute left-0 right-0 z-30 mt-1 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl">
+        <div className="fc-appointment-select-menu absolute left-0 right-0 z-30 mt-1 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl">
           <div className="border-b border-gray-100 p-2">
-            <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+            <div className="fc-appointment-select-search flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
               <Search className="h-4 w-4 shrink-0 text-gray-400" />
               <input
                 ref={inputRef}
@@ -664,7 +664,7 @@ function SearchableSelect({
             <button
               type="button"
               onClick={() => selecionar("")}
-              className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition hover:bg-blue-50 ${
+              className={`fc-appointment-select-option flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition ${
                 !value ? "bg-blue-50 text-blue-700" : "text-gray-700"
               }`}
             >
@@ -683,7 +683,7 @@ function SearchableSelect({
                     key={option.value}
                     type="button"
                     onClick={() => selecionar(option.value)}
-                    className={`flex w-full items-start justify-between gap-3 px-3 py-2 text-left transition hover:bg-blue-50 ${
+                    className={`fc-appointment-select-option flex w-full items-start justify-between gap-3 px-3 py-2 text-left transition ${
                       isSelected ? "bg-blue-50 text-blue-700" : "text-gray-900"
                     }`}
                     title={option.description || option.label}
@@ -2496,18 +2496,37 @@ export default function NovoAgendamentoModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center p-6 border-b">
-          <h2 className="text-xl font-semibold">
-            {isEditando ? "Editar Agendamento" : "Novo Agendamento"}
-          </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+    <div className="fc-appointment-modal-backdrop fixed inset-0 z-50 flex items-center justify-center">
+      <div
+        className="fc-appointment-modal w-full"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="fc-appointment-modal-title"
+      >
+        <div className="fc-appointment-modal-header">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="fc-appointment-modal-icon" aria-hidden="true">
+              <Calendar className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <span className="fc-appointment-modal-kicker">Central de agenda</span>
+              <h2 id="fc-appointment-modal-title" className="truncate text-xl font-black">
+                {isEditando ? "Editar Agendamento" : "Novo Agendamento"}
+              </h2>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="fc-appointment-modal-close"
+            aria-label="Fechar agendamento"
+            title="Fechar"
+          >
             <X className="w-6 h-6" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="fc-appointment-form space-y-4">
           {erroCarregamento && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {erroCarregamento}
@@ -2516,14 +2535,14 @@ export default function NovoAgendamentoModal({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Origem do atendimento</label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="fc-appointment-origin grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => handleOrigemAtendimentoChange("clinica_parceira")}
-                className={`rounded-lg border px-3 py-2 text-sm ${
+                className={`fc-appointment-origin-option ${
                   !atendimentoDomiciliar
-                    ? "border-blue-300 bg-blue-50 text-blue-900"
-                    : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                    ? "fc-appointment-origin-option-active"
+                    : ""
                 }`}
               >
                 Clinica parceira
@@ -2531,16 +2550,16 @@ export default function NovoAgendamentoModal({
               <button
                 type="button"
                 onClick={() => handleOrigemAtendimentoChange("domiciliar")}
-                className={`rounded-lg border px-3 py-2 text-sm ${
+                className={`fc-appointment-origin-option ${
                   atendimentoDomiciliar
-                    ? "border-emerald-300 bg-emerald-50 text-emerald-900"
-                    : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                    ? "fc-appointment-origin-option-active"
+                    : ""
                 }`}
               >
                 Domiciliar
               </button>
             </div>
-            <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <div className="fc-appointment-context-note mt-2 rounded-lg border px-3 py-2 text-xs">
               {atendimentoDomiciliar
                 ? "Use o endereco georreferenciado do tutor. Nao e necessario cadastrar uma clinica ficticia."
                 : "Fluxo com clinica parceira, usando a clinica georreferenciada como base do assistente e da operacao."}
@@ -2566,7 +2585,7 @@ export default function NovoAgendamentoModal({
               <button
                 type="button"
                 onClick={abrirModalTutor}
-                className="px-3 py-2 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50"
+                className="fc-appointment-inline-action"
               >
                 {formData.tutor_id ? "Ver tutor" : "Novo tutor"}
               </button>
@@ -2678,7 +2697,7 @@ export default function NovoAgendamentoModal({
               <button
                 type="button"
                 onClick={abrirModalAnimal}
-                className="px-3 py-2 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50"
+                className="fc-appointment-inline-action"
               >
                 Novo animal
               </button>
@@ -2787,7 +2806,7 @@ export default function NovoAgendamentoModal({
               />
             </div>
           </div>
-          <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-3">
+          <div className="fc-appointment-assistant rounded-lg border px-3 py-3">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div className="space-y-1">
                 <div className="text-sm font-medium text-blue-900 flex items-center gap-2">
@@ -2829,7 +2848,7 @@ export default function NovoAgendamentoModal({
             </div>
           )}
 
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-3">
+          <div className="fc-appointment-assistant-detail rounded-lg border p-3 space-y-3">
             <div className="text-sm font-medium text-blue-900 flex items-center gap-2">
               <Sparkles className="h-4 w-4" />
               Panorama e desfecho do assistente
@@ -3127,18 +3146,18 @@ export default function NovoAgendamentoModal({
               Conclua o assistente guiado para habilitar o salvamento do agendamento.
             </div>
           )}
-          <div className="flex justify-end gap-3 pt-4">
+          <div className="fc-appointment-actions flex justify-end gap-3 pt-4">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-gray-600 hover:text-gray-800"
+              className="fc-appointment-button-secondary"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={loading || bloquearSalvarNovo || registrandoEncerramento}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              className="fc-appointment-button-primary"
             >
               {loading 
                 ? (isEditando ? "Salvando..." : "Criando...") 
@@ -3150,22 +3169,26 @@ export default function NovoAgendamentoModal({
       </div>
 
       {modalTutorAberto && (
-        <div className="fixed inset-0 z-[60] bg-black bg-opacity-40 flex items-center justify-center p-4">
-          <div className="w-full max-w-3xl rounded-lg bg-white shadow-xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b px-5 py-4">
+        <div className="fc-appointment-submodal-backdrop fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="fc-appointment-submodal w-full max-w-3xl" role="dialog" aria-modal="true" aria-labelledby="fc-tutor-modal-title">
+            <div className="fc-appointment-submodal-header flex items-center justify-between px-5 py-4">
               <h3 className="text-lg font-semibold text-gray-900">
+                <span id="fc-tutor-modal-title">
                 {novoTutor.id ? "Cadastro do Tutor" : "Cadastrar Tutor"}
+                </span>
               </h3>
               <button
                 type="button"
                 onClick={() => setModalTutorAberto(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="fc-appointment-submodal-close"
                 disabled={salvandoTutor}
+                aria-label="Fechar cadastro do tutor"
+                title="Fechar"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="space-y-3 px-5 py-4">
+            <div className="fc-appointment-submodal-body space-y-3 px-5 py-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Nome *</label>
@@ -3387,11 +3410,11 @@ export default function NovoAgendamentoModal({
                 </div>
               )}
             </div>
-            <div className="flex justify-end gap-2 border-t px-5 py-4">
+            <div className="fc-appointment-submodal-footer flex justify-end gap-2 px-5 py-4">
               <button
                 type="button"
                 onClick={() => setModalTutorAberto(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                className="fc-appointment-button-secondary"
                 disabled={salvandoTutor}
               >
                 Cancelar
@@ -3399,7 +3422,7 @@ export default function NovoAgendamentoModal({
               <button
                 type="button"
                 onClick={salvarNovoTutor}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                className="fc-appointment-button-primary"
                 disabled={salvandoTutor}
               >
                 {salvandoTutor ? "Salvando..." : novoTutor.id ? "Salvar Tutor" : "Criar Tutor"}
@@ -3410,20 +3433,22 @@ export default function NovoAgendamentoModal({
       )}
 
       {modalAnimalAberto && (
-        <div className="fixed inset-0 z-[60] bg-black bg-opacity-40 flex items-center justify-center p-4">
-          <div className="w-full max-w-2xl rounded-lg bg-white shadow-xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b px-5 py-4">
-              <h3 className="text-lg font-semibold text-gray-900">Cadastrar Animal</h3>
+        <div className="fc-appointment-submodal-backdrop fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="fc-appointment-submodal w-full max-w-2xl" role="dialog" aria-modal="true" aria-labelledby="fc-animal-modal-title">
+            <div className="fc-appointment-submodal-header flex items-center justify-between px-5 py-4">
+              <h3 id="fc-animal-modal-title" className="text-lg font-semibold text-gray-900">Cadastrar Animal</h3>
               <button
                 type="button"
                 onClick={() => setModalAnimalAberto(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="fc-appointment-submodal-close"
                 disabled={salvandoAnimal}
+                aria-label="Fechar cadastro do animal"
+                title="Fechar"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="space-y-3 px-5 py-4">
+            <div className="fc-appointment-submodal-body space-y-3 px-5 py-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Tutor *</label>
                 <select
@@ -3537,11 +3562,11 @@ export default function NovoAgendamentoModal({
                 />
               </div>
             </div>
-            <div className="flex justify-end gap-2 border-t px-5 py-4">
+            <div className="fc-appointment-submodal-footer flex justify-end gap-2 px-5 py-4">
               <button
                 type="button"
                 onClick={() => setModalAnimalAberto(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                className="fc-appointment-button-secondary"
                 disabled={salvandoAnimal}
               >
                 Cancelar
@@ -3549,7 +3574,7 @@ export default function NovoAgendamentoModal({
               <button
                 type="button"
                 onClick={salvarNovoAnimal}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                className="fc-appointment-button-primary"
                 disabled={salvandoAnimal}
               >
                 {salvandoAnimal ? "Salvando..." : "Salvar Animal"}
