@@ -16,11 +16,14 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
 os.environ.setdefault("SECRET_KEY", "eco-study-extraction-test-secret-key-1234567890")
 
 from app.services.eco_study_extraction_service import (  # noqa: E402
+    GE_VIVID_IQ_PROFILE,
     MAX_ECO_STUDY_IMPORT_SIZE,
     _keep_most_reliable_candidates,
+    _looks_like_ge_vivid_iq_screen_text,
     consolidate_measurement_candidates,
     extract_measurements_from_text,
     parse_ge_logiq_e_header_text,
+    parse_ge_vivid_iq_report_text,
     parse_eco_study_import_content,
     validate_eco_study_filename,
     validate_eco_study_size,
@@ -148,6 +151,52 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
         self.assertEqual(payload["fabricante"], "GE")
         self.assertEqual(payload["modelo_equipamento"], "LOGIQ e")
 
+    def test_parses_ge_vivid_iq_aliases_and_report_profile(self) -> None:
+        candidates = extract_measurements_from_text(
+            """
+            D.Raiz Ao 20.55 mm
+            D. AE 29.22 mm
+            E/A VM 1.25
+            T.Des. VM 129 ms
+            maxPG VSVE 4.12 mmHg
+            maxPG VSVD 2.24 mmHg
+            Vmax RM 3.98 m/s
+            DIVdN 1.817
+            """,
+            source="ocr:vivid_iq:test",
+            confidence=0.99,
+        )
+        measurements, _, conflicts = consolidate_measurement_candidates(candidates)
+
+        self.assertEqual(measurements["Aorta"], 20.55)
+        self.assertEqual(measurements["Atrio_esquerdo"], 29.22)
+        self.assertEqual(measurements["E_A"], 1.25)
+        self.assertEqual(measurements["TD"], 129)
+        self.assertEqual(measurements["Grad_aorta"], 4.12)
+        self.assertEqual(measurements["Grad_pulmonar"], 2.24)
+        self.assertEqual(measurements["IM_Vmax"], 3.98)
+        self.assertEqual(measurements["DIVEd_normalizado"], 1.817)
+        self.assertEqual(conflicts, 0)
+
+        report = parse_ge_vivid_iq_report_text(
+            "Cardiac report: Complete\nGE Healthcare Hospital\n"
+            "D.Raiz Ao 20.55 mm\nmaxPG VSVE 4.12 mmHg"
+        )
+        self.assertIsNotNone(report)
+        self.assertEqual(report["perfil"], GE_VIVID_IQ_PROFILE)
+        self.assertEqual(report["fabricante"], "GE")
+        self.assertEqual(report["modelo_equipamento"], "Vivid IQ")
+        self.assertEqual(report["paciente"]["nome"], "")
+
+    def test_recognizes_ge_vivid_iq_screen_without_patient_inference(self) -> None:
+        self.assertTrue(_looks_like_ge_vivid_iq_screen_text("Reproduzir novamente"))
+        self.assertTrue(
+            _looks_like_ge_vivid_iq_screen_text(
+                "PPVEs 11.26 mm\nDIVEs 27.29 mm\nSIVs 13.46 mm"
+            )
+        )
+        self.assertFalse(_looks_like_ge_vivid_iq_screen_text("TAPSE 23.33 mm"))
+
     def test_validates_extension_and_size(self) -> None:
         with self.assertRaisesRegex(ValueError, "imagem ou PDF"):
             validate_eco_study_filename("estudo.xml")
@@ -176,6 +225,24 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
         self.assertTrue(
             all(item["origem"] == "pdf:text" for item in payload["medidas_extraidas"])
         )
+
+    def test_identifies_ge_vivid_iq_pdf_text_report(self) -> None:
+        content = _pdf_bytes(
+            [
+                "Cardiac report: Complete",
+                "GE Healthcare Hospital",
+                "D.Raiz Ao 20.55 mm",
+                "D. AE 29.22 mm",
+                "maxPG VSVE 4.12 mmHg",
+            ]
+        )
+
+        payload = parse_eco_study_import_content("vivid-report.pdf", content)
+
+        self.assertEqual(payload["medidas"]["Aorta"], 20.55)
+        self.assertEqual(payload["medidas"]["Atrio_esquerdo"], 29.22)
+        self.assertEqual(payload["medidas"]["Grad_aorta"], 4.12)
+        self.assertEqual(payload["meta_importacao_estudo"]["perfil"], GE_VIVID_IQ_PROFILE)
 
 
 if __name__ == "__main__":

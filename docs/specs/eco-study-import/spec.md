@@ -13,6 +13,8 @@
 - RF-009: manter XML e importacao de cabecalho funcionando sem mudanca de contrato.
 - RF-010: reconhecer o perfil GE LOGIQ e em imagens exportadas, lendo cabecalho e quadros de medidas nas regioes conhecidas sem depender de XML; `VET WORLD` identifica a clinica exibida no cabecalho, nao o modelo do equipamento.
 - RF-011: preencher apenas dados textualmente presentes no arquivo; achados, diagnostico e conclusao permanecem sob revisao do veterinario.
+- RF-012: reconhecer o perfil GE Vivid IQ em capturas de tela e relatorios PDF exportados, usando regioes e aliases proprios sem misturar essa calibracao com o perfil GE LOGIQ e.
+- RF-013: no perfil GE Vivid IQ, reconhecer abreviacoes exibidas pelo equipamento para raiz aortica, atrio esquerdo, E/A, tempo de desaceleracao, gradientes de VSVE/VSVD, velocidade de refluxo mitral e DIVdN.
 
 ## Requisitos nao funcionais
 
@@ -27,6 +29,7 @@
 - NFR-009 (privacidade): o conjunto de calibracao pode permanecer em volume externo; imagens clinicas nao devem ser copiadas para o repositorio nem incorporadas aos testes.
 - NFR-010 (calibracao): perfis de fabricante devem ser avaliados por conjunto ouro versionado apenas como valores esperados anonimos.
 - NFR-011 (runtime): o backend deve localizar o Tesseract instalado em caminhos absolutos usuais mesmo quando o servico systemd restringir o `PATH` ao ambiente virtual.
+- NFR-012 (separacao de perfis): a identificacao do GE LOGIQ e pelo cabecalho tem precedencia; o GE Vivid IQ usa marcadores do painel exportado ou a combinacao de cabecalho e medidas do relatorio GE.
 
 ## Contrato de resultado
 
@@ -70,3 +73,6 @@
 - CA-008: `E/TRIV` nao pode ser interpretado como uma segunda medida de TRIV.
 - CA-009: apóstrofo curvo em `E/E’` deve ser aceito e a leitura completa com duas casas decimais deve prevalecer sobre variante truncada.
 - CA-010: com `PATH` contendo apenas `backend/venv/bin`, uma instalacao executavel em `/usr/bin/tesseract` deve ser localizada e usada pelo extrator e pelo diagnostico de runtime.
+- CA-011: capturas GE Vivid IQ reconhecem as medidas suportadas nas caixas laterais, preservando casas decimais e retornando `perfil = ge_vivid_iq`.
+- CA-012: relatorio PDF GE Vivid IQ com camada textual reconhece o perfil e as medidas suportadas sem exigir OCR da pagina.
+- CA-013: dados identificaveis nao confirmados pelo layout do Vivid IQ nao sao inferidos nem preenchidos automaticamente.

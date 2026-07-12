@@ -16,6 +16,7 @@ from app.services.image_header_import_service import _extract_text_with_tesserac
 MAX_ECO_STUDY_IMPORT_SIZE = 30 * 1024 * 1024
 MAX_ECO_STUDY_PDF_PAGES = 20
 GE_LOGIQ_E_PROFILE = "ge_logiq_e"
+GE_VIVID_IQ_PROFILE = "ge_vivid_iq"
 ALLOWED_ECO_STUDY_EXTENSIONS = {
     ".jpg",
     ".jpeg",
@@ -42,10 +43,10 @@ class MeasurementDefinition:
 MEASUREMENT_DEFINITIONS: tuple[MeasurementDefinition, ...] = (
     MeasurementDefinition("AE_Ao", "AE/Ao", (r"(?:AE|LA)\s*/\s*Ao", r"LA\s*Ao\s*Ratio"), "ratio"),
     MeasurementDefinition("AP_Ao", "AP/Ao", (r"(?:AP|PA)\s*/\s*Ao",), "ratio"),
-    MeasurementDefinition("E_A", "E/A", (r"Relacao\s*E\s*/\s*A\s*VM", r"(?:MV\s*)?E\s*/\s*A", r"E\s*A\s*Ratio"), "ratio"),
+    MeasurementDefinition("E_A", "E/A", (r"Relacao\s*E\s*/\s*A\s*VM", r"E\s*/\s*A\s*VM", r"(?:MV\s*)?E\s*/\s*A", r"E\s*A\s*Ratio"), "ratio"),
     MeasurementDefinition("doppler_tecidual_relacao", "e'/a'", (r"e['′]?\s*/\s*a['′]?",), "ratio"),
     MeasurementDefinition("E_E_linha", "E/e'", (r"E\s*/\s*e['′]?",), "ratio"),
-    MeasurementDefinition("DIVEd_normalizado", "DIVEd N", (r"DIVEd\s*N", r"LVIDd\s*N"), "ratio"),
+    MeasurementDefinition("DIVEd_normalizado", "DIVEd N", (r"DIVEd\s*N", r"DIVdN", r"LVIDd\s*N"), "ratio"),
     MeasurementDefinition("DIVEd", "DIVEd", (r"LVIDd", r"DIVEd", r"LVID\s*d"), "length"),
     MeasurementDefinition("DIVES", "DIVEs", (r"LVIDs", r"DIVES", r"LVID\s*s"), "length"),
     MeasurementDefinition("SIVd", "SIVd", (r"IVSd", r"SIVd"), "length"),
@@ -58,22 +59,22 @@ MEASUREMENT_DEFINITIONS: tuple[MeasurementDefinition, ...] = (
     MeasurementDefinition("DeltaD_FS", "FS", (r"FS", r"(?:%\s*)?Delta\s*D", r"FEnc"), "percent"),
     MeasurementDefinition("TAPSE", "TAPSE", (r"TAPSE",), "length"),
     MeasurementDefinition("MAPSE", "MAPSE", (r"MAPSE",), "length"),
-    MeasurementDefinition("Atrio_esquerdo", "Atrio esquerdo", (r"LA\s*(?:Diam(?:eter)?|Dimension)", r"(?:Diam|Diametro)\s*AE", r"AE\s*(?:Diam|Dimensao)", r"Atrio\s*Esquerdo"), "length"),
-    MeasurementDefinition("Aorta", "Aorta", (r"(?:Diametro\s*)?Raiz\s*Ao", r"Ao\s*(?:Diam(?:eter)?|Dimension)", r"Aorta"), "length"),
+    MeasurementDefinition("Atrio_esquerdo", "Atrio esquerdo", (r"LA\s*(?:Diam(?:eter)?|Dimension)", r"(?:Diam|Diametro)\s*AE", r"D\.?\s*AE", r"AE\s*(?:Diam|Dimensao)", r"Atrio\s*Esquerdo"), "length"),
+    MeasurementDefinition("Aorta", "Aorta", (r"D\.?\s*Raiz\s*Ao", r"(?:Diametro\s*)?Raiz\s*Ao", r"Ao\s*(?:Diam(?:eter)?|Dimension)", r"Aorta"), "length"),
     MeasurementDefinition("Onda_E", "Onda E", (r"Veloc(?:id)?\.?\s*E\s*VM", r"MV\s*E(?:\s*Vel(?:ocity)?)?", r"Onda\s*E"), "velocity"),
     MeasurementDefinition("Onda_A", "Onda A", (r"Veloc(?:id)?\.?\s*A\s*VM", r"MV\s*A(?:\s*Vel(?:ocity)?)?", r"Onda\s*A"), "velocity"),
-    MeasurementDefinition("TD", "TD", (r"T\.?\s*desac\.?\s*VM", r"MV\s*DT", r"Decel(?:eration)?\s*Time", r"\bTD\b"), "time"),
+    MeasurementDefinition("TD", "TD", (r"T\.?\s*des(?:ac)?\.?\s*VM", r"MV\s*DT", r"Decel(?:eration)?\s*Time", r"\bTD\b"), "time"),
     MeasurementDefinition("TRIV", "TRIV", (r"IVRT", r"(?<!/)TRIV"), "time"),
     MeasurementDefinition("e_doppler", "e'", (r"TDI\s*e['′]?", r"e['′]\s*(?:Vel(?:ocity)?)?"), "velocity"),
     MeasurementDefinition("a_doppler", "a'", (r"TDI\s*a['′]?", r"a['′]\s*(?:Vel(?:ocity)?)?", r"(?:^|\d\s*)a['′]?"), "velocity"),
-    MeasurementDefinition("IM_Vmax", "IM Vmax", (r"(?:MR|IM)\s*Vmax",), "velocity"),
+    MeasurementDefinition("IM_Vmax", "IM Vmax", (r"(?:MR|RM|IM)\s*Vmax", r"Vmax\s*(?:MR|RM|IM)"), "velocity"),
     MeasurementDefinition("IT_Vmax", "IT Vmax", (r"(?:TR|IT)\s*Vmax",), "velocity"),
     MeasurementDefinition("IA_Vmax", "IA Vmax", (r"(?:AR|IA)\s*Vmax",), "velocity"),
     MeasurementDefinition("IP_Vmax", "IP Vmax", (r"(?:PR|IP)\s*Vmax",), "velocity"),
     MeasurementDefinition("Vmax_aorta", "Vmax aorta", (r"Vmax\s*VSVE", r"(?:AV|Ao|Aorta)\s*Vmax", r"Vmax\s*Aorta"), "velocity"),
-    MeasurementDefinition("Grad_aorta", "Gradiente aorta", (r"(?:max\s*)?PG\s*LVOT", r"(?:AV|Ao|Aorta)\s*(?:PG|Grad(?:iente)?)", r"Grad(?:iente)?\s*Aorta"), "pressure"),
+    MeasurementDefinition("Grad_aorta", "Gradiente aorta", (r"(?:max\s*)?PG\s*(?:LVOT|VSVE)", r"(?:AV|Ao|Aorta)\s*(?:PG|Grad(?:iente)?)", r"Grad(?:iente)?\s*Aorta"), "pressure"),
     MeasurementDefinition("Vmax_pulmonar", "Vmax pulmonar", (r"Vmax\s*VSVD", r"(?:PV|Pulm(?:onar)?)\s*Vmax", r"Vmax\s*Pulm(?:onar)?"), "velocity"),
-    MeasurementDefinition("Grad_pulmonar", "Gradiente pulmonar", (r"Grad\.?\s*max\s*VSVD", r"(?:PV|Pulm(?:onar)?)\s*(?:PG|Grad(?:iente)?)", r"Grad(?:iente)?\s*Pulm(?:onar)?"), "pressure"),
+    MeasurementDefinition("Grad_pulmonar", "Gradiente pulmonar", (r"Grad\.?\s*max\s*VSVD", r"max\s*PG\s*VSVD", r"(?:PV|Pulm(?:onar)?)\s*(?:PG|Grad(?:iente)?)", r"Grad(?:iente)?\s*Pulm(?:onar)?"), "pressure"),
 )
 
 
@@ -109,6 +110,70 @@ def _safe_iso_date(day: int, month: int, year: int) -> str:
         return date(year, month, day).isoformat()
     except ValueError:
         return ""
+
+
+def _empty_patient_payload() -> dict[str, str]:
+    return {
+        "nome": "",
+        "tutor": "",
+        "raca": "",
+        "especie": "",
+        "peso": "",
+        "idade": "",
+        "sexo": "",
+        "telefone": "",
+        "data_exame": "",
+    }
+
+
+def _ge_vivid_iq_profile_payload() -> dict[str, Any]:
+    return {
+        "paciente": _empty_patient_payload(),
+        "clinica": "",
+        "veterinario_solicitante": "",
+        "fc": "",
+        "perfil": GE_VIVID_IQ_PROFILE,
+        "fabricante": "GE",
+        "modelo_equipamento": "Vivid IQ",
+    }
+
+
+def parse_ge_vivid_iq_report_text(text: str) -> dict[str, Any] | None:
+    normalized_text = _remove_diacritics(text or "")
+    upper_text = normalized_text.upper()
+    if "GE HEALTHCARE" not in upper_text or "CARDIAC REPORT" not in upper_text:
+        return None
+    report_markers = (
+        "D.RAIZ AO",
+        "MAXPG VSVE",
+        "VELOC. E VM",
+        "T.DES. VM",
+        "DIVED",
+    )
+    if sum(marker in upper_text for marker in report_markers) < 2:
+        return None
+    return _ge_vivid_iq_profile_payload()
+
+
+def _looks_like_ge_vivid_iq_screen_text(text: str) -> bool:
+    normalized_text = _remove_diacritics(text or "").upper()
+    words = re.sub(r"[^A-Z0-9]+", " ", normalized_text)
+    if "NOVAMENTE" in words and "REPROD" in words:
+        return True
+
+    markers = (
+        r"\bD\s+RAIZ\s*AO\b",
+        r"\bMAX\s*PG\s*VSVE\b",
+        r"\bMAX\s*PG\s*VSVD\b",
+        r"\bVELOC\s+E\s+VM\b",
+        r"\bT\s+DES\s+VM\b",
+        r"\bDIVDN\b",
+        r"\bDIVES\b",
+        r"\bSIVS\b",
+        r"\bPPVED\b",
+        r"\bPPVES\b",
+    )
+    return sum(bool(re.search(marker, words)) for marker in markers) >= 2
 
 
 def parse_ge_logiq_e_header_text(text: str) -> dict[str, Any] | None:
@@ -373,6 +438,80 @@ def _extract_ge_logiq_e_header_from_image(image: Image.Image) -> dict[str, Any] 
     return parse_ge_logiq_e_header_text(text)
 
 
+def _extract_ge_vivid_iq_report_from_image(image: Image.Image) -> dict[str, Any] | None:
+    base = ImageOps.exif_transpose(image).convert("RGB")
+    width, height = base.size
+    if width < 500 or height < 500:
+        return None
+    header_height = min(height, int(height * 0.28))
+    header = base.crop((0, 0, width, header_height)).resize((width * 2, header_height * 2))
+    prepared = ImageOps.autocontrast(ImageOps.grayscale(header))
+    try:
+        text = _extract_text_with_tesseract(prepared, psm=11)
+    except Exception:
+        return None
+    return parse_ge_vivid_iq_report_text(text)
+
+
+def _extract_ge_vivid_iq_screen_candidates(
+    image: Image.Image,
+    *,
+    page: int,
+) -> tuple[bool, list[dict[str, Any]], str]:
+    base = ImageOps.exif_transpose(image).convert("RGB")
+    width, height = base.size
+    if width < 500 or height < 350:
+        return False, [], ""
+
+    panel = base.crop((0, 0, min(width, int(width * 0.32)), height))
+    panel_scale = 3 if max(panel.size) < 1800 else 2
+    panel = panel.resize((panel.width * panel_scale, panel.height * panel_scale))
+    panel_gray = ImageOps.autocontrast(ImageOps.grayscale(panel))
+    try:
+        panel_text = _extract_text_with_tesseract(panel_gray, psm=11)
+    except Exception:
+        return False, [], ""
+    if not _looks_like_ge_vivid_iq_screen_text(panel_text):
+        return False, [], ""
+
+    candidates = extract_measurements_from_text(
+        panel_text,
+        page=page,
+        source="ocr:vivid_iq:left_panel_gray_psm11",
+        confidence=0.98,
+    )
+    variants = ["vivid_iq:left_panel_gray_psm11"]
+
+    measurement_box = base.crop(
+        (
+            0,
+            max(0, int(height * 0.06)),
+            min(width, int(width * 0.31)),
+            min(height, int(height * 0.45)),
+        )
+    )
+    measurement_box = measurement_box.resize(
+        (measurement_box.width * 5, measurement_box.height * 5)
+    )
+    measurement_box_gray = ImageOps.autocontrast(ImageOps.grayscale(measurement_box))
+    try:
+        box_text = _extract_text_with_tesseract(measurement_box_gray, psm=6)
+    except Exception:
+        box_text = ""
+    if box_text:
+        candidates.extend(
+            extract_measurements_from_text(
+                box_text,
+                page=page,
+                source="ocr:vivid_iq:measurement_box_gray_psm6",
+                confidence=0.96,
+            )
+        )
+        variants.append("vivid_iq:measurement_box_gray_psm6")
+
+    return True, _keep_most_reliable_candidates(candidates), ",".join(variants)
+
+
 def _build_region_ocr_passes(region: Image.Image) -> list[tuple[str, Image.Image, int, float]]:
     width, height = region.size
     scale = 5 if height < 220 else (4 if max(width, height) < 800 else 2)
@@ -543,7 +682,9 @@ def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict
         text_pages = _extract_pdf_text_pages(content)
         page_count = len(text_pages)
         if text_pages:
-            header_payload = parse_ge_logiq_e_header_text(text_pages[0])
+            header_payload = parse_ge_logiq_e_header_text(text_pages[0]) or parse_ge_vivid_iq_report_text(
+                text_pages[0]
+            )
         pages_needing_ocr: list[int] = []
         for index, text in enumerate(text_pages, start=1):
             page_candidates = extract_measurements_from_text(
@@ -559,7 +700,9 @@ def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict
         if pages_needing_ocr:
             rendered_pages = _render_pdf_pages(content)
             if rendered_pages and not header_payload:
-                header_payload = _extract_ge_logiq_e_header_from_image(rendered_pages[0])
+                header_payload = _extract_ge_logiq_e_header_from_image(
+                    rendered_pages[0]
+                ) or _extract_ge_vivid_iq_report_from_image(rendered_pages[0])
             for page_number in pages_needing_ocr:
                 page_candidates, variant = _extract_candidates_from_image(
                     rendered_pages[page_number - 1],
@@ -571,26 +714,26 @@ def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict
     else:
         image = _open_image(content)
         header_payload = _extract_ge_logiq_e_header_from_image(image)
+        vivid_candidates: list[dict[str, Any]] = []
+        vivid_variant = ""
+        if not header_payload:
+            vivid_detected, vivid_candidates, vivid_variant = _extract_ge_vivid_iq_screen_candidates(
+                image,
+                page=1,
+            )
+            if vivid_detected:
+                header_payload = _ge_vivid_iq_profile_payload()
         page_candidates, variant = _extract_candidates_from_image(image, page=1)
-        candidates.extend(page_candidates)
-        if variant:
-            ocr_variants["1"] = variant
+        candidates.extend(_keep_most_reliable_candidates(vivid_candidates + page_candidates))
+        combined_variants = ",".join(item for item in (vivid_variant, variant) if item)
+        if combined_variants:
+            ocr_variants["1"] = combined_variants
 
     measurements, consolidated, conflicts = consolidate_measurement_candidates(candidates)
     if not consolidated:
         raise ValueError("Nenhuma medida ecocardiografica reconhecida no estudo.")
 
-    default_patient = {
-        "nome": "",
-        "tutor": "",
-        "raca": "",
-        "especie": "",
-        "peso": "",
-        "idade": "",
-        "sexo": "",
-        "telefone": "",
-        "data_exame": "",
-    }
+    default_patient = _empty_patient_payload()
     return {
         "paciente": (header_payload or {}).get("paciente") or default_patient,
         "medidas": measurements,
