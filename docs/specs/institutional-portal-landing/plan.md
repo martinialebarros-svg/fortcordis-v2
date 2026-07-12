@@ -90,4 +90,5 @@ Status: done
 - [x] Ativar rolagem suave para links de ancora.
 - [x] Aplicar entrada progressiva nas secoes publicas com fallback para movimento reduzido.
 - [x] Revisar a copy da landing institucional e da area do tutor.
+- [x] Estender a revisao de copy e as secoes animadas para a pagina da clinica parceira.
 - [x] Validar desktop 1280x720, mobile 390x844, console e overflow horizontal.

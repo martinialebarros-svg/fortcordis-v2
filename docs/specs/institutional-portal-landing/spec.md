@@ -91,7 +91,7 @@ Regras recomendadas:
 - CA-005: `/clinica-parceira` nao mostra mais placeholder de construcao e descreve governanca por unidade.
 - CA-006: build do frontend passa sem erro.
 - CA-007: verificacao visual em desktop e mobile nao mostra hero quebrado, texto sobreposto ou asset ausente.
-- CA-008: navegacao por ancora e animacoes sao suaves, sem overflow, e a copy publica auditada nao exibe palavras sem diacriticos necessarios.
+- CA-008: navegacao por ancora e animacoes sao suaves, sem overflow, e a copy publica auditada da home, area do tutor e clinica parceira nao exibe palavras sem diacriticos necessarios.
 
 ## 7) Casos de borda
 

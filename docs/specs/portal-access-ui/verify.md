@@ -24,8 +24,8 @@ Status: done
 | NFR-004 | nao funcional | rewrites existentes do Next.js para `/api/v1` | ok |
 | NFR-005 | nao funcional | `npm run build` | ok |
 | NFR-006 | nao funcional | `frontend/components/portal/PortalTutorWorkspace.tsx` fixa canal `email` e remove seletor de WhatsApp da UI preliminar | ok |
-| NFR-007 | nao funcional | Varredura das strings visiveis de `PortalTutorWorkspace` e `PortalExamResults` sem termos sem diacriticos necessarios | ok |
-| CA-011 | aceitacao | QA local de `/area-pacientes` confirmou labels e mensagens acentuadas em desktop e mobile | ok |
+| NFR-007 | nao funcional | Varredura das strings visiveis de `PortalTutorWorkspace`, `PortalExamResults`, `PortalClinicaWorkspace`, `PortalClinicActivationWorkspace` e `PortalClinicResetPasswordWorkspace` sem termos sem diacriticos necessarios | ok |
+| CA-011 | aceitacao | QA local de `/area-pacientes` e `/clinica-parceira` confirmou labels e mensagens acentuadas em desktop e mobile | ok |
 
 ## 2) Testes automatizados executados
 
@@ -63,6 +63,9 @@ Resumo dos resultados:
 
 - Formulario do tutor renderizado sem envio de IDs, email ou codigo.
 - Resultados e estados autenticados revisados por codigo, sem criar sessao nem iniciar download.
+- Login, ativacao, redefinicao de senha e estados autenticados da clinica revisados sem enviar formularios.
+- Estado `Esqueci minha senha` aberto e fechado localmente; copy acentuada confirmada sem envio de email.
+- `/clinica-parceira` validada em 1280x720 e 390x844, sem overflow horizontal ou erros no console.
 - Lint e typecheck concluidos sem erros.
 - Build do frontend concluido com 33 paginas compiladas.
 

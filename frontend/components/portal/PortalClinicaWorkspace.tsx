@@ -86,7 +86,7 @@ function formatFileSize(value: number | null): string {
 
 function normalizeClinicSession(payload: PortalClinicAuthResponse): PortalSessionResponse {
   if (!payload.access_token || !payload.expires_at || payload.actor_type !== "clinica" || !payload.actor_id) {
-    throw new Error("Sessao da clinica retornou incompleta.");
+    throw new Error("Sessão da clínica retornou incompleta.");
   }
   return {
     access_token: payload.access_token,
@@ -182,7 +182,7 @@ export default function PortalClinicaWorkspace() {
       const refreshed = normalizeClinicSession(await refreshClinicPortalSession());
       savePortalSession(refreshed);
       setSession(refreshed);
-      setMessage(refreshed.message || "Sessao da clinica restaurada neste computador.");
+      setMessage(refreshed.message || "Sessão da clínica restaurada neste computador.");
     } catch {
       clearPortalSession("clinica");
     } finally {
@@ -222,7 +222,7 @@ export default function PortalClinicaWorkspace() {
     } catch (err) {
       setExams([]);
       setTotalAvailable(0);
-      setError(err instanceof Error ? err.message : "Nao foi possivel carregar o painel da clinica.");
+      setError(err instanceof Error ? err.message : "Não foi possível carregar o painel da clínica.");
     } finally {
       setSearchLoading(false);
     }
@@ -255,7 +255,7 @@ export default function PortalClinicaWorkspace() {
       if (response.mfa_required) {
         setMfaChallengeId(response.challenge_id || null);
         setMfaCode("");
-        setMessage(response.message || "Enviamos um codigo adicional para o email institucional.");
+        setMessage(response.message || "Enviamos um código adicional para o e-mail institucional.");
         return;
       }
 
@@ -264,9 +264,9 @@ export default function PortalClinicaWorkspace() {
       setSession(nextSession);
       setMfaChallengeId(null);
       setPassword("");
-      setMessage(response.message || "Sessao da clinica iniciada com sucesso.");
+      setMessage(response.message || "Sessão da clínica iniciada com sucesso.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao foi possivel iniciar a sessao da clinica.");
+      setError(err instanceof Error ? err.message : "Não foi possível iniciar a sessão da clínica.");
     } finally {
       setRequestLoading(false);
     }
@@ -294,9 +294,9 @@ export default function PortalClinicaWorkspace() {
       setMfaChallengeId(null);
       setMfaCode("");
       setPassword("");
-      setMessage(response.message || "Sessao da clinica iniciada com sucesso.");
+      setMessage(response.message || "Sessão da clínica iniciada com sucesso.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao foi possivel confirmar o acesso da clinica.");
+      setError(err instanceof Error ? err.message : "Não foi possível confirmar o acesso da clínica.");
     } finally {
       setVerifyLoading(false);
     }
@@ -316,7 +316,7 @@ export default function PortalClinicaWorkspace() {
       setShowForgotPassword(false);
       setResetEmail("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao foi possivel iniciar a redefinicao de senha.");
+      setError(err instanceof Error ? err.message : "Não foi possível iniciar a redefinição de senha.");
     } finally {
       setRequestLoading(false);
     }
@@ -367,7 +367,7 @@ export default function PortalClinicaWorkspace() {
       setFilters(INITIAL_FILTERS);
       setPassword("");
       setMfaCode("");
-      setMessage("Sessao da clinica encerrada neste dispositivo.");
+      setMessage("Sessão da clínica encerrada neste dispositivo.");
       setError("");
     }
   }
@@ -384,18 +384,18 @@ export default function PortalClinicaWorkspace() {
       const response = await createPortalExamDownloadUrls(examId, usableSession.access_token);
       const item = response.items.find((entry) => entry.anexo_id === attachmentId);
       if (!item) {
-        throw new Error("O anexo solicitado nao esta disponivel para download.");
+        throw new Error("O anexo solicitado não está disponível para download.");
       }
       await downloadPortalAttachment(item);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao foi possivel baixar o anexo.");
+      setError(err instanceof Error ? err.message : "Não foi possível baixar o anexo.");
     } finally {
       setDownloadingAttachmentId(null);
     }
   }
 
   if (session) {
-    const clinicLabel = clinicName || (session.clinica_id ? `Clinica #${session.clinica_id}` : "Clinica parceira");
+    const clinicLabel = clinicName || (session.clinica_id ? `Clínica #${session.clinica_id}` : "Clínica parceira");
 
     return (
       <section className="fc-clinic-dashboard fixed inset-0 z-50 overflow-y-auto bg-[#f6fafb] text-slate-950">
@@ -403,7 +403,7 @@ export default function PortalClinicaWorkspace() {
           <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-700">
-                Ambiente da clinica parceira
+                Ambiente da clínica parceira
               </p>
               <h1 className="mt-1 truncate text-2xl font-bold text-slate-950">
                 {clinicLabel}
@@ -439,17 +439,17 @@ export default function PortalClinicaWorkspace() {
                 Portal da unidade
               </p>
               <h2 className="mt-4 max-w-3xl text-3xl font-bold leading-tight text-slate-950 sm:text-4xl">
-                Exames liberados para pacientes atendidos nesta clinica.
+                Exames liberados para pacientes atendidos nesta clínica.
               </h2>
             </div>
 
             <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
-              <p className="font-bold text-slate-950">Sessao ativa</p>
-              <p className="mt-2">ID da clinica: {session.clinica_id ?? "-"}</p>
-              <p className="mt-1">Valida ate {formatPortalDateTime(session.expires_at)}</p>
+              <p className="font-bold text-slate-950">Sessão ativa</p>
+              <p className="mt-2">ID da clínica: {session.clinica_id ?? "-"}</p>
+              <p className="mt-1">Válida até {formatPortalDateTime(session.expires_at)}</p>
               {session.trusted_session_expires_at ? (
                 <p className="mt-1">
-                  Acesso neste computador ate {formatPortalDateTime(session.trusted_session_expires_at)}
+                  Acesso neste computador até {formatPortalDateTime(session.trusted_session_expires_at)}
                 </p>
               ) : null}
             </div>
@@ -470,7 +470,7 @@ export default function PortalClinicaWorkspace() {
                 icon: PawPrint,
               },
               {
-                label: "Arquivos disponiveis",
+                label: "Arquivos disponíveis",
                 value: dashboardStats.attachments,
                 detail: "PDFs e anexos liberados",
                 icon: Download,
@@ -478,7 +478,7 @@ export default function PortalClinicaWorkspace() {
               {
                 label: "Mais recente",
                 value: dashboardStats.latestDate,
-                detail: "por data de realizacao",
+                detail: "por data de realização",
                 icon: CalendarDays,
               },
             ].map(({ label, value, detail, icon: Icon }) => (
@@ -559,7 +559,7 @@ export default function PortalClinicaWorkspace() {
               </label>
 
               <label className="block text-sm font-semibold text-slate-800">
-                Especie
+                Espécie
                 <input
                   value={filters.especie}
                   onChange={(event) => updateFilter("especie", event.target.value)}
@@ -579,7 +579,7 @@ export default function PortalClinicaWorkspace() {
               </label>
 
               <label className="block text-sm font-semibold text-slate-800">
-                Data de realizacao - De
+                Data de realização - De
                 <input
                   type="date"
                   value={filters.data_inicio}
@@ -589,7 +589,7 @@ export default function PortalClinicaWorkspace() {
               </label>
 
               <label className="block text-sm font-semibold text-slate-800">
-                Data de realizacao - Ate
+                Data de realização - Até
                 <input
                   type="date"
                   value={filters.data_fim}
@@ -599,7 +599,7 @@ export default function PortalClinicaWorkspace() {
               </label>
 
               <label className="block text-sm font-semibold text-slate-800">
-                Ordenacao
+                Ordenação
                 <select
                   value={`${filters.sort_by}:${filters.sort_dir}`}
                   onChange={(event) => {
@@ -609,12 +609,12 @@ export default function PortalClinicaWorkspace() {
                   }}
                   className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-500"
                 >
-                  <option value="data:desc">Mais recentes por realizacao</option>
-                  <option value="data:asc">Mais antigos por realizacao</option>
+                  <option value="data:desc">Mais recentes por realização</option>
+                  <option value="data:asc">Mais antigos por realização</option>
                   <option value="tipo_exame:asc">Tipo A-Z</option>
                   <option value="pet:asc">Pet A-Z</option>
                   <option value="tutor:asc">Tutor A-Z</option>
-                  <option value="especie:asc">Especie A-Z</option>
+                  <option value="especie:asc">Espécie A-Z</option>
                 </select>
               </label>
             </div>
@@ -640,7 +640,7 @@ export default function PortalClinicaWorkspace() {
                   Exames liberados
                 </p>
                 <p className="mt-1 text-sm text-slate-500">
-                  {totalAvailable} resultado(s) no escopo desta clinica.
+                  {totalAvailable} resultado(s) no escopo desta clínica.
                 </p>
               </div>
             </div>
@@ -656,7 +656,7 @@ export default function PortalClinicaWorkspace() {
               <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-white p-6 text-sm leading-6 text-slate-600">
                 {dashboardLoaded
                   ? "Nenhum exame liberado foi encontrado para os filtros aplicados."
-                  : "Carregando o painel da clinica..."}
+                  : "Carregando o painel da clínica..."}
               </div>
             ) : (
               <div className="mt-4 space-y-3">
@@ -669,7 +669,7 @@ export default function PortalClinicaWorkspace() {
                             Exame #{exam.id}
                           </span>
                           <span className="rounded-lg bg-teal-50 px-2 py-1 text-xs font-bold text-teal-800">
-                            {exam.status || "Status nao informado"}
+                            {exam.status || "Status não informado"}
                           </span>
                         </div>
                         <h3 className="mt-3 text-xl font-bold text-slate-950">{exam.tipo_exame}</h3>
@@ -680,25 +680,25 @@ export default function PortalClinicaWorkspace() {
                           </div>
                           <div>
                             <dt className="font-bold text-slate-900">Tutor</dt>
-                            <dd className="mt-1">{exam.tutor_nome || "Nao informado"}</dd>
+                            <dd className="mt-1">{exam.tutor_nome || "Não informado"}</dd>
                           </div>
                           <div>
-                            <dt className="font-bold text-slate-900">Especie</dt>
-                            <dd className="mt-1">{exam.especie || "Nao informada"}</dd>
+                            <dt className="font-bold text-slate-900">Espécie</dt>
+                            <dd className="mt-1">{exam.especie || "Não informada"}</dd>
                           </div>
                           <div>
-                            <dt className="font-bold text-slate-900">Data de realizacao</dt>
+                            <dt className="font-bold text-slate-900">Data de realização</dt>
                             <dd className="mt-1">{formatPortalDate(examExecutionDateValue(exam))}</dd>
                           </div>
                           <div>
-                            <dt className="font-bold text-slate-900">Data de liberacao</dt>
+                            <dt className="font-bold text-slate-900">Data de liberação</dt>
                             <dd className="mt-1">{formatPortalDate(exam.data_resultado)}</dd>
                           </div>
                         </dl>
                       </div>
 
                       <div className="text-sm text-slate-600 lg:min-w-56 lg:text-right">
-                        <p className="font-bold text-slate-950">{exam.categoria_exame || "Categoria nao informada"}</p>
+                        <p className="font-bold text-slate-950">{exam.categoria_exame || "Categoria não informada"}</p>
                         <p className="mt-1">{exam.anexos.length} anexo(s)</p>
                       </div>
                     </div>
@@ -713,7 +713,7 @@ export default function PortalClinicaWorkspace() {
                       {exam.anexos.length === 0 ? (
                         <span className="inline-flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500">
                           <FileCheck2 className="h-4 w-4" />
-                          Nenhum arquivo disponivel
+                          Nenhum arquivo disponível
                         </span>
                       ) : (
                         exam.anexos.map((attachment) => {
@@ -756,7 +756,7 @@ export default function PortalClinicaWorkspace() {
         <div className="flex min-h-[320px] items-center justify-center text-sm text-slate-200">
           <span className="inline-flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Validando sessao deste dispositivo...
+            Validando sessão deste dispositivo...
           </span>
         </div>
       ) : (
@@ -766,7 +766,7 @@ export default function PortalClinicaWorkspace() {
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-teal-100">
                 Acesso da unidade
               </p>
-              <h2 className="mt-2 text-xl font-bold text-white">Entrar como clinica parceira</h2>
+              <h2 className="mt-2 text-xl font-bold text-white">Entrar como clínica parceira</h2>
             </div>
             <span className="rounded-lg bg-teal-300 px-3 py-2 text-xs font-bold text-slate-950">
               convite + senha
@@ -778,7 +778,7 @@ export default function PortalClinicaWorkspace() {
               {!mfaChallengeId ? (
                 <form className="mt-5 space-y-4" onSubmit={handleLogin}>
                   <label className="block text-sm font-semibold text-white">
-                    Email institucional
+                    E-mail institucional
                     <input
                       required
                       type="email"
@@ -809,7 +809,7 @@ export default function PortalClinicaWorkspace() {
                       className="mt-1 h-4 w-4 rounded border-white/20 bg-slate-950/60"
                     />
                     <span>
-                      Manter acesso neste computador da unidade ate o fim do expediente.
+                      Manter acesso neste computador da unidade até o fim do expediente.
                     </span>
                   </label>
 
@@ -827,21 +827,21 @@ export default function PortalClinicaWorkspace() {
                   <div className="flex items-start gap-3">
                     <CheckCircle2 className="mt-0.5 h-5 w-5 text-teal-200" />
                     <div>
-                      <p className="text-sm font-bold text-white">Confirmacao adicional</p>
+                      <p className="text-sm font-bold text-white">Confirmação adicional</p>
                       <p className="mt-1 text-sm leading-6 text-slate-300">
-                        Enviamos um codigo para o email institucional da unidade.
+                        Enviamos um código para o e-mail institucional da unidade.
                       </p>
                     </div>
                   </div>
 
                   <label className="block text-sm font-semibold text-white">
-                    Codigo recebido
+                    Código recebido
                     <input
                       required
                       value={mfaCode}
                       onChange={(event) => setMfaCode(event.target.value)}
                       className="mt-2 w-full rounded-lg border border-white/15 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none transition focus:border-teal-300"
-                      placeholder="Digite o codigo de acesso"
+                      placeholder="Digite o código de acesso"
                     />
                   </label>
 
@@ -883,7 +883,7 @@ export default function PortalClinicaWorkspace() {
                 </button>
 
                 <div className="text-sm leading-6 text-slate-300">
-                  Recebeu um convite da Fort Cordis? Abra o link enviado para cadastrar o email e a senha da unidade.
+                  Recebeu um convite da Fort Cordis? Abra o link enviado para cadastrar o e-mail e a senha da unidade.
                 </div>
 
                 <Link
@@ -891,18 +891,18 @@ export default function PortalClinicaWorkspace() {
                   className="inline-flex items-center gap-2 text-sm font-semibold text-slate-200 transition hover:text-white"
                 >
                   <Mail className="h-4 w-4" />
-                  Revisar orientacoes de acesso
+                  Revisar orientações de acesso
                 </Link>
               </div>
             </>
           ) : (
             <form className="mt-5 space-y-4" onSubmit={handleForgotPassword}>
               <div className="rounded-lg border border-white/10 bg-slate-950/30 p-4 text-sm leading-6 text-slate-300">
-                Enviaremos as instrucoes de redefinicao para o email institucional informado, se houver uma conta ativa para ele.
+                Enviaremos as instruções de redefinição para o e-mail institucional informado, se houver uma conta ativa para ele.
               </div>
 
               <label className="block text-sm font-semibold text-white">
-                Email institucional
+                E-mail institucional
                 <input
                   required
                   type="email"
@@ -919,7 +919,7 @@ export default function PortalClinicaWorkspace() {
                 className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-white px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 {requestLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-                {requestLoading ? "Enviando..." : "Enviar instrucoes"}
+                {requestLoading ? "Enviando..." : "Enviar instruções"}
               </button>
 
               <button

@@ -36,7 +36,7 @@ export default function PortalClinicActivationWorkspace({
 
   function normalizeActivationSession(payload: PortalClinicActivationResponse): PortalSessionResponse {
     if (!payload.access_token || !payload.expires_at || payload.actor_type !== "clinica" || !payload.actor_id) {
-      throw new Error("Sessao da clinica retornou incompleta.");
+      throw new Error("Sessão da clínica retornou incompleta.");
     }
     return {
       access_token: payload.access_token,
@@ -65,7 +65,7 @@ export default function PortalClinicActivationWorkspace({
       setError(
         detail && detail.toLowerCase() !== "internal server error"
           ? detail
-          : "Nao foi possivel validar este convite. Solicite um novo link de ativacao.",
+          : "Não foi possível validar este convite. Solicite um novo link de ativação.",
       );
     } finally {
       setLoadingStatus(false);
@@ -93,10 +93,10 @@ export default function PortalClinicActivationWorkspace({
       const nextSession = normalizeActivationSession(response);
       savePortalSession(nextSession);
       setActivated(true);
-      setMessage(response.message || "Conta criada com sucesso. Redirecionando para o portal da clinica.");
+      setMessage(response.message || "Conta criada com sucesso. Redirecionando para o portal da clínica.");
       router.replace("/clinica-parceira");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao foi possivel iniciar a ativacao.");
+      setError(err instanceof Error ? err.message : "Não foi possível iniciar a ativação.");
     } finally {
       setSubmitting(false);
     }
@@ -129,7 +129,7 @@ export default function PortalClinicActivationWorkspace({
             </p>
             {statusData.email_hint ? (
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Ja existe um cadastro recente vinculado a este convite: {statusData.email_hint}
+                Já existe um cadastro recente vinculado a este convite: {statusData.email_hint}
               </p>
             ) : null}
           </div>
@@ -139,24 +139,24 @@ export default function PortalClinicActivationWorkspace({
               <BadgeCheck className="h-8 w-8 text-emerald-700" />
               <h3 className="mt-4 text-lg font-bold text-emerald-950">Conta ativada com sucesso</h3>
               <p className="mt-2 text-sm leading-6 text-emerald-900">
-                A senha da unidade foi criada. Estamos abrindo o portal da clinica.
+                A senha da unidade foi criada. Estamos abrindo o portal da clínica.
               </p>
               <Link
                 href="/clinica-parceira"
                 className="mt-5 inline-flex rounded-lg bg-emerald-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-800"
               >
-                Abrir portal da clinica
+                Abrir portal da clínica
               </Link>
             </div>
           ) : inviteUnavailable ? (
             <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-950">
-              Este convite nao pode mais ser usado para ativacao. Solicite um novo link a equipe Fort Cordis ou entre com a conta ja cadastrada.
+              Este convite não pode mais ser usado para ativação. Solicite um novo link à equipe Fort Cordis ou entre com a conta já cadastrada.
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link
                   href="/clinica-parceira"
                   className="inline-flex rounded-lg bg-amber-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-amber-800"
                 >
-                  Ir para o login da clinica
+                  Ir para o login da clínica
                 </Link>
               </div>
             </div>
@@ -164,12 +164,12 @@ export default function PortalClinicActivationWorkspace({
             <form className="mt-5 space-y-4" onSubmit={handleActivate}>
               {statusData.email_hint ? (
                 <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm leading-6 text-teal-950">
-                  Email institucional definido para este acesso:{" "}
+                  E-mail institucional definido para este acesso:{" "}
                   <span className="font-semibold">{statusData.email_hint}</span>
                 </div>
               ) : (
                 <label className="block text-sm font-semibold text-slate-900">
-                  Email institucional
+                  E-mail institucional
                   <input
                     required
                     type="email"
@@ -182,13 +182,13 @@ export default function PortalClinicActivationWorkspace({
               )}
 
               <label className="block text-sm font-semibold text-slate-900">
-                Responsavel pelo acesso
+                Responsável pelo acesso
                 <input
                   required
                   value={responsavelNome}
                   onChange={(event) => setResponsavelNome(event.target.value)}
                   className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-600"
-                  placeholder="Nome do profissional responsavel"
+                  placeholder="Nome do profissional responsável"
                 />
               </label>
 
@@ -201,12 +201,12 @@ export default function PortalClinicActivationWorkspace({
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                     className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-600"
-                    placeholder="Minimo de 12 caracteres"
+                    placeholder="Mínimo de 12 caracteres"
                   />
                 </label>
 
                 <label className="block text-sm font-semibold text-slate-900">
-                  Confirmacao de senha
+                  Confirmação de senha
                   <input
                     required
                     type="password"

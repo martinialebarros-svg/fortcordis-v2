@@ -62,6 +62,9 @@ Resumo dos resultados:
 - Links `#acesso` e `#saude-pet` navegados no browser sem alteracao de dados.
 - Secoes de destino chegaram com margem visual e sem overflow horizontal.
 - Copy visivel da home institucional e da area do tutor revisada para acentos e cedilhas.
+- Copy visivel da pagina da clinica parceira revisada, incluindo as secoes de governanca e downloads.
+- Links `#governanca` e `#downloads` validados em 1280x720 e 390x844; destinos com 16px de margem, `scroll-behavior: smooth` e animacao `fc-public-section-reveal` com `animation-timeline: view()`.
+- Pagina da clinica parceira sem overflow horizontal nas duas resolucoes.
 - Console do navegador sem erros em desktop e mobile.
 - `npm run lint`, `npx tsc --noEmit --pretty false` e `npm run build`: ok; 33 paginas compiladas.
 

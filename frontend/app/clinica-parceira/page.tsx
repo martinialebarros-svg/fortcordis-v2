@@ -17,25 +17,25 @@ const clinicRules = [
   {
     title: "Conta da unidade",
     description:
-      "A ativacao nasce de um convite da Fort Cordis e vincula email institucional e senha a uma unidade parceira.",
+      "A ativação nasce de um convite da Fort Cordis e vincula e-mail institucional e senha a uma unidade parceira.",
     icon: UserCheck,
   },
   {
-    title: "Permissao por unidade",
+    title: "Permissão por unidade",
     description:
-      "O backend filtra resultados pelo vinculo entre atendimento, pet, clinica parceira e unidade.",
+      "O backend filtra resultados pelo vínculo entre atendimento, pet, clínica parceira e unidade.",
     icon: Building2,
   },
   {
-    title: "MFA em dados sensiveis",
+    title: "MFA em dados sensíveis",
     description:
-      "Reset de senha, risco de acesso e acoes sensiveis podem exigir segunda verificacao.",
+      "Redefinição de senha, risco de acesso e ações sensíveis podem exigir uma segunda verificação.",
     icon: KeyRound,
   },
   {
     title: "Auditoria completa",
     description:
-      "Visualizacao e download registram usuario, IP, horario, pet, exame e finalidade.",
+      "Visualização e download registram usuário, IP, horário, pet, exame e finalidade.",
     icon: ClipboardList,
   },
 ] as const;
@@ -60,14 +60,14 @@ export default function ClinicaParceiraPage() {
                 <span><strong>FORT CORDIS</strong><small>Cardiologia Veterinária</small></span>
               </div>
               <p className="fc-public-portal-kicker">
-                Clinicas parceiras
+                Clínicas parceiras
               </p>
               <h1>
-                Exames acessiveis para a unidade certa, no momento certo.
+                Exames acessíveis para a unidade certa, no momento certo.
               </h1>
               <p className="fc-public-portal-lead">
-                O portal da clinica agiliza consulta e download sem abrir acesso amplo ao acervo
-                da Fort Cordis. A unidade ativa seu convite, confirma o email institucional e
+                O portal da clínica agiliza a consulta e o download sem abrir acesso amplo ao acervo
+                da Fort Cordis. A unidade ativa seu convite, confirma o e-mail institucional e
                 passa a ver apenas os pets atendidos sob sua responsabilidade.
               </p>
               <div className="fc-public-portal-actions">
@@ -76,7 +76,7 @@ export default function ClinicaParceiraPage() {
                   className="fc-public-portal-primary"
                 >
                   <ShieldCheck className="h-5 w-5" />
-                  Ver permissoes
+                  Ver permissões
                 </a>
                 <a
                   href="#downloads"
@@ -93,18 +93,18 @@ export default function ClinicaParceiraPage() {
         </div>
       </section>
 
-      <section id="governanca" className="fc-public-portal-section">
+      <section id="governanca" className="fc-public-portal-section fc-scroll-section">
         <div className="fc-public-portal-inner">
           <div className="fc-public-portal-section-heading">
             <p className="fc-public-portal-eyebrow">
-              Governanca de acesso
+              Governança de acesso
             </p>
             <h2>
-              Acesso rapido precisa de limite operacional claro.
+              Acesso rápido precisa de limite operacional claro.
             </h2>
             <p className="mt-4 text-sm leading-6 text-slate-600">
-              O modelo combina convite aprovado pela Fort Cordis, email institucional, senha,
-              MFA contextual e autorizacao por unidade no backend.
+              O modelo combina convite aprovado pela Fort Cordis, e-mail institucional, senha,
+              MFA contextual e autorização por unidade no backend.
             </p>
           </div>
 
@@ -120,7 +120,7 @@ export default function ClinicaParceiraPage() {
         </div>
       </section>
 
-      <section id="downloads" className="fc-public-portal-band fc-public-portal-band-light">
+      <section id="downloads" className="fc-public-portal-band fc-public-portal-band-light fc-scroll-section">
         <div className="fc-public-portal-band-grid">
           <div>
             <p className="fc-public-portal-eyebrow">
@@ -130,16 +130,16 @@ export default function ClinicaParceiraPage() {
               O portal solicita. O sistema Fort Cordis autoriza.
             </h2>
             <p className="mt-4 text-sm leading-6 text-slate-600">
-              A clinica nao deve receber um link permanente. O backend valida escopo, gera uma URL
-              temporaria para o arquivo e registra o evento.
+              A clínica não deve receber um link permanente. O backend valida o escopo, gera uma URL
+              temporária para o arquivo e registra o evento.
             </p>
           </div>
 
           <div className="space-y-3">
             {[
               "Busca por protocolo, pet ou tutor somente dentro da unidade autorizada.",
-              "Visao panoramica com filtros por pet, tutor, especie, tipo de exame e periodo.",
-              "URL assinada com expiracao curta, sem token em query string exposto em logs internos.",
+              "Visão panorâmica com filtros por pet, tutor, espécie, tipo de exame e período.",
+              "URL assinada com expiração curta, sem token em query string exposto em logs internos.",
             ].map((item) => (
               <div key={item} className="flex gap-3 rounded-lg border border-slate-200 bg-white p-4">
                 <FileCheck2 className="mt-0.5 h-5 w-5 shrink-0 text-teal-700" />
@@ -150,15 +150,15 @@ export default function ClinicaParceiraPage() {
         </div>
       </section>
 
-      <section className="fc-public-portal-section fc-public-portal-final">
+      <section className="fc-public-portal-section fc-public-portal-final fc-scroll-section">
         <div className="fc-public-portal-callout">
           <BadgeCheck className="h-8 w-8 text-amber-700" />
           <h2 className="mt-5 text-2xl font-bold text-slate-950">
-            Clinica parceira nao precisa ver tudo para trabalhar melhor.
+            Clínica parceira não precisa ver tudo para trabalhar melhor.
           </h2>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-            O acesso ideal mostra apenas o necessario para continuidade do atendimento, reduzindo
-            risco juridico, vazamento de dados e retrabalho operacional.
+            O acesso ideal mostra apenas o necessário para a continuidade do atendimento, reduzindo
+            risco jurídico, vazamento de dados e retrabalho operacional.
           </p>
         </div>
       </section>
