@@ -11,6 +11,8 @@ from typing import Any
 
 from PIL import Image, ImageOps
 
+from app.services.tesseract_runtime import resolve_tesseract_command
+
 MAX_IMAGE_HEADER_IMPORT_SIZE = 15 * 1024 * 1024
 ALLOWED_IMAGE_HEADER_EXTENSIONS = {
     ".jpg",
@@ -50,15 +52,7 @@ _RESAMPLING_LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
 
 
 def _resolve_tesseract_command() -> str:
-    configured = (os.getenv("TESSERACT_CMD") or "").strip()
-    if configured:
-        return configured
-
-    common_windows_path = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-    if os.name == "nt" and os.path.exists(common_windows_path):
-        return common_windows_path
-
-    return "tesseract"
+    return resolve_tesseract_command()
 
 
 def _resolve_tessdata_dir() -> str | None:

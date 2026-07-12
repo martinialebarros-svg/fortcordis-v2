@@ -26,6 +26,10 @@ export TESSERACT_CMD=/caminho/absoluto/tesseract
 export TESSDATA_DIR=/caminho/para/tessdata
 ```
 
+O backend tambem resolve os caminhos absolutos usuais (`/usr/bin/tesseract`,
+`/usr/local/bin/tesseract` e Homebrew) quando a unidade systemd expoe somente
+o diretorio do ambiente virtual no `PATH`.
+
 ## Verificacao
 
 ```bash

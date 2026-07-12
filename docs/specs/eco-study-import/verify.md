@@ -18,10 +18,11 @@ Primeira entrega vertical implementada localmente e perfil GE Vet World calibrad
 - `venv/bin/python scripts/verify_eco_study_ocr.py`: imagem sintetica e PDF rasterizado reconheceram as 8 medidas esperadas; smoke terminou com `eco-study OCR smoke: ok`.
 - `venv/bin/python -m unittest tests.test_eco_study_ocr_runtime ... -v`: OCR real, status de runtime presente/ausente e regressao do extrator passaram.
 - `bash -n scripts/deploy_prod_vps.sh scripts/deploy_stage_vps.sh`: scripts de deploy validos; stage configura OCR como obrigatorio.
-- `venv/bin/python -m unittest discover -s tests -p 'test_*.py'`: suite backend completa passou, 302/302 testes.
+- `venv/bin/python -m unittest discover -s tests -p 'test_*.py'`: suite backend completa passou, 303/303 testes.
 - `venv/bin/python scripts/evaluate_eco_study_ocr.py --study-a-dir <pasta-externa-a> --study-b-dir <pasta-externa-b>`: conjunto ouro local reconheceu 57/57 medidas (28/28 e 29/29), sem ausencias, divergencias ou campos inesperados; ambos os estudos foram classificados como `ge_vet_world`.
 - Cabecalhos dos dois estudos reais foram reconhecidos com presenca de paciente, tutor, idade, especie e data do exame; a verificacao registrou apenas indicadores booleanos, sem persistir os dados identificaveis.
 - Testes unitarios cobrem cabecalho GE anonimizado, distincao entre `TRIV` e `E/TRIV`, apóstrofo curvo em `E/E’` e preferencia pela leitura de duas casas decimais quando uma variante perde o ultimo digito.
+- Regressao de runtime reproduz a unidade systemd com `PATH` limitado ao venv e confirma a resolucao de `/usr/bin/tesseract`, inclusive quando `TESSERACT_CMD=tesseract` estiver definido.
 
 ## Validacao manual pendente
 

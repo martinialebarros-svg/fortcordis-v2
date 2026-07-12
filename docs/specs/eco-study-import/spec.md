@@ -26,6 +26,7 @@
 - NFR-008 (deploy): stage deve provisionar e exigir Tesseract com `por` e `eng` antes de reiniciar o backend.
 - NFR-009 (privacidade): o conjunto de calibracao pode permanecer em volume externo; imagens clinicas nao devem ser copiadas para o repositorio nem incorporadas aos testes.
 - NFR-010 (calibracao): perfis de fabricante devem ser avaliados por conjunto ouro versionado apenas como valores esperados anonimos.
+- NFR-011 (runtime): o backend deve localizar o Tesseract instalado em caminhos absolutos usuais mesmo quando o servico systemd restringir o `PATH` ao ambiente virtual.
 
 ## Contrato de resultado
 
@@ -68,3 +69,4 @@
 - CA-007: imagens GE Vet World reconhecem paciente, tutor, idade, especie e data quando esses textos estiverem legiveis no cabecalho.
 - CA-008: `E/TRIV` nao pode ser interpretado como uma segunda medida de TRIV.
 - CA-009: apóstrofo curvo em `E/E’` deve ser aceito e a leitura completa com duas casas decimais deve prevalecer sobre variante truncada.
+- CA-010: com `PATH` contendo apenas `backend/venv/bin`, uma instalacao executavel em `/usr/bin/tesseract` deve ser localizada e usada pelo extrator e pelo diagnostico de runtime.

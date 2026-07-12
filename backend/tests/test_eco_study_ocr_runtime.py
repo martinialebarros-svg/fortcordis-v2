@@ -24,8 +24,9 @@ from app.services.eco_study_extraction_service import parse_eco_study_import_con
 
 class EcoStudyOcrRuntimeTest(unittest.TestCase):
     def test_runtime_check_reports_missing_binary(self) -> None:
-        with patch.object(runtime_checks.shutil, "which", return_value=None):
-            payload = runtime_checks._check_eco_study_ocr()
+        with patch.object(runtime_checks, "resolve_tesseract_command", return_value="tesseract"):
+            with patch.object(runtime_checks.shutil, "which", return_value=None):
+                payload = runtime_checks._check_eco_study_ocr()
 
         self.assertFalse(payload["available"])
         self.assertEqual(payload["missing_languages"], ["por", "eng"])
@@ -35,7 +36,11 @@ class EcoStudyOcrRuntimeTest(unittest.TestCase):
             SimpleNamespace(returncode=0, stdout="tesseract 5.5.2\n"),
             SimpleNamespace(returncode=0, stdout="List of available languages in tessdata/:\neng\npor\n"),
         ]
-        with patch.object(runtime_checks.shutil, "which", return_value="/usr/bin/tesseract"):
+        with patch.object(
+            runtime_checks,
+            "resolve_tesseract_command",
+            return_value="/usr/bin/tesseract",
+        ):
             with patch.object(runtime_checks.subprocess, "run", side_effect=responses):
                 payload = runtime_checks._check_eco_study_ocr()
 

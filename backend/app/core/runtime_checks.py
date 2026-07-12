@@ -18,6 +18,7 @@ from app.services.upload_dedupe_cleanup_service import (
     get_upload_dedupe_cleanup_worker_runtime_state,
 )
 from app.services.push_scheduler_service import get_push_scheduler_worker_runtime_state
+from app.services.tesseract_runtime import resolve_tesseract_command
 from migrations.runner import get_migration_status
 
 _PLACEHOLDER_SECRET_KEYS = {"", "change-me", "changeme", "secret", "default"}
@@ -100,7 +101,7 @@ def _check_migrations() -> dict[str, Any]:
 
 
 def _check_eco_study_ocr() -> dict[str, Any]:
-    command = str(os.getenv("TESSERACT_CMD") or "tesseract").strip() or "tesseract"
+    command = resolve_tesseract_command()
     resolved = command if os.path.isabs(command) else shutil.which(command)
     if not resolved:
         return {

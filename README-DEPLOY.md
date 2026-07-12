@@ -88,7 +88,7 @@ After=network.target
 Type=simple
 User=www-data
 WorkingDirectory=/var/www/fortcordis-v2/backend
-Environment="PATH=/var/www/fortcordis-v2/backend/venv/bin"
+Environment="PATH=/var/www/fortcordis-v2/backend/venv/bin:/usr/local/bin:/usr/bin:/bin"
 ExecStart=/var/www/fortcordis-v2/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=3
