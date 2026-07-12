@@ -38,7 +38,7 @@ export default function PortalTutorWorkspace() {
   function parsePositiveInteger(value: string, fieldLabel: string): number {
     const parsed = Number.parseInt(value.trim(), 10);
     if (!Number.isFinite(parsed) || parsed <= 0) {
-      throw new Error(`${fieldLabel} precisa ser um numero valido.`);
+      throw new Error(`${fieldLabel} precisa ser um número válido.`);
     }
     return parsed;
   }
@@ -55,7 +55,7 @@ export default function PortalTutorWorkspace() {
       const response = await listPortalPetExams(activeSession.paciente_id, activeSession.access_token);
       setExams(response.items);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao foi possivel carregar os exames.");
+      setError(err instanceof Error ? err.message : "Não foi possível carregar os exames.");
     } finally {
       setExamsLoading(false);
     }
@@ -86,7 +86,7 @@ export default function PortalTutorWorkspace() {
       setCodigo(response.debug_code || "");
       setMessage(response.message);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao foi possivel solicitar o codigo.");
+      setError(err instanceof Error ? err.message : "Não foi possível solicitar o código.");
     } finally {
       setRequestLoading(false);
     }
@@ -109,10 +109,10 @@ export default function PortalTutorWorkspace() {
       });
       savePortalSession(verifiedSession);
       setSession(verifiedSession);
-      setMessage("Sessao do tutor validada com sucesso.");
+      setMessage("Sessão do tutor validada com sucesso.");
       await loadTutorExams(verifiedSession);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao foi possivel validar o codigo.");
+      setError(err instanceof Error ? err.message : "Não foi possível validar o código.");
     } finally {
       setVerifyLoading(false);
     }
@@ -124,7 +124,7 @@ export default function PortalTutorWorkspace() {
     setChallenge(null);
     setExams([]);
     setCodigo("");
-    setMessage("Sessao do portal encerrada neste dispositivo.");
+    setMessage("Sessão do portal encerrada neste dispositivo.");
     setError("");
   }
 
@@ -139,11 +139,11 @@ export default function PortalTutorWorkspace() {
       const response = await createPortalExamDownloadUrls(examId, session.access_token);
       const item = response.items.find((entry) => entry.anexo_id === attachmentId);
       if (!item) {
-        throw new Error("O anexo solicitado nao esta disponivel para download.");
+        throw new Error("O anexo solicitado não está disponível para download.");
       }
       await downloadPortalAttachment(item);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao foi possivel baixar o anexo.");
+      setError(err instanceof Error ? err.message : "Não foi possível baixar o anexo.");
     } finally {
       setDownloadingAttachmentId(null);
     }
@@ -194,10 +194,10 @@ export default function PortalTutorWorkspace() {
             <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">
               <span className="inline-flex items-center gap-2 font-bold">
                 <MailCheck className="h-4 w-4" />
-                Codigo temporario por email
+                Código temporário por e-mail
               </span>
               <p className="mt-2 leading-6">
-                WhatsApp sera habilitado apos a liberacao da API da Meta.
+                WhatsApp será habilitado após a liberação da API da Meta.
               </p>
             </div>
 
@@ -221,7 +221,7 @@ export default function PortalTutorWorkspace() {
               className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-teal-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
             >
               {requestLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />}
-              {requestLoading ? "Solicitando..." : "Receber codigo temporario"}
+              {requestLoading ? "Solicitando..." : "Receber código temporário"}
             </button>
           </form>
 
@@ -230,25 +230,25 @@ export default function PortalTutorWorkspace() {
               <div className="flex items-start gap-3">
                 <CheckCircle2 className="mt-0.5 h-5 w-5 text-teal-700" />
                 <div>
-                  <p className="text-sm font-bold text-slate-950">Codigo solicitado</p>
+                  <p className="text-sm font-bold text-slate-950">Código solicitado</p>
                   <p className="mt-1 text-sm leading-6 text-slate-600">{challenge.message}</p>
                 </div>
               </div>
 
               {challenge.debug_code ? (
                 <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-                  Codigo de desenvolvimento: <span className="font-bold">{challenge.debug_code}</span>
+                  Código de desenvolvimento: <span className="font-bold">{challenge.debug_code}</span>
                 </div>
               ) : null}
 
               <label className="block text-sm font-semibold text-slate-800">
-                Codigo recebido
+                Código recebido
                 <input
                   required
                   value={codigo}
                   onChange={(event) => setCodigo(event.target.value)}
                   className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-600"
-                  placeholder="Digite o codigo temporario"
+                  placeholder="Digite o código temporário"
                 />
               </label>
 
@@ -268,7 +268,7 @@ export default function PortalTutorWorkspace() {
           <div className="flex items-center justify-between border-b border-slate-200 pb-4">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-                Sessao ativa
+                Sessão ativa
               </p>
               <h2 className="mt-2 text-xl font-bold text-slate-950">Portal do tutor</h2>
             </div>
@@ -285,7 +285,7 @@ export default function PortalTutorWorkspace() {
           <div className="mt-5 rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">
             <p className="font-bold">Pet autorizado no portal</p>
             <p className="mt-1">ID do pet: {session.paciente_id ?? "-"}</p>
-            <p className="mt-1">Sessao valida ate {formatPortalDateTime(session.expires_at)}</p>
+            <p className="mt-1">Sessão válida até {formatPortalDateTime(session.expires_at)}</p>
           </div>
 
           <div className="mt-5 flex gap-3">

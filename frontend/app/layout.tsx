@@ -10,7 +10,7 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Fort Cordis",
   description:
-    "Cardiologia veterinaria integrada, portal para tutores e acesso seguro para clinicas parceiras.",
+    "Cardiologia veterinária integrada, portal para tutores e acesso seguro para clínicas parceiras.",
   other: {
     google: "notranslate",
   },

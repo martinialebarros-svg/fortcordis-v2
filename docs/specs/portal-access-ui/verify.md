@@ -24,6 +24,8 @@ Status: done
 | NFR-004 | nao funcional | rewrites existentes do Next.js para `/api/v1` | ok |
 | NFR-005 | nao funcional | `npm run build` | ok |
 | NFR-006 | nao funcional | `frontend/components/portal/PortalTutorWorkspace.tsx` fixa canal `email` e remove seletor de WhatsApp da UI preliminar | ok |
+| NFR-007 | nao funcional | Varredura das strings visiveis de `PortalTutorWorkspace` e `PortalExamResults` sem termos sem diacriticos necessarios | ok |
+| CA-011 | aceitacao | QA local de `/area-pacientes` confirmou labels e mensagens acentuadas em desktop e mobile | ok |
 
 ## 2) Testes automatizados executados
 
@@ -56,6 +58,13 @@ Resumo dos resultados:
   - download do anexo validado via HTTP local porque o browser embutido nao suporta evento de download.
 - Pendente:
   - nenhum bloqueador funcional nesta iteracao.
+
+### Refinamento de 2026-07-12
+
+- Formulario do tutor renderizado sem envio de IDs, email ou codigo.
+- Resultados e estados autenticados revisados por codigo, sem criar sessao nem iniciar download.
+- Lint e typecheck concluidos sem erros.
+- Build do frontend concluido com 33 paginas compiladas.
 
 ## 4) Regressao e riscos residuais
 

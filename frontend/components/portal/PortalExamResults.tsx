@@ -50,16 +50,16 @@ export default function PortalExamResults({
               </p>
               <h3 className="mt-2 text-xl font-bold text-slate-950">{exam.tipo_exame}</h3>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                {exam.categoria_exame || "Categoria nao informada"} · {exam.status || "Status nao informado"}
+                {exam.categoria_exame || "Categoria não informada"} · {exam.status || "Status não informado"}
               </p>
             </div>
             <dl className="grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
               <div>
-                <dt className="font-semibold text-slate-900">Data de realizacao</dt>
+                <dt className="font-semibold text-slate-900">Data de realização</dt>
                 <dd>{formatPortalDateTime(exam.data_exame || exam.data_solicitacao)}</dd>
               </div>
               <div>
-                <dt className="font-semibold text-slate-900">Data de liberacao</dt>
+                <dt className="font-semibold text-slate-900">Data de liberação</dt>
                 <dd>{formatPortalDateTime(exam.data_resultado)}</dd>
               </div>
             </dl>

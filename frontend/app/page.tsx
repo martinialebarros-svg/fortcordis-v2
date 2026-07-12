@@ -49,7 +49,7 @@ function getPortalLinks(host: string) {
       title: "Portal do tutor",
       eyebrow: "Pets e exames",
       description:
-        "Acesso aos dados do pet, orientacoes do atendimento e downloads autorizados de exames.",
+        "Acesso aos dados do pet, orientações do atendimento e downloads autorizados de exames.",
       href: "/area-pacientes",
       action: "Acessar como tutor",
       icon: UserRound,
@@ -59,7 +59,7 @@ function getPortalLinks(host: string) {
       title: "Clínica parceira",
       eyebrow: "Unidades autorizadas",
       description:
-        "Consulta de exames dos pets atendidos na unidade, com permissao por clinica e trilha de auditoria.",
+        "Consulta de exames dos pets atendidos na unidade, com permissão por clínica e trilha de auditoria.",
       href: "/clinica-parceira",
       action: "Acessar como clínica",
       icon: Building2,
@@ -69,7 +69,7 @@ function getPortalLinks(host: string) {
       title: "Sistema Fort Cordis",
       eyebrow: "Equipe interna",
       description:
-        "Operacao administrativa, agenda, atendimento, laudos e relatorios no ambiente integrado.",
+        "Operação administrativa, agenda, atendimento, laudos e relatórios no ambiente integrado.",
       href: `https://${appHost}/`,
       action: "Abrir sistema",
       icon: ShieldCheck,
@@ -85,7 +85,7 @@ const trustItems = [
   },
   {
     value: "MFA",
-    label: "dupla verificacao para dados sensiveis",
+    label: "dupla verificação para dados sensíveis",
   },
   {
     value: "Auditoria",
@@ -97,25 +97,25 @@ const tutorTips = [
   {
     title: "Antes do eco",
     description:
-      "Leve receitas em uso, exames anteriores e relate mudancas de respiracao, apetite ou disposicao.",
+      "Leve receitas em uso, exames anteriores e relate mudanças de respiração, apetite ou disposição.",
     icon: ClipboardCheck,
   },
   {
     title: "Sinais de alerta",
     description:
-      "Cansaco incomum, tosse persistente, desmaios ou respiracao ofegante merecem contato com o veterinario.",
+      "Cansaço incomum, tosse persistente, desmaios ou respiração ofegante merecem contato com o veterinário.",
     icon: HeartPulse,
   },
   {
     title: "Rotina em casa",
     description:
-      "Mantenha horarios dos medicamentos e anote reacoes para facilitar a revisao do cardiologista.",
+      "Mantenha horários dos medicamentos e anote reações para facilitar a revisão do cardiologista.",
     icon: CalendarHeart,
   },
   {
     title: "Resultados",
     description:
-      "Baixe laudos apenas pelo portal autenticado; notificacoes nao devem carregar anexos sensiveis.",
+      "Baixe laudos apenas pelo portal autenticado; notificações não devem carregar anexos sensíveis.",
     icon: Download,
   },
 ] as const;
@@ -124,23 +124,23 @@ const accessFlows = [
   {
     title: "Tutores",
     description:
-      "Acesso sem senha permanente, usando codigo temporario enviado ao email cadastrado.",
+      "Acesso sem senha permanente, usando código temporário enviado ao e-mail cadastrado.",
     icon: Smartphone,
     steps: [
-      "Identificacao pelo cadastro do atendimento ou convite enviado pela Fort Cordis.",
-      "Confirmacao por codigo temporario via email nesta fase preliminar.",
-      "Downloads liberados por pet, com URL assinada e expiracao curta.",
+      "Identificação pelo cadastro do atendimento ou convite enviado pela Fort Cordis.",
+      "Confirmação por código temporário via e-mail nesta fase preliminar.",
+      "Downloads liberados por pet, com URL assinada e expiração curta.",
     ],
   },
   {
     title: "Clínicas parceiras",
     description:
-      "Acesso por usuario nominal da unidade, com permissoes por clinica, profissional e atendimento.",
+      "Acesso por usuário nominal da unidade, com permissões por clínica, profissional e atendimento.",
     icon: BadgeCheck,
     steps: [
-      "Convite aprovado pela equipe Fort Cordis para CNPJ e unidade especificos.",
-      "MFA obrigatorio para laudos e exames, com sessao curta em dispositivo novo.",
-      "Visualizacao limitada aos pacientes atendidos naquela unidade.",
+      "Convite aprovado pela equipe Fort Cordis para CNPJ e unidade específicos.",
+      "MFA obrigatório para laudos e exames, com sessão curta em dispositivo novo.",
+      "Visualização limitada aos pacientes atendidos naquela unidade.",
     ],
   },
 ] as const;
@@ -149,19 +149,19 @@ const integrationRules = [
   {
     title: "Sem anexos expostos",
     description:
-      "Emails avisam que ha resultado disponivel, mas o arquivo fica no sistema Fort Cordis.",
+      "E-mails avisam que há resultado disponível, mas o arquivo fica no sistema Fort Cordis.",
     icon: MailCheck,
   },
   {
-    title: "Autorizacao no backend",
+    title: "Autorização no backend",
     description:
-      "O frontend solicita o exame, mas a API decide se tutor ou clinica pode acessar aquele pet.",
+      "O frontend solicita o exame, mas a API decide se tutor ou clínica pode acessar aquele pet.",
     icon: LockKeyhole,
   },
   {
     title: "Consentimento e log",
     description:
-      "Cada acesso guarda usuario, unidade, pet, exame, horario e finalidade de consulta.",
+      "Cada acesso guarda usuário, unidade, pet, exame, horário e finalidade de consulta.",
     icon: FileHeart,
   },
 ] as const;
@@ -201,7 +201,7 @@ function InstitutionalLanding({ host }: { host: string }) {
                 Fort Cordis
               </p>
               <p className="mt-1 text-xs font-semibold uppercase tracking-[0.18em] text-teal-100">
-                cardiologia veterinaria
+                cardiologia veterinária
               </p>
             </div>
           </Link>
@@ -211,10 +211,10 @@ function InstitutionalLanding({ host }: { host: string }) {
               Portais
             </Link>
             <Link className="rounded-lg px-3 py-2 transition hover:bg-white/10" href="#dicas">
-              Saude pet
+              Saúde pet
             </Link>
             <Link className="rounded-lg px-3 py-2 transition hover:bg-white/10" href="#seguranca">
-              Seguranca
+              Segurança
             </Link>
           </nav>
         </header>
@@ -229,8 +229,8 @@ function InstitutionalLanding({ host }: { host: string }) {
               Fort Cordis
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-100 sm:text-xl">
-              Informacao clara para tutores, acesso controlado para clinicas parceiras e
-              continuidade do cuidado cardiologico em um ambiente preparado para dados sensiveis.
+              Informação clara para tutores, acesso controlado para clínicas parceiras e
+              continuidade do cuidado cardiológico em um ambiente preparado para dados sensíveis.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link
@@ -245,7 +245,7 @@ function InstitutionalLanding({ host }: { host: string }) {
                 className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-white/25 bg-white/10 px-5 py-3 text-sm font-bold text-white backdrop-blur transition hover:bg-white/18 sm:w-auto"
               >
                 <Building2 className="h-5 w-5" />
-                Clinica parceira
+                Clínica parceira
               </Link>
             </div>
             <dl className="mt-10 hidden max-w-2xl gap-3 sm:grid sm:grid-cols-3">
@@ -262,15 +262,15 @@ function InstitutionalLanding({ host }: { host: string }) {
         </div>
       </section>
 
-      <section id="portais" className="bg-white px-5 py-16 sm:px-8 lg:py-20">
+      <section id="portais" className="fc-scroll-section bg-white px-5 py-16 sm:px-8 lg:py-20">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-700">Portais</p>
             <h2 className="mt-3 font-[family-name:var(--font-display)] text-4xl font-semibold tracking-normal text-slate-950 sm:text-5xl">
-              Um ponto de entrada para cada relacao de cuidado.
+              Um ponto de entrada para cada relação de cuidado.
             </h2>
             <p className="mt-4 text-base leading-7 text-slate-600">
-              Tutores acompanham seus pets, clinicas parceiras consultam casos da propria
+              Tutores acompanham seus pets, clínicas parceiras consultam casos da própria
               unidade e a equipe interna segue operando no sistema Fort Cordis.
             </p>
           </div>
@@ -304,19 +304,19 @@ function InstitutionalLanding({ host }: { host: string }) {
         </div>
       </section>
 
-      <section id="seguranca" className="bg-slate-950 px-5 py-16 text-white sm:px-8 lg:py-20">
+      <section id="seguranca" className="fc-scroll-section bg-slate-950 px-5 py-16 text-white sm:px-8 lg:py-20">
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-200">
-              Acesso seguro e agil
+              Acesso seguro e ágil
             </p>
             <h2 className="mt-3 font-[family-name:var(--font-display)] text-4xl font-semibold tracking-normal sm:text-5xl">
               O arquivo fica protegido. O acesso fica simples.
             </h2>
             <p className="mt-5 text-base leading-7 text-slate-300">
-              A melhor experiencia combina login sem atrito com autorizacao rigorosa no backend.
-              O tutor nao precisa decorar senha, a clinica nao acessa casos de outra unidade e
-              cada download deixa rastro auditavel.
+              A melhor experiência combina login sem atrito com autorização rigorosa no backend.
+              O tutor não precisa decorar senha, a clínica não acessa casos de outra unidade e
+              cada download deixa rastro auditável.
             </p>
           </div>
 
@@ -344,20 +344,20 @@ function InstitutionalLanding({ host }: { host: string }) {
         </div>
       </section>
 
-      <section id="dicas" className="bg-[#f8fbfc] px-5 py-16 sm:px-8 lg:py-20">
+      <section id="dicas" className="fc-scroll-section bg-[#f8fbfc] px-5 py-16 sm:px-8 lg:py-20">
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-sm font-bold uppercase tracking-[0.18em] text-rose-700">
-                Saude pet
+                Saúde pet
               </p>
               <h2 className="mt-3 font-[family-name:var(--font-display)] text-4xl font-semibold tracking-normal text-slate-950 sm:text-5xl">
-                Dicas para tutores acompanharem melhor o cuidado cardiologico.
+                Dicas para tutores acompanharem melhor o cuidado cardiológico.
               </h2>
             </div>
             <p className="max-w-md text-sm leading-6 text-slate-600">
-              Conteudos objetivos ajudam o tutor a chegar mais preparado ao atendimento e a
-              manter o tratamento com menos duvidas no dia a dia.
+              Conteúdos objetivos ajudam o tutor a chegar mais preparado ao atendimento e a
+              manter o tratamento com menos dúvidas no dia a dia.
             </p>
           </div>
 
@@ -373,19 +373,19 @@ function InstitutionalLanding({ host }: { host: string }) {
         </div>
       </section>
 
-      <section className="bg-white px-5 py-16 sm:px-8 lg:py-20">
+      <section className="fc-scroll-section bg-white px-5 py-16 sm:px-8 lg:py-20">
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[1fr_1fr] lg:items-center">
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.18em] text-amber-700">
-              Integracao Fort Cordis
+              Integração Fort Cordis
             </p>
             <h2 className="mt-3 font-[family-name:var(--font-display)] text-4xl font-semibold tracking-normal text-slate-950 sm:text-5xl">
-              Um portal publico conectado sem expor informacao sensivel.
+              Um portal público conectado sem expor informação sensível.
             </h2>
             <p className="mt-5 text-base leading-7 text-slate-600">
               A landing page apresenta a empresa e direciona para fluxos autenticados. A entrega
-              de laudos, imagens e documentos deve permanecer atras da API do Fort Cordis, com
-              checagem de vinculo entre tutor, pet, atendimento, clinica e unidade.
+              de laudos, imagens e documentos deve permanecer atrás da API do Fort Cordis, com
+              checagem de vínculo entre tutor, pet, atendimento, clínica e unidade.
             </p>
           </div>
           <div className="grid gap-4">
@@ -407,7 +407,7 @@ function InstitutionalLanding({ host }: { host: string }) {
       <footer className="border-t border-slate-200 bg-white px-5 py-8 sm:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
           <p className="font-semibold text-slate-950">Fort Cordis</p>
-          <p>Cardiologia veterinaria, informacao segura e continuidade do cuidado.</p>
+          <p>Cardiologia veterinária, informação segura e continuidade do cuidado.</p>
         </div>
       </footer>
     </main>

@@ -28,6 +28,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - NFR-004 (compatibilidade): a integracao deve usar os rewrites atuais do Next.js para `/api/v1`.
 - NFR-005 (qualidade): build do frontend deve seguir passando apos a integracao.
 - NFR-006 (rollout preliminar): a UI do tutor deve operar em modo email-only enquanto a API WhatsApp Business aguarda liberacao na Meta.
+- NFR-007 (copy): labels, mensagens e estados visiveis do portal do tutor devem usar grafia correta em portugues, sem alterar nomes de campos ou payloads da API.
 
 ## 4) Contratos tecnicos
 
@@ -127,6 +128,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CA-008: clinica autenticada consegue iniciar download de anexo liberado.
 - CA-009: logout do portal nao remove a autenticacao administrativa interna.
 - CA-010: build do frontend passa localmente.
+- CA-011: formulario do tutor e resultados de exames exibem acentos e cedilhas corretamente, preservando os contratos do portal.
 
 ## 7) Casos de borda
 
