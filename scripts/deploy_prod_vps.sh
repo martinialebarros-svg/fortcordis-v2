@@ -34,6 +34,8 @@ set -euo pipefail
 #   ENABLE_BACKUP_RESTORE_DRILL=1
 #   BACKUP_RESTORE_DRILL_SKIP_SQLITE_CHECK=0
 #   BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR=0
+#   ENABLE_ECO_STUDY_OCR=1
+#   REQUIRE_ECO_STUDY_OCR=0
 
 APP_DIR="${APP_DIR:-/var/www/fortcordis-v2}"
 BRANCH="${BRANCH:-main}"
@@ -67,6 +69,8 @@ AUTH_CANARY_DISABLE_INTERNAL_TOKEN="${AUTH_CANARY_DISABLE_INTERNAL_TOKEN:-0}"
 ENABLE_BACKUP_RESTORE_DRILL="${ENABLE_BACKUP_RESTORE_DRILL:-1}"
 BACKUP_RESTORE_DRILL_SKIP_SQLITE_CHECK="${BACKUP_RESTORE_DRILL_SKIP_SQLITE_CHECK:-0}"
 BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR="${BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR:-0}"
+ENABLE_ECO_STUDY_OCR="${ENABLE_ECO_STUDY_OCR:-1}"
+REQUIRE_ECO_STUDY_OCR="${REQUIRE_ECO_STUDY_OCR:-0}"
 PRE_DEPLOY_HASH=""
 NEW_HASH=""
 CODE_UPDATED=0
@@ -104,6 +108,49 @@ require_cmd() {
     echo "[ERROR] Missing command: $1" >&2
     exit 1
   }
+}
+
+has_tesseract_language() {
+  local language="$1"
+  tesseract --list-langs 2>/dev/null | grep -Fxq "$language"
+}
+
+ensure_eco_study_ocr_dependencies() {
+  if [[ "${ENABLE_ECO_STUDY_OCR}" != "1" ]]; then
+    log "Eco study OCR disabled for this deploy."
+    return 0
+  fi
+
+  if command -v tesseract >/dev/null 2>&1 \
+    && has_tesseract_language por \
+    && has_tesseract_language eng; then
+    log "Eco study OCR ready: $(tesseract --version 2>/dev/null | head -n 1)"
+    return 0
+  fi
+
+  log "Installing Tesseract OCR with por/eng language data"
+  if command -v apt-get >/dev/null 2>&1; then
+    if run_with_sudo env DEBIAN_FRONTEND=noninteractive apt-get update \
+      && run_with_sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        tesseract-ocr tesseract-ocr-por tesseract-ocr-eng; then
+      log "Tesseract packages installed."
+    fi
+  fi
+
+  if command -v tesseract >/dev/null 2>&1 \
+    && has_tesseract_language por \
+    && has_tesseract_language eng; then
+    log "Eco study OCR ready: $(tesseract --version 2>/dev/null | head -n 1)"
+    return 0
+  fi
+
+  if [[ "${REQUIRE_ECO_STUDY_OCR}" == "1" ]]; then
+    echo "[ERROR] Tesseract OCR with por/eng is required but unavailable." >&2
+    return 1
+  fi
+
+  log "WARN: Tesseract OCR unavailable; image and raster PDF imports will fail until provisioned."
+  return 0
 }
 
 wait_http_ok() {
@@ -690,6 +737,7 @@ log "Backend: install deps + migrations"
 cd "$BACKEND_DIR"
 
 ensure_backend_stage_cookie_security
+ensure_eco_study_ocr_dependencies
 
 if [[ ! -x "${BACKEND_DIR}/venv/bin/python" ]]; then
   log "Creating backend venv"

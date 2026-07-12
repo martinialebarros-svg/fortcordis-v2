@@ -390,7 +390,7 @@ def parse_image_header_text(text: str) -> dict[str, Any]:
     return payload
 
 
-def _run_tesseract(image_path: str, language: str) -> str:
+def _run_tesseract(image_path: str, language: str, *, psm: int = 6) -> str:
     executable = _resolve_tesseract_command()
     tessdata_dir = _resolve_tessdata_dir()
     command = [
@@ -400,7 +400,7 @@ def _run_tesseract(image_path: str, language: str) -> str:
         "--oem",
         "1",
         "--psm",
-        "6",
+        str(psm),
         "-l",
         language,
         "-c",
@@ -432,7 +432,7 @@ def _run_tesseract(image_path: str, language: str) -> str:
     return stdout
 
 
-def _extract_text_with_tesseract(image: Image.Image) -> str:
+def _extract_text_with_tesseract(image: Image.Image, *, psm: int = 6) -> str:
     fd, tmp_path = tempfile.mkstemp(suffix=".png")
     os.close(fd)
     try:
@@ -441,7 +441,7 @@ def _extract_text_with_tesseract(image: Image.Image) -> str:
         last_error: Exception | None = None
         for language in ("por+eng", "eng"):
             try:
-                return _run_tesseract(tmp_path, language)
+                return _run_tesseract(tmp_path, language, psm=psm)
             except RuntimeError as exc:
                 last_error = exc
                 lowered = str(exc).lower()

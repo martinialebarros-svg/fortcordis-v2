@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 from typing import Any
 
 from sqlalchemy import text
@@ -97,6 +99,73 @@ def _check_migrations() -> dict[str, Any]:
     return status
 
 
+def _check_eco_study_ocr() -> dict[str, Any]:
+    command = str(os.getenv("TESSERACT_CMD") or "tesseract").strip() or "tesseract"
+    resolved = command if os.path.isabs(command) else shutil.which(command)
+    if not resolved:
+        return {
+            "available": False,
+            "command": command,
+            "version": None,
+            "languages": [],
+            "language_count": 0,
+            "required_languages": ["por", "eng"],
+            "missing_languages": ["por", "eng"],
+            "error": "Comando Tesseract nao encontrado.",
+        }
+
+    try:
+        version_result = subprocess.run(
+            [resolved, "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+            timeout=5,
+            text=True,
+        )
+        language_result = subprocess.run(
+            [resolved, "--list-langs"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+            timeout=5,
+            text=True,
+        )
+    except Exception as exc:
+        return {
+            "available": False,
+            "command": resolved,
+            "version": None,
+            "languages": [],
+            "language_count": 0,
+            "required_languages": ["por", "eng"],
+            "missing_languages": ["por", "eng"],
+            "error": str(exc),
+        }
+
+    version_line = (version_result.stdout or "").splitlines()
+    languages = sorted(
+        line.strip()
+        for line in (language_result.stdout or "").splitlines()
+        if line.strip() and not line.lower().startswith("list of available languages")
+    )
+    missing_languages = [language for language in ("por", "eng") if language not in languages]
+    required_languages_available = [
+        language for language in ("por", "eng") if language in languages
+    ]
+    available = version_result.returncode == 0 and language_result.returncode == 0
+    return {
+        "available": available,
+        "command": resolved,
+        "version": version_line[0].strip() if version_line else None,
+        "languages": required_languages_available,
+        "language_count": len(languages),
+        "required_languages": ["por", "eng"],
+        "missing_languages": missing_languages,
+        "error": None if available else "Falha ao consultar o Tesseract.",
+    }
+
+
 def build_runtime_report() -> dict[str, Any]:
     database = _check_database()
     migrations = _check_migrations()
@@ -105,6 +174,7 @@ def build_runtime_report() -> dict[str, Any]:
     http_latency_monitor = get_http_latency_monitor_status()
     upload_cleanup_worker = get_upload_dedupe_cleanup_worker_runtime_state()
     push_scheduler_worker = get_push_scheduler_worker_runtime_state()
+    eco_study_ocr = _check_eco_study_ocr()
 
     warnings: list[str] = []
     if not database["connected"]:
@@ -131,6 +201,13 @@ def build_runtime_report() -> dict[str, Any]:
         warnings.append("Worker de auto-cleanup dedupe habilitado, mas inativo.")
     if push_scheduler_worker.get("enabled") and not push_scheduler_worker.get("thread_alive"):
         warnings.append("Worker de push agendado habilitado, mas inativo.")
+    if not eco_study_ocr.get("available"):
+        warnings.append("OCR de estudos indisponivel: Tesseract nao encontrado ou inacessivel.")
+    elif eco_study_ocr.get("missing_languages"):
+        warnings.append(
+            "OCR de estudos sem idiomas obrigatorios: "
+            + ", ".join(eco_study_ocr["missing_languages"])
+        )
 
     startup_enforced_issues: list[str] = []
     if (
@@ -193,6 +270,7 @@ def build_runtime_report() -> dict[str, Any]:
             ),
             "upload_dir": settings.UPLOAD_DIR,
             "laudo_pdf_jobs_dir": laudo_pdf_jobs_dir,
+            "eco_study_ocr": eco_study_ocr,
         },
         "observability": {
             "http_5xx_monitor": http_5xx_monitor,

@@ -1,0 +1,608 @@
+from __future__ import annotations
+
+import io
+import os
+import re
+import unicodedata
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import date
+from typing import Any, Iterable
+
+from PIL import Image, ImageOps
+
+from app.services.image_header_import_service import _extract_text_with_tesseract
+
+MAX_ECO_STUDY_IMPORT_SIZE = 30 * 1024 * 1024
+MAX_ECO_STUDY_PDF_PAGES = 20
+ALLOWED_ECO_STUDY_EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".bmp",
+    ".tif",
+    ".tiff",
+    ".pdf",
+}
+
+_NUMBER_PATTERN = r"-?\d{1,5}(?:[.,]\d{1,4})?"
+_UNIT_PATTERN = r"(?:mmHg|mm|cm|cms|m/s|mis|cm/s|ms|msec|s|%|mlg|ml|mL)?"
+
+
+@dataclass(frozen=True)
+class MeasurementDefinition:
+    campo: str
+    rotulo: str
+    aliases: tuple[str, ...]
+    unit_kind: str
+
+
+MEASUREMENT_DEFINITIONS: tuple[MeasurementDefinition, ...] = (
+    MeasurementDefinition("AE_Ao", "AE/Ao", (r"(?:AE|LA)\s*/\s*Ao", r"LA\s*Ao\s*Ratio"), "ratio"),
+    MeasurementDefinition("AP_Ao", "AP/Ao", (r"(?:AP|PA)\s*/\s*Ao",), "ratio"),
+    MeasurementDefinition("E_A", "E/A", (r"Relacao\s*E\s*/\s*A\s*VM", r"(?:MV\s*)?E\s*/\s*A", r"E\s*A\s*Ratio"), "ratio"),
+    MeasurementDefinition("doppler_tecidual_relacao", "e'/a'", (r"e['′]?\s*/\s*a['′]?",), "ratio"),
+    MeasurementDefinition("E_E_linha", "E/e'", (r"E\s*/\s*e['′]?",), "ratio"),
+    MeasurementDefinition("DIVEd_normalizado", "DIVEd N", (r"DIVEd\s*N", r"LVIDd\s*N"), "ratio"),
+    MeasurementDefinition("DIVEd", "DIVEd", (r"LVIDd", r"DIVEd", r"LVID\s*d"), "length"),
+    MeasurementDefinition("DIVES", "DIVEs", (r"LVIDs", r"DIVES", r"LVID\s*s"), "length"),
+    MeasurementDefinition("SIVd", "SIVd", (r"IVSd", r"SIVd"), "length"),
+    MeasurementDefinition("SIVs", "SIVs", (r"IVSs", r"SIVs"), "length"),
+    MeasurementDefinition("PLVEd", "PLVEd", (r"LVPWd", r"PLVEd", r"PPVEd", r"PWd"), "length"),
+    MeasurementDefinition("PLVES", "PLVEs", (r"LVPWs", r"PLVES", r"PPVEs", r"PWs"), "length"),
+    MeasurementDefinition("VDF", "VDF", (r"EDV", r"VDF\s*\(?Teich\)?", r"VDF"), "volume"),
+    MeasurementDefinition("VSF", "VSF", (r"ESV", r"VSF\s*\(?Teich\)?", r"VSF"), "volume"),
+    MeasurementDefinition("FE_Teicholz", "FE", (r"EF\s*\(?Teich(?:holz)?\)?", r"FE\s*\(?Teich(?:holz)?\)?", r"\bEF\b", r"\bFE\b"), "percent"),
+    MeasurementDefinition("DeltaD_FS", "FS", (r"FS", r"(?:%\s*)?Delta\s*D", r"FEnc"), "percent"),
+    MeasurementDefinition("TAPSE", "TAPSE", (r"TAPSE",), "length"),
+    MeasurementDefinition("MAPSE", "MAPSE", (r"MAPSE",), "length"),
+    MeasurementDefinition("Atrio_esquerdo", "Atrio esquerdo", (r"LA\s*(?:Diam(?:eter)?|Dimension)", r"(?:Diam|Diametro)\s*AE", r"AE\s*(?:Diam|Dimensao)", r"Atrio\s*Esquerdo"), "length"),
+    MeasurementDefinition("Aorta", "Aorta", (r"(?:Diametro\s*)?Raiz\s*Ao", r"Ao\s*(?:Diam(?:eter)?|Dimension)", r"Aorta"), "length"),
+    MeasurementDefinition("Onda_E", "Onda E", (r"Veloc(?:id)?\.?\s*E\s*VM", r"MV\s*E(?:\s*Vel(?:ocity)?)?", r"Onda\s*E"), "velocity"),
+    MeasurementDefinition("Onda_A", "Onda A", (r"Veloc(?:id)?\.?\s*A\s*VM", r"MV\s*A(?:\s*Vel(?:ocity)?)?", r"Onda\s*A"), "velocity"),
+    MeasurementDefinition("TD", "TD", (r"T\.?\s*desac\.?\s*VM", r"MV\s*DT", r"Decel(?:eration)?\s*Time", r"\bTD\b"), "time"),
+    MeasurementDefinition("TRIV", "TRIV", (r"IVRT", r"(?<!/)TRIV"), "time"),
+    MeasurementDefinition("e_doppler", "e'", (r"TDI\s*e['′]?", r"e['′]\s*(?:Vel(?:ocity)?)?"), "velocity"),
+    MeasurementDefinition("a_doppler", "a'", (r"TDI\s*a['′]?", r"a['′]\s*(?:Vel(?:ocity)?)?", r"(?:^|\d\s*)a['′]?"), "velocity"),
+    MeasurementDefinition("IM_Vmax", "IM Vmax", (r"(?:MR|IM)\s*Vmax",), "velocity"),
+    MeasurementDefinition("IT_Vmax", "IT Vmax", (r"(?:TR|IT)\s*Vmax",), "velocity"),
+    MeasurementDefinition("IA_Vmax", "IA Vmax", (r"(?:AR|IA)\s*Vmax",), "velocity"),
+    MeasurementDefinition("IP_Vmax", "IP Vmax", (r"(?:PR|IP)\s*Vmax",), "velocity"),
+    MeasurementDefinition("Vmax_aorta", "Vmax aorta", (r"Vmax\s*VSVE", r"(?:AV|Ao|Aorta)\s*Vmax", r"Vmax\s*Aorta"), "velocity"),
+    MeasurementDefinition("Grad_aorta", "Gradiente aorta", (r"(?:max\s*)?PG\s*LVOT", r"(?:AV|Ao|Aorta)\s*(?:PG|Grad(?:iente)?)", r"Grad(?:iente)?\s*Aorta"), "pressure"),
+    MeasurementDefinition("Vmax_pulmonar", "Vmax pulmonar", (r"Vmax\s*VSVD", r"(?:PV|Pulm(?:onar)?)\s*Vmax", r"Vmax\s*Pulm(?:onar)?"), "velocity"),
+    MeasurementDefinition("Grad_pulmonar", "Gradiente pulmonar", (r"Grad\.?\s*max\s*VSVD", r"(?:PV|Pulm(?:onar)?)\s*(?:PG|Grad(?:iente)?)", r"Grad(?:iente)?\s*Pulm(?:onar)?"), "pressure"),
+)
+
+
+def normalize_eco_study_filename(filename: str | None) -> str:
+    return os.path.basename((filename or "").strip()) or "estudo.png"
+
+
+def validate_eco_study_filename(filename: str | None) -> str:
+    normalized = normalize_eco_study_filename(filename)
+    extension = os.path.splitext(normalized)[1].lower()
+    if extension not in ALLOWED_ECO_STUDY_EXTENSIONS:
+        allowed = ", ".join(sorted(ALLOWED_ECO_STUDY_EXTENSIONS))
+        raise ValueError(f"Arquivo deve ser imagem ou PDF ({allowed})")
+    return normalized
+
+
+def validate_eco_study_size(content: bytes) -> None:
+    if len(content) > MAX_ECO_STUDY_IMPORT_SIZE:
+        raise ValueError("Estudo excede o limite de 30MB")
+
+
+def _remove_diacritics(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", text or "")
+    without_diacritics = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    apostrophes = str.maketrans({"’": "'", "‘": "'", "`": "'", "´": "'"})
+    return without_diacritics.translate(apostrophes)
+
+
+def _safe_iso_date(day: int, month: int, year: int) -> str:
+    if year < 100:
+        year += 2000
+    try:
+        return date(year, month, day).isoformat()
+    except ValueError:
+        return ""
+
+
+def parse_ge_vet_world_header_text(text: str) -> dict[str, Any] | None:
+    normalized_text = _remove_diacritics(text or "")
+    if "VET WORLD" not in normalized_text.upper():
+        return None
+
+    lines = [re.sub(r"\s+", " ", line).strip() for line in normalized_text.splitlines()]
+    identity_line = next(
+        (
+            line
+            for line in lines
+            if "," in line
+            and "VET WORLD" not in line.upper()
+            and not re.search(r"\d{1,2}/\d{1,2}/\d{2,4}", line)
+        ),
+        "",
+    )
+    if not identity_line:
+        identity_match = re.search(
+            r"VET\s+WORLD\s+([A-Z][A-Z\s'-]{1,40},\s*[A-Z][A-Z\s'-]{1,60}?)(?=\s+MI\s*\d|\s+TIs|\s+6S|\n|$)",
+            normalized_text,
+            re.IGNORECASE,
+        )
+        identity_line = identity_match.group(1).strip() if identity_match else ""
+
+    patient_name = ""
+    tutor_name = ""
+    if identity_line and "," in identity_line:
+        patient_name, tutor_name = [part.strip().title() for part in identity_line.split(",", 1)]
+
+    age_match = re.search(r"Idade\s*(\d{1,2})\s*(?:Y|A|anos?)\b", normalized_text, re.IGNORECASE)
+    exam_date_match = re.search(r"(\d{1,2})/(\d{1,2})/(\d{2,4})", normalized_text)
+    exam_date = ""
+    if exam_date_match:
+        exam_date = _safe_iso_date(*(int(value) for value in exam_date_match.groups()))
+
+    species = "Canina" if re.search(r"CAO[_\s-]*P", normalized_text, re.IGNORECASE) else ""
+    return {
+        "paciente": {
+            "nome": patient_name,
+            "tutor": tutor_name,
+            "raca": "",
+            "especie": species,
+            "peso": "",
+            "idade": f"{age_match.group(1)} anos" if age_match else "",
+            "sexo": "",
+            "telefone": "",
+            "data_exame": exam_date,
+        },
+        "clinica": "VET WORLD",
+        "veterinario_solicitante": "",
+        "fc": "",
+        "perfil": "ge_vet_world",
+    }
+
+
+def _parse_number(value: str) -> float:
+    return float((value or "").replace(" ", "").replace(",", "."))
+
+
+def _normalize_unit(unit: str) -> str:
+    normalized = (unit or "").strip().lower().replace("msec", "ms")
+    if normalized == "mmhg":
+        return "mmHg"
+    if normalized == "mis":
+        return "m/s"
+    if normalized == "cms":
+        return "cm"
+    if normalized == "mlg":
+        return "mL"
+    if normalized == "ml":
+        return "mL"
+    return normalized
+
+
+def _normalize_measurement_value(value: float, unit: str, unit_kind: str) -> tuple[float, str]:
+    normalized_unit = _normalize_unit(unit)
+
+    if unit_kind == "length":
+        if normalized_unit == "cm":
+            return value * 10.0, "mm"
+        return value, "mm" if normalized_unit in {"", "mm"} else normalized_unit
+    if unit_kind == "velocity":
+        if normalized_unit == "cm/s":
+            return value / 100.0, "m/s"
+        return value, "m/s" if normalized_unit in {"", "m/s"} else normalized_unit
+    if unit_kind == "time":
+        if normalized_unit == "s":
+            return value * 1000.0, "ms"
+        return value, "ms" if normalized_unit in {"", "ms"} else normalized_unit
+    if unit_kind == "percent":
+        return value, "%"
+    if unit_kind == "volume":
+        return value, "mL" if normalized_unit in {"", "mL"} else normalized_unit
+    if unit_kind == "pressure":
+        return value, "mmHg" if not normalized_unit else normalized_unit
+    return value, ""
+
+
+def _round_measurement(value: float) -> float:
+    rounded = round(value, 3)
+    return int(rounded) if rounded.is_integer() else rounded
+
+
+def _augment_ocr_lines(lines: list[str]) -> list[str]:
+    augmented = list(lines)
+    for index in range(len(lines) - 1):
+        current = lines[index]
+        following = lines[index + 1]
+        if not re.search(r"[A-Za-z]", current):
+            continue
+        if re.match(rf"^\s*{_NUMBER_PATTERN}\s*{_UNIT_PATTERN}\s*$", following, re.IGNORECASE):
+            augmented.append(f"{current} {following}")
+    return augmented
+
+
+def extract_measurements_from_text(
+    text: str,
+    *,
+    page: int = 1,
+    source: str = "ocr",
+    confidence: float = 0.82,
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    lines = [re.sub(r"\s+", " ", line).strip() for line in (text or "").splitlines()]
+    if source.startswith("ocr"):
+        lines = _augment_ocr_lines([line for line in lines if line])
+
+    for raw_line in lines:
+        if not raw_line:
+            continue
+        line = _remove_diacritics(raw_line)
+        for definition in MEASUREMENT_DEFINITIONS:
+            matched = False
+            for alias in definition.aliases:
+                pattern = re.compile(
+                    rf"(?<![A-Za-z0-9_])(?P<label>{alias})(?![A-Za-z0-9_])"
+                    rf"\s*(?:[:=\-]|\s)\s*(?P<value>{_NUMBER_PATTERN})\s*(?P<unit>{_UNIT_PATTERN})",
+                    re.IGNORECASE,
+                )
+                match = pattern.search(line)
+                if not match:
+                    continue
+
+                original_value = _parse_number(match.group("value"))
+                original_unit = _normalize_unit(match.group("unit"))
+                if definition.unit_kind == "velocity" and original_unit not in {"m/s", "cm/s"}:
+                    continue
+                normalized_value, normalized_unit = _normalize_measurement_value(
+                    original_value,
+                    original_unit,
+                    definition.unit_kind,
+                )
+                candidates.append(
+                    {
+                        "campo": definition.campo,
+                        "rotulo": definition.rotulo,
+                        "valor": _round_measurement(normalized_value),
+                        "unidade": normalized_unit,
+                        "valor_original": _round_measurement(original_value),
+                        "unidade_original": original_unit,
+                        "confianca": round(max(0.0, min(1.0, confidence)), 3),
+                        "pagina": page,
+                        "texto_origem": raw_line,
+                        "origem": source,
+                        "status": "candidata",
+                    }
+                )
+                matched = True
+                break
+            if matched:
+                continue
+
+    return candidates
+
+
+def _candidate_values_compatible(values: Iterable[float]) -> bool:
+    items = [float(value) for value in values]
+    if len(items) <= 1:
+        return True
+    lower = min(items)
+    upper = max(items)
+    tolerance = max(0.02, abs(lower) * 0.01)
+    return upper - lower <= tolerance
+
+
+def consolidate_measurement_candidates(
+    candidates: list[dict[str, Any]],
+) -> tuple[dict[str, float], list[dict[str, Any]], int]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for candidate in candidates:
+        grouped[str(candidate["campo"])].append(dict(candidate))
+
+    measurements: dict[str, float] = {}
+    consolidated: list[dict[str, Any]] = []
+    conflict_count = 0
+
+    for field, items in grouped.items():
+        compatible = _candidate_values_compatible(float(item["valor"]) for item in items)
+        ranked = sorted(items, key=lambda item: float(item.get("confianca", 0)), reverse=True)
+        if compatible:
+            selected = ranked[0]
+            selected["status"] = "sugerida"
+            measurements[field] = selected["valor"]
+            consolidated.append(selected)
+            for duplicate in ranked[1:]:
+                duplicate["status"] = "duplicada"
+                consolidated.append(duplicate)
+        else:
+            conflict_count += 1
+            for item in ranked:
+                item["status"] = "conflito"
+                consolidated.append(item)
+
+    consolidated.sort(key=lambda item: (int(item.get("pagina") or 1), str(item.get("campo"))))
+    return measurements, consolidated, conflict_count
+
+
+def _build_ocr_variants(image: Image.Image) -> list[tuple[str, Image.Image]]:
+    base = ImageOps.exif_transpose(image).convert("RGB")
+    gray = ImageOps.grayscale(base)
+    width, height = gray.size
+    scale = 2 if max(width, height) < 2600 else 1
+    upscaled = gray.resize((width * scale, height * scale)) if scale > 1 else gray
+    inverted = ImageOps.invert(upscaled)
+    binary = inverted.point(lambda px: 255 if px > 150 else 0, mode="1").convert("L")
+    return [("gray", upscaled), ("inverted", inverted), ("binary", binary)]
+
+
+def _build_measurement_regions(image: Image.Image) -> list[tuple[str, Image.Image]]:
+    base = ImageOps.exif_transpose(image).convert("RGB")
+    width, height = base.size
+    if width < 500 or height < 350:
+        return []
+    return [
+        (
+            "left_top",
+            base.crop((0, max(0, int(height * 0.09)), min(width, int(width * 0.43)), min(height, int(height * 0.68)))),
+        ),
+        (
+            "left_bottom",
+            base.crop((0, max(0, int(height * 0.77)), min(width, int(width * 0.43)), height)),
+        ),
+    ]
+
+
+def _extract_ge_header_from_image(image: Image.Image) -> dict[str, Any] | None:
+    base = ImageOps.exif_transpose(image).convert("RGB")
+    width, height = base.size
+    if width < 500 or height < 300:
+        return None
+    header_height = max(45, min(height, int(height * 0.10)))
+    header = base.crop((0, 0, width, header_height)).resize((width * 3, header_height * 3))
+    prepared = ImageOps.autocontrast(ImageOps.grayscale(header))
+    try:
+        text = _extract_text_with_tesseract(prepared, psm=11)
+    except Exception:
+        return None
+    return parse_ge_vet_world_header_text(text)
+
+
+def _build_region_ocr_passes(region: Image.Image) -> list[tuple[str, Image.Image, int, float]]:
+    width, height = region.size
+    scale = 5 if height < 220 else (4 if max(width, height) < 800 else 2)
+    resized = region.resize((max(1, width * scale), max(1, height * scale)))
+    gray = ImageOps.autocontrast(ImageOps.grayscale(resized))
+    inverted = ImageOps.invert(gray)
+    blue = ImageOps.autocontrast(resized.getchannel("B"))
+    binary = inverted.point(lambda px: 255 if px > 150 else 0, mode="1").convert("L")
+    inverted_threshold_120 = inverted.point(lambda px: 255 if px > 120 else 0, mode="1").convert("L")
+    gray_threshold_180 = gray.point(lambda px: 255 if px > 180 else 0, mode="1").convert("L")
+    return [
+        ("inverted_psm6", inverted, 6, 0.93),
+        ("gray_psm6", gray, 6, 0.90),
+        ("gray_psm12", gray, 12, 0.89),
+        ("blue_psm11", blue, 11, 0.86),
+        ("inverted_threshold120_psm6", inverted_threshold_120, 6, 0.88),
+        ("gray_threshold180_psm6", gray_threshold_180, 6, 0.84),
+        ("binary_psm6", binary, 6, 0.78),
+    ]
+
+
+def _keep_most_reliable_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for candidate in candidates:
+        grouped[str(candidate["campo"])].append(candidate)
+
+    selected: list[dict[str, Any]] = []
+    for field, items in grouped.items():
+        # E/e' is displayed with two decimals by this profile. High-contrast OCR
+        # can erase only the last digit, so preserve a complete lower-confidence read.
+        if field == "E_E_linha":
+            decimal_places = [
+                len(str(item.get("valor_original", "")).partition(".")[2].rstrip("0"))
+                for item in items
+            ]
+            if max(decimal_places, default=0) >= 2:
+                items = [item for item, places in zip(items, decimal_places) if places >= 2]
+        highest_confidence = max(float(item.get("confianca", 0)) for item in items)
+        selected.extend(
+            item
+            for item in items
+            if abs(float(item.get("confianca", 0)) - highest_confidence) < 0.001
+        )
+    return selected
+
+
+def _extract_candidates_from_region(
+    region: Image.Image,
+    *,
+    page: int,
+    region_name: str,
+) -> tuple[list[dict[str, Any]], list[str], Exception | None]:
+    collected: list[dict[str, Any]] = []
+    successful_passes: list[str] = []
+    last_error: Exception | None = None
+    for pass_name, variant, psm, confidence in _build_region_ocr_passes(region):
+        try:
+            text = _extract_text_with_tesseract(variant, psm=psm)
+        except Exception as exc:
+            last_error = exc
+            continue
+        candidates = extract_measurements_from_text(
+            text,
+            page=page,
+            source=f"ocr:{region_name}:{pass_name}",
+            confidence=confidence,
+        )
+        if candidates:
+            successful_passes.append(pass_name)
+            collected.extend(candidates)
+    return _keep_most_reliable_candidates(collected), successful_passes, last_error
+
+
+def _extract_candidates_from_image(image: Image.Image, *, page: int) -> tuple[list[dict[str, Any]], str]:
+    region_candidates: list[dict[str, Any]] = []
+    region_variants: list[str] = []
+    last_error: Exception | None = None
+    for region_name, region in _build_measurement_regions(image):
+        candidates, passes, region_error = _extract_candidates_from_region(
+            region,
+            page=page,
+            region_name=region_name,
+        )
+        region_candidates.extend(candidates)
+        region_variants.extend(f"{region_name}:{pass_name}" for pass_name in passes)
+        last_error = region_error or last_error
+
+    if region_candidates:
+        return _keep_most_reliable_candidates(region_candidates), ",".join(region_variants)
+
+    best_candidates: list[dict[str, Any]] = []
+    best_variant = ""
+    for variant_name, variant in _build_ocr_variants(image):
+        try:
+            text = _extract_text_with_tesseract(variant)
+        except Exception as exc:
+            last_error = exc
+            continue
+        candidates = extract_measurements_from_text(
+            text,
+            page=page,
+            source=f"ocr:{variant_name}",
+            confidence=0.82,
+        )
+        if len(candidates) > len(best_candidates):
+            best_candidates = candidates
+            best_variant = variant_name
+
+    if not best_candidates and last_error:
+        raise ValueError(str(last_error)) from last_error
+    return best_candidates, best_variant
+
+
+def _open_image(content: bytes) -> Image.Image:
+    try:
+        image = Image.open(io.BytesIO(content))
+        image.load()
+        return image
+    except Exception as exc:
+        raise ValueError("Nao foi possivel abrir a imagem do estudo.") from exc
+
+
+def _extract_pdf_text_pages(content: bytes) -> list[str]:
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise ValueError("Dependencia pypdf nao instalada no servidor.") from exc
+
+    try:
+        reader = PdfReader(io.BytesIO(content))
+    except Exception as exc:
+        raise ValueError("Nao foi possivel abrir o PDF do estudo.") from exc
+    if len(reader.pages) > MAX_ECO_STUDY_PDF_PAGES:
+        raise ValueError("PDF excede o limite de 20 paginas")
+    return [page.extract_text() or "" for page in reader.pages]
+
+
+def _render_pdf_pages(content: bytes) -> list[Image.Image]:
+    try:
+        import pypdfium2 as pdfium
+    except ImportError as exc:
+        raise ValueError("Dependencia pypdfium2 nao instalada no servidor.") from exc
+
+    try:
+        document = pdfium.PdfDocument(content)
+    except Exception as exc:
+        raise ValueError("Nao foi possivel renderizar o PDF do estudo.") from exc
+    if len(document) > MAX_ECO_STUDY_PDF_PAGES:
+        raise ValueError("PDF excede o limite de 20 paginas")
+
+    images: list[Image.Image] = []
+    for page in document:
+        bitmap = page.render(scale=2.2)
+        images.append(bitmap.to_pil())
+    return images
+
+
+def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict[str, Any]:
+    normalized_filename = validate_eco_study_filename(filename)
+    validate_eco_study_size(content)
+    extension = os.path.splitext(normalized_filename)[1].lower()
+    candidates: list[dict[str, Any]] = []
+    ocr_variants: dict[str, str] = {}
+    page_count = 1
+    header_payload: dict[str, Any] | None = None
+
+    if extension == ".pdf":
+        text_pages = _extract_pdf_text_pages(content)
+        page_count = len(text_pages)
+        if text_pages:
+            header_payload = parse_ge_vet_world_header_text(text_pages[0])
+        pages_needing_ocr: list[int] = []
+        for index, text in enumerate(text_pages, start=1):
+            page_candidates = extract_measurements_from_text(
+                text,
+                page=index,
+                source="pdf:text",
+                confidence=0.98,
+            )
+            candidates.extend(page_candidates)
+            if not page_candidates:
+                pages_needing_ocr.append(index)
+
+        if pages_needing_ocr:
+            rendered_pages = _render_pdf_pages(content)
+            if rendered_pages and not header_payload:
+                header_payload = _extract_ge_header_from_image(rendered_pages[0])
+            for page_number in pages_needing_ocr:
+                page_candidates, variant = _extract_candidates_from_image(
+                    rendered_pages[page_number - 1],
+                    page=page_number,
+                )
+                candidates.extend(page_candidates)
+                if variant:
+                    ocr_variants[str(page_number)] = variant
+    else:
+        image = _open_image(content)
+        header_payload = _extract_ge_header_from_image(image)
+        page_candidates, variant = _extract_candidates_from_image(image, page=1)
+        candidates.extend(page_candidates)
+        if variant:
+            ocr_variants["1"] = variant
+
+    measurements, consolidated, conflicts = consolidate_measurement_candidates(candidates)
+    if not consolidated:
+        raise ValueError("Nenhuma medida ecocardiografica reconhecida no estudo.")
+
+    default_patient = {
+        "nome": "",
+        "tutor": "",
+        "raca": "",
+        "especie": "",
+        "peso": "",
+        "idade": "",
+        "sexo": "",
+        "telefone": "",
+        "data_exame": "",
+    }
+    return {
+        "paciente": (header_payload or {}).get("paciente") or default_patient,
+        "medidas": measurements,
+        "medidas_extraidas": consolidated,
+        "clinica": (header_payload or {}).get("clinica", ""),
+        "veterinario_solicitante": (header_payload or {}).get("veterinario_solicitante", ""),
+        "fc": (header_payload or {}).get("fc", ""),
+        "meta_importacao_estudo": {
+            "formato": extension.lstrip("."),
+            "arquivo": normalized_filename,
+            "paginas": page_count,
+            "medidas_sugeridas": len(measurements),
+            "candidatos": len(consolidated),
+            "conflitos": conflicts,
+            "variantes_ocr": ocr_variants,
+            "perfil": (header_payload or {}).get("perfil", "generico"),
+        },
+    }

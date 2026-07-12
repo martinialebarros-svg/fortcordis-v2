@@ -16,6 +16,7 @@ from app.api.v1.endpoints import (
     auth,
     clinicas,
     configuracoes,
+    eco_study_import,
     financeiro,
     fiscal,
     frases_ecocardiograma_estruturado_teste,
@@ -62,6 +63,10 @@ from app.services.runtime_observability import record_http_request
 from app.services.xml_import_jobs import (
     restart_incomplete_xml_import_jobs,
     shutdown_xml_import_jobs,
+)
+from app.services.eco_study_import_jobs import (
+    restart_incomplete_eco_study_import_jobs,
+    shutdown_eco_study_import_jobs,
 )
 
 app = FastAPI(
@@ -387,6 +392,11 @@ app.include_router(laudos.router, prefix="/api/v1", tags=["laudos"])
 app.include_router(financeiro.router, prefix="/api/v1/financeiro", tags=["financeiro"])
 app.include_router(xml_import.router, prefix="/api/v1/xml", tags=["xml_import"])
 app.include_router(
+    eco_study_import.router,
+    prefix="/api/v1/eco-study-import",
+    tags=["eco_study_import"],
+)
+app.include_router(
     frases_ecocardiograma_estruturado_teste.router,
     prefix="/api/v1/frases-ecocardiograma-estruturado-teste",
     tags=["frases_ecocardiograma_estruturado_teste"],
@@ -416,6 +426,7 @@ def startup_schema_compatibility() -> None:
     validate_startup_or_raise()
     restart_incomplete_laudo_pdf_jobs()
     restart_incomplete_xml_import_jobs()
+    restart_incomplete_eco_study_import_jobs()
     start_upload_dedupe_cleanup_worker()
     start_push_scheduler_worker()
 
@@ -424,6 +435,7 @@ def startup_schema_compatibility() -> None:
 def shutdown_background_workers() -> None:
     shutdown_laudo_pdf_jobs()
     shutdown_xml_import_jobs()
+    shutdown_eco_study_import_jobs()
     shutdown_upload_dedupe_cleanup_worker()
     shutdown_push_scheduler_worker()
 
@@ -469,6 +481,7 @@ def _health_payload(report: dict) -> dict:
             "integrations": {
                 "google_maps_configured": report["integrations"].get("google_maps_configured"),
                 "web_push_configured": report["integrations"].get("web_push_configured"),
+                "eco_study_ocr": report["integrations"].get("eco_study_ocr"),
             },
             "observability": {
                 "http_5xx_monitor": report["observability"].get("http_5xx_monitor"),
