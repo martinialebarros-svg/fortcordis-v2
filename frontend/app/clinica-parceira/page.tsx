@@ -7,36 +7,34 @@ import {
   ClipboardList,
   Download,
   FileCheck2,
-  KeyRound,
-  ShieldCheck,
   UserCheck,
 } from "lucide-react";
 import PortalClinicaWorkspace from "@/components/portal/PortalClinicaWorkspace";
 
-const clinicRules = [
+const partnershipBenefits = [
   {
-    title: "Conta da unidade",
+    title: "Parceria que aproxima",
     description:
-      "A ativação nasce de um convite da Fort Cordis e vincula e-mail institucional e senha a uma unidade parceira.",
+      "A unidade parceira mantém acesso direto às informações dos pets atendidos em conjunto com a Fort Cordis.",
     icon: UserCheck,
   },
   {
-    title: "Permissão por unidade",
+    title: "Casos bem organizados",
     description:
-      "O backend filtra resultados pelo vínculo entre atendimento, pet, clínica parceira e unidade.",
+      "Resultados e documentos ficam reunidos por unidade, paciente e atendimento para facilitar a rotina da equipe.",
     icon: Building2,
   },
   {
-    title: "MFA em dados sensíveis",
+    title: "Consulta mais prática",
     description:
-      "Redefinição de senha, risco de acesso e ações sensíveis podem exigir uma segunda verificação.",
-    icon: KeyRound,
+      "Filtros e buscas ajudam a localizar exames com agilidade e a dar sequência ao cuidado na clínica.",
+    icon: ClipboardList,
   },
   {
-    title: "Auditoria completa",
+    title: "Acesso confiável",
     description:
-      "Visualização e download registram usuário, IP, horário, pet, exame e finalidade.",
-    icon: ClipboardList,
+      "Cada profissional consulta apenas os casos da unidade autorizada, com proteção adequada para dados clínicos.",
+    icon: FileCheck2,
   },
 ] as const;
 
@@ -63,27 +61,27 @@ export default function ClinicaParceiraPage() {
                 Clínicas parceiras
               </p>
               <h1>
-                Exames acessíveis para a unidade certa, no momento certo.
+                Uma parceria que dá continuidade ao cuidado de cada pet.
               </h1>
               <p className="fc-public-portal-lead">
-                O portal da clínica agiliza a consulta e o download sem abrir acesso amplo ao acervo
-                da Fort Cordis. A unidade ativa seu convite, confirma o e-mail institucional e
-                passa a ver apenas os pets atendidos sob sua responsabilidade.
+                O portal aproxima a clínica parceira da Fort Cordis, reúne exames e informações
+                dos pets atendidos na unidade e torna a rotina da equipe mais ágil, organizada e
+                bem acompanhada.
               </p>
               <div className="fc-public-portal-actions">
                 <a
-                  href="#governanca"
+                  href="#parceria"
                   className="fc-public-portal-primary"
                 >
-                  <ShieldCheck className="h-5 w-5" />
-                  Ver permissões
+                  <Building2 className="h-5 w-5" />
+                  Como funciona
                 </a>
                 <a
-                  href="#downloads"
+                  href="#resultados"
                   className="fc-public-portal-secondary"
                 >
                   <Download className="h-5 w-5" />
-                  Modelo de download
+                  Consultar resultados
                 </a>
               </div>
             </div>
@@ -93,23 +91,23 @@ export default function ClinicaParceiraPage() {
         </div>
       </section>
 
-      <section id="governanca" className="fc-public-portal-section fc-scroll-section">
+      <section id="parceria" className="fc-public-portal-section fc-scroll-section">
         <div className="fc-public-portal-inner">
           <div className="fc-public-portal-section-heading">
             <p className="fc-public-portal-eyebrow">
-              Governança de acesso
+              Experiência da clínica parceira
             </p>
             <h2>
-              Acesso rápido precisa de limite operacional claro.
+              Informação que flui para o atendimento continuar.
             </h2>
             <p className="mt-4 text-sm leading-6 text-slate-600">
-              O modelo combina convite aprovado pela Fort Cordis, e-mail institucional, senha,
-              MFA contextual e autorização por unidade no backend.
+              O portal organiza a troca de informações entre a Fort Cordis e a unidade parceira,
+              reduz etapas na consulta de exames e preserva o contexto de cada caso.
             </p>
           </div>
 
           <div className="fc-public-portal-feature-grid fc-public-portal-feature-grid-four">
-            {clinicRules.map(({ title, description, icon: Icon }) => (
+            {partnershipBenefits.map(({ title, description, icon: Icon }) => (
               <article key={title} className="fc-public-portal-feature">
                 <Icon className="h-7 w-7 text-rose-700" />
                 <h3 className="mt-5 text-lg font-bold text-slate-950">{title}</h3>
@@ -120,18 +118,18 @@ export default function ClinicaParceiraPage() {
         </div>
       </section>
 
-      <section id="downloads" className="fc-public-portal-band fc-public-portal-band-light fc-scroll-section">
+      <section id="resultados" className="fc-public-portal-band fc-public-portal-band-light fc-scroll-section">
         <div className="fc-public-portal-band-grid">
           <div>
             <p className="fc-public-portal-eyebrow">
-              Download de exames
+              Resultados e documentos
             </p>
             <h2 className="mt-3 text-3xl font-bold text-slate-950 sm:text-4xl">
-              O portal solicita. O sistema Fort Cordis autoriza.
+              O que a equipe precisa, organizado em um só lugar.
             </h2>
             <p className="mt-4 text-sm leading-6 text-slate-600">
-              A clínica não deve receber um link permanente. O backend valida o escopo, gera uma URL
-              temporária para o arquivo e registra o evento.
+              A clínica encontra os exames dos pets atendidos na unidade, consulta documentos e
+              mantém as informações importantes disponíveis para conduzir os próximos passos.
             </p>
           </div>
 
@@ -139,7 +137,7 @@ export default function ClinicaParceiraPage() {
             {[
               "Busca por protocolo, pet ou tutor somente dentro da unidade autorizada.",
               "Visão panorâmica com filtros por pet, tutor, espécie, tipo de exame e período.",
-              "URL assinada com expiração curta, sem token em query string exposto em logs internos.",
+              "Laudos e documentos disponíveis no portal, com acesso protegido para a equipe responsável.",
             ].map((item) => (
               <div key={item} className="flex gap-3 rounded-lg border border-slate-200 bg-white p-4">
                 <FileCheck2 className="mt-0.5 h-5 w-5 shrink-0 text-teal-700" />
@@ -154,11 +152,12 @@ export default function ClinicaParceiraPage() {
         <div className="fc-public-portal-callout">
           <BadgeCheck className="h-8 w-8 text-amber-700" />
           <h2 className="mt-5 text-2xl font-bold text-slate-950">
-            Clínica parceira não precisa ver tudo para trabalhar melhor.
+            Quando a informação flui, o cuidado continua.
           </h2>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-            O acesso ideal mostra apenas o necessário para a continuidade do atendimento, reduzindo
-            risco jurídico, vazamento de dados e retrabalho operacional.
+            A integração reduz a busca por documentos, aproxima as equipes e ajuda a clínica
+            parceira a orientar o tutor com mais contexto. Cada unidade acessa somente os casos sob
+            sua responsabilidade.
           </p>
         </div>
       </section>

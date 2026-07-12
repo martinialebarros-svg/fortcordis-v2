@@ -6,29 +6,27 @@ import {
   Download,
   FileHeart,
   HeartPulse,
-  LockKeyhole,
   MessageCircle,
-  Smartphone,
 } from "lucide-react";
 import PortalTutorWorkspace from "@/components/portal/PortalTutorWorkspace";
 
-const tutorAccess = [
+const tutorExperience = [
   {
-    title: "Entrada por link seguro",
+    title: "Orientação desde o início",
     description:
-      "O tutor recebe um código temporário no e-mail cadastrado e confirma o acesso antes de visualizar dados do pet.",
-    icon: Smartphone,
+      "Informações práticas ajudam o tutor a se preparar para o exame e a compartilhar mudanças importantes na saúde do pet.",
+    icon: CalendarHeart,
   },
   {
-    title: "Permissão por pet",
+    title: "Histórico bem organizado",
     description:
-      "A API libera apenas pets vinculados ao tutor e ao atendimento, sem listar dados por busca aberta.",
+      "Orientações, atendimentos e documentos ficam reunidos para facilitar o acompanhamento cardiológico ao longo do tempo.",
     icon: FileHeart,
   },
   {
-    title: "Download temporário",
+    title: "Resultados ao alcance",
     description:
-      "Laudos e exames são baixados por URLs assinadas, com expiração curta e registro de auditoria.",
+      "Laudos e exames liberados pela Fort Cordis podem ser consultados no portal de forma simples e confiável.",
     icon: Download,
   },
 ] as const;
@@ -62,20 +60,20 @@ export default function AreaPacientesPage() {
                 Área do tutor
               </p>
               <h1>
-                Informações do pet e exames com acesso simples, mas protegido.
+                Mais clareza para acompanhar o cuidado cardiológico do seu pet.
               </h1>
               <p className="fc-public-portal-lead">
-                O portal do tutor deve reunir histórico cardiológico, orientações do atendimento
-                e download de documentos liberados pela Fort Cordis, sem expor dados sensíveis em
-                links permanentes ou anexos enviados por mensagem.
+                O portal do tutor reúne orientações do atendimento, histórico cardiológico e
+                documentos liberados pela Fort Cordis para você participar de cada etapa com mais
+                tranquilidade e segurança.
               </p>
               <div className="fc-public-portal-actions">
                 <a
-                  href="#acesso"
+                  href="#acompanhamento"
                   className="fc-public-portal-primary"
                 >
-                  <LockKeyhole className="h-5 w-5" />
-                  Ver modelo de acesso
+                  <HeartPulse className="h-5 w-5" />
+                  Como acompanhamos
                 </a>
                 <a
                   href="#saude-pet"
@@ -92,18 +90,18 @@ export default function AreaPacientesPage() {
         </div>
       </section>
 
-      <section id="acesso" className="fc-public-portal-section fc-scroll-section">
+      <section id="acompanhamento" className="fc-public-portal-section fc-scroll-section">
         <div className="fc-public-portal-inner">
           <div className="fc-public-portal-section-heading">
             <p className="fc-public-portal-eyebrow">
-              Acesso recomendado
+              Experiência do tutor
             </p>
             <h2>
-              Rápido para o tutor, restrito para o dado sensível.
+              Informação organizada para cuidar com mais confiança.
             </h2>
           </div>
           <div className="fc-public-portal-feature-grid fc-public-portal-feature-grid-three">
-            {tutorAccess.map(({ title, description, icon: Icon }) => (
+            {tutorExperience.map(({ title, description, icon: Icon }) => (
               <article key={title} className="fc-public-portal-feature">
                 <Icon className="h-7 w-7 text-teal-700" />
                 <h3 className="mt-5 text-lg font-bold text-slate-950">{title}</h3>
@@ -139,11 +137,12 @@ export default function AreaPacientesPage() {
         <div className="fc-public-portal-callout">
           <MessageCircle className="h-8 w-8 text-rose-700" />
           <h2 className="mt-5 text-2xl font-bold text-slate-950">
-            Notificações podem ser simples. Dados clínicos, não.
+            O cuidado de qualidade continua depois do exame.
           </h2>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-            O canal ideal avisa que existe resultado disponível e leva o tutor ao login seguro.
-            O PDF, imagens e dados do pet permanecem protegidos dentro do sistema Fort Cordis.
+            Acompanhar orientações, manter o histórico por perto e chegar preparado aos retornos
+            faz diferença. O portal facilita essa rotina e mantém os dados clínicos protegidos no
+            sistema Fort Cordis.
           </p>
         </div>
       </section>

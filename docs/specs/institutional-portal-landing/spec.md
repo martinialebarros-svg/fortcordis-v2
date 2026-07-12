@@ -20,6 +20,9 @@ Criar a experiencia institucional inicial da Fort Cordis no frontend Next.js. A 
 - RF-008: as paginas publicas nao devem implementar download fake, token estatico ou exposicao de dado real.
 - RF-009: links para secoes da mesma pagina devem usar rolagem suave e manter margem visual no destino.
 - RF-010: textos publicos em portugues devem preservar acentos, cedilhas e grafia adequada.
+- RF-011: a copy institucional deve priorizar qualidade do servico, clareza das orientacoes,
+  integracao com clinicas parceiras e continuidade do cuidado; seguranca permanece como camada de
+  confianca, sem dominar a proposta de valor.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -92,6 +95,8 @@ Regras recomendadas:
 - CA-006: build do frontend passa sem erro.
 - CA-007: verificacao visual em desktop e mobile nao mostra hero quebrado, texto sobreposto ou asset ausente.
 - CA-008: navegacao por ancora e animacoes sao suaves, sem overflow, e a copy publica auditada da home, area do tutor e clinica parceira nao exibe palavras sem diacriticos necessarios.
+- CA-009: home, area do tutor e clinica parceira apresentam primeiro os beneficios do servico e
+  reservam a linguagem de protecao de dados para pontos de apoio da jornada.
 
 ## 7) Casos de borda
 
@@ -109,3 +114,14 @@ Regras recomendadas:
 - Ativacao de WhatsApp no portal antes da aprovacao da API Business pela Meta.
 - Criacao de storage, signed URLs ou politica RLS.
 - Deploy em producao.
+
+## 9) Refinamento de copy - 2026-07-12
+
+- O hero institucional passa a apresentar atencao em cada etapa, clareza para tutores e parceria
+  com as clinicas como proposta principal da Fort Cordis.
+- Indicadores de LGPD, MFA e auditoria deixam de ocupar a faixa de destaque e sao substituidos por
+  clareza, integracao e continuidade.
+- A secao antes dedicada a seguranca passa a explicar a qualidade percebida antes, durante e depois
+  do exame, mantendo a protecao de dados como requisito de confianca.
+- As paginas de tutor e clinica parceira deixam de expor detalhes internos de implementacao e passam
+  a comunicar orientacao, organizacao do historico, acesso a resultados e continuidade do cuidado.

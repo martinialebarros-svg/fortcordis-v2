@@ -11,8 +11,6 @@ import {
   Download,
   FileHeart,
   HeartPulse,
-  LockKeyhole,
-  MailCheck,
   ShieldCheck,
   Smartphone,
   Stethoscope,
@@ -47,9 +45,9 @@ function getPortalLinks(host: string) {
   return [
     {
       title: "Portal do tutor",
-      eyebrow: "Pets e exames",
+      eyebrow: "Cuidado que continua",
       description:
-        "Acesso aos dados do pet, orientações do atendimento e downloads autorizados de exames.",
+        "Orientações, histórico e resultados reunidos para acompanhar a saúde cardiológica do pet com mais clareza.",
       href: "/area-pacientes",
       action: "Acessar como tutor",
       icon: UserRound,
@@ -57,9 +55,9 @@ function getPortalLinks(host: string) {
     },
     {
       title: "Clínica parceira",
-      eyebrow: "Unidades autorizadas",
+      eyebrow: "Cuidado em parceria",
       description:
-        "Consulta de exames dos pets atendidos na unidade, com permissão por clínica e trilha de auditoria.",
+        "Exames e informações organizados para apoiar a rotina da unidade e a continuidade de cada atendimento.",
       href: "/clinica-parceira",
       action: "Acessar como clínica",
       icon: Building2,
@@ -67,9 +65,9 @@ function getPortalLinks(host: string) {
     },
     {
       title: "Sistema Fort Cordis",
-      eyebrow: "Equipe interna",
+      eyebrow: "Operação integrada",
       description:
-        "Operação administrativa, agenda, atendimento, laudos e relatórios no ambiente integrado.",
+        "Agenda, atendimento, laudos e gestão conectados para a equipe dedicar mais atenção ao cuidado.",
       href: `https://${appHost}/`,
       action: "Abrir sistema",
       icon: ShieldCheck,
@@ -80,16 +78,16 @@ function getPortalLinks(host: string) {
 
 const trustItems = [
   {
-    value: "LGPD",
-    label: "privacidade desde o acesso",
+    value: "Clareza",
+    label: "orientações e resultados fáceis de acompanhar",
   },
   {
-    value: "MFA",
-    label: "dupla verificação para dados sensíveis",
+    value: "Integração",
+    label: "tutores, clínicas e equipe conectados",
   },
   {
-    value: "Auditoria",
-    label: "registro de acessos e downloads",
+    value: "Continuidade",
+    label: "informação que acompanha cada caso",
   },
 ] as const;
 
@@ -115,54 +113,54 @@ const tutorTips = [
   {
     title: "Resultados",
     description:
-      "Baixe laudos apenas pelo portal autenticado; notificações não devem carregar anexos sensíveis.",
+      "Consulte laudos e orientações no portal e mantenha o histórico do pet disponível para os próximos cuidados.",
     icon: Download,
   },
 ] as const;
 
-const accessFlows = [
+const careJourneys = [
   {
     title: "Tutores",
     description:
-      "Acesso sem senha permanente, usando código temporário enviado ao e-mail cadastrado.",
+      "Mais clareza para entender cada etapa e participar ativamente do cuidado com o pet.",
     icon: Smartphone,
     steps: [
-      "Identificação pelo cadastro do atendimento ou convite enviado pela Fort Cordis.",
-      "Confirmação por código temporário via e-mail nesta fase preliminar.",
-      "Downloads liberados por pet, com URL assinada e expiração curta.",
+      "Orientações para chegar mais preparado ao atendimento.",
+      "Histórico, resultados e recomendações reunidos em um só lugar.",
+      "Acompanhamento mais simples entre exames e retornos.",
     ],
   },
   {
     title: "Clínicas parceiras",
     description:
-      "Acesso por usuário nominal da unidade, com permissões por clínica, profissional e atendimento.",
+      "Uma parceria mais fluida para consultar casos e dar sequência ao atendimento na unidade.",
     icon: BadgeCheck,
     steps: [
-      "Convite aprovado pela equipe Fort Cordis para CNPJ e unidade específicos.",
-      "MFA obrigatório para laudos e exames, com sessão curta em dispositivo novo.",
-      "Visualização limitada aos pacientes atendidos naquela unidade.",
+      "Casos e documentos organizados por unidade e paciente.",
+      "Busca prática de exames e informações relevantes para a equipe.",
+      "Continuidade do cuidado com acesso confiável e permissões adequadas.",
     ],
   },
 ] as const;
 
-const integrationRules = [
+const servicePrinciples = [
   {
-    title: "Sem anexos expostos",
+    title: "Atenção em cada etapa",
     description:
-      "E-mails avisam que há resultado disponível, mas o arquivo fica no sistema Fort Cordis.",
-    icon: MailCheck,
+      "Orientações antes, durante e depois do exame ajudam tutores e clínicas a se sentirem bem acompanhados.",
+    icon: HeartPulse,
   },
   {
-    title: "Autorização no backend",
+    title: "Informação clara",
     description:
-      "O frontend solicita o exame, mas a API decide se tutor ou clínica pode acessar aquele pet.",
-    icon: LockKeyhole,
-  },
-  {
-    title: "Consentimento e log",
-    description:
-      "Cada acesso guarda usuário, unidade, pet, exame, horário e finalidade de consulta.",
+      "Resultados e recomendações são apresentados de forma organizada para facilitar os próximos passos do cuidado.",
     icon: FileHeart,
+  },
+  {
+    title: "Continuidade do cuidado",
+    description:
+      "Tutores, clínicas parceiras e equipe Fort Cordis compartilham o contexto necessário para acompanhar cada caso.",
+    icon: BadgeCheck,
   },
 ] as const;
 
@@ -213,8 +211,8 @@ function InstitutionalLanding({ host }: { host: string }) {
             <Link className="rounded-lg px-3 py-2 transition hover:bg-white/10" href="#dicas">
               Saúde pet
             </Link>
-            <Link className="rounded-lg px-3 py-2 transition hover:bg-white/10" href="#seguranca">
-              Segurança
+            <Link className="rounded-lg px-3 py-2 transition hover:bg-white/10" href="#qualidade">
+              Nossa qualidade
             </Link>
           </nav>
         </header>
@@ -229,8 +227,8 @@ function InstitutionalLanding({ host }: { host: string }) {
               Fort Cordis
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-100 sm:text-xl">
-              Informação clara para tutores, acesso controlado para clínicas parceiras e
-              continuidade do cuidado cardiológico em um ambiente preparado para dados sensíveis.
+              Cuidado cardiológico veterinário com atenção em cada etapa, informação clara para
+              tutores e uma parceria próxima com as clínicas que acompanham cada pet.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link
@@ -304,24 +302,24 @@ function InstitutionalLanding({ host }: { host: string }) {
         </div>
       </section>
 
-      <section id="seguranca" className="fc-scroll-section bg-slate-950 px-5 py-16 text-white sm:px-8 lg:py-20">
+      <section id="qualidade" className="fc-scroll-section bg-slate-950 px-5 py-16 text-white sm:px-8 lg:py-20">
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-200">
-              Acesso seguro e ágil
+              Qualidade no atendimento
             </p>
             <h2 className="mt-3 font-[family-name:var(--font-display)] text-4xl font-semibold tracking-normal sm:text-5xl">
-              O arquivo fica protegido. O acesso fica simples.
+              Um cuidado bem conduzido antes, durante e depois do exame.
             </h2>
             <p className="mt-5 text-base leading-7 text-slate-300">
-              A melhor experiência combina login sem atrito com autorização rigorosa no backend.
-              O tutor não precisa decorar senha, a clínica não acessa casos de outra unidade e
-              cada download deixa rastro auditável.
+              A qualidade do serviço também está na experiência: orientar com clareza, organizar
+              as informações do caso e facilitar a continuidade do atendimento. Tudo isso em um
+              ambiente confiável, com acessos adequados para tutores e clínicas parceiras.
             </p>
           </div>
 
           <div className="grid gap-5 md:grid-cols-2">
-            {accessFlows.map(({ title, description, icon: Icon, steps }) => (
+            {careJourneys.map(({ title, description, icon: Icon, steps }) => (
               <article key={title} className="rounded-lg border border-white/15 bg-white/[0.06] p-6">
                 <Icon className="h-8 w-8 text-teal-200" />
                 <h3 className="mt-5 font-[family-name:var(--font-display)] text-3xl font-semibold">
@@ -377,19 +375,19 @@ function InstitutionalLanding({ host }: { host: string }) {
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[1fr_1fr] lg:items-center">
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.18em] text-amber-700">
-              Integração Fort Cordis
+              Experiência Fort Cordis
             </p>
             <h2 className="mt-3 font-[family-name:var(--font-display)] text-4xl font-semibold tracking-normal text-slate-950 sm:text-5xl">
-              Um portal público conectado sem expor informação sensível.
+              Tecnologia a serviço de um atendimento bem acompanhado.
             </h2>
             <p className="mt-5 text-base leading-7 text-slate-600">
-              A landing page apresenta a empresa e direciona para fluxos autenticados. A entrega
-              de laudos, imagens e documentos deve permanecer atrás da API do Fort Cordis, com
-              checagem de vínculo entre tutor, pet, atendimento, clínica e unidade.
+              O portal aproxima tutores, clínicas parceiras e a equipe Fort Cordis. Ele organiza
+              orientações, laudos e o histórico de cada caso para que a informação certa esteja
+              disponível no momento certo, com a proteção que dados clínicos exigem.
             </p>
           </div>
           <div className="grid gap-4">
-            {integrationRules.map(({ title, description, icon: Icon }) => (
+            {servicePrinciples.map(({ title, description, icon: Icon }) => (
               <article key={title} className="flex gap-4 rounded-lg border border-slate-200 p-5">
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-800">
                   <Icon className="h-6 w-6" />
@@ -407,7 +405,7 @@ function InstitutionalLanding({ host }: { host: string }) {
       <footer className="border-t border-slate-200 bg-white px-5 py-8 sm:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
           <p className="font-semibold text-slate-950">Fort Cordis</p>
-          <p>Cardiologia veterinária, informação segura e continuidade do cuidado.</p>
+          <p>Cardiologia veterinária com clareza, proximidade e continuidade do cuidado.</p>
         </div>
       </footer>
     </main>
