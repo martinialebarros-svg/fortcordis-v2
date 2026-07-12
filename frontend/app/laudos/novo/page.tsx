@@ -13,6 +13,7 @@ import {
 import XmlUploader from "../components/XmlUploader";
 import ImageHeaderUploader from "../components/ImageHeaderUploader";
 import ImageUploader from "../components/ImageUploader";
+import EcoStudyImportUploader from "../components/EcoStudyImportUploader";
 import EcocardiogramaEstruturadoEditor from "../components/EcocardiogramaEstruturadoEditor";
 import EcocardiogramaEstruturadoBiblioteca from "../components/EcocardiogramaEstruturadoBiblioteca";
 import { Save, ArrowLeft, Heart, User, Activity, BookOpen, Settings, Image as ImageIcon, Minus, Plus, FolderOpen } from "lucide-react";
@@ -751,7 +752,7 @@ export default function NovoLaudoPage() {
     
     if (dados.medidas) {
       const medidasFormatadas = mapearCamposMedidas(dados.medidas);
-      setMedidas(medidasFormatadas);
+      setMedidas((anteriores) => ({ ...anteriores, ...medidasFormatadas }));
     } else {
     }
 
@@ -988,6 +989,19 @@ export default function NovoLaudoPage() {
               </div>
             ) : (
               <>
+                <div className="fc-report-editor-side-card">
+                  <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <ImageIcon className="w-5 h-5 text-teal-600" />
+                    Importar Estudo (Imagem/PDF)
+                  </h2>
+
+                  <EcoStudyImportUploader onDadosImportados={handleDadosImportados} />
+
+                  <div className="mt-4 rounded-lg bg-teal-50 p-3 text-sm text-teal-900">
+                    Revise as medidas reconhecidas antes de aplica-las. Valores conflitantes permanecem fora do formulario.
+                  </div>
+                </div>
+
                 <div className="fc-report-editor-side-card">
                   <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                     <Activity className="w-5 h-5 text-teal-600" />

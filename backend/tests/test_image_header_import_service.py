@@ -22,6 +22,7 @@ from app.services.image_header_import_service import (  # noqa: E402
     parse_image_header_import_content,
     parse_image_header_text,
 )
+from app.services.tesseract_runtime import resolve_tesseract_command  # noqa: E402
 
 
 def _build_png_bytes() -> bytes:
@@ -31,6 +32,24 @@ def _build_png_bytes() -> bytes:
 
 
 class ImageHeaderImportServiceTest(unittest.TestCase):
+    def test_resolves_system_tesseract_when_service_path_is_restricted(self) -> None:
+        def is_file(path: str) -> bool:
+            return path == "/usr/bin/tesseract"
+
+        with patch.dict(
+            os.environ,
+            {
+                "PATH": "/opt/fortcordis/backend/venv/bin",
+                "TESSERACT_CMD": "tesseract",
+            },
+        ):
+            with patch("app.services.tesseract_runtime.shutil.which", return_value=None):
+                with patch("app.services.tesseract_runtime.os.path.isfile", side_effect=is_file):
+                    with patch("app.services.tesseract_runtime.os.access", return_value=True):
+                        command = resolve_tesseract_command()
+
+        self.assertEqual(command, "/usr/bin/tesseract")
+
     def test_parse_image_header_text_extracts_expected_fields(self) -> None:
         text = """
         Ultrassonografia
@@ -107,4 +126,3 @@ class ImageHeaderImportServiceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
