@@ -1827,7 +1827,7 @@ export default function AgendaPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6">
+      <div className="fc-agenda-page">
         {toastRealtime && (
           <div className="fixed right-4 top-4 z-[70]">
             <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-xs shadow-lg ${toastRealtime.classe}`}>
@@ -1846,19 +1846,23 @@ export default function AgendaPage() {
         )}
 
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+        <div className="fc-agenda-header">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Agenda</h1>
-            <p className="text-gray-500">Gerencie os agendamentos</p>
+            <span className="fc-agenda-kicker">
+              <Calendar className="h-4 w-4" />
+              Central de agenda
+            </span>
+            <h1>Fluxo clínico</h1>
+            <p>Organize horários, deslocamentos e etapas do atendimento em uma única visão.</p>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="fc-agenda-header-actions">
             <button
               type="button"
               onClick={abrirAgendaFullCalendar}
-              className="flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-700 transition-colors hover:bg-gray-50"
+              className="fc-agenda-button-secondary"
             >
               <Calendar className="h-4 w-4" />
-              Ver FullCalendar
+              Calendário completo
             </button>
             <button
               onClick={() => {
@@ -1866,7 +1870,7 @@ export default function AgendaPage() {
                 setSlotSelecionado(null);
                 setModalAberto(true);
               }}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="fc-agenda-button-primary"
             >
               <Plus className="w-4 h-4" />
               Novo Agendamento
@@ -1875,52 +1879,53 @@ export default function AgendaPage() {
         </div>
 
         <div
-          className={`mb-4 rounded-lg border px-4 py-2 text-xs ${
+          className={`fc-agenda-livebar ${
             realtimeConectado
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : "border-amber-200 bg-amber-50 text-amber-800"
+              ? "fc-agenda-livebar-online"
+              : "fc-agenda-livebar-warning"
           }`}
         >
+          <span className="fc-agenda-live-dot" />
           Tempo real: {realtimeConectado ? "conectado" : "reconectando..."}
           {realtimeUltimoEvento ? ` | Ultimo evento: ${realtimeUltimoEvento}` : ""}
           {mensagemRealtime ? ` | ${mensagemRealtime}` : ""}
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-7 gap-3 mb-6">
-          <div className="bg-white p-3 rounded-lg shadow-sm border">
-            <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
-            <div className="text-xs text-gray-500">Total</div>
+        <div className="fc-agenda-stats">
+          <div className="fc-agenda-stat fc-agenda-stat-ink">
+            <div className="fc-agenda-stat-value">{stats.total}</div>
+            <div className="fc-agenda-stat-label">Total</div>
           </div>
-          <div className="bg-white p-3 rounded-lg shadow-sm border">
-            <div className="text-2xl font-bold text-blue-600">{stats.agendado}</div>
-            <div className="text-xs text-gray-500">Agendados</div>
+          <div className="fc-agenda-stat fc-agenda-stat-sky">
+            <div className="fc-agenda-stat-value">{stats.agendado}</div>
+            <div className="fc-agenda-stat-label">Agendados</div>
           </div>
-          <div className="bg-white p-3 rounded-lg shadow-sm border">
-            <div className="text-2xl font-bold text-amber-600">{stats.reservado}</div>
-            <div className="text-xs text-gray-500">Reservados</div>
+          <div className="fc-agenda-stat fc-agenda-stat-amber">
+            <div className="fc-agenda-stat-value">{stats.reservado}</div>
+            <div className="fc-agenda-stat-label">Reservados</div>
           </div>
-          <div className="bg-white p-3 rounded-lg shadow-sm border">
-            <div className="text-2xl font-bold text-green-600">{stats.confirmado}</div>
-            <div className="text-xs text-gray-500">Confirmados</div>
+          <div className="fc-agenda-stat fc-agenda-stat-vital">
+            <div className="fc-agenda-stat-value">{stats.confirmado}</div>
+            <div className="fc-agenda-stat-label">Confirmados</div>
           </div>
-          <div className="bg-white p-3 rounded-lg shadow-sm border">
-            <div className="text-2xl font-bold text-yellow-600">{stats.emAtendimento}</div>
-            <div className="text-xs text-gray-500">Em Atend.</div>
+          <div className="fc-agenda-stat fc-agenda-stat-gold">
+            <div className="fc-agenda-stat-value">{stats.emAtendimento}</div>
+            <div className="fc-agenda-stat-label">Em atendimento</div>
           </div>
-          <div className="bg-white p-3 rounded-lg shadow-sm border">
-            <div className="text-2xl font-bold text-emerald-600">{stats.realizado}</div>
-            <div className="text-xs text-gray-500">Realizados</div>
+          <div className="fc-agenda-stat fc-agenda-stat-emerald">
+            <div className="fc-agenda-stat-value">{stats.realizado}</div>
+            <div className="fc-agenda-stat-label">Realizados</div>
           </div>
-          <div className="bg-white p-3 rounded-lg shadow-sm border">
-            <div className="text-2xl font-bold text-red-600">{stats.cancelado}</div>
-            <div className="text-xs text-gray-500">Cancelados</div>
+          <div className="fc-agenda-stat fc-agenda-stat-cordis">
+            <div className="fc-agenda-stat-value">{stats.cancelado}</div>
+            <div className="fc-agenda-stat-label">Cancelados</div>
           </div>
         </div>
 
         {isAdmin && modoVisualizacao === "lista" && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <div className="bg-white p-4 rounded-lg border shadow-sm">
+            <div className="fc-agenda-finance-card fc-agenda-finance-card-vital">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-500">
@@ -1945,7 +1950,7 @@ export default function AgendaPage() {
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-lg border shadow-sm">
+            <div className="fc-agenda-finance-card fc-agenda-finance-card-sky">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-500">
@@ -1982,25 +1987,25 @@ export default function AgendaPage() {
           </div>
         )}
 
-        <div className="bg-white p-4 rounded-lg shadow-sm border mb-6">
+        <div className="fc-agenda-filters">
           <div className="flex flex-col gap-4">
-            <div className="flex flex-col xl:flex-row gap-3 xl:items-center">
-            <div className="flex items-center bg-gray-100 rounded-lg p-1">
+            <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center">
+            <div className="fc-agenda-view-tabs">
               <button
                 onClick={() => setModoVisualizacao("lista")}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${modoVisualizacao === "lista" ? "bg-white text-gray-900 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+                className={`fc-agenda-view-tab ${modoVisualizacao === "lista" ? "fc-agenda-view-tab-active" : ""}`}
               >
                 Lista
               </button>
               <button
                 onClick={() => setModoVisualizacao("panoramica-dia")}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${modoVisualizacao === "panoramica-dia" ? "bg-white text-gray-900 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+                className={`fc-agenda-view-tab ${modoVisualizacao === "panoramica-dia" ? "fc-agenda-view-tab-active" : ""}`}
               >
                 Panoramica Dia
               </button>
               <button
                 onClick={() => setModoVisualizacao("panoramica-semana")}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${modoVisualizacao === "panoramica-semana" ? "bg-white text-gray-900 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+                className={`fc-agenda-view-tab ${modoVisualizacao === "panoramica-semana" ? "fc-agenda-view-tab-active" : ""}`}
               >
                 Panoramica Semana
               </button>
@@ -2206,14 +2211,14 @@ export default function AgendaPage() {
           </div>
 
           {/* Chips de status */}
-          <div className="flex gap-2 mt-4 overflow-x-auto pb-1">
+          <div className="fc-agenda-status-strip">
             {AGENDA_STATUS_LIST.map((status) => {
               const count = agendamentos.filter(a => a.status === status).length;
               return (
                 <button
                   key={status}
                   onClick={() => setFiltroStatus(filtroStatus === status ? "todos" : status)}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap border ${
+                  className={`fc-agenda-status-chip ${
                     filtroStatus === status
                       ? getStatusColor(status)
                       : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
@@ -2227,17 +2232,21 @@ export default function AgendaPage() {
         </div>
 
         {modoVisualizacao === "lista" ? (
-        <div className="bg-white shadow rounded-lg overflow-hidden border">
+        <div className="fc-agenda-list">
           {agendamentosFiltrados.length === 0 ? (
-            <div className="p-12 text-center">
-              <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500 text-lg">
+            <div className="fc-agenda-empty">
+              <div className="fc-agenda-empty-icon">
+                <Calendar className="h-6 w-6" />
+              </div>
+              <span>Agenda em repouso</span>
+              <p>
                 {busca ? "Nenhum agendamento encontrado para a busca" : "Nenhum agendamento para esta data"}
               </p>
               <button
                 onClick={() => { setAgendamentoEditando(null); setSlotSelecionado(null); setModalAberto(true); }}
-                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                className="fc-agenda-button-primary mt-5"
               >
+                <Plus className="h-4 w-4" />
                 Criar Agendamento
               </button>
             </div>
@@ -2266,7 +2275,7 @@ export default function AgendaPage() {
                 const podeAbrirGoogleMaps = Boolean(montarGoogleMapsDestinoLocal(destinoNavegacao));
                 
                 return (
-                  <div key={ag.id} className="p-5 hover:bg-gray-50 transition-colors">
+                  <div key={ag.id} className="fc-agenda-list-row">
                     <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
                       {/* Info Principal */}
                       <div className="flex-1">

@@ -240,9 +240,9 @@ export default function ConfiguracoesPage() {
   const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState(false);
 
-  // ConfiguraÃ§Ãµes da empresa
+  // Configurações da empresa
   const [configEmpresa, setConfigEmpresa] = useState<ConfiguracoesSistema>({
-    nome_empresa: "Fort Cordis Cardiologia VeterinÃ¡ria",
+    nome_empresa: "Fort Cordis Cardiologia Veterinária",
     endereco: "",
     telefone: "",
     email: "",
@@ -251,7 +251,7 @@ export default function ConfiguracoesPage() {
     website: "",
     tem_logomarca: false,
     tem_assinatura: false,
-    texto_rodape_laudo: "Fort Cordis Cardiologia VeterinÃ¡ria | Fortaleza-CE",
+    texto_rodape_laudo: "Fort Cordis Cardiologia Veterinária | Fortaleza-CE",
     mostrar_logomarca: true,
     mostrar_assinatura: true,
     fortinho_habilitado: false,
@@ -266,7 +266,7 @@ export default function ConfiguracoesPage() {
     codigo_municipio_servico: "",
   });
 
-  // ConfiguraÃ§Ãµes do usuÃ¡rio
+  // Configurações do usuário
   const [configUsuario, setConfigUsuario] = useState<ConfiguracoesUsuario>({
     tema: "light",
     idioma: "pt-BR",
@@ -928,9 +928,9 @@ export default function ConfiguracoesPage() {
         agenda_excecoes: payload.agenda_excecoes,
         agenda_rota_regras: payload.agenda_rota_regras,
       }));
-      alert("ConfiguraÃ§Ãµes da empresa salvas com sucesso!");
+      alert("Configurações da empresa salvas com sucesso!");
     } catch (error) {
-      alert("Erro ao salvar configuraÃ§Ãµes da empresa.");
+      alert("Erro ao salvar configurações da empresa.");
     } finally {
       setSalvando(false);
     }
@@ -1127,9 +1127,9 @@ export default function ConfiguracoesPage() {
       await api.put("/configuracoes/usuario", proximaConfig);
       await syncPushNotificationsNow(false);
       requestPushSync(proximaConfig.notificacoes_push);
-      alert("ConfiguraÃ§Ãµes pessoais salvas com sucesso!");
+      alert("Configurações pessoais salvas com sucesso!");
     } catch (error) {
-      alert("Erro ao salvar configuraÃ§Ãµes pessoais.");
+      alert("Erro ao salvar configurações pessoais.");
     } finally {
       setSalvando(false);
     }
@@ -1140,7 +1140,7 @@ export default function ConfiguracoesPage() {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      alert("Arquivo muito grande. MÃ¡ximo: 5MB");
+      alert("Arquivo muito grande. Máximo: 5MB");
       return;
     }
 
@@ -1167,7 +1167,7 @@ export default function ConfiguracoesPage() {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      alert("Arquivo muito grande. MÃ¡ximo: 5MB");
+      alert("Arquivo muito grande. Máximo: 5MB");
       return;
     }
 
@@ -1193,7 +1193,7 @@ export default function ConfiguracoesPage() {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      alert("Arquivo muito grande. MÃ¡ximo: 5MB");
+      alert("Arquivo muito grande. Máximo: 5MB");
       return;
     }
 
@@ -1247,65 +1247,72 @@ export default function ConfiguracoesPage() {
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="p-6 text-center">Carregando configuraÃ§Ãµes...</div>
+        <div className="fc-settings-page">
+          <div className="fc-settings-loading">
+            <span aria-hidden="true" />
+            Carregando configurações...
+          </div>
+        </div>
       </DashboardLayout>
     );
   }
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Settings className="w-6 h-6" />
-            ConfiguraÃ§Ãµes
-          </h1>
-          <p className="text-gray-500">Gerencie as configuraÃ§Ãµes do sistema e sua conta</p>
+      <div className="fc-settings-page">
+        <div className="fc-settings-header">
+          <div>
+            <span className="fc-settings-kicker">
+              <Settings className="h-4 w-4" />
+              Governança do sistema
+            </span>
+            <h1>Configurações</h1>
+            <p>Gerencie identidade, operação, preferências e acessos da Fort Cordis.</p>
+          </div>
+          <div className="fc-settings-context">
+            <Shield className="h-5 w-5" />
+            <span>Área atual</span>
+            <strong>{aba === "empresa" ? "Empresa" : aba === "usuario" ? "Minha conta" : "Usuários"}</strong>
+          </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-2 mb-6 border-b">
+        <div className="fc-settings-tabs" role="tablist" aria-label="Áreas de configuração">
           <button
+            type="button"
+            role="tab"
+            aria-selected={aba === "empresa"}
             onClick={() => setAba("empresa")}
-            className={`px-4 py-2 font-medium flex items-center gap-2 border-b-2 transition-colors ${
-              aba === "empresa"
-                ? "border-teal-600 text-teal-600"
-                : "border-transparent text-gray-600 hover:text-gray-800"
-            }`}
+            className={`fc-settings-tab ${aba === "empresa" ? "fc-settings-tab-active" : ""}`}
           >
             <Building2 className="w-4 h-4" />
             Empresa
           </button>
           <button
+            type="button"
+            role="tab"
+            aria-selected={aba === "usuario"}
             onClick={() => setAba("usuario")}
-            className={`px-4 py-2 font-medium flex items-center gap-2 border-b-2 transition-colors ${
-              aba === "usuario"
-                ? "border-teal-600 text-teal-600"
-                : "border-transparent text-gray-600 hover:text-gray-800"
-            }`}
+            className={`fc-settings-tab ${aba === "usuario" ? "fc-settings-tab-active" : ""}`}
           >
             <UserCircle className="w-4 h-4" />
             Minha Conta
           </button>
           <button
+            type="button"
+            role="tab"
+            aria-selected={aba === "usuarios"}
             onClick={() => setAba("usuarios")}
-            className={`px-4 py-2 font-medium flex items-center gap-2 border-b-2 transition-colors ${
-              aba === "usuarios"
-                ? "border-teal-600 text-teal-600"
-                : "border-transparent text-gray-600 hover:text-gray-800"
-            }`}
+            className={`fc-settings-tab ${aba === "usuarios" ? "fc-settings-tab-active" : ""}`}
           >
             <Users className="w-4 h-4" />
-            UsuÃ¡rios
+            Usuários
           </button>
         </div>
 
-        {/* ConteÃºdo */}
         {aba === "empresa" && (
-          <div className="space-y-6">
+          <div className="fc-settings-content fc-settings-company">
             {/* Dados da Empresa */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Building2 className="w-5 h-5 text-teal-600" />
                 Dados da Empresa
@@ -1362,7 +1369,7 @@ export default function ConfiguracoesPage() {
                 
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    EndereÃ§o
+                    Endereço
                   </label>
                   <input
                     type="text"
@@ -1411,7 +1418,7 @@ export default function ConfiguracoesPage() {
             </div>
 
             {/* Dados Fiscais (ISS / NFS-e) */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Building2 className="w-5 h-5 text-teal-600" />
                 Dados Fiscais (Prestador de Servicos)
@@ -1506,7 +1513,7 @@ export default function ConfiguracoesPage() {
             </div>
 
             {/* Jornada da Agenda */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card">
               <h2 className="text-lg font-semibold mb-2">Funcionamento da Agenda</h2>
               {somenteLeituraAgenda && (
                 <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-3">
@@ -2231,7 +2238,7 @@ export default function ConfiguracoesPage() {
             </div>
 
             {/* Logomarca */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <ImageIcon className="w-5 h-5 text-teal-600" />
                 Logomarca
@@ -2285,10 +2292,10 @@ export default function ConfiguracoesPage() {
             </div>
 
             {/* Assinatura do Sistema */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Signature className="w-5 h-5 text-teal-600" />
-                Assinatura PadrÃ£o do Sistema
+                Assinatura Padrão do Sistema
               </h2>
               
               <div className="flex items-center gap-6">
@@ -2325,7 +2332,7 @@ export default function ConfiguracoesPage() {
               </div>
               
               <p className="mt-3 text-sm text-gray-500">
-                Esta assinatura serÃ¡ usada como padrÃ£o quando o usuÃ¡rio nÃ£o tiver assinatura prÃ³pria.
+                Esta assinatura será usada como padrão quando o usuário não tiver assinatura própria.
               </p>
               
               <div className="mt-4 flex items-center gap-2">
@@ -2343,7 +2350,7 @@ export default function ConfiguracoesPage() {
             </div>
 
             {/* Fortinho */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card">
               <h2 className="text-lg font-semibold mb-2">Fortinho</h2>
               <p className="text-sm text-gray-500 mb-4">
                 Controle global do assistente Fortinho para todo o sistema.
@@ -2368,9 +2375,9 @@ export default function ConfiguracoesPage() {
               )}
             </div>
 
-            {/* Texto do RodapÃ© */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
-              <h2 className="text-lg font-semibold mb-4">Texto do RodapÃ© do Laudo</h2>
+            {/* Texto do Rodapé */}
+            <div className="fc-settings-card">
+              <h2 className="text-lg font-semibold mb-4">Texto do Rodapé do Laudo</h2>
               <textarea
                 value={configEmpresa.texto_rodape_laudo ?? ""}
                 onChange={(e) => setConfigEmpresa({ ...configEmpresa, texto_rodape_laudo: e.target.value })}
@@ -2382,9 +2389,9 @@ export default function ConfiguracoesPage() {
         )}
 
         {aba === "usuario" && (
-          <div className="space-y-6">
+          <div className="fc-settings-content fc-settings-account">
             {/* Dados Profissionais */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Shield className="w-5 h-5 text-teal-600" />
                 Dados Profissionais
@@ -2403,7 +2410,7 @@ export default function ConfiguracoesPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                   />
                   <p className="mt-1 text-xs text-gray-500">
-                    SerÃ¡ exibido nos laudos emitidos por vocÃª
+                    Será exibido nos laudos emitidos por você
                   </p>
                 </div>
                 
@@ -2415,7 +2422,7 @@ export default function ConfiguracoesPage() {
                     type="text"
                     value={configUsuario.especialidade ?? ""}
                     onChange={(e) => setConfigUsuario({ ...configUsuario, especialidade: e.target.value })}
-                    placeholder="Ex: Cardiologia VeterinÃ¡ria"
+                    placeholder="Ex: Cardiologia Veterinária"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                   />
                 </div>
@@ -2423,7 +2430,7 @@ export default function ConfiguracoesPage() {
             </div>
 
             {/* Assinatura Pessoal */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Signature className="w-5 h-5 text-teal-600" />
                 Minha Assinatura
@@ -2453,13 +2460,13 @@ export default function ConfiguracoesPage() {
               </div>
               
               <p className="mt-3 text-sm text-gray-500">
-                Esta assinatura serÃ¡ usada nos laudos emitidos por vocÃª. Se nÃ£o houver assinatura pessoal, serÃ¡ usada a assinatura padrÃ£o do sistema.
+                Esta assinatura será usada nos laudos emitidos por você. Se não houver assinatura pessoal, será usada a assinatura padrão do sistema.
               </p>
             </div>
 
-            {/* PreferÃªncias */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
-              <h2 className="text-lg font-semibold mb-4">PreferÃªncias</h2>
+            {/* Preferências */}
+            <div className="fc-settings-card">
+              <h2 className="text-lg font-semibold mb-4">Preferências</h2>
               
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
@@ -2471,7 +2478,7 @@ export default function ConfiguracoesPage() {
                     className="w-4 h-4 text-teal-600"
                   />
                   <label htmlFor="notif_email" className="text-sm text-gray-700">
-                    Receber notificaÃ§Ãµes por e-mail
+                    Receber notificações por e-mail
                   </label>
                 </div>
                 
@@ -2484,7 +2491,7 @@ export default function ConfiguracoesPage() {
                     className="w-4 h-4 text-teal-600"
                   />
                   <label htmlFor="notif_push" className="text-sm text-gray-700">
-                    Receber notificaÃ§Ãµes push
+                    Receber notificações push
                   </label>
                 </div>
 
@@ -2673,7 +2680,7 @@ export default function ConfiguracoesPage() {
                   className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
                 >
                   <Save className="w-4 h-4" />
-                  {salvando ? "Salvando..." : "Salvar ConfiguraÃ§Ãµes"}
+                  {salvando ? "Salvando..." : "Salvar Configurações"}
                 </button>
               </div>
             </div>
@@ -2681,8 +2688,8 @@ export default function ConfiguracoesPage() {
         )}
 
         {aba === "usuarios" && (
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-            <div className="xl:col-span-1 bg-white rounded-lg shadow-sm border p-6">
+          <div className="fc-settings-content fc-settings-users grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="fc-settings-card xl:col-span-1">
               <h3 className="text-lg font-semibold text-gray-900 mb-1">
                 {modoEdicaoUsuario ? "Editar usuario" : "Novo usuario"}
               </h3>
@@ -2794,7 +2801,7 @@ export default function ConfiguracoesPage() {
               </div>
             </div>
 
-            <div className="xl:col-span-2 bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card xl:col-span-2">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Usuarios cadastrados</h3>
                 <button
@@ -2880,7 +2887,7 @@ export default function ConfiguracoesPage() {
               )}
             </div>
 
-            <div className="xl:col-span-3 bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card xl:col-span-3">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">Permissoes por papel</h3>
@@ -2982,7 +2989,7 @@ export default function ConfiguracoesPage() {
               )}
             </div>
 
-            <div className="xl:col-span-3 bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card xl:col-span-3">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">Auditoria de acoes</h3>

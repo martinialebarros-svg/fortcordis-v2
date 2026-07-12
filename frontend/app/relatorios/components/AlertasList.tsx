@@ -7,9 +7,9 @@ interface AlertasListProps {
   titulo?: string;
 }
 
-export default function AlertasList({ alertas, titulo = "Alertas automaticos" }: AlertasListProps) {
+export default function AlertasList({ alertas, titulo = "Alertas automáticos" }: AlertasListProps) {
   return (
-    <div className="bg-white border rounded-xl p-4">
+    <div className="fc-reports-alerts">
       <div className="flex items-center gap-2 mb-3">
         <AlertTriangle className="w-4 h-4 text-amber-600" />
         <h2 className="font-semibold text-gray-900">{titulo}</h2>
@@ -33,7 +33,7 @@ export default function AlertasList({ alertas, titulo = "Alertas automaticos" }:
                 [{String(item.severidade || "").toUpperCase()}] {item.titulo}
               </p>
               <p className="text-xs text-gray-700 mt-1">{item.descricao}</p>
-              <p className="text-xs text-gray-600 mt-1">Acao: {item.recomendacao}</p>
+              <p className="text-xs text-gray-600 mt-1">Ação: {item.recomendacao}</p>
             </div>
           ))
         )}
@@ -41,4 +41,3 @@ export default function AlertasList({ alertas, titulo = "Alertas automaticos" }:
     </div>
   );
 }
-

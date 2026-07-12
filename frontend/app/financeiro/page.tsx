@@ -1780,35 +1780,35 @@ export default function FinanceiroPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6">
+      <div className="fc-finance-page">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+        <header className="fc-finance-header">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Financeiro</h1>
-            <p className="text-gray-500">Controle financeiro completo</p>
+            <span className="fc-finance-kicker">
+              <DollarSign className="h-4 w-4" />
+              Gestão financeira
+            </span>
+            <h1>Central financeira</h1>
+            <p>Movimentações, recebimentos e ordens de serviço em uma visão comparável.</p>
           </div>
-          <div className="flex gap-2">
+          <div>
             <button 
               onClick={handleNova}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              className="fc-finance-primary"
             >
               <Plus className="w-4 h-4" />
               Nova Transacao
             </button>
           </div>
-        </div>
+        </header>
 
         {/* Periodo */}
-        <div className="flex gap-2 mb-6">
+        <div className="fc-finance-periods" aria-label="Período do resumo">
           {['dia', 'semana', 'mes', 'ano'].map((p) => (
             <button
               key={p}
               onClick={() => setPeriodo(p)}
-              className={`px-4 py-2 rounded-lg font-medium capitalize ${
-                periodo === p
-                  ? "bg-green-100 text-green-700"
-                  : "bg-white text-gray-600 hover:bg-gray-100 border"
-              }`}
+              className={`fc-finance-period ${periodo === p ? "fc-finance-period-active" : ""}`}
             >
               {p === 'mes' ? 'Mes' : p}
             </button>
@@ -1816,8 +1816,8 @@ export default function FinanceiroPage() {
         </div>
 
         {/* Cards Resumo */}
-	        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white p-5 rounded-xl shadow-sm border">
+	        <div className="fc-finance-metrics">
+          <div className="fc-finance-metric fc-finance-metric-income">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Entradas</p>
@@ -1834,7 +1834,7 @@ export default function FinanceiroPage() {
             )}
           </div>
 
-          <div className="bg-white p-5 rounded-xl shadow-sm border">
+          <div className="fc-finance-metric fc-finance-metric-expense">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Saidas</p>
@@ -1851,7 +1851,7 @@ export default function FinanceiroPage() {
             )}
           </div>
 
-          <div className="bg-white p-5 rounded-xl shadow-sm border">
+          <div className="fc-finance-metric fc-finance-metric-balance">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Saldo</p>
@@ -1865,7 +1865,7 @@ export default function FinanceiroPage() {
             </div>
           </div>
 
-	          <div className="bg-white p-5 rounded-xl shadow-sm border">
+	          <div className="fc-finance-metric fc-finance-metric-pending">
 	            <div className="flex items-center justify-between">
 	              <div>
 	                <p className="text-sm text-gray-500">OS Pendentes</p>
@@ -1880,7 +1880,7 @@ export default function FinanceiroPage() {
 	            </p>
 	          </div>
 
-	          <div className="bg-white p-5 rounded-xl shadow-sm border">
+	          <div className="fc-finance-metric fc-finance-metric-fee">
 	            <div className="flex items-center justify-between">
 	              <div>
 	                <p className="text-sm text-gray-500">Taxas de pagamento</p>
@@ -1892,7 +1892,7 @@ export default function FinanceiroPage() {
 	            </div>
 	          </div>
 
-	          <div className="bg-white p-5 rounded-xl shadow-sm border">
+	          <div className="fc-finance-metric fc-finance-metric-credit">
 	            <div className="flex items-center justify-between">
 	              <div>
 	                <p className="text-sm text-gray-500">Creditos gerados</p>
@@ -1905,7 +1905,7 @@ export default function FinanceiroPage() {
 	          </div>
 	        </div>
 
-	        <div className="bg-white p-4 rounded-xl shadow-sm border mb-6">
+	        <div className="fc-finance-panel">
 	          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 	            <div>
 	              <h2 className="text-base font-semibold text-gray-900">Cadastro de meios de pagamento</h2>
@@ -1916,20 +1916,20 @@ export default function FinanceiroPage() {
 	            <div className="flex gap-2">
 	              <button
 	                onClick={cadastrarBandeiraRapido}
-	                className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+	                className="fc-finance-secondary"
 	              >
 	                Nova bandeira
 	              </button>
 	              <button
 	                onClick={cadastrarFormaPagamentoRapido}
-	                className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+	                className="fc-finance-primary"
 	              >
 	                Nova forma
 	              </button>
 	            </div>
 	          </div>
 	          <div className="mt-3 overflow-x-auto">
-	            <table className="w-full text-sm">
+	            <table className="fc-finance-table">
 	              <thead className="bg-gray-50 text-gray-600">
 	                <tr>
 	                  <th className="text-left px-3 py-2">Forma</th>
@@ -1989,53 +1989,47 @@ export default function FinanceiroPage() {
 	        </div>
 
 	        {/* Abas */}
-	        <div className="flex gap-2 mb-6 border-b">
+	        <div className="fc-finance-tabs" role="tablist" aria-label="Área financeira">
           <button
             onClick={() => setAbaAtiva("transacoes")}
-            className={`flex items-center gap-2 px-4 py-3 font-medium border-b-2 transition-colors ${
-              abaAtiva === "transacoes"
-                ? "border-green-500 text-green-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
+            className={`fc-finance-tab ${abaAtiva === "transacoes" ? "fc-finance-tab-active" : ""}`}
+            role="tab"
+            aria-selected={abaAtiva === "transacoes"}
           >
             <Receipt className="w-4 h-4" />
             Transacoes
-            <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">
+            <span className="fc-finance-tab-count">
               {transacoes.length}
             </span>
           </button>
           <button
             onClick={() => setAbaAtiva("cobrancas")}
-            className={`flex items-center gap-2 px-4 py-3 font-medium border-b-2 transition-colors ${
-              abaAtiva === "cobrancas"
-                ? "border-green-500 text-green-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
+            className={`fc-finance-tab ${abaAtiva === "cobrancas" ? "fc-finance-tab-active" : ""}`}
+            role="tab"
+            aria-selected={abaAtiva === "cobrancas"}
           >
             <MessageCircle className="w-4 h-4" />
             Cobrancas
-            <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-xs">
+            <span className="fc-finance-tab-count fc-finance-tab-count-amber">
               {gruposCobrancaDestinatario.length} destinatario(s)
             </span>
           </button>
           <button
             onClick={() => setAbaAtiva("ordens")}
-            className={`flex items-center gap-2 px-4 py-3 font-medium border-b-2 transition-colors ${
-              abaAtiva === "ordens"
-                ? "border-green-500 text-green-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
+            className={`fc-finance-tab ${abaAtiva === "ordens" ? "fc-finance-tab-active" : ""}`}
+            role="tab"
+            aria-selected={abaAtiva === "ordens"}
           >
             <FileText className="w-4 h-4" />
             Ordens de Servico
-            <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full text-xs">
+            <span className="fc-finance-tab-count fc-finance-tab-count-amber">
               {osFiltradas.length}
             </span>
           </button>
         </div>
 
         {/* Filtros */}
-        <div className="bg-white p-4 rounded-xl shadow-sm border mb-6">
+        <div className="fc-finance-filters">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="relative md:col-span-2 lg:col-span-2">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -2186,13 +2180,13 @@ export default function FinanceiroPage() {
           <div className="flex flex-wrap gap-2 mt-3">
             <button
               onClick={carregarDados}
-              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+              className="fc-finance-secondary"
             >
               Atualizar
             </button>
             <button
               onClick={limparFiltros}
-              className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+              className="fc-finance-secondary"
             >
               Limpar filtros
             </button>
@@ -2201,7 +2195,7 @@ export default function FinanceiroPage() {
 
         {/* Conteudo - Transacoes */}
         {abaAtiva === "transacoes" && (
-          <div className="bg-white rounded-xl shadow-sm border">
+          <div className="fc-finance-content">
             <div className="p-5 border-b flex justify-between items-center">
               <h2 className="text-lg font-semibold text-gray-900">
                 Transacoes 
@@ -2305,7 +2299,7 @@ export default function FinanceiroPage() {
 
         {/* Conteudo - Cobrancas */}
         {abaAtiva === "cobrancas" && (
-          <div className="bg-white rounded-xl shadow-sm border">
+          <div className="fc-finance-content">
             <div className="p-5 border-b flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">
@@ -2504,7 +2498,7 @@ export default function FinanceiroPage() {
 
         {/* Conteudo - Ordens de Servico */}
         {abaAtiva === "ordens" && (
-          <div className="bg-white rounded-xl shadow-sm border">
+          <div className="fc-finance-content">
             <div className="p-5 border-b flex flex-col lg:flex-row lg:justify-between lg:items-center gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">

@@ -61,7 +61,12 @@ export default function PortalClinicActivationWorkspace({
       const response = await getClinicInviteStatus(inviteToken);
       setStatusData(response);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao foi possivel carregar o convite.");
+      const detail = err instanceof Error ? err.message.trim() : "";
+      setError(
+        detail && detail.toLowerCase() !== "internal server error"
+          ? detail
+          : "Nao foi possivel validar este convite. Solicite um novo link de ativacao.",
+      );
     } finally {
       setLoadingStatus(false);
     }
@@ -100,7 +105,7 @@ export default function PortalClinicActivationWorkspace({
   const inviteUnavailable = statusData && (!statusData.can_activate || statusData.status !== "pending");
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+    <div className="fc-portal-auth-card rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
       {loadingStatus ? (
         <div className="flex min-h-[240px] items-center justify-center text-sm text-slate-500">
           <span className="inline-flex items-center gap-2">

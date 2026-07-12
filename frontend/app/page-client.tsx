@@ -1,14 +1,27 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
 import axios from "axios";
-import { Lock, Mail, Loader2 } from "lucide-react";
+import {
+  Building2,
+  Eye,
+  EyeOff,
+  HeartPulse,
+  Loader2,
+  LockKeyhole,
+  Mail,
+  ShieldCheck,
+  UserRound,
+} from "lucide-react";
 
 const API_URL = "/api/v1";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -43,75 +56,114 @@ export default function LoginPage() {
         window.location.replace("/dashboard");
         return;
       }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Erro ao fazer login");
+    } catch (err: unknown) {
+      setError(
+        axios.isAxiosError(err)
+          ? err.response?.data?.detail || "Nao foi possivel entrar no sistema."
+          : "Nao foi possivel entrar no sistema.",
+      );
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-xl shadow-lg">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold text-gray-900">FortCordis</h1>
-          <p className="mt-2 text-gray-600">Sistema de Gestao Veterinaria</p>
-        </div>
+    <main className="fc-login-page">
+      <Image
+        src="/brand/fortcordis-portal-hero.jpg"
+        alt="Atendimento cardiológico veterinário Fort Cordis"
+        fill
+        priority
+        sizes="100vw"
+        className="fc-login-background"
+      />
+      <div className="fc-login-overlay" />
 
-        <form className="mt-8 space-y-6" onSubmit={handleLogin}>
-          {error && <div className="bg-red-50 text-red-500 p-3 rounded-lg text-sm">{error}</div>}
+      <div className="fc-login-shell">
+        <header className="fc-login-brand">
+          <Image src="/brand/fortcordis-logo-oficial.png" alt="Fort Cordis" width={58} height={58} priority />
+          <span><strong>FORT CORDIS</strong><small>Cardiologia Veterinária</small></span>
+        </header>
 
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-              Email
-            </label>
-            <div className="mt-1 relative">
-              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                id="email"
-                name="email"
-                type="email"
-                required
-                className="pl-10 w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="seu@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
+        <div className="fc-login-grid">
+          <section className="fc-login-intro">
+            <span className="fc-login-kicker"><HeartPulse className="h-4 w-4" />Central clínica</span>
+            <h1>Fort Cordis</h1>
+            <p>Agenda, atendimento, pacientes e laudos em um ambiente clínico integrado.</p>
+            <div className="fc-login-trust">
+              <span><ShieldCheck className="h-5 w-5" /><strong>Acesso protegido</strong><small>Sessão da equipe interna</small></span>
+              <span><LockKeyhole className="h-5 w-5" /><strong>Dados clínicos</strong><small>Operação com rastreabilidade</small></span>
             </div>
-          </div>
+          </section>
 
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-              Senha
-            </label>
-            <div className="mt-1 relative">
-              <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                id="password"
-                name="password"
-                type="password"
-                required
-                className="pl-10 w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="********"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
+          <section className="fc-login-panel" aria-labelledby="login-title">
+            <div className="fc-login-panel-header">
+              <span>Acesso da equipe</span>
+              <h2 id="login-title">Entrar no sistema</h2>
+              <p>Use seu email institucional e senha cadastrada.</p>
             </div>
-          </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-          >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Entrar"}
-          </button>
-        </form>
+            <form className="fc-login-form" onSubmit={handleLogin} aria-busy={loading}>
+              {error && <div className="fc-login-error" role="alert">{error}</div>}
 
-        <div className="text-center text-sm text-gray-500">
-          <p>FortCordis 2.0 - Next.js + FastAPI</p>
+              <label htmlFor="email">
+                Email
+                <span className="fc-login-control">
+                  <Mail className="h-5 w-5" />
+                  <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    placeholder="seu@email.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </span>
+              </label>
+
+              <label htmlFor="password">
+                Senha
+                <span className="fc-login-control">
+                  <LockKeyhole className="h-5 w-5" />
+                  <input
+                    id="password"
+                    name="password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    required
+                    placeholder="Digite sua senha"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((current) => !current)}
+                    aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                    title={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </span>
+              </label>
+
+              <button type="submit" disabled={loading} className="fc-login-submit">
+                {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <LockKeyhole className="h-5 w-5" />}
+                {loading ? "Entrando..." : "Entrar"}
+              </button>
+            </form>
+
+            <div className="fc-login-portals">
+              <p>Outros acessos</p>
+              <div>
+                <Link href="/area-pacientes"><UserRound className="h-4 w-4" />Portal do tutor</Link>
+                <Link href="/clinica-parceira"><Building2 className="h-4 w-4" />Clínica parceira</Link>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
-    </div>
+    </main>
   );
 }

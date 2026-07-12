@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import {
   ArrowLeft,
   CalendarHeart,
@@ -40,41 +41,45 @@ const healthNotes = [
 
 export default function AreaPacientesPage() {
   return (
-    <main className="min-h-screen bg-white text-slate-950">
-      <section className="border-b border-slate-200 bg-[#f8fbfc] px-5 py-8 sm:px-8">
-        <div className="mx-auto max-w-6xl">
+    <main className="fc-public-portal fc-public-portal-tutor">
+      <section className="fc-public-portal-hero">
+        <div className="fc-public-portal-inner">
           <Link
             href="/"
-            className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-bold text-teal-800 transition hover:bg-teal-50"
+            className="fc-public-portal-back"
           >
             <ArrowLeft className="h-4 w-4" />
             Portal Fort Cordis
           </Link>
 
-          <div className="grid gap-10 py-12 lg:grid-cols-[1fr_0.85fr] lg:items-center">
-            <div>
-              <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-700">
+          <div className="fc-public-portal-hero-grid">
+            <div className="fc-public-portal-copy">
+              <div className="fc-public-portal-brand">
+                <Image src="/brand/fortcordis-logo-oficial.png" alt="Fort Cordis" width={52} height={52} priority />
+                <span><strong>FORT CORDIS</strong><small>Cardiologia Veterinária</small></span>
+              </div>
+              <p className="fc-public-portal-kicker">
                 Area do tutor
               </p>
-              <h1 className="mt-4 text-4xl font-bold leading-tight text-slate-950 sm:text-5xl">
+              <h1>
                 Informacoes do pet e exames com acesso simples, mas protegido.
               </h1>
-              <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600">
+              <p className="fc-public-portal-lead">
                 O portal do tutor deve reunir historico cardiologico, orientacoes do atendimento
                 e download de documentos liberados pela Fort Cordis, sem expor dados sensiveis em
                 links permanentes ou anexos enviados por mensagem.
               </p>
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <div className="fc-public-portal-actions">
                 <a
                   href="#acesso"
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-teal-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-teal-700 sm:w-auto"
+                  className="fc-public-portal-primary"
                 >
                   <LockKeyhole className="h-5 w-5" />
                   Ver modelo de acesso
                 </a>
                 <a
                   href="#saude-pet"
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-5 py-3 text-sm font-bold text-slate-800 transition hover:bg-white sm:w-auto"
+                  className="fc-public-portal-secondary"
                 >
                   <HeartPulse className="h-5 w-5" />
                   Dicas ao tutor
@@ -87,19 +92,19 @@ export default function AreaPacientesPage() {
         </div>
       </section>
 
-      <section id="acesso" className="px-5 py-14 sm:px-8">
-        <div className="mx-auto max-w-6xl">
-          <div className="max-w-3xl">
-            <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-700">
+      <section id="acesso" className="fc-public-portal-section">
+        <div className="fc-public-portal-inner">
+          <div className="fc-public-portal-section-heading">
+            <p className="fc-public-portal-eyebrow">
               Acesso recomendado
             </p>
-            <h2 className="mt-3 text-3xl font-bold text-slate-950 sm:text-4xl">
+            <h2>
               Rapido para o tutor, restrito para o dado sensivel.
             </h2>
           </div>
-          <div className="mt-8 grid gap-5 md:grid-cols-3">
+          <div className="fc-public-portal-feature-grid fc-public-portal-feature-grid-three">
             {tutorAccess.map(({ title, description, icon: Icon }) => (
-              <article key={title} className="rounded-lg border border-slate-200 p-5 shadow-sm">
+              <article key={title} className="fc-public-portal-feature">
                 <Icon className="h-7 w-7 text-teal-700" />
                 <h3 className="mt-5 text-lg font-bold text-slate-950">{title}</h3>
                 <p className="mt-3 text-sm leading-6 text-slate-600">{description}</p>
@@ -109,10 +114,10 @@ export default function AreaPacientesPage() {
         </div>
       </section>
 
-      <section id="saude-pet" className="bg-slate-950 px-5 py-14 text-white sm:px-8">
-        <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[0.8fr_1fr] lg:items-start">
+      <section id="saude-pet" className="fc-public-portal-band">
+        <div className="fc-public-portal-band-grid">
           <div>
-            <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-200">
+            <p className="fc-public-portal-eyebrow">
               Saude pet
             </p>
             <h2 className="mt-3 text-3xl font-bold sm:text-4xl">
@@ -130,8 +135,8 @@ export default function AreaPacientesPage() {
         </div>
       </section>
 
-      <section className="px-5 py-14 sm:px-8">
-        <div className="mx-auto max-w-6xl rounded-lg border border-slate-200 p-6 sm:p-8">
+      <section className="fc-public-portal-section fc-public-portal-final">
+        <div className="fc-public-portal-callout">
           <MessageCircle className="h-8 w-8 text-rose-700" />
           <h2 className="mt-5 text-2xl font-bold text-slate-950">
             Notificacoes podem ser simples. Dados clinicos, nao.

@@ -10,7 +10,7 @@ import {
   loadRacasCustomPorEspecie,
   saveRacasCustomPorEspecie,
 } from "@/lib/racas";
-import { Save, ArrowLeft, Trash2, AlertTriangle, UserRound } from "lucide-react";
+import { Save, ArrowLeft, Trash2, AlertTriangle, UserRound, PawPrint } from "lucide-react";
 
 export default function EditarPacientePage() {
   const router = useRouter();
@@ -153,8 +153,11 @@ export default function EditarPacientePage() {
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="p-6 flex items-center justify-center min-h-[400px]">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="fc-patient-form-page">
+          <div className="fc-patient-form-loading">
+            <span aria-hidden="true" />
+            Carregando paciente...
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -162,37 +165,52 @@ export default function EditarPacientePage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
+      <div className="fc-patient-form-page">
+        <header className="fc-patient-form-header">
+          <div className="fc-patient-form-heading">
             <button
+              type="button"
               onClick={() => router.push("/pacientes")}
-              className="p-2 hover:bg-gray-100 rounded-lg"
+              className="fc-patient-form-back"
+              aria-label="Voltar para pacientes"
             >
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
+              <ArrowLeft className="h-5 w-5" />
             </button>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Editar Paciente</h1>
-              <p className="text-gray-500">Atualize os dados do paciente</p>
+              <span className="fc-patient-form-kicker">
+                <PawPrint className="h-4 w-4" />
+                Carteira clínica
+              </span>
+              <h1>Editar paciente</h1>
+              <p>Atualize o tutor e os dados clínicos de {paciente.nome || "este paciente"}.</p>
             </div>
           </div>
-          <button
-            onClick={() => setShowDeleteModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
-          >
-            <Trash2 className="w-4 h-4" />
-            Excluir
-          </button>
-        </div>
+          <div className="fc-patient-form-header-actions">
+            <div className="fc-patient-form-context">
+              <span>Registro</span>
+              <strong>Paciente #{pacienteId}</strong>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowDeleteModal(true)}
+              className="fc-patient-form-delete"
+            >
+              <Trash2 className="w-4 h-4" />
+              Excluir
+            </button>
+          </div>
+        </header>
 
-        <div className="bg-white rounded-lg shadow-sm border p-6">
-          <div className="mb-6 flex items-center gap-2 border-b pb-3">
-            <UserRound className="h-5 w-5 text-blue-600" />
-            <h2 className="text-lg font-semibold text-gray-900">Dados do tutor</h2>
+        <main className="fc-patient-form-panel">
+          <div className="fc-patient-form-section-header fc-patient-form-section-tutor">
+            <UserRound className="h-5 w-5" />
+            <div>
+              <span>Responsável</span>
+              <h2>Dados do tutor</h2>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="fc-patient-form-grid">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 ID do tutor
@@ -363,14 +381,18 @@ export default function EditarPacientePage() {
             </div>
           </div>
 
-          <div className="my-8 flex items-center justify-between gap-3 border-b pb-3">
-            <h2 className="text-lg font-semibold text-gray-900">Dados do pet</h2>
-            <span className="rounded-lg bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-700">
+          <div className="fc-patient-form-section-header fc-patient-form-section-pet">
+            <PawPrint className="h-5 w-5" />
+            <div>
+              <span>Identificação clínica</span>
+              <h2>Dados do pet</h2>
+            </div>
+            <strong className="fc-patient-form-id">
               ID do pet: {pacienteId}
-            </span>
+            </strong>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="fc-patient-form-grid">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Nome do Paciente *
@@ -510,34 +532,36 @@ export default function EditarPacientePage() {
             </div>
           </div>
           
-          <div className="flex justify-end gap-3 mt-6 pt-6 border-t">
+          <div className="fc-patient-form-actions">
             <button
+              type="button"
               onClick={() => router.push("/pacientes")}
-              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+              className="fc-patient-form-cancel"
             >
               Cancelar
             </button>
             <button
+              type="button"
               onClick={handleSalvar}
               disabled={saving || !paciente.nome || !paciente.tutor}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              className="fc-patient-form-primary"
             >
               <Save className="w-4 h-4" />
               {saving ? "Salvando..." : "Salvar Alterações"}
             </button>
           </div>
-        </div>
+        </main>
 
         {/* Modal de Confirmação de Exclusão */}
         {showDeleteModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+          <div className="fc-patient-form-modal-backdrop" role="presentation">
+            <div className="fc-patient-form-modal" role="dialog" aria-modal="true" aria-labelledby="patient-delete-title">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                <div className="fc-patient-form-modal-icon">
                   <AlertTriangle className="w-6 h-6 text-red-600" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Confirmar Exclusão</h3>
+                  <h3 id="patient-delete-title" className="text-lg font-semibold text-gray-900">Confirmar exclusão</h3>
                   <p className="text-sm text-gray-500">
                     Tem certeza que deseja excluir este paciente? Esta ação não pode ser desfeita.
                   </p>
@@ -546,17 +570,19 @@ export default function EditarPacientePage() {
               
               <div className="flex justify-end gap-3 mt-6">
                 <button
+                  type="button"
                   onClick={() => setShowDeleteModal(false)}
-                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+                  className="fc-patient-form-cancel"
                 >
                   Cancelar
                 </button>
                 <button
+                  type="button"
                   onClick={handleExcluir}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  className="fc-patient-form-delete-confirm"
                 >
                   <Trash2 className="w-4 h-4" />
-                  Sim, Excluir
+                  Sim, excluir
                 </button>
               </div>
             </div>

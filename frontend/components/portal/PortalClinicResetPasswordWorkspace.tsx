@@ -45,14 +45,14 @@ export default function PortalClinicResetPasswordWorkspace({
 
   if (!resetToken) {
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-950">
+      <div className="fc-portal-auth-card rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-950">
         O link de redefinicao esta incompleto. Solicite um novo email de acesso pelo portal da clinica.
       </div>
     );
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+    <div className="fc-portal-auth-card rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
       {done ? (
         <div>
           <ShieldCheck className="h-8 w-8 text-emerald-700" />

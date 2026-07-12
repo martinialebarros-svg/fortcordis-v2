@@ -369,41 +369,69 @@ export default function LogisticaPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6">
-        <div className="flex flex-col gap-2">
-          <h1 className="text-2xl font-bold text-gray-900">Logistica - Matriz de Deslocamento</h1>
-          <p className="text-sm text-gray-600">
-            Tela de teste para consultar, ajustar manualmente e recalcular tempos entre clinicas.
-          </p>
-        </div>
+      <div className="fc-logistics-page">
+        <header className="fc-logistics-header">
+          <div>
+            <span className="fc-logistics-kicker"><MapPin className="h-4 w-4" />Central de rotas</span>
+            <h1>Logística Operacional</h1>
+            <p>Tempos, distâncias e cobertura entre clínicas da rede Fort Cordis.</p>
+          </div>
+          <div className="fc-logistics-profile" role="tablist" aria-label="Perfil de deslocamento">
+            {PERFIS.map((item) => (
+              <button
+                key={item}
+                type="button"
+                role="tab"
+                aria-selected={perfil === item}
+                onClick={() => setPerfil(item)}
+                className={`fc-logistics-profile-tab ${perfil === item ? "fc-logistics-profile-tab-active" : ""}`}
+              >
+                {item === "comercial" ? "Comercial" : "Plantão"}
+              </button>
+            ))}
+          </div>
+        </header>
 
         {erroTela && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <div className="fc-logistics-message fc-logistics-message-error">
             {erroTela}
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 bg-white border rounded-lg p-4">
-          <div>
-            <label className="block text-xs text-gray-600 mb-1">Perfil</label>
-            <select
-              value={perfil}
-              onChange={(e) => setPerfil(e.target.value as PerfilLogistica)}
-              className="w-full px-3 py-2 border rounded-lg"
-            >
-              {PERFIS.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
+        <section className="fc-logistics-metrics" aria-label="Resumo logístico">
+          <div className="fc-logistics-metric fc-logistics-metric-cordis">
+            <Building2 className="h-5 w-5" />
+            <strong>{clinicas.length}</strong>
+            <span>Clínicas disponíveis</span>
+          </div>
+          <div className="fc-logistics-metric fc-logistics-metric-vital">
+            <MapPin className="h-5 w-5" />
+            <strong>{matrizItems.length}</strong>
+            <span>Rotas no filtro</span>
+          </div>
+          <div className="fc-logistics-metric fc-logistics-metric-amber">
+            <RefreshCw className="h-5 w-5" />
+            <strong>{googleMapsResumo?.total_api_calls ?? 0}</strong>
+            <span>Chamadas em 30 dias</span>
+          </div>
+          <div className="fc-logistics-metric fc-logistics-metric-ink">
+            <Clock className="h-5 w-5" />
+            <strong>{percentualCacheFresco}%</strong>
+            <span>Cache válido</span>
+          </div>
+        </section>
+
+        <section className="fc-logistics-filters">
+          <div className="fc-logistics-filter-copy">
+            <span>Rota em foco</span>
+            <strong>Selecione origem e destino</strong>
           </div>
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Origem (filtro)</label>
+            <label className="fc-logistics-label">Origem</label>
             <select
               value={origemId}
               onChange={(e) => setOrigemId(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg"
+              className="fc-logistics-control"
               disabled={loadingClinicas}
             >
               <option value="">Selecione...</option>
@@ -415,11 +443,11 @@ export default function LogisticaPage() {
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Destino (filtro)</label>
+            <label className="fc-logistics-label">Destino</label>
             <select
               value={destinoId}
               onChange={(e) => setDestinoId(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg"
+              className="fc-logistics-control"
               disabled={loadingClinicas}
             >
               <option value="">Selecione...</option>
@@ -430,42 +458,42 @@ export default function LogisticaPage() {
               ))}
             </select>
           </div>
-          <div className="flex items-end gap-2">
+          <div className="flex items-end">
             <button
               type="button"
               onClick={carregarMatriz}
               disabled={matrizLoading}
-              className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60"
+              className="fc-logistics-button-primary"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="h-4 w-4" />
               Atualizar matriz
             </button>
           </div>
-          <div className="lg:col-span-4">
-            <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+          <div className="fc-logistics-filter-options">
+            <label className="fc-logistics-check">
               <input
                 type="checkbox"
                 checked={incluirInativas}
                 onChange={(e) => setIncluirInativas(e.target.checked)}
               />
-              Incluir clinicas inativas
+              Incluir clínicas inativas
             </label>
           </div>
-        </div>
+        </section>
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <div className="bg-white border rounded-lg p-4 space-y-3">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <MapPin className="w-5 h-5 text-blue-600" />
-              Consulta do par
-            </h2>
+        <div className="fc-logistics-workspace">
+          <section className="fc-logistics-panel fc-logistics-panel-cordis">
+            <div className="fc-logistics-panel-title">
+              <MapPin className="h-5 w-5" />
+              <div><span>Consulta rápida</span><h2>Deslocamento do par</h2></div>
+            </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="fc-logistics-actions">
               <button
                 type="button"
                 onClick={() => consultarPar(false)}
                 disabled={consultaLoading}
-                className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60"
+                className="fc-logistics-button-primary"
               >
                 Consultar
               </button>
@@ -473,71 +501,71 @@ export default function LogisticaPage() {
                 type="button"
                 onClick={() => consultarPar(true)}
                 disabled={consultaLoading}
-                className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-60"
+                className="fc-logistics-button-secondary"
               >
                 Recalcular par
               </button>
             </div>
 
             {consultaError && (
-              <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-sm text-red-700">
+              <div className="fc-logistics-message fc-logistics-message-error">
                 {consultaError}
               </div>
             )}
 
             {consultaPar && (
-              <div className="rounded border border-blue-200 bg-blue-50 p-3 text-sm space-y-1">
-                <p className="font-medium text-blue-900">
+              <div className="fc-logistics-route-result">
+                <p className="fc-logistics-route-title">
                   {consultaPar.origem.nome || nomeClinica(consultaPar.origem.id)} -&gt;{" "}
                   {consultaPar.destino.nome || nomeClinica(consultaPar.destino.id)}
                 </p>
-                <p className="text-gray-700">Perfil: {consultaPar.item.perfil}</p>
-                <p className="text-gray-700">Duracao: {consultaPar.item.duracao_min} min</p>
-                <p className="text-gray-700">Distancia: {consultaPar.item.distancia_km} km</p>
-                <p className="text-gray-700">Fonte: {consultaPar.item.fonte}</p>
-                <p className="text-gray-700">
-                  Manual override: {consultaPar.item.manual_override ? "sim" : "nao"}
-                </p>
+                <div className="fc-logistics-route-metrics">
+                  <div><span>Perfil</span><strong>{consultaPar.item.perfil}</strong></div>
+                  <div><span>Duração</span><strong>{consultaPar.item.duracao_min} min</strong></div>
+                  <div><span>Distância</span><strong>{consultaPar.item.distancia_km} km</strong></div>
+                  <div><span>Fonte</span><strong>{consultaPar.item.fonte}</strong></div>
+                </div>
+                <small>Ajuste manual: {consultaPar.item.manual_override ? "sim" : "não"}</small>
               </div>
             )}
-          </div>
+          </section>
 
-          <div className="bg-white border rounded-lg p-4 space-y-3">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <Save className="w-5 h-5 text-emerald-600" />
-              Ajuste manual
-            </h2>
+          <section className="fc-logistics-panel fc-logistics-panel-vital">
+            <div className="fc-logistics-panel-title">
+              <Save className="h-5 w-5" />
+              <div><span>Calibração operacional</span><h2>Ajuste manual</h2></div>
+            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
-                <label className="block text-xs text-gray-600 mb-1">Distancia (km)</label>
+                <label className="fc-logistics-label">Distância (km)</label>
                 <input
                   type="number"
                   min="0"
                   step="0.1"
                   value={manualDistanciaKm}
                   onChange={(e) => setManualDistanciaKm(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg"
+                  className="fc-logistics-control"
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-600 mb-1">Duracao (min)</label>
+                <label className="fc-logistics-label">Duração (min)</label>
                 <input
                   type="number"
                   min="0"
                   step="1"
                   value={manualDuracaoMin}
                   onChange={(e) => setManualDuracaoMin(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg"
+                  className="fc-logistics-control"
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-xs text-gray-600 mb-1">Observacoes</label>
+                <label className="fc-logistics-label">Observações</label>
                 <textarea
                   rows={2}
                   value={manualObservacoes}
                   onChange={(e) => setManualObservacoes(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg"
+                  className="fc-logistics-control"
                   placeholder="Opcional"
                 />
               </div>
@@ -547,38 +575,38 @@ export default function LogisticaPage() {
               type="button"
               onClick={salvarAjusteManual}
               disabled={manualSaving}
-              className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-60"
+              className="fc-logistics-button-save"
             >
-              <Save className="w-4 h-4" />
+              <Save className="h-4 w-4" />
               {manualSaving ? "Salvando..." : "Salvar ajuste manual"}
             </button>
 
             {manualMensagem && (
-              <div className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-sm text-emerald-700">
+              <div className="fc-logistics-message fc-logistics-message-success">
                 {manualMensagem}
               </div>
             )}
             {manualError && (
-              <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-sm text-red-700">
+              <div className="fc-logistics-message fc-logistics-message-error">
                 {manualError}
               </div>
             )}
-          </div>
+          </section>
         </div>
 
-        <div className="bg-white border rounded-lg p-4 space-y-3">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            <RefreshCw className="w-5 h-5 text-purple-600" />
-            Recalculo da matriz
-          </h2>
+        <section className="fc-logistics-panel fc-logistics-panel-ink">
+          <div className="fc-logistics-panel-title">
+            <RefreshCw className="h-5 w-5" />
+            <div><span>Manutenção da base</span><h2>Recálculo da matriz</h2></div>
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Clinica alvo (opcional)</label>
+              <label className="fc-logistics-label">Clínica alvo (opcional)</label>
               <select
                 value={recalculoClinicaId}
                 onChange={(e) => setRecalculoClinicaId(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
+                className="fc-logistics-control"
               >
                 <option value="">Todas as clinicas</option>
                 {clinicas.map((c) => (
@@ -588,71 +616,71 @@ export default function LogisticaPage() {
                 ))}
               </select>
             </div>
-            <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+            <label className="fc-logistics-check">
               <input
                 type="checkbox"
                 checked={recalculoForce}
                 onChange={(e) => setRecalculoForce(e.target.checked)}
               />
-              Forcar override (inclui itens manuais)
+              Forçar override (inclui itens manuais)
             </label>
             <button
               type="button"
               onClick={recalcularMatriz}
               disabled={recalculoLoading}
-              className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-60"
+              className="fc-logistics-button-secondary"
             >
               {recalculoLoading ? "Recalculando..." : "Recalcular matriz"}
             </button>
           </div>
 
           {recalculoMensagem && (
-            <div className="rounded border border-purple-200 bg-purple-50 px-2 py-1 text-sm text-purple-700">
+            <div className="fc-logistics-message fc-logistics-message-info">
               {recalculoMensagem}
             </div>
           )}
           {recalculoError && (
-            <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-sm text-red-700">
+            <div className="fc-logistics-message fc-logistics-message-error">
               {recalculoError}
             </div>
           )}
-        </div>
+        </section>
 
-        <div className="bg-white border rounded-lg p-4 space-y-4">
+        <section className="fc-logistics-monitor">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                <Clock className="w-5 h-5 text-amber-600" />
+              <h2 className="flex items-center gap-2">
+                <Clock className="h-5 w-5" />
                 Monitoramento Google Maps
               </h2>
-              <p className="text-sm text-gray-600">
-                Janela dos ultimos {googleMapsResumo?.window_days || 30} dias com cache de rotas e chamadas reais.
+              <p>
+                Janela dos últimos {googleMapsResumo?.window_days || 30} dias com cache de rotas e chamadas reais.
               </p>
             </div>
             <button
               type="button"
               onClick={carregarResumoGoogleMaps}
               disabled={resumoLoading}
-              className="inline-flex items-center gap-2 px-3 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-60"
+              className="fc-logistics-button-monitor"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="h-4 w-4" />
               {resumoLoading ? "Atualizando..." : "Atualizar monitor"}
             </button>
           </div>
 
           {resumoError && (
-            <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="fc-logistics-message fc-logistics-message-error">
               {resumoError}
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div className="fc-logistics-monitor-metrics">
+            <div className="fc-logistics-monitor-metric fc-logistics-monitor-metric-ink">
               <p className="text-xs uppercase tracking-wide text-slate-500">Chamadas API</p>
               <p className="text-2xl font-semibold text-slate-900">{googleMapsResumo?.total_api_calls ?? 0}</p>
               <p className="text-xs text-slate-600">Retencao de metricas: {googleMapsResumo?.metrics_retention_days ?? 90} dias</p>
             </div>
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+            <div className="fc-logistics-monitor-metric fc-logistics-monitor-metric-vital">
               <p className="text-xs uppercase tracking-wide text-emerald-600">Taxa de sucesso</p>
               <p className="text-2xl font-semibold text-emerald-900">
                 {Number(googleMapsResumo?.success_rate_percent ?? 0).toFixed(1)}%
@@ -663,14 +691,14 @@ export default function LogisticaPage() {
                   .join(" | ") || "Sem chamadas registradas"}
               </p>
             </div>
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+            <div className="fc-logistics-monitor-metric fc-logistics-monitor-metric-cordis">
               <p className="text-xs uppercase tracking-wide text-blue-600">Cache Google</p>
               <p className="text-2xl font-semibold text-blue-900">{googleMapsResumo?.cache?.google_rows ?? 0}</p>
               <p className="text-xs text-blue-700">
                 Frescas: {googleMapsResumo?.cache?.fresh_rows ?? 0} | Vencidas: {googleMapsResumo?.cache?.stale_rows ?? 0}
               </p>
             </div>
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <div className="fc-logistics-monitor-metric fc-logistics-monitor-metric-amber">
               <p className="text-xs uppercase tracking-wide text-amber-600">Validade</p>
               <p className="text-2xl font-semibold text-amber-900">{percentualCacheFresco}%</p>
               <p className="text-xs text-amber-700">
@@ -679,9 +707,9 @@ export default function LogisticaPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-            <div className="rounded-lg border p-3 space-y-2">
-              <h3 className="text-sm font-semibold text-gray-900">Operacoes cobradas</h3>
+          <div className="fc-logistics-monitor-grid">
+            <div className="fc-logistics-monitor-list">
+              <h3 className="text-sm font-semibold text-gray-900">Operações cobradas</h3>
               {topOperacoes.length === 0 ? (
                 <p className="text-sm text-gray-500">Nenhuma chamada registrada ainda.</p>
               ) : (
@@ -696,8 +724,8 @@ export default function LogisticaPage() {
               )}
             </div>
 
-            <div className="rounded-lg border p-3 space-y-2">
-              <h3 className="text-sm font-semibold text-gray-900">Ultimos dias com chamadas</h3>
+            <div className="fc-logistics-monitor-list">
+              <h3 className="text-sm font-semibold text-gray-900">Últimos dias com chamadas</h3>
               {topDiasChamadas.length === 0 ? (
                 <p className="text-sm text-gray-500">Sem atividade recente registrada.</p>
               ) : (
@@ -712,12 +740,12 @@ export default function LogisticaPage() {
               )}
             </div>
 
-            <div className="rounded-lg border p-3 space-y-2">
+            <div className="fc-logistics-monitor-list">
               <h3 className="text-sm font-semibold text-gray-900">Pares mais consultados</h3>
               {googleMapsResumo?.top_pairs?.length ? (
                 <div className="space-y-2">
                   {googleMapsResumo.top_pairs.map((item, index) => (
-                    <div key={`${item.origem_clinica_id}-${item.destino_clinica_id}-${index}`} className="rounded border border-gray-200 px-2 py-2 text-sm">
+                    <div key={`${item.origem_clinica_id}-${item.destino_clinica_id}-${index}`} className="fc-logistics-pair-item">
                       <p className="font-medium text-gray-900">
                         {nomeClinica(Number(item.origem_clinica_id || 0))} -&gt;{" "}
                         {nomeClinica(Number(item.destino_clinica_id || 0))}
@@ -732,74 +760,69 @@ export default function LogisticaPage() {
               )}
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="bg-white border rounded-lg overflow-hidden">
-          <div className="px-4 py-3 border-b flex flex-wrap items-center gap-3">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <Building2 className="w-5 h-5 text-slate-600" />
+        <section className="fc-logistics-matrix">
+          <div className="fc-logistics-matrix-heading">
+            <h2>
+              <Building2 className="h-5 w-5" />
               Itens da matriz
             </h2>
-            <span className="text-sm text-gray-500">
-              Clinicas no filtro: {matrizTotalClinicas} | Itens: {matrizItems.length}
+            <span>
+              Clínicas no filtro: {matrizTotalClinicas} | Itens: {matrizItems.length}
             </span>
           </div>
 
           {matrizError && (
-            <div className="m-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="fc-logistics-message fc-logistics-message-error m-4">
               {matrizError}
             </div>
           )}
 
           {loadingClinicas || matrizLoading ? (
-            <div className="p-8 text-center text-gray-500">Carregando...</div>
+            <div className="fc-logistics-loading"><span />Carregando matriz...</div>
           ) : matrizItems.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
+            <div className="fc-logistics-empty">
               Nenhum item encontrado para o filtro atual.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 text-gray-600">
+            <div className="fc-logistics-table-scroll">
+              <table className="fc-logistics-table">
+                <thead>
                   <tr>
-                    <th className="text-left px-4 py-2">Origem</th>
-                    <th className="text-left px-4 py-2">Destino</th>
-                    <th className="text-left px-4 py-2">Perfil</th>
-                    <th className="text-left px-4 py-2">Dist. km</th>
-                    <th className="text-left px-4 py-2">Duracao</th>
-                    <th className="text-left px-4 py-2">Fonte</th>
-                    <th className="text-left px-4 py-2">Manual</th>
+                    <th>Origem</th>
+                    <th>Destino</th>
+                    <th>Perfil</th>
+                    <th>Dist. km</th>
+                    <th>Duração</th>
+                    <th>Fonte</th>
+                    <th>Manual</th>
                   </tr>
                 </thead>
                 <tbody>
                   {matrizItems.map((item) => (
-                    <tr key={item.id} className="border-t">
-                      <td className="px-4 py-2">{nomeClinica(item.origem_clinica_id)}</td>
-                      <td className="px-4 py-2">{nomeClinica(item.destino_clinica_id)}</td>
-                      <td className="px-4 py-2">{item.perfil}</td>
-                      <td className="px-4 py-2">{Number(item.distancia_km || 0).toFixed(2)}</td>
-                      <td className="px-4 py-2">{item.duracao_min} min</td>
-                      <td className="px-4 py-2">{item.fonte}</td>
-                      <td className="px-4 py-2">{item.manual_override ? "sim" : "nao"}</td>
+                    <tr key={item.id}>
+                      <td>{nomeClinica(item.origem_clinica_id)}</td>
+                      <td>{nomeClinica(item.destino_clinica_id)}</td>
+                      <td>{item.perfil}</td>
+                      <td>{Number(item.distancia_km || 0).toFixed(2)}</td>
+                      <td>{item.duracao_min} min</td>
+                      <td>{item.fonte}</td>
+                      <td>{item.manual_override ? "sim" : "não"}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
-        </div>
+        </section>
 
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 flex items-start gap-2">
-          <AlertCircle className="w-4 h-4 mt-0.5" />
+        <div className="fc-logistics-alert">
+          <AlertCircle className="mt-0.5 h-4 w-4" />
           <div>
-            Para ajustes operacionais, salve manualmente os pares mais criticos nos dois sentidos
-            (A -&gt; B e B -&gt; A) e em ambos os perfis quando necessario.
+            Para ajustes operacionais, salve manualmente os pares mais críticos nos dois sentidos
+            (A -&gt; B e B -&gt; A) e em ambos os perfis quando necessário.
           </div>
-        </div>
-
-        <div className="text-xs text-gray-500 flex items-center gap-2">
-          <Clock className="w-3.5 h-3.5" />
-          Esta tela foi criada para teste e calibracao da fase 1/2 de logistica.
         </div>
       </div>
     </DashboardLayout>

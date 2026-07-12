@@ -398,7 +398,7 @@ export default function PortalClinicaWorkspace() {
     const clinicLabel = clinicName || (session.clinica_id ? `Clinica #${session.clinica_id}` : "Clinica parceira");
 
     return (
-      <section className="fixed inset-0 z-50 overflow-y-auto bg-[#f6fafb] text-slate-950">
+      <section className="fc-clinic-dashboard fixed inset-0 z-50 overflow-y-auto bg-[#f6fafb] text-slate-950">
         <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur sm:px-8">
           <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
@@ -751,7 +751,7 @@ export default function PortalClinicaWorkspace() {
   }
 
   return (
-    <aside className="rounded-lg border border-white/15 bg-white/[0.06] p-5">
+    <aside className="fc-portal-workspace fc-portal-clinic-workspace rounded-lg border border-white/15 bg-white/[0.06] p-5">
       {bootstrapping ? (
         <div className="flex min-h-[320px] items-center justify-center text-sm text-slate-200">
           <span className="inline-flex items-center gap-2">

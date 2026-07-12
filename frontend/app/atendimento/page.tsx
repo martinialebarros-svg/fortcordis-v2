@@ -4902,7 +4902,7 @@ export default function AtendimentoPage() {
       return autosaveAt ? `Sincronizado - ${formatDate(autosaveAt)}` : "Sincronizado";
     }
     if (autosaveState === "error") return "Falha no autosave";
-    return selecionado ? "Aguardando edicao" : "Novo caso";
+    return selecionado ? "Aguardando edicao" : "Aguardando dados";
   }, [autosaveAt, autosaveState, selecionado]);
 
   const autosaveBadgeClass = useMemo(() => {
@@ -5388,12 +5388,12 @@ export default function AtendimentoPage() {
   };
 
   if (loading) {
-    return <DashboardLayout><div className="p-6 text-gray-600">Carregando modulo de atendimento...</div></DashboardLayout>;
+    return <DashboardLayout><div className="fc-care-loading">Carregando modulo de atendimento...</div></DashboardLayout>;
   }
 
   return (
     <DashboardLayout>
-      <div className="space-y-6 bg-slate-50 p-6">
+      <div className="fc-care-page">
         <div className="fixed right-4 top-4 z-[90] flex max-w-md flex-col gap-2">
           {erroPopup ? (
             <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-xl">
@@ -5426,31 +5426,31 @@ export default function AtendimentoPage() {
           ) : null}
         </div>
 
-        <section className="overflow-visible rounded-[28px] border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-teal-900 px-6 py-6 text-white shadow-[0_30px_80px_-40px_rgba(15,23,42,0.95)]">
+        <section className="fc-care-header">
           <div className="flex flex-col gap-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="max-w-2xl space-y-2">
                 <div className="flex items-center gap-3">
-                  <div className="rounded-2xl bg-white/10 p-3 backdrop-blur">
+                  <div className="fc-care-header-icon">
                     <ClipboardPlus className="h-7 w-7 text-teal-200" />
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-[0.35em] text-teal-200/80">Prontuario FortCordis</p>
-                    <h1 className="text-3xl font-semibold tracking-tight">Atendimento Clinico</h1>
+                    <p className="fc-care-kicker">Prontuario FortCordis</p>
+                    <h1>Atendimento Clinico</h1>
                   </div>
                 </div>
-                <p className="text-sm text-slate-200/80">
+                <p>
                   Fluxo clinico continuo com contexto do paciente, timeline lateral e prescricao assistida em destaque.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <div className={`rounded-2xl border px-4 py-2 text-xs font-medium ${autosaveBadgeClass}`}>
+              <div className="fc-care-header-actions">
+                <div className={`fc-care-autosave ${autosaveBadgeClass}`}>
                   <span className="inline-flex items-center gap-2">
                     <Clock3 className="h-4 w-4" />
                     {autosaveLabel}
                   </span>
                 </div>
-                <button onClick={novoAtendimento} className="rounded-2xl bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20">
+                <button onClick={novoAtendimento} className="fc-care-button-secondary">
                   <span className="inline-flex items-center gap-2"><Plus className="h-4 w-4" />Novo caso</span>
                 </button>
                 <button
@@ -5462,34 +5462,34 @@ export default function AtendimentoPage() {
                       agendamento_id: form.agendamento_id ? Number(form.agendamento_id) : null,
                     })
                   }
-                  className="rounded-2xl bg-sky-400/20 px-4 py-2 text-sm font-medium text-sky-100 transition hover:bg-sky-400/30"
+                  className="fc-care-button-laudo"
                 >
                   <span className="inline-flex items-center gap-2"><FileText className="h-4 w-4" />Laudar</span>
                 </button>
                 <button
                   onClick={() => void saveAtendimento()}
                   disabled={salvando}
-                  className="rounded-2xl bg-teal-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-teal-300 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="fc-care-button-primary"
                 >
                   <span className="inline-flex items-center gap-2"><Save className="h-4 w-4" />{salvando ? "Salvando..." : "Salvar atendimento"}</span>
                 </button>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3 backdrop-blur">
+            <div className="fc-care-patient-strip">
+              <div className="fc-care-patient-cell">
                 <p className="text-[11px] uppercase tracking-[0.25em] text-slate-300">Paciente</p>
                 <p className="mt-2 text-sm font-medium text-white">{pacienteNomeExibicao || "Nao selecionado"}</p>
               </div>
-              <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3 backdrop-blur">
+              <div className="fc-care-patient-cell">
                 <p className="text-[11px] uppercase tracking-[0.25em] text-slate-300">Tutor</p>
                 <p className="mt-2 text-sm font-medium text-white">{tutorNomeExibicao || "Nao informado"}</p>
               </div>
-              <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3 backdrop-blur">
+              <div className="fc-care-patient-cell">
                 <p className="text-[11px] uppercase tracking-[0.25em] text-slate-300">Peso clinico</p>
                 <p className="mt-2 text-sm font-medium text-white">{form.triagem.peso ? `${form.triagem.peso} kg` : "Nao medido"}</p>
               </div>
-              <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3 backdrop-blur">
+              <div className="fc-care-patient-cell">
                 <p className="text-[11px] uppercase tracking-[0.25em] text-slate-300">Alertas ativos</p>
                 <p className="mt-2 text-sm font-medium text-white">{alertasAtivos.length}</p>
               </div>
@@ -5497,7 +5497,7 @@ export default function AtendimentoPage() {
           </div>
         </section>
 
-        <section className="rounded-[26px] border border-slate-200 bg-white p-4 shadow-sm">
+        <section className="fc-care-navigation">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Navegacao do atendimento</p>
@@ -5505,26 +5505,22 @@ export default function AtendimentoPage() {
             </div>
             <p className="text-sm text-slate-500">Mostrando: <span className="font-semibold text-slate-700">{workspaceCards.find((item) => item.key === workspacePainel)?.titulo}</span></p>
           </div>
-          <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
+          <div className="fc-care-tabs" role="tablist" aria-label="Areas do atendimento">
             {workspaceCards.map((item) => (
               <button
                 key={item.key}
                 type="button"
                 onClick={() => setWorkspacePainel(item.key)}
-                className={`rounded-[20px] border px-4 py-3 text-left transition ${
-                  workspacePainel === item.key
-                    ? "border-teal-300 bg-teal-50 shadow-sm"
-                    : "border-slate-200 bg-slate-50 hover:bg-white"
-                }`}
+                role="tab"
+                aria-selected={workspacePainel === item.key}
+                className={`fc-care-tab ${workspacePainel === item.key ? "fc-care-tab-active" : ""}`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">{item.titulo}</p>
                     <p className="mt-1 text-xs text-slate-500">{item.resumo}</p>
                   </div>
-                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                    workspacePainel === item.key ? "bg-teal-600 text-white" : "bg-slate-200 text-slate-700"
-                  }`}>
+                  <span className="fc-care-tab-badge">
                     {item.badge}
                   </span>
                 </div>
@@ -5533,11 +5529,11 @@ export default function AtendimentoPage() {
           </div>
         </section>
 
-        <div className={isPrescricaoWorkspace || isBibliotecasWorkspace ? "grid grid-cols-1 gap-6" : "grid grid-cols-1 gap-6 xl:grid-cols-12"}>
+        <div className={`fc-care-layout ${isPrescricaoWorkspace || isBibliotecasWorkspace ? "grid grid-cols-1 gap-6" : "grid grid-cols-1 gap-6 xl:grid-cols-12"}`}>
           {!isPrescricaoWorkspace && !isBibliotecasWorkspace ? (
-          <div className="self-start xl:col-span-3">
+          <div className="fc-care-sidebar self-start xl:col-span-3">
             <div className="space-y-6 xl:sticky xl:top-6">
-              <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
+              <section className="fc-care-case-panel">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Painel de casos</p>
@@ -5653,7 +5649,7 @@ export default function AtendimentoPage() {
               </section>
 
               {isConsultaWorkspace || isDocumentosWorkspace ? (
-              <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
+              <section className="fc-care-side-panel">
                 <div className="flex items-center gap-2">
                   <History className="h-5 w-5 text-teal-600" />
                   <div>
@@ -5694,7 +5690,7 @@ export default function AtendimentoPage() {
               </section>
               ) : null}
 
-              <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
+              <section className="fc-care-side-panel">
                 <div className="flex items-center gap-2">
                   <TrendingUp className="h-5 w-5 text-emerald-600" />
                   <div>
@@ -5785,7 +5781,7 @@ export default function AtendimentoPage() {
           </div>
           ) : null}
 
-          <div className={isPrescricaoWorkspace || isBibliotecasWorkspace ? "" : "xl:col-span-9"}>
+          <div className={`fc-care-workspace ${isPrescricaoWorkspace || isBibliotecasWorkspace ? "" : "xl:col-span-9"}`}>
             <div className={workspaceGridClass}>
               <div className="space-y-6">
                 {!isPrescricaoWorkspace ? (
@@ -6063,7 +6059,7 @@ export default function AtendimentoPage() {
 
               {(isPrescricaoWorkspace || showClinicalRadarAside) ? (
                 <aside
-                  className={`self-start space-y-6 xl:sticky xl:max-h-[calc(100vh-2rem)] xl:overflow-auto xl:pr-1 ${
+                  className={`fc-care-aside self-start space-y-6 xl:sticky xl:max-h-[calc(100vh-2rem)] xl:overflow-auto xl:pr-1 ${
                     isPrescricaoWorkspace && prescricaoModoFoco ? "xl:top-3" : "xl:top-6"
                   }`}
                 >

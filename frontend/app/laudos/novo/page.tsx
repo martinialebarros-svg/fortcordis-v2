@@ -907,21 +907,26 @@ export default function NovoLaudoPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-          <div className="flex items-center gap-3">
+      <div className="fc-report-editor-page">
+        <header className="fc-report-editor-header">
+          <div className="fc-report-editor-heading">
             <button
+              type="button"
               onClick={() => router.push("/laudos")}
-              className="p-2 hover:bg-gray-100 rounded-lg"
+              className="fc-report-editor-back"
+              aria-label="Voltar para laudos"
             >
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
+              <ArrowLeft className="h-5 w-5" />
             </button>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">
+              <span className="fc-report-editor-kicker">
+                <Heart className="h-4 w-4" />
+                Central diagnóstica
+              </span>
+              <h1>
                 {entradaPressao ? "Novo Laudo de Pressao Arterial" : "Novo Laudo"}
               </h1>
-              <p className="text-gray-500">
+              <p>
                 {entradaPressao
                   ? "Fluxo rapido para afericoes manuais e PDF dedicado"
                   : "Importe XML ou preencha manualmente"}
@@ -934,20 +939,21 @@ export default function NovoLaudoPage() {
             </div>
           </div>
           <button
+            type="button"
             onClick={handleSalvar}
             disabled={loading}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50"
+            className="fc-report-editor-save"
           >
             <Save className="w-4 h-4" />
             {loading ? "Salvando..." : entradaPressao ? "Salvar Laudo de PA" : "Salvar Laudo"}
           </button>
-        </div>
+        </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div className="fc-report-editor-layout">
           {/* Coluna Esquerda - Importadores */}
-          <div className="lg:col-span-1 space-y-6">
+          <aside className="fc-report-editor-sidebar">
             {entradaPressao ? (
-              <div className="bg-white p-6 rounded-lg shadow-sm border space-y-4">
+              <div className="fc-report-editor-side-card space-y-4">
                 <h2 className="text-lg font-semibold flex items-center gap-2">
                   <Heart className="w-5 h-5 text-teal-600" />
                   Fluxo de PA
@@ -982,7 +988,7 @@ export default function NovoLaudoPage() {
               </div>
             ) : (
               <>
-                <div className="bg-white p-6 rounded-lg shadow-sm border">
+                <div className="fc-report-editor-side-card">
                   <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                     <Activity className="w-5 h-5 text-teal-600" />
                     Importar XML
@@ -1003,7 +1009,7 @@ export default function NovoLaudoPage() {
                   </div>
                 </div>
 
-                <div className="bg-white p-6 rounded-lg shadow-sm border">
+                <div className="fc-report-editor-side-card">
                   <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                     <ImageIcon className="w-5 h-5 text-teal-600" />
                     Importar Cabecalho (Imagem)
@@ -1020,13 +1026,13 @@ export default function NovoLaudoPage() {
               </>
             )}
 
-          </div>
+          </aside>
 
           {/* Coluna Direita - Formulário */}
-          <div className="lg:col-span-3">
-            <div className="bg-white rounded-lg shadow-sm border">
+          <div className="fc-report-editor-main">
+            <div className="fc-report-editor-workspace">
               {/* Abas */}
-              <div className="flex border-b overflow-x-auto">
+              <div className="fc-report-editor-tabs" role="tablist" aria-label="Seções do laudo">
                 <button
                   onClick={() => setAba("paciente")}
                   className={`px-4 py-3 font-medium flex items-center gap-2 whitespace-nowrap ${
@@ -1107,7 +1113,7 @@ export default function NovoLaudoPage() {
               </div>
 
               {/* Conteúdo das Abas */}
-              <div className="p-6">
+              <div className="fc-report-editor-body">
                 {aba === "paciente" && (
                   <div className="space-y-4">
                     <h3 className="font-medium text-gray-900 mb-4">Dados do Paciente</h3>
@@ -1609,7 +1615,7 @@ export default function NovoLaudoPage() {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        ConclusÃ£o
+                        Conclusão
                       </label>
                       <textarea
                         value={conteudo.conclusao}
@@ -1617,7 +1623,7 @@ export default function NovoLaudoPage() {
                         rows={4}
                         readOnly={ecocardiogramaEstruturado.usar_no_laudo}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 read-only:bg-gray-50"
-                        placeholder="ConclusÃ£o diagnÃ³stica..."
+                        placeholder="Conclusão diagnóstica..."
                       />
                     </div>
                   </div>

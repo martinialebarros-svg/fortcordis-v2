@@ -661,29 +661,36 @@ export default function UltrassonografiaAbdominalForm({
 
   if (loading) {
     return (
-      <div className="p-6 text-center text-gray-500">
-        <Loader2 className="mx-auto mb-3 h-6 w-6 animate-spin text-teal-600" />
+      <div className="fc-ultrasound-form-page">
+        <div className="fc-ultrasound-loading">
+          <Loader2 className="h-6 w-6 animate-spin" />
         Carregando laudo...
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
-        <div className="flex items-center gap-3">
+    <div className="fc-ultrasound-form-page">
+      <header className="fc-ultrasound-form-header">
+        <div className="fc-ultrasound-form-heading">
           <button
             type="button"
             onClick={() => router.push("/ultrassonografia-abdominal")}
-            className="p-2 rounded-lg hover:bg-gray-100"
+            className="fc-ultrasound-form-back"
+            aria-label="Voltar para ultrassonografia abdominal"
           >
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
+            <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">
+            <span className="fc-ultrasound-form-kicker">
+              <Stethoscope className="h-4 w-4" />
+              Diagnóstico por imagem
+            </span>
+            <h1>
               {mode === "edit" ? "Editar Ultrassonografia Abdominal" : "Nova Ultrassonografia Abdominal"}
             </h1>
-            <p className="text-gray-500">Cliente, qualitativa, frases e imagens em um unico fluxo.</p>
+            <p>Cliente, qualitativa, frases e imagens em um único fluxo.</p>
             {agendamentoId && <p className="text-sm text-teal-700 mt-1">Agendamento vinculado: #{agendamentoId}</p>}
           </div>
         </div>
@@ -692,18 +699,20 @@ export default function UltrassonografiaAbdominalForm({
           type="button"
           onClick={salvarLaudo}
           disabled={saving}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60"
+          className="fc-ultrasound-form-save"
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           {saving ? "Salvando..." : "Salvar laudo"}
         </button>
-      </div>
+      </header>
 
-      <div className="flex flex-wrap gap-2 mb-6">
+      <div className="fc-ultrasound-form-tabs" role="tablist" aria-label="Seções da ultrassonografia">
         {ABAS.map((item) => (
           <button
             key={item.id}
             type="button"
+            role="tab"
+            aria-selected={aba === item.id}
             onClick={() => setAba(item.id)}
             className={`px-4 py-2 rounded-lg font-medium ${
               aba === item.id
@@ -716,6 +725,7 @@ export default function UltrassonografiaAbdominalForm({
         ))}
       </div>
 
+      <div className="fc-ultrasound-form-content">
       {aba === "cliente" && (
         <div className="bg-white rounded-xl border shadow-sm p-6">
           <div className="mb-6 space-y-4">
@@ -1159,6 +1169,7 @@ export default function UltrassonografiaAbdominalForm({
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

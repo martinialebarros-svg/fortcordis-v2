@@ -1,7 +1,7 @@
 # Plan - frontend-dashboard-premium-visual-refresh
 
 Responsavel: Equipe FortCordis
-Data: 2026-07-10
+Data: 2026-07-11
 
 ## Plano de execucao
 
@@ -12,10 +12,23 @@ Data: 2026-07-10
 5. Validar lint, typecheck, build e guardrail SDD antes do push para stage.
 6. Apos stage verde, promover para producao seguindo o fluxo existente de release.
 
+## Fase 2 - sistema visual transversal
+
+1. Aplicar o shell visual Fort Cordis nas telas operacionais por dominio, preservando APIs e regras de negocio.
+2. Refinar Agenda, FullCalendar, Atendimento, cadastros, Servicos, Laudos, Financeiro, Fiscal, Logistica, Relatorios, Configuracoes e WhatsApp Stage.
+3. Padronizar portais externos, ativacao, recuperacao e login interno com os assets locais da marca.
+4. Incluir estados globais para loading, erro e rota nao encontrada.
+5. Validar desktop e mobile durante cada bloco, sem submeter dados clinicos, credenciais, downloads ou exclusoes.
+6. Executar auditoria final de classes, mojibake, rotas, lint, typecheck, build e higiene do diff.
+7. Atualizar os artefatos SDD antes do commit/push de stage.
+
 ## Rollback
 
 Reverter o commit deste ciclo restaura o dashboard e a sidebar anteriores. Como nao ha migracoes nem mudancas de contrato, rollback e limitado ao frontend e documentacao SDD.
 
 ## Proxima fase
 
-Aplicar o mesmo sistema visual, de forma incremental, nas telas Agenda, Pacientes, Clinicas, Financeiro, Laudos e Atendimento, priorizando componentes compartilhaveis e consistencia de densidade operacional.
+1. Criar commit unico da fase 2 com codigo e SDD alinhados.
+2. Executar o guardrail SDD contra `origin/stage` apos o commit local.
+3. Publicar em stage, acompanhar CI e realizar smoke autenticado/canary.
+4. Promover para producao somente apos stage verde e homologacao visual.

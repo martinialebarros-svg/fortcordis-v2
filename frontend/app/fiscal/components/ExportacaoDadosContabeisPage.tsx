@@ -587,46 +587,59 @@ export default function ExportacaoDadosContabeisPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-6xl mx-auto">
-        <div className="flex items-center gap-3 mb-6">
-          <button onClick={() => router.back()} className="p-2 hover:bg-gray-100 rounded-lg"><ArrowLeft className="w-5 h-5 text-gray-600" /></button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Exportacao Fiscal para Contabilidade</h1>
-            <p className="text-sm text-gray-500">
-              Consolide servicos por periodo e clinica para envio ao setor contabil.
-            </p>
+      <div className="fc-fiscal-page">
+        <header className="fc-fiscal-header">
+          <div className="fc-fiscal-header-copy">
+            <button onClick={() => router.back()} className="fc-fiscal-back" title="Voltar" aria-label="Voltar">
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div>
+              <span className="fc-fiscal-kicker"><FileSpreadsheet className="h-4 w-4" />Conformidade contábil</span>
+              <h1>Exportação Fiscal</h1>
+              <p>Consolide serviços por período e clínica para envio à contabilidade.</p>
+            </div>
           </div>
-        </div>
+        </header>
 
-        <div className="bg-white rounded-xl shadow-sm p-6 mb-4">
-          <div className="flex gap-2 mb-4">
-            <button type="button" onClick={() => setModo("single")} className={`px-3 py-1.5 rounded-lg text-sm font-medium ${modo === "single" ? "bg-blue-100 text-blue-700 border border-blue-300" : "bg-gray-50 text-gray-600 border border-gray-200"}`}>Uma clinica</button>
-            <button type="button" onClick={() => { if (clinicaId) setClinicasSel((s) => new Set([...s, Number(clinicaId)])); setModo("multi"); }} className={`px-3 py-1.5 rounded-lg text-sm font-medium ${modo === "multi" ? "bg-blue-100 text-blue-700 border border-blue-300" : "bg-gray-50 text-gray-600 border border-gray-200"}`}>Multiclinica</button>
+        <section className="fc-fiscal-metrics" aria-label="Resumo da exportação">
+          <div className="fc-fiscal-metric fc-fiscal-metric-cordis"><FileSpreadsheet className="h-5 w-5" /><strong>{clinicas.length}</strong><span>Clínicas no período</span></div>
+          <div className="fc-fiscal-metric fc-fiscal-metric-vital"><FileText className="h-5 w-5" /><strong>{results.length}</strong><span>OS consolidadas</span></div>
+          <div className="fc-fiscal-metric fc-fiscal-metric-amber"><CheckSquare className="h-5 w-5" /><strong>{selected.size}</strong><span>OS selecionadas</span></div>
+          <div className="fc-fiscal-metric fc-fiscal-metric-ink"><Download className="h-5 w-5" /><strong>{fmtMoney(totalSel)}</strong><span>Total selecionado</span></div>
+        </section>
+
+        <section className="fc-fiscal-scope">
+          <div className="fc-fiscal-section-heading">
+            <div><span>Etapa 1</span><h2>Escopo da consolidação</h2></div>
+            <div className="fc-fiscal-mode-tabs" role="tablist" aria-label="Modo de exportação">
+              <button type="button" role="tab" aria-selected={modo === "single"} onClick={() => setModo("single")} className={`fc-fiscal-mode-tab ${modo === "single" ? "fc-fiscal-mode-tab-active" : ""}`}>Uma clínica</button>
+              <button type="button" role="tab" aria-selected={modo === "multi"} onClick={() => { if (clinicaId) setClinicasSel((s) => new Set([...s, Number(clinicaId)])); setModo("multi"); }} className={`fc-fiscal-mode-tab ${modo === "multi" ? "fc-fiscal-mode-tab-active" : ""}`}>Multiclínica</button>
+            </div>
           </div>
           {modo === "single" ? (
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="md:col-span-2"><label className="block text-sm mb-1">Clinica *</label><select value={clinicaId} onChange={(e) => onChangeClinica(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" disabled={loadingClinicas}><option value="">{loadingClinicas ? "Carregando..." : clinicas.length ? "Selecione" : "Nenhuma clinica com OS no periodo"}</option>{clinicas.map((c) => <option key={c.id} value={c.id}>{c.nome} ({Number(c.qtd_os || 0)} OS - {fmtMoney(Number(c.valor_total || 0))})</option>)}</select></div>
-              <div><label className="block text-sm mb-1">Data inicio *</label><input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
-              <div><label className="block text-sm mb-1">Data fim *</label><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
+              <div className="md:col-span-2"><label className="block text-sm mb-1">Clínica *</label><select value={clinicaId} onChange={(e) => onChangeClinica(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" disabled={loadingClinicas}><option value="">{loadingClinicas ? "Carregando..." : clinicas.length ? "Selecione" : "Nenhuma clínica com OS no período"}</option>{clinicas.map((c) => <option key={c.id} value={c.id}>{c.nome} ({Number(c.qtd_os || 0)} OS - {fmtMoney(Number(c.valor_total || 0))})</option>)}</select></div>
+              <div><label className="block text-sm mb-1">Data inicial *</label><input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
+              <div><label className="block text-sm mb-1">Data final *</label><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" /></div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="md:col-span-2">
-                <label className="block text-sm mb-1">Clinicas *</label>
-                <div className="max-h-40 overflow-auto border rounded-lg p-2 space-y-1">{loadingClinicas ? <p className="text-sm text-gray-500 px-1 py-2">Carregando...</p> : clinicas.length ? clinicas.map((c) => <label key={c.id} className="flex items-center justify-between gap-3 text-sm"><span className="flex items-center gap-2"><input type="checkbox" checked={clinicasSel.has(c.id)} onChange={() => setClinicasSel((s) => { const n = new Set(s); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; })} />{c.nome}</span><span className="text-xs text-gray-500">{Number(c.qtd_os || 0)} OS | {fmtMoney(Number(c.valor_total || 0))}</span></label>) : <p className="text-sm text-gray-500 px-1 py-2">Nenhuma clinica com OS no periodo.</p>}</div>
+                <label className="block text-sm mb-1">Clínicas *</label>
+                <div className="fc-fiscal-clinic-list">{loadingClinicas ? <p className="text-sm text-gray-500 px-1 py-2">Carregando...</p> : clinicas.length ? clinicas.map((c) => <label key={c.id} className="flex items-center justify-between gap-3 text-sm"><span className="flex items-center gap-2"><input type="checkbox" checked={clinicasSel.has(c.id)} onChange={() => setClinicasSel((s) => { const n = new Set(s); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; })} />{c.nome}</span><span className="text-xs text-gray-500">{Number(c.qtd_os || 0)} OS | {fmtMoney(Number(c.valor_total || 0))}</span></label>) : <p className="text-sm text-gray-500 px-1 py-2">Nenhuma clínica com OS no período.</p>}</div>
                 <p className="text-xs text-gray-500 mt-1">{clinicasSel.size} de {clinicas.length} selecionada(s)</p>
               </div>
-              <div className="space-y-3"><div><label className="block text-sm mb-1">Data inicio *</label><input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" /></div><div><label className="block text-sm mb-1">Data fim *</label><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" /></div></div>
+              <div className="space-y-3"><div><label className="block text-sm mb-1">Data inicial *</label><input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" /></div><div><label className="block text-sm mb-1">Data final *</label><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" /></div></div>
             </div>
           )}
-          <div className="mt-3 flex gap-2">
-            <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && buscarOs()} placeholder="Filtrar OS por numero, paciente, tutor ou servico" className="flex-1 px-3 py-2 border rounded-lg text-sm" />
-            <button onClick={buscarOs} disabled={loadingResults} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-2">{loadingResults ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}Consolidar periodo</button>
+          <div className="fc-fiscal-search-row">
+            <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && buscarOs()} placeholder="Filtrar OS por número, paciente, tutor ou serviço" className="flex-1 px-3 py-2 border rounded-lg text-sm" />
+            <button onClick={buscarOs} disabled={loadingResults} className="fc-fiscal-primary">{loadingResults ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}Consolidar período</button>
           </div>
-        </div>
+        </section>
 
-        <div className="bg-white rounded-xl shadow-sm p-6 mb-4">
-          <h3 className="font-semibold mb-3">{modo === "single" ? "Dados do tomador (clinica selecionada)" : "Parametros fiscais do lote"}</h3>
+        <section className="fc-fiscal-tomador">
+          <div className="fc-fiscal-section-heading"><div><span>Etapa 2</span><h2>{modo === "single" ? "Dados do tomador" : "Parâmetros fiscais do lote"}</h2></div></div>
           {modo === "single" && clinicaId && (autosaving || autosaveStatus) && (
             <p className={`text-xs mb-3 ${autosaving ? "text-blue-700" : "text-emerald-700"}`}>
               {autosaving ? "Salvando automaticamente..." : autosaveStatus}
@@ -790,34 +803,34 @@ export default function ExportacaoDadosContabeisPage() {
               </select>
             </div>
           </div>
-        </div>
+        </section>
 
         {results.length > 0 && (
           <>
-            <div className="bg-white rounded-xl shadow-sm overflow-hidden mb-4">
-              <div className="p-4 border-b flex items-center justify-between bg-gray-50">
+            <section className="fc-fiscal-results">
+              <div className="fc-fiscal-results-heading">
                 <button onClick={() => setSelected(selected.size === results.length ? new Set() : new Set(results.map((r) => r.os_id)))} className="flex items-center gap-2 text-sm text-blue-600">{selected.size === results.length ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}{selected.size === results.length ? "Desmarcar" : "Selecionar"} todas ({results.length})</button>
                 <p className="text-sm">{selected.size} selecionada(s) | Total {fmtMoney(totalSel)}</p>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+              <div className="fc-fiscal-table-scroll">
+                <table className="fc-fiscal-table">
                   <thead className="bg-gray-50"><tr><th className="px-3 py-2" /><th className="px-3 py-2 text-left">Clinica</th><th className="px-3 py-2 text-left">OS</th><th className="px-3 py-2 text-left">Data</th><th className="px-3 py-2 text-left">Paciente</th><th className="px-3 py-2 text-left">Tutor</th><th className="px-3 py-2 text-left">Servico</th><th className="px-3 py-2 text-center">Status</th><th className="px-3 py-2 text-right">Valor</th></tr></thead>
                   <tbody className="divide-y">{results.map((r) => <tr key={r.os_id} onClick={() => setSelected((s) => { const n = new Set(s); n.has(r.os_id) ? n.delete(r.os_id) : n.add(r.os_id); return n; })} className={`cursor-pointer hover:bg-blue-50 ${selected.has(r.os_id) ? "bg-blue-50" : ""}`}><td className="px-3 py-2">{selected.has(r.os_id) ? <CheckSquare className="w-4 h-4 text-blue-600" /> : <Square className="w-4 h-4 text-gray-400" />}</td><td className="px-3 py-2">{r.clinica_nome || "-"}</td><td className="px-3 py-2 font-mono text-xs">{r.numero_os}</td><td className="px-3 py-2">{fmtDate(r.data_atendimento)}</td><td className="px-3 py-2">{r.paciente_nome || "-"}</td><td className="px-3 py-2">{r.tutor_nome || "-"}</td><td className="px-3 py-2">{r.servico_nome || "-"}</td><td className="px-3 py-2 text-center"><span className={`px-2 py-0.5 rounded text-xs ${r.status_os === "Pago" ? "bg-green-100 text-green-700" : r.status_os === "Cancelado" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>{r.status_os}</span></td><td className="px-3 py-2 text-right font-medium">{fmtMoney(r.valor_final)}</td></tr>)}</tbody>
                 </table>
               </div>
-            </div>
+            </section>
 
-            <div className="bg-white rounded-xl shadow-sm p-6">
-              <h3 className="font-semibold mb-3 flex items-center gap-2"><Download className="w-4 h-4 text-green-600" />Exportar relatorio contabil</h3>
-              <div className="flex gap-3 mb-4">{[{ id: "csv", label: "CSV", icon: File }, { id: "xlsx", label: "Excel", icon: FileSpreadsheet }, { id: "pdf", label: "PDF", icon: FileText }].map((f) => <button key={f.id} onClick={() => setFormat(f.id as ExportFormat)} className={`flex items-center gap-2 p-3 rounded-lg border-2 ${format === f.id ? "border-blue-500 bg-blue-50" : "border-gray-200"}`}><f.icon className="w-4 h-4" />{f.label}</button>)}</div>
+            <section className="fc-fiscal-export">
+              <div className="fc-fiscal-section-heading"><div><span>Etapa 4</span><h2>Exportar relatório contábil</h2></div></div>
+              <div className="fc-fiscal-format-tabs">{[{ id: "csv", label: "CSV", icon: File }, { id: "xlsx", label: "Excel", icon: FileSpreadsheet }, { id: "pdf", label: "PDF", icon: FileText }].map((f) => <button key={f.id} onClick={() => setFormat(f.id as ExportFormat)} className={`fc-fiscal-format-tab ${format === f.id ? "fc-fiscal-format-tab-active" : ""}`}><f.icon className="h-4 w-4" />{f.label}</button>)}</div>
               <div className="bg-blue-50 rounded-lg p-3 flex items-start gap-2 mb-4"><AlertCircle className="w-4 h-4 text-blue-600 mt-0.5" /><p className="text-sm text-blue-700">No modo multiclinica, o PDF e separado por clinica. Se houver cadastro incompleto, o sistema informa os campos faltantes antes da exportacao.</p></div>
-              <button onClick={exportar} disabled={!selected.size || exporting} className="w-full px-6 py-3 bg-green-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50">{exporting ? <><Loader2 className="w-5 h-5 animate-spin" />Exportando...</> : <><Download className="w-5 h-5" />Exportar relatorio de {selected.size} OS em {format.toUpperCase()}</>}</button>
-            </div>
+              <button onClick={exportar} disabled={!selected.size || exporting} className="fc-fiscal-export-button">{exporting ? <><Loader2 className="h-5 w-5 animate-spin" />Exportando...</> : <><Download className="h-5 w-5" />Exportar relatório de {selected.size} OS em {format.toUpperCase()}</>}</button>
+            </section>
           </>
         )}
         {!loadingResults && searchDone && results.length === 0 && (
-          <div className="bg-white rounded-xl shadow-sm p-10 text-center text-gray-500">
-            Nenhuma ordem de servico encontrada para os filtros selecionados.
+          <div className="fc-fiscal-empty">
+            Nenhuma ordem de serviço encontrada para os filtros selecionados.
           </div>
         )}
       </div>
