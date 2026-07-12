@@ -11,7 +11,7 @@
 - RF-007: nao incluir medidas conflitantes no conjunto sugerido para aplicacao.
 - RF-008: exibir as sugestoes para revisao antes de alterar o formulario.
 - RF-009: manter XML e importacao de cabecalho funcionando sem mudanca de contrato.
-- RF-010: reconhecer o perfil GE Vet World em imagens exportadas, lendo cabecalho e quadros de medidas nas regioes conhecidas sem depender de XML.
+- RF-010: reconhecer o perfil GE LOGIQ e em imagens exportadas, lendo cabecalho e quadros de medidas nas regioes conhecidas sem depender de XML; `VET WORLD` identifica a clinica exibida no cabecalho, nao o modelo do equipamento.
 - RF-011: preencher apenas dados textualmente presentes no arquivo; achados, diagnostico e conclusao permanecem sob revisao do veterinario.
 
 ## Requisitos nao funcionais
@@ -66,7 +66,7 @@
 - CA-004: imagem invalida, extensao invalida, PDF excessivo e arquivo acima do limite falham de forma controlada.
 - CA-005: o novo componente aparece em novo e editar laudo.
 - CA-006: medidas so entram no formulario depois de clicar em aplicar sugestoes.
-- CA-007: imagens GE Vet World reconhecem paciente, tutor, idade, especie e data quando esses textos estiverem legiveis no cabecalho.
+- CA-007: imagens GE LOGIQ e reconhecem paciente, tutor, idade, especie e data quando esses textos estiverem legiveis no cabecalho.
 - CA-008: `E/TRIV` nao pode ser interpretado como uma segunda medida de TRIV.
 - CA-009: apóstrofo curvo em `E/E’` deve ser aceito e a leitura completa com duas casas decimais deve prevalecer sobre variante truncada.
 - CA-010: com `PATH` contendo apenas `backend/venv/bin`, uma instalacao executavel em `/usr/bin/tesseract` deve ser localizada e usada pelo extrator e pelo diagnostico de runtime.

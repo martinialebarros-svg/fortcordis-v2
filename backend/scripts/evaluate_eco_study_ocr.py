@@ -11,7 +11,10 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.services.eco_study_extraction_service import parse_eco_study_import_content
+from app.services.eco_study_extraction_service import (
+    GE_LOGIQ_E_PROFILE,
+    parse_eco_study_import_content,
+)
 
 
 GOLD_STUDIES: dict[str, dict[str, dict[str, float]]] = {
@@ -134,12 +137,13 @@ def evaluate_study(label: str, directory: Path) -> dict[str, Any]:
         "wrong": wrong,
         "unexpected": unexpected,
         "profiles": sorted(profiles),
+        "profile_ok": profiles == {GE_LOGIQ_E_PROFILE},
     }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Avalia o perfil OCR GE Vet World sem copiar os estudos para o repositorio."
+        description="Avalia o perfil OCR GE LOGIQ e sem copiar os estudos para o repositorio."
     )
     parser.add_argument("--study-a-dir", required=True, type=Path)
     parser.add_argument("--study-b-dir", required=True, type=Path)
@@ -158,7 +162,8 @@ def main() -> int:
         "studies": results,
     }
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0 if correct == expected else 1
+    profiles_ok = all(result["profile_ok"] for result in results)
+    return 0 if correct == expected and profiles_ok else 1
 
 
 if __name__ == "__main__":

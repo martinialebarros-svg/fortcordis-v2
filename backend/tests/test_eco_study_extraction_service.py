@@ -20,7 +20,7 @@ from app.services.eco_study_extraction_service import (  # noqa: E402
     _keep_most_reliable_candidates,
     consolidate_measurement_candidates,
     extract_measurements_from_text,
-    parse_ge_vet_world_header_text,
+    parse_ge_logiq_e_header_text,
     parse_eco_study_import_content,
     validate_eco_study_filename,
     validate_eco_study_size,
@@ -127,8 +127,8 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
         self.assertEqual(measurements["E_E_linha"], 8.23)
         self.assertEqual(conflicts, 0)
 
-    def test_parses_ge_vet_world_header_without_clinical_inference(self) -> None:
-        payload = parse_ge_vet_world_header_text(
+    def test_parses_ge_logiq_e_header_without_clinical_inference(self) -> None:
+        payload = parse_ge_logiq_e_header_text(
             """
             VET WORLD
             BOLINHA, TUTOR TESTE
@@ -144,7 +144,9 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
         self.assertEqual(payload["paciente"]["idade"], "3 anos")
         self.assertEqual(payload["paciente"]["especie"], "Canina")
         self.assertEqual(payload["paciente"]["data_exame"], "2024-07-19")
-        self.assertEqual(payload["perfil"], "ge_vet_world")
+        self.assertEqual(payload["perfil"], "ge_logiq_e")
+        self.assertEqual(payload["fabricante"], "GE")
+        self.assertEqual(payload["modelo_equipamento"], "LOGIQ e")
 
     def test_validates_extension_and_size(self) -> None:
         with self.assertRaisesRegex(ValueError, "imagem ou PDF"):

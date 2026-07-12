@@ -2,7 +2,7 @@
 
 ## Estado
 
-Primeira entrega vertical implementada localmente e perfil GE Vet World calibrado com dois estudos mantidos fora do repositorio; validacao em stage permanece pendente.
+Primeira entrega vertical publicada em stage e perfil GE LOGIQ e calibrado com dois estudos mantidos fora do repositorio.
 
 ## Evidencias automatizadas
 
@@ -19,14 +19,14 @@ Primeira entrega vertical implementada localmente e perfil GE Vet World calibrad
 - `venv/bin/python -m unittest tests.test_eco_study_ocr_runtime ... -v`: OCR real, status de runtime presente/ausente e regressao do extrator passaram.
 - `bash -n scripts/deploy_prod_vps.sh scripts/deploy_stage_vps.sh`: scripts de deploy validos; stage configura OCR como obrigatorio.
 - `venv/bin/python -m unittest discover -s tests -p 'test_*.py'`: suite backend completa passou, 303/303 testes.
-- `venv/bin/python scripts/evaluate_eco_study_ocr.py --study-a-dir <pasta-externa-a> --study-b-dir <pasta-externa-b>`: conjunto ouro local reconheceu 57/57 medidas (28/28 e 29/29), sem ausencias, divergencias ou campos inesperados; ambos os estudos foram classificados como `ge_vet_world`.
+- `venv/bin/python scripts/evaluate_eco_study_ocr.py --study-a-dir <pasta-externa-a> --study-b-dir <pasta-externa-b>`: conjunto ouro local reconheceu 57/57 medidas (28/28 e 29/29), sem ausencias, divergencias ou campos inesperados; ambos os estudos foram classificados como `ge_logiq_e`.
 - Cabecalhos dos dois estudos reais foram reconhecidos com presenca de paciente, tutor, idade, especie e data do exame; a verificacao registrou apenas indicadores booleanos, sem persistir os dados identificaveis.
 - Testes unitarios cobrem cabecalho GE anonimizado, distincao entre `TRIV` e `E/TRIV`, apóstrofo curvo em `E/E’` e preferencia pela leitura de duas casas decimais quando uma variante perde o ultimo digito.
 - Regressao de runtime reproduz a unidade systemd com `PATH` limitado ao venv e confirma a resolucao de `/usr/bin/tesseract`, inclusive quando `TESSERACT_CMD=tesseract` estiver definido.
 
 ## Validacao manual pendente
 
-- Importar o lote GE Vet World pela interface e revisar a experiencia de selecao/aplicacao.
+- Importar o lote GE LOGIQ e pela interface e revisar a experiencia de selecao/aplicacao.
 - Importar PDF com camada textual.
 - Importar PDF rasterizado.
 - Revisar sugestoes, conflitos e conversoes de unidade.
@@ -36,5 +36,6 @@ Primeira entrega vertical implementada localmente e perfil GE Vet World calibrad
 
 - O ambiente backend de producao ainda precisa disponibilizar o comando `tesseract` com idiomas `por` e `eng` ou configurar `TESSERACT_CMD`/`TESSDATA_DIR`; o deploy de stage provisiona e exige esse requisito.
 - PDF com camada textual e PDF rasterizado foram exercitados de ponta a ponta localmente.
-- A metrica 57/57 mede somente os campos suportados e visiveis nos dois estudos GE Vet World fornecidos; novos modelos de equipamento e layouts ainda exigem conjuntos ouro proprios revisados por veterinario.
+- A metrica 57/57 mede somente os campos suportados e visiveis nos dois estudos GE LOGIQ e fornecidos; novos modelos de equipamento e layouts ainda exigem conjuntos ouro proprios revisados por veterinario.
+- A identificacao inicial como Vivid IQ/GE Vet World foi corrigida: as imagens de calibracao vieram do GE LOGIQ e, enquanto `VET WORLD` e a clinica impressa no cabecalho.
 - Imagens clinicas usadas na calibracao nao foram copiadas para o repositorio; somente os valores esperados anonimos fazem parte do avaliador local.

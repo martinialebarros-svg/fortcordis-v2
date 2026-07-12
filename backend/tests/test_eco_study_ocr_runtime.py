@@ -51,7 +51,7 @@ class EcoStudyOcrRuntimeTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("tesseract"), "Tesseract nao instalado")
     def test_real_ocr_extracts_synthetic_image_and_scanned_pdf(self) -> None:
         image_content = build_synthetic_study_image()
-        image_payload = parse_eco_study_import_content("synthetic-vivid.png", image_content)
+        image_payload = parse_eco_study_import_content("synthetic-ultrasound.png", image_content)
         pdf_payload = parse_eco_study_import_content(
             "synthetic-scanned.pdf",
             build_scanned_pdf(image_content),

@@ -40,6 +40,8 @@ export interface MetaImportacaoEstudoEco {
   formato: string;
   arquivo: string;
   perfil?: string;
+  fabricante?: string;
+  modelo_equipamento?: string;
   paginas: number;
   medidas_sugeridas: number;
   candidatos: number;

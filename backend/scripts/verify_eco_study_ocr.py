@@ -104,7 +104,7 @@ def _validate(label: str, payload: dict) -> None:
 
 def main() -> int:
     image_content = build_synthetic_study_image()
-    image_payload = parse_eco_study_import_content("synthetic-vivid.png", image_content)
+    image_payload = parse_eco_study_import_content("synthetic-ultrasound.png", image_content)
     _validate("image", image_payload)
 
     pdf_content = build_scanned_pdf(image_content)

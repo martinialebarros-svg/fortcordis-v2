@@ -15,6 +15,7 @@ from app.services.image_header_import_service import _extract_text_with_tesserac
 
 MAX_ECO_STUDY_IMPORT_SIZE = 30 * 1024 * 1024
 MAX_ECO_STUDY_PDF_PAGES = 20
+GE_LOGIQ_E_PROFILE = "ge_logiq_e"
 ALLOWED_ECO_STUDY_EXTENSIONS = {
     ".jpg",
     ".jpeg",
@@ -110,7 +111,7 @@ def _safe_iso_date(day: int, month: int, year: int) -> str:
         return ""
 
 
-def parse_ge_vet_world_header_text(text: str) -> dict[str, Any] | None:
+def parse_ge_logiq_e_header_text(text: str) -> dict[str, Any] | None:
     normalized_text = _remove_diacritics(text or "")
     if "VET WORLD" not in normalized_text.upper():
         return None
@@ -161,7 +162,9 @@ def parse_ge_vet_world_header_text(text: str) -> dict[str, Any] | None:
         "clinica": "VET WORLD",
         "veterinario_solicitante": "",
         "fc": "",
-        "perfil": "ge_vet_world",
+        "perfil": GE_LOGIQ_E_PROFILE,
+        "fabricante": "GE",
+        "modelo_equipamento": "LOGIQ e",
     }
 
 
@@ -355,7 +358,7 @@ def _build_measurement_regions(image: Image.Image) -> list[tuple[str, Image.Imag
     ]
 
 
-def _extract_ge_header_from_image(image: Image.Image) -> dict[str, Any] | None:
+def _extract_ge_logiq_e_header_from_image(image: Image.Image) -> dict[str, Any] | None:
     base = ImageOps.exif_transpose(image).convert("RGB")
     width, height = base.size
     if width < 500 or height < 300:
@@ -367,7 +370,7 @@ def _extract_ge_header_from_image(image: Image.Image) -> dict[str, Any] | None:
         text = _extract_text_with_tesseract(prepared, psm=11)
     except Exception:
         return None
-    return parse_ge_vet_world_header_text(text)
+    return parse_ge_logiq_e_header_text(text)
 
 
 def _build_region_ocr_passes(region: Image.Image) -> list[tuple[str, Image.Image, int, float]]:
@@ -540,7 +543,7 @@ def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict
         text_pages = _extract_pdf_text_pages(content)
         page_count = len(text_pages)
         if text_pages:
-            header_payload = parse_ge_vet_world_header_text(text_pages[0])
+            header_payload = parse_ge_logiq_e_header_text(text_pages[0])
         pages_needing_ocr: list[int] = []
         for index, text in enumerate(text_pages, start=1):
             page_candidates = extract_measurements_from_text(
@@ -556,7 +559,7 @@ def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict
         if pages_needing_ocr:
             rendered_pages = _render_pdf_pages(content)
             if rendered_pages and not header_payload:
-                header_payload = _extract_ge_header_from_image(rendered_pages[0])
+                header_payload = _extract_ge_logiq_e_header_from_image(rendered_pages[0])
             for page_number in pages_needing_ocr:
                 page_candidates, variant = _extract_candidates_from_image(
                     rendered_pages[page_number - 1],
@@ -567,7 +570,7 @@ def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict
                     ocr_variants[str(page_number)] = variant
     else:
         image = _open_image(content)
-        header_payload = _extract_ge_header_from_image(image)
+        header_payload = _extract_ge_logiq_e_header_from_image(image)
         page_candidates, variant = _extract_candidates_from_image(image, page=1)
         candidates.extend(page_candidates)
         if variant:
@@ -604,5 +607,7 @@ def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict
             "conflitos": conflicts,
             "variantes_ocr": ocr_variants,
             "perfil": (header_payload or {}).get("perfil", "generico"),
+            "fabricante": (header_payload or {}).get("fabricante", ""),
+            "modelo_equipamento": (header_payload or {}).get("modelo_equipamento", ""),
         },
     }
