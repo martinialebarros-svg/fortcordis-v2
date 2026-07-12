@@ -12,7 +12,7 @@ import type {
   EventInput,
 } from "@fullcalendar/core";
 import type { DateClickArg, EventResizeDoneArg } from "@fullcalendar/interaction";
-import { CalendarDays, ChevronDown, Download, FileText, MapPin, RefreshCw, Stethoscope, Trash2, Wallet } from "lucide-react";
+import { CalendarDays, ChevronDown, Download, FileText, List, MapPin, RefreshCw, Stethoscope, Trash2, Wallet } from "lucide-react";
 
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
@@ -69,7 +69,7 @@ import {
 const AgendaFullCalendarView = dynamic(() => import("./AgendaFullCalendarView"), {
   ssr: false,
   loading: () => (
-    <div className="rounded-xl border bg-white p-6 text-sm text-gray-500 shadow-sm">
+    <div className="fc-calendar-loading">
       Carregando calendario...
     </div>
   ),
@@ -2397,7 +2397,7 @@ export default function AgendaFullCalendarPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6">
+      <div className="fc-agenda-page fc-calendar-page">
         {toastRealtime && (
           <div className="fixed right-4 top-4 z-[70]">
             <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-xs shadow-lg ${toastRealtime.classe}`}>
@@ -2415,26 +2415,29 @@ export default function AgendaFullCalendarPage() {
           </div>
         )}
 
-        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="fc-agenda-header fc-calendar-header">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Agenda FullCalendar</h1>
-            <p className="text-gray-500">
-              Clique em horario vazio para criar, selecione um evento para editar/status, e arraste para alterar horario.
-            </p>
+            <span className="fc-agenda-kicker">
+              <CalendarDays className="h-4 w-4" />
+              Visão avançada
+            </span>
+            <h1>Calendário operacional</h1>
+            <p>Clique em um horário vazio para criar e arraste eventos para reorganizar o fluxo.</p>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="fc-calendar-controls">
             <button
               type="button"
               onClick={abrirAgendaLista}
-              className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+              className="fc-agenda-button-secondary"
             >
-              Ver Agenda Lista
+              <List className="h-4 w-4" />
+              Ver lista
             </button>
             <select
               value={filtroStatus}
               onChange={(event) => setFiltroStatus(event.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              className="fc-agenda-control"
             >
               {STATUS_FILTRO.map((status) => (
                 <option key={status} value={status}>
@@ -2446,7 +2449,7 @@ export default function AgendaFullCalendarPage() {
             <select
               value={filtroOrigemAtendimento}
               onChange={(event) => setFiltroOrigemAtendimento(event.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              className="fc-agenda-control"
             >
               <option value="todos">Todas as origens</option>
               <option value="clinica_parceira">Clinica parceira</option>
@@ -2457,17 +2460,17 @@ export default function AgendaFullCalendarPage() {
               type="date"
               value={dataControleAgenda}
               onChange={(event) => setDataControleAgenda(event.target.value || toDateInput(new Date()))}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              className="fc-agenda-control"
             />
 
             {isAdmin ? (
               <button
                 onClick={alternarAberturaAgendaDia}
                 disabled={salvandoAgendaDia}
-                className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                className={`fc-agenda-button-state ${
                   jornadaDataControle.fechado
-                    ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                    : "bg-amber-500 text-white hover:bg-amber-600"
+                    ? "fc-agenda-button-state-open"
+                    : "fc-agenda-button-state-close"
                 }`}
               >
                 {salvandoAgendaDia
@@ -2477,7 +2480,7 @@ export default function AgendaFullCalendarPage() {
                     : "Fechar data"}
               </button>
             ) : (
-              <span className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+              <span className="fc-calendar-admin-note">
                 Somente admin pode abrir/fechar agenda
               </span>
             )}
@@ -2485,7 +2488,7 @@ export default function AgendaFullCalendarPage() {
             <button
               onClick={() => intervalo && carregarAgendamentos(intervalo)}
               disabled={!intervalo || loading || salvandoMovimentacao}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="fc-agenda-button-primary"
             >
               <RefreshCw className={`h-4 w-4 ${loading || salvandoMovimentacao ? "animate-spin" : ""}`} />
               {salvandoMovimentacao ? "Salvando..." : "Atualizar"}
@@ -2493,7 +2496,7 @@ export default function AgendaFullCalendarPage() {
           </div>
         </div>
 
-        <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-xs text-gray-700">
+        <div className="fc-calendar-day-state">
           Data {dataControleAgenda}:{" "}
           <strong>{jornadaDataControle.fechado ? "fechada" : "aberta"}</strong>
           {jornadaDataControle.motivo ? ` (${jornadaDataControle.motivo})` : ""}
@@ -2501,12 +2504,13 @@ export default function AgendaFullCalendarPage() {
         </div>
 
         <div
-          className={`mb-4 rounded-lg border px-4 py-2 text-xs ${
+          className={`fc-agenda-livebar ${
             realtimeConectado
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : "border-amber-200 bg-amber-50 text-amber-800"
+              ? "fc-agenda-livebar-online"
+              : "fc-agenda-livebar-warning"
           }`}
         >
+          <span className="fc-agenda-live-dot" />
           Tempo real: {realtimeConectado ? "conectado" : "reconectando..."}
           {realtimeUltimoEvento ? ` | Ultimo evento: ${realtimeUltimoEvento}` : ""}
           {mensagemRealtime ? ` | ${mensagemRealtime}` : ""}
@@ -2514,7 +2518,7 @@ export default function AgendaFullCalendarPage() {
 
         {erro && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</div>}
 
-        <div className="rounded-xl border bg-white p-2 shadow-sm md:p-4">
+        <div className="fc-calendar-surface">
           <AgendaFullCalendarView
             events={eventos}
             eventContent={renderEventContent}
@@ -2552,7 +2556,7 @@ export default function AgendaFullCalendarPage() {
         </div>
 
         <div className="mt-4 grid gap-4 lg:grid-cols-3">
-          <div className="rounded-xl border bg-white p-4 shadow-sm">
+          <div className="fc-calendar-summary-card">
             <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
               <CalendarDays className="h-4 w-4" />
               Resumo do periodo carregado
@@ -2569,7 +2573,7 @@ export default function AgendaFullCalendarPage() {
             </p>
           </div>
 
-          <div className="rounded-xl border bg-white p-4 shadow-sm lg:col-span-2">
+          <div className="fc-calendar-detail-card lg:col-span-2">
             <h2 className="mb-2 text-sm font-semibold text-gray-700">Detalhes do evento selecionado</h2>
             {!selecionado ? (
               <p className="text-sm text-gray-500">Clique em um evento para ver os detalhes e abrir as acoes.</p>

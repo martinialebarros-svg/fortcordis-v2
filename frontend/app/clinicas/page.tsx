@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import { listarTodasClinicas } from "@/lib/clinicas";
-import { Building2, Search, Plus, MapPin, Phone, Edit2 } from "lucide-react";
+import { Building2, Search, Plus, MapPin, Phone, Edit2, ListFilter, MapPinned } from "lucide-react";
 
 interface Clinica {
   id: number;
@@ -49,98 +49,124 @@ export default function ClinicasPage() {
       (c.razao_social || "").toLowerCase().includes(termo)
     );
   });
+  const clinicasComEndereco = clinicas.filter((clinica) => Boolean(clinica.endereco?.trim())).length;
 
   return (
     <DashboardLayout>
-      <div className="p-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+      <div className="fc-registry-page">
+        <header className="fc-registry-header fc-registry-header-network">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Clínicas</h1>
-            <p className="text-gray-500">Gerencie as clínicas parceiras</p>
+            <span className="fc-registry-kicker">
+              <Building2 className="h-4 w-4" />
+              Rede assistida
+            </span>
+            <h1>Clínicas parceiras</h1>
+            <p>Contatos e localização da rede de atendimento em uma leitura objetiva.</p>
           </div>
           <button 
             onClick={() => router.push("/clinicas/novo")}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+            className="fc-registry-primary"
           >
             <Plus className="w-4 h-4" />
             Nova Clínica
           </button>
-        </div>
+        </header>
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-          <div className="bg-white p-4 rounded-lg shadow-sm border flex items-center gap-4">
-            <div className="w-12 h-12 bg-purple-50 rounded-lg flex items-center justify-center">
-              <Building2 className="w-6 h-6 text-purple-600" />
+        <section className="fc-registry-metrics" aria-label="Resumo da rede de clínicas">
+          <div className="fc-registry-metric fc-registry-metric-cordis">
+            <div className="fc-registry-metric-icon">
+              <Building2 className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-gray-900">{clinicas.length}</p>
-              <p className="text-sm text-gray-500">Clínicas parceiras</p>
+              <strong>{clinicas.length}</strong>
+              <span>Parceiras ativas</span>
             </div>
           </div>
-        </div>
+          <div className="fc-registry-metric fc-registry-metric-vital">
+            <div className="fc-registry-metric-icon">
+              <ListFilter className="h-5 w-5" />
+            </div>
+            <div>
+              <strong>{clinicasFiltradas.length}</strong>
+              <span>Resultados visíveis</span>
+            </div>
+          </div>
+          <div className="fc-registry-metric fc-registry-metric-ink">
+            <div className="fc-registry-metric-icon">
+              <MapPinned className="h-5 w-5" />
+            </div>
+            <div>
+              <strong>{clinicasComEndereco}</strong>
+              <span>Com endereço</span>
+            </div>
+          </div>
+        </section>
 
-        {/* Busca */}
-        <div className="bg-white p-4 rounded-lg shadow-sm border mb-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+        <section className="fc-registry-search">
+          <div className="fc-registry-search-copy">
+            <span>Localização rápida</span>
+            <strong>Encontre por nome ou razão social</strong>
+          </div>
+          <div className="fc-registry-search-field">
+            <Search className="h-5 w-5" />
             <input
               type="text"
-              placeholder="Buscar clínica..."
+              placeholder="Buscar clínica ou razão social..."
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
             />
           </div>
-        </div>
+        </section>
 
-        {/* Lista */}
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+        <section className="fc-registry-list">
           {loading ? (
-            <div className="p-8 text-center text-gray-500">Carregando...</div>
+            <div className="fc-registry-loading" aria-label="Carregando clínicas">
+              {[0, 1, 2].map((item) => <span key={item} />)}
+            </div>
           ) : clinicasFiltradas.length === 0 ? (
-            <div className="p-12 text-center">
-              <Building2 className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500 text-lg">Nenhuma clínica encontrada</p>
+            <div className="fc-registry-empty">
+              <div><Building2 className="h-6 w-6" /></div>
+              <span>Rede sem resultados</span>
+              <p>Nenhuma clínica encontrada</p>
+              <button type="button" onClick={() => router.push("/clinicas/novo")} className="fc-registry-primary mt-5">
+                <Plus className="h-4 w-4" />
+                Cadastrar clínica
+              </button>
             </div>
           ) : (
-            <div className="divide-y">
+            <div className="divide-y divide-ink-100">
               {clinicasFiltradas.map((clinica) => (
-                <div key={clinica.id} className="p-4 hover:bg-gray-50 group flex items-start gap-4">
-                  <div 
-                    className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center cursor-pointer"
-                    onClick={() => router.push(`/clinicas/${clinica.id}`)}
-                  >
+                <div key={clinica.id} className="fc-registry-row fc-registry-row-clinic group">
+                  <div className="fc-registry-avatar fc-registry-avatar-clinic">
                     <Building2 className="w-5 h-5 text-purple-600" />
                   </div>
-                  <div 
-                    className="flex-1 cursor-pointer"
+                  <button
+                    type="button"
+                    className="fc-registry-row-main"
                     onClick={() => router.push(`/clinicas/${clinica.id}`)}
                   >
-                    <h3 className="font-medium text-gray-900">{clinica.nome}</h3>
+                    <div>
+                      <h3>{clinica.nome}</h3>
+                      <span className="fc-registry-id">Clínica #{clinica.id}</span>
+                    </div>
                     {clinica.razao_social && (
-                      <p className="text-sm text-gray-500 mt-1">
+                      <p>
                         Razão social: {clinica.razao_social}
                       </p>
                     )}
-                    {clinica.endereco && (
-                      <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
-                        <MapPin className="w-3 h-3" />
-                        {clinica.endereco}
-                      </p>
-                    )}
-                    {clinica.telefone && (
-                      <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
-                        <Phone className="w-3 h-3" />
-                        {clinica.telefone}
-                      </p>
-                    )}
+                  </button>
+                  <div className="fc-registry-clinic-contact">
+                    {clinica.endereco ? (
+                      <span><MapPin className="h-3.5 w-3.5" />{clinica.endereco}</span>
+                    ) : <small>Endereço não informado</small>}
+                    {clinica.telefone && <span><Phone className="h-3.5 w-3.5" />{clinica.telefone}</span>}
                   </div>
                   <button
+                    type="button"
                     onClick={() => router.push(`/clinicas/${clinica.id}`)}
-                    className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="fc-registry-edit"
                     title="Editar"
+                    aria-label={`Editar clínica ${clinica.nome}`}
                   >
                     <Edit2 className="w-4 h-4" />
                   </button>
@@ -148,7 +174,7 @@ export default function ClinicasPage() {
               ))}
             </div>
           )}
-        </div>
+        </section>
       </div>
     </DashboardLayout>
   );

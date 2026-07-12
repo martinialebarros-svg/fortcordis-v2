@@ -343,50 +343,50 @@ export default function LaudosPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6">
-        <div className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-center sm:justify-between">
+      <div className="fc-clinical-page">
+        <header className="fc-clinical-header">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Laudos e Exames</h1>
-            <p className="text-gray-500">Gerencie laudos medicos e exames</p>
+            <span className="fc-clinical-kicker">
+              <FileCheck className="h-4 w-4" />
+              Documentação clínica
+            </span>
+            <h1>Central de laudos</h1>
+            <p>Exames, documentos e liberações para o portal organizados por paciente.</p>
           </div>
           <button
             onClick={() => router.push("/laudos/novo")}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
+            className="fc-clinical-primary"
           >
             <Plus className="w-4 h-4" />
             Novo Laudo
           </button>
-        </div>
+        </header>
 
-        <div className="flex gap-2 mb-6">
+        <div className="fc-clinical-tabs" role="tablist" aria-label="Tipo de documento">
           <button
             onClick={() => setTab("laudos")}
-            className={`px-4 py-2 rounded-lg font-medium ${
-              tab === "laudos"
-                ? "bg-teal-100 text-teal-700"
-                : "bg-white text-gray-600 hover:bg-gray-100"
-            }`}
+            className={`fc-clinical-tab ${tab === "laudos" ? "fc-clinical-tab-active" : ""}`}
+            role="tab"
+            aria-selected={tab === "laudos"}
           >
-            <FileText className="w-4 h-4 inline mr-2" />
+            <FileText className="h-4 w-4" />
             Laudos ({totalLaudos})
           </button>
           <button
             onClick={() => setTab("exames")}
-            className={`px-4 py-2 rounded-lg font-medium ${
-              tab === "exames"
-                ? "bg-teal-100 text-teal-700"
-                : "bg-white text-gray-600 hover:bg-gray-100"
-            }`}
+            className={`fc-clinical-tab ${tab === "exames" ? "fc-clinical-tab-active" : ""}`}
+            role="tab"
+            aria-selected={tab === "exames"}
           >
-            <FileCheck className="w-4 h-4 inline mr-2" />
+            <FileCheck className="h-4 w-4" />
             Exames ({totalExames})
           </button>
         </div>
 
-        <div className="bg-white p-4 rounded-lg shadow-sm border mb-6">
+        <div className="fc-clinical-filters">
           <div className="flex flex-col gap-3 lg:flex-row">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <div className="fc-clinical-control flex-1">
+              <Search className="h-5 w-5" />
               <input
                 type="text"
                 placeholder={
@@ -396,19 +396,17 @@ export default function LaudosPage() {
                 }
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
               />
             </div>
 
             {tab === "laudos" && (
               <>
-                <div className="relative lg:w-56">
-                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <div className="fc-clinical-control lg:w-56">
+                  <Calendar className="h-5 w-5" />
                   <input
                     type="date"
                     value={dataFiltro}
                     onChange={(e) => setDataFiltro(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                     aria-label="Filtrar laudos por data"
                   />
                 </div>
@@ -417,7 +415,7 @@ export default function LaudosPage() {
                   <button
                     type="button"
                     onClick={limparFiltrosLaudos}
-                    className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50"
+                    className="fc-clinical-secondary"
                   >
                     Limpar filtros
                   </button>
@@ -427,14 +425,14 @@ export default function LaudosPage() {
           </div>
 
           {tab === "laudos" && (
-            <p className="mt-3 text-xs text-gray-500">
+            <p className="fc-clinical-filter-note">
               A busca consulta toda a base. A lista abre mostrando apenas os {LAUDOS_PAGE_SIZE} laudos mais recentes.
             </p>
           )}
         </div>
 
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-          <div className="px-4 py-3 border-b bg-gray-50 text-sm text-gray-600">
+        <div className="fc-clinical-list">
+          <div className="fc-clinical-list-summary">
             {tab === "laudos"
               ? resumoLaudos
               : `Mostrando ${examesFiltrados.length} de ${totalExames} exame(s)`}
@@ -442,26 +440,29 @@ export default function LaudosPage() {
 
           {tab === "laudos" ? (
             loadingLaudos ? (
-              <div className="p-8 text-center text-gray-500">Carregando...</div>
+              <div className="fc-registry-loading" aria-label="Carregando laudos">
+                {[0, 1, 2].map((item) => <span key={item} />)}
+              </div>
             ) : laudos.length === 0 ? (
-              <div className="p-12 text-center">
-                <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500">Nenhum laudo encontrado</p>
+              <div className="fc-registry-empty">
+                <div><FileText className="h-6 w-6" /></div>
+                <span>Arquivo clínico vazio</span>
+                <p>Nenhum laudo encontrado</p>
               </div>
             ) : (
               <>
-                <div className="divide-y">
+                <div className="divide-y divide-ink-100">
                   {laudos.map((laudo) => (
-                    <div key={laudo.id} className="p-4 hover:bg-gray-50">
-                      <div className="flex items-start gap-4">
-                        <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center">
-                          <FileText className="w-5 h-5 text-teal-600" />
+                    <div key={laudo.id} className="fc-clinical-row">
+                      <div className="fc-clinical-row-layout">
+                        <div className="fc-clinical-row-icon">
+                          <FileText className="h-5 w-5" />
                         </div>
-                        <div className="flex-1">
-                          <h3 className="font-medium text-gray-900">
+                        <div className="fc-clinical-row-main">
+                          <h3>
                             {laudo.paciente_nome || `Paciente #${laudo.paciente_id}`}
                           </h3>
-                          <div className="flex flex-wrap gap-4 text-sm text-gray-500 mt-1">
+                          <div>
                             <span className="flex items-center gap-1">
                               <User className="w-3 h-3" />
                               {laudo.paciente_tutor || "Sem tutor"}
@@ -478,7 +479,7 @@ export default function LaudosPage() {
                             </span>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="fc-clinical-actions">
                           <span className="px-2 py-1 rounded-full text-xs bg-indigo-100 text-indigo-800">
                             {getTipoLaudoLabel(laudo.tipo)}
                           </span>
@@ -489,39 +490,44 @@ export default function LaudosPage() {
                             <button
                               onClick={() => liberarNoPortalClinica(laudo)}
                               disabled={liberandoLaudoId === laudo.id}
-                              className="p-2 text-gray-600 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition-colors disabled:opacity-50"
+                              className="fc-clinical-action"
                               title="Liberar no portal da clinica"
+                              aria-label={`Liberar laudo de ${laudo.paciente_nome || `paciente ${laudo.paciente_id}`} no portal`}
                             >
                               <Send className="w-4 h-4" />
                             </button>
                           )}
                           <button
                             onClick={() => router.push(getLaudoViewPath(laudo.id, laudo.tipo))}
-                            className="p-2 text-gray-600 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                            className="fc-clinical-action"
                             title="Visualizar"
+                            aria-label={`Visualizar laudo de ${laudo.paciente_nome || `paciente ${laudo.paciente_id}`}`}
                           >
                             <Eye className="w-4 h-4" />
                           </button>
                           {!isLaudoPdfExterno(laudo) && (
                             <button
                               onClick={() => router.push(getLaudoEditPath(laudo.id, laudo.tipo))}
-                              className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              className="fc-clinical-action"
                               title="Editar"
+                              aria-label={`Editar laudo de ${laudo.paciente_nome || `paciente ${laudo.paciente_id}`}`}
                             >
                               <Edit className="w-4 h-4" />
                             </button>
                           )}
                           <button
                             onClick={() => downloadPDF(laudo.id, laudo.titulo)}
-                            className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            className="fc-clinical-action"
                             title="Baixar PDF"
+                            aria-label={`Baixar PDF do laudo de ${laudo.paciente_nome || `paciente ${laudo.paciente_id}`}`}
                           >
                             <Download className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => deletarLaudo(laudo.id)}
-                            className="p-2 text-gray-600 hover:text-red-700 hover:bg-red-100 rounded-lg transition-colors"
+                            className="fc-clinical-action fc-clinical-action-danger"
                             title="Excluir"
+                            aria-label={`Excluir laudo de ${laudo.paciente_nome || `paciente ${laudo.paciente_id}`}`}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -532,12 +538,12 @@ export default function LaudosPage() {
                 </div>
 
                 {haMaisLaudos && (
-                  <div className="p-4 border-t bg-gray-50 flex justify-center">
+                  <div className="fc-clinical-load-more">
                     <button
                       type="button"
                       onClick={carregarMaisLaudos}
                       disabled={loadingMoreLaudos}
-                      className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-white disabled:opacity-60"
+                      className="fc-clinical-secondary"
                     >
                       {loadingMoreLaudos ? "Carregando..." : "Carregar mais laudos"}
                     </button>
@@ -546,35 +552,39 @@ export default function LaudosPage() {
               </>
             )
           ) : loadingExames ? (
-            <div className="p-8 text-center text-gray-500">Carregando...</div>
+            <div className="fc-registry-loading" aria-label="Carregando exames">
+              {[0, 1, 2].map((item) => <span key={item} />)}
+            </div>
           ) : examesFiltrados.length === 0 ? (
-            <div className="p-12 text-center">
-              <FileCheck className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500">Nenhum exame encontrado</p>
+            <div className="fc-registry-empty">
+              <div><FileCheck className="h-6 w-6" /></div>
+              <span>Fila de exames vazia</span>
+              <p>Nenhum exame encontrado</p>
             </div>
           ) : (
-            <div className="divide-y">
+            <div className="divide-y divide-ink-100">
               {examesFiltrados.map((exame) => (
-                <div key={exame.id} className="p-4 hover:bg-gray-50">
-                  <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                      <Clock className="w-5 h-5 text-blue-600" />
+                <div key={exame.id} className="fc-clinical-row">
+                  <div className="fc-clinical-row-layout">
+                    <div className="fc-clinical-row-icon fc-clinical-row-icon-exam">
+                      <Clock className="h-5 w-5" />
                     </div>
-                    <div className="flex-1">
-                      <h3 className="font-medium text-gray-900">{exame.tipo_exame}</h3>
-                      <div className="flex gap-4 text-sm text-gray-500 mt-1">
+                    <div className="fc-clinical-row-main">
+                      <h3>{exame.tipo_exame}</h3>
+                      <div>
                         <span>Paciente #{exame.paciente_id}</span>
                         <span>R$ {exame.valor?.toFixed(2)}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="fc-clinical-actions">
                       <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(exame.status)}`}>
                         {exame.status}
                       </span>
                       <button
                         onClick={() => deletarExame(exame.id)}
-                        className="p-2 text-gray-600 hover:text-red-700 hover:bg-red-100 rounded-lg transition-colors"
+                        className="fc-clinical-action fc-clinical-action-danger"
                         title="Excluir"
+                        aria-label={`Excluir exame ${exame.tipo_exame}`}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

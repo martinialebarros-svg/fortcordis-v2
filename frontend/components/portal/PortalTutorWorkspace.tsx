@@ -150,7 +150,7 @@ export default function PortalTutorWorkspace() {
   }
 
   return (
-    <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+    <aside className="fc-portal-workspace fc-portal-tutor-workspace rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
       {!session ? (
         <>
           <div className="flex items-center justify-between border-b border-slate-200 pb-4">

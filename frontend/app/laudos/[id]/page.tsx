@@ -277,7 +277,9 @@ export default function VisualizarLaudoPage() {
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="p-6 text-center">Carregando laudo...</div>
+        <div className="fc-report-view-page">
+          <div className="fc-report-loading"><span aria-hidden="true" />Carregando laudo...</div>
+        </div>
       </DashboardLayout>
     );
   }
@@ -285,15 +287,18 @@ export default function VisualizarLaudoPage() {
   if (!laudo) {
     return (
       <DashboardLayout>
-        <div className="p-6 text-center">
+        <div className="fc-report-view-page">
+          <div className="fc-report-empty">
           <h1 className="text-2xl font-bold text-gray-900">Laudo não encontrado</h1>
           <p className="text-gray-500 mt-2">O laudo solicitado não existe ou foi removido.</p>
           <button
+            type="button"
             onClick={() => router.push("/laudos")}
-            className="mt-4 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+            className="fc-report-editor-save mt-4"
           >
             Voltar para Laudos
           </button>
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -301,31 +306,33 @@ export default function VisualizarLaudoPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-5xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-          <div className="flex items-center gap-3">
+      <div className="fc-report-view-page">
+        <header className="fc-report-view-header">
+          <div className="fc-report-editor-heading">
             <button
+              type="button"
               onClick={() => router.push("/laudos")}
-              className="p-2 hover:bg-gray-100 rounded-lg"
+              className="fc-report-editor-back"
+              aria-label="Voltar para laudos"
             >
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
+              <ArrowLeft className="h-5 w-5" />
             </button>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Visualizar Laudo</h1>
-              <p className="text-gray-500">{laudo.titulo}</p>
+              <span className="fc-report-editor-kicker">
+                <FileText className="h-4 w-4" />
+                Documento clínico
+              </span>
+              <h1>Visualizar laudo</h1>
+              <p>{laudo.titulo}</p>
             </div>
           </div>
 
-          <div className="flex gap-2">
+          <div className="fc-report-view-actions">
             <button
+              type="button"
               onClick={liberarNoPortalClinica}
               disabled={liberandoPortal || isPortalReleased(laudo.status)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors disabled:cursor-not-allowed ${
-                isPortalReleased(laudo.status)
-                  ? "bg-teal-100 text-teal-800"
-                  : "bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60"
-              }`}
+              className={`fc-report-view-portal ${isPortalReleased(laudo.status) ? "fc-report-view-portal-released" : ""}`}
               title={
                 isPortalReleased(laudo.status)
                   ? "Laudo ja liberado no portal"
@@ -344,24 +351,26 @@ export default function VisualizarLaudoPage() {
                   : "Liberar portal"}
             </button>
             <button
+              type="button"
               onClick={downloadPDF}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              className="fc-report-view-pdf"
             >
               <Download className="w-4 h-4" />
               PDF
             </button>
             <button
+              type="button"
               onClick={imprimir}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+              className="fc-report-view-print"
             >
               <Printer className="w-4 h-4" />
               Imprimir
             </button>
           </div>
-        </div>
+        </header>
 
         {/* Conteúdo do Laudo */}
-        <div className="bg-white rounded-lg shadow-sm border p-8 print:shadow-none print:border-none">
+        <article className="fc-report-view-document print:shadow-none print:border-none">
           {/* Cabeçalho do Laudo */}
           <div className="text-center mb-8">
             <h2 className="text-xl font-bold text-gray-900">
@@ -602,7 +611,7 @@ export default function VisualizarLaudoPage() {
               {new Date(laudo.data_laudo).toLocaleDateString('pt-BR')}
             </p>
           </div>
-        </div>
+        </article>
       </div>
     </DashboardLayout>
   );

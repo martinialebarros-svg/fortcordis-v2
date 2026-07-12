@@ -446,8 +446,11 @@ export default function EditarClinicaPage() {
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="p-6 flex items-center justify-center min-h-[400px]">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+        <div className="fc-clinic-form-page">
+          <div className="fc-clinic-form-loading">
+            <span aria-hidden="true" />
+            Carregando clínica...
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -455,33 +458,45 @@ export default function EditarClinicaPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-5xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
+      <div className="fc-clinic-form-page">
+        <header className="fc-clinic-form-header">
+          <div className="fc-clinic-form-heading">
             <button
+              type="button"
               onClick={() => router.push("/clinicas")}
-              className="p-2 hover:bg-gray-100 rounded-lg"
+              className="fc-clinic-form-back"
+              aria-label="Voltar para clínicas"
             >
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
+              <ArrowLeft className="h-5 w-5" />
             </button>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Editar Clínica</h1>
-              <p className="text-gray-500">Atualize os dados da clínica</p>
+              <span className="fc-clinic-form-kicker">
+                <Building2 className="h-4 w-4" />
+                Rede assistida
+              </span>
+              <h1>Editar clínica</h1>
+              <p>Atualize cadastro, localização e condições de {clinica.nome || "esta unidade"}.</p>
             </div>
           </div>
-          <button
-            onClick={() => setShowDeleteModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
-          >
-            <Trash2 className="w-4 h-4" />
-            Excluir
-          </button>
-        </div>
+          <div className="fc-clinic-form-header-actions">
+            <div className="fc-clinic-form-context">
+              <span>Registro</span>
+              <strong>Clínica #{clinicaId}</strong>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowDeleteModal(true)}
+              className="fc-clinic-form-delete"
+            >
+              <Trash2 className="w-4 h-4" />
+              Excluir
+            </button>
+          </div>
+        </header>
 
-        <div className="space-y-6">
+        <div className="fc-clinic-form-content">
           {/* Informações Básicas */}
-          <div className="bg-white rounded-lg shadow-sm border p-6">
+          <section className="fc-clinic-form-card fc-clinic-form-card-profile">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <Building2 className="w-5 h-5 text-purple-600" />
               Informações Básicas
@@ -768,10 +783,10 @@ export default function EditarClinicaPage() {
                 />
               </div>
             </div>
-          </div>
+          </section>
 
           {/* Tabela de Preços */}
-          <div className="bg-white rounded-lg shadow-sm border p-6">
+          <section className="fc-clinic-form-card fc-clinic-form-card-pricing">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <DollarSign className="w-5 h-5 text-green-600" />
               Tabela de Preços
@@ -889,10 +904,10 @@ export default function EditarClinicaPage() {
                 )}
               </div>
             )}
-          </div>
+          </section>
 
           {/* Precos negociados por servico */}
-          <div className="bg-white rounded-lg shadow-sm border p-6">
+          <section className="fc-clinic-form-card fc-clinic-form-card-negotiated">
             <h2 className="text-lg font-semibold text-gray-900 mb-2 flex items-center gap-2">
               <Percent className="w-5 h-5 text-emerald-600" />
               Precos negociados por servico
@@ -955,7 +970,7 @@ export default function EditarClinicaPage() {
                 </table>
               </div>
             )}
-          </div>
+          </section>
 
           <ClinicaPortalAccessCard
             clinicaId={Number.parseInt(clinicaId, 10)}
@@ -965,7 +980,7 @@ export default function EditarClinicaPage() {
           />
 
           {/* Resumo */}
-          <div className="bg-gray-50 rounded-lg border p-4">
+          <aside className="fc-clinic-form-summary">
             <h3 className="text-sm font-medium text-gray-700 mb-2">Resumo da Configuração</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               <div>
@@ -979,20 +994,22 @@ export default function EditarClinicaPage() {
                 <span className="ml-2 font-medium">{clinica.cidade || "Não informada"}</span>
               </div>
             </div>
-          </div>
+          </aside>
           
           {/* Botões */}
-          <div className="flex justify-end gap-3 pt-4">
+          <div className="fc-clinic-form-actions">
             <button
+              type="button"
               onClick={() => router.push("/clinicas")}
-              className="px-6 py-2 text-gray-700 hover:bg-gray-100 rounded-lg border"
+              className="fc-clinic-form-cancel"
             >
               Cancelar
             </button>
             <button
+              type="button"
               onClick={handleSalvar}
               disabled={saving || !clinica.nome}
-              className="flex items-center justify-center gap-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
+              className="fc-clinic-form-primary"
             >
               <Save className="w-4 h-4" />
               {saving ? "Salvando..." : "Salvar Alterações"}
@@ -1011,14 +1028,14 @@ export default function EditarClinicaPage() {
 
         {/* Modal de Confirmação de Exclusão */}
         {showDeleteModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+          <div className="fc-clinic-form-modal-backdrop" role="presentation">
+            <div className="fc-clinic-form-modal" role="dialog" aria-modal="true" aria-labelledby="clinic-delete-title">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                <div className="fc-clinic-form-modal-icon">
                   <AlertTriangle className="w-6 h-6 text-red-600" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Confirmar Exclusão</h3>
+                  <h3 id="clinic-delete-title" className="text-lg font-semibold text-gray-900">Confirmar exclusão</h3>
                   <p className="text-sm text-gray-500">
                     Tem certeza que deseja excluir esta clínica? Esta ação não pode ser desfeita.
                   </p>
@@ -1027,17 +1044,19 @@ export default function EditarClinicaPage() {
               
               <div className="flex justify-end gap-3 mt-6">
                 <button
+                  type="button"
                   onClick={() => setShowDeleteModal(false)}
-                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+                  className="fc-clinic-form-cancel"
                 >
                   Cancelar
                 </button>
                 <button
+                  type="button"
                   onClick={handleExcluir}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  className="fc-clinic-form-delete-confirm"
                 >
                   <Trash2 className="w-4 h-4" />
-                  Sim, Excluir
+                  Sim, excluir
                 </button>
               </div>
             </div>

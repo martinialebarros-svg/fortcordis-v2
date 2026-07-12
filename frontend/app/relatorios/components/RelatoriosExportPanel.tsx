@@ -34,10 +34,10 @@ export default function RelatoriosExportPanel({
   const secoesAtuais = modoExportacao === "contexto" ? secoesContexto : secoesPersonalizadas;
 
   return (
-    <div className="bg-white border rounded-xl p-4">
+    <div className="fc-reports-export">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div>
-          <p className="text-sm font-medium text-gray-900">Exportacao por contexto</p>
+          <p className="text-sm font-medium text-gray-900">Exportação por contexto</p>
           <p className="text-xs text-gray-600">
             Aba ativa: <span className="font-medium">{dominioAtual?.label || "Relatorio"}</span>
           </p>
@@ -64,32 +64,26 @@ export default function RelatoriosExportPanel({
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div className="fc-reports-export-modes">
         <button
           type="button"
           onClick={() => setModoExportacao("contexto")}
-          className={`text-left p-3 border rounded-lg ${
-            modoExportacao === "contexto" ? "border-blue-300 bg-blue-50" : "border-gray-200 bg-gray-50"
-          }`}
+          className={`fc-reports-export-mode ${modoExportacao === "contexto" ? "fc-reports-export-mode-active" : ""}`}
         >
           <p className="text-sm font-medium text-gray-900">Modo contexto</p>
-          <p className="text-xs text-gray-600">Exporta automaticamente as secoes da aba atual.</p>
+          <p className="text-xs text-gray-600">Exporta automaticamente as seções da aba atual.</p>
         </button>
         <button
           type="button"
           onClick={() => setModoExportacao("personalizado")}
-          className={`text-left p-3 border rounded-lg ${
-            modoExportacao === "personalizado"
-              ? "border-blue-300 bg-blue-50"
-              : "border-gray-200 bg-gray-50"
-          }`}
+          className={`fc-reports-export-mode ${modoExportacao === "personalizado" ? "fc-reports-export-mode-active" : ""}`}
         >
           <p className="text-sm font-medium text-gray-900">Modo personalizado</p>
-          <p className="text-xs text-gray-600">Escolha manualmente as secoes para exportar.</p>
+          <p className="text-xs text-gray-600">Escolha manualmente as seções para exportar.</p>
         </button>
       </div>
 
-      <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+      <div className="fc-reports-export-sections">
         <div className="flex flex-wrap gap-2">
           {SECOES_EXPORT_OPCOES.map((secao) => {
             const ativo =
@@ -132,7 +126,7 @@ export default function RelatoriosExportPanel({
               onClick={() => setSecoesPersonalizadas([])}
               className="text-xs px-2 py-1 border rounded-md text-gray-700 hover:bg-white"
             >
-              Limpar selecao
+              Limpar seleção
             </button>
           </div>
         ) : null}
@@ -144,4 +138,3 @@ export default function RelatoriosExportPanel({
     </div>
   );
 }
-

@@ -10,7 +10,7 @@ import {
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
 import { baixarLaudoPdf } from "@/lib/laudo-pdf";
-import { Calendar, Download, Eye, Edit, Plus, Search, Trash2 } from "lucide-react";
+import { Calendar, Download, Eye, Edit, Plus, Search, Trash2, ScanLine } from "lucide-react";
 
 interface LaudoLista {
   id: number;
@@ -99,23 +99,32 @@ export default function UltrassonografiaAbdominalPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+      <div className="fc-ultrasound-page">
+        <header className="fc-ultrasound-header">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Ultrassonografia Abdominal</h1>
-            <p className="text-gray-500">Cadastre, visualize e baixe laudos ultrassonograficos.</p>
+            <span className="fc-ultrasound-kicker">
+              <ScanLine className="h-4 w-4" />
+              Diagnóstico por imagem
+            </span>
+            <h1>Ultrassonografia abdominal</h1>
+            <p>Cadastre, revise e acompanhe os laudos ultrassonográficos.</p>
           </div>
           <button
             type="button"
             onClick={() => router.push("/ultrassonografia-abdominal/novo")}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700"
+            className="fc-ultrasound-primary"
           >
             <Plus className="w-4 h-4" />
             Novo laudo
           </button>
-        </div>
+        </header>
 
-        <div className="bg-white rounded-xl border shadow-sm p-4 mb-6">
+        <section className="fc-ultrasound-metrics" aria-label="Resumo dos laudos de ultrassonografia">
+          <div><strong>{laudos.length}</strong><span>Total de laudos</span></div>
+          <div><strong>{laudosFiltrados.length}</strong><span>Resultados visíveis</span></div>
+        </section>
+
+        <div className="fc-ultrasound-search">
           <div className="relative">
             <Search className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -127,7 +136,7 @@ export default function UltrassonografiaAbdominalPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+        <section className="fc-ultrasound-list">
           {loading ? (
             <div className="p-10 text-center text-gray-500">Carregando laudos...</div>
           ) : laudosFiltrados.length === 0 ? (
@@ -135,7 +144,7 @@ export default function UltrassonografiaAbdominalPage() {
           ) : (
             <div className="divide-y">
               {laudosFiltrados.map((laudo) => (
-                <div key={laudo.id} className="p-4 hover:bg-gray-50">
+                <article key={laudo.id} className="fc-ultrasound-item">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div className="space-y-1">
                       <h2 className="font-semibold text-gray-900">{laudo.paciente_nome || `Paciente #${laudo.id}`}</h2>
@@ -149,7 +158,7 @@ export default function UltrassonografiaAbdominalPage() {
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="fc-ultrasound-item-actions">
                       <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(laudo.status)}`}>
                         {laudo.status}
                       </span>
@@ -187,11 +196,11 @@ export default function UltrassonografiaAbdominalPage() {
                       </button>
                     </div>
                   </div>
-                </div>
+                </article>
               ))}
             </div>
           )}
-        </div>
+        </section>
       </div>
     </DashboardLayout>
   );

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { BarChart3 } from "lucide-react";
 
 import DashboardLayout from "../layout-dashboard";
 import { DOMINIOS_RELATORIO } from "./constants";
@@ -93,17 +94,17 @@ export default function RelatoriosControlePage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6">
-        <div className="flex flex-col gap-2">
-          <h1 className="text-2xl font-bold text-gray-900">Relatorios &amp; Controle</h1>
-          <p className="text-sm text-gray-600">
-            Modulo reorganizado por dominio para decisao executiva, operacional, logistica, financeira e de
-            rentabilidade.
-          </p>
-        </div>
+      <div className="fc-reports-page">
+        <header className="fc-reports-header">
+          <div>
+            <span className="fc-reports-kicker"><BarChart3 className="h-4 w-4" />Inteligência operacional</span>
+            <h1>Relatórios &amp; Controle</h1>
+            <p>Indicadores executivos, operação, logística, financeiro e rentabilidade.</p>
+          </div>
+          <span className="fc-reports-context">{DOMINIOS_RELATORIO.find((item) => item.id === dominioAtivo)?.label}</span>
+        </header>
 
-        <div className="bg-white border rounded-xl p-3">
-          <div className="flex flex-wrap gap-2">
+        <nav className="fc-reports-domains" role="tablist" aria-label="Domínios dos relatórios">
             {DOMINIOS_RELATORIO.map((dominio) => {
               const ativo = dominioAtivo === dominio.id;
               return (
@@ -111,18 +112,15 @@ export default function RelatoriosControlePage() {
                   key={dominio.id}
                   type="button"
                   onClick={() => setDominioAtivo(dominio.id)}
-                  className={`px-3 py-2 rounded-lg text-sm border transition-colors ${
-                    ativo
-                      ? "bg-blue-50 border-blue-300 text-blue-700"
-                      : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
-                  }`}
+                  role="tab"
+                  aria-selected={ativo}
+                  className={`fc-reports-domain ${ativo ? "fc-reports-domain-active" : ""}`}
                 >
                   {dominio.label}
                 </button>
               );
             })}
-          </div>
-        </div>
+        </nav>
 
         <RelatoriosFiltrosGlobais
           periodoInicio={periodoInicio}
@@ -166,25 +164,24 @@ export default function RelatoriosControlePage() {
         />
 
         {relatorio ? (
-          <p className="text-xs text-gray-500">
-            Base operacional: {relatorio.base_operacional.clinica_nome || "Nao definida"} (
+          <p className="fc-reports-base-note">
+            Base operacional: {relatorio.base_operacional.clinica_nome || "Não definida"} (
             {relatorio.base_operacional.criterio})
           </p>
         ) : null}
 
         {erro ? (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <div className="fc-reports-error">
             {erro}
           </div>
         ) : null}
 
         {loading && !relatorio ? (
-          <div className="bg-white border rounded-xl p-8 text-center text-gray-500">Carregando relatorios...</div>
+          <div className="fc-reports-loading"><span />Carregando relatórios...</div>
         ) : null}
 
-        {relatorio ? renderDominio() : null}
+        {relatorio ? <div className="fc-reports-content">{renderDominio()}</div> : null}
       </div>
     </DashboardLayout>
   );
 }
-

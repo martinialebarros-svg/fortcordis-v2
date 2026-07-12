@@ -33,14 +33,14 @@ export default function PortalExamResults({
 }: PortalExamResultsProps) {
   if (exams.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-sm leading-6 text-slate-600">
+      <div className="fc-portal-exams-empty rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-sm leading-6 text-slate-600">
         {emptyMessage}
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="fc-portal-exams space-y-4">
       {exams.map((exam) => (
         <article key={exam.id} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 md:flex-row md:items-start md:justify-between">

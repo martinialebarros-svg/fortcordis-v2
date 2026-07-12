@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import {
   ArrowLeft,
   BadgeCheck,
@@ -41,41 +42,45 @@ const clinicRules = [
 
 export default function ClinicaParceiraPage() {
   return (
-    <main className="min-h-screen bg-white text-slate-950">
-      <section className="border-b border-slate-200 bg-slate-950 px-5 py-8 text-white sm:px-8">
-        <div className="mx-auto max-w-6xl">
+    <main className="fc-public-portal fc-public-portal-clinic">
+      <section className="fc-public-portal-hero">
+        <div className="fc-public-portal-inner">
           <Link
             href="/"
-            className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-bold text-teal-100 transition hover:bg-white/10"
+            className="fc-public-portal-back"
           >
             <ArrowLeft className="h-4 w-4" />
             Portal Fort Cordis
           </Link>
 
-          <div className="grid gap-10 py-12 lg:grid-cols-[1fr_0.85fr] lg:items-center">
-            <div>
-              <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-200">
+          <div className="fc-public-portal-hero-grid">
+            <div className="fc-public-portal-copy">
+              <div className="fc-public-portal-brand">
+                <Image src="/brand/fortcordis-logo-oficial.png" alt="Fort Cordis" width={52} height={52} priority />
+                <span><strong>FORT CORDIS</strong><small>Cardiologia Veterinária</small></span>
+              </div>
+              <p className="fc-public-portal-kicker">
                 Clinicas parceiras
               </p>
-              <h1 className="mt-4 text-4xl font-bold leading-tight sm:text-5xl">
+              <h1>
                 Exames acessiveis para a unidade certa, no momento certo.
               </h1>
-              <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300">
+              <p className="fc-public-portal-lead">
                 O portal da clinica agiliza consulta e download sem abrir acesso amplo ao acervo
                 da Fort Cordis. A unidade ativa seu convite, confirma o email institucional e
                 passa a ver apenas os pets atendidos sob sua responsabilidade.
               </p>
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <div className="fc-public-portal-actions">
                 <a
                   href="#governanca"
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-teal-400 px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-teal-300 sm:w-auto"
+                  className="fc-public-portal-primary"
                 >
                   <ShieldCheck className="h-5 w-5" />
                   Ver permissoes
                 </a>
                 <a
                   href="#downloads"
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-white/25 px-5 py-3 text-sm font-bold text-white transition hover:bg-white/10 sm:w-auto"
+                  className="fc-public-portal-secondary"
                 >
                   <Download className="h-5 w-5" />
                   Modelo de download
@@ -88,13 +93,13 @@ export default function ClinicaParceiraPage() {
         </div>
       </section>
 
-      <section id="governanca" className="px-5 py-14 sm:px-8">
-        <div className="mx-auto max-w-6xl">
-          <div className="max-w-3xl">
-            <p className="text-sm font-bold uppercase tracking-[0.18em] text-rose-700">
+      <section id="governanca" className="fc-public-portal-section">
+        <div className="fc-public-portal-inner">
+          <div className="fc-public-portal-section-heading">
+            <p className="fc-public-portal-eyebrow">
               Governanca de acesso
             </p>
-            <h2 className="mt-3 text-3xl font-bold text-slate-950 sm:text-4xl">
+            <h2>
               Acesso rapido precisa de limite operacional claro.
             </h2>
             <p className="mt-4 text-sm leading-6 text-slate-600">
@@ -103,9 +108,9 @@ export default function ClinicaParceiraPage() {
             </p>
           </div>
 
-          <div className="mt-8 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+          <div className="fc-public-portal-feature-grid fc-public-portal-feature-grid-four">
             {clinicRules.map(({ title, description, icon: Icon }) => (
-              <article key={title} className="rounded-lg border border-slate-200 p-5 shadow-sm">
+              <article key={title} className="fc-public-portal-feature">
                 <Icon className="h-7 w-7 text-rose-700" />
                 <h3 className="mt-5 text-lg font-bold text-slate-950">{title}</h3>
                 <p className="mt-3 text-sm leading-6 text-slate-600">{description}</p>
@@ -115,10 +120,10 @@ export default function ClinicaParceiraPage() {
         </div>
       </section>
 
-      <section id="downloads" className="bg-[#f8fbfc] px-5 py-14 sm:px-8">
-        <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[0.8fr_1fr] lg:items-start">
+      <section id="downloads" className="fc-public-portal-band fc-public-portal-band-light">
+        <div className="fc-public-portal-band-grid">
           <div>
-            <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-700">
+            <p className="fc-public-portal-eyebrow">
               Download de exames
             </p>
             <h2 className="mt-3 text-3xl font-bold text-slate-950 sm:text-4xl">
@@ -145,8 +150,8 @@ export default function ClinicaParceiraPage() {
         </div>
       </section>
 
-      <section className="px-5 py-14 sm:px-8">
-        <div className="mx-auto max-w-6xl rounded-lg border border-slate-200 p-6 sm:p-8">
+      <section className="fc-public-portal-section fc-public-portal-final">
+        <div className="fc-public-portal-callout">
           <BadgeCheck className="h-8 w-8 text-amber-700" />
           <h2 className="mt-5 text-2xl font-bold text-slate-950">
             Clinica parceira nao precisa ver tudo para trabalhar melhor.

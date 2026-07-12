@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
-import { BookOpen, Upload, Edit2, Save, X } from "lucide-react";
+import { BookOpen, Upload, Edit2, Save, X, Database, Ruler } from "lucide-react";
 
 interface Referencia {
   id: number;
@@ -136,169 +136,202 @@ export default function ReferenciasEcoPage() {
     }
   };
 
+  const pesosDisponiveis = referencias.map((referencia) => Number(referencia.peso_kg)).filter((peso) => Number.isFinite(peso));
+  const faixaPeso = pesosDisponiveis.length
+    ? `${Math.min(...pesosDisponiveis)} a ${Math.max(...pesosDisponiveis)} kg`
+    : "—";
+
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+      <div className="fc-eco-page">
+        <header className="fc-eco-header">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <BookOpen className="w-6 h-6 text-teal-600" />
-              Referências Ecocardiográficas
-            </h1>
-            <p className="text-gray-500">Valores de referência por espécie e peso</p>
+            <span className="fc-eco-kicker"><BookOpen className="h-4 w-4" />Biblioteca diagnóstica</span>
+            <h1>Referências Ecocardiográficas</h1>
+            <p>Faixas de normalidade organizadas por espécie, peso e medida cardíaca.</p>
           </div>
-          
-          <div className="flex flex-wrap gap-2 items-center">
-            <select
-              value={especieFiltro}
-              onChange={(e) => setEspecieFiltro(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-            >
-              <option value="Canina">Caninos</option>
-              <option value="Felina">Felinos</option>
-            </select>
+          <div className="fc-eco-species-tabs" role="tablist" aria-label="Espécie das referências">
+            {[
+              ["Canina", "Caninos"],
+              ["Felina", "Felinos"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={especieFiltro === value}
+                onClick={() => setEspecieFiltro(value)}
+                className={`fc-eco-species-tab ${especieFiltro === value ? "fc-eco-species-tab-active" : ""}`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-        </div>
+        </header>
 
-        {/* Importar CSV */}
-        <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">Importar referências dos arquivos CSV</h2>
-          <p className="text-xs text-gray-500 mb-3">
-            Use os arquivos <strong>tabela_referencia_caninos.csv</strong> e <strong>tabela_referencia_felinos.csv</strong>.
-            As referências existentes da espécie serão substituídas.
-          </p>
-          <div className="flex flex-wrap gap-4 items-end">
+        <section className="fc-eco-metrics" aria-label="Resumo da base de referências">
+          <div className="fc-eco-metric fc-eco-metric-cordis">
+            <Database className="h-5 w-5" />
+            <strong>{referencias.length}</strong>
+            <span>Faixas cadastradas</span>
+          </div>
+          <div className="fc-eco-metric fc-eco-metric-vital">
+            <Ruler className="h-5 w-5" />
+            <strong>{faixaPeso}</strong>
+            <span>Cobertura de peso</span>
+          </div>
+          <div className="fc-eco-metric fc-eco-metric-ink">
+            <BookOpen className="h-5 w-5" />
+            <strong>{CAMPOS_MEDIDAS.length}</strong>
+            <span>Medidas avaliadas</span>
+          </div>
+        </section>
+
+        <section className="fc-eco-import">
+          <div className="fc-eco-import-copy">
+            <span>Atualização da base</span>
+            <h2>Importar referências por CSV</h2>
+            <p>O arquivo enviado substitui as referências existentes da respectiva espécie.</p>
+          </div>
+          <div className="fc-eco-import-controls">
             <div>
-              <label className="block text-xs text-gray-600 mb-1">CSV Caninos</label>
               <input
+                id="eco-csv-caninos"
                 type="file"
                 accept=".csv"
                 onChange={(e) => setFileCaninos(e.target.files?.[0] ?? null)}
-                className="text-sm"
+                className="sr-only"
               />
+              <label htmlFor="eco-csv-caninos" className="fc-eco-file-picker">
+                <Upload className="h-4 w-4" />
+                <span><small>CSV Caninos</small>{fileCaninos?.name || "Selecionar arquivo"}</span>
+              </label>
             </div>
             <div>
-              <label className="block text-xs text-gray-600 mb-1">CSV Felinos</label>
               <input
+                id="eco-csv-felinos"
                 type="file"
                 accept=".csv"
                 onChange={(e) => setFileFelinos(e.target.files?.[0] ?? null)}
-                className="text-sm"
+                className="sr-only"
               />
+              <label htmlFor="eco-csv-felinos" className="fc-eco-file-picker">
+                <Upload className="h-4 w-4" />
+                <span><small>CSV Felinos</small>{fileFelinos?.name || "Selecionar arquivo"}</span>
+              </label>
             </div>
             <button
               type="button"
               onClick={handleImportar}
               disabled={importando || (!fileCaninos && !fileFelinos)}
-              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 flex items-center gap-2"
+              className="fc-eco-import-button"
             >
-              <Upload className="w-4 h-4" />
-              {importando ? "Importando…" : "Importar CSV"}
+              <Upload className="h-4 w-4" />
+              {importando ? "Importando..." : "Importar CSV"}
             </button>
           </div>
-        </div>
+        </section>
 
-        {/* Tabela */}
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+        <section className="fc-eco-table-panel">
+          <div className="fc-eco-table-heading">
+            <div>
+              <span>Base ativa</span>
+              <h2>{especieFiltro === "Canina" ? "Referências caninas" : "Referências felinas"}</h2>
+            </div>
+            <strong>{referencias.length} faixa(s)</strong>
+          </div>
+
           {loading ? (
-            <div className="p-8 text-center text-gray-500">Carregando...</div>
+            <div className="fc-eco-loading"><span />Carregando referências...</div>
+          ) : referencias.length === 0 ? (
+            <div className="fc-eco-empty">
+              <BookOpen className="h-6 w-6" />
+              <strong>Nenhuma referência cadastrada</strong>
+              <span>Importe um arquivo CSV para iniciar esta base.</span>
+            </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
+            <div className="fc-eco-table-scroll">
+              <table className="fc-eco-table">
+                <thead>
                   <tr>
-                    <th className="px-3 py-3 text-left font-semibold text-gray-700 border-b">Peso (kg)</th>
+                    <th>Peso <span>kg</span></th>
                     {CAMPOS_MEDIDAS.map((campo) => (
-                      <th key={campo.key} className="px-3 py-3 text-center font-semibold text-gray-700 border-b min-w-[100px]">
+                      <th key={campo.key}>
                         {campo.label}
-                        <span className="block text-xs font-normal text-gray-500">({campo.unidade || "-"})</span>
+                        <span>{campo.unidade || "índice"}</span>
                       </th>
                     ))}
-                    <th className="px-3 py-3 text-center font-semibold text-gray-700 border-b">Ações</th>
+                    <th>Ações</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody>
                   {referencias.map((ref) => (
-                    <tr key={ref.id} className="hover:bg-gray-50">
-                      <td className="px-3 py-2 font-medium">
+                    <tr key={ref.id} className={editando === ref.id ? "fc-eco-row-editing" : ""}>
+                      <td>
                         {editando === ref.id ? (
                           <input
                             type="number"
                             step="0.1"
                             value={formData.peso_kg || ""}
                             onChange={(e) => handleChange("peso_kg", e.target.value)}
-                            className="w-20 px-2 py-1 border rounded"
+                            className="fc-eco-weight-input"
+                            aria-label="Peso em quilogramas"
                           />
                         ) : (
-                          ref.peso_kg
+                          <strong>{ref.peso_kg}</strong>
                         )}
                       </td>
-                      
+
                       {CAMPOS_MEDIDAS.map((campo) => {
                         const minKey = `${campo.key}_min` as keyof Referencia;
                         const maxKey = `${campo.key}_max` as keyof Referencia;
                         const min = editando === ref.id ? formData[minKey] : ref[minKey];
                         const max = editando === ref.id ? formData[maxKey] : ref[maxKey];
-                        
+
                         return (
-                          <td key={campo.key} className="px-3 py-2">
+                          <td key={campo.key}>
                             {editando === ref.id ? (
-                              <div className="flex gap-1">
+                              <div className="fc-eco-range-inputs">
                                 <input
                                   type="number"
                                   step="0.1"
                                   value={min || ""}
                                   onChange={(e) => handleChange(minKey as string, e.target.value)}
-                                  className="w-14 px-1 py-1 text-xs border rounded"
                                   placeholder="Min"
+                                  aria-label={`${campo.label} mínimo`}
                                 />
                                 <input
                                   type="number"
                                   step="0.1"
                                   value={max || ""}
                                   onChange={(e) => handleChange(maxKey as string, e.target.value)}
-                                  className="w-14 px-1 py-1 text-xs border rounded"
-                                  placeholder="Max"
+                                  placeholder="Máx"
+                                  aria-label={`${campo.label} máximo`}
                                 />
                               </div>
                             ) : (
-                              <div className="text-center text-xs">
-                                {min !== undefined && max !== undefined 
-                                  ? `${min} - ${max}` 
-                                  : "-"}
-                              </div>
+                              <span className="fc-eco-range-value">
+                                {min !== undefined && max !== undefined ? `${min} – ${max}` : "—"}
+                              </span>
                             )}
                           </td>
                         );
                       })}
-                      
-                      <td className="px-3 py-2">
-                        <div className="flex justify-center gap-1">
+
+                      <td>
+                        <div className="fc-eco-row-actions">
                           {editando === ref.id ? (
                             <>
-                              <button
-                                onClick={() => handleSalvar(ref.id)}
-                                className="p-1 text-green-600 hover:bg-green-50 rounded"
-                                title="Salvar"
-                              >
-                                <Save className="w-4 h-4" />
+                              <button onClick={() => handleSalvar(ref.id)} className="fc-eco-action-save" title="Salvar" aria-label={`Salvar referência de ${ref.peso_kg} kg`}>
+                                <Save className="h-4 w-4" />
                               </button>
-                              <button
-                                onClick={() => setEditando(null)}
-                                className="p-1 text-gray-600 hover:bg-gray-50 rounded"
-                                title="Cancelar"
-                              >
-                                <X className="w-4 h-4" />
+                              <button onClick={() => setEditando(null)} className="fc-eco-action-cancel" title="Cancelar" aria-label="Cancelar edição">
+                                <X className="h-4 w-4" />
                               </button>
                             </>
                           ) : (
-                            <button
-                              onClick={() => handleEditar(ref)}
-                              className="p-1 text-blue-600 hover:bg-blue-50 rounded"
-                              title="Editar"
-                            >
-                              <Edit2 className="w-4 h-4" />
+                            <button onClick={() => handleEditar(ref)} className="fc-eco-action-edit" title="Editar" aria-label={`Editar referência de ${ref.peso_kg} kg`}>
+                              <Edit2 className="h-4 w-4" />
                             </button>
                           )}
                         </div>
@@ -309,18 +342,7 @@ export default function ReferenciasEcoPage() {
               </table>
             </div>
           )}
-        </div>
-
-        {/* Instruções */}
-        <div className="mt-6 bg-blue-50 p-4 rounded-lg text-sm text-blue-800">
-          <p className="font-medium mb-2">Como usar:</p>
-          <ul className="space-y-1 ml-4 list-disc">
-            <li>As referências são usadas automaticamente ao preencher a aba &quot;Medidas&quot; do laudo</li>
-            <li>Clique no ícone de editar (✏️) para alterar os valores de referência</li>
-            <li>Os valores são organizados por espécie (Canina/Felina) e peso</li>
-            <li>As interpretações de normalidade/alteração são baseadas nestas referências</li>
-          </ul>
-        </div>
+        </section>
       </div>
     </DashboardLayout>
   );

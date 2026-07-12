@@ -25,7 +25,7 @@ export default function MetricCard({
         : "text-gray-900";
 
   return (
-    <div className="bg-white border rounded-xl p-4">
+    <div className={`fc-reports-metric fc-reports-metric-${emphasis}`}>
       <div className="flex items-center justify-between mb-1">
         <span className="text-sm text-gray-600">{titulo}</span>
         {Icon ? <Icon className={`w-4 h-4 ${iconColorClass}`} /> : null}
@@ -35,4 +35,3 @@ export default function MetricCard({
     </div>
   );
 }
-

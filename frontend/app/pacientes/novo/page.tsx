@@ -10,7 +10,7 @@ import {
   loadRacasCustomPorEspecie,
   saveRacasCustomPorEspecie,
 } from "@/lib/racas";
-import { Save, ArrowLeft, Plus, UserRound } from "lucide-react";
+import { Save, ArrowLeft, Plus, UserRound, PawPrint } from "lucide-react";
 
 export default function NovoPacientePage() {
   const router = useRouter();
@@ -118,34 +118,48 @@ export default function NovoPacientePage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-6">
-          <button
-            onClick={() => router.push("/pacientes")}
-            className="p-2 hover:bg-gray-100 rounded-lg"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Novo Paciente</h1>
-            <p className="text-gray-500">Cadastre um novo paciente</p>
+      <div className="fc-patient-form-page">
+        <header className="fc-patient-form-header">
+          <div className="fc-patient-form-heading">
+            <button
+              type="button"
+              onClick={() => router.push("/pacientes")}
+              className="fc-patient-form-back"
+              aria-label="Voltar para pacientes"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div>
+              <span className="fc-patient-form-kicker">
+                <PawPrint className="h-4 w-4" />
+                Carteira clínica
+              </span>
+              <h1>Novo paciente</h1>
+              <p>Cadastre o tutor e a identificação clínica do pet.</p>
+            </div>
           </div>
-        </div>
+          <div className="fc-patient-form-context">
+            <span>Fluxo atual</span>
+            <strong>Novo cadastro</strong>
+          </div>
+        </header>
 
-        <div className="bg-white rounded-lg shadow-sm border p-6">
+        <main className="fc-patient-form-panel">
           {feedback && (
-            <div className="mb-6 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800">
+            <div className="fc-patient-form-feedback">
               {feedback}
             </div>
           )}
 
-          <div className="mb-6 flex items-center gap-2 border-b pb-3">
-            <UserRound className="h-5 w-5 text-blue-600" />
-            <h2 className="text-lg font-semibold text-gray-900">Dados do tutor</h2>
+          <div className="fc-patient-form-section-header fc-patient-form-section-tutor">
+            <UserRound className="h-5 w-5" />
+            <div>
+              <span>Responsável</span>
+              <h2>Dados do tutor</h2>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="fc-patient-form-grid">
             {paciente.tutor_id && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -318,11 +332,15 @@ export default function NovoPacientePage() {
             </div>
           </div>
 
-          <div className="my-8 flex items-center gap-2 border-b pb-3">
-            <h2 className="text-lg font-semibold text-gray-900">Dados do pet</h2>
+          <div className="fc-patient-form-section-header fc-patient-form-section-pet">
+            <PawPrint className="h-5 w-5" />
+            <div>
+              <span>Identificação clínica</span>
+              <h2>Dados do pet</h2>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="fc-patient-form-grid">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Nome do Paciente *
@@ -462,31 +480,34 @@ export default function NovoPacientePage() {
             </div>
           </div>
           
-          <div className="flex justify-end gap-3 mt-6 pt-6 border-t">
+          <div className="fc-patient-form-actions">
             <button
+              type="button"
               onClick={() => router.push("/pacientes")}
-              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+              className="fc-patient-form-cancel"
             >
               Cancelar
             </button>
             <button
+              type="button"
               onClick={() => handleSalvar(true)}
               disabled={loading || !paciente.nome || !paciente.tutor}
-              className="flex items-center justify-center gap-2 px-4 py-2 border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-50"
+              className="fc-patient-form-secondary"
             >
               <Plus className="w-4 h-4" />
               Salvar e adicionar outro pet
             </button>
             <button
+              type="button"
               onClick={() => handleSalvar(false)}
               disabled={loading || !paciente.nome || !paciente.tutor}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              className="fc-patient-form-primary"
             >
               <Save className="w-4 h-4" />
               {loading ? "Salvando..." : "Salvar Paciente"}
             </button>
           </div>
-        </div>
+        </main>
       </div>
     </DashboardLayout>
   );

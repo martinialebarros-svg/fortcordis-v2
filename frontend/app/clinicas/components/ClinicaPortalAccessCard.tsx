@@ -244,7 +244,7 @@ export default function ClinicaPortalAccessCard({
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border p-6">
+    <section className="fc-clinic-form-card fc-clinic-form-card-portal">
       <div className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -465,6 +465,6 @@ export default function ClinicaPortalAccessCard({
           {error}
         </div>
       ) : null}
-    </div>
+    </section>
   );
 }
