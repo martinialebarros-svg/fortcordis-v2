@@ -19,6 +19,16 @@ export const formatarCpfVisual = (valor: string) => {
   return `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}`;
 };
 
+export const normalizarTelefone = (valor: string) => valor.replace(/\D/g, "").slice(0, 11);
+
+export const formatarTelefoneVisual = (valor: string) => {
+  const telefone = normalizarTelefone(valor);
+  if (telefone.length <= 2) return telefone;
+  if (telefone.length <= 6) return `(${telefone.slice(0, 2)}) ${telefone.slice(2)}`;
+  if (telefone.length <= 10) return `(${telefone.slice(0, 2)}) ${telefone.slice(2, 6)}-${telefone.slice(6)}`;
+  return `(${telefone.slice(0, 2)}) ${telefone.slice(2, 7)}-${telefone.slice(7)}`;
+};
+
 export const parseIdadeInformadaParaMeses = (valor: string): number | null => {
   const texto = String(valor || "").trim();
   if (!texto) return null;

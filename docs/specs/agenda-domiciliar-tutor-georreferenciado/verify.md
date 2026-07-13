@@ -9,6 +9,7 @@ Status: done
 | ID | Tipo | Evidencia | Status |
 | --- | --- | --- | --- |
 | CA-001 | aceitacao | `backend/tests/test_tutor_panorama_georef.py::test_panorama_tutor_retorna_pets_e_status_georreferenciamento`, `::test_geocode_endereco_tutor_retorna_payload_google`, `::test_listar_tutores_expoe_campos_endereco_para_fluxo_domiciliar` e `::test_listar_tutores_nao_marca_coordenadas_zero_como_georreferenciadas` | ok |
+| CA-001.b | frontend | `frontend/app/agenda/NovoAgendamentoModal.tsx` e `frontend/lib/atendimento-cadastro.ts` formatam CPF, telefone, WhatsApp e CEP durante a digitacao e para registros existentes; `npm run lint` | ok |
 | CA-002 | aceitacao | `backend/tests/test_agenda_origem_domiciliar.py::test_criar_agendamento_domiciliar_exige_tutor_georreferenciado`, `::test_criar_agendamento_domiciliar_rejeita_tutor_com_coordenadas_zero_sem_endereco` e `::test_criar_agendamento_domiciliar_persiste_origem_e_rotulo_operacional` | ok |
 | CA-003 | aceitacao | `backend/tests/test_agenda_origem_domiciliar.py::test_agendamento_legado_resolve_tutor_id_pelo_paciente_na_lista_e_no_detalhe` e `backend/tests/test_agendamentos_origem_domiciliar_migration.py::test_upgrade_adds_columns_and_backfills_tutor_id_from_paciente` | ok |
 | CA-004 | aceitacao | `backend/tests/test_agenda_origem_domiciliar.py::test_realizado_domiciliar_gera_os_com_preco_do_servico`, `backend/tests/test_ordens_servico_domiciliar.py::test_listar_ordens_rotula_domiciliar_corretamente`, `::test_atualizar_ordem_recalcula_preco_domiciliar_sem_clinica` e `::test_relatorio_pendencias_domiciliar_filtra_e_agrupa_por_tutor` | ok |
@@ -40,6 +41,9 @@ npx eslint \
 cd frontend
 npx tsc --noEmit
 
+cd frontend
+npm run lint
+
 git diff --check
 ```
 
@@ -52,6 +56,7 @@ Resumo dos resultados:
 
 - Cenario 1: selecionar tutor sem georreferenciamento no modal de agenda domiciliar. Resultado esperado: bloqueio antes do save com orientacao para georreferenciar.
 - Cenario 1.a: digitar ou colar um CEP valido no tutor e confirmar que endereco, bairro, cidade e UF sao preenchidos automaticamente antes do clique em `Georreferenciar endereco`.
+- Cenario 1.b: digitar e colar CPF, telefone, WhatsApp e CEP no modal do tutor; confirmar as mascaras `000.000.000-00`, `(00) 00000-0000` e `00000-000`, inclusive ao reabrir um tutor existente.
 - Cenario 2: georreferenciar o tutor, salvar agendamento domiciliar e confirmar que o card aparece como `Atendimento domiciliar`, sem clinica vinculada.
 - Cenario 2.a: cadastrar tutor sem endereco, tentar salvar/agendar e confirmar que nenhum `0,0` e inferido no frontend.
 - Cenario 2.b: alterar o CEP depois de um georreferenciamento existente e confirmar que latitude/longitude anteriores sao limpas.
