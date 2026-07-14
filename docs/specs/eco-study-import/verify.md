@@ -26,6 +26,8 @@ Primeira entrega vertical publicada em stage; perfis GE LOGIQ e e GE Vivid IQ ca
 - `venv/bin/python scripts/evaluate_ge_vivid_iq_ocr.py --study-a-dir <pasta-externa-a> --study-b-dir <pasta-externa-b> --report-pdf <pdf-externo>`: conjunto ouro GE Vivid IQ reconheceu 68/68 valores suportados, sem ausencias, divergencias, campos inesperados ou conflitos; capturas e PDF foram classificados como `ge_vivid_iq`.
 - `venv/bin/python scripts/evaluate_eco_study_ocr.py ...`: regressao GE LOGIQ e permaneceu em 57/57 valores, sem ausencias, divergencias ou campos inesperados, com os dois estudos classificados como `ge_logiq_e`.
 - Testes unitarios cobrem os aliases do Vivid IQ, a identificacao prudente de tela e relatorio, e a ausencia de inferencia de dados do paciente quando o layout nao os separa com seguranca.
+- `venv/bin/python -m unittest tests.test_eco_study_extraction_service`: 14/14 testes passaram, incluindo extracao de idade e peso explicitamente rotulados em PDF com camada textual e normalizacao de virgula decimal no peso.
+- `npx eslint app/laudos/components/EcoStudyImportUploader.tsx --max-warnings=0`: passou; a interface identifica quando idade e/ou peso serao aplicados junto das medidas.
 
 ## Validacao manual pendente
 
@@ -34,6 +36,7 @@ Primeira entrega vertical publicada em stage; perfis GE LOGIQ e e GE Vivid IQ ca
 - Importar PDF rasterizado.
 - Revisar sugestoes, conflitos e conversoes de unidade.
 - Aplicar sugestoes e confirmar calculos derivados no editor.
+- Importar o PDF clinico fornecido em stage e confirmar visualmente idade e peso antes de aplicar as sugestoes.
 
 ## Riscos residuais e pre-requisitos
 
