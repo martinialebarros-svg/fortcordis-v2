@@ -4,7 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check } from "lucide-react";
 import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
-import { formatarCepVisual, normalizarCep } from "@/lib/atendimento-cadastro";
+import {
+  formatarCepVisual,
+  formatarCpfVisual,
+  formatarTelefoneVisual,
+  normalizarCep,
+} from "@/lib/atendimento-cadastro";
 import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
 import { coordenadasSaoConfiaveis, normalizarCoordenadaOpcional } from "@/lib/coordinates";
 import {
@@ -1134,11 +1139,11 @@ export default function NovoAgendamentoModal({
     setNovoTutor({
       id: String(tutor.id || ""),
       nome: String(tutor.nome || ""),
-      telefone: String(tutor.telefone || ""),
-      whatsapp: String(tutor.whatsapp || ""),
+      telefone: formatarTelefoneVisual(String(tutor.telefone || "")),
+      whatsapp: formatarTelefoneVisual(String(tutor.whatsapp || "")),
       email: String(tutor.email || ""),
-      cpf: String(tutor.cpf || ""),
-      cep: String(tutor.cep || ""),
+      cpf: formatarCpfVisual(String(tutor.cpf || "")),
+      cep: formatarCepVisual(String(tutor.cep || "")),
       endereco: String(tutor.endereco || ""),
       numero: String(tutor.numero || ""),
       complemento: String(tutor.complemento || ""),
@@ -3205,7 +3210,9 @@ export default function NovoAgendamentoModal({
                   <input
                     type="text"
                     value={novoTutor.cpf}
-                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, cpf: e.target.value }))}
+                    inputMode="numeric"
+                    maxLength={14}
+                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, cpf: formatarCpfVisual(e.target.value) }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     placeholder="000.000.000-00"
                   />
@@ -3215,7 +3222,9 @@ export default function NovoAgendamentoModal({
                   <input
                     type="text"
                     value={novoTutor.telefone}
-                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, telefone: e.target.value }))}
+                    inputMode="tel"
+                    maxLength={15}
+                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, telefone: formatarTelefoneVisual(e.target.value) }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     placeholder="(00) 00000-0000"
                   />
@@ -3225,7 +3234,9 @@ export default function NovoAgendamentoModal({
                   <input
                     type="text"
                     value={novoTutor.whatsapp}
-                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, whatsapp: e.target.value }))}
+                    inputMode="tel"
+                    maxLength={15}
+                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, whatsapp: formatarTelefoneVisual(e.target.value) }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     placeholder="(00) 00000-0000"
                   />
@@ -3266,6 +3277,7 @@ export default function NovoAgendamentoModal({
                       type="text"
                       value={novoTutor.cep}
                       inputMode="numeric"
+                      maxLength={9}
                       onChange={(e) => {
                         const valor = formatarCepVisual(e.target.value);
                         const cepAtual = normalizarCep(valor);
