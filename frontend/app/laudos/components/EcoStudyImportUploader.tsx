@@ -43,6 +43,7 @@ export default function EcoStudyImportUploader({
     () => extracted.filter((item) => item.status === "conflito"),
     [extracted]
   );
+  const patientFields = [result?.paciente?.idade, result?.paciente?.peso].filter(Boolean).length;
 
   const processFile = async (file: File) => {
     if (!hasAllowedExtension(file.name)) {
@@ -154,7 +155,9 @@ export default function EcoStudyImportUploader({
             <FileSearch className="mt-0.5 h-4 w-4 shrink-0 text-teal-600" />
             <div>
               <p className="text-sm font-semibold text-slate-800">
-                {suggestions.length} medida(s) pronta(s) para aplicar
+                {patientFields > 0
+                  ? `${patientFields} dado(s) do paciente e ${suggestions.length} medida(s) pronto(s) para aplicar`
+                  : `${suggestions.length} medida(s) pronta(s) para aplicar`}
               </p>
               <p className="text-xs text-slate-500">
                 {result.meta_importacao_estudo?.paginas || 1} pagina(s) analisada(s)
@@ -202,7 +205,11 @@ export default function EcoStudyImportUploader({
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {applied ? <CheckCircle2 className="h-4 w-4" /> : null}
-            {applied ? "Sugestoes aplicadas" : `Aplicar ${suggestions.length} medida(s)`}
+            {applied
+              ? "Sugestoes aplicadas"
+              : patientFields > 0
+                ? `Aplicar dados e ${suggestions.length} medida(s)`
+                : `Aplicar ${suggestions.length} medida(s)`}
           </button>
         </div>
       )}

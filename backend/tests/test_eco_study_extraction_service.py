@@ -23,6 +23,7 @@ from app.services.eco_study_extraction_service import (  # noqa: E402
     consolidate_measurement_candidates,
     extract_measurements_from_text,
     parse_ge_logiq_e_header_text,
+    parse_patient_age_weight,
     parse_ge_vivid_iq_report_text,
     parse_eco_study_import_content,
     validate_eco_study_filename,
@@ -150,6 +151,26 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
         self.assertEqual(payload["perfil"], "ge_logiq_e")
         self.assertEqual(payload["fabricante"], "GE")
         self.assertEqual(payload["modelo_equipamento"], "LOGIQ e")
+
+    def test_extracts_explicit_age_and_weight_from_report_text(self) -> None:
+        demographics = parse_patient_age_weight("Paciente: Belinha\nIdade: 8 anos\nPeso corporal: 7,35 kg")
+
+        self.assertEqual(demographics, {"idade": "8 anos", "peso": "7.35"})
+
+    def test_parses_pdf_text_layer_patient_age_and_weight(self) -> None:
+        content = _pdf_bytes(
+            [
+                "Paciente: Belinha",
+                "Idade: 8 anos  Peso: 7,35 kg",
+                "LVIDd 3.24 cm",
+                "LA/Ao 1.62",
+            ]
+        )
+
+        payload = parse_eco_study_import_content("belinha.pdf", content)
+
+        self.assertEqual(payload["paciente"]["idade"], "8 anos")
+        self.assertEqual(payload["paciente"]["peso"], "7.35")
 
     def test_parses_ge_vivid_iq_aliases_and_report_profile(self) -> None:
         candidates = extract_measurements_from_text(

@@ -126,6 +126,46 @@ def _empty_patient_payload() -> dict[str, str]:
     }
 
 
+def parse_patient_age_weight(text: str) -> dict[str, str]:
+    """Extract only explicit patient age and weight from a report header.
+
+    The study import also sees Doppler measurements in kilograms and years in
+    free text. Restricting the match to the usual demographic labels prevents
+    those clinical values from being copied into the patient record.
+    """
+    normalized_text = _remove_diacritics(text or "")
+    age_match = re.search(
+        r"\b(?:idade|age)\s*[:=-]?\s*(\d{1,2})\s*(?:anos?|ano|a|years?|year|y)\b",
+        normalized_text,
+        re.IGNORECASE,
+    )
+    weight_match = re.search(
+        r"\b(?:peso(?:\s+corporal)?|weight|wt)\s*[:=-]?\s*(\d{1,3}(?:[.,]\d{1,3})?)\s*(?:kg|kgs?)\b",
+        normalized_text,
+        re.IGNORECASE,
+    )
+
+    weight = ""
+    if weight_match:
+        value = _parse_number(weight_match.group(1))
+        if 0 < value <= 300:
+            weight = str(int(value)) if value.is_integer() else f"{value:g}"
+
+    return {
+        "idade": f"{age_match.group(1)} anos" if age_match else "",
+        "peso": weight,
+    }
+
+
+def _merge_patient_age_weight(patient: dict[str, Any], text: str) -> dict[str, Any]:
+    merged = dict(patient or _empty_patient_payload())
+    demographics = parse_patient_age_weight(text)
+    for field, value in demographics.items():
+        if value and not merged.get(field):
+            merged[field] = value
+    return merged
+
+
 def _ge_vivid_iq_profile_payload() -> dict[str, Any]:
     return {
         "paciente": _empty_patient_payload(),
@@ -205,25 +245,28 @@ def parse_ge_logiq_e_header_text(text: str) -> dict[str, Any] | None:
     if identity_line and "," in identity_line:
         patient_name, tutor_name = [part.strip().title() for part in identity_line.split(",", 1)]
 
-    age_match = re.search(r"Idade\s*(\d{1,2})\s*(?:Y|A|anos?)\b", normalized_text, re.IGNORECASE)
     exam_date_match = re.search(r"(\d{1,2})/(\d{1,2})/(\d{2,4})", normalized_text)
     exam_date = ""
     if exam_date_match:
         exam_date = _safe_iso_date(*(int(value) for value in exam_date_match.groups()))
 
     species = "Canina" if re.search(r"CAO[_\s-]*P", normalized_text, re.IGNORECASE) else ""
-    return {
-        "paciente": {
+    patient = _merge_patient_age_weight(
+        {
             "nome": patient_name,
             "tutor": tutor_name,
             "raca": "",
             "especie": species,
             "peso": "",
-            "idade": f"{age_match.group(1)} anos" if age_match else "",
+            "idade": "",
             "sexo": "",
             "telefone": "",
             "data_exame": exam_date,
         },
+        normalized_text,
+    )
+    return {
+        "paciente": patient,
         "clinica": "VET WORLD",
         "veterinario_solicitante": "",
         "fc": "",
@@ -451,6 +494,20 @@ def _extract_ge_vivid_iq_report_from_image(image: Image.Image) -> dict[str, Any]
     except Exception:
         return None
     return parse_ge_vivid_iq_report_text(text)
+
+
+def _extract_patient_age_weight_from_image(image: Image.Image) -> dict[str, str]:
+    """Best-effort OCR for demographics when a PDF has no usable text layer."""
+    base = ImageOps.exif_transpose(image).convert("RGB")
+    width, height = base.size
+    if width < 500 or height < 300:
+        return {}
+    scale = 2 if max(width, height) < 2600 else 1
+    prepared = ImageOps.autocontrast(ImageOps.grayscale(base.resize((width * scale, height * scale))))
+    try:
+        return parse_patient_age_weight(_extract_text_with_tesseract(prepared, psm=11))
+    except Exception:
+        return {}
 
 
 def _extract_ge_vivid_iq_screen_candidates(
@@ -685,6 +742,10 @@ def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict
             header_payload = parse_ge_logiq_e_header_text(text_pages[0]) or parse_ge_vivid_iq_report_text(
                 text_pages[0]
             )
+            base_patient = (header_payload or {}).get("paciente") or _empty_patient_payload()
+            patient = _merge_patient_age_weight(base_patient, text_pages[0])
+            if any(patient.values()):
+                header_payload = {**(header_payload or {}), "paciente": patient}
         pages_needing_ocr: list[int] = []
         for index, text in enumerate(text_pages, start=1):
             page_candidates = extract_measurements_from_text(
@@ -697,12 +758,28 @@ def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict
             if not page_candidates:
                 pages_needing_ocr.append(index)
 
-        if pages_needing_ocr:
-            rendered_pages = _render_pdf_pages(content)
+        patient = (header_payload or {}).get("paciente") or _empty_patient_payload()
+        needs_demographic_ocr = not patient.get("idade") or not patient.get("peso")
+        rendered_pages: list[Image.Image] = []
+        if pages_needing_ocr or needs_demographic_ocr:
+            try:
+                rendered_pages = _render_pdf_pages(content)
+            except ValueError:
+                if pages_needing_ocr:
+                    raise
+        if rendered_pages:
             if rendered_pages and not header_payload:
                 header_payload = _extract_ge_logiq_e_header_from_image(
                     rendered_pages[0]
                 ) or _extract_ge_vivid_iq_report_from_image(rendered_pages[0])
+            base_patient = (header_payload or {}).get("paciente") or _empty_patient_payload()
+            image_demographics = _extract_patient_age_weight_from_image(rendered_pages[0])
+            patient = {**base_patient}
+            for field, value in image_demographics.items():
+                if value and not patient.get(field):
+                    patient[field] = value
+            if any(patient.values()):
+                header_payload = {**(header_payload or {}), "paciente": patient}
             for page_number in pages_needing_ocr:
                 page_candidates, variant = _extract_candidates_from_image(
                     rendered_pages[page_number - 1],
@@ -723,6 +800,14 @@ def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict
             )
             if vivid_detected:
                 header_payload = _ge_vivid_iq_profile_payload()
+        base_patient = (header_payload or {}).get("paciente") or _empty_patient_payload()
+        image_demographics = _extract_patient_age_weight_from_image(image)
+        patient = {**base_patient}
+        for field, value in image_demographics.items():
+            if value and not patient.get(field):
+                patient[field] = value
+        if any(patient.values()):
+            header_payload = {**(header_payload or {}), "paciente": patient}
         page_candidates, variant = _extract_candidates_from_image(image, page=1)
         candidates.extend(_keep_most_reliable_candidates(vivid_candidates + page_candidates))
         combined_variants = ",".join(item for item in (vivid_variant, variant) if item)
