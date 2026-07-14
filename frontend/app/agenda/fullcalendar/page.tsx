@@ -1765,7 +1765,7 @@ export default function AgendaFullCalendarPage() {
     } catch (error: any) {
       console.error("Erro ao excluir agendamento no FullCalendar:", error);
       if (error?.response?.status === 403) {
-        setErro("Apenas administradores podem excluir agendamentos.");
+        setErro("Apenas administradores e secretarias podem excluir agendamentos.");
       } else {
         setErro(
           extrairMensagemErroApi(error?.response?.data?.detail, "Nao foi possivel excluir este agendamento.")

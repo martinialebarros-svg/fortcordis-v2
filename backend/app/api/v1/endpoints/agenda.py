@@ -49,6 +49,7 @@ from app.core.agenda_route_rules import carregar_agenda_rota_regras
 from app.core.agenda_realtime import agenda_realtime_manager
 from app.core.config import settings
 from app.core.security import get_current_user
+from app.core.agenda_permissions import usuario_pode_excluir_agendamento
 from app.services.logistica_service import (
     normalizar_perfil,
     obter_duracao_deslocamento,
@@ -5508,15 +5509,13 @@ def deletar_agendamento(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Deleta agendamento (sÃƒÆ’Ã‚Â³ admin)"""
-    from sqlalchemy import text
+    """Deleta agendamento quando o usuario e admin ou secretaria."""
     _ensure_agendamento_workflow_columns(db)
-    papel = db.execute(
-        text("SELECT p.nome FROM papeis p JOIN usuario_papel up ON p.id = up.papel_id WHERE up.usuario_id = :uid"),
-        {"uid": current_user.id}
-    ).fetchone()
-    if not papel or papel[0] != "admin":
-        raise HTTPException(status_code=403, detail="Apenas administradores podem excluir agendamentos")
+    if not usuario_pode_excluir_agendamento(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Apenas administradores e secretarias podem excluir agendamentos",
+        )
 
     db_agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
     if not db_agendamento:
