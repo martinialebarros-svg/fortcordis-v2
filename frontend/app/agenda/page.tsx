@@ -1470,7 +1470,7 @@ export default function AgendaPage() {
     } catch (error: any) {
       console.error("Erro ao excluir:", error);
       if (error.response?.status === 403) {
-        setErro("Apenas administradores e secretarias podem excluir agendamentos");
+        setErro("Apenas administradores e a equipe de recepção podem excluir agendamentos");
       } else {
         setErro("Erro ao excluir agendamento");
       }

@@ -1,7 +1,13 @@
 from typing import Any
 
 
-PAPEIS_QUE_PODEM_EXCLUIR_AGENDAMENTO = ("admin", "secretaria")
+PAPEIS_QUE_PODEM_EXCLUIR_AGENDAMENTO = (
+    "admin",
+    "secretaria",
+    "secretária",
+    "recepcao",
+    "recepção",
+)
 
 
 def usuario_pode_excluir_agendamento(usuario: Any) -> bool:

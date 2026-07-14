@@ -25,8 +25,15 @@ class AgendaDeletePermissionsTests(unittest.TestCase):
     def test_secretaria_pode_excluir(self):
         self.assertTrue(usuario_pode_excluir_agendamento(UsuarioFake({"secretaria"})))
 
+    def test_recepcao_pode_excluir(self):
+        self.assertTrue(usuario_pode_excluir_agendamento(UsuarioFake({"recepcao"})))
+
+    def test_aliases_acentuados_podem_excluir(self):
+        self.assertTrue(usuario_pode_excluir_agendamento(UsuarioFake({"secretária"})))
+        self.assertTrue(usuario_pode_excluir_agendamento(UsuarioFake({"recepção"})))
+
     def test_multiplos_papeis_nao_dependem_da_ordem(self):
-        self.assertTrue(usuario_pode_excluir_agendamento(UsuarioFake({"medico", "secretaria"})))
+        self.assertTrue(usuario_pode_excluir_agendamento(UsuarioFake({"medico", "recepcao"})))
 
     def test_outros_papeis_nao_podem_excluir(self):
         self.assertFalse(usuario_pode_excluir_agendamento(UsuarioFake({"medico"})))

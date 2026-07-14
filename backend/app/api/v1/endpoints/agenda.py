@@ -5509,12 +5509,12 @@ def deletar_agendamento(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Deleta agendamento quando o usuario e admin ou secretaria."""
+    """Deleta agendamento quando o usuario e admin ou da recepcao."""
     _ensure_agendamento_workflow_columns(db)
     if not usuario_pode_excluir_agendamento(current_user):
         raise HTTPException(
             status_code=403,
-            detail="Apenas administradores e secretarias podem excluir agendamentos",
+            detail="Apenas administradores e a equipe de recepcao podem excluir agendamentos",
         )
 
     db_agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()

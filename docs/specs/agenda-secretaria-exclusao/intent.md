@@ -1,3 +1,3 @@
 # Intent
 
-Permitir que usuarios com o papel `secretaria` excluam agendamentos na agenda de producao, mantendo a auditoria e sem liberar exclusao para outros papeis.
+Permitir que usuarios da recepcao excluam agendamentos na agenda de producao, reconhecendo tanto o papel real `recepcao` quanto os aliases de secretaria, mantendo a auditoria e sem liberar exclusao para outros papeis.
