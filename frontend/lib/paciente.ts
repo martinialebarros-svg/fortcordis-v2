@@ -8,6 +8,21 @@ export function normalizarSexoPaciente(sexo?: string | null): string {
   return texto;
 }
 
+export function parsePesoKg(valor?: string | number | null): number | null {
+  const texto = String(valor ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(",", ".");
+  if (!texto) return null;
+
+  const match = texto.match(/^([0-9]{1,3}(?:\.[0-9]{1,3})?)(?:kg)?$/);
+  if (!match) return null;
+
+  const peso = Number(match[1]);
+  return Number.isFinite(peso) && peso > 0 && peso <= 300 ? peso : null;
+}
+
 function calcularIdadePorNascimento(dataNascimento?: string | null): string {
   const texto = String(dataNascimento || "").trim();
   if (!texto) return "";
