@@ -28,6 +28,7 @@ Primeira entrega vertical publicada em stage; perfis GE LOGIQ e e GE Vivid IQ ca
 - Testes unitarios cobrem os aliases do Vivid IQ, a identificacao prudente de tela e relatorio, e a ausencia de inferencia de dados do paciente quando o layout nao os separa com seguranca.
 - `venv/bin/python -m unittest tests.test_eco_study_extraction_service`: 14/14 testes passaram, incluindo extracao de idade e peso explicitamente rotulados em PDF com camada textual e normalizacao de virgula decimal no peso.
 - `npx eslint app/laudos/components/EcoStudyImportUploader.tsx --max-warnings=0`: passou; a interface identifica quando idade e/ou peso serao aplicados junto das medidas.
+- Validacao de regressao: peso importado aceita `7,35 kg`, `7.35kg` ou numero puro; novo/editar usam o valor normalizado na busca de referencia e o componente recalcula ao mudar referencia ou medidas.
 
 ## Validacao manual pendente
 

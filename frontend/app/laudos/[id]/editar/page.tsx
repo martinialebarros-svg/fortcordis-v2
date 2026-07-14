@@ -33,7 +33,7 @@ import {
   serializarEcocardiogramaEstruturado,
 } from "@/lib/ecocardiograma-estruturado";
 import { listarTodasClinicas } from "@/lib/clinicas";
-import { extrairIdadePaciente, normalizarSexoPaciente } from "@/lib/paciente";
+import { extrairIdadePaciente, normalizarSexoPaciente, parsePesoKg } from "@/lib/paciente";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -394,7 +394,7 @@ export default function EditarLaudoPage() {
     const eDoppler = parseNumero(medidas["e_doppler"]);
     const aDoppler = parseNumero(medidas["a_doppler"]);
     const divedMm = parseNumero(medidas["DIVEd"]);
-    const peso = parseNumero(pacienteForm.peso);
+    const peso = parsePesoKg(pacienteForm.peso);
 
     const aeAoCalculado =
       aorta !== null && aorta > 0 && atrioEsquerdo !== null && atrioEsquerdo > 0
@@ -597,20 +597,22 @@ export default function EditarLaudoPage() {
   const handleDadosImportados = (dados: DadosExame) => {
 
     if (dados.paciente) {
-      const novoPaciente = {
-        nome: dados.paciente.nome || "",
-        especie: dados.paciente.especie || "Canina",
-        raca: dados.paciente.raca || "",
-        sexo: normalizarSexoPaciente(dados.paciente.sexo || "Macho") || "Macho",
-        peso: dados.paciente.peso || "",
-        idade: dados.paciente.idade || "",
-        tutor: dados.paciente.tutor || "",
-        telefone: dados.paciente.telefone || "",
+      const pesoImportado = parsePesoKg(dados.paciente.peso);
+      setPacienteForm((anterior) => ({
+        ...anterior,
+        nome: dados.paciente.nome || anterior.nome,
+        especie: dados.paciente.especie || anterior.especie || "Canina",
+        raca: dados.paciente.raca || anterior.raca,
+        sexo:
+          normalizarSexoPaciente(dados.paciente.sexo || anterior.sexo || "Macho") || "Macho",
+        peso: pesoImportado !== null ? String(pesoImportado) : anterior.peso,
+        idade: dados.paciente.idade || anterior.idade,
+        tutor: dados.paciente.tutor || anterior.tutor,
+        telefone: dados.paciente.telefone || anterior.telefone,
         data_exame: dados.paciente.data_exame
           ? dados.paciente.data_exame.substring(0, 10)
-          : new Date().toISOString().split('T')[0],
-      };
-      setPacienteForm(novoPaciente);
+          : anterior.data_exame || new Date().toISOString().split('T')[0],
+      }));
     }
 
     if (dados.medidas) {
@@ -845,7 +847,7 @@ export default function EditarLaudoPage() {
           especie: pacienteForm.especie,
           raca: pacienteForm.raca,
           sexo: normalizarSexoPaciente(pacienteForm.sexo),
-          peso_kg: pacienteForm.peso ? parseFloat(pacienteForm.peso) : null,
+          peso_kg: parsePesoKg(pacienteForm.peso),
           observacoes: observacoesPaciente || null,
         };
         await api.put(`/pacientes/${paciente.id}`, pacientePayload);
@@ -1990,7 +1992,7 @@ export default function EditarLaudoPage() {
 
                     <ReferenciaComparison
                       especie={pacienteForm.especie === "Felina" ? "Felina" : "Canina"}
-                      peso={parseNumero(pacienteForm.peso) ?? undefined}
+                      peso={parsePesoKg(pacienteForm.peso) ?? undefined}
                       medidas={medidas}
                     />
                   </div>

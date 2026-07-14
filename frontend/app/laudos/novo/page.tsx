@@ -26,7 +26,7 @@ import {
 } from "@/lib/ecocardiograma-estruturado";
 import { listarTodasClinicas } from "@/lib/clinicas";
 import { TIPO_LAUDO_PRESSAO_ARTERIAL } from "@/lib/laudos";
-import { extrairIdadePaciente, normalizarSexoPaciente } from "@/lib/paciente";
+import { extrairIdadePaciente, normalizarSexoPaciente, parsePesoKg } from "@/lib/paciente";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -454,7 +454,7 @@ export default function NovoLaudoPage() {
     const eDoppler = parseNumero(medidas["e_doppler"]);
     const aDoppler = parseNumero(medidas["a_doppler"]);
     const divedMm = parseNumero(medidas["DIVEd"]);
-    const peso = parseNumero(paciente.peso);
+    const peso = parsePesoKg(paciente.peso);
 
     const aeAoCalculado =
       aorta !== null && aorta > 0 && atrioEsquerdo !== null && atrioEsquerdo > 0
@@ -733,6 +733,7 @@ export default function NovoLaudoPage() {
   const handleDadosImportados = (dados: DadosExame) => {
     
     if (dados.paciente) {
+      const pesoImportado = parsePesoKg(dados.paciente.peso);
       setPaciente((anterior) => ({
         ...anterior,
         id: dados.paciente.id ?? anterior.id,
@@ -740,7 +741,7 @@ export default function NovoLaudoPage() {
         tutor: dados.paciente.tutor || anterior.tutor || "",
         raca: dados.paciente.raca || anterior.raca || "",
         especie: dados.paciente.especie || anterior.especie || "Canina",
-        peso: dados.paciente.peso || anterior.peso || "",
+        peso: pesoImportado !== null ? String(pesoImportado) : anterior.peso || "",
         idade: dados.paciente.idade || anterior.idade || "",
         sexo: normalizarSexoPaciente(dados.paciente.sexo || anterior.sexo || "Macho") || "Macho",
         telefone: dados.paciente.telefone || anterior.telefone || "",
@@ -1875,7 +1876,7 @@ export default function NovoLaudoPage() {
                     
                     <ReferenciaComparison 
                       especie={paciente.especie === "Felina" ? "Felina" : "Canina"}
-                      peso={parseNumero(paciente.peso) ?? undefined}
+                      peso={parsePesoKg(paciente.peso) ?? undefined}
                       medidas={medidas}
                     />
                   </div>

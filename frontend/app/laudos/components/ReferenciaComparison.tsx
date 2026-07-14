@@ -25,26 +25,33 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
 
   useEffect(() => {
     const pesoValido = typeof peso === "number" && Number.isFinite(peso) && peso > 0;
+    let ativo = true;
 
     async function carregarReferencia() {
       if (especie && pesoValido) {
+        setReferencia(null);
         const ref = await buscarReferencia(especie, peso);
-        setReferencia(ref);
+        if (ativo) setReferencia(ref);
         return;
       }
 
       setReferencia(null);
     }
 
-    carregarReferencia();
+    void carregarReferencia();
+    return () => {
+      ativo = false;
+    };
   }, [especie, peso, buscarReferencia]);
 
   useEffect(() => {
     if (referencia) {
       const comps = compararMedidas(medidas, referencia);
       setComparacoes(comps);
+      return;
     }
-  }, [medidas, referencia]);
+    setComparacoes({});
+  }, [medidas, referencia, compararMedidas]);
 
   if (loading) {
     return (
