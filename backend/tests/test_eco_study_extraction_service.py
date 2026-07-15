@@ -2,6 +2,7 @@ import io
 import os
 import sys
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -157,11 +158,42 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
 
         self.assertEqual(demographics, {"idade": "8 anos", "peso": "7.35"})
 
+    def test_calculates_age_in_years_from_birthdate(self) -> None:
+        demographics = parse_patient_age_weight(
+            "Birthdate: 15/06/2018\nStudy Date: 14/07/2026\nAge: 99 years\nWeight: 7.35 kg"
+        )
+
+        self.assertEqual(demographics, {"idade": "8 anos", "peso": "7.35"})
+
+    def test_calculates_age_in_months_when_younger_than_one_year(self) -> None:
+        demographics = parse_patient_age_weight(
+            "Birthdate: 20/08/2025\nStudy Date: 11/07/2026"
+        )
+
+        self.assertEqual(demographics, {"idade": "10 meses", "peso": ""})
+
+    def test_calculates_singular_month_from_birthdate(self) -> None:
+        demographics = parse_patient_age_weight(
+            "Birthdate: 15/05/2026\nExam Date: 15/06/2026"
+        )
+
+        self.assertEqual(demographics, {"idade": "1 mês", "peso": ""})
+
+    def test_accepts_iso_and_unambiguous_month_first_birthdates(self) -> None:
+        for birthdate in ("2025-08-20", "08/20/2025"):
+            with self.subTest(birthdate=birthdate):
+                demographics = parse_patient_age_weight(
+                    f"Birthdate: {birthdate}",
+                    reference_date=date(2026, 7, 11),
+                )
+                self.assertEqual(demographics["idade"], "10 meses")
+
     def test_parses_pdf_text_layer_patient_age_and_weight(self) -> None:
         content = _pdf_bytes(
             [
                 "Paciente: Belinha",
-                "Idade: 8 anos  Peso: 7,35 kg",
+                "Birthdate: 20/08/2025  Date 11/07/2026",
+                "Peso: 7,35 kg",
                 "LVIDd 3.24 cm",
                 "LA/Ao 1.62",
             ]
@@ -169,8 +201,9 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
 
         payload = parse_eco_study_import_content("belinha.pdf", content)
 
-        self.assertEqual(payload["paciente"]["idade"], "8 anos")
+        self.assertEqual(payload["paciente"]["idade"], "10 meses")
         self.assertEqual(payload["paciente"]["peso"], "7.35")
+        self.assertEqual(payload["paciente"]["data_exame"], "2026-07-11")
 
     def test_parses_ge_vivid_iq_aliases_and_report_profile(self) -> None:
         candidates = extract_measurements_from_text(
