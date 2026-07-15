@@ -30,6 +30,9 @@ ALLOWED_ECO_STUDY_EXTENSIONS = {
 
 _NUMBER_PATTERN = r"-?\d{1,5}(?:[.,]\d{1,4})?"
 _UNIT_PATTERN = r"(?:mmHg|mm|cm|cms|m/s|mis|cm/s|ms|msec|s|%|mlg|ml|mL)?"
+_DATE_VALUE_PATTERN = r"(?:\d{4}[./-]\d{1,2}[./-]\d{1,2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4})"
+_BIRTHDATE_LABEL_PATTERN = r"(?:birth\s*date|date\s+of\s+birth|dob|data\s+de\s+nascimento|nascimento)"
+_EXAM_DATE_LABEL_PATTERN = r"(?:study\s+date|exam(?:ination)?\s+date|date\s+of\s+exam|data\s+do\s+exame|data\s+exame)"
 
 
 @dataclass(frozen=True)
@@ -103,15 +106,6 @@ def _remove_diacritics(text: str) -> str:
     return without_diacritics.translate(apostrophes)
 
 
-def _safe_iso_date(day: int, month: int, year: int) -> str:
-    if year < 100:
-        year += 2000
-    try:
-        return date(year, month, day).isoformat()
-    except ValueError:
-        return ""
-
-
 def _empty_patient_payload() -> dict[str, str]:
     return {
         "nome": "",
@@ -126,14 +120,122 @@ def _empty_patient_payload() -> dict[str, str]:
     }
 
 
-def parse_patient_age_weight(text: str) -> dict[str, str]:
-    """Extract only explicit patient age and weight from a report header.
+def _parse_date_value(
+    value: str,
+    *,
+    upper_bound: date | None = None,
+) -> date | None:
+    parts = re.split(r"[./-]", (value or "").strip())
+    if len(parts) != 3 or not all(part.isdigit() for part in parts):
+        return None
+
+    first, second, third = (int(part) for part in parts)
+    if len(parts[0]) == 4:
+        candidates = [(first, second, third)]
+    else:
+        year = third + (2000 if third < 100 else 0)
+        if first > 12:
+            candidates = [(year, second, first)]
+        elif second > 12:
+            candidates = [(year, first, second)]
+        else:
+            # Brazilian reports normally use day/month/year. The second option
+            # still supports month/day/year when only that interpretation is
+            # compatible with the reference date.
+            candidates = [(year, second, first), (year, first, second)]
+
+    parsed: list[date] = []
+    for year, month, day in candidates:
+        try:
+            candidate = date(year, month, day)
+        except ValueError:
+            continue
+        if upper_bound is None or candidate <= upper_bound:
+            parsed.append(candidate)
+    return parsed[0] if parsed else None
+
+
+def _find_labeled_date(
+    text: str,
+    label_pattern: str,
+    *,
+    upper_bound: date | None = None,
+) -> tuple[date | None, tuple[int, int] | None]:
+    match = re.search(
+        rf"\b{label_pattern}\b\s*[:=-]?\s*(?P<value>{_DATE_VALUE_PATTERN})",
+        text,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None, None
+    return _parse_date_value(match.group("value"), upper_bound=upper_bound), match.span()
+
+
+def _extract_exam_date(text: str, *, upper_bound: date | None = None) -> date | None:
+    limit = upper_bound or date.today()
+    labeled, _ = _find_labeled_date(
+        text,
+        _EXAM_DATE_LABEL_PATTERN,
+        upper_bound=limit,
+    )
+    if labeled:
+        return labeled
+
+    # LOGIQ headers often show the examination date without a label. Remove a
+    # labeled birthdate before falling back to the first remaining date so it
+    # can never be mistaken for the study date.
+    _, birthdate_span = _find_labeled_date(text, _BIRTHDATE_LABEL_PATTERN)
+    remaining = text
+    if birthdate_span:
+        start, end = birthdate_span
+        remaining = f"{text[:start]} {text[end:]}"
+    for match in re.finditer(_DATE_VALUE_PATTERN, remaining):
+        parsed = _parse_date_value(match.group(0), upper_bound=limit)
+        if parsed:
+            return parsed
+    return None
+
+
+def _format_age_from_birthdate(birthdate: date, reference_date: date) -> str:
+    if birthdate > reference_date:
+        return ""
+
+    years = reference_date.year - birthdate.year
+    if (reference_date.month, reference_date.day) < (birthdate.month, birthdate.day):
+        years -= 1
+    if years >= 1:
+        return f"{years} ano" if years == 1 else f"{years} anos"
+
+    months = (reference_date.year - birthdate.year) * 12
+    months += reference_date.month - birthdate.month
+    if reference_date.day < birthdate.day:
+        months -= 1
+    months = max(0, months)
+    return f"{months} mês" if months == 1 else f"{months} meses"
+
+
+def parse_patient_age_weight(
+    text: str,
+    *,
+    reference_date: date | None = None,
+) -> dict[str, str]:
+    """Extract patient weight and calculate age from a labeled birthdate.
 
     The study import also sees Doppler measurements in kilograms and years in
     free text. Restricting the match to the usual demographic labels prevents
     those clinical values from being copied into the patient record.
     """
     normalized_text = _remove_diacritics(text or "")
+    effective_reference = (
+        _extract_exam_date(normalized_text, upper_bound=reference_date or date.today())
+        or reference_date
+        or date.today()
+    )
+    birthdate, _ = _find_labeled_date(
+        normalized_text,
+        _BIRTHDATE_LABEL_PATTERN,
+        upper_bound=effective_reference,
+    )
     age_match = re.search(
         r"\b(?:idade|age)\s*[:=-]?\s*(\d{1,2})\s*(?:anos?|ano|a|years?|year|y)\b",
         normalized_text,
@@ -151,17 +253,31 @@ def parse_patient_age_weight(text: str) -> dict[str, str]:
         if 0 < value <= 300:
             weight = str(int(value)) if value.is_integer() else f"{value:g}"
 
+    age = _format_age_from_birthdate(birthdate, effective_reference) if birthdate else ""
+    if not age and age_match:
+        years = int(age_match.group(1))
+        age = f"{years} ano" if years == 1 else f"{years} anos"
+
     return {
-        "idade": f"{age_match.group(1)} anos" if age_match else "",
+        "idade": age,
         "peso": weight,
     }
 
 
 def _merge_patient_age_weight(patient: dict[str, Any], text: str) -> dict[str, Any]:
     merged = dict(patient or _empty_patient_payload())
-    demographics = parse_patient_age_weight(text)
+    exam_date = _extract_exam_date(_remove_diacritics(text or ""))
+    if exam_date and not merged.get("data_exame"):
+        merged["data_exame"] = exam_date.isoformat()
+    reference_date = exam_date
+    if merged.get("data_exame"):
+        try:
+            reference_date = date.fromisoformat(str(merged["data_exame"])[:10])
+        except ValueError:
+            pass
+    demographics = parse_patient_age_weight(text, reference_date=reference_date)
     for field, value in demographics.items():
-        if value and not merged.get(field):
+        if value and (field == "idade" or not merged.get(field)):
             merged[field] = value
     return merged
 
@@ -245,10 +361,8 @@ def parse_ge_logiq_e_header_text(text: str) -> dict[str, Any] | None:
     if identity_line and "," in identity_line:
         patient_name, tutor_name = [part.strip().title() for part in identity_line.split(",", 1)]
 
-    exam_date_match = re.search(r"(\d{1,2})/(\d{1,2})/(\d{2,4})", normalized_text)
-    exam_date = ""
-    if exam_date_match:
-        exam_date = _safe_iso_date(*(int(value) for value in exam_date_match.groups()))
+    parsed_exam_date = _extract_exam_date(normalized_text)
+    exam_date = parsed_exam_date.isoformat() if parsed_exam_date else ""
 
     species = "Canina" if re.search(r"CAO[_\s-]*P", normalized_text, re.IGNORECASE) else ""
     patient = _merge_patient_age_weight(
@@ -776,7 +890,7 @@ def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict
             image_demographics = _extract_patient_age_weight_from_image(rendered_pages[0])
             patient = {**base_patient}
             for field, value in image_demographics.items():
-                if value and not patient.get(field):
+                if value and (field == "idade" or not patient.get(field)):
                     patient[field] = value
             if any(patient.values()):
                 header_payload = {**(header_payload or {}), "paciente": patient}
@@ -804,7 +918,7 @@ def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict
         image_demographics = _extract_patient_age_weight_from_image(image)
         patient = {**base_patient}
         for field, value in image_demographics.items():
-            if value and not patient.get(field):
+            if value and (field == "idade" or not patient.get(field)):
                 patient[field] = value
         if any(patient.values()):
             header_payload = {**(header_payload or {}), "paciente": patient}
