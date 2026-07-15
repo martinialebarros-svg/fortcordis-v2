@@ -19,6 +19,10 @@ Status: in-progress
 | CA-009 | aceitacao | orquestrador tenta fallback de datas candidatas quando primeira data automatica vem sem ofertas | ok |
 | CA-010 | aceitacao | modal libera fluxo retroativo para admin em data passada + zero ofertas; nao-admin segue bloqueado | ok |
 | CA-011 | aceitacao | orquestrador hierarquiza ate 3 datas com `data vazia` apenas no fim e varre dias intermediarios entre datas candidatas para nao perder ancoras validas | ok |
+| CA-012 | aceitacao | `test_remarcacao_sincroniza_hora_antes_de_validar_slot` reproduz o drift do horario anterior e exige HTTP 409 | ok |
+| CA-013 | aceitacao | `test_confirmacao_revalida_slot_e_bloqueia_conflito_legado` exige HTTP 409 e preserva `Reservado` | ok |
+| CA-014 | aceitacao | `test_reserva_sem_paciente_pode_ser_cancelada` valida `Reservado -> Cancelado` sem paciente | ok |
+| CA-015 | aceitacao | migration `20260715_49` tem testes de fluxo/falha e ensaio transacional real no PostgreSQL de stage | ok |
 
 ## 2) Testes automatizados executados
 
@@ -43,6 +47,21 @@ cd backend && source venv/bin/activate && pytest -q tests/test_agenda_assistente
 
 Resultado adicional:
 - `4 passed` (inclui cobertura dos cenarios de fallback entre datas preferenciais e fallback para data de referencia).
+
+Execucao adicional deste ciclo (2026-07-15):
+
+```bash
+cd backend && ./venv/bin/python -m unittest tests.test_agenda_concorrencia_slot
+```
+
+Resultado adicional:
+- `5 tests`, `OK` em `test_agenda_concorrencia_slot.py` (inclui mapeamento da constraint para HTTP 409).
+- Suite focal ampliada da agenda + migration: `51 passed`.
+- Testes focais diretos de concorrencia + migration: `9 passed`.
+- Suite completa do backend: `320 passed`, `2 subtests passed`.
+- `py_compile` dos arquivos alterados: ok.
+- Ensaio PostgreSQL em stage dentro de `BEGIN/ROLLBACK`: conversao `TEXT -> TIMESTAMPTZ`, `fim NOT NULL` e constraint `EXCLUDE USING gist (tstzrange(inicio, fim, '[)') WITH &&)` executados com sucesso.
+- Preflight de dados antes da migration: `0` sobreposicoes ativas em stage e `0` em producao apos reconciliacao do agendamento `1034`.
 
 Validacao adicional deste ciclo (frontend):
 
@@ -71,12 +90,16 @@ Resultado adicional:
 - Cenario 3 (admin): sem oferta aderente, conceder excecao, ajustar manual e salvar.
 - Cenario 4 (concorrencia): tentar criar mesmo slot em duas abas e validar que uma operacao falha por indisponibilidade.
 - Cenario 5 (metricas): consultar `GET /agenda/assistente/metricas` e validar contadores por etapa/perfil.
+- Cenario 6 (remarcacao): reservar um slot e tentar mover outro agendamento para o mesmo intervalo; validar retorno de indisponibilidade.
+- Cenario 7 (status): em dado de teste com conflito preexistente, tentar confirmar um dos registros; validar bloqueio e preservacao do status.
+- Cenario 8 (banco): tentar persistir intervalo sobreposto apos migration e validar violacao `23P01` mapeada para HTTP 409 pela API.
 
 ## 4) Riscos residuais
 
 - Risco residual 1: metricas estao disponiveis por endpoint, mas ainda sem dashboard visual dedicado.
 - Risco residual 2: cobertura de concorrencia foi validada localmente com SQLite; em Postgres o lock e advisory por transacao e depende da disciplina de uso dos endpoints oficiais.
 - Risco residual 3: a terceira data vazia depende do horizonte pesquisado; em agendas muito preenchidas ela pode nao aparecer antes do limite de busca progressiva.
+- Risco residual 4: migration de stage altera `inicio/fim` de `TEXT` para `TIMESTAMPTZ`; o ensaio transacional validou os 44 registros atuais, mas o deploy deve manter backup e smoke pos-migration.
 
 ## 5) Decisao de release
 

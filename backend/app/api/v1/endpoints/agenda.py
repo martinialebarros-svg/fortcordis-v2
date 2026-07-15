@@ -68,6 +68,7 @@ logger = logging.getLogger(__name__)
 LOCAL_TZ = timezone(timedelta(hours=-3))
 AGENDA_STATUS_PERMITIDOS = ["Agendado", "Reservado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"]
 AGENDA_STATUS_PRE_AGENDADOS = {"Agendado", "Reservado", "Confirmado"}
+AGENDA_STATUS_BLOQUEIAM_SLOT = {"Agendado", "Reservado", "Confirmado", "Em atendimento"}
 AGENDA_STATUS_NAO_ANCORA = {"Cancelado", "Faltou"}
 ORIGENS_ATENDIMENTO_PERMITIDAS = {"clinica_parceira", "domiciliar"}
 ORIGEM_ATENDIMENTO_PADRAO = "clinica_parceira"
@@ -2180,6 +2181,34 @@ def _validar_slot_disponivel(
         )
 
 
+def _is_slot_overlap_db_error(exc: Exception) -> bool:
+    original = getattr(exc, "orig", None)
+    sqlstate = str(
+        getattr(original, "sqlstate", None)
+        or getattr(original, "pgcode", None)
+        or ""
+    ).strip()
+    if sqlstate == "23P01":
+        return True
+    return "ex_agendamentos_slot_ativo" in str(exc).lower()
+
+
+def _commit_agenda_write(db: Session) -> None:
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        if _is_slot_overlap_db_error(exc):
+            raise HTTPException(
+                status_code=409,
+                detail="Horario indisponivel: ja existe atendimento sobreposto neste slot.",
+            ) from exc
+        raise HTTPException(
+            status_code=500,
+            detail="Erro ao salvar agendamento no banco de dados.",
+        ) from exc
+
+
 def _adquirir_lock_escrita_agenda(db: Session) -> None:
     if db.info.get("_agenda_write_lock"):
         return
@@ -2401,7 +2430,7 @@ def _validar_paciente_tutor_para_status(
     related: Optional[dict] = None,
 ) -> None:
     status_alvo = (status_destino or agendamento.status or "").strip() or "Agendado"
-    if status_alvo == "Reservado":
+    if status_alvo in {"Reservado", "Cancelado"}:
         return
 
     rel = related or _fetch_related_names(db, agendamento)
@@ -4859,7 +4888,7 @@ def criar_agendamento(
     )
 
     db.add(db_agendamento)
-    db.commit()
+    _commit_agenda_write(db)
     db.refresh(db_agendamento)
     contexto = _contexto_agendamento_auditoria(db_agendamento, related)
 
@@ -4979,6 +5008,9 @@ def atualizar_agendamento(
 
     if "inicio" in update_data:
         db_agendamento.inicio = _coerce_datetime(db_agendamento.inicio)
+        # A validacao de slot usa data/hora para compatibilidade com registros
+        # legados. Sincronize esses campos antes de validar uma remarcacao.
+        _fill_data_hora_from_inicio(db_agendamento)
     if "fim" in update_data:
         db_agendamento.fim = _coerce_datetime(db_agendamento.fim)
     if "status" in update_data:
@@ -5029,9 +5061,6 @@ def atualizar_agendamento(
             agendamento_id_excluir=agendamento_id,
             confirmar_conflito_deslocamento=override_conflito_deslocamento,
         )
-    if "inicio" in update_data:
-        _fill_data_hora_from_inicio(db_agendamento)
-
     related = _fetch_related_names(db, db_agendamento)
     _sync_denormalized_fields(db_agendamento, related)
     if status_anterior == "Reservado" or "status" in update_data or "paciente_id" in update_data:
@@ -5045,7 +5074,7 @@ def atualizar_agendamento(
     db_agendamento.atualizado_em = datetime.now()
     db_agendamento.updated_at = datetime.now()
 
-    db.commit()
+    _commit_agenda_write(db)
     db.refresh(db_agendamento)
     contexto = _contexto_agendamento_auditoria(db_agendamento, related)
 
@@ -5175,11 +5204,14 @@ def atualizar_status(
     status_anterior = db_agendamento.status
 
     db_agendamento.status = status_normalizado
-    if status_anterior == "Cancelado" and status_normalizado != "Cancelado":
+    reativando_cancelado = status_anterior == "Cancelado" and status_normalizado != "Cancelado"
+    if status_normalizado in AGENDA_STATUS_BLOQUEIAM_SLOT:
         _apply_service_duration_if_needed(db, db_agendamento)
-        _validar_agendamento_no_funcionamento(db, db_agendamento)
+        if reativando_cancelado:
+            _validar_agendamento_no_funcionamento(db, db_agendamento)
         _validar_slot_disponivel(db, db_agendamento, agendamento_id_excluir=agendamento_id)
-        _validar_deslocamento_agendamento(db, db_agendamento, agendamento_id_excluir=agendamento_id)
+        if reativando_cancelado:
+            _validar_deslocamento_agendamento(db, db_agendamento, agendamento_id_excluir=agendamento_id)
     db_agendamento.atualizado_em = datetime.now()
     db_agendamento.updated_at = datetime.now()
 
@@ -5192,12 +5224,8 @@ def atualizar_status(
     os_reutilizada = False
     mensagens_adicionais: list[str] = []
 
-    try:
-        db.commit()
-        db.refresh(db_agendamento)
-    except SQLAlchemyError:
-        db.rollback()
-        raise HTTPException(status_code=500, detail="Erro ao atualizar status no banco de dados.")
+    _commit_agenda_write(db)
+    db.refresh(db_agendamento)
 
     if status_anterior == "Realizado" and status_normalizado == "Em atendimento":
         from app.models.financeiro import Transacao
