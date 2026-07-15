@@ -29,6 +29,10 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
 - RF-011: no endpoint `POST /agenda/assistente/ofertas`, quando a primeira `data_base` automatica nao retornar slots operacionais, o backend deve tentar fallback deterministico entre datas candidatas (proximidade -> datas preferenciais da politica -> data de referencia), interrompendo na primeira data com ofertas validas.
 - RF-012: no modal de novo agendamento, quando a data selecionada for passada e o panorama vier sem ofertas, o admin deve poder liberar um fluxo retroativo controlado para concluir o cadastro manual com justificativa obrigatoria.
 - RF-013: no endpoint `POST /agenda/assistente/ofertas`, o panorama deve priorizar ate 3 datas distintas em hierarquia operacional: (1) primeira data com ancora aderente na mesma clinica, exibindo apenas slots adjacentes a essa ancora; (2) segunda data distinta com ancora aderente; (3) primeira data vazia encontrada, sem outros agendamentos no dia. Antes de assumir essa terceira opcao, o backend deve varrer os dias intermediarios ja cobertos pelas datas candidatas automaticas para nao perder ancoras validas nesse intervalo.
+- RF-014: ao remarcar um agendamento, `data/hora` devem ser sincronizados com o novo `inicio` antes da validacao de disponibilidade, evitando que valores legados do horario anterior contornem o bloqueio de sobreposicao.
+- RF-015: toda transicao para `Agendado`, `Reservado`, `Confirmado` ou `Em atendimento` deve revalidar o slot e retornar conflito quando houver outro agendamento nao cancelado sobreposto.
+- RF-016: reservas sem paciente devem poder transicionar para `Cancelado`, preservando o registro e a trilha de auditoria.
+- RF-017: PostgreSQL deve rejeitar sobreposicao entre intervalos de agendamentos em `Agendado`, `Reservado`, `Confirmado` ou `Em atendimento`, mesmo quando a escrita contornar a validacao da API.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -39,6 +43,7 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
 - NFR-005 (resiliencia operacional): ausencia de oferta na primeira data automatica nao pode encerrar prematuramente o panorama se houver datas candidatas ainda nao tentadas no mesmo contexto de negocio.
 - NFR-006 (governanca): lancamento retroativo de data passada deve permanecer controlado por papel admin e gerar trilha textual no contexto do assistente.
 - NFR-007 (objetividade operacional): o panorama multi-data deve manter a lista enxuta, limitando no maximo 2 slots por data selecionada na hierarquia.
+- NFR-008 (integridade): `inicio/fim` devem usar `timestamp with time zone` no PostgreSQL, `fim` deve ser obrigatorio e a garantia de nao sobreposicao deve existir no banco.
 
 ## 4) Contratos tecnicos
 
@@ -68,7 +73,8 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
 ## 5) Compatibilidade e rollout
 
 - Backward compatibility: endpoints antigos (`/agenda/sugestao-proximidade` e `/agenda/sugestoes-horario`) permanecem ativos.
-- Rollout: deploy combinado backend + frontend, sem migracoes de schema.
+- Rollout original: deploy combinado backend + frontend, sem migracoes de schema.
+- Rollout adicional de 2026-07-15: migration `20260715_49` alinha `inicio/fim` no stage, preenche duracoes invalidas com 30 minutos, torna `fim` obrigatorio e cria `ex_agendamentos_slot_ativo`.
 - Rollback: revert do ciclo FOR-55/FOR-56/FOR-57/FOR-58/FOR-59/FOR-60/FOR-61.
 
 ## 6) Criterios de aceitacao (CA)
@@ -84,6 +90,10 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
 - CA-009: `POST /agenda/assistente/ofertas` nao deve retornar vazio definitivo apos primeira data automatica sem slots quando houver outra data candidata valida no mesmo contexto; deve tentar proximas datas e retornar oferta ao encontrar disponibilidade.
 - CA-010: com data passada e zero ofertas no panorama, admin consegue liberar fluxo retroativo e salvar agendamento manual apos informar justificativa; perfil nao-admin permanece bloqueado para essa liberacao.
 - CA-011: `POST /agenda/assistente/ofertas` deve devolver panorama hierarquizado em ate 3 datas, priorizando duas datas com ancora aderente na mesma clinica e, apenas depois disso, a primeira data vazia; nas datas com ancora, apenas slots adjacentes a ancora podem entrar na lista final, e os dias intermediarios entre datas candidatas devem ser avaliados antes de promover uma agenda vazia.
+- CA-012: remarcacao de um agendamento para slot ja reservado retorna 409 mesmo quando o registro remarcado ainda carrega `data/hora` do horario anterior.
+- CA-013: confirmacao de um agendamento sobreposto a outro registro ativo retorna 409 e preserva o status anterior.
+- CA-014: reserva sem paciente pode ser cancelada pela API sem exigir identificacao clinica inexistente.
+- CA-015: migration falha explicitamente se ainda houver sobreposicao ativa e, sem conflitos, cria exclusion constraint baseada em `tstzrange(inicio, fim, '[)')`.
 
 ## 7) Casos de borda
 
@@ -96,6 +106,10 @@ Consolidar governanca operacional do assistente de agendamento com foco em:
 - CB-007: data passada selecionada, sem sugestoes operacionais e necessidade de lancamento retroativo no mesmo modal.
 - CB-008: quando existir apenas 1 data com ancora aderente no horizonte pesquisado, o panorama deve completar a lista com a melhor data vazia ou operacional encontrada, sem repetir datas nem expandir em excesso a quantidade de slots.
 - CB-009: quando uma data vazia aparecer antes de uma ancora em dias intermediarios dentro do intervalo ja coberto pelas datas automaticas, o backend deve reordenar o panorama para promover a ancora e empurrar a data vazia para o fim da hierarquia.
+- CB-010: agendamento criado em horario livre e remarcado posteriormente para um slot ocupado por `Reservado`.
+- CB-011: conflito legado ja persistido e detectado novamente na transicao `Reservado -> Confirmado`.
+- CB-012: reserva operacional sem paciente precisa ser liberada sem exclusao fisica do registro.
+- CB-013: stage legado com `inicio/fim` em texto deve ser convertido sem deslocar timestamps ISO que ja carregam offset.
 
 ## 8) Fora de escopo
 
