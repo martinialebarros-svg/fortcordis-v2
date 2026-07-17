@@ -19,6 +19,19 @@ export const formatarCpfVisual = (valor: string) => {
   return `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}`;
 };
 
+export const normalizarCnpj = (valor: string) => valor.replace(/\D/g, "").slice(0, 14);
+
+export const formatarCnpjVisual = (valor: string) => {
+  const cnpj = normalizarCnpj(valor);
+  if (cnpj.length <= 2) return cnpj;
+  if (cnpj.length <= 5) return `${cnpj.slice(0, 2)}.${cnpj.slice(2)}`;
+  if (cnpj.length <= 8) return `${cnpj.slice(0, 2)}.${cnpj.slice(2, 5)}.${cnpj.slice(5)}`;
+  if (cnpj.length <= 12) {
+    return `${cnpj.slice(0, 2)}.${cnpj.slice(2, 5)}.${cnpj.slice(5, 8)}/${cnpj.slice(8)}`;
+  }
+  return `${cnpj.slice(0, 2)}.${cnpj.slice(2, 5)}.${cnpj.slice(5, 8)}/${cnpj.slice(8, 12)}-${cnpj.slice(12)}`;
+};
+
 export const normalizarTelefone = (valor: string) => valor.replace(/\D/g, "").slice(0, 11);
 
 export const formatarTelefoneVisual = (valor: string) => {

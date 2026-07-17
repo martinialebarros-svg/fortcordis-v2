@@ -15,7 +15,6 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
     especieCadastroAtual,
     especieRacaExibicao,
     form,
-    formatarCepVisual,
     handleAdicionarRacaCadastro,
     idadePacienteExibicao,
     consultarCepTutor,
@@ -250,27 +249,37 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
                     className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 md:col-span-2"
                   />
                   <input
+                    type="tel"
                     value={cadastroComplementar.tutor.whatsapp || ""}
                     onChange={(e) => setCadastroTutorField("whatsapp", e.target.value)}
-                    placeholder="WhatsApp"
+                    placeholder="(00) 00000-0000"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    maxLength={15}
                     className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
                   />
                   <input
+                    type="tel"
                     value={cadastroComplementar.tutor.telefone || ""}
                     onChange={(e) => setCadastroTutorField("telefone", e.target.value)}
-                    placeholder="Telefone"
+                    placeholder="(00) 00000-0000"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    maxLength={15}
                     className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
                   />
                   <input
+                    type="email"
                     value={cadastroComplementar.tutor.email || ""}
                     onChange={(e) => setCadastroTutorField("email", e.target.value)}
-                    placeholder="Email"
+                    placeholder="email@tutor.com"
+                    autoComplete="email"
                     className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
                   />
                   <input
                     value={cadastroComplementar.tutor.cpf || ""}
                     onChange={(e) => setCadastroTutorField("cpf", e.target.value)}
-                    placeholder="CPF"
+                    placeholder="000.000.000-00"
                     inputMode="numeric"
                     maxLength={14}
                     className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
@@ -279,11 +288,14 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
                     <input
                       value={cadastroComplementar.tutor.cep || ""}
                       onChange={(e) => {
-                        setCadastroTutorField("cep", formatarCepVisual(e.target.value));
+                        setCadastroTutorField("cep", e.target.value);
                         setStatusCepTutor("");
                       }}
                       onBlur={() => void consultarCepTutor()}
-                      placeholder="CEP"
+                      placeholder="00000-000"
+                      inputMode="numeric"
+                      autoComplete="postal-code"
+                      maxLength={9}
                       className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
                     />
                     <button

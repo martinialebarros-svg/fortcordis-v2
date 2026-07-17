@@ -5,6 +5,14 @@ import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import {
+  formatarCepVisual,
+  formatarCpfVisual,
+  formatarTelefoneVisual,
+  normalizarCep,
+  normalizarCpf,
+  normalizarTelefone,
+} from "@/lib/atendimento-cadastro";
+import {
   addRacaCustomPorEspecie,
   getRacaOptions,
   loadRacasCustomPorEspecie,
@@ -92,10 +100,10 @@ export default function EditarPacientePage() {
         nome: data.nome || "",
         tutor: data.tutor || "",
         tutor_email: data.tutor_email || "",
-        tutor_telefone: data.tutor_telefone || "",
-        tutor_whatsapp: data.tutor_whatsapp || "",
-        tutor_cpf: data.tutor_cpf || "",
-        tutor_cep: data.tutor_cep || "",
+        tutor_telefone: formatarTelefoneVisual(data.tutor_telefone || ""),
+        tutor_whatsapp: formatarTelefoneVisual(data.tutor_whatsapp || ""),
+        tutor_cpf: formatarCpfVisual(data.tutor_cpf || ""),
+        tutor_cep: formatarCepVisual(data.tutor_cep || ""),
         tutor_endereco: data.tutor_endereco || "",
         tutor_numero: data.tutor_numero || "",
         tutor_complemento: data.tutor_complemento || "",
@@ -125,6 +133,10 @@ export default function EditarPacientePage() {
       const payload = {
         ...paciente,
         tutor_id: paciente.tutor_id ? Number(paciente.tutor_id) : null,
+        tutor_telefone: normalizarTelefone(paciente.tutor_telefone),
+        tutor_whatsapp: normalizarTelefone(paciente.tutor_whatsapp),
+        tutor_cpf: normalizarCpf(paciente.tutor_cpf),
+        tutor_cep: normalizarCep(paciente.tutor_cep),
         peso_kg: paciente.peso_kg ? parseFloat(paciente.peso_kg) : null,
       };
       
@@ -254,11 +266,14 @@ export default function EditarPacientePage() {
                 Telefone
               </label>
               <input
-                type="text"
+                type="tel"
                 value={paciente.tutor_telefone}
-                onChange={(e) => setPaciente({...paciente, tutor_telefone: e.target.value})}
+                onChange={(e) => setPaciente({...paciente, tutor_telefone: formatarTelefoneVisual(e.target.value)})}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 placeholder="(00) 00000-0000"
+                inputMode="tel"
+                autoComplete="tel"
+                maxLength={15}
               />
             </div>
 
@@ -267,11 +282,14 @@ export default function EditarPacientePage() {
                 WhatsApp
               </label>
               <input
-                type="text"
+                type="tel"
                 value={paciente.tutor_whatsapp}
-                onChange={(e) => setPaciente({...paciente, tutor_whatsapp: e.target.value})}
+                onChange={(e) => setPaciente({...paciente, tutor_whatsapp: formatarTelefoneVisual(e.target.value)})}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 placeholder="(00) 00000-0000"
+                inputMode="tel"
+                autoComplete="tel"
+                maxLength={15}
               />
             </div>
 
@@ -282,9 +300,11 @@ export default function EditarPacientePage() {
               <input
                 type="text"
                 value={paciente.tutor_cpf}
-                onChange={(e) => setPaciente({...paciente, tutor_cpf: e.target.value})}
+                onChange={(e) => setPaciente({...paciente, tutor_cpf: formatarCpfVisual(e.target.value)})}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 placeholder="000.000.000-00"
+                inputMode="numeric"
+                maxLength={14}
               />
             </div>
 
@@ -295,9 +315,12 @@ export default function EditarPacientePage() {
               <input
                 type="text"
                 value={paciente.tutor_cep}
-                onChange={(e) => setPaciente({...paciente, tutor_cep: e.target.value})}
+                onChange={(e) => setPaciente({...paciente, tutor_cep: formatarCepVisual(e.target.value)})}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 placeholder="00000-000"
+                inputMode="numeric"
+                autoComplete="postal-code"
+                maxLength={9}
               />
             </div>
 

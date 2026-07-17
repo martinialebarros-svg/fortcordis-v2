@@ -4,6 +4,14 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import {
+  formatarCepVisual,
+  formatarCnpjVisual,
+  formatarTelefoneVisual,
+  normalizarCep,
+  normalizarCnpj,
+  normalizarTelefone,
+} from "@/lib/atendimento-cadastro";
 import { Save, ArrowLeft, Building2, Trash2, AlertTriangle, MapPin, DollarSign, Calculator, Percent } from "lucide-react";
 import ManualPinModal from "../components/ManualPinModal";
 import ClinicaPortalAccessCard from "../components/ClinicaPortalAccessCard";
@@ -94,13 +102,6 @@ export default function EditarClinicaPage() {
     if (loading) return;
     carregarPrecosServicos();
   }, [loading, clinicaId, clinica.tabela_preco_id]);
-
-  const normalizarCep = (valor: string) => valor.replace(/\D/g, "").slice(0, 8);
-  const formatarCepVisual = (valor: string) => {
-    const cep = normalizarCep(valor);
-    if (cep.length <= 5) return cep;
-    return `${cep.slice(0, 5)}-${cep.slice(5)}`;
-  };
 
   const assinaturaGeocode = (dados = clinica) =>
     [
@@ -269,8 +270,8 @@ export default function EditarClinicaPage() {
       const clinicaCarregada = {
         nome: data.nome || "",
         razao_social: data.razao_social || "",
-        cnpj: data.cnpj || "",
-        telefone: data.telefone || "",
+        cnpj: formatarCnpjVisual(data.cnpj || ""),
+        telefone: formatarTelefoneVisual(data.telefone || ""),
         email: data.email || "",
         endereco: data.endereco || "",
         numero: data.numero || "",
@@ -392,6 +393,8 @@ export default function EditarClinicaPage() {
         ...clinica,
         nome: clinica.nome.trim(),
         razao_social: clinica.razao_social.trim(),
+        cnpj: normalizarCnpj(clinica.cnpj),
+        telefone: normalizarTelefone(clinica.telefone),
         cep: normalizarCep(clinica.cep),
         bairro_manual: bairroEditadoManual,
         tabela_preco_id: parseInt(clinica.tabela_preco_id.toString()),
@@ -546,9 +549,11 @@ export default function EditarClinicaPage() {
                 <input
                   type="text"
                   value={clinica.cnpj}
-                  onChange={(e) => setClinica({...clinica, cnpj: e.target.value})}
+                  onChange={(e) => setClinica({...clinica, cnpj: formatarCnpjVisual(e.target.value)})}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   placeholder="00.000.000/0000-00"
+                  inputMode="numeric"
+                  maxLength={18}
                 />
               </div>
               
@@ -557,11 +562,14 @@ export default function EditarClinicaPage() {
                   Telefone
                 </label>
                 <input
-                  type="text"
+                  type="tel"
                   value={clinica.telefone}
-                  onChange={(e) => setClinica({...clinica, telefone: e.target.value})}
+                  onChange={(e) => setClinica({...clinica, telefone: formatarTelefoneVisual(e.target.value)})}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   placeholder="(00) 00000-0000"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  maxLength={15}
                 />
               </div>
               
@@ -594,6 +602,9 @@ export default function EditarClinicaPage() {
                     onBlur={consultarCep}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     placeholder="00000-000"
+                    inputMode="numeric"
+                    autoComplete="postal-code"
+                    maxLength={9}
                   />
                   <button
                     type="button"

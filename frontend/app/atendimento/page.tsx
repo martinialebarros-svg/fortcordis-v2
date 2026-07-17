@@ -13,8 +13,10 @@ import {
   calcularDataNascimentoEstimadaPorIdade,
   formatarCepVisual,
   formatarCpfVisual,
+  formatarTelefoneVisual,
   normalizarCep,
   normalizarCpf,
+  normalizarTelefone,
 } from "@/lib/atendimento-cadastro";
 import {
   PROTOCOLOS_PRESCRICAO,
@@ -651,11 +653,11 @@ const normalizeTutorDetalhe = (item?: Partial<TutorDetalhe> | null): TutorDetalh
   ...emptyTutorDetalhe(),
   ...(item || {}),
   nome: item?.nome || "",
-  telefone: item?.telefone || "",
-  whatsapp: item?.whatsapp || "",
+  telefone: formatarTelefoneVisual(item?.telefone || ""),
+  whatsapp: formatarTelefoneVisual(item?.whatsapp || ""),
   email: item?.email || "",
-  cpf: item?.cpf || "",
-  cep: item?.cep || "",
+  cpf: formatarCpfVisual(item?.cpf || ""),
+  cep: formatarCepVisual(item?.cep || ""),
   endereco: item?.endereco || "",
   numero: item?.numero || "",
   complemento: item?.complemento || "",
@@ -2706,11 +2708,21 @@ export default function AtendimentoPage() {
   };
 
   const setCadastroTutorField = (field: keyof TutorDetalhe, value: string | number | null) => {
+    const rawValue = String(value ?? "");
+    const maskedValue =
+      field === "cpf"
+        ? formatarCpfVisual(rawValue)
+        : field === "cep"
+          ? formatarCepVisual(rawValue)
+          : field === "telefone" || field === "whatsapp"
+            ? formatarTelefoneVisual(rawValue)
+            : value;
+
     setCadastroComplementar((prev) => ({
       ...prev,
       tutor: {
         ...prev.tutor,
-        ...(field === "cpf" ? { cpf: formatarCpfVisual(String(value ?? "")) } : { [field]: value }),
+        [field]: maskedValue,
       },
     }));
   };
@@ -2814,11 +2826,11 @@ export default function AtendimentoPage() {
         try {
           await api.put(`/tutores/${tutorId}`, {
             nome: cadastroComplementar.tutor.nome.trim() || undefined,
-            telefone: cadastroComplementar.tutor.telefone || "",
-            whatsapp: cadastroComplementar.tutor.whatsapp || "",
+            telefone: normalizarTelefone(cadastroComplementar.tutor.telefone || ""),
+            whatsapp: normalizarTelefone(cadastroComplementar.tutor.whatsapp || ""),
             email: cadastroComplementar.tutor.email || "",
             cpf: normalizarCpf(cadastroComplementar.tutor.cpf || ""),
-            cep: cadastroComplementar.tutor.cep || "",
+            cep: normalizarCep(cadastroComplementar.tutor.cep || ""),
             endereco: cadastroComplementar.tutor.endereco || "",
             numero: cadastroComplementar.tutor.numero || "",
             complemento: cadastroComplementar.tutor.complemento || "",
@@ -6034,7 +6046,6 @@ export default function AtendimentoPage() {
                     especieCadastroAtual={especieCadastroAtual}
                     especieRacaExibicao={especieRacaExibicao}
                     form={form}
-                    formatarCepVisual={formatarCepVisual}
                     handleAdicionarRacaCadastro={handleAdicionarRacaCadastro}
                     idadePacienteExibicao={idadePacienteExibicao}
                     consultarCepTutor={consultarCepTutor}
