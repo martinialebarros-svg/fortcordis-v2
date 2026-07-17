@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Loader2, Save, User } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronRight, Loader2, Save, User } from "lucide-react";
 import type { LooseAtendimentoComponentProps } from "./component-props";
 
 type AtendimentoCadastroComplementarSectionProps = LooseAtendimentoComponentProps;
@@ -9,6 +9,7 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
   const {
     buscandoCepTutor,
     cadastroComplementar,
+    cadastroComplementarExpandido,
     cadastroComplementarPendencias,
     carregandoCadastroComplementar,
     especieCadastroAtual,
@@ -23,6 +24,7 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
     salvandoCadastroComplementar,
     salvarCadastroComplementarAtual,
     setCadastroPacienteField,
+    setCadastroComplementarExpandido,
     setCadastroTutorField,
     setNovaRacaCadastro,
     setStatusCepTutor,
@@ -55,17 +57,43 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
             </span>
             <button
               type="button"
-              onClick={() => void salvarCadastroComplementarAtual()}
-              disabled={!form.paciente_id || salvandoCadastroComplementar || carregandoCadastroComplementar}
-              className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => setCadastroComplementarExpandido((prev: boolean) => !prev)}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
             >
-              {salvandoCadastroComplementar ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              {salvandoCadastroComplementar ? "Salvando..." : "Salvar cadastro"}
+              {cadastroComplementarExpandido ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              {cadastroComplementarExpandido ? "Ocultar cadastro" : "Revisar cadastro"}
             </button>
+            {cadastroComplementarExpandido ? (
+              <button
+                type="button"
+                onClick={() => void salvarCadastroComplementarAtual()}
+                disabled={!form.paciente_id || salvandoCadastroComplementar || carregandoCadastroComplementar}
+                className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {salvandoCadastroComplementar ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {salvandoCadastroComplementar ? "Salvando..." : "Salvar cadastro"}
+              </button>
+            ) : null}
           </div>
         </div>
 
-        {!form.paciente_id ? (
+        {!cadastroComplementarExpandido ? (
+          <div
+            className={`rounded-[22px] border px-4 py-4 text-sm ${
+              !form.paciente_id
+                ? "border-slate-200 bg-slate-50 text-slate-600"
+                : cadastroComplementarPendencias.length > 0
+                  ? "border-amber-200 bg-amber-50 text-amber-900"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-800"
+            }`}
+          >
+            {!form.paciente_id
+              ? "Selecione um paciente para revisar os dados cadastrais somente quando necessario."
+              : cadastroComplementarPendencias.length > 0
+                ? `Cadastro recolhido para manter o foco clinico. ${cadastroComplementarPendencias.length} campo(s) importante(s) ainda precisam de revisao.`
+                : "Cadastro conferido. Os dados completos ficam recolhidos para manter a consulta objetiva."}
+          </div>
+        ) : !form.paciente_id ? (
           <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
             Selecione um paciente para complementar cadastro de pet e tutor antes da triagem.
           </div>

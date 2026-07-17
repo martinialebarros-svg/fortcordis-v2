@@ -89,6 +89,7 @@ const AtendimentoClinicalRadarAside = dynamic(() => import("./components/Atendim
 const AtendimentoDocumentosSection = dynamic(() => import("./components/AtendimentoDocumentosSection"));
 const AtendimentoExamesSection = dynamic(() => import("./components/AtendimentoExamesSection"));
 const AtendimentoPrescricaoAside = dynamic(() => import("./components/AtendimentoPrescricaoAside"));
+const AtendimentoPrescricaoHistorySection = dynamic(() => import("./components/AtendimentoPrescricaoHistorySection"));
 const AtendimentoPrescricaoPreview = dynamic(() => import("./components/AtendimentoPrescricaoPreview"));
 const AtendimentoPrescricaoWorkspace = dynamic(() => import("./components/AtendimentoPrescricaoWorkspace"));
 const AtendimentoTriagemSection = dynamic(() => import("./components/AtendimentoTriagemSection"));
@@ -229,6 +230,33 @@ type PesoHistorico = {
   peso: number;
 };
 
+type PrescricaoHistorica = {
+  id: number;
+  orientacoes_gerais: string;
+  retorno_dias?: number | null;
+  total_itens: number;
+  itens: PrescricaoItem[];
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+type AtendimentoHistorico = {
+  id: number;
+  data_atendimento: string;
+  status: string;
+  queixa_principal: string;
+  diagnostico_principal: string;
+  veterinario: string;
+  peso?: number | null;
+  tem_prescricao?: boolean;
+  prescricao?: PrescricaoHistorica | null;
+};
+
+type PrescricaoOrigem = {
+  atendimento_id: number;
+  data_atendimento: string;
+};
+
 type HistoricoPaciente = {
   paciente: {
     id: number;
@@ -239,15 +267,7 @@ type HistoricoPaciente = {
     nascimento?: string | null;
   };
   alertas: Alerta[];
-  atendimentos: {
-    id: number;
-    data_atendimento: string;
-    status: string;
-    queixa_principal: string;
-    diagnostico_principal: string;
-    veterinario: string;
-    peso?: number | null;
-  }[];
+  atendimentos: AtendimentoHistorico[];
   pesos?: PesoHistorico[];
   timeline: TimelineGrupo[];
 };
@@ -696,6 +716,21 @@ const emptyPrescriptionItem = (): PrescricaoItem => ({
   concentracao_personalizada: "",
 });
 
+const cloneHistoricalPrescriptionItem = (item: PrescricaoItem): PrescricaoItem => ({
+  medicamento_id: item.medicamento_id || null,
+  medicamento_nome: item.medicamento_nome || "",
+  apresentacao_selecionada: item.apresentacao_selecionada || "",
+  dose: item.dose || "",
+  frequencia: item.frequencia || "",
+  duracao: item.duracao || "",
+  via: item.via || "Oral",
+  instrucoes: item.instrucoes || "",
+  dose_mg_kg: item.dose_mg_kg || "",
+  peso_referencia_kg: "",
+  unidade_dose_calculo: item.unidade_dose_calculo || "mg",
+  concentracao_personalizada: item.concentracao_personalizada || "",
+});
+
 const emptyDocumentoAtendimentoForm = (): DocumentoAtendimentoForm => ({
   id: null,
   template_id: null,
@@ -941,6 +976,26 @@ const emptyForm = (): AtendimentoForm => ({
   anexos: [],
   documentos: [],
 });
+
+const hasEncounterContent = (form: AtendimentoForm) =>
+  Boolean(
+    form.queixa_principal.trim() ||
+      form.anamnese.trim() ||
+      form.exame_fisico.trim() ||
+      form.dados_clinicos.trim() ||
+      form.diagnostico.diagnostico_principal.trim() ||
+      form.diagnostico.diagnostico_secundario.trim() ||
+      form.diagnostico.diagnostico_diferencial.trim() ||
+      form.plano_terapeutico.trim() ||
+      form.retorno_recomendado.trim() ||
+      form.motivo_retorno.trim() ||
+      form.observacoes.trim() ||
+      form.triagem.peso != null ||
+      form.triagem.temperatura != null ||
+      form.triagem.pressao_arterial.trim() ||
+      form.exames.some((item) => (item.tipo_exame || "").trim()) ||
+      form.prescricao_itens.some((item) => item.medicamento_id || (item.medicamento_nome || "").trim())
+  );
 
 const emptyClinicalPhraseForm = (): ClinicalPhraseForm => ({
   secao: "anamnese",
@@ -1250,7 +1305,10 @@ export default function AtendimentoPage() {
   const [consultaCampoAtivo, setConsultaCampoAtivo] = useState<ClinicalFieldKey>("queixa_principal");
   const [prescricaoModoFoco, setPrescricaoModoFoco] = useState(true);
   const [protocoloPrescricaoSelecionado, setProtocoloPrescricaoSelecionado] = useState("");
-  const [triagemExpandida, setTriagemExpandida] = useState(true);
+  const [triagemExpandida, setTriagemExpandida] = useState(false);
+  const [cadastroComplementarExpandido, setCadastroComplementarExpandido] = useState(false);
+  const [painelCasosAberto, setPainelCasosAberto] = useState(false);
+  const [prescricaoOrigem, setPrescricaoOrigem] = useState<PrescricaoOrigem | null>(null);
   const [examesExpandidos, setExamesExpandidos] = useState<Record<number, boolean>>({});
   const [gerandoPdfTipo, setGerandoPdfTipo] = useState<"prescricao" | "exames" | null>(null);
   const [contextoAplicado, setContextoAplicado] = useState(false);
@@ -2429,6 +2487,14 @@ export default function AtendimentoPage() {
   }, [form.paciente_id]);
 
   const abrirAtendimento = async (id: number) => {
+    if (
+      !selecionado &&
+      hasEncounterContent(formRef.current) &&
+      typeof window !== "undefined" &&
+      !window.confirm("Abrir o registro historico e substituir o rascunho atual? As alteracoes ainda nao salvas serao descartadas.")
+    ) {
+      return;
+    }
     try {
       const response = await api.get(`/atendimentos/${id}`);
       const d = response.data;
@@ -2448,6 +2514,9 @@ export default function AtendimentoPage() {
       setPrescricaoEditorManualAberto(false);
       setPrescricaoEntradaModo(null);
       setPrescricaoBuscaRapida("");
+      setPrescricaoOrigem(null);
+      setCadastroComplementarExpandido(false);
+      setTriagemExpandida(false);
       setDocumentoTemplateSelecionado("");
       setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
       setAnexoArquivo(null);
@@ -2469,6 +2538,8 @@ export default function AtendimentoPage() {
   const novoAtendimento = () => {
     const next = emptyForm();
     setSelecionado(null);
+    setWorkspacePainel("consulta");
+    setPainelCasosAberto(false);
     hydratingFormRef.current = true;
     setForm(next);
     lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(next);
@@ -2480,6 +2551,9 @@ export default function AtendimentoPage() {
     setPrescricaoEditorManualAberto(false);
     setPrescricaoEntradaModo(null);
     setPrescricaoBuscaRapida("");
+    setPrescricaoOrigem(null);
+    setCadastroComplementarExpandido(false);
+    setTriagemExpandida(false);
     setDocumentoTemplateSelecionado("");
     setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
     setAnexoArquivo(null);
@@ -2499,6 +2573,92 @@ export default function AtendimentoPage() {
     }
     setErro("");
     setSucesso("");
+  };
+
+  const iniciarNovoAtendimentoPaciente = async (
+    prescricao?: PrescricaoHistorica | null,
+    origem?: AtendimentoHistorico | null
+  ) => {
+    const atual = formRef.current;
+    if (!atual.paciente_id) {
+      novoAtendimento();
+      setErro("Selecione um paciente antes de iniciar o atendimento.");
+      return;
+    }
+    if (autosaveState === "saving") {
+      setErro("Aguarde a sincronizacao atual terminar antes de iniciar outro atendimento.");
+      return;
+    }
+    if (autosaveTimerRef.current && typeof window !== "undefined") {
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+    if (selecionado && autosaveState === "dirty") {
+      const savedId = await saveAtendimento("manual");
+      if (!savedId) return;
+    }
+    if (
+      !selecionado &&
+      hasEncounterContent(atual) &&
+      typeof window !== "undefined" &&
+      !window.confirm("Substituir o rascunho atual por um novo atendimento deste paciente?")
+    ) {
+      return;
+    }
+
+    const itensCopiados = (prescricao?.itens || []).map(cloneHistoricalPrescriptionItem);
+    const next: AtendimentoForm = {
+      ...emptyForm(),
+      paciente_id: atual.paciente_id,
+      especie: atual.especie || cadastroComplementar.paciente.especie || "",
+      clinica_id: atual.clinica_id,
+      prescricao_orientacoes: prescricao?.orientacoes_gerais || "",
+      prescricao_retorno_dias: prescricao?.retorno_dias ? String(prescricao.retorno_dias) : "",
+      prescricao_itens: itensCopiados.length ? itensCopiados : [emptyPrescriptionItem()],
+    };
+
+    setSelecionado(null);
+    hydratingFormRef.current = true;
+    setForm(next);
+    lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(next);
+    setPacienteBusca(cadastroComplementar.paciente.nome || pacienteBusca);
+    setMostrarPacientes(false);
+    setWorkspacePainel(itensCopiados.length ? "prescricao" : "consulta");
+    setConsultaEditorEtapa("anamnese");
+    setConsultaCampoAtivo("queixa_principal");
+    setTriagemExpandida(false);
+    setCadastroComplementarExpandido(false);
+    setPainelCasosAberto(false);
+    setExameBusca("");
+    setPainelExameSelecionado("");
+    setProtocoloPrescricaoSelecionado("");
+    setPrescricaoEditorManualAberto(itensCopiados.length > 0);
+    setPrescricaoEntradaModo(null);
+    setPrescricaoBuscaRapida("");
+    setPrescricaoOrigem(
+      origem
+        ? { atendimento_id: origem.id, data_atendimento: origem.data_atendimento }
+        : null
+    );
+    setDocumentoTemplateSelecionado("");
+    setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
+    setAnexoArquivo(null);
+    clearExamUploadDrafts();
+    setAutosaveState("idle");
+    setAutosaveAt("");
+    clearDraftStorage();
+    draftRestoreRef.current = false;
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        hydratingFormRef.current = false;
+      });
+    }
+    setErro("");
+    setSucesso(
+      itensCopiados.length && origem
+        ? `Novo atendimento iniciado com uma copia revisavel da receita do atendimento #${origem.id}. O registro anterior permanece preservado.`
+        : "Novo atendimento iniciado para o mesmo paciente. O prontuario anterior permanece preservado."
+    );
   };
 
   const setField = (name: keyof AtendimentoForm, value: any) => setForm((prev) => ({ ...prev, [name]: value }));
@@ -3495,6 +3655,7 @@ export default function AtendimentoPage() {
         draftRestoreRef.current = true;
         setAutosaveState("saved");
         setAutosaveAt(response.data?.updated_at || response.data?.created_at || new Date().toISOString());
+        setPrescricaoOrigem(null);
         if (typeof window !== "undefined") {
           window.requestAnimationFrame(() => {
             hydratingFormRef.current = false;
@@ -4671,7 +4832,7 @@ export default function AtendimentoPage() {
   const totalPrescricaoItens = form.prescricao_itens.filter((item) => item.medicamento_id || item.medicamento_nome.trim()).length;
   const totalAnexosExame = form.exames.reduce((acc, exame) => acc + (exame.anexos_resultado?.length || 0), 0);
   const totalAnexosDocumento = anexosGerais.length + totalAnexosExame + form.documentos.length;
-  const workspaceCards: Array<{ key: WorkspacePainel; titulo: string; resumo: string; badge: string }> = [
+  const workspaceCards: Array<{ key: Exclude<WorkspacePainel, "bibliotecas">; titulo: string; resumo: string; badge: string }> = [
     {
       key: "consulta",
       titulo: "Consulta",
@@ -4696,18 +4857,13 @@ export default function AtendimentoPage() {
       resumo: "Modelos, evolucao e anexos",
       badge: `${totalAnexosDocumento}`,
     },
-    {
-      key: "bibliotecas",
-      titulo: "Bibliotecas",
-      resumo: "Frases e farmacos",
-      badge: `${clinicalPhrases.length + medicamentos.length}`,
-    },
   ];
   const isConsultaWorkspace = workspacePainel === "consulta";
   const isExamesWorkspace = workspacePainel === "exames";
   const isPrescricaoWorkspace = workspacePainel === "prescricao";
   const isDocumentosWorkspace = workspacePainel === "documentos";
   const isBibliotecasWorkspace = workspacePainel === "bibliotecas";
+  const showCaseSidebar = painelCasosAberto && !isPrescricaoWorkspace && !isBibliotecasWorkspace;
   const uploadGeralEmAndamento = uploadingAttachmentKey === "geral";
   const progressoUploadGeral = uploadProgressByKey["geral"] ?? null;
   const showClinicalRadarAside = isConsultaWorkspace || isDocumentosWorkspace;
@@ -5450,8 +5606,14 @@ export default function AtendimentoPage() {
                     {autosaveLabel}
                   </span>
                 </div>
-                <button onClick={novoAtendimento} className="fc-care-button-secondary">
-                  <span className="inline-flex items-center gap-2"><Plus className="h-4 w-4" />Novo caso</span>
+                <button
+                  onClick={() => (form.paciente_id ? iniciarNovoAtendimentoPaciente() : novoAtendimento())}
+                  className="fc-care-button-secondary"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Plus className="h-4 w-4" />
+                    {form.paciente_id ? "Novo atendimento deste paciente" : "Novo atendimento"}
+                  </span>
                 </button>
                 <button
                   onClick={() =>
@@ -5497,13 +5659,63 @@ export default function AtendimentoPage() {
           </div>
         </section>
 
+        {selecionado ? (
+          <section className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 shadow-sm">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-700">Registro historico #{selecionado}</p>
+                <p className="mt-1 text-sm text-amber-950">
+                  Voce esta editando um atendimento ja existente. Uma nova consulta ou receita deve ser aberta em outro atendimento para preservar este prontuario.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => iniciarNovoAtendimentoPaciente()}
+                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-amber-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-800"
+              >
+                <Plus className="h-4 w-4" />
+                Novo atendimento deste paciente
+              </button>
+            </div>
+          </section>
+        ) : form.paciente_id ? (
+          <section className="rounded-lg border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900 shadow-sm">
+            <span className="font-semibold">Novo atendimento.</span> Ao salvar, sera criado um novo registro sem alterar consultas ou receitas anteriores.
+          </section>
+        ) : null}
+
         <section className="fc-care-navigation">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Navegacao do atendimento</p>
               <h2 className="mt-1 text-lg font-semibold text-slate-900">Fluxo por area clinica</h2>
             </div>
-            <p className="text-sm text-slate-500">Mostrando: <span className="font-semibold text-slate-700">{workspaceCards.find((item) => item.key === workspacePainel)?.titulo}</span></p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPainelCasosAberto((prev) => !prev)}
+                className={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-medium transition ${
+                  painelCasosAberto
+                    ? "border-teal-200 bg-teal-50 text-teal-700"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                <History className="h-4 w-4" />
+                {painelCasosAberto ? "Ocultar casos" : "Casos recentes"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setWorkspacePainel("bibliotecas")}
+                className={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-medium transition ${
+                  isBibliotecasWorkspace
+                    ? "border-violet-200 bg-violet-50 text-violet-700"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                <Pill className="h-4 w-4" />
+                Bibliotecas clinicas
+              </button>
+            </div>
           </div>
           <div className="fc-care-tabs" role="tablist" aria-label="Areas do atendimento">
             {workspaceCards.map((item) => (
@@ -5529,8 +5741,8 @@ export default function AtendimentoPage() {
           </div>
         </section>
 
-        <div className={`fc-care-layout ${isPrescricaoWorkspace || isBibliotecasWorkspace ? "grid grid-cols-1 gap-6" : "grid grid-cols-1 gap-6 xl:grid-cols-12"}`}>
-          {!isPrescricaoWorkspace && !isBibliotecasWorkspace ? (
+        <div className={`fc-care-layout ${showCaseSidebar ? "grid grid-cols-1 gap-6 xl:grid-cols-12" : "grid grid-cols-1 gap-6"}`}>
+          {showCaseSidebar ? (
           <div className="fc-care-sidebar self-start xl:col-span-3">
             <div className="space-y-6 xl:sticky xl:top-6">
               <section className="fc-care-case-panel">
@@ -5619,6 +5831,12 @@ export default function AtendimentoPage() {
                         </div>
                         <p className="mt-3 text-xs text-slate-500">{formatDate(item.data_atendimento)}</p>
                         <p className="mt-1 text-sm text-slate-700">{item.diagnostico || item.queixa_principal || "Sem resumo clinico"}</p>
+                        <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-medium">
+                          <span className="rounded-full bg-white px-2.5 py-1 text-slate-600">{item.total_exames || 0} exame(s)</span>
+                          {item.tem_prescricao ? (
+                            <span className="rounded-full bg-violet-100 px-2.5 py-1 text-violet-700">Receita salva</span>
+                          ) : null}
+                        </div>
                       </button>
                       <div className="mt-3 flex gap-2">
                         <button onClick={() => goLaudo({ ...item, atendimento_id: item.id })} className="rounded-xl bg-sky-100 px-3 py-1.5 text-xs font-medium text-sky-700 transition hover:bg-sky-200">Laudar</button>
@@ -5781,10 +5999,10 @@ export default function AtendimentoPage() {
           </div>
           ) : null}
 
-          <div className={`fc-care-workspace ${isPrescricaoWorkspace || isBibliotecasWorkspace ? "" : "xl:col-span-9"}`}>
+          <div className={`fc-care-workspace ${showCaseSidebar ? "xl:col-span-9" : ""}`}>
             <div className={workspaceGridClass}>
               <div className="space-y-6">
-                {!isPrescricaoWorkspace ? (
+                {isConsultaWorkspace ? (
                   <AtendimentoConsultaOverviewSection
                     clinicas={clinicas}
                     fluxoClinico={fluxoClinico}
@@ -5810,6 +6028,7 @@ export default function AtendimentoPage() {
                   <AtendimentoCadastroComplementarSection
                     buscandoCepTutor={buscandoCepTutor}
                     cadastroComplementar={cadastroComplementar}
+                    cadastroComplementarExpandido={cadastroComplementarExpandido}
                     cadastroComplementarPendencias={cadastroComplementarPendencias}
                     carregandoCadastroComplementar={carregandoCadastroComplementar}
                     especieCadastroAtual={especieCadastroAtual}
@@ -5824,6 +6043,7 @@ export default function AtendimentoPage() {
                     salvandoCadastroComplementar={salvandoCadastroComplementar}
                     salvarCadastroComplementarAtual={salvarCadastroComplementarAtual}
                     setCadastroPacienteField={setCadastroPacienteField}
+                    setCadastroComplementarExpandido={setCadastroComplementarExpandido}
                     setCadastroTutorField={setCadastroTutorField}
                     setNovaRacaCadastro={setNovaRacaCadastro}
                     setStatusCepTutor={setStatusCepTutor}
@@ -5996,8 +6216,17 @@ export default function AtendimentoPage() {
                 ) : null}
 
                 {isPrescricaoWorkspace ? (
-                  <AtendimentoPrescricaoWorkspace
-                    abrirMedicamentoBuscaRapida={abrirMedicamentoBuscaRapida}
+                  <>
+                    <AtendimentoPrescricaoHistorySection
+                      abrirAtendimento={abrirAtendimento}
+                      formatDate={formatDate}
+                      historicoPaciente={historicoPaciente}
+                      iniciarNovoAtendimentoPaciente={iniciarNovoAtendimentoPaciente}
+                      prescricaoOrigem={prescricaoOrigem}
+                      selecionado={selecionado}
+                    />
+                    <AtendimentoPrescricaoWorkspace
+                      abrirMedicamentoBuscaRapida={abrirMedicamentoBuscaRapida}
                     adicionarItemPrescricaoEmBranco={adicionarItemPrescricaoEmBranco}
                     aplicarPresetPrescricao={aplicarPresetPrescricao}
                     aplicarProtocoloPrescricao={aplicarProtocoloPrescricao}
@@ -6042,8 +6271,9 @@ export default function AtendimentoPage() {
                     setPrescricaoModoFoco={setPrescricaoModoFoco}
                     setPrescricaoPreviewAtivo={setPrescricaoPreviewAtivo}
                     setPrescricaoPreviewErro={setPrescricaoPreviewErro}
-                    setPrescricaoPreviewPdf={setPrescricaoPreviewPdf}
-                  />
+                      setPrescricaoPreviewPdf={setPrescricaoPreviewPdf}
+                    />
+                  </>
                 ) : null}
               </div>
 
