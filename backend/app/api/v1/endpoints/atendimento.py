@@ -3471,10 +3471,56 @@ def historico_paciente(
     atendimentos = (
         db.query(AtendimentoClinico)
         .filter(AtendimentoClinico.paciente_id == paciente_id)
-        .order_by(AtendimentoClinico.data_atendimento.desc())
+        .order_by(AtendimentoClinico.data_atendimento.desc(), AtendimentoClinico.id.desc())
         .limit(limite)
         .all()
     )
+
+    # A prescricao pertence ao atendimento, nao ao paciente. Carregar o bloco
+    # terapeutico em lote deixa essa separacao explicita para a UI e evita que
+    # um retorno precise editar a receita do encontro anterior.
+    atendimento_ids = [item.id for item in atendimentos if item.id]
+    prescricoes = (
+        db.query(PrescricaoClinica)
+        .filter(PrescricaoClinica.atendimento_id.in_(atendimento_ids))
+        .order_by(PrescricaoClinica.atendimento_id.desc(), PrescricaoClinica.id.desc())
+        .all()
+        if atendimento_ids
+        else []
+    )
+    prescricoes_por_atendimento: Dict[int, PrescricaoClinica] = {}
+    for prescricao in prescricoes:
+        # Mantem compatibilidade com bases antigas que eventualmente possuam
+        # mais de uma linha para o mesmo atendimento, priorizando a mais nova.
+        prescricoes_por_atendimento.setdefault(prescricao.atendimento_id, prescricao)
+
+    prescricao_ids = [item.id for item in prescricoes_por_atendimento.values() if item.id]
+    itens_prescricao = (
+        db.query(PrescricaoItem)
+        .filter(PrescricaoItem.prescricao_id.in_(prescricao_ids))
+        .order_by(PrescricaoItem.prescricao_id.asc(), PrescricaoItem.ordem.asc(), PrescricaoItem.id.asc())
+        .all()
+        if prescricao_ids
+        else []
+    )
+    itens_por_prescricao: Dict[int, List[dict]] = defaultdict(list)
+    for item in itens_prescricao:
+        itens_por_prescricao[item.prescricao_id].append(_map_prescricao_item(item))
+
+    def _prescricao_historica(atendimento_id: int) -> Optional[dict]:
+        prescricao = prescricoes_por_atendimento.get(atendimento_id)
+        if not prescricao:
+            return None
+        itens = itens_por_prescricao.get(prescricao.id, [])
+        return {
+            "id": prescricao.id,
+            "orientacoes_gerais": prescricao.orientacoes_gerais or "",
+            "retorno_dias": prescricao.retorno_dias,
+            "total_itens": len(itens),
+            "itens": itens,
+            "created_at": _to_iso(prescricao.created_at),
+            "updated_at": _to_iso(prescricao.updated_at),
+        }
 
     # Buscar alertas ativos
     alertas = (
@@ -3511,6 +3557,8 @@ def historico_paciente(
                 "diagnostico_principal": a.diagnostico_principal or "",
                 "veterinario": a.criado_por_nome or "",
                 "peso": a.peso,
+                "tem_prescricao": a.id in prescricoes_por_atendimento,
+                "prescricao": _prescricao_historica(a.id),
             }
             for a in atendimentos
         ],
