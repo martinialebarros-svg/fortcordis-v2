@@ -12,6 +12,7 @@ interface Clinica {
   razao_social?: string | null;
   cnpj?: string;
   telefone?: string;
+  whatsapps?: string[];
   email?: string;
   endereco?: string;
 }
@@ -159,7 +160,9 @@ export default function ClinicasPage() {
                     {clinica.endereco ? (
                       <span><MapPin className="h-3.5 w-3.5" />{clinica.endereco}</span>
                     ) : <small>Endereço não informado</small>}
-                    {clinica.telefone && <span><Phone className="h-3.5 w-3.5" />{clinica.telefone}</span>}
+                    {(clinica.whatsapps?.[0] || clinica.telefone) && (
+                      <span><Phone className="h-3.5 w-3.5" />{clinica.whatsapps?.[0] || clinica.telefone}</span>
+                    )}
                   </div>
                   <button
                     type="button"

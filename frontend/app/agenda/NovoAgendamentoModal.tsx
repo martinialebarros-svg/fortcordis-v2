@@ -23,9 +23,13 @@ import {
   formatarDateTimeLocalInput,
   formatarPrazoReserva,
   montarLinkWhatsAppReserva,
-  montarMensagemReservaManual,
+  montarMensagemAgendaManual,
   type ReservaManualDestinatario,
 } from "@/lib/agenda-reserva-manual";
+import {
+  formatarWhatsAppVisual,
+  obterWhatsappsClinica,
+} from "@/lib/clinica-whatsapp";
 
 const LIMITE_MINUTOS_PROXIMIDADE = 25;
 const LIMITE_ESTENDIDO_EXTRA_MIN = 15;
@@ -223,6 +227,7 @@ interface ClinicaOption {
   id: number;
   nome: string;
   telefone?: string | null;
+  whatsapps?: string[] | null;
   endereco?: string | null;
   numero?: string | null;
   complemento?: string | null;
@@ -272,11 +277,12 @@ interface FormDataAgenda {
   observacoes: string;
 }
 
-interface ReservaManualPosCriacao {
+interface MensagemAgendaPosCriacao {
+  tipo: "reserva" | "agendamento";
   destinatarioTipo: ReservaManualDestinatario;
   destinatarioNome: string;
-  telefone: string;
-  prazoLabel: string;
+  telefones: string[];
+  prazoLabel?: string;
   mensagem: string;
 }
 
@@ -796,8 +802,9 @@ export default function NovoAgendamentoModal({
   const [saldoCreditoCliente, setSaldoCreditoCliente] = useState(0);
   const [carregandoCreditoCliente, setCarregandoCreditoCliente] = useState(false);
   const [erroCreditoCliente, setErroCreditoCliente] = useState("");
-  const [reservaManualCriada, setReservaManualCriada] = useState<ReservaManualPosCriacao | null>(null);
-  const [feedbackReservaManual, setFeedbackReservaManual] = useState("");
+  const [mensagemAgendaCriada, setMensagemAgendaCriada] = useState<MensagemAgendaPosCriacao | null>(null);
+  const [feedbackMensagemAgenda, setFeedbackMensagemAgenda] = useState("");
+  const [whatsappMensagemSelecionado, setWhatsappMensagemSelecionado] = useState("");
   const intervaloSugestaoMinutos = Number.isFinite(intervaloSlotMinutos)
     ? Math.max(5, Math.min(120, Math.round(intervaloSlotMinutos)))
     : 30;
@@ -1046,8 +1053,9 @@ export default function NovoAgendamentoModal({
     setSaldoCreditoCliente(0);
     setCarregandoCreditoCliente(false);
     setErroCreditoCliente("");
-    setReservaManualCriada(null);
-    setFeedbackReservaManual("");
+    setMensagemAgendaCriada(null);
+    setFeedbackMensagemAgenda("");
+    setWhatsappMensagemSelecionado("");
     setInteracaoProximidade({ clinica: false, servico: false, data: false });
     popupProximidadeHistoricoRef.current = {};
     sequenciaConsultaProximidadeRef.current = 0;
@@ -1764,7 +1772,16 @@ export default function NovoAgendamentoModal({
       ""
   ).trim();
   const nomeClinicaReservaManual = String(clinicaSelecionada?.nome || "").trim();
-  const telefoneClinicaReservaManual = String(clinicaSelecionada?.telefone || "").trim();
+  const telefonesClinicaMensagem = obterWhatsappsClinica(
+    clinicaSelecionada?.whatsapps,
+    clinicaSelecionada?.telefone,
+  );
+  const pacienteSelecionadoMensagem = pacientes.find(
+    (paciente) => paciente.id.toString() === formData.paciente_id
+  ) || null;
+  const servicoSelecionadoMensagem = servicos.find(
+    (servico) => servico.id?.toString() === formData.servico_id
+  ) || null;
   const tutorSelecionadoGeorreferenciado = tutorPanorama?.tutor
     ? tutorTemGeorreferenciamento(tutorPanorama.tutor)
     : tutorTemGeorreferenciamento(tutorSelecionadoOption);
@@ -2286,52 +2303,60 @@ export default function NovoAgendamentoModal({
     }
   };
 
-  const construirReservaManualPosCriacao = (): ReservaManualPosCriacao => {
+  const construirMensagemAgendaPosCriacao = (): MensagemAgendaPosCriacao => {
+    const tipo = formData.marcar_como_reserva ? "reserva" : "agendamento";
     const destinatarioTipo = formData.reserva_destinatario_manual;
     const destinatarioNome = destinatarioTipo === "clinica"
       ? nomeClinicaReservaManual
       : nomeTutorReservaManual;
-    const telefone = destinatarioTipo === "clinica"
-      ? telefoneClinicaReservaManual
-      : telefoneTutorReservaManual;
-    const mensagem = montarMensagemReservaManual({
-      destinatarioTipo,
-      destinatarioNome,
+    const telefones = destinatarioTipo === "clinica"
+      ? telefonesClinicaMensagem
+      : (telefoneTutorReservaManual ? [telefoneTutorReservaManual] : []);
+    const mensagem = montarMensagemAgendaManual({
+      tipo,
       data: formData.data,
       hora: formData.hora,
-      prazoConfirmacao: formData.reserva_prazo_confirmacao,
+      prazoConfirmacao: tipo === "reserva" ? formData.reserva_prazo_confirmacao : undefined,
+      servicoNome: servicoSelecionadoMensagem?.nome,
+      pacienteId: pacienteSelecionadoMensagem?.id,
+      pacienteNome: pacienteSelecionadoMensagem?.nome,
+      tutorNome: nomeTutorReservaManual,
+      clinicaNome: nomeClinicaReservaManual,
     });
 
     return {
+      tipo,
       destinatarioTipo,
       destinatarioNome,
-      telefone,
-      prazoLabel: formatarPrazoReserva(formData.reserva_prazo_confirmacao),
+      telefones,
+      prazoLabel: tipo === "reserva"
+        ? formatarPrazoReserva(formData.reserva_prazo_confirmacao)
+        : undefined,
       mensagem,
     };
   };
 
-  const abrirWhatsAppReservaManual = () => {
-    if (!reservaManualCriada) return;
-    const url = montarLinkWhatsAppReserva(reservaManualCriada.telefone, reservaManualCriada.mensagem);
+  const abrirWhatsAppMensagemAgenda = () => {
+    if (!mensagemAgendaCriada) return;
+    const url = montarLinkWhatsAppReserva(whatsappMensagemSelecionado, mensagemAgendaCriada.mensagem);
     window.open(url, "_blank", "noopener,noreferrer");
-    setFeedbackReservaManual(
-      reservaManualCriada.telefone
+    setFeedbackMensagemAgenda(
+      whatsappMensagemSelecionado
         ? "WhatsApp aberto com o destinatario e a mensagem preenchidos. Revise e envie manualmente."
         : "WhatsApp aberto sem destinatario fixo. Selecione o contato, revise e envie manualmente."
     );
   };
 
-  const copiarMensagemReservaManual = async () => {
-    if (!reservaManualCriada) return;
+  const copiarMensagemAgenda = async () => {
+    if (!mensagemAgendaCriada) return;
     try {
       if (!navigator.clipboard?.writeText) {
         throw new Error("Clipboard indisponivel");
       }
-      await navigator.clipboard.writeText(reservaManualCriada.mensagem);
-      setFeedbackReservaManual("Mensagem da reserva copiada.");
+      await navigator.clipboard.writeText(mensagemAgendaCriada.mensagem);
+      setFeedbackMensagemAgenda("Mensagem copiada.");
     } catch (_error) {
-      setFeedbackReservaManual("Nao foi possivel copiar automaticamente. Selecione o texto e copie manualmente.");
+      setFeedbackMensagemAgenda("Nao foi possivel copiar automaticamente. Selecione o texto e copie manualmente.");
     }
   };
 
@@ -2385,6 +2410,14 @@ export default function NovoAgendamentoModal({
       if (Number.isNaN(inicio.getTime())) {
         throw new Error("Data ou hora invalida.");
       }
+      if (!isEditando) {
+        if (formData.reserva_destinatario_manual === "clinica" && !formData.clinica_id) {
+          throw new Error("Selecione uma clinica para preparar a mensagem manual.");
+        }
+        if (formData.reserva_destinatario_manual === "tutor" && !formData.tutor_id) {
+          throw new Error("Selecione um tutor para preparar a mensagem manual.");
+        }
+      }
       if (!isEditando && formData.marcar_como_reserva) {
         const prazoConfirmacao = new Date(formData.reserva_prazo_confirmacao);
         if (Number.isNaN(prazoConfirmacao.getTime())) {
@@ -2395,12 +2428,6 @@ export default function NovoAgendamentoModal({
         }
         if (prazoConfirmacao.getTime() >= inicio.getTime()) {
           throw new Error("O prazo de confirmacao deve ser anterior ao horario reservado.");
-        }
-        if (formData.reserva_destinatario_manual === "clinica" && !formData.clinica_id) {
-          throw new Error("Selecione uma clinica para preparar a mensagem manual da reserva.");
-        }
-        if (formData.reserva_destinatario_manual === "tutor" && !formData.tutor_id) {
-          throw new Error("Selecione um tutor para preparar a mensagem manual da reserva.");
         }
       }
 
@@ -2446,8 +2473,8 @@ export default function NovoAgendamentoModal({
         }
       }
 
-      const entregaReservaManual = !isEditando && formData.marcar_como_reserva
-        ? construirReservaManualPosCriacao()
+      const entregaMensagemAgenda = !isEditando
+        ? construirMensagemAgendaPosCriacao()
         : null;
 
       const observacoesOriginais = String(formData.observacoes || "").trim();
@@ -2472,12 +2499,12 @@ export default function NovoAgendamentoModal({
             observacoesAssistente.push("[Assistente agenda] excecao manual concedida por admin.");
           }
         }
-        if (entregaReservaManual) {
+        if (entregaMensagemAgenda?.tipo === "reserva") {
           observacoesAssistente.push(
-            `[Reserva manual] prazo de confirmacao: ${entregaReservaManual.prazoLabel}`
+            `[Reserva manual] prazo de confirmacao: ${entregaMensagemAgenda.prazoLabel}`
           );
           observacoesAssistente.push(
-            `[Reserva manual] destinatario: ${entregaReservaManual.destinatarioTipo}`
+            `[Reserva manual] destinatario: ${entregaMensagemAgenda.destinatarioTipo}`
           );
         }
       }
@@ -2494,6 +2521,9 @@ export default function NovoAgendamentoModal({
         inicio: toApiDateTime(inicio),
         fim: toApiDateTime(fim),
         status: statusFormulario,
+        reserva_expira_em: formData.marcar_como_reserva
+          ? toApiDateTime(new Date(formData.reserva_prazo_confirmacao))
+          : null,
         observacoes: observacoesFinal,
         excecao_operacional_concedida:
           !isEditando && decisaoAssistente === "sem_opcao" && isAdmin && excecaoConcedida,
@@ -2558,9 +2588,10 @@ export default function NovoAgendamentoModal({
         }
       }
 
-      if (entregaReservaManual) {
-        setReservaManualCriada(entregaReservaManual);
-        setFeedbackReservaManual("");
+      if (entregaMensagemAgenda) {
+        setMensagemAgendaCriada(entregaMensagemAgenda);
+        setWhatsappMensagemSelecionado(entregaMensagemAgenda.telefones[0] || "");
+        setFeedbackMensagemAgenda("");
         await onSuccess(response?.data, { manterModalAberto: true });
         return;
       }
@@ -2623,12 +2654,12 @@ export default function NovoAgendamentoModal({
   const semOpcaoSemExcecao = !isEditando && decisaoAssistente === "sem_opcao" && !excecaoManualLiberada;
   const dataSelecionadaPassada = !isEditando && isDataPassada(formData.data);
   const clienteComCredito = !isEditando && saldoCreditoCliente > 0;
-  const destinatarioReservaManualNome = formData.reserva_destinatario_manual === "clinica"
+  const destinatarioMensagemNome = formData.reserva_destinatario_manual === "clinica"
     ? nomeClinicaReservaManual
     : nomeTutorReservaManual;
-  const destinatarioReservaManualTelefone = formData.reserva_destinatario_manual === "clinica"
-    ? telefoneClinicaReservaManual
-    : telefoneTutorReservaManual;
+  const destinatarioMensagemTelefones = formData.reserva_destinatario_manual === "clinica"
+    ? telefonesClinicaMensagem
+    : (telefoneTutorReservaManual ? [telefoneTutorReservaManual] : []);
   const bloquearSalvarNovo =
     !isEditando &&
     (
@@ -2638,9 +2669,10 @@ export default function NovoAgendamentoModal({
 
   if (!isOpen) return null;
 
-  if (reservaManualCriada) {
-    const possuiTelefone = Boolean(reservaManualCriada.telefone);
-    const destinatarioLabel = reservaManualCriada.destinatarioTipo === "clinica" ? "Clínica" : "Tutor";
+  if (mensagemAgendaCriada) {
+    const possuiTelefone = Boolean(whatsappMensagemSelecionado);
+    const ehReserva = mensagemAgendaCriada.tipo === "reserva";
+    const destinatarioLabel = mensagemAgendaCriada.destinatarioTipo === "clinica" ? "Clínica" : "Tutor";
 
     return (
       <div className="fc-appointment-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -2648,7 +2680,7 @@ export default function NovoAgendamentoModal({
           className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="fc-reserva-manual-title"
+          aria-labelledby="fc-mensagem-agenda-title"
         >
           <div className="flex items-center justify-between border-b border-emerald-100 bg-emerald-50 px-5 py-4">
             <div className="flex min-w-0 items-center gap-3">
@@ -2657,10 +2689,10 @@ export default function NovoAgendamentoModal({
               </span>
               <div className="min-w-0">
                 <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                  Reserva criada
+                  {ehReserva ? "Reserva criada" : "Agendamento criado"}
                 </div>
-                <h2 id="fc-reserva-manual-title" className="truncate text-xl font-bold text-gray-900">
-                  Envie a confirmação pelo WhatsApp
+                <h2 id="fc-mensagem-agenda-title" className="truncate text-xl font-bold text-gray-900">
+                  {ehReserva ? "Envie o prazo pelo WhatsApp" : "Avise que o horário foi agendado"}
                 </h2>
               </div>
             </div>
@@ -2668,7 +2700,7 @@ export default function NovoAgendamentoModal({
               type="button"
               onClick={onClose}
               className="rounded-full p-2 text-gray-500 transition hover:bg-white hover:text-gray-700"
-              aria-label="Fechar mensagem da reserva"
+              aria-label="Fechar mensagem da agenda"
               title="Fechar"
             >
               <X className="h-5 w-5" />
@@ -2680,37 +2712,59 @@ export default function NovoAgendamentoModal({
               <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
                 <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Destinatário</div>
                 <div className="mt-1 text-sm font-semibold text-gray-900">
-                  {destinatarioLabel}: {reservaManualCriada.destinatarioNome || "não identificado"}
+                  {destinatarioLabel}: {mensagemAgendaCriada.destinatarioNome || "não identificado"}
                 </div>
-                <div className="mt-0.5 text-xs text-gray-600">
-                  {possuiTelefone ? reservaManualCriada.telefone : "Sem telefone cadastrado"}
-                </div>
+                {mensagemAgendaCriada.telefones.length > 1 ? (
+                  <div className="mt-2">
+                    <label htmlFor="fc-whatsapp-destino" className="mb-1 block text-xs font-medium text-gray-600">
+                      Escolha o WhatsApp
+                    </label>
+                    <select
+                      id="fc-whatsapp-destino"
+                      value={whatsappMensagemSelecionado}
+                      onChange={(event) => setWhatsappMensagemSelecionado(event.target.value)}
+                      className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                    >
+                      {mensagemAgendaCriada.telefones.map((telefone, indice) => (
+                        <option key={`${telefone}-${indice}`} value={telefone}>
+                          WhatsApp {indice + 1} — {formatarWhatsAppVisual(telefone)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="mt-0.5 text-xs text-gray-600">
+                    {possuiTelefone ? formatarWhatsAppVisual(whatsappMensagemSelecionado) : "Sem WhatsApp cadastrado"}
+                  </div>
+                )}
               </div>
               <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-                <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Prazo informado</div>
+                <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  {ehReserva ? "Prazo informado" : "Situação"}
+                </div>
                 <div className="mt-1 text-sm font-semibold text-gray-900">
-                  {reservaManualCriada.prazoLabel}
+                  {ehReserva ? mensagemAgendaCriada.prazoLabel : "Horário agendado"}
                 </div>
               </div>
             </div>
 
             <div>
-              <label htmlFor="fc-reserva-manual-mensagem" className="mb-1 block text-sm font-medium text-gray-700">
+              <label htmlFor="fc-mensagem-agenda" className="mb-1 block text-sm font-medium text-gray-700">
                 Mensagem pronta
               </label>
               <textarea
-                id="fc-reserva-manual-mensagem"
+                id="fc-mensagem-agenda"
                 readOnly
-                rows={9}
-                value={reservaManualCriada.mensagem}
+                rows={12}
+                value={mensagemAgendaCriada.mensagem}
                 onFocus={(event) => event.currentTarget.select()}
                 className="w-full resize-none rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm leading-6 text-gray-800 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
               />
             </div>
 
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              A reserva já foi salva. Enquanto a conta da Meta estiver em análise, revise e envie esta mensagem
-              manualmente. Ao vencer o prazo, a liberação do horário também continua manual.
+              {ehReserva ? "A reserva já foi salva." : "O agendamento já foi salvo."} Enquanto a conta da Meta
+              estiver em análise, revise e envie esta mensagem manualmente.
             </div>
 
             {!possuiTelefone ? (
@@ -2719,9 +2773,9 @@ export default function NovoAgendamentoModal({
               </div>
             ) : null}
 
-            {feedbackReservaManual ? (
+            {feedbackMensagemAgenda ? (
               <div aria-live="polite" className="text-sm font-medium text-gray-700">
-                {feedbackReservaManual}
+                {feedbackMensagemAgenda}
               </div>
             ) : null}
           </div>
@@ -2736,7 +2790,7 @@ export default function NovoAgendamentoModal({
             </button>
             <button
               type="button"
-              onClick={() => void copiarMensagemReservaManual()}
+              onClick={() => void copiarMensagemAgenda()}
               className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-600 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
             >
               <Copy className="h-4 w-4" />
@@ -2744,7 +2798,7 @@ export default function NovoAgendamentoModal({
             </button>
             <button
               type="button"
-              onClick={abrirWhatsAppReservaManual}
+              onClick={abrirWhatsAppMensagemAgenda}
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
             >
               <MessageCircle className="h-4 w-4" />
@@ -3396,63 +3450,63 @@ export default function NovoAgendamentoModal({
                 </span>
               </label>
 
-              {formData.marcar_como_reserva ? (
-                <div className="space-y-3 border-t border-amber-200 pt-3">
-                  <div>
-                    <div className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-800">
-                      Enviar mensagem para
-                    </div>
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <label
-                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 transition ${
-                          formData.reserva_destinatario_manual === "clinica"
-                            ? "border-amber-500 bg-white"
-                            : "border-amber-200 bg-amber-50/50"
-                        } ${atendimentoDomiciliar || !formData.clinica_id ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
-                      >
-                        <input
-                          type="radio"
-                          name="reserva_destinatario_manual"
-                          value="clinica"
-                          checked={formData.reserva_destinatario_manual === "clinica"}
-                          disabled={atendimentoDomiciliar || !formData.clinica_id}
-                          onChange={() => setFormData((prev) => ({ ...prev, reserva_destinatario_manual: "clinica" }))}
-                          className="h-4 w-4 border-amber-300 text-amber-600 focus:ring-amber-500"
-                        />
-                        <span className="min-w-0">
-                          <span className="block font-semibold">Clínica</span>
-                          <span className="block truncate text-xs text-amber-800">
-                            {nomeClinicaReservaManual || "Selecione uma clínica"}
-                          </span>
-                        </span>
-                      </label>
-
-                      <label
-                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 transition ${
-                          formData.reserva_destinatario_manual === "tutor"
-                            ? "border-amber-500 bg-white"
-                            : "border-amber-200 bg-amber-50/50"
-                        } ${!formData.tutor_id ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
-                      >
-                        <input
-                          type="radio"
-                          name="reserva_destinatario_manual"
-                          value="tutor"
-                          checked={formData.reserva_destinatario_manual === "tutor"}
-                          disabled={!formData.tutor_id}
-                          onChange={() => setFormData((prev) => ({ ...prev, reserva_destinatario_manual: "tutor" }))}
-                          className="h-4 w-4 border-amber-300 text-amber-600 focus:ring-amber-500"
-                        />
-                        <span className="min-w-0">
-                          <span className="block font-semibold">Tutor/cliente</span>
-                          <span className="block truncate text-xs text-amber-800">
-                            {nomeTutorReservaManual || "Selecione um tutor"}
-                          </span>
-                        </span>
-                      </label>
-                    </div>
+              <div className="space-y-3 border-t border-amber-200 pt-3">
+                <div>
+                  <div className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-800">
+                    Mensagem após salvar
                   </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <label
+                      className={`flex items-center gap-2 rounded-lg border px-3 py-2 transition ${
+                        formData.reserva_destinatario_manual === "clinica"
+                          ? "border-amber-500 bg-white"
+                          : "border-amber-200 bg-amber-50/50"
+                      } ${atendimentoDomiciliar || !formData.clinica_id ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+                    >
+                      <input
+                        type="radio"
+                        name="reserva_destinatario_manual"
+                        value="clinica"
+                        checked={formData.reserva_destinatario_manual === "clinica"}
+                        disabled={atendimentoDomiciliar || !formData.clinica_id}
+                        onChange={() => setFormData((prev) => ({ ...prev, reserva_destinatario_manual: "clinica" }))}
+                        className="h-4 w-4 border-amber-300 text-amber-600 focus:ring-amber-500"
+                      />
+                      <span className="min-w-0">
+                        <span className="block font-semibold">Clínica</span>
+                        <span className="block truncate text-xs text-amber-800">
+                          {nomeClinicaReservaManual || "Selecione uma clínica"}
+                        </span>
+                      </span>
+                    </label>
 
+                    <label
+                      className={`flex items-center gap-2 rounded-lg border px-3 py-2 transition ${
+                        formData.reserva_destinatario_manual === "tutor"
+                          ? "border-amber-500 bg-white"
+                          : "border-amber-200 bg-amber-50/50"
+                      } ${!formData.tutor_id ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+                    >
+                      <input
+                        type="radio"
+                        name="reserva_destinatario_manual"
+                        value="tutor"
+                        checked={formData.reserva_destinatario_manual === "tutor"}
+                        disabled={!formData.tutor_id}
+                        onChange={() => setFormData((prev) => ({ ...prev, reserva_destinatario_manual: "tutor" }))}
+                        className="h-4 w-4 border-amber-300 text-amber-600 focus:ring-amber-500"
+                      />
+                      <span className="min-w-0">
+                        <span className="block font-semibold">Tutor/cliente</span>
+                        <span className="block truncate text-xs text-amber-800">
+                          {nomeTutorReservaManual || "Selecione um tutor"}
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                {formData.marcar_como_reserva ? (
                   <div>
                     <label htmlFor="fc-reserva-prazo" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-800">
                       Confirmar até
@@ -3470,21 +3524,27 @@ export default function NovoAgendamentoModal({
                       className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-gray-900 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200 sm:max-w-xs"
                     />
                     <div className="mt-1 text-xs text-amber-800">
-                      O prazo precisa ser futuro e anterior ao horário reservado.
+                      O padrão é 3 horas. O prazo precisa ser futuro e anterior ao horário reservado.
                     </div>
                   </div>
+                ) : (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                    Depois de salvar, o sistema mostrará o botão para avisar que o horário solicitado foi agendado.
+                  </div>
+                )}
 
-                  <div className="rounded-lg border border-amber-200 bg-white/70 px-3 py-2 text-xs text-amber-900">
-                    <div>
-                      Contato atual: <strong>{destinatarioReservaManualNome || "não selecionado"}</strong>
-                      {destinatarioReservaManualTelefone ? ` — ${destinatarioReservaManualTelefone}` : " — sem telefone cadastrado"}.
-                    </div>
-                    <div className="mt-1">
-                      Enquanto a Meta estiver analisando a empresa, o envio da mensagem e a liberação após o prazo serão manuais.
-                    </div>
+                <div className="rounded-lg border border-amber-200 bg-white/70 px-3 py-2 text-xs text-amber-900">
+                  <div>
+                    Contato atual: <strong>{destinatarioMensagemNome || "não selecionado"}</strong>
+                    {destinatarioMensagemTelefones.length > 0
+                      ? ` — ${destinatarioMensagemTelefones.map(formatarWhatsAppVisual).join(" / ")}`
+                      : " — sem WhatsApp cadastrado"}.
+                  </div>
+                  <div className="mt-1">
+                    Se houver mais de um WhatsApp, você escolherá o número antes de abrir a conversa. O envio continua manual enquanto a Meta analisa a empresa.
                   </div>
                 </div>
-              ) : null}
+              </div>
             </div>
           )}
 

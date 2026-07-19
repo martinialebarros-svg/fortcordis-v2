@@ -2,64 +2,53 @@
 
 Data: 2026-07-19
 Responsavel: Martiniano + Codex
-Status: verified-for-stage-hotfix
+Status: verified-for-stage
 
 ## 1) Matriz de rastreabilidade
 
-| ID | Tipo | Evidencia | Status |
-| --- | --- | --- | --- |
-| CA-001 | aceitacao | campos condicionais no modal com prazo inicial de duas horas | passou |
-| CA-002 | aceitacao | validacao de prazo futuro e anterior ao atendimento no submit | passou |
-| CA-003 | aceitacao | tela de entrega manual preservada apos criacao nas duas visoes da agenda | passou |
-| CA-004 | aceitacao | helper de link `wa.me` com normalizacao e texto codificado | passou |
-| CA-005 | aceitacao | acao de clipboard copia o mesmo estado exibido no textarea | passou |
-| CA-006 | borda | link de compartilhamento sem numero quando o telefone nao existe | passou |
-| CA-007 | aceitacao | prazo e destinatario adicionados a `observacoes` antes do POST | passou |
-| CA-008 | regressao | condicionais limitadas a nova criacao com status de reserva | passou |
-| CA-009 | regressao | reserva sem paciente persiste `NULL` e respeita `fk_agenda_paciente` | passou |
-| NFR-001 | nao funcional | endpoint, payload publico e banco preservados | passou |
+| ID | Evidencia | Status |
+| --- | --- | --- |
+| CA-001/CA-002 | helper de prazo em tres horas + validacoes frontend/backend | passou |
+| CA-003/CA-004 | compositor unico de reserva/agendamento com dados ou `Pendente` | passou |
+| CA-005/CA-007/CA-008 | link `wa.me`, seletor de numero e fallback sem destino | passou |
+| CA-006 | API/modelo/migracao e formulario de multiplos WhatsApps | passou |
+| CA-009 | regressao de reserva sem paciente com `NULL` | passou |
+| CA-010 | regressao cria novo registro no slot de reserva vencida e marca `Expirado` | passou |
+| NFR-001/NFR-004 | fallback legado e status expirado fora dos bloqueios ativos | passou |
 
-## 2) Testes automatizados executados
-
-Comandos:
+## 2) Testes executados
 
 ```bash
-cd frontend && npx eslint app/agenda/NovoAgendamentoModal.tsx app/agenda/fullcalendar/page.tsx lib/agenda-reserva-manual.ts --max-warnings=0
-cd frontend && npm run build
-backend/venv/bin/python -m unittest backend/tests/test_agenda_duracao_servico_create.py
+backend/venv/bin/python -m unittest backend/tests/test_agenda_busca_periodo_filtros.py backend/tests/test_agenda_duracao_servico_create.py backend/tests/test_clinicas_whatsapp_multiplos.py backend/tests/test_migration_ci_cycle.py
 backend/venv/bin/python -m unittest discover -s backend/tests -p "test_*.py"
-git diff --check
+cd frontend && npm run lint
+cd frontend && npx tsc --noEmit --pretty false
+cd frontend && npm run build
+# Node + TypeScript transpile em memoria para validar prazo e os dois modelos de mensagem.
 ```
 
-Resumo dos resultados:
-- ESLint focado: passou sem avisos.
-- Build Next.js 15.5.14: passou, incluindo compilacao, lint, tipos e geracao das 33 paginas estaticas.
-- Regressao backend de reserva sem paciente: 6 testes passaram no arquivo focado.
-- Suite backend completa: 322 testes passaram.
-- Lint frontend e `npx tsc --noEmit --pretty false`: passaram sem avisos ou erros.
-- Integridade do diff: passou sem whitespace errors.
+Resultados:
 
-## 3) Testes manuais
+- Backend focado, custo constante e ciclo de migracao: 16 testes passaram.
+- Suite backend completa: 326 testes passaram.
+- ESLint: passou sem avisos.
+- TypeScript: passou sem erros.
+- Build Next.js 15.5.14: passou com 33 paginas estaticas geradas.
+- Prazo de tres horas e mensagens de reserva/agendamento: validacao funcional passou.
 
-- Cenario 1: reserva para clinica com telefone.
-- Cenario 2: reserva para tutor usando WhatsApp/telefone cadastrado.
-- Cenario 3: reserva sem telefone abre compartilhamento sem destinatario.
-- Cenario 4: prazo invalido bloqueia o salvamento.
+## 3) Verificacoes de release
 
-Estes cenarios ficam como smoke operacional em stage, pois exigem sessao autenticada, cadastros reais e abertura do WhatsApp no navegador do usuario.
+- `git diff --check`: pendente da revisao final do diff.
+- Guardrail SDD: executar sobre o commit final.
+- Workflows e smoke de stage: executar apos push.
 
-## 4) Regressao e riscos residuais
+## 4) Riscos residuais
 
-- Risco residual 1: envio e liberacao do horario continuam dependendo da acao humana.
-- Risco residual 2: `wa.me` depende do comportamento do navegador e do WhatsApp instalado/logado.
-- Incidente de stage: confirmado que o sentinela legado `paciente_id=0` violava `fk_agenda_paciente`; o hotfix normaliza para `NULL`.
+- `wa.me` depende do navegador e da sessao do WhatsApp do usuario.
+- O envio permanece manual enquanto a Meta analisa a empresa.
+- Nome do medico e especialidade seguem o modelo operacional atual; uma equipe multiprofissional exigira configuracao futura.
 
-## 5) Itens fora de escopo entregues
+## 5) Decisao de release
 
-- Nenhum.
-
-## 6) Decisao de release
-
-- [x] Aprovado para stage.
+- [x] Aprovado para stage, condicionado ao guardrail e workflows finais.
 - [ ] Aprovado para producao.
-- [ ] Nao aprovado enquanto verificacoes estiverem pendentes.

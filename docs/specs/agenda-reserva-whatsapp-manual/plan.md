@@ -2,72 +2,34 @@
 
 Data: 2026-07-19
 Responsavel: Martiniano + Codex
-Status: hotfix-ready-for-stage
+Status: ready-for-stage
 
-## 1) Sequencia de fases
+## 1) Sequencia
 
-- Fase 1 (SDD): registrar intencao, requisitos e limites do fluxo provisório.
-- Fase 2 (frontend): adicionar configuracao da reserva e entrega manual pos-criacao.
-- Fase 3 (qualidade): executar lint, build e revisao do diff.
-- Fase 4 (verificacao): preencher rastreabilidade e riscos residuais.
+1. [x] Adicionar lista de WhatsApps a clinica e migrar o telefone legado.
+2. [x] Atualizar cadastro/edicao com campos dinamicos.
+3. [x] Generalizar a mensagem manual para reserva e agendamento.
+4. [x] Persistir prazo e liberar reservas vencidas.
+5. [x] Adicionar regressao de contatos, migracao e expiracao.
+6. [x] Executar suite completa e build; guardrail SDD sera executado sobre o commit final.
+7. [ ] Publicar e validar em stage.
 
-## 2) Tarefas por fase
+## 2) Plano de testes
 
-### Fase 1
+- Backend focado: criacao/edicao de clinica, fallback legado, migracao SQLite, reserva sem paciente e slot liberado apos expiracao.
+- Backend completo: `unittest discover`.
+- Frontend: ESLint, TypeScript e build Next.js.
+- Guardrail: `check_sdd_guardrail.py` contra `origin/stage`.
+- Stage: workflows finais, versoes de migracao, commit do VPS e smokes HTTP.
 
-- [x] T1.1 Criar `intent.md`.
-- [x] T1.2 Criar `spec.md` e `plan.md`.
-- Criterio de conclusao: escopo manual e nao objetivos explicitos.
-- Risco: confundir esta entrega com a futura automacao da Meta.
-- Rollback: remover artefatos junto do codigo revertido.
+## 3) Riscos e rollback
 
-### Fase 2
+- Risco: JSON de contatos divergir entre SQLite e PostgreSQL. Mitigacao: migracao especifica por dialeto e teste de ciclo.
+- Risco: reserva vencida continuar presa na constraint. Mitigacao: expirar no mesmo fluxo transacional antes da validacao/escrita.
+- Risco: mensagem ser aberta no numero errado. Mitigacao: seletor explicito quando houver mais de um destino.
+- Rollback: reverter codigo; manter colunas novas e seus dados para evitar perda.
 
-- [x] T2.1 Implementar formatacao da mensagem e link `wa.me`.
-- [x] T2.2 Implementar campos e tela pos-criacao no modal.
-- Criterio de conclusao: reserva criada oferece abrir/copiar mensagem.
-- Risco: popup bloqueado; a abertura deve partir de clique explicito.
-- Rollback: reverter componentes do fluxo manual.
+## 4) Dependencias
 
-### Fase 3
-
-- [x] T3.1 Executar ESLint focado.
-- [x] T3.2 Executar build do frontend.
-- Criterio de conclusao: comandos finalizam sem erro.
-- Risco: regressao de tipagem em componente grande.
-- Rollback: corrigir tipos ou reverter a alteracao.
-
-### Fase 4
-
-- [x] T4.1 Atualizar `verify.md` com evidencias.
-- [x] T4.2 Revisar `git diff --check` e escopo final.
-- Criterio de conclusao: criterios rastreados e riscos residuais registrados.
-- Risco: documentacao divergir do comportamento entregue.
-- Rollback: alinhar documentacao antes de concluir.
-
-## 3) Plano de testes
-
-- Testes unitarios: validacao indireta de helpers pelo typecheck/build.
-- Testes de integracao: criacao da reserva continua usando o endpoint existente.
-- Testes manuais: destinatario clinica/tutor, telefone ausente, copiar e abrir WhatsApp.
-
-## 4) Dependencias e bloqueios
-
-- Dependencia 1: telefones cadastrados em clinicas/tutores.
-- Dependencia 2: navegador permitir abertura do WhatsApp a partir de clique explicito.
-
-## 5) Checklist para iniciar execucao
-
-- [x] `intent.md` aprovado.
-- [x] `spec.md` aprovado.
-- [x] Fases e rollback revisados.
-- [x] Ambiente de teste definido (local/stage).
-
-## 6) Hotfix de persistencia em stage
-
-- [x] Confirmar no VPS o schema e as constraints de `agendamentos`.
-- [x] Identificar o sentinela `paciente_id=0` como incompatível com `fk_agenda_paciente`.
-- [x] Persistir `NULL` em reservas sem paciente na criacao e edicao.
-- [x] Executar regressao backend e qualidade local.
-- [ ] Executar guardrail SDD apos o commit.
-- [ ] Publicar e validar em stage.
+- Navegador precisa permitir abertura do WhatsApp por clique.
+- Conta Meta pode continuar em analise porque o envio e manual.

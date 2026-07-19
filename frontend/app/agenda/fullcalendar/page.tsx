@@ -210,6 +210,7 @@ const STATUS_CORES: Record<string, StatusVisual> = {
   Realizado: { bg: "#d1fae5", border: "#34d399", text: "#064e3b" },
   Cancelado: { bg: "#fee2e2", border: "#f87171", text: "#7f1d1d" },
   Faltou: { bg: "#ffedd5", border: "#fb923c", text: "#7c2d12" },
+  Expirado: { bg: "#f1f5f9", border: "#94a3b8", text: "#334155" },
 };
 
 const STATUS_FILTRO = ["todos", ...AGENDA_STATUS_LIST];
@@ -1787,7 +1788,7 @@ export default function AgendaFullCalendarPage() {
         if (agendamentoIgnoradoId && agendamento.id === agendamentoIgnoradoId) {
           return false;
         }
-        if (String(agendamento.status || "").trim() === "Cancelado") {
+        if (["Cancelado", "Expirado"].includes(String(agendamento.status || "").trim())) {
           return false;
         }
 
@@ -2543,13 +2544,13 @@ export default function AgendaFullCalendarPage() {
               const statusMoving = String(
                 ((movingEvent?.extendedProps?.agendamento as Agendamento | undefined)?.status || "").trim()
               );
-              return statusStill === "Cancelado" || statusMoving === "Cancelado";
+              return ["Cancelado", "Expirado"].includes(statusStill) || ["Cancelado", "Expirado"].includes(statusMoving);
             }}
             selectOverlap={(event) => {
               const statusExistente = String(
                 ((event.extendedProps?.agendamento as Agendamento | undefined)?.status || "").trim()
               );
-              return statusExistente === "Cancelado";
+              return ["Cancelado", "Expirado"].includes(statusExistente);
             }}
             slotMinTime={slotMinTime}
             slotMaxTime={slotMaxTime}

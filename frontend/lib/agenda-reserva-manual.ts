@@ -1,11 +1,18 @@
 export type ReservaManualDestinatario = "clinica" | "tutor";
+export type MensagemAgendaManualTipo = "reserva" | "agendamento";
 
-export interface MensagemReservaManualInput {
-  destinatarioTipo: ReservaManualDestinatario;
-  destinatarioNome?: string | null;
+export interface MensagemAgendaManualInput {
+  tipo: MensagemAgendaManualTipo;
   data: string;
   hora: string;
-  prazoConfirmacao: string;
+  prazoConfirmacao?: string;
+  servicoNome?: string | null;
+  pacienteId?: number | null;
+  pacienteNome?: string | null;
+  tutorNome?: string | null;
+  clinicaNome?: string | null;
+  medicoVeterinario?: string | null;
+  especialista?: string | null;
 }
 
 const formatarParteDataHora = (value: number): string => String(value).padStart(2, "0");
@@ -26,7 +33,7 @@ export const formatarDateTimeLocalInput = (date: Date): string => {
 };
 
 export const criarPrazoPadraoReserva = (agora = new Date()): string => {
-  const prazo = new Date(agora.getTime() + 2 * 60 * 60 * 1000);
+  const prazo = new Date(agora.getTime() + 3 * 60 * 60 * 1000);
   prazo.setSeconds(0, 0);
   return formatarDateTimeLocalInput(prazo);
 };
@@ -58,30 +65,50 @@ export const normalizarTelefoneWhatsApp = (telefone?: string | null): string => 
   return digitos;
 };
 
-export const montarMensagemReservaManual = ({
-  destinatarioTipo,
-  destinatarioNome,
+export const montarMensagemAgendaManual = ({
+  tipo,
   data,
   hora,
   prazoConfirmacao,
-}: MensagemReservaManualInput): string => {
-  const nome = String(destinatarioNome || "").trim();
-  const saudacao = destinatarioTipo === "clinica"
-    ? `Olá, equipe ${nome || "da clínica"}.`
-    : nome
-      ? `Olá, ${nome}.`
-      : "Olá.";
+  servicoNome,
+  pacienteId,
+  pacienteNome,
+  tutorNome,
+  clinicaNome,
+  medicoVeterinario = "Dr Martiniano",
+  especialista = "Cardiologista",
+}: MensagemAgendaManualInput): string => {
+  const nomePaciente = String(pacienteNome || "").trim();
+  const paciente = nomePaciente
+    ? `${nomePaciente}${pacienteId ? ` (${pacienteId})` : ""}`
+    : "Pendente";
+  const tutor = String(tutorNome || "").trim() || "Pendente";
+  const clinica = String(clinicaNome || "").trim() || "Pendente";
+  const atendimento = String(servicoNome || "").trim() || "Pendente";
+  const titulo = tipo === "reserva" ? "*RESERVA DE HORÁRIO* 🐶 🐱" : "*AGENDAMENTO* 🐶 🐱";
 
-  return [
-    saudacao,
-    "",
-    `A Fort Cordis reservou provisoriamente o horário de ${formatarDataReserva(data)} às ${String(hora || "").slice(0, 5)}.`,
-    `Pedimos que confirme esta reserva até ${formatarPrazoReserva(prazoConfirmacao)}.`,
-    "",
-    "Sem confirmação até esse prazo, o horário poderá ser liberado para outros clientes, evitando bloqueios que prejudiquem a organização da agenda.",
-    "",
-    "Por favor, responda confirmando a reserva ou informando que não utilizará o horário.",
-  ].join("\n");
+  const detalhes = [
+    medicoVeterinario ? `*Médico Veterinário:* ${String(medicoVeterinario).trim()}` : "",
+    `*Atendimento:* ${atendimento}`,
+    `*Data:* ${formatarDataReserva(data)}`,
+    `*Horário:* ${String(hora || "").slice(0, 5)}`,
+    `*Paciente:* ${paciente}`,
+    `*Tutor:* ${tutor}`,
+    especialista ? `*Especialista:* ${String(especialista).trim()}` : "",
+    `*Clínica:* ${clinica}`,
+  ].filter((linha) => linha !== "");
+  const linhas = [titulo, "", ...detalhes, ""];
+
+  if (tipo === "reserva") {
+    linhas.push(
+      `⚠️ *ATENÇÃO:* Confirme esta reserva até ${formatarPrazoReserva(String(prazoConfirmacao || ""))}.`,
+      "Sem confirmação até esse prazo, o horário voltará a ficar disponível para outros clientes.",
+    );
+  } else {
+    linhas.push("✅ *CONFIRMAÇÃO:* O horário solicitado foi agendado.");
+  }
+
+  return linhas.join("\n");
 };
 
 export const montarLinkWhatsAppReserva = (

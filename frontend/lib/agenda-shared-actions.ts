@@ -5,7 +5,8 @@ export type AgendaStatus =
   | "Em atendimento"
   | "Realizado"
   | "Cancelado"
-  | "Faltou";
+  | "Faltou"
+  | "Expirado";
 
 export type OrigemAtendimentoAgenda = "clinica_parceira" | "domiciliar";
 
@@ -24,6 +25,7 @@ export const AGENDA_STATUS_LIST: AgendaStatus[] = [
   "Realizado",
   "Cancelado",
   "Faltou",
+  "Expirado",
 ];
 
 export const AGENDA_STATUS_ACOES: AgendaStatusAction[] = [
@@ -44,6 +46,7 @@ const PROXIMOS_STATUS: Record<AgendaStatus, AgendaStatus[]> = {
   Realizado: ["Em atendimento"],
   Cancelado: ["Agendado"],
   Faltou: ["Agendado"],
+  Expirado: [],
 };
 
 export const obterProximosStatus = (statusAtual?: string): AgendaStatus[] => {

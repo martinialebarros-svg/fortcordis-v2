@@ -29,12 +29,13 @@ class AgendamentoBase(BaseModel):
     inicio: datetime
     fim: Optional[datetime] = None
     status: str = "Agendado"
+    reserva_expira_em: Optional[datetime] = None
     observacoes: Optional[str] = None
     confirmar_conflito_deslocamento: bool = False
     excecao_operacional_concedida: bool = False
     motivo_excecao_operacional: Optional[str] = None
 
-    @validator('inicio', 'fim', pre=True)
+    @validator('inicio', 'fim', 'reserva_expira_em', pre=True)
     def parse_dates(cls, v):
         return parse_datetime(v) if v else None
 
@@ -50,12 +51,13 @@ class AgendamentoUpdate(BaseModel):
     inicio: Optional[datetime] = None
     fim: Optional[datetime] = None
     status: Optional[str] = None
+    reserva_expira_em: Optional[datetime] = None
     observacoes: Optional[str] = None
     confirmar_conflito_deslocamento: Optional[bool] = None
     excecao_operacional_concedida: Optional[bool] = None
     motivo_excecao_operacional: Optional[str] = None
 
-    @validator('inicio', 'fim', pre=True)
+    @validator('inicio', 'fim', 'reserva_expira_em', pre=True)
     def parse_dates(cls, v):
         return parse_datetime(v) if v else None
 
@@ -69,6 +71,7 @@ class AgendamentoResponse(BaseModel):
     inicio: Optional[str] = None  # Retorna como string para evitar problemas de formato
     fim: Optional[str] = None  # Retorna como string
     status: str
+    reserva_expira_em: Optional[str] = None
     observacoes: Optional[str] = None
     data: Optional[str] = None
     hora: Optional[str] = None

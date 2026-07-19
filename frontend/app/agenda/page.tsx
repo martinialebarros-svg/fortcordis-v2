@@ -1532,6 +1532,7 @@ export default function AgendaPage() {
       'Realizado': 'bg-emerald-100 text-emerald-800 border-emerald-200',
       'Cancelado': 'bg-red-100 text-red-800 border-red-200',
       'Faltou': 'bg-orange-100 text-orange-800 border-orange-200',
+      'Expirado': 'bg-slate-100 text-slate-700 border-slate-300',
     };
     return colors[status] || 'bg-gray-100 text-gray-800 border-gray-200';
   };
@@ -1545,6 +1546,7 @@ export default function AgendaPage() {
       'Realizado': CheckCircle,
       'Cancelado': XCircle,
       'Faltou': AlertCircle,
+      'Expirado': AlertCircle,
     };
     return icons[status] || Calendar;
   };
@@ -1643,8 +1645,8 @@ export default function AgendaPage() {
     const mapa = new Map<string, Agendamento[]>();
 
     for (const ag of agendamentosFiltrados) {
-      // Cancelado não deve ocupar slot na panorâmica.
-      if ((ag.status || "").trim().toLowerCase() === "cancelado") continue;
+      // Cancelado ou expirado não deve ocupar slot na panorâmica.
+      if (["cancelado", "expirado"].includes((ag.status || "").trim().toLowerCase())) continue;
 
       const inicio = parseAgendamentoInicioLocal(ag);
       if (!inicio) continue;

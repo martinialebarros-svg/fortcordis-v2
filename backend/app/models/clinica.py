@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Numeric, Float
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Numeric, Float, JSON
 from sqlalchemy.sql import func
 from app.db.database import Base
 
@@ -11,6 +11,7 @@ class Clinica(Base):
     razao_social = Column(String)
     cnpj = Column(String)
     telefone = Column(String)
+    whatsapps = Column(JSON, nullable=False, default=list)
     email = Column(String)
     atividade_cnae = Column(String)
     endereco = Column(String)
