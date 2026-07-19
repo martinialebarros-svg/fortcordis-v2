@@ -67,10 +67,10 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 # Horario de Brasilia (UTC-3). Evita dependencia de tzdata no Windows local.
 LOCAL_TZ = timezone(timedelta(hours=-3))
-AGENDA_STATUS_PERMITIDOS = ["Agendado", "Reservado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou"]
+AGENDA_STATUS_PERMITIDOS = ["Agendado", "Reservado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Faltou", "Expirado"]
 AGENDA_STATUS_PRE_AGENDADOS = {"Agendado", "Reservado", "Confirmado"}
 AGENDA_STATUS_BLOQUEIAM_SLOT = {"Agendado", "Reservado", "Confirmado", "Em atendimento"}
-AGENDA_STATUS_NAO_ANCORA = {"Cancelado", "Faltou"}
+AGENDA_STATUS_NAO_ANCORA = {"Cancelado", "Faltou", "Expirado"}
 ORIGENS_ATENDIMENTO_PERMITIDAS = {"clinica_parceira", "domiciliar"}
 ORIGEM_ATENDIMENTO_PADRAO = "clinica_parceira"
 ORIGEM_ATENDIMENTO_DOMICILIAR = "domiciliar"
@@ -121,6 +121,7 @@ def _ensure_agendamento_workflow_columns(db: Session) -> None:
     alteracoes: dict[str, str] = {
         "tutor_id": 'ALTER TABLE "agendamentos" ADD COLUMN tutor_id INTEGER',
         "origem_atendimento": 'ALTER TABLE "agendamentos" ADD COLUMN origem_atendimento VARCHAR(32) DEFAULT \'clinica_parceira\'',
+        "reserva_expira_em": 'ALTER TABLE "agendamentos" ADD COLUMN reserva_expira_em TIMESTAMP',
     }
 
     faltantes = [sql for coluna, sql in alteracoes.items() if coluna not in colunas]
@@ -1335,7 +1336,7 @@ def _listar_agendamentos_ativos_periodo(
     data_sem_vazio = func.nullif(func.trim(Agendamento.data), "")
     query = (
         db.query(Agendamento)
-        .filter(Agendamento.status != "Cancelado")
+        .filter(Agendamento.status.notin_(["Cancelado", "Expirado"]))
         .filter(
             or_(
                 and_(
@@ -1358,6 +1359,8 @@ def _listar_agendamentos_ativos_periodo(
     cache_pacientes: dict[int, Optional[Paciente]] = {}
     registros: list[dict] = []
     for item in query.order_by(Agendamento.inicio.asc(), Agendamento.id.asc()).all():
+        if _status_efetivo_agendamento(item) == "Expirado":
+            continue
         inicio_dt, fim_dt = _intervalo_local_agendamento(item)
         if inicio_dt is None:
             continue
@@ -2095,6 +2098,56 @@ def _obter_regras_agenda(db: Session) -> tuple[dict, list, list]:
     )
 
 
+def _expirar_reservas_vencidas(db: Session) -> int:
+    agora_local = datetime.now(LOCAL_TZ).replace(tzinfo=None)
+    reservas = (
+        db.query(Agendamento)
+        .filter(Agendamento.status == "Reservado")
+        .filter(Agendamento.reserva_expira_em.isnot(None))
+        .all()
+    )
+    expiradas = 0
+    for reserva in reservas:
+        prazo_local = _to_local_naive(_coerce_datetime(reserva.reserva_expira_em))
+        if prazo_local is None or prazo_local > agora_local:
+            continue
+        reserva.status = "Expirado"
+        reserva.atualizado_em = datetime.now()
+        reserva.updated_at = datetime.now()
+        expiradas += 1
+    if expiradas:
+        db.flush()
+    return expiradas
+
+
+def _status_efetivo_agendamento(agendamento: Agendamento) -> str:
+    status_atual = str(agendamento.status or "").strip() or "Agendado"
+    if status_atual != "Reservado":
+        return status_atual
+    prazo_local = _to_local_naive(_coerce_datetime(getattr(agendamento, "reserva_expira_em", None)))
+    if prazo_local is None:
+        return status_atual
+    agora_local = datetime.now(LOCAL_TZ).replace(tzinfo=None)
+    return "Expirado" if prazo_local <= agora_local else status_atual
+
+
+def _validar_prazo_reserva(agendamento: Agendamento) -> None:
+    if str(agendamento.status or "").strip() != "Reservado":
+        return
+    prazo = _to_local_naive(_coerce_datetime(getattr(agendamento, "reserva_expira_em", None)))
+    if prazo is None:
+        return
+    inicio = _to_local_naive(_coerce_datetime(agendamento.inicio))
+    agora_local = datetime.now(LOCAL_TZ).replace(tzinfo=None)
+    if prazo <= agora_local:
+        raise HTTPException(status_code=422, detail="O prazo de confirmacao da reserva deve estar no futuro.")
+    if inicio is not None and prazo >= inicio:
+        raise HTTPException(
+            status_code=422,
+            detail="O prazo de confirmacao deve ser anterior ao horario reservado.",
+        )
+
+
 def _validar_agendamento_no_funcionamento(db: Session, agendamento: Agendamento) -> None:
     inicio_dt = _coerce_datetime(agendamento.inicio)
     if inicio_dt is None:
@@ -2127,8 +2180,9 @@ def _validar_slot_disponivel(
     *,
     agendamento_id_excluir: Optional[int] = None,
 ) -> None:
+    _expirar_reservas_vencidas(db)
     status_atual = (str(agendamento.status or "").strip() or "Agendado")
-    if status_atual == "Cancelado":
+    if status_atual not in AGENDA_STATUS_BLOQUEIAM_SLOT:
         return
 
     inicio_local, fim_local = _intervalo_local_agendamento(agendamento)
@@ -2145,7 +2199,7 @@ def _validar_slot_disponivel(
 
     query = (
         db.query(Agendamento)
-        .filter(Agendamento.status != "Cancelado")
+        .filter(Agendamento.status.in_(AGENDA_STATUS_BLOQUEIAM_SLOT))
         .filter(
             or_(
                 data_sem_vazio == data_referencia,
@@ -2474,6 +2528,7 @@ def _serialize_agendamento(
 ) -> dict:
     inicio_dt = _coerce_datetime(agendamento.inicio)
     fim_dt = _coerce_datetime(agendamento.fim)
+    reserva_expira_dt = _coerce_datetime(getattr(agendamento, "reserva_expira_em", None))
     tutor_id_resolvido = _resolver_tutor_id_relacionado(agendamento, tutor_id_relacionado)
 
     data = agendamento.data
@@ -2493,7 +2548,8 @@ def _serialize_agendamento(
         "origem_atendimento": _normalizar_origem_atendimento(getattr(agendamento, "origem_atendimento", None)),
         "inicio": inicio_dt.strftime("%Y-%m-%d %H:%M:%S") if inicio_dt else None,
         "fim": fim_dt.strftime("%Y-%m-%d %H:%M:%S") if fim_dt else None,
-        "status": agendamento.status,
+        "status": _status_efetivo_agendamento(agendamento),
+        "reserva_expira_em": reserva_expira_dt.isoformat() if reserva_expira_dt else None,
         "observacoes": agendamento.observacoes,
         "data": data,
         "hora": hora,
@@ -2907,7 +2963,25 @@ def _aplicar_filtros_lista_agenda(
         query = query.filter(Agendamento.data >= data_inicio_filtro)
     if data_fim_filtro:
         query = query.filter(Agendamento.data <= data_fim_filtro)
-    if status:
+    if status == "Expirado":
+        query = query.filter(
+            or_(
+                Agendamento.status == "Expirado",
+                and_(
+                    Agendamento.status == "Reservado",
+                    Agendamento.reserva_expira_em.isnot(None),
+                    Agendamento.reserva_expira_em <= func.now(),
+                ),
+            )
+        )
+    elif status == "Reservado":
+        query = query.filter(Agendamento.status == "Reservado").filter(
+            or_(
+                Agendamento.reserva_expira_em.is_(None),
+                Agendamento.reserva_expira_em > func.now(),
+            )
+        )
+    elif status:
         query = query.filter(Agendamento.status == status)
     if origem_atendimento and str(origem_atendimento).strip().lower() != "todos":
         origem_normalizada = _normalizar_origem_atendimento(origem_atendimento)
@@ -2990,6 +3064,7 @@ def listar_agendamentos(
     current_user: User = Depends(get_current_user)
 ):
     """Lista agendamentos com filtros e nomes dos relacionados"""
+    _ensure_agendamento_workflow_columns(db)
     query_ids = _aplicar_filtros_lista_agenda(
         db.query(Agendamento.id),
         data_inicio=data_inicio,
@@ -4859,10 +4934,12 @@ def criar_agendamento(
     )
     db_agendamento.status = _normalizar_status_agendamento(db_agendamento.status)
     if db_agendamento.status == "Reservado" and not db_agendamento.paciente_id:
-        # Compatibilidade com bancos legados onde paciente_id ainda esta NOT NULL.
-        db_agendamento.paciente_id = 0
+        # Reservas podem existir antes da identificacao do paciente. Persista
+        # NULL: o sentinela 0 viola a FK fk_agenda_paciente no PostgreSQL.
+        db_agendamento.paciente_id = None
     db_agendamento.inicio = _coerce_datetime(db_agendamento.inicio)
     db_agendamento.fim = _coerce_datetime(db_agendamento.fim)
+    db_agendamento.reserva_expira_em = _coerce_datetime(db_agendamento.reserva_expira_em)
     db_agendamento.criado_por_id = current_user.id
     db_agendamento.criado_por_nome = current_user.nome
     db_agendamento.criado_em = now
@@ -4871,6 +4948,7 @@ def criar_agendamento(
     _validar_regras_origem_agendamento(db, db_agendamento, contexto="salvar o agendamento")
 
     _apply_service_duration_if_needed(db, db_agendamento, force_from_service=True)
+    _validar_prazo_reserva(db_agendamento)
     _validar_agendamento_no_funcionamento(db, db_agendamento)
     _validar_slot_disponivel(db, db_agendamento)
     _validar_deslocamento_agendamento(
@@ -4959,6 +5037,7 @@ def atualizar_agendamento(
     """Atualiza agendamento"""
     _ensure_agendamento_workflow_columns(db)
     _adquirir_lock_escrita_agenda(db)
+    _expirar_reservas_vencidas(db)
 
     db_agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
     if not db_agendamento:
@@ -5014,14 +5093,22 @@ def atualizar_agendamento(
         _fill_data_hora_from_inicio(db_agendamento)
     if "fim" in update_data:
         db_agendamento.fim = _coerce_datetime(db_agendamento.fim)
+    if "reserva_expira_em" in update_data:
+        db_agendamento.reserva_expira_em = _coerce_datetime(db_agendamento.reserva_expira_em)
     if "status" in update_data:
         db_agendamento.status = _normalizar_status_agendamento(db_agendamento.status, fallback=status_anterior)
     else:
         db_agendamento.status = status_anterior
+    if status_anterior == "Expirado" and db_agendamento.status in AGENDA_STATUS_BLOQUEIAM_SLOT:
+        raise HTTPException(
+            status_code=409,
+            detail="A reserva expirou. Crie um novo agendamento para ocupar o horario novamente.",
+        )
     if db_agendamento.status == "Reservado" and not db_agendamento.paciente_id:
-        # Compatibilidade com bancos legados onde paciente_id ainda esta NOT NULL.
-        db_agendamento.paciente_id = 0
+        # Tambem remove o sentinela legado 0 ao editar uma reserva sem paciente.
+        db_agendamento.paciente_id = None
     _validar_regras_origem_agendamento(db, db_agendamento, contexto="salvar o agendamento")
+    _validar_prazo_reserva(db_agendamento)
 
     campos_horario = "inicio" in update_data or "fim" in update_data or "servico_id" in update_data or "clinica_id" in update_data
     reativando_cancelado = status_anterior == "Cancelado" and db_agendamento.status != "Cancelado"
@@ -5164,6 +5251,7 @@ def atualizar_status(
     from app.models.ordem_servico import OrdemServico
     _ensure_agendamento_workflow_columns(db)
     _adquirir_lock_escrita_agenda(db)
+    _expirar_reservas_vencidas(db)
 
     def _gerar_numero_os() -> str:
         mes_ano = datetime.now().strftime("%Y%m")
@@ -5194,6 +5282,11 @@ def atualizar_status(
         raise HTTPException(status_code=404, detail="Agendamento nao encontrado")
 
     status_normalizado = _normalizar_status_agendamento(status)
+    if db_agendamento.status == "Expirado" and status_normalizado in AGENDA_STATUS_BLOQUEIAM_SLOT:
+        raise HTTPException(
+            status_code=409,
+            detail="A reserva expirou. Crie um novo agendamento para ocupar o horario novamente.",
+        )
     related_validacao = _fetch_related_names(db, db_agendamento)
     _validar_paciente_tutor_para_status(
         db,

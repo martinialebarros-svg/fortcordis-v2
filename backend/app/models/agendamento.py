@@ -25,8 +25,9 @@ class Agendamento(Base):
     data = Column(String)
     hora = Column(String)
     
-    # Status: Agendado, Confirmado, Em atendimento, Concluido, Cancelado, Faltou
+    # Status: Agendado, Reservado, Confirmado, Em atendimento, Realizado, Cancelado, Faltou, Expirado
     status = Column(String, default='Agendado')
+    reserva_expira_em = Column(DateTime(timezone=True), nullable=True)
     observacoes = Column(Text)
     
     # Campos denormalizados (legado)

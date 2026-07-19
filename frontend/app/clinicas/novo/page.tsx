@@ -14,6 +14,8 @@ import {
 } from "@/lib/atendimento-cadastro";
 import { Save, ArrowLeft, Building2, MapPin, DollarSign, Calculator, Percent } from "lucide-react";
 import ManualPinModal from "../components/ManualPinModal";
+import WhatsappNumbersField from "../components/WhatsappNumbersField";
+import { normalizarWhatsappsParaApi } from "@/lib/clinica-whatsapp";
 
 const ESTADOS = [
   "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA",
@@ -56,6 +58,7 @@ export default function NovaClinicaPage() {
     razao_social: "",
     cnpj: "",
     telefone: "",
+    whatsapps: [""],
     email: "",
     endereco: "",
     numero: "",
@@ -351,6 +354,7 @@ export default function NovaClinicaPage() {
         razao_social: clinica.razao_social.trim(),
         cnpj: normalizarCnpj(clinica.cnpj),
         telefone: normalizarTelefone(clinica.telefone),
+        whatsapps: normalizarWhatsappsParaApi(clinica.whatsapps),
         cep: normalizarCep(clinica.cep),
         bairro_manual: bairroEditadoManual,
         tabela_preco_id: parseInt(clinica.tabela_preco_id.toString()),
@@ -471,7 +475,7 @@ export default function NovaClinicaPage() {
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Telefone
+                  Telefone geral
                 </label>
                 <input
                   type="tel"
@@ -484,6 +488,11 @@ export default function NovaClinicaPage() {
                   maxLength={15}
                 />
               </div>
+
+              <WhatsappNumbersField
+                value={clinica.whatsapps}
+                onChange={(whatsapps) => setClinica({ ...clinica, whatsapps })}
+              />
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">

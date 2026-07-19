@@ -87,6 +87,111 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_criar_reserva_sem_paciente_persiste_null_em_vez_do_sentinela_zero(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            clinica = Clinica(
+                nome="Clinica Reserva",
+                ativo=True,
+                latitude=-3.7319,
+                longitude=-38.5267,
+            )
+            servico = Servico(nome="Reserva de horario", duracao_minutos=30, ativo=True)
+            db.add_all([clinica, servico])
+            db.commit()
+            db.refresh(clinica)
+            db.refresh(servico)
+
+            inicio = datetime(2099, 5, 25, 11, 0, 0)
+            payload = agenda.AgendamentoCreate(
+                paciente_id=None,
+                tutor_id=None,
+                clinica_id=clinica.id,
+                servico_id=servico.id,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                status="Reservado",
+                observacoes="[Reserva manual] destinatario: clinica",
+            )
+
+            with patch.object(agenda, "registrar_auditoria", return_value=None), patch.object(
+                agenda, "_notificar_agenda_update", return_value=None
+            ):
+                resposta = agenda.criar_agendamento(
+                    agendamento=payload,
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=SimpleNamespace(id=1, nome="Teste"),
+                )
+
+            agendamento_criado = db.query(Agendamento).filter(Agendamento.id == int(resposta["id"])).first()
+            self.assertIsNotNone(agendamento_criado)
+            self.assertIsNone(agendamento_criado.paciente_id)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_reserva_vencida_libera_slot_para_novo_agendamento(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            clinica = Clinica(
+                nome="Clinica Expiracao",
+                ativo=True,
+                latitude=-3.7319,
+                longitude=-38.5267,
+            )
+            servico = Servico(nome="Consulta", duracao_minutos=30, ativo=True)
+            db.add_all([clinica, servico])
+            db.commit()
+            db.refresh(clinica)
+            db.refresh(servico)
+
+            inicio = datetime(2099, 5, 25, 11, 0, 0)
+            agora_local = datetime.now(agenda.LOCAL_TZ).replace(tzinfo=None)
+            reserva_vencida = Agendamento(
+                paciente_id=None,
+                clinica_id=clinica.id,
+                servico_id=servico.id,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                data="2099-05-25",
+                hora="11:00",
+                status="Reservado",
+                reserva_expira_em=agora_local - timedelta(minutes=1),
+            )
+            db.add(reserva_vencida)
+            db.commit()
+            db.refresh(reserva_vencida)
+
+            payload = agenda.AgendamentoCreate(
+                paciente_id=None,
+                clinica_id=clinica.id,
+                servico_id=servico.id,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                status="Reservado",
+                reserva_expira_em=agora_local + timedelta(hours=3),
+            )
+
+            with patch.object(agenda, "registrar_auditoria", return_value=None), patch.object(
+                agenda, "_notificar_agenda_update", return_value=None
+            ):
+                resposta = agenda.criar_agendamento(
+                    agendamento=payload,
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=SimpleNamespace(id=1, nome="Teste"),
+                )
+
+            db.refresh(reserva_vencida)
+            self.assertEqual(reserva_vencida.status, "Expirado")
+            self.assertNotEqual(int(resposta["id"]), reserva_vencida.id)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_criar_agendamento_bloqueia_override_conflito_para_nao_admin(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
