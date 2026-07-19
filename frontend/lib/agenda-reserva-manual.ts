@@ -32,11 +32,15 @@ export const formatarDateTimeLocalInput = (date: Date): string => {
   ].join("");
 };
 
-export const criarPrazoPadraoReserva = (agora = new Date()): string => {
-  const prazo = new Date(agora.getTime() + 3 * 60 * 60 * 1000);
+export const criarPrazoReservaPorHoras = (horas: number, agora = new Date()): string => {
+  const horasValidas = Number.isFinite(horas) && horas > 0 ? horas : 3;
+  const prazo = new Date(agora.getTime() + horasValidas * 60 * 60 * 1000);
   prazo.setSeconds(0, 0);
   return formatarDateTimeLocalInput(prazo);
 };
+
+export const criarPrazoPadraoReserva = (agora = new Date()): string =>
+  criarPrazoReservaPorHoras(3, agora);
 
 export const formatarDataReserva = (isoDate: string): string => {
   const match = String(isoDate || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
