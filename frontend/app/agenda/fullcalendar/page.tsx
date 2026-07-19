@@ -1308,12 +1308,17 @@ export default function AgendaFullCalendarPage() {
     setSlotSelecionado(null);
   }, []);
 
-  const handleAgendamentoSuccess = useCallback(async (agendamentoSalvo?: any) => {
+  const handleAgendamentoSuccess = useCallback(async (
+    agendamentoSalvo?: any,
+    opcoes?: { manterModalAberto?: boolean }
+  ) => {
     const edicaoAnterior = agendamentoEditando;
     if (intervalo) {
       await carregarAgendamentos(intervalo);
     }
-    fecharModal();
+    if (!opcoes?.manterModalAberto) {
+      fecharModal();
+    }
 
     if (!edicaoAnterior || !agendamentoSalvo) {
       return;
