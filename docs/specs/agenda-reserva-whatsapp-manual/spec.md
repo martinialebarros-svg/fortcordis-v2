@@ -17,6 +17,7 @@ Ao marcar um novo agendamento como reserva, o modal deve solicitar destinatario 
 - RF-005: apos salvar, a operacao deve conseguir abrir `wa.me` com telefone e mensagem preenchidos ou copiar a mensagem.
 - RF-006: na ausencia de telefone, a reserva deve continuar sendo criada e o WhatsApp deve abrir sem destinatario predefinido para selecao manual.
 - RF-007: prazo e tipo de destinatario devem ser registrados nas observacoes do agendamento para rastreabilidade operacional.
+- RF-008: uma reserva sem paciente deve persistir `paciente_id=NULL`; o valor sentinela `0` nao pode ser usado porque viola a FK de paciente no PostgreSQL.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -35,7 +36,7 @@ Ao marcar um novo agendamento como reserva, o modal deve solicitar destinatario 
 
 ### Banco/migracoes
 
-- Tabelas/colunas afetadas: nenhuma.
+- Tabelas/colunas afetadas: nenhuma alteracao estrutural; `agendamentos.paciente_id` ja e nullable.
 - Indices/constraints: nenhum.
 - Migracao necessaria: nao.
 
@@ -62,6 +63,7 @@ Ao marcar um novo agendamento como reserva, o modal deve solicitar destinatario 
 - CA-006: telefone ausente permite abrir o compartilhamento do WhatsApp sem destinatario fixo.
 - CA-007: observacoes registram prazo e destinatario sem alterar o contrato da API.
 - CA-008: agendamento comum e edicao nao exibem nem acionam a entrega manual.
+- CA-009: reserva de clinica sem tutor/paciente e criada com `paciente_id=NULL` e nao viola `fk_agenda_paciente`.
 
 ## 7) Casos de borda
 

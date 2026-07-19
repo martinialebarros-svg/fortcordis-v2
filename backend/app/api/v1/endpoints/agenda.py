@@ -4858,8 +4858,9 @@ def criar_agendamento(
     )
     db_agendamento.status = _normalizar_status_agendamento(db_agendamento.status)
     if db_agendamento.status == "Reservado" and not db_agendamento.paciente_id:
-        # Compatibilidade com bancos legados onde paciente_id ainda esta NOT NULL.
-        db_agendamento.paciente_id = 0
+        # Reservas podem existir antes da identificacao do paciente. Persista
+        # NULL: o sentinela 0 viola a FK fk_agenda_paciente no PostgreSQL.
+        db_agendamento.paciente_id = None
     db_agendamento.inicio = _coerce_datetime(db_agendamento.inicio)
     db_agendamento.fim = _coerce_datetime(db_agendamento.fim)
     db_agendamento.criado_por_id = current_user.id
@@ -5018,8 +5019,8 @@ def atualizar_agendamento(
     else:
         db_agendamento.status = status_anterior
     if db_agendamento.status == "Reservado" and not db_agendamento.paciente_id:
-        # Compatibilidade com bancos legados onde paciente_id ainda esta NOT NULL.
-        db_agendamento.paciente_id = 0
+        # Tambem remove o sentinela legado 0 ao editar uma reserva sem paciente.
+        db_agendamento.paciente_id = None
     _validar_regras_origem_agendamento(db, db_agendamento, contexto="salvar o agendamento")
 
     campos_horario = "inicio" in update_data or "fim" in update_data or "servico_id" in update_data or "clinica_id" in update_data

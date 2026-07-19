@@ -2,7 +2,7 @@
 
 Data: 2026-07-19
 Responsavel: Martiniano + Codex
-Status: done
+Status: hotfix-ready-for-stage
 
 ## 1) Sequencia de fases
 
@@ -62,3 +62,12 @@ Status: done
 - [x] `spec.md` aprovado.
 - [x] Fases e rollback revisados.
 - [x] Ambiente de teste definido (local/stage).
+
+## 6) Hotfix de persistencia em stage
+
+- [x] Confirmar no VPS o schema e as constraints de `agendamentos`.
+- [x] Identificar o sentinela `paciente_id=0` como incompatível com `fk_agenda_paciente`.
+- [x] Persistir `NULL` em reservas sem paciente na criacao e edicao.
+- [x] Executar regressao backend e qualidade local.
+- [ ] Executar guardrail SDD apos o commit.
+- [ ] Publicar e validar em stage.
