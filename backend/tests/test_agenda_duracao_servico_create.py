@@ -148,6 +148,7 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
             db.refresh(servico)
 
             inicio = datetime(2099, 5, 25, 11, 0, 0)
+            agora_local = datetime.now(agenda.LOCAL_TZ).replace(tzinfo=None)
             reserva_vencida = Agendamento(
                 paciente_id=None,
                 clinica_id=clinica.id,
@@ -157,7 +158,7 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
                 data="2099-05-25",
                 hora="11:00",
                 status="Reservado",
-                reserva_expira_em=datetime.now() - timedelta(minutes=1),
+                reserva_expira_em=agora_local - timedelta(minutes=1),
             )
             db.add(reserva_vencida)
             db.commit()
@@ -170,7 +171,7 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
                 inicio=inicio,
                 fim=inicio + timedelta(minutes=30),
                 status="Reservado",
-                reserva_expira_em=datetime.now() + timedelta(hours=3),
+                reserva_expira_em=agora_local + timedelta(hours=3),
             )
 
             with patch.object(agenda, "registrar_auditoria", return_value=None), patch.object(

@@ -21,6 +21,7 @@ Status: verified-for-stage
 ```bash
 backend/venv/bin/python -m unittest backend/tests/test_agenda_busca_periodo_filtros.py backend/tests/test_agenda_duracao_servico_create.py backend/tests/test_clinicas_whatsapp_multiplos.py backend/tests/test_migration_ci_cycle.py
 backend/venv/bin/python -m unittest discover -s backend/tests -p "test_*.py"
+TZ=UTC backend/venv/bin/python -m unittest discover -s backend/tests -p "test_*.py"
 cd frontend && npm run lint
 cd frontend && npx tsc --noEmit --pretty false
 cd frontend && npm run build
@@ -31,6 +32,7 @@ Resultados:
 
 - Backend focado, custo constante e ciclo de migracao: 16 testes passaram.
 - Suite backend completa: 326 testes passaram.
+- Suite completa com timezone UTC do runner: 326 testes passaram.
 - ESLint: passou sem avisos.
 - TypeScript: passou sem erros.
 - Build Next.js 15.5.14: passou com 33 paginas estaticas geradas.

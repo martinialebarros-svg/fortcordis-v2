@@ -31,6 +31,7 @@ Ao criar uma reserva ou um agendamento, a secretaria escolhe clinica ou tutor co
 - NFR-002 (privacidade): a mensagem nao inclui diagnostico, exame ou dados clinicos.
 - NFR-003 (ux): o envio continua manual e depende de clique explicito.
 - NFR-004 (integridade): a expiracao deve liberar a exclusao PostgreSQL sem permitir sobreposicao de slots ativos.
+- NFR-005 (timezone): a comparacao de vencimento deve usar o horario operacional UTC-3, independentemente do timezone do runner ou servidor.
 
 ## 4) Contratos tecnicos
 
