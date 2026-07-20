@@ -66,6 +66,28 @@ class DeployAuthenticatedCanaryValidationTest(unittest.TestCase):
         self.assertTrue(any("consecutive_failures" in item for item in errors))
         self.assertTrue(any("alert_active" in item for item in errors))
 
+    def test_validate_assistente_ia_status_payload_ok(self) -> None:
+        payload = {
+            "enabled": True,
+            "configured": True,
+            "admin_only": True,
+            "model": "gpt-5.6-sol",
+        }
+        self.assertEqual(CANARY._validate_assistente_ia_status_payload(payload), [])
+
+    def test_validate_assistente_ia_status_payload_flags_blockers(self) -> None:
+        errors = CANARY._validate_assistente_ia_status_payload(
+            {
+                "enabled": False,
+                "configured": False,
+                "admin_only": False,
+                "model": "",
+            }
+        )
+        self.assertEqual(len(errors), 4)
+        self.assertTrue(any("credencial" in item for item in errors))
+        self.assertTrue(any("admin_only" in item for item in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5630,13 +5630,8 @@ def deletar_agendamento(
     current_user: User = Depends(get_current_user)
 ):
     """Deleta agendamento (sÃƒÆ’Ã‚Â³ admin)"""
-    from sqlalchemy import text
     _ensure_agendamento_workflow_columns(db)
-    papel = db.execute(
-        text("SELECT p.nome FROM papeis p JOIN usuario_papel up ON p.id = up.papel_id WHERE up.usuario_id = :uid"),
-        {"uid": current_user.id}
-    ).fetchone()
-    if not papel or papel[0] != "admin":
+    if not current_user.tem_papel("admin"):
         raise HTTPException(status_code=403, detail="Apenas administradores podem excluir agendamentos")
 
     db_agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
