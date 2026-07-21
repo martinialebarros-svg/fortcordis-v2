@@ -58,3 +58,8 @@ from app.models.portal_clinic_auth import (
     PortalClinicSession,
     PortalPasswordResetToken,
 )
+from app.models.assistente_ia import (
+    AssistenteIAAcaoPendente,
+    AssistenteIAConversa,
+    AssistenteIAMensagem,
+)

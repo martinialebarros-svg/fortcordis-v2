@@ -17,6 +17,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=F
 _MODULE_BY_PATH_PREFIX = [
     ("/api/v1/admin/dashboard", "dashboard"),
     ("/api/v1/admin", "usuarios_permissoes"),
+    ("/api/v1/assistente-ia", "usuarios_permissoes"),
     ("/api/v1/agenda", "agenda"),
     ("/api/v1/pacientes", "pacientes"),
     ("/api/v1/tutores", "pacientes"),

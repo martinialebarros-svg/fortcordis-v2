@@ -92,6 +92,14 @@ class ClinicaUpdate(ClinicaBase):
     observacoes_preco: Optional[str] = None
 
 
+class ClinicaWhatsappsUpdate(BaseModel):
+    whatsapps: List[str] = Field(default_factory=list)
+
+    @validator("whatsapps", pre=True)
+    def validar_whatsapps(cls, valor):
+        return _normalizar_whatsapps(valor)
+
+
 class ClinicaResponse(BaseModel):
     id: int
     nome: str
@@ -587,6 +595,36 @@ def salvar_precos_servicos_clinica(
         "message": "Precos negociados atualizados com sucesso",
         "atualizados": atualizados
     }
+
+
+@router.put("/{clinica_id}/whatsapps")
+def atualizar_whatsapps_clinica(
+    clinica_id: int,
+    payload: ClinicaWhatsappsUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Atualiza somente os WhatsApps da clinica sem alterar os demais dados cadastrais."""
+    db_clinica = db.query(Clinica).filter(
+        Clinica.id == clinica_id,
+        Clinica.ativo == True,
+    ).first()
+
+    if not db_clinica:
+        raise HTTPException(status_code=404, detail="Clinica nao encontrada")
+
+    try:
+        db_clinica.whatsapps = payload.whatsapps
+        db.commit()
+        db.refresh(db_clinica)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao atualizar WhatsApps da clinica: {str(exc)}",
+        ) from exc
+
+    return _serialize_clinica(db_clinica)
 
 
 @router.put("/{clinica_id}")

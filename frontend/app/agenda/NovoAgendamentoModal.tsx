@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check, Copy, MessageCircle } from "lucide-react";
+import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check, Copy, MessageCircle, Pencil, Plus, Trash2 } from "lucide-react";
 import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import {
@@ -20,7 +20,7 @@ import {
 } from "@/lib/agenda-config";
 import {
   criarPrazoPadraoReserva,
-  formatarDateTimeLocalInput,
+  criarPrazoReservaPorHoras,
   formatarPrazoReserva,
   montarLinkWhatsAppReserva,
   montarMensagemAgendaManual,
@@ -28,7 +28,9 @@ import {
 } from "@/lib/agenda-reserva-manual";
 import {
   formatarWhatsAppVisual,
+  normalizarWhatsappsParaApi,
   obterWhatsappsClinica,
+  prepararWhatsappsFormulario,
 } from "@/lib/clinica-whatsapp";
 
 const LIMITE_MINUTOS_PROXIMIDADE = 25;
@@ -273,6 +275,7 @@ interface FormDataAgenda {
   hora: string;
   marcar_como_reserva: boolean;
   reserva_destinatario_manual: ReservaManualDestinatario;
+  reserva_prazo_horas: string;
   reserva_prazo_confirmacao: string;
   observacoes: string;
 }
@@ -370,6 +373,7 @@ const buildInitialFormData = (defaultDate?: string, defaultTime?: string): FormD
   hora: defaultTime || "",
   marcar_como_reserva: false,
   reserva_destinatario_manual: "clinica",
+  reserva_prazo_horas: "3",
   reserva_prazo_confirmacao: criarPrazoPadraoReserva(),
   observacoes: "",
 });
@@ -805,6 +809,9 @@ export default function NovoAgendamentoModal({
   const [mensagemAgendaCriada, setMensagemAgendaCriada] = useState<MensagemAgendaPosCriacao | null>(null);
   const [feedbackMensagemAgenda, setFeedbackMensagemAgenda] = useState("");
   const [whatsappMensagemSelecionado, setWhatsappMensagemSelecionado] = useState("");
+  const [editandoWhatsappDestinatario, setEditandoWhatsappDestinatario] = useState(false);
+  const [whatsappsDestinatarioEdicao, setWhatsappsDestinatarioEdicao] = useState<string[]>([""]);
+  const [salvandoWhatsappDestinatario, setSalvandoWhatsappDestinatario] = useState(false);
   const intervaloSugestaoMinutos = Number.isFinite(intervaloSlotMinutos)
     ? Math.max(5, Math.min(120, Math.round(intervaloSlotMinutos)))
     : 30;
@@ -998,6 +1005,7 @@ export default function NovoAgendamentoModal({
       hora,
       marcar_como_reserva: agendamento.status === "Reservado",
       reserva_destinatario_manual: origemAtendimento === "domiciliar" ? "tutor" : "clinica",
+      reserva_prazo_horas: "3",
       reserva_prazo_confirmacao: criarPrazoPadraoReserva(),
       observacoes: agendamento.observacoes || "",
     });
@@ -1056,6 +1064,9 @@ export default function NovoAgendamentoModal({
     setMensagemAgendaCriada(null);
     setFeedbackMensagemAgenda("");
     setWhatsappMensagemSelecionado("");
+    setEditandoWhatsappDestinatario(false);
+    setWhatsappsDestinatarioEdicao([""]);
+    setSalvandoWhatsappDestinatario(false);
     setInteracaoProximidade({ clinica: false, servico: false, data: false });
     popupProximidadeHistoricoRef.current = {};
     sequenciaConsultaProximidadeRef.current = 0;
@@ -1108,6 +1119,15 @@ export default function NovoAgendamentoModal({
       ativo = false;
     };
   }, [formData.paciente_id, formData.tutor_id, isEditando, isOpen]);
+
+  useEffect(() => {
+    setEditandoWhatsappDestinatario(false);
+    setWhatsappsDestinatarioEdicao([""]);
+  }, [
+    formData.clinica_id,
+    formData.reserva_destinatario_manual,
+    formData.tutor_id,
+  ]);
 
   const carregarDados = async () => {
     const extrairItems = (payload: any): any[] => {
@@ -2360,12 +2380,138 @@ export default function NovoAgendamentoModal({
     }
   };
 
+  const iniciarEdicaoWhatsappDestinatario = () => {
+    if (formData.reserva_destinatario_manual === "clinica") {
+      if (!clinicaSelecionada) return;
+      setWhatsappsDestinatarioEdicao(
+        prepararWhatsappsFormulario(
+          clinicaSelecionada.whatsapps,
+          clinicaSelecionada.telefone,
+        ),
+      );
+    } else {
+      if (!formData.tutor_id) return;
+      setWhatsappsDestinatarioEdicao([
+        telefoneTutorReservaManual
+          ? formatarWhatsAppVisual(telefoneTutorReservaManual)
+          : "",
+      ]);
+    }
+
+    setEditandoWhatsappDestinatario(true);
+  };
+
+  const cancelarEdicaoWhatsappDestinatario = () => {
+    setEditandoWhatsappDestinatario(false);
+    setWhatsappsDestinatarioEdicao([""]);
+  };
+
+  const atualizarWhatsappDestinatarioEdicao = (indice: number, valor: string) => {
+    setWhatsappsDestinatarioEdicao((atuais) =>
+      atuais.map((item, itemIndice) =>
+        itemIndice === indice ? formatarWhatsAppVisual(valor) : item,
+      ),
+    );
+  };
+
+  const adicionarWhatsappClinicaEdicao = () => {
+    setWhatsappsDestinatarioEdicao((atuais) =>
+      atuais.length >= 10 ? atuais : [...atuais, ""],
+    );
+  };
+
+  const removerWhatsappClinicaEdicao = (indice: number) => {
+    setWhatsappsDestinatarioEdicao((atuais) => {
+      const restantes = atuais.filter((_, itemIndice) => itemIndice !== indice);
+      return restantes.length > 0 ? restantes : [""];
+    });
+  };
+
+  const salvarWhatsappDestinatario = async () => {
+    const numerosNormalizados = normalizarWhatsappsParaApi(whatsappsDestinatarioEdicao);
+    if (numerosNormalizados.length === 0) {
+      fortinho.notify({
+        title: "WhatsApp não informado",
+        message: "Informe pelo menos um número de WhatsApp antes de salvar.",
+        mood: "alert",
+        gesture: "idle",
+      });
+      return;
+    }
+
+    setSalvandoWhatsappDestinatario(true);
+    try {
+      if (formData.reserva_destinatario_manual === "clinica") {
+        const clinicaId = Number.parseInt(formData.clinica_id, 10);
+        if (!Number.isFinite(clinicaId)) {
+          throw new Error("Selecione uma clínica antes de editar o WhatsApp.");
+        }
+
+        const response = await api.put(`/clinicas/${clinicaId}/whatsapps`, {
+          whatsapps: numerosNormalizados,
+        });
+        const clinicaAtualizada = response?.data as ClinicaOption;
+        setClinicas((atuais) =>
+          atuais.map((clinica) =>
+            clinica.id === clinicaId
+              ? { ...clinica, ...clinicaAtualizada }
+              : clinica,
+          ),
+        );
+      } else {
+        const tutorId = Number.parseInt(formData.tutor_id, 10);
+        if (!Number.isFinite(tutorId)) {
+          throw new Error("Selecione um tutor antes de editar o WhatsApp.");
+        }
+
+        const whatsapp = numerosNormalizados[0];
+        const response = await api.put(`/tutores/${tutorId}`, { whatsapp });
+        const tutorAtualizado = response?.data as TutorOption;
+        setTutores((atuais) =>
+          atuais.map((tutor) =>
+            tutor.id === tutorId
+              ? { ...tutor, ...tutorAtualizado, whatsapp }
+              : tutor,
+          ),
+        );
+        setTutorPanorama((atual) =>
+          atual && atual.tutor.id === tutorId
+            ? { ...atual, tutor: { ...atual.tutor, whatsapp } }
+            : atual,
+        );
+      }
+
+      setEditandoWhatsappDestinatario(false);
+      setWhatsappsDestinatarioEdicao([""]);
+      fortinho.notify({
+        title: "WhatsApp atualizado",
+        message: "O contato foi salvo e já será usado nesta mensagem.",
+        mood: "happy",
+        gesture: "wave",
+      });
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail ?? error?.message;
+      fortinho.notify({
+        title: "Erro ao salvar WhatsApp",
+        message: extrairMensagemErro(detail),
+        mood: "alert",
+        gesture: "idle",
+        sticky: true,
+      });
+    } finally {
+      setSalvandoWhatsappDestinatario(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
       if (!isEditando) {
+        if (editandoWhatsappDestinatario) {
+          throw new Error("Salve ou cancele a edição do WhatsApp antes de criar o agendamento.");
+        }
         if (!formData.servico_id) {
           throw new Error(
             atendimentoDomiciliar
@@ -2419,6 +2565,10 @@ export default function NovoAgendamentoModal({
         }
       }
       if (!isEditando && formData.marcar_como_reserva) {
+        const prazoHoras = Number(formData.reserva_prazo_horas);
+        if (!Number.isFinite(prazoHoras) || prazoHoras < 0.5 || prazoHoras > 72) {
+          throw new Error("Informe um prazo entre 0,5 e 72 horas para confirmação da reserva.");
+        }
         const prazoConfirmacao = new Date(formData.reserva_prazo_confirmacao);
         if (Number.isNaN(prazoConfirmacao.getTime())) {
           throw new Error("Informe um prazo valido para confirmacao da reserva.");
@@ -3438,6 +3588,7 @@ export default function NovoAgendamentoModal({
                     setFormData((prev) => ({
                       ...prev,
                       marcar_como_reserva: marcada,
+                      reserva_prazo_horas: marcada ? "3" : prev.reserva_prazo_horas,
                       reserva_prazo_confirmacao: marcada
                         ? criarPrazoPadraoReserva()
                         : prev.reserva_prazo_confirmacao,
@@ -3507,24 +3658,53 @@ export default function NovoAgendamentoModal({
                 </div>
 
                 {formData.marcar_como_reserva ? (
-                  <div>
-                    <label htmlFor="fc-reserva-prazo" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-800">
-                      Confirmar até
-                    </label>
-                    <input
-                      id="fc-reserva-prazo"
-                      type="datetime-local"
-                      required
-                      value={formData.reserva_prazo_confirmacao}
-                      min={formatarDateTimeLocalInput(new Date())}
-                      onChange={(event) => setFormData((prev) => ({
-                        ...prev,
-                        reserva_prazo_confirmacao: event.target.value,
-                      }))}
-                      className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-gray-900 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200 sm:max-w-xs"
-                    />
-                    <div className="mt-1 text-xs text-amber-800">
-                      O padrão é 3 horas. O prazo precisa ser futuro e anterior ao horário reservado.
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor="fc-reserva-prazo-horas" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-800">
+                        Prazo para confirmação
+                      </label>
+                      <div className="flex max-w-xs overflow-hidden rounded-lg border border-amber-300 bg-white focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-200">
+                        <input
+                          id="fc-reserva-prazo-horas"
+                          type="number"
+                          required
+                          min="0.5"
+                          max="72"
+                          step="0.5"
+                          inputMode="decimal"
+                          value={formData.reserva_prazo_horas}
+                          onChange={(event) => {
+                            const valor = event.target.value;
+                            const horas = Number(valor);
+                            setFormData((prev) => ({
+                              ...prev,
+                              reserva_prazo_horas: valor,
+                              reserva_prazo_confirmacao:
+                                Number.isFinite(horas) && horas >= 0.5 && horas <= 72
+                                  ? criarPrazoReservaPorHoras(horas)
+                                  : prev.reserva_prazo_confirmacao,
+                            }));
+                          }}
+                          className="min-w-0 flex-1 border-0 px-3 py-2 text-gray-900 outline-none"
+                        />
+                        <span className="flex items-center border-l border-amber-200 bg-amber-50 px-3 font-medium text-amber-800">
+                          horas
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-amber-800">
+                        O padrão é 3 horas; ajuste conforme o combinado com o cliente.
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-800">
+                        Confirmar até
+                      </div>
+                      <div className="rounded-lg border border-amber-200 bg-white/80 px-3 py-2 font-medium text-gray-900">
+                        {formatarPrazoReserva(formData.reserva_prazo_confirmacao)}
+                      </div>
+                      <div className="mt-1 text-xs text-amber-800">
+                        O prazo precisa ser anterior ao horário reservado.
+                      </div>
                     </div>
                   </div>
                 ) : (
@@ -3533,15 +3713,97 @@ export default function NovoAgendamentoModal({
                   </div>
                 )}
 
-                <div className="rounded-lg border border-amber-200 bg-white/70 px-3 py-2 text-xs text-amber-900">
-                  <div>
-                    Contato atual: <strong>{destinatarioMensagemNome || "não selecionado"}</strong>
-                    {destinatarioMensagemTelefones.length > 0
-                      ? ` — ${destinatarioMensagemTelefones.map(formatarWhatsAppVisual).join(" / ")}`
-                      : " — sem WhatsApp cadastrado"}.
+                <div className="rounded-lg border border-amber-200 bg-white/70 px-3 py-3 text-xs text-amber-900">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      Contato atual: <strong>{destinatarioMensagemNome || "não selecionado"}</strong>
+                      {destinatarioMensagemTelefones.length > 0
+                        ? ` — ${destinatarioMensagemTelefones.map(formatarWhatsAppVisual).join(" / ")}`
+                        : " — sem WhatsApp cadastrado"}.
+                    </div>
+                    {!editandoWhatsappDestinatario ? (
+                      <button
+                        type="button"
+                        onClick={iniciarEdicaoWhatsappDestinatario}
+                        disabled={
+                          formData.reserva_destinatario_manual === "clinica"
+                            ? !formData.clinica_id
+                            : !formData.tutor_id
+                        }
+                        className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white px-2.5 py-1.5 font-semibold text-amber-900 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        {destinatarioMensagemTelefones.length > 0 ? "Editar WhatsApp" : "Adicionar WhatsApp"}
+                      </button>
+                    ) : null}
                   </div>
-                  <div className="mt-1">
-                    Se houver mais de um WhatsApp, você escolherá o número antes de abrir a conversa. O envio continua manual enquanto a Meta analisa a empresa.
+
+                  {editandoWhatsappDestinatario ? (
+                    <div className="mt-3 rounded-lg border border-amber-200 bg-white p-3">
+                      <div className="space-y-2">
+                        {whatsappsDestinatarioEdicao.map((telefone, indice) => (
+                          <div key={`whatsapp-destinatario-${indice}`} className="flex items-end gap-2">
+                            <label className="min-w-0 flex-1">
+                              <span className="mb-1 block font-semibold text-amber-900">
+                                WhatsApp{formData.reserva_destinatario_manual === "clinica" ? ` ${indice + 1}` : ""}
+                              </span>
+                              <input
+                                type="tel"
+                                inputMode="tel"
+                                value={telefone}
+                                onChange={(event) => atualizarWhatsappDestinatarioEdicao(indice, event.target.value)}
+                                placeholder="(85) 99999-9999"
+                                className="w-full rounded-md border border-amber-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200"
+                              />
+                            </label>
+                            {formData.reserva_destinatario_manual === "clinica" && whatsappsDestinatarioEdicao.length > 1 ? (
+                              <button
+                                type="button"
+                                onClick={() => removerWhatsappClinicaEdicao(indice)}
+                                className="rounded-md border border-red-200 p-2 text-red-600 transition hover:bg-red-50"
+                                aria-label={`Remover WhatsApp ${indice + 1}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+
+                      {formData.reserva_destinatario_manual === "clinica" && whatsappsDestinatarioEdicao.length < 10 ? (
+                        <button
+                          type="button"
+                          onClick={adicionarWhatsappClinicaEdicao}
+                          className="mt-2 inline-flex items-center gap-1 font-semibold text-amber-800 hover:text-amber-950"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Adicionar outro número
+                        </button>
+                      ) : null}
+
+                      <div className="mt-3 flex flex-wrap justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={cancelarEdicaoWhatsappDestinatario}
+                          disabled={salvandoWhatsappDestinatario}
+                          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void salvarWhatsappDestinatario()}
+                          disabled={salvandoWhatsappDestinatario}
+                          className="rounded-md bg-amber-700 px-3 py-1.5 font-semibold text-white hover:bg-amber-800 disabled:opacity-50"
+                        >
+                          {salvandoWhatsappDestinatario ? "Salvando..." : "Salvar contato"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-2">
+                    A alteração fica salva no cadastro. Se houver mais de um WhatsApp, você escolherá o número antes de abrir a conversa. O envio continua manual enquanto a Meta analisa a empresa.
                   </div>
                 </div>
               </div>

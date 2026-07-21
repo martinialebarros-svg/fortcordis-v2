@@ -204,6 +204,19 @@ def _validate_cleanup_status_payload(payload: Dict[str, Any]) -> List[str]:
     return []
 
 
+def _validate_assistente_ia_status_payload(payload: Dict[str, Any]) -> List[str]:
+    errors: List[str] = []
+    if bool(payload.get("enabled")) is not True:
+        errors.append("assistente IA desabilitado.")
+    if bool(payload.get("configured")) is not True:
+        errors.append("assistente IA sem credencial configurada.")
+    if bool(payload.get("admin_only")) is not True:
+        errors.append("assistente IA sem restricao admin_only.")
+    if not str(payload.get("model") or "").strip():
+        errors.append("assistente IA sem modelo configurado.")
+    return errors
+
+
 def _run_canary(args: argparse.Namespace) -> List[str]:
     errors: List[str] = []
     token = _resolve_token(args)
@@ -224,6 +237,11 @@ def _run_canary(args: argparse.Namespace) -> List[str]:
             "atendimento_cleanup_status",
             "/api/v1/atendimentos/upload-metrics/dedupe/cleanup/status",
             _validate_cleanup_status_payload,
+        ),
+        (
+            "assistente_ia_status",
+            "/api/v1/assistente-ia/status",
+            _validate_assistente_ia_status_payload,
         ),
     ]
 

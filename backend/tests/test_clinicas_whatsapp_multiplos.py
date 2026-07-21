@@ -64,6 +64,45 @@ class ClinicasWhatsappMultiplosTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_atualizacao_focada_de_whatsapps_preserva_demais_dados(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            criada = clinicas.criar_clinica(
+                clinicas.ClinicaCreate(
+                    nome="Clinica Integrada",
+                    telefone="(85) 3222-1111",
+                    whatsapps=["(85) 98888-1111"],
+                    email="contato@clinica.test",
+                    endereco="Rua dos Animais",
+                    cidade="Fortaleza",
+                    estado="CE",
+                ),
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+
+            atualizada = clinicas.atualizar_whatsapps_clinica(
+                criada["id"],
+                clinicas.ClinicaWhatsappsUpdate(
+                    whatsapps=["(85) 95555-4444", "(85) 94444-5555"],
+                ),
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+
+            self.assertEqual(
+                atualizada["whatsapps"],
+                ["85955554444", "85944445555"],
+            )
+            self.assertEqual(atualizada["nome"], "Clinica Integrada")
+            self.assertEqual(atualizada["email"], "contato@clinica.test")
+            self.assertEqual(atualizada["endereco"], "Rua dos Animais")
+            self.assertEqual(atualizada["cidade"], "Fortaleza")
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_serializacao_legada_usa_telefone_quando_lista_esta_vazia(self) -> None:
         clinica = Clinica(nome="Legada", telefone="(85) 98888-0000", whatsapps=[])
         payload = clinicas._serialize_clinica(clinica)

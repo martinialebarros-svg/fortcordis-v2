@@ -1,6 +1,6 @@
 # Verify - agenda-reserva-whatsapp-manual
 
-Data: 2026-07-19
+Data: 2026-07-21
 Responsavel: Martiniano + Codex
 Status: verified-for-production
 
@@ -8,12 +8,13 @@ Status: verified-for-production
 
 | ID | Evidencia | Status |
 | --- | --- | --- |
-| CA-001/CA-002 | helper de prazo em tres horas + validacoes frontend/backend | passou |
+| CA-001/CA-002 | helper de prazo configuravel, padrao de tres horas e validacoes frontend/backend | passou |
 | CA-003/CA-004 | compositor unico de reserva/agendamento com dados ou `Pendente` | passou |
 | CA-005/CA-007/CA-008 | link `wa.me`, seletor de numero e fallback sem destino | passou |
 | CA-006 | API/modelo/migracao e formulario de multiplos WhatsApps | passou |
 | CA-009 | regressao de reserva sem paciente com `NULL` | passou |
 | CA-010 | regressao cria novo registro no slot de reserva vencida e marca `Expirado` | passou |
+| CA-011/CA-012 | edicao rapida de WhatsApp + endpoint parcial de clinica preservando os demais dados | passou |
 | NFR-001/NFR-004 | fallback legado e status expirado fora dos bloqueios ativos | passou |
 
 ## 2) Testes executados
@@ -25,7 +26,7 @@ TZ=UTC backend/venv/bin/python -m unittest discover -s backend/tests -p "test_*.
 cd frontend && npm run lint
 cd frontend && npx tsc --noEmit --pretty false
 cd frontend && npm run build
-# Node + TypeScript transpile em memoria para validar prazo e os dois modelos de mensagem.
+# Node + TypeScript transpile em memoria para validar prazo configuravel e os dois modelos de mensagem.
 ```
 
 Resultados:
@@ -36,16 +37,18 @@ Resultados:
 - ESLint: passou sem avisos.
 - TypeScript: passou sem erros.
 - Build Next.js 15.5.14: passou com 33 paginas estaticas geradas.
-- Prazo de tres horas e mensagens de reserva/agendamento: validacao funcional passou.
-- Candidato de producao criado por merge de `origin/stage` sobre `origin/main`: 338 testes backend passaram com `TZ=UTC`.
-- No candidato de producao, ESLint, TypeScript e build Next.js passaram; 33 paginas estaticas foram geradas.
+- Prazo configuravel com padrao de tres horas e mensagens de reserva/agendamento: validacao funcional passou.
+- Endpoint focado de WhatsApps da clinica: preservacao dos demais dados passou.
+- Candidato de producao criado por merge de `origin/stage` sobre `origin/main`, preservando a permissao de exclusao da recepcao.
+- Candidato combinado: 359 testes backend passaram com `TZ=UTC`.
+- No candidato combinado, ESLint, TypeScript e build Next.js passaram; 34 paginas foram geradas.
 
 ## 3) Verificacoes de release
 
 - `git diff --check origin/main..HEAD`: passou.
 - `python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/main --head-sha HEAD`: passou.
 - Correcoes exclusivas de producao para exclusao da agenda foram preservadas no merge.
-- No `stage`, `Migration CI` e `Deploy to Stage (VPS)` do commit `ce9f41c` terminaram com sucesso.
+- No `stage`, `Migration CI` e `Deploy to Stage (VPS)` do commit `772f4e4` terminaram com sucesso.
 - Workflows de producao e smoke final: executar apos push para `main`.
 
 ## 4) Riscos residuais

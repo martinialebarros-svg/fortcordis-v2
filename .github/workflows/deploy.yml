@@ -109,6 +109,57 @@ jobs:
         mkdir -p ~/.ssh
         ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
+    - name: Configure OpenAI secret on Production VPS
+      env:
+        OPENAI_API_KEY_PROD: ${{ secrets.OPENAI_API_KEY_PROD }}
+      run: |
+        if [ -z "$OPENAI_API_KEY_PROD" ]; then
+          echo "OPENAI_API_KEY_PROD is not configured."
+          exit 1
+        fi
+
+        printf '%s\n' "$OPENAI_API_KEY_PROD" | \
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+            set -euo pipefail
+            umask 077
+            IFS= read -r openai_api_key
+            if [ -z "$openai_api_key" ]; then
+              echo "Received an empty OpenAI API key."
+              exit 1
+            fi
+
+            env_file="/var/www/fortcordis-v2/backend/.env"
+            if [ ! -f "$env_file" ]; then
+              echo "Production backend env file not found."
+              exit 1
+            fi
+
+            temp_file="${env_file}.openai.$$"
+            trap "rm -f \"$temp_file\"" EXIT
+            found=0
+            : > "$temp_file"
+            while IFS= read -r line || [ -n "$line" ]; do
+              case "$line" in
+                OPENAI_API_KEY=*)
+                  printf "OPENAI_API_KEY=%s\n" "$openai_api_key" >> "$temp_file"
+                  found=1
+                  ;;
+                *)
+                  printf "%s\n" "$line" >> "$temp_file"
+                  ;;
+              esac
+            done < "$env_file"
+            if [ "$found" -eq 0 ]; then
+              printf "OPENAI_API_KEY=%s\n" "$openai_api_key" >> "$temp_file"
+            fi
+
+            chmod --reference="$env_file" "$temp_file"
+            mv "$temp_file" "$env_file"
+            trap - EXIT
+            unset openai_api_key
+            echo "Production backend OpenAI secret configured."
+          '
+
     - name: Deploy to VPS
       run: |
         ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'

@@ -29,7 +29,9 @@ import {
   Pencil,
   Check,
   Loader2,
-  Receipt
+  Receipt,
+  BrainCircuit,
+  type LucideIcon,
 } from "lucide-react";
 
 const PushNotificationsBootstrap = dynamic(
@@ -45,11 +47,19 @@ const DashboardPushSnoozeHandler = dynamic(
   { ssr: false }
 );
 
-const menuGroups = [
+type MenuItem = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  adminOnly?: boolean;
+};
+
+const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
   {
     label: "Comando",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/assistente-ia", label: "Mente FortCordis", icon: BrainCircuit, adminOnly: true },
       { href: "/agenda", label: "Agenda", icon: Calendar },
       { href: "/agenda/fullcalendar", label: "Calendário", icon: CalendarDays },
       { href: "/atendimento", label: "Atendimento", icon: ClipboardPlus },
@@ -328,6 +338,16 @@ export default function DashboardLayout({
     router.push("/");
   };
 
+  const userIsAdmin = Array.isArray(user?.papeis)
+    && user.papeis.some((role: unknown) => {
+      const name = typeof role === "string"
+        ? role
+        : typeof role === "object" && role !== null && "nome" in role
+          ? String((role as { nome?: unknown }).nome || "")
+          : "";
+      return name.toLowerCase() === "admin";
+    });
+
   const activeHref = menuItems
     .filter((item) => pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`)))
     .sort((a, b) => b.href.length - a.href.length)[0]?.href;
@@ -462,7 +482,7 @@ export default function DashboardLayout({
                   <div key={group.label} className="fc-nav-group">
                     <p className="fc-nav-group-label">{group.label}</p>
                     <div className="space-y-1">
-                      {group.items.map((item) => {
+                      {group.items.filter((item) => !item.adminOnly || userIsAdmin).map((item) => {
                         const Icon = item.icon;
                         const isActive = activeHref === item.href;
 

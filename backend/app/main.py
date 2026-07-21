@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.endpoints import (
     admin,
     agenda,
+    assistente_ia,
     atendimento,
     auth,
     clinicas,
@@ -384,6 +385,11 @@ async def monitor_runtime_http_status(request: Request, call_next):
 # Rotas REST
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+app.include_router(
+    assistente_ia.router,
+    prefix="/api/v1/assistente-ia",
+    tags=["assistente_ia"],
+)
 app.include_router(agenda.router, prefix="/api/v1/agenda", tags=["agenda"])
 app.include_router(pacientes.router, prefix="/api/v1/pacientes", tags=["pacientes"])
 app.include_router(clinicas.router, prefix="/api/v1/clinicas", tags=["clinicas"])
