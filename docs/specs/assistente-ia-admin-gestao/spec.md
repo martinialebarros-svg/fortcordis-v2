@@ -1,6 +1,6 @@
 # Spec - assistente-ia-admin-gestao
 
-Data: 2026-07-20
+Data: 2026-07-21
 Responsavel: Martiniano + Codex
 Status: completed
 
@@ -27,12 +27,16 @@ Criar um modulo administrativo de IA no backend FastAPI e uma pagina no frontend
 - RF-015: reservas devem aceitar paciente pendente, usar prazo padrao de 3 horas quando omitido e respeitar o intervalo de 0,5 a 72 horas, sempre anterior ao horario reservado.
 - RF-016: a aprovacao de criacao deve revalidar referencias e executar `criar_agendamento` pelo fluxo oficial, sem conceder excecao operacional ou ignorar conflito.
 - RF-017: depois da criacao, a resposta deve conter mensagem manual equivalente ao fluxo da agenda, destinatario e numeros cadastrados, permitindo copiar ou abrir o WhatsApp sem envio automatico.
+- RF-018: a IA deve preparar uma excecao de funcionamento para uma data presente ou futura, aceitando abertura/fechamento e horario inicial/final parcial.
+- RF-019: quando apenas o horario final ou inicial for informado, a ferramenta deve preservar a outra extremidade da janela vigente naquela data.
+- RF-020: a aprovacao da excecao deve revalidar a lista atual, mesclar somente a data solicitada e reutilizar a atualizacao oficial de configuracoes.
+- RF-021: a rotina semanal, os feriados e as demais excecoes nao podem ser sobrescritos pela acao da IA.
 
 ## 3) Requisitos nao funcionais
 
 - NFR-001 (seguranca): o modelo nao recebe SQL livre, shell, credenciais ou ferramenta generica de escrita.
 - NFR-002 (privacidade): ferramentas retornam apenas os campos necessarios para cada tarefa; disponibilidade nao inclui paciente, tutor ou telefone.
-- NFR-003 (confirmacao): criacao, reserva e exclusao nunca ocorrem dentro do loop de ferramentas da IA.
+- NFR-003 (confirmacao): criacao, reserva, exclusao e alteracao de funcionamento nunca ocorrem dentro do loop de ferramentas da IA.
 - NFR-004 (concorrencia): acao pendente usa snapshot e expiracao; mudanca do alvo invalida a aprovacao.
 - NFR-005 (resiliencia): ausencia de chave, integracao desabilitada ou falha da OpenAI deve retornar erro operacional claro sem afetar os outros modulos.
 - NFR-006 (custos): o loop de ferramentas deve ter limite configuravel e nao deve habilitar pesquisa web ou ferramentas hospedadas nesta versao.
@@ -58,6 +62,7 @@ Criar um modulo administrativo de IA no backend FastAPI e uma pagina no frontend
 4. `relatorio_debitos_pendentes`
 5. `solicitar_exclusao_agendamento`
 6. `solicitar_criacao_agendamento`
+7. `solicitar_excecao_funcionamento_agenda`
 
 ### Persistencia
 
@@ -82,6 +87,9 @@ Criar um modulo administrativo de IA no backend FastAPI e uma pagina no frontend
 - CA-013: rejeicao de criacao preserva a agenda; aprovacao revalida o snapshot e chama o endpoint oficial uma unica vez.
 - CA-014: conflito, mudanca de referencia, expiracao ou validacao operacional falha invalida a acao sem criar um horario parcial.
 - CA-015: apos criacao, o frontend mostra a mensagem, permite copiar, escolher entre multiplos numeros e abrir o WhatsApp manualmente.
+- CA-016: pedir para abrir a agenda amanha ate 18h gera acao pendente com comparacao antes/depois e nao altera configuracoes antes da decisao.
+- CA-017: rejeitar preserva o funcionamento; aprovar cria ou substitui apenas a excecao da data informada.
+- CA-018: mudanca concorrente nas excecoes invalida a acao e impede sobrescrita silenciosa.
 
 ## 6) Fora de escopo
 

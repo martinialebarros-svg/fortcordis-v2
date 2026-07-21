@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   BarChart3,
   BrainCircuit,
+  CalendarClock,
   CalendarPlus,
   CalendarSearch,
   Check,
@@ -74,6 +75,10 @@ type PendingAction = {
       nome?: string | null;
       telefones?: string[];
     };
+    data?: string;
+    antes?: AgendaWindow;
+    depois?: AgendaWindow;
+    motivo?: string | null;
   };
   result?: {
     message?: string;
@@ -90,8 +95,24 @@ type PendingAction = {
       mensagem?: string;
       envio_manual?: boolean;
     };
+    agenda_excecao?: {
+      data?: string;
+      ativo?: boolean;
+      inicio?: string;
+      fim?: string;
+      motivo?: string | null;
+    };
   } | null;
   expires_at?: string | null;
+};
+
+type AgendaWindow = {
+  data?: string;
+  ativo?: boolean;
+  inicio?: string;
+  fim?: string;
+  motivo?: string | null;
+  fonte?: string;
 };
 
 type Conversation = {
@@ -129,6 +150,10 @@ const EXAMPLES = [
     text: "Reserve amanhã às 10h um ecocardiograma na Animal Care e deixe a mensagem pronta para a clínica.",
   },
   {
+    icon: CalendarClock,
+    text: "Deixe a agenda aberta amanhã até as 18h.",
+  },
+  {
     icon: ReceiptText,
     text: "Emita um relatório de débitos pendentes na Vet Plus.",
   },
@@ -157,6 +182,18 @@ function formatDateTime(value?: string | null): string {
     dateStyle: "short",
     timeStyle: "short",
   }).format(parsed);
+}
+
+function formatDateOnly(value?: string | null): string {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return value || "data não informada";
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+function formatAgendaWindow(value?: AgendaWindow): string {
+  if (!value) return "Não informado";
+  if (!value.ativo) return "Agenda fechada";
+  return `${value.inicio || "?"} às ${value.fim || "?"}`;
 }
 
 function actionStatus(action: PendingAction): { label: string; className: string; Icon: typeof Clock3 } {
@@ -368,7 +405,7 @@ export default function AssistenteIAPage() {
                 <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Mente FortCordis</h1>
                 <p className="mt-3 max-w-2xl text-sm leading-6 text-white/70 sm:text-base">
                   Consulte a operação em linguagem natural. A IA usa ferramentas delimitadas do sistema,
-                  mantém o histórico e pede sua confirmação antes de criar, reservar ou excluir horários.
+                  mantém o histórico e pede sua confirmação antes de criar, reservar, excluir ou alterar o funcionamento da agenda.
                 </p>
               </div>
               <div className="flex items-center gap-2 rounded-2xl bg-white/10 px-4 py-3 text-sm backdrop-blur">
@@ -427,7 +464,7 @@ export default function AssistenteIAPage() {
                 <div className="mb-1 flex items-center gap-2 font-semibold">
                   <ShieldCheck className="h-4 w-4" /> Controle administrativo
                 </div>
-                Consultas são automáticas. Criações, reservas e exclusões exigem confirmação e deixam registro de auditoria.
+                Consultas são automáticas. Alterações operacionais exigem confirmação e deixam registro de auditoria.
               </div>
             </aside>
 
@@ -494,8 +531,9 @@ export default function AssistenteIAPage() {
                       const BadgeIcon = badge.Icon;
                       const isDeciding = decidingActionId === action.id;
                       const isCreation = action.type === "create_appointment";
+                      const isAgendaException = action.type === "update_agenda_exception";
                       const isReservation = action.target.tipo === "reserva" || action.arguments.tipo === "reserva";
-                      const ActionIcon = isCreation ? CalendarPlus : Trash2;
+                      const ActionIcon = isAgendaException ? CalendarClock : isCreation ? CalendarPlus : Trash2;
                       const communication = action.result?.comunicacao;
                       const phones = Array.isArray(communication?.telefones)
                         ? communication.telefones.filter(Boolean)
@@ -507,9 +545,11 @@ export default function AssistenteIAPage() {
                             <div>
                               <p className="flex items-center gap-2 font-semibold text-ink-900">
                                 <ActionIcon className="h-4 w-4 text-cordis-600" />
-                                {isCreation
-                                  ? isReservation ? "Reserva de horário" : "Novo agendamento"
-                                  : "Exclusão de agendamento"}
+                                {isAgendaException
+                                  ? "Funcionamento excepcional da agenda"
+                                  : isCreation
+                                    ? isReservation ? "Reserva de horário" : "Novo agendamento"
+                                    : "Exclusão de agendamento"}
                               </p>
                               <p className="mt-1 text-sm text-ink-500">Esta ação não é executada sem a sua decisão.</p>
                             </div>
@@ -518,23 +558,35 @@ export default function AssistenteIAPage() {
                             </span>
                           </div>
                           <dl className="mt-4 grid gap-3 rounded-xl bg-white p-4 text-sm sm:grid-cols-2">
-                            <div><dt className="text-xs text-ink-400">Clínica</dt><dd className="font-medium text-ink-800">{action.target.clinica_nome || "Não informada"}</dd></div>
-                            <div><dt className="text-xs text-ink-400">Data e hora</dt><dd className="font-medium text-ink-800">{formatDateTime(action.target.inicio)}</dd></div>
-                            <div><dt className="text-xs text-ink-400">Serviço</dt><dd className="font-medium text-ink-800">{action.target.servico_nome || "Não informado"}</dd></div>
-                            <div><dt className="text-xs text-ink-400">Paciente</dt><dd className="font-medium text-ink-800">{action.target.paciente_nome || action.target.paciente_primeiro_nome || (isReservation ? "Pendente" : "Não informado")}</dd></div>
-                            {isCreation ? (
+                            {isAgendaException ? (
                               <>
-                                <div><dt className="text-xs text-ink-400">Tutor</dt><dd className="font-medium text-ink-800">{action.target.tutor_nome || "Pendente"}</dd></div>
-                                <div><dt className="text-xs text-ink-400">Mensagem para</dt><dd className="font-medium text-ink-800">{action.target.destinatario_mensagem?.nome || "Não informado"}</dd></div>
-                                {isReservation ? (
-                                  <div className="sm:col-span-2"><dt className="text-xs text-ink-400">Prazo de confirmação</dt><dd className="font-medium text-ink-800">{formatDateTime(action.target.reserva_expira_em)}</dd></div>
-                                ) : null}
-                                {action.arguments.observacoes ? (
-                                  <div className="sm:col-span-2"><dt className="text-xs text-ink-400">Observações</dt><dd className="font-medium text-ink-800">{action.arguments.observacoes}</dd></div>
-                                ) : null}
+                                <div><dt className="text-xs text-ink-400">Data</dt><dd className="font-medium text-ink-800">{formatDateOnly(action.target.data)}</dd></div>
+                                <div><dt className="text-xs text-ink-400">Origem atual</dt><dd className="font-medium text-ink-800">{action.target.antes?.fonte === "excecao" ? "Exceção existente" : action.target.antes?.fonte === "feriado" ? "Feriado" : "Rotina semanal"}</dd></div>
+                                <div><dt className="text-xs text-ink-400">Funcionamento atual</dt><dd className="font-medium text-ink-800">{formatAgendaWindow(action.target.antes)}</dd></div>
+                                <div><dt className="text-xs text-ink-400">Após confirmar</dt><dd className="font-medium text-ink-800">{formatAgendaWindow(action.target.depois)}</dd></div>
+                                <div className="sm:col-span-2"><dt className="text-xs text-ink-400">Motivo</dt><dd className="font-medium text-ink-800">{action.target.motivo || "Ajuste solicitado pelo administrador"}</dd></div>
                               </>
                             ) : (
-                              <div className="sm:col-span-2"><dt className="text-xs text-ink-400">Motivo</dt><dd className="font-medium text-ink-800">{action.arguments.motivo || "Não informado"}</dd></div>
+                              <>
+                                <div><dt className="text-xs text-ink-400">Clínica</dt><dd className="font-medium text-ink-800">{action.target.clinica_nome || "Não informada"}</dd></div>
+                                <div><dt className="text-xs text-ink-400">Data e hora</dt><dd className="font-medium text-ink-800">{formatDateTime(action.target.inicio)}</dd></div>
+                                <div><dt className="text-xs text-ink-400">Serviço</dt><dd className="font-medium text-ink-800">{action.target.servico_nome || "Não informado"}</dd></div>
+                                <div><dt className="text-xs text-ink-400">Paciente</dt><dd className="font-medium text-ink-800">{action.target.paciente_nome || action.target.paciente_primeiro_nome || (isReservation ? "Pendente" : "Não informado")}</dd></div>
+                                {isCreation ? (
+                                  <>
+                                    <div><dt className="text-xs text-ink-400">Tutor</dt><dd className="font-medium text-ink-800">{action.target.tutor_nome || "Pendente"}</dd></div>
+                                    <div><dt className="text-xs text-ink-400">Mensagem para</dt><dd className="font-medium text-ink-800">{action.target.destinatario_mensagem?.nome || "Não informado"}</dd></div>
+                                    {isReservation ? (
+                                      <div className="sm:col-span-2"><dt className="text-xs text-ink-400">Prazo de confirmação</dt><dd className="font-medium text-ink-800">{formatDateTime(action.target.reserva_expira_em)}</dd></div>
+                                    ) : null}
+                                    {action.arguments.observacoes ? (
+                                      <div className="sm:col-span-2"><dt className="text-xs text-ink-400">Observações</dt><dd className="font-medium text-ink-800">{action.arguments.observacoes}</dd></div>
+                                    ) : null}
+                                  </>
+                                ) : (
+                                  <div className="sm:col-span-2"><dt className="text-xs text-ink-400">Motivo</dt><dd className="font-medium text-ink-800">{action.arguments.motivo || "Não informado"}</dd></div>
+                                )}
+                              </>
                             )}
                           </dl>
                           {action.status === "pending" ? (
@@ -554,9 +606,11 @@ export default function AssistenteIAPage() {
                                 className="flex items-center justify-center gap-2 rounded-xl bg-cordis-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-cordis-700 disabled:opacity-60"
                               >
                                 {isDeciding ? <Loader2 className="h-4 w-4 animate-spin" /> : <ActionIcon className="h-4 w-4" />}
-                                {isCreation
-                                  ? isReservation ? "Confirmar reserva" : "Confirmar agendamento"
-                                  : "Confirmar exclusão"}
+                                {isAgendaException
+                                  ? "Confirmar funcionamento"
+                                  : isCreation
+                                    ? isReservation ? "Confirmar reserva" : "Confirmar agendamento"
+                                    : "Confirmar exclusão"}
                               </button>
                             </div>
                           ) : null}

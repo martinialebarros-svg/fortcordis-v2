@@ -1,6 +1,6 @@
 # Intent - assistente-ia-admin-gestao
 
-Data: 2026-07-20
+Data: 2026-07-21
 Responsavel: Martiniano + Codex
 Status: completed
 
@@ -19,6 +19,7 @@ Informacoes de agenda, faturamento, debitos e operacao estao distribuidas em mod
 - exclusao de agendamento somente depois de uma confirmacao explicita na interface;
 - criacao de agendamento ou reserva somente depois de uma confirmacao explicita na interface;
 - mensagem pos-criacao pronta para copiar ou abrir manualmente no WhatsApp da clinica ou do tutor;
+- excecao de funcionamento por data preparada em linguagem natural, como abrir a agenda de amanha ate um horario especifico;
 - conversas persistidas por administrador para continuidade entre acessos;
 - chamadas da IA e acoes aprovadas com trilha auditavel;
 - nenhuma capacidade de SQL livre, shell, acesso irrestrito ao banco ou escrita generica.

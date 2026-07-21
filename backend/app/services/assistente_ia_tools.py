@@ -13,11 +13,22 @@ from fastapi import HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.v1.endpoints import agenda
+from app.api.v1.endpoints import agenda, configuracoes
+from app.core.agenda_config import (
+    DEFAULT_AGENDA_SEMANAL,
+    DEFAULT_EXCECAO_FIM,
+    DEFAULT_EXCECAO_INICIO,
+    carregar_agenda_excecoes,
+    carregar_agenda_feriados,
+    carregar_agenda_semanal,
+    obter_excecao_data,
+    obter_feriado,
+)
 from app.core.config import settings
 from app.models.agendamento import Agendamento
 from app.models.assistente_ia import AssistenteIAAcaoPendente, AssistenteIAConversa
 from app.models.clinica import Clinica
+from app.models.configuracao import Configuracao
 from app.models.financeiro import ContaReceber, Transacao
 from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
@@ -592,6 +603,208 @@ def relatorio_debitos_pendentes(
         },
         "total_estimado_sem_deduplicacao": round(total_orders + total_accounts, 2),
         "aviso": "Ordens de servico e contas a receber sao fontes separadas e podem representar o mesmo debito; apresente os subtotais antes do total estimado.",
+    }
+
+
+def _agenda_configuration_rules(db: Session) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    config = db.query(Configuracao).order_by(Configuracao.id.asc()).first()
+    exceptions = carregar_agenda_excecoes(getattr(config, "agenda_excecoes", None) if config else None)
+    weekly = carregar_agenda_semanal(getattr(config, "agenda_semanal", None) if config else None)
+    holidays = carregar_agenda_feriados(getattr(config, "agenda_feriados", None) if config else None)
+    return exceptions, weekly, holidays
+
+
+def _agenda_day_window(
+    reference_date: date,
+    *,
+    exceptions: list[dict[str, Any]],
+    weekly: dict[str, Any],
+    holidays: list[dict[str, Any]],
+) -> dict[str, Any]:
+    exception = obter_excecao_data(reference_date, exceptions)
+    if exception is not None:
+        return {
+            "data": reference_date.isoformat(),
+            "ativo": bool(exception.get("ativo", False)),
+            "inicio": str(exception.get("inicio") or DEFAULT_EXCECAO_INICIO),
+            "fim": str(exception.get("fim") or DEFAULT_EXCECAO_FIM),
+            "motivo": str(exception.get("motivo") or "").strip() or None,
+            "fonte": "excecao",
+        }
+
+    day_key = str(reference_date.isoweekday())
+    day_config = weekly.get(day_key) or DEFAULT_AGENDA_SEMANAL[day_key]
+    holiday = obter_feriado(reference_date, holidays)
+    return {
+        "data": reference_date.isoformat(),
+        "ativo": bool(day_config.get("ativo", False)) and holiday is None,
+        "inicio": str(day_config.get("inicio") or DEFAULT_AGENDA_SEMANAL[day_key]["inicio"]),
+        "fim": str(day_config.get("fim") or DEFAULT_AGENDA_SEMANAL[day_key]["fim"]),
+        "motivo": (
+            str(holiday.get("descricao") or "").strip() or "Feriado"
+            if holiday is not None
+            else None
+        ),
+        "fonte": "feriado" if holiday is not None else "agenda_semanal",
+    }
+
+
+def _hhmm(value: Optional[str], *, field_label: str) -> Optional[str]:
+    try:
+        parsed = _parse_hhmm(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_label} invalido. Use HH:MM.") from exc
+    return parsed.strftime("%H:%M") if parsed is not None else None
+
+
+def _hhmm_minutes(value: str) -> int:
+    parsed = _parse_hhmm(value)
+    if parsed is None:
+        raise ValueError("Horario nao informado.")
+    return parsed.hour * 60 + parsed.minute
+
+
+def _agenda_exception_signature(arguments: dict[str, Any]) -> tuple[Any, ...]:
+    desired = arguments.get("excecao") if isinstance(arguments.get("excecao"), dict) else {}
+    return (
+        desired.get("data"),
+        bool(desired.get("ativo")),
+        desired.get("inicio"),
+        desired.get("fim"),
+        desired.get("motivo"),
+    )
+
+
+def solicitar_excecao_funcionamento_agenda(
+    ctx: AssistenteIAToolContext,
+    *,
+    data: str,
+    ativo: bool,
+    inicio: Optional[str],
+    fim: Optional[str],
+    motivo: Optional[str],
+) -> dict[str, Any]:
+    if not ctx.current_user.tem_papel("admin"):
+        return {"ok": False, "error": "Apenas administradores podem alterar o funcionamento da agenda."}
+
+    try:
+        reference_date = _parse_iso_date(data)
+        requested_start = _hhmm(inicio, field_label="Horario inicial")
+        requested_end = _hhmm(fim, field_label="Horario final")
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    today = datetime.now(LOCAL_TZ).date()
+    if reference_date < today:
+        return {"ok": False, "error": "A excecao de funcionamento nao pode ser criada para uma data passada."}
+    if reference_date > today + timedelta(days=370):
+        return {"ok": False, "error": "A data deve estar no maximo 370 dias no futuro."}
+
+    current_exceptions, weekly, holidays = _agenda_configuration_rules(ctx.db)
+    before = _agenda_day_window(
+        reference_date,
+        exceptions=current_exceptions,
+        weekly=weekly,
+        holidays=holidays,
+    )
+    desired_start = requested_start or str(before.get("inicio") or DEFAULT_EXCECAO_INICIO)
+    desired_end = requested_end or str(before.get("fim") or DEFAULT_EXCECAO_FIM)
+    try:
+        if _hhmm_minutes(desired_start) >= _hhmm_minutes(desired_end):
+            return {"ok": False, "error": "O horario final deve ser posterior ao horario inicial."}
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    clean_reason = (
+        str(motivo or "").strip()[:300]
+        or "Ajuste solicitado pelo administrador via Mente FortCordis"
+    )
+    desired = {
+        "data": reference_date.isoformat(),
+        "ativo": bool(ativo),
+        "inicio": desired_start,
+        "fim": desired_end,
+        "motivo": clean_reason,
+    }
+    if (
+        bool(before.get("ativo")) == desired["ativo"]
+        and str(before.get("inicio")) == desired["inicio"]
+        and str(before.get("fim")) == desired["fim"]
+    ):
+        return {
+            "ok": True,
+            "changed": False,
+            "message": "A agenda ja possui esse funcionamento na data informada.",
+            "current": before,
+        }
+
+    arguments = {"excecao": desired}
+    snapshot = {
+        "data": reference_date.isoformat(),
+        "antes": before,
+        "depois": {**desired, "fonte": "excecao"},
+        "agenda_excecoes_antes": current_exceptions,
+        "motivo": clean_reason,
+    }
+    now_utc = datetime.now(timezone.utc)
+    existing = (
+        ctx.db.query(AssistenteIAAcaoPendente)
+        .filter(
+            AssistenteIAAcaoPendente.usuario_id == ctx.current_user.id,
+            AssistenteIAAcaoPendente.conversa_id == ctx.conversa.id,
+            AssistenteIAAcaoPendente.tipo_acao == "update_agenda_exception",
+            AssistenteIAAcaoPendente.status == "pending",
+        )
+        .order_by(AssistenteIAAcaoPendente.created_at.desc())
+        .all()
+    )
+    for action in existing:
+        expires_at = _as_utc_datetime(action.expires_at)
+        if (
+            _agenda_exception_signature(_json_loads(action.argumentos_json, {}))
+            == _agenda_exception_signature(arguments)
+            and expires_at
+            and expires_at > now_utc
+        ):
+            return {
+                "ok": True,
+                "requires_approval": True,
+                "pending_action": serialize_pending_action(action),
+                "message": "Esta alteracao de funcionamento ja aguarda confirmacao.",
+            }
+
+    action = AssistenteIAAcaoPendente(
+        id=str(uuid.uuid4()),
+        conversa_id=ctx.conversa.id,
+        usuario_id=int(ctx.current_user.id),
+        tipo_acao="update_agenda_exception",
+        argumentos_json=_json_dumps(arguments),
+        alvo_snapshot_json=_json_dumps(snapshot),
+        status="pending",
+        expires_at=now_utc + timedelta(minutes=max(5, int(settings.ASSISTENTE_IA_ACTION_TTL_MINUTES))),
+    )
+    ctx.db.add(action)
+    ctx.db.commit()
+    ctx.db.refresh(action)
+    registrar_auditoria(
+        current_user=ctx.current_user,
+        modulo="assistente_ia",
+        entidade="configuracao_agenda",
+        entidade_id=reference_date.isoformat(),
+        acao="ASSISTENTE_IA_EXCECAO_AGENDA_SOLICITADA",
+        descricao="Mente FortCordis preparou excecao de funcionamento para confirmacao do admin.",
+        detalhes={
+            "acao_pendente_id": action.id,
+            "antes": before,
+            "depois": desired,
+        },
+        request=ctx.request,
+    )
+    return {
+        "ok": True,
+        "requires_approval": True,
+        "pending_action": serialize_pending_action(action),
+        "message": "A alteracao foi preparada e so sera aplicada depois da confirmacao explicita.",
     }
 
 
@@ -1392,6 +1605,110 @@ def _approve_appointment_creation(
     return serialize_pending_action(action)
 
 
+def _approve_agenda_exception_update(
+    *,
+    db: Session,
+    current_user: User,
+    request: Optional[Request],
+    action: AssistenteIAAcaoPendente,
+    now_utc: datetime,
+    observation: Optional[str],
+) -> dict[str, Any]:
+    arguments = _json_loads(action.argumentos_json, {})
+    snapshot = _json_loads(action.alvo_snapshot_json, {})
+    desired = arguments.get("excecao") if isinstance(arguments.get("excecao"), dict) else {}
+    if not desired.get("data"):
+        detail = "A excecao preparada nao possui uma data valida."
+        _invalidate_pending_action(
+            db,
+            action,
+            now_utc=now_utc,
+            reason="invalid_arguments",
+            detail=detail,
+        )
+        raise HTTPException(status_code=409, detail=detail)
+
+    current_exceptions, _weekly, _holidays = _agenda_configuration_rules(db)
+    expected_exceptions = snapshot.get("agenda_excecoes_antes")
+    if not isinstance(expected_exceptions, list) or current_exceptions != expected_exceptions:
+        detail = "As excecoes da agenda mudaram depois da solicitacao. Revise e solicite novamente."
+        _invalidate_pending_action(
+            db,
+            action,
+            now_utc=now_utc,
+            reason="agenda_configuration_changed",
+            detail=detail,
+        )
+        raise HTTPException(status_code=409, detail=detail)
+
+    date_iso = str(desired["data"])
+    merged = [item for item in current_exceptions if str(item.get("data")) != date_iso]
+    merged.append(
+        {
+            "data": date_iso,
+            "ativo": bool(desired.get("ativo")),
+            "inicio": str(desired.get("inicio") or DEFAULT_EXCECAO_INICIO),
+            "fim": str(desired.get("fim") or DEFAULT_EXCECAO_FIM),
+            "motivo": str(desired.get("motivo") or "").strip(),
+        }
+    )
+    merged.sort(key=lambda item: str(item.get("data") or ""))
+
+    action.status = "processing"
+    action.decided_at = now_utc
+    db.add(action)
+    db.flush()
+    try:
+        configuracoes.atualizar_configuracoes(
+            dados={"agenda_excecoes": merged},
+            db=db,
+            current_user=current_user,
+        )
+    except HTTPException as exc:
+        _invalidate_pending_action(
+            db,
+            action,
+            now_utc=now_utc,
+            reason="agenda_configuration_failed",
+            detail=str(exc.detail),
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=f"Nao foi possivel alterar o funcionamento da agenda: {exc.detail}",
+        ) from exc
+
+    action.status = "executed"
+    action.executed_at = now_utc
+    action.resultado_json = _json_dumps(
+        {
+            "ok": True,
+            "decision": "approved",
+            "message": "Funcionamento excepcional da agenda atualizado com sucesso.",
+            "observation": str(observation or "").strip() or None,
+            "agenda_excecao": desired,
+        }
+    )
+    db.add(action)
+    db.commit()
+    db.refresh(action)
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="assistente_ia",
+        entidade="configuracao_agenda",
+        entidade_id=date_iso,
+        acao="ASSISTENTE_IA_ACAO_EXECUTADA",
+        descricao="Administrador aprovou excecao de funcionamento preparada pela Mente FortCordis.",
+        detalhes={
+            "tipo_acao": action.tipo_acao,
+            "antes": snapshot.get("antes"),
+            "depois": desired,
+            "observacao": observation,
+        },
+        request=request,
+    )
+    return serialize_pending_action(action)
+
+
 def decide_pending_action(
     *,
     db: Session,
@@ -1448,6 +1765,15 @@ def decide_pending_action(
         raise HTTPException(status_code=422, detail="Decisao invalida.")
     if action.tipo_acao == "create_appointment":
         return _approve_appointment_creation(
+            db=db,
+            current_user=current_user,
+            request=request,
+            action=action,
+            now_utc=now_utc,
+            observation=observation,
+        )
+    if action.tipo_acao == "update_agenda_exception":
+        return _approve_agenda_exception_update(
             db=db,
             current_user=current_user,
             request=request,
@@ -1593,6 +1919,37 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "type": "function",
+        "name": "solicitar_excecao_funcionamento_agenda",
+        "description": "Prepara uma excecao de funcionamento para uma data especifica, como abrir a agenda amanha ate 18h ou fechar um dia. Preserva a rotina semanal e nunca altera a configuracao sem confirmacao explicita do admin.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "data": {"type": "string", "description": "Data YYYY-MM-DD."},
+                "ativo": {
+                    "type": "boolean",
+                    "description": "True para abrir a agenda na data; false para fecha-la.",
+                },
+                "inicio": {
+                    "type": ["string", "null"],
+                    "description": "Horario inicial HH:MM ou null para preservar o inicio vigente.",
+                },
+                "fim": {
+                    "type": ["string", "null"],
+                    "description": "Horario final HH:MM ou null para preservar o fim vigente.",
+                },
+                "motivo": {
+                    "type": ["string", "null"],
+                    "maxLength": 300,
+                    "description": "Motivo administrativo curto ou null.",
+                },
+            },
+            "required": ["data", "ativo", "inicio", "fim", "motivo"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
         "name": "solicitar_criacao_agendamento",
         "description": "Prepara um agendamento ou uma reserva depois de resolver os cadastros e validar as regras reais da agenda. Nunca cria o horario diretamente: gera uma acao pendente para confirmacao explicita do admin.",
         "parameters": {
@@ -1686,6 +2043,15 @@ def execute_tool(
             clinica=arguments["clinica"],
             somente_vencidos=bool(arguments["somente_vencidos"]),
         )
+    if name == "solicitar_excecao_funcionamento_agenda":
+        return solicitar_excecao_funcionamento_agenda(
+            ctx,
+            data=arguments["data"],
+            ativo=bool(arguments["ativo"]),
+            inicio=arguments.get("inicio"),
+            fim=arguments.get("fim"),
+            motivo=arguments.get("motivo"),
+        )
     if name == "solicitar_criacao_agendamento":
         return solicitar_criacao_agendamento(
             ctx,
@@ -1723,6 +2089,10 @@ def tool_result_summary(name: str, result: dict[str, Any]) -> str:
         orders = result.get("ordens_servico_pendentes") or {}
         accounts = result.get("contas_receber_pendentes") or {}
         return f"{orders.get('quantidade', 0)} OS e {accounts.get('quantidade', 0)} conta(s) pendente(s)"
+    if name == "solicitar_excecao_funcionamento_agenda":
+        if result.get("changed") is False:
+            return "A agenda ja possui o funcionamento solicitado"
+        return "Aguardando confirmacao para alterar o funcionamento"
     if name == "solicitar_criacao_agendamento":
         return "Aguardando confirmacao para criar o horario"
     if name == "solicitar_exclusao_agendamento":
@@ -1731,6 +2101,25 @@ def tool_result_summary(name: str, result: dict[str, Any]) -> str:
 
 
 def tool_result_for_model(name: str, result: dict[str, Any]) -> dict[str, Any]:
+    if name == "solicitar_excecao_funcionamento_agenda" and isinstance(result.get("pending_action"), dict):
+        action = result["pending_action"]
+        target = action.get("target") if isinstance(action.get("target"), dict) else {}
+        return {
+            "ok": bool(result.get("ok")),
+            "requires_approval": bool(result.get("requires_approval")),
+            "message": result.get("message"),
+            "pending_action": {
+                "id": action.get("id"),
+                "type": action.get("type"),
+                "status": action.get("status"),
+                "target": {
+                    "data": target.get("data"),
+                    "antes": target.get("antes"),
+                    "depois": target.get("depois"),
+                    "motivo": target.get("motivo"),
+                },
+            },
+        }
     if name != "solicitar_criacao_agendamento" or not isinstance(result.get("pending_action"), dict):
         return result
     action = result["pending_action"]

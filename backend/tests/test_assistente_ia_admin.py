@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import tempfile
@@ -27,6 +28,7 @@ from app.models.assistente_ia import (
     AssistenteIAMensagem,
 )
 from app.models.clinica import Clinica
+from app.models.configuracao import Configuracao
 from app.models.financeiro import ContaReceber, Transacao
 from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
@@ -42,6 +44,7 @@ class AssistenteIAAdminTest(unittest.TestCase):
         self._engine = create_engine(f"sqlite:///{db_path}")
         self._session_factory = sessionmaker(bind=self._engine, autocommit=False, autoflush=False)
         for table in (
+            Configuracao.__table__,
             Tutor.__table__,
             Paciente.__table__,
             Clinica.__table__,
@@ -127,6 +130,17 @@ class AssistenteIAAdminTest(unittest.TestCase):
             request=SimpleNamespace(headers={}),
         )
 
+    def _agenda_config(self, db, *, exceptions=None):
+        config = Configuracao(
+            agenda_excecoes=json.dumps(exceptions or []),
+            agenda_semanal=None,
+            agenda_feriados=None,
+        )
+        db.add(config)
+        db.commit()
+        db.refresh(config)
+        return config
+
     def test_rotas_exigem_papel_admin(self) -> None:
         protected_routes = 0
         for route in assistente_ia_endpoint.router.routes:
@@ -166,6 +180,130 @@ class AssistenteIAAdminTest(unittest.TestCase):
         self.assertEqual(result["matches"][0]["paciente_primeiro_nome"], "Luna")
         self.assertNotIn("telefone", str(result).lower())
         self.assertNotIn("tutor", str(result).lower())
+
+    def test_excecao_de_funcionamento_fica_pendente_sem_alterar_configuracao(self) -> None:
+        with self._session_factory() as db:
+            _clinic, _service, _patient, conversation = self._seed_base(db)
+            config = self._agenda_config(db)
+            future = datetime.now(assistente_ia_tools.LOCAL_TZ).date() + timedelta(days=7)
+            before_raw = config.agenda_excecoes
+            with patch.object(assistente_ia_tools, "registrar_auditoria"):
+                prepared = assistente_ia_tools.solicitar_excecao_funcionamento_agenda(
+                    self._context(db, conversation),
+                    data=future.isoformat(),
+                    ativo=True,
+                    inicio=None,
+                    fim="18:00",
+                    motivo="Ampliar atendimento",
+                )
+
+            db.refresh(config)
+            self.assertTrue(prepared["ok"])
+            self.assertTrue(prepared["requires_approval"])
+            self.assertEqual(prepared["pending_action"]["type"], "update_agenda_exception")
+            self.assertEqual(prepared["pending_action"]["target"]["depois"]["fim"], "18:00")
+            self.assertTrue(prepared["pending_action"]["target"]["depois"]["ativo"])
+            provider_result = assistente_ia_tools.tool_result_for_model(
+                "solicitar_excecao_funcionamento_agenda",
+                prepared,
+            )
+            self.assertNotIn("agenda_excecoes_antes", str(provider_result))
+            self.assertEqual(config.agenda_excecoes, before_raw)
+
+    def test_excecao_de_funcionamento_aplica_somente_apos_aprovacao(self) -> None:
+        with self._session_factory() as db:
+            _clinic, _service, _patient, conversation = self._seed_base(db)
+            config = self._agenda_config(db)
+            future = datetime.now(assistente_ia_tools.LOCAL_TZ).date() + timedelta(days=8)
+            with patch.object(assistente_ia_tools, "registrar_auditoria") as audit:
+                prepared = assistente_ia_tools.solicitar_excecao_funcionamento_agenda(
+                    self._context(db, conversation),
+                    data=future.isoformat(),
+                    ativo=True,
+                    inicio=None,
+                    fim="18:00",
+                    motivo="Agenda estendida pela gestao",
+                )["pending_action"]
+                executed = assistente_ia_tools.decide_pending_action(
+                    db=db,
+                    current_user=self.user,
+                    request=SimpleNamespace(headers={}),
+                    action_id=prepared["id"],
+                    decision="approve",
+                )
+
+            db.refresh(config)
+            exceptions = json.loads(config.agenda_excecoes)
+            created = next(item for item in exceptions if item["data"] == future.isoformat())
+            self.assertEqual(executed["status"], "executed")
+            self.assertEqual(executed["result"]["agenda_excecao"]["fim"], "18:00")
+            self.assertTrue(created["ativo"])
+            self.assertEqual(created["fim"], "18:00")
+            self.assertTrue(
+                any(
+                    call.kwargs.get("acao") == "ASSISTENTE_IA_ACAO_EXECUTADA"
+                    for call in audit.call_args_list
+                )
+            )
+
+    def test_excecao_de_funcionamento_rejeitada_ou_desatualizada_nao_e_aplicada(self) -> None:
+        with self._session_factory() as db:
+            _clinic, _service, _patient, conversation = self._seed_base(db)
+            config = self._agenda_config(db)
+            first_date = datetime.now(assistente_ia_tools.LOCAL_TZ).date() + timedelta(days=9)
+            second_date = first_date + timedelta(days=1)
+            with patch.object(assistente_ia_tools, "registrar_auditoria"):
+                rejected_action = assistente_ia_tools.solicitar_excecao_funcionamento_agenda(
+                    self._context(db, conversation),
+                    data=first_date.isoformat(),
+                    ativo=True,
+                    inicio=None,
+                    fim="18:00",
+                    motivo=None,
+                )["pending_action"]
+                rejected = assistente_ia_tools.decide_pending_action(
+                    db=db,
+                    current_user=self.user,
+                    request=SimpleNamespace(headers={}),
+                    action_id=rejected_action["id"],
+                    decision="reject",
+                )
+                self.assertEqual(rejected["status"], "rejected")
+                self.assertEqual(json.loads(config.agenda_excecoes), [])
+
+                changed_action = assistente_ia_tools.solicitar_excecao_funcionamento_agenda(
+                    self._context(db, conversation),
+                    data=second_date.isoformat(),
+                    ativo=True,
+                    inicio="08:00",
+                    fim="18:00",
+                    motivo=None,
+                )["pending_action"]
+                config.agenda_excecoes = json.dumps(
+                    [
+                        {
+                            "data": first_date.isoformat(),
+                            "ativo": False,
+                            "inicio": "08:00",
+                            "fim": "18:00",
+                            "motivo": "Mudanca concorrente",
+                        }
+                    ]
+                )
+                db.add(config)
+                db.commit()
+                with self.assertRaises(HTTPException) as changed:
+                    assistente_ia_tools.decide_pending_action(
+                        db=db,
+                        current_user=self.user,
+                        request=SimpleNamespace(headers={}),
+                        action_id=changed_action["id"],
+                        decision="approve",
+                    )
+
+            self.assertEqual(changed.exception.status_code, 409)
+            stored = db.query(AssistenteIAAcaoPendente).filter_by(id=changed_action["id"]).one()
+            self.assertEqual(stored.status, "invalidated")
 
     def test_reserva_preparada_nao_cria_horario_antes_da_confirmacao(self) -> None:
         with self._session_factory() as db:

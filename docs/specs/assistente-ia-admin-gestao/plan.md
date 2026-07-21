@@ -1,6 +1,6 @@
 # Plan - assistente-ia-admin-gestao
 
-Data: 2026-07-20
+Data: 2026-07-21
 Responsavel: Martiniano + Codex
 Status: completed
 
@@ -19,6 +19,7 @@ Rollback: desabilitar `ASSISTENTE_IA_ENABLED`; as tabelas novas permanecem isola
 3. Implementar loop da Responses API com limite, estado e auditoria.
 4. Implementar pedido de exclusao como acao pendente, nunca como delete direto.
 5. Implementar criacao de reserva/agendamento como acao pendente, reutilizando resolucao de cadastros e validadores oficiais da agenda.
+6. Implementar excecao de funcionamento por data como acao pendente, preservando a rotina semanal e revalidando a lista de excecoes antes da escrita.
 
 Rollback: remover o router do modulo; nenhum endpoint atual e substituido.
 
@@ -37,6 +38,7 @@ Rollback: retirar `include_router`; dados persistidos ficam inertes.
 3. Exibir ferramentas usadas e cartao de confirmacao para acao pendente.
 4. Redirecionar nao-admin e manter a API como barreira de seguranca definitiva.
 5. Generalizar o cartao para criacao de horario e, apos a execucao, oferecer copia da mensagem e abertura manual do WhatsApp.
+6. Exibir comparacao entre funcionamento atual e funcionamento proposto para uma excecao de data.
 
 Rollback: remover pagina e item de navegacao sem afetar backend.
 
@@ -48,3 +50,4 @@ Rollback: remover pagina e item de navegacao sem afetar backend.
 4. ESLint e build do frontend.
 5. Smoke real da OpenAI sem expor a chave, se o modelo estiver habilitado na conta.
 6. Sincronizar o segredo exclusivo de stage e exigir o status autenticado do assistente no canario pos-deploy.
+7. Cobrir preparacao sem escrita, rejeicao, aprovacao e conflito concorrente da excecao de funcionamento.

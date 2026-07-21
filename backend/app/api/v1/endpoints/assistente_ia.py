@@ -35,6 +35,7 @@ def assistente_ia_status(
             "faturamento",
             "agenda",
             "disponibilidade",
+            "excecao_de_funcionamento_com_confirmacao",
             "criacao_de_horario_com_confirmacao",
             "reserva_com_confirmacao",
             "mensagem_whatsapp_manual",

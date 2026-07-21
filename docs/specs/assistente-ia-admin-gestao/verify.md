@@ -1,6 +1,6 @@
 # Verify - assistente-ia-admin-gestao
 
-Data: 2026-07-20
+Data: 2026-07-21
 Responsavel: Martiniano + Codex
 Status: passed
 
@@ -23,6 +23,9 @@ Status: passed
 | CA-013 | rejeicao nao chama escrita; aprovacao chama `criar_agendamento` com payload validado | aprovado |
 | CA-014 | referencias e regras sao revalidadas na aprovacao, sem override operacional | aprovado |
 | CA-015 | cartao de criacao, mensagem, selecao de telefone, copia e abertura manual do WhatsApp | aprovado |
+| CA-016 | pedido de ampliacao prepara `update_agenda_exception`, mostra antes/depois e nao escreve configuracao | aprovado |
+| CA-017 | rejeicao preserva; aprovacao atualiza somente a excecao solicitada pelo endpoint oficial | aprovado |
+| CA-018 | snapshot divergente invalida a acao com 409 | aprovado |
 
 ## 2) Comandos executados
 
@@ -38,8 +41,8 @@ cd frontend && npm run build
 
 ## 3) Resultado
 
-- testes focais desta extensao: 15 aprovados;
-- suite completa atual: 345 testes aprovados;
+- testes focais atuais: 52 aprovados;
+- suite completa atual: 348 testes aprovados;
 - migration SQLite executada duas vezes no mesmo banco: aprovada e idempotente;
 - dependencias Python: `No broken requirements found`;
 - frontend: compilacao, tipos, lint e build aprovados; rota estatica `/assistente-ia` gerada;
@@ -49,4 +52,5 @@ cd frontend && npm run build
 - nenhum segredo foi impresso, copiado para outro arquivo ou enviado ao frontend;
 - versao inicial implantada em stage no commit `6190661`; extensao de criacao/reserva autorizada para a release de stage deste ciclo;
 - fluxo novo de criacao/reserva: testes de preparacao sem escrita, rejeicao e aprovacao pelo endpoint oficial aprovados;
-- frontend novo: cartao diferenciado para reserva/agendamento e comunicacao manual tipados e aprovados no lint.
+- frontend novo: cartao diferenciado para reserva/agendamento e comunicacao manual tipados e aprovados no lint;
+- funcionamento excepcional: preparacao sem escrita, aprovacao, rejeicao e concorrencia cobertas; cartao mostra origem, janela atual e janela proposta.
