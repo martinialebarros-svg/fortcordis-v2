@@ -1,24 +1,36 @@
 from __future__ import annotations
 
-from datetime import datetime
+import json
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import require_papel
 from app.db.database import get_db
+from app.models.atendimento_clinico import AnexoAtendimento
+from app.models.auditoria_evento import AuditoriaEvento
+from app.models.clinica import Clinica
+from app.models.laudo import Exame
+from app.models.paciente import Paciente
 from app.models.portal_clinic_auth import (
     PortalAuthChallenge,
     PortalClinicAccount,
     PortalClinicInvite,
     PortalClinicSession,
 )
+from app.models.tutor import Tutor
 from app.models.user import User
 from app.schemas.portal import (
+    PortalAdminClinicAccessOverviewItem,
+    PortalAdminClinicAccessOverviewMetrics,
+    PortalAdminClinicAccessOverviewResponse,
     PortalAdminClinicAccessSummaryResponse,
     PortalAdminClinicAccountRevokeRequest,
     PortalAdminClinicAccountRevokeResponse,
+    PortalAdminClinicDownloadEventResponse,
     PortalAdminClinicInviteCreateRequest,
     PortalAdminClinicInviteRevokeRequest,
     PortalAdminClinicInviteRevokeResponse,
@@ -89,6 +101,8 @@ from app.services.portal_clinic_auth_service import (
 )
 
 router = APIRouter()
+PORTAL_DOWNLOAD_AUDIT_ACTION = "PORTAL_DOWNLOAD_ARQUIVO"
+PORTAL_RECENT_DOWNLOADS_LIMIT = 20
 
 
 def _require_portal_admin(current_user: User = Depends(require_papel("admin"))) -> User:
@@ -156,6 +170,213 @@ def _session_snapshot(session: PortalClinicSession) -> PortalAdminClinicSessionS
     )
 
 
+def _safe_json_dict(value: str | None) -> dict:
+    try:
+        loaded = json.loads(value or "{}")
+    except Exception:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _first_clinic_whatsapp(clinica: Clinica) -> str | None:
+    valores = getattr(clinica, "whatsapps", None)
+    if isinstance(valores, list):
+        for valor in valores:
+            texto = str(valor or "").strip()
+            if texto:
+                return texto
+    telefone = str(getattr(clinica, "telefone", "") or "").strip()
+    return telefone or None
+
+
+def _normalized_invite_account_email(invite: PortalClinicInvite | None) -> str:
+    if invite is None:
+        return ""
+    return normalize_email(json_load_dict(invite.contexto_json).get("account_email"))
+
+
+def _needs_email_definition(clinica: Clinica, invite: PortalClinicInvite | None, account: PortalClinicAccount | None) -> bool:
+    if account and account.status in {ACCOUNT_STATUS_PENDING, ACCOUNT_STATUS_ACTIVE, ACCOUNT_STATUS_LOCKED}:
+        return False
+    if _normalized_invite_account_email(invite):
+        return False
+    return not normalize_email(getattr(clinica, "email", None))
+
+
+def _status_for_clinic_overview(
+    clinica: Clinica,
+    invite: PortalClinicInvite | None,
+    account: PortalClinicAccount | None,
+) -> tuple[str, str]:
+    if account is not None:
+        if account.status == ACCOUNT_STATUS_ACTIVE:
+            return "active", "Cadastro concluido"
+        if account.status == ACCOUNT_STATUS_LOCKED:
+            return "locked", "Conta bloqueada"
+        if account.status == ACCOUNT_STATUS_PENDING:
+            return "pending_verification", "Cadastro pendente"
+        if account.status == ACCOUNT_STATUS_REVOKED:
+            return "account_revoked", "Conta revogada"
+
+    if invite is not None:
+        if invite.status == INVITE_STATUS_PENDING:
+            if _needs_email_definition(clinica, invite, account):
+                return "needs_email", "Precisa informar email"
+            return "invited_pending", "Convite pendente"
+        if invite.status == "expired":
+            return "invite_expired", "Convite expirado"
+        if invite.status == INVITE_STATUS_REVOKED:
+            return "invite_revoked", "Convite revogado"
+        if invite.status == INVITE_STATUS_USED:
+            return "invite_used", "Convite utilizado"
+
+    if _needs_email_definition(clinica, invite, account):
+        return "needs_email", "Precisa informar email"
+
+    return "not_invited", "Sem convite ativo"
+
+
+def _refresh_latest_invites_if_needed(db: Session, invites: list[PortalClinicInvite]) -> None:
+    dirty = False
+    now = utcnow()
+    for invite in invites:
+        if (
+            invite.status == INVITE_STATUS_PENDING
+            and invite.expires_at
+            and invite.expires_at <= now
+        ):
+            invite.status = "expired"
+            dirty = True
+    if dirty:
+        db.commit()
+        for invite in invites:
+            db.refresh(invite)
+
+
+def _load_portal_download_analytics(
+    db: Session,
+    *,
+    clinicas_by_id: dict[int, Clinica],
+    accounts_by_id: dict[int, PortalClinicAccount],
+) -> tuple[dict[int, int], dict[int, datetime], int, list[PortalAdminClinicDownloadEventResponse]]:
+    rows = (
+        db.query(AuditoriaEvento)
+        .filter(
+            AuditoriaEvento.modulo == "portal",
+            AuditoriaEvento.acao == PORTAL_DOWNLOAD_AUDIT_ACTION,
+        )
+        .order_by(AuditoriaEvento.created_at.desc(), AuditoriaEvento.id.desc())
+        .all()
+    )
+
+    cutoff_30d = utcnow() - timedelta(days=30)
+    download_count_by_clinica: dict[int, int] = {}
+    last_download_at_by_clinica: dict[int, datetime] = {}
+    downloads_30d = 0
+    recent_rows: list[tuple[AuditoriaEvento, dict]] = []
+
+    for row in rows:
+        details = _safe_json_dict(row.detalhes_json)
+        if str(details.get("actor_type") or "").strip().lower() != "clinica":
+            continue
+        clinica_id_raw = details.get("clinica_id")
+        try:
+            clinica_id = int(clinica_id_raw)
+        except (TypeError, ValueError):
+            continue
+        if clinica_id not in clinicas_by_id:
+            continue
+
+        download_count_by_clinica[clinica_id] = download_count_by_clinica.get(clinica_id, 0) + 1
+        if clinica_id not in last_download_at_by_clinica:
+            last_download_at_by_clinica[clinica_id] = row.created_at
+        if row.created_at >= cutoff_30d:
+            downloads_30d += 1
+        if len(recent_rows) < PORTAL_RECENT_DOWNLOADS_LIMIT:
+            recent_rows.append((row, details))
+
+    exam_ids = {
+        int(details["exame_id"])
+        for _, details in recent_rows
+        if isinstance(details.get("exame_id"), (int, str)) and str(details.get("exame_id")).isdigit()
+    }
+    attachment_ids = {
+        int(row.entidade_id)
+        for row, _ in recent_rows
+        if str(row.entidade_id or "").isdigit()
+    }
+    patient_ids: set[int] = set()
+    tutor_ids: set[int] = set()
+
+    exams = (
+        db.query(Exame)
+        .filter(Exame.id.in_(exam_ids))
+        .all()
+        if exam_ids
+        else []
+    )
+    exams_by_id = {exam.id: exam for exam in exams}
+    for exam in exams:
+        if exam.paciente_id:
+            patient_ids.add(int(exam.paciente_id))
+
+    attachments = (
+        db.query(AnexoAtendimento)
+        .filter(AnexoAtendimento.id.in_(attachment_ids))
+        .all()
+        if attachment_ids
+        else []
+    )
+    attachments_by_id = {attachment.id: attachment for attachment in attachments}
+
+    patients = (
+        db.query(Paciente)
+        .filter(Paciente.id.in_(patient_ids))
+        .all()
+        if patient_ids
+        else []
+    )
+    patients_by_id = {patient.id: patient for patient in patients}
+    for patient in patients:
+        if patient.tutor_id:
+            tutor_ids.add(int(patient.tutor_id))
+
+    tutors = (
+        db.query(Tutor)
+        .filter(Tutor.id.in_(tutor_ids))
+        .all()
+        if tutor_ids
+        else []
+    )
+    tutors_by_id = {tutor.id: tutor for tutor in tutors}
+
+    recent_downloads: list[PortalAdminClinicDownloadEventResponse] = []
+    for row, details in recent_rows:
+        clinica_id = int(details["clinica_id"])
+        exam = exams_by_id.get(int(details["exame_id"])) if str(details.get("exame_id") or "").isdigit() else None
+        attachment = attachments_by_id.get(int(row.entidade_id)) if str(row.entidade_id or "").isdigit() else None
+        patient = patients_by_id.get(exam.paciente_id) if exam and exam.paciente_id else None
+        tutor = tutors_by_id.get(patient.tutor_id) if patient and patient.tutor_id else None
+        account = accounts_by_id.get(int(details["account_id"])) if str(details.get("account_id") or "").isdigit() else None
+
+        recent_downloads.append(
+            PortalAdminClinicDownloadEventResponse(
+                audit_event_id=row.id,
+                clinica_id=clinica_id,
+                clinica_nome=clinicas_by_id[clinica_id].nome,
+                account_email_masked=mask_email(account.email_normalized) if account else None,
+                exame_id=exam.id if exam else None,
+                paciente_nome=getattr(patient, "nome", None),
+                tutor_nome=getattr(tutor, "nome", None),
+                tipo_exame=getattr(exam, "tipo_exame", None),
+                anexo_nome=getattr(attachment, "nome_original", None),
+                downloaded_at=row.created_at,
+            )
+        )
+
+    return download_count_by_clinica, last_download_at_by_clinica, downloads_30d, recent_downloads
+
+
 def _login_result_response(result, *, message: str | None = None) -> PortalClinicAuthResponse:
     return PortalClinicAuthResponse(
         access_token=result.access_token,
@@ -213,6 +434,138 @@ def consultar_acesso_clinica_admin(
         account=_account_snapshot(latest_account),
         active_session_count=len(active_sessions),
         active_sessions=[_session_snapshot(session) for session in active_sessions],
+    )
+
+
+@router.get("/admin/clinicas/acessos/painel", response_model=PortalAdminClinicAccessOverviewResponse)
+def consultar_painel_acessos_clinicas(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_portal_admin),
+):
+    del current_user
+    _assert_invite_auth_enabled()
+
+    clinicas = (
+        db.query(Clinica)
+        .filter(Clinica.ativo.is_(True))
+        .order_by(func.lower(Clinica.nome), Clinica.id.asc())
+        .all()
+    )
+    if not clinicas:
+        return PortalAdminClinicAccessOverviewResponse(
+            generated_at=utcnow(),
+            metrics=PortalAdminClinicAccessOverviewMetrics(),
+            items=[],
+            recent_downloads=[],
+        )
+
+    clinica_ids = [clinica.id for clinica in clinicas]
+    clinicas_by_id = {clinica.id: clinica for clinica in clinicas}
+
+    invites = (
+        db.query(PortalClinicInvite)
+        .filter(PortalClinicInvite.clinica_id.in_(clinica_ids))
+        .order_by(PortalClinicInvite.clinica_id.asc(), PortalClinicInvite.id.desc())
+        .all()
+    )
+    latest_invites_by_clinica: dict[int, PortalClinicInvite] = {}
+    for invite in invites:
+        latest_invites_by_clinica.setdefault(invite.clinica_id, invite)
+    _refresh_latest_invites_if_needed(db, list(latest_invites_by_clinica.values()))
+
+    accounts = (
+        db.query(PortalClinicAccount)
+        .filter(PortalClinicAccount.clinica_id.in_(clinica_ids))
+        .order_by(PortalClinicAccount.clinica_id.asc(), PortalClinicAccount.id.desc())
+        .all()
+    )
+    latest_accounts_by_clinica: dict[int, PortalClinicAccount] = {}
+    accounts_by_id: dict[int, PortalClinicAccount] = {}
+    for account in accounts:
+        latest_accounts_by_clinica.setdefault(account.clinica_id, account)
+        accounts_by_id[account.id] = account
+
+    active_session_rows = (
+        db.query(
+            PortalClinicSession.clinica_id,
+            func.count(PortalClinicSession.id),
+        )
+        .filter(
+            PortalClinicSession.clinica_id.in_(clinica_ids),
+            PortalClinicSession.status == SESSION_STATUS_ACTIVE,
+        )
+        .group_by(PortalClinicSession.clinica_id)
+        .all()
+    )
+    active_session_count_by_clinica = {
+        int(clinica_id): int(total or 0)
+        for clinica_id, total in active_session_rows
+    }
+
+    (
+        download_count_by_clinica,
+        last_download_at_by_clinica,
+        downloads_30d,
+        recent_downloads,
+    ) = _load_portal_download_analytics(
+        db,
+        clinicas_by_id=clinicas_by_id,
+        accounts_by_id=accounts_by_id,
+    )
+
+    items: list[PortalAdminClinicAccessOverviewItem] = []
+    metrics = PortalAdminClinicAccessOverviewMetrics(total_clinicas=len(clinicas))
+
+    for clinica in clinicas:
+        invite = latest_invites_by_clinica.get(clinica.id)
+        account = latest_accounts_by_clinica.get(clinica.id)
+        needs_email_definition = _needs_email_definition(clinica, invite, account)
+        status_key, status_label = _status_for_clinic_overview(clinica, invite, account)
+        active_session_count = active_session_count_by_clinica.get(clinica.id, 0)
+        download_count = download_count_by_clinica.get(clinica.id, 0)
+
+        if invite and invite.status == INVITE_STATUS_PENDING:
+            metrics.convites_pendentes += 1
+        if account and account.status == ACCOUNT_STATUS_ACTIVE:
+            metrics.contas_ativas += 1
+        if needs_email_definition:
+            metrics.clinicas_precisam_email += 1
+        if not invite and not account:
+            metrics.clinicas_sem_convite += 1
+        metrics.sessoes_ativas += active_session_count
+        metrics.downloads_total += download_count
+        if download_count > 0:
+            metrics.clinicas_com_downloads += 1
+
+        items.append(
+            PortalAdminClinicAccessOverviewItem(
+                clinica_id=clinica.id,
+                clinica_nome=clinica.nome,
+                cidade=clinica.cidade,
+                estado=clinica.estado,
+                contato_email=normalize_email(clinica.email) or None,
+                contato_whatsapp=_first_clinic_whatsapp(clinica),
+                invite=_invite_snapshot(invite),
+                invite_account_email_masked=mask_email(_normalized_invite_account_email(invite))
+                if _normalized_invite_account_email(invite)
+                else None,
+                account=_account_snapshot(account),
+                active_session_count=active_session_count,
+                status_key=status_key,
+                status_label=status_label,
+                needs_email_definition=needs_email_definition,
+                download_count=download_count,
+                last_download_at=last_download_at_by_clinica.get(clinica.id),
+            )
+        )
+
+    metrics.downloads_ultimos_30_dias = downloads_30d
+
+    return PortalAdminClinicAccessOverviewResponse(
+        generated_at=utcnow(),
+        metrics=metrics,
+        items=items,
+        recent_downloads=recent_downloads,
     )
 
 

@@ -93,3 +93,32 @@ Status: done
 - [x] Revisar a pagina, o login, a ativacao, a redefinicao de senha e o painel autenticado da clinica.
 - [x] Preservar identificadores internos como `codigo`, `sessao` e campos de payload.
 - [x] Validar render local sem enviar codigo, iniciar sessao ou baixar anexos.
+
+## 7) Refinamento administrativo - 2026-07-21
+
+### Fase 5 (gestao do portal)
+
+- [x] T5.1 Criar endpoint panoramico para listar clinicas, convites, contas, sessoes e downloads do portal.
+- [x] T5.2 Enriquecer a auditoria de download para registrar `actor_type`, `clinica_id` e `account_id`.
+- [x] T5.3 Criar pagina administrativa `/clinicas/portal` com visao geral, filtros, fila de acao e feed de downloads.
+- [x] T5.4 Reaproveitar o fluxo de convite/revogacao da clinica individual dentro do cockpit administrativo.
+- [x] T5.5 Adicionar exportacao CSV da visao filtrada e metricas de adesao/inatividade.
+- Criterio de conclusao:
+  - a operacao consegue acompanhar onboarding e uso do portal sem abrir clinica por clinica.
+- Risco:
+  - a tela concentrar acoes sensiveis sem feedback claro de carregamento, confirmacao ou resultado.
+- Rollback:
+  - remover a rota administrativa `/clinicas/portal` e manter apenas a gestao individual por clinica.
+
+### Plano de testes complementar
+
+- Automatizados:
+  - `backend/venv/bin/python -m unittest backend/tests/test_portal_clinic_invite_auth.py`
+  - `cd frontend && npx eslint app/clinicas/portal/page.tsx app/clinicas/page.tsx app/clinicas/components/ClinicaPortalAccessCard.tsx app/layout-dashboard.tsx lib/portal-api.ts lib/portal-clinic-admin.ts`
+  - `cd frontend && npx tsc --noEmit --pretty false`
+- Manuais:
+  - abrir `/clinicas/portal`;
+  - filtrar por status e filas rapidas;
+  - gerar convite a partir do cockpit;
+  - revogar convite, encerrar sessao e revogar conta com confirmacao;
+  - exportar CSV da visao filtrada.

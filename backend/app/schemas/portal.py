@@ -169,6 +169,56 @@ class PortalAdminClinicAccessSummaryResponse(BaseModel):
     active_sessions: list[PortalAdminClinicSessionSnapshot] = Field(default_factory=list)
 
 
+class PortalAdminClinicAccessOverviewMetrics(BaseModel):
+    total_clinicas: int = 0
+    convites_pendentes: int = 0
+    contas_ativas: int = 0
+    clinicas_sem_convite: int = 0
+    clinicas_precisam_email: int = 0
+    sessoes_ativas: int = 0
+    clinicas_com_downloads: int = 0
+    downloads_total: int = 0
+    downloads_ultimos_30_dias: int = 0
+
+
+class PortalAdminClinicAccessOverviewItem(BaseModel):
+    clinica_id: int
+    clinica_nome: str
+    cidade: Optional[str] = None
+    estado: Optional[str] = None
+    contato_email: Optional[str] = None
+    contato_whatsapp: Optional[str] = None
+    invite: Optional[PortalAdminClinicInviteSnapshot] = None
+    invite_account_email_masked: Optional[str] = None
+    account: Optional[PortalAdminClinicAccountSnapshot] = None
+    active_session_count: int = 0
+    status_key: str
+    status_label: str
+    needs_email_definition: bool = False
+    download_count: int = 0
+    last_download_at: Optional[datetime] = None
+
+
+class PortalAdminClinicDownloadEventResponse(BaseModel):
+    audit_event_id: int
+    clinica_id: int
+    clinica_nome: str
+    account_email_masked: Optional[str] = None
+    exame_id: Optional[int] = None
+    paciente_nome: Optional[str] = None
+    tutor_nome: Optional[str] = None
+    tipo_exame: Optional[str] = None
+    anexo_nome: Optional[str] = None
+    downloaded_at: datetime
+
+
+class PortalAdminClinicAccessOverviewResponse(BaseModel):
+    generated_at: datetime
+    metrics: PortalAdminClinicAccessOverviewMetrics
+    items: list[PortalAdminClinicAccessOverviewItem] = Field(default_factory=list)
+    recent_downloads: list[PortalAdminClinicDownloadEventResponse] = Field(default_factory=list)
+
+
 class PortalAdminClinicAccountRevokeRequest(BaseModel):
     reason: str = Field(default="revogada pela operacao", min_length=3, max_length=255)
     revoke_sessions: bool = True

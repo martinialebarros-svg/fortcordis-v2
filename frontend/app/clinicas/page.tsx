@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import { listarTodasClinicas } from "@/lib/clinicas";
-import { Building2, Search, Plus, MapPin, Phone, Edit2, ListFilter, MapPinned } from "lucide-react";
+import { Building2, Search, Plus, MapPin, Phone, Edit2, ListFilter, MapPinned, ShieldCheck } from "lucide-react";
 
 interface Clinica {
   id: number;
@@ -64,13 +64,23 @@ export default function ClinicasPage() {
             <h1>Clínicas parceiras</h1>
             <p>Contatos e localização da rede de atendimento em uma leitura objetiva.</p>
           </div>
-          <button 
-            onClick={() => router.push("/clinicas/novo")}
-            className="fc-registry-primary"
-          >
-            <Plus className="w-4 h-4" />
-            Nova Clínica
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => router.push("/clinicas/portal")}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              Portal das clinicas
+            </button>
+            <button
+              onClick={() => router.push("/clinicas/novo")}
+              className="fc-registry-primary"
+            >
+              <Plus className="w-4 h-4" />
+              Nova Clínica
+            </button>
+          </div>
         </header>
 
         <section className="fc-registry-metrics" aria-label="Resumo da rede de clínicas">

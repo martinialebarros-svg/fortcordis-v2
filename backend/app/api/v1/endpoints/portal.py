@@ -933,6 +933,10 @@ def baixar_arquivo_anexo_portal(
         raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
 
     download_context: PortalDownloadContext | None = None
+    actor_type = None
+    actor_id = None
+    clinica_id = None
+    account_id = None
     raw_download_token = (request.headers.get(PORTAL_DOWNLOAD_TOKEN_HEADER) or "").strip()
     if raw_download_token:
         download_context = get_current_portal_download_token(request)
@@ -940,12 +944,19 @@ def baixar_arquivo_anexo_portal(
             raise HTTPException(status_code=403, detail="Token de download sem acesso a este anexo.")
         if attachment.exame_id is None or download_context.exame_id != attachment.exame_id:
             raise HTTPException(status_code=403, detail="Token de download sem acesso a este anexo.")
+        actor_type = download_context.actor_type
+        actor_id = download_context.actor_id
+        clinica_id = download_context.clinica_id
     else:
         portal_session = get_current_portal_session(request)
         if attachment.exame_id is None:
             raise HTTPException(status_code=403, detail="Anexo sem exame associado para o portal.")
         exam, atendimentos_map, laudos_map = _load_exam_with_context(db, int(attachment.exame_id))
         _assert_portal_exam_access(db, portal_session, exam, atendimentos_map, laudos_map)
+        actor_type = portal_session.actor_type
+        actor_id = portal_session.actor_id
+        clinica_id = portal_session.clinica_id
+        account_id = portal_session.account_id
 
     registrar_auditoria(
         current_user=None,
@@ -956,6 +967,10 @@ def baixar_arquivo_anexo_portal(
         entidade_id=anexo_id,
         detalhes={
             "exame_id": attachment.exame_id,
+            "actor_type": actor_type,
+            "actor_id": actor_id,
+            "clinica_id": clinica_id,
+            "account_id": account_id,
             "via_download_token": bool(download_context),
         },
         request=request,

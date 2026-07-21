@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from contextlib import ExitStack
 from datetime import datetime
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
@@ -28,6 +29,7 @@ from app.core.config import settings
 from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.db.database import get_db
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
+from app.models.auditoria_evento import AuditoriaEvento
 from app.models.clinica import Clinica
 from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
@@ -66,6 +68,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
             Laudo.__table__,
             Exame.__table__,
             AnexoAtendimento.__table__,
+            AuditoriaEvento.__table__,
             PortalClinicInvite.__table__,
             PortalClinicAccount.__table__,
             PortalClinicSession.__table__,
@@ -280,6 +283,101 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                 )
                 self.assertEqual(summary_after_revoke.status_code, 200)
                 self.assertEqual(summary_after_revoke.json()["invite"]["status"], "revoked")
+
+    def test_admin_can_load_portal_access_overview_with_download_analytics(self) -> None:
+        seed = self._seed_portal_data()
+        self._install_overrides()
+
+        db = self._session_factory()
+        try:
+            clinic = db.query(Clinica).filter(Clinica.id == seed["clinica_id"]).first()
+            other_clinic = db.query(Clinica).filter(Clinica.id != seed["clinica_id"]).order_by(Clinica.id.asc()).first()
+            attachment = db.query(AnexoAtendimento).filter(AnexoAtendimento.exame_id == seed["exame_id"]).first()
+
+            self.assertIsNotNone(clinic)
+            self.assertIsNotNone(other_clinic)
+            self.assertIsNotNone(attachment)
+
+            other_clinic.email = None
+
+            account = PortalClinicAccount(
+                clinica_id=clinic.id,
+                email_normalized="portal.clinica@example.com",
+                responsavel_nome="Dra. Parceira",
+                password_hash="active-password-hash",
+                status="active",
+                activated_at=datetime(2026, 7, 4, 9, 0),
+                email_verified_at=datetime(2026, 7, 4, 9, 5),
+                last_login_at=datetime(2026, 7, 5, 12, 45),
+            )
+            db.add(account)
+            db.flush()
+
+            db.add(
+                PortalClinicSession(
+                    account_id=account.id,
+                    clinica_id=clinic.id,
+                    refresh_token_hash="refresh-token-overview",
+                    trusted_until=datetime(2026, 7, 5, 20, 0),
+                    last_seen_at=datetime(2026, 7, 5, 12, 50),
+                    status="active",
+                    device_label="Recepcao principal",
+                )
+            )
+
+            db.add(
+                AuditoriaEvento(
+                    modulo="portal",
+                    entidade="anexo_atendimento",
+                    entidade_id=str(attachment.id),
+                    acao="PORTAL_DOWNLOAD_ARQUIVO",
+                    descricao="Download de laudo pela clinica.",
+                    detalhes_json=json.dumps(
+                        {
+                            "exame_id": seed["exame_id"],
+                            "actor_type": "clinica",
+                            "actor_id": clinic.id,
+                            "clinica_id": clinic.id,
+                            "account_id": account.id,
+                            "via_download_token": True,
+                        }
+                    ),
+                    created_at=datetime(2026, 7, 5, 13, 15),
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
+            with TestClient(self._app) as client:
+                response = client.get("/api/v1/portal/admin/clinicas/acessos/painel")
+                self.assertEqual(response.status_code, 200)
+                payload = response.json()
+
+        self.assertEqual(payload["metrics"]["total_clinicas"], 2)
+        self.assertEqual(payload["metrics"]["contas_ativas"], 1)
+        self.assertEqual(payload["metrics"]["clinicas_sem_convite"], 1)
+        self.assertEqual(payload["metrics"]["clinicas_precisam_email"], 1)
+        self.assertEqual(payload["metrics"]["sessoes_ativas"], 1)
+        self.assertEqual(payload["metrics"]["clinicas_com_downloads"], 1)
+        self.assertEqual(payload["metrics"]["downloads_total"], 1)
+        self.assertEqual(payload["metrics"]["downloads_ultimos_30_dias"], 1)
+        self.assertEqual(len(payload["recent_downloads"]), 1)
+        self.assertEqual(payload["recent_downloads"][0]["clinica_id"], seed["clinica_id"])
+        self.assertEqual(payload["recent_downloads"][0]["tipo_exame"], "Ecocardiograma")
+
+        items_by_id = {item["clinica_id"]: item for item in payload["items"]}
+        self.assertEqual(items_by_id[seed["clinica_id"]]["status_key"], "active")
+        self.assertEqual(items_by_id[seed["clinica_id"]]["active_session_count"], 1)
+        self.assertEqual(items_by_id[seed["clinica_id"]]["download_count"], 1)
+        self.assertEqual(items_by_id[seed["clinica_id"]]["account"]["email_masked"], "po***@example.com")
+
+        other_items = [item for item in payload["items"] if item["clinica_id"] != seed["clinica_id"]]
+        self.assertEqual(len(other_items), 1)
+        self.assertEqual(other_items[0]["status_key"], "needs_email")
+        self.assertTrue(other_items[0]["needs_email_definition"])
 
     def test_invite_activation_autologin_refresh_and_exam_scope(self) -> None:
         seed = self._seed_portal_data()

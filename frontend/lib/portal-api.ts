@@ -120,6 +120,56 @@ export type PortalAdminClinicAccessSummaryResponse = {
   active_sessions: PortalAdminClinicSessionSnapshot[];
 };
 
+export type PortalAdminClinicAccessOverviewMetrics = {
+  total_clinicas: number;
+  convites_pendentes: number;
+  contas_ativas: number;
+  clinicas_sem_convite: number;
+  clinicas_precisam_email: number;
+  sessoes_ativas: number;
+  clinicas_com_downloads: number;
+  downloads_total: number;
+  downloads_ultimos_30_dias: number;
+};
+
+export type PortalAdminClinicAccessOverviewItem = {
+  clinica_id: number;
+  clinica_nome: string;
+  cidade?: string | null;
+  estado?: string | null;
+  contato_email?: string | null;
+  contato_whatsapp?: string | null;
+  invite?: PortalAdminClinicInviteSnapshot | null;
+  invite_account_email_masked?: string | null;
+  account?: PortalAdminClinicAccountSnapshot | null;
+  active_session_count: number;
+  status_key: string;
+  status_label: string;
+  needs_email_definition: boolean;
+  download_count: number;
+  last_download_at?: string | null;
+};
+
+export type PortalAdminClinicDownloadEvent = {
+  audit_event_id: number;
+  clinica_id: number;
+  clinica_nome: string;
+  account_email_masked?: string | null;
+  exame_id?: number | null;
+  paciente_nome?: string | null;
+  tutor_nome?: string | null;
+  tipo_exame?: string | null;
+  anexo_nome?: string | null;
+  downloaded_at: string;
+};
+
+export type PortalAdminClinicAccessOverviewResponse = {
+  generated_at: string;
+  metrics: PortalAdminClinicAccessOverviewMetrics;
+  items: PortalAdminClinicAccessOverviewItem[];
+  recent_downloads: PortalAdminClinicDownloadEvent[];
+};
+
 export type PortalExamAttachment = {
   anexo_id: number;
   nome_original: string;
@@ -442,6 +492,7 @@ export async function createPortalClinicInvite(
   payload: {
     delivery_channel: "whatsapp";
     delivery_target: string;
+    account_email?: string;
     expires_in_hours: number;
     allow_manual_copy: boolean;
   },

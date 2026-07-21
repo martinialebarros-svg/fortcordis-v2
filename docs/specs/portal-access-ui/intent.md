@@ -20,9 +20,9 @@ Conectar o frontend institucional do portal Fort Cordis aos endpoints seguros ja
 ## 3) Nao objetivos
 
 - Enviar codigo real por provider externo.
-- Criar cadastro nominal persistente para usuarios de clinicas.
+- Criar cadastro nominal por colaborador dentro da mesma clinica.
 - Misturar sessao do portal com o login administrativo interno.
-- Criar dashboard administrativo novo para suporte ao portal.
+- Liberar escopo de dados alem da unidade autenticada.
 
 ## 4) Contexto e restricoes
 
@@ -66,3 +66,29 @@ Conectar o frontend institucional do portal Fort Cordis aos endpoints seguros ja
 - [x] Escopo e nao escopo estao explicitos.
 - [x] Restricoes estao registradas.
 - [x] Riscos iniciais estao mapeados.
+
+## 9) Refinamento de 2026-07-21 - gestao administrativa do portal
+
+### Problema complementar
+
+Depois da ativacao do fluxo das clinicas parceiras, faltava uma visao operacional unica para acompanhar:
+- quais clinicas ja receberam convite;
+- quais concluiram cadastro com email e senha;
+- quais ainda precisam informar email;
+- quais estao usando o portal com downloads recentes;
+- quais acessos precisam ser revogados ou revisitados.
+
+### Objetivo complementar
+
+Expandir `portal-access-ui` para incluir um cockpit administrativo dentro do app interno, sem quebrar o isolamento entre o login administrativo e a sessao do portal. Esta extensao deve permitir:
+- visualizar o panorama das clinicas por status de acesso;
+- reenviar ou gerar convite a partir de uma tela central;
+- encerrar sessoes ou revogar contas com confirmacao;
+- acompanhar auditoria de downloads da clinica;
+- exportar a visao filtrada para CSV e medir adesao/inatividade.
+
+### Nao objetivos complementares
+
+- Implementar multiusuario por clinica.
+- Criar analytics financeiros ou dashboards executivos fora do escopo do portal.
+- Automatizar contato ativo com clinicas inativas via WhatsApp ou email.

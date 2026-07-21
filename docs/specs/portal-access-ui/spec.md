@@ -19,6 +19,13 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - RF-007: clinica autenticada deve conseguir consultar exames de um pet sem sair do escopo da unidade validada pelo backend.
 - RF-008: clinica autenticada deve conseguir baixar anexos liberados para os exames autorizados.
 - RF-009: a sessao do portal deve poder ser encerrada no navegador sem afetar o login administrativo interno.
+- RF-010: o app administrativo deve oferecer uma pagina panoramica em `/clinicas/portal` com o status de acesso das clinicas parceiras.
+- RF-011: a pagina panoramica deve destacar clinicas com convite pendente, clinicas sem convite, clinicas que precisam informar email e clinicas com conta bloqueada.
+- RF-012: o cockpit administrativo deve permitir gerar ou reenviar convite da clinica sem sair da tela panoramica.
+- RF-013: o cockpit administrativo deve permitir revogar convite pendente, encerrar sessoes ativas e revogar conta da clinica com confirmacao explicita.
+- RF-014: o cockpit administrativo deve exibir feed recente de downloads de laudos pelas clinicas parceiras.
+- RF-015: o cockpit administrativo deve permitir exportar a visao filtrada em CSV.
+- RF-016: o cockpit administrativo deve exibir indicadores de adesao e inatividade do portal com base em contas ativas, ultimo login e ultimo download.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -29,6 +36,9 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - NFR-005 (qualidade): build do frontend deve seguir passando apos a integracao.
 - NFR-006 (rollout preliminar): a UI do tutor deve operar em modo email-only enquanto a API WhatsApp Business aguarda liberacao na Meta.
 - NFR-007 (copy): labels, mensagens e estados visiveis dos portais do tutor e da clinica devem usar grafia correta em portugues, sem alterar nomes de campos ou payloads da API.
+- NFR-008 (auditabilidade): downloads de anexos por clinicas devem registrar contexto minimo de auditoria (`actor_type`, `clinica_id`, `account_id`) para alimentar o painel administrativo.
+- NFR-009 (seguranca operacional): acoes de revogar convite, encerrar sessoes e revogar conta devem exigir confirmacao na UI antes da chamada de API.
+- NFR-010 (observabilidade operacional): indicadores do painel devem ser calculados apenas com dados do escopo da propria unidade/autenticacao sem ampliar permissao de leitura.
 
 ## 4) Contratos tecnicos
 
@@ -83,11 +93,48 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
   - response:
     - `items[]` com `anexo_id`, `download_url`, `download_token`, `download_token_header`
 
+- `GET /api/v1/portal/admin/clinicas/acessos/painel`
+  - auth:
+    - papel administrativo interno
+  - response:
+    - `generated_at`
+    - `metrics`
+    - `items[]` com status, conta, convite, sessoes e downloads por clinica
+    - `recent_downloads[]` com feed recente auditado
+
+- `POST /api/v1/portal/admin/clinicas/{clinica_id}/convites`
+  - auth:
+    - papel administrativo interno
+  - request:
+    - `delivery_channel`
+    - `delivery_target`
+    - `account_email`
+    - `expires_in_hours`
+    - `allow_manual_copy`
+  - response:
+    - `activation_url`
+    - `delivery_status`
+    - `account_email_masked`
+
+- `POST /api/v1/portal/admin/clinicas/{clinica_id}/convites/{invite_id}/revogar`
+  - auth:
+    - papel administrativo interno
+
+- `POST /api/v1/portal/admin/clinica-sessions/revogar`
+  - auth:
+    - papel administrativo interno
+
+- `POST /api/v1/portal/admin/clinica-accounts/{account_id}/revogar`
+  - auth:
+    - papel administrativo interno
+
 ### Banco/migracoes
 
 - Nenhuma alteracao nova nesta iteracao.
 - Dependencia da fase anterior:
   - `portal_access_challenges`
+- Reuso complementar:
+  - `auditoria_eventos` para panorama de downloads sem migracao nova.
 
 ### Frontend
 
@@ -96,18 +143,24 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
   - `frontend/app/clinica-parceira/page.tsx`
   - `frontend/app/clinica-parceira/ativar/[token]/page.tsx`
   - `frontend/app/clinica-parceira/redefinir-senha/page.tsx`
+  - `frontend/app/clinicas/page.tsx`
+  - `frontend/app/clinicas/portal/page.tsx`
 - Componentes novos/alterados:
   - `frontend/components/portal/PortalTutorWorkspace.tsx`
   - `frontend/components/portal/PortalClinicaWorkspace.tsx`
   - `frontend/components/portal/PortalClinicActivationWorkspace.tsx`
   - `frontend/components/portal/PortalClinicResetPasswordWorkspace.tsx`
   - `frontend/components/portal/PortalExamResults.tsx`
+  - `frontend/app/clinicas/components/ClinicaPortalAccessCard.tsx`
+  - `frontend/lib/portal-clinic-admin.ts`
   - `frontend/lib/portal-api.ts`
 - Regras de exibicao/erro:
   - permitir codigo de desenvolvimento apenas quando o backend expuser `debug_code`;
   - validar IDs numericos antes de chamar a API;
   - exibir mensagem vazia quando nenhum exame autorizado existir;
-  - encerrar somente a sessao do portal ao clicar em sair.
+  - encerrar somente a sessao do portal ao clicar em sair;
+  - mostrar confirmacao antes de revogar convite, conta ou sessoes;
+  - exportar somente a visao atualmente filtrada no cockpit administrativo.
 
 ## 5) Compatibilidade e rollout
 
@@ -133,6 +186,12 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CA-009: logout do portal nao remove a autenticacao administrativa interna.
 - CA-010: build do frontend passa localmente.
 - CA-011: formularios, estados e resultados dos portais do tutor e da clinica exibem acentos e cedilhas corretamente, preservando os contratos do portal.
+- CA-012: a tela `/clinicas/portal` exibe metricas e lista panoramica coerentes com os convites, contas e sessoes existentes.
+- CA-013: a tela `/clinicas/portal` permite gerar convite e disponibiliza link e mensagem prontos para encaminhamento.
+- CA-014: a tela `/clinicas/portal` permite revogar convite, encerrar sessoes e revogar conta com retorno visual do resultado.
+- CA-015: o feed recente de downloads mostra apenas eventos auditados de clinicas.
+- CA-016: a exportacao CSV reflete a lista filtrada atualmente visivel.
+- CA-017: a taxa de adesao e o indicador de inatividade de 30 dias refletem as contas ativas e a ultima atividade do portal.
 
 ## 7) Casos de borda
 
@@ -142,10 +201,13 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CB-004: clinica autenticada sem exames liberados para o pet consultado deve ver estado vazio claro.
 - CB-005: anexo sem item correspondente em `/download-url` deve falhar com mensagem amigavel.
 - CB-006: WhatsApp indisponivel deve ficar oculto na UI do tutor ate a flag backend ser habilitada.
+- CB-007: evento de download antigo sem `actor_type=clinica` nao deve contaminar o feed administrativo.
+- CB-008: clinica sem email salvo, sem convite e sem conta deve aparecer como pendencia de email no cockpit.
+- CB-009: conta ativa sem login nem download recente por 30 dias deve contar como inativa no indicador administrativo.
 
 ## 8) Fora de escopo
 
 - Provider real de WhatsApp para envio do codigo.
 - Multiunidade na mesma sessao de clinica.
 - Preview inline de laudos/PDF.
-- Automacao de convite, gestao de contas ou painel de suporte.
+- Automacao proativa de relacionamento com clinicas inativas.

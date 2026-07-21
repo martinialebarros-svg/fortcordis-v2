@@ -30,6 +30,7 @@ import {
   Check,
   Loader2,
   Receipt,
+  ShieldCheck,
   BrainCircuit,
   type LucideIcon,
 } from "lucide-react";
@@ -70,6 +71,7 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
     items: [
       { href: "/pacientes", label: "Pacientes", icon: Users },
       { href: "/clinicas", label: "Clínicas", icon: Building2 },
+      { href: "/clinicas/portal", label: "Portal Clinicas", icon: ShieldCheck },
       { href: "/servicos", label: "Serviços", icon: Stethoscope },
       { href: "/laudos", label: "Laudos", icon: FileText },
       { href: "/referencias-eco", label: "Referências Eco", icon: BookOpen },
