@@ -15,6 +15,7 @@ import {
 
 import api from "@/lib/axios";
 import { extractApiErrorMessageSync } from "@/lib/api-error";
+import { buildClinicInviteMessage, getPortalAdminAuthHeaders } from "@/lib/portal-clinic-admin";
 import { formatPortalDateTime } from "@/lib/portal-datetime";
 import type {
   PortalAdminClinicAccessSummaryResponse,
@@ -27,43 +28,6 @@ type ClinicaPortalAccessCardProps = {
   defaultWhatsapp?: string;
   defaultEmail?: string;
 };
-
-function getAuthHeaders() {
-  if (typeof window === "undefined") {
-    return {};
-  }
-  const token = window.localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-function buildClinicInviteMessage({
-  clinicaNome,
-  activationUrl,
-  expiresAt,
-  accountEmailMasked,
-}: {
-  clinicaNome: string;
-  activationUrl: string;
-  expiresAt?: string | null;
-  accountEmailMasked?: string | null;
-}): string {
-  const expirationText = expiresAt ? formatPortalDateTime(expiresAt) : "no prazo informado no portal";
-  const emailLine = accountEmailMasked
-    ? `O email institucional definido para este acesso e ${accountEmailMasked}.`
-    : "A clinica usara o email institucional cadastrado no portal.";
-
-  return [
-    `Ola, equipe ${clinicaNome}.`,
-    "",
-    "A Fort Cordis criou um acesso seguro para a clinica parceira consultar exames e laudos liberados no Portal Fort Cordis.",
-    "Use o link abaixo para criar a senha da unidade e entrar no portal:",
-    activationUrl,
-    "",
-    emailLine,
-    `Este link e individual, expira em ${expirationText} e nao deve ser compartilhado fora da equipe autorizada.`,
-    "Depois da ativacao, o acesso sera feito pelo portal com email, senha e confirmacao adicional quando necessario.",
-  ].join("\n");
-}
 
 export default function ClinicaPortalAccessCard({
   clinicaId,
@@ -106,7 +70,7 @@ export default function ClinicaPortalAccessCard({
     try {
       const response = await api.get<PortalAdminClinicAccessSummaryResponse>(
         `/portal/admin/clinicas/${clinicaId}/acesso`,
-        { headers: getAuthHeaders() },
+        { headers: getPortalAdminAuthHeaders() },
       );
       setSummary(response.data);
     } catch (err) {
@@ -134,7 +98,7 @@ export default function ClinicaPortalAccessCard({
           expires_in_hours: Number.parseInt(expiresInHours, 10) || 72,
           allow_manual_copy: true,
         },
-        { headers: getAuthHeaders() },
+        { headers: getPortalAdminAuthHeaders() },
       );
       setLastInvite(response.data);
       setMessage(
@@ -185,7 +149,7 @@ export default function ClinicaPortalAccessCard({
       await api.post(
         `/portal/admin/clinicas/${clinicaId}/convites/${currentInvite.id}/revogar`,
         { reason: "convite revogado pela operacao" },
-        { headers: getAuthHeaders() },
+        { headers: getPortalAdminAuthHeaders() },
       );
       setMessage("Convite pendente revogado.");
       await loadSummary();
@@ -210,7 +174,7 @@ export default function ClinicaPortalAccessCard({
           reason: "conta revogada pela operacao",
           revoke_sessions: true,
         },
-        { headers: getAuthHeaders() },
+        { headers: getPortalAdminAuthHeaders() },
       );
       setMessage("Conta da clinica revogada e sessoes encerradas.");
       await loadSummary();
@@ -232,7 +196,7 @@ export default function ClinicaPortalAccessCard({
           clinica_id: clinicaId,
           reason: "sessoes revogadas pela operacao",
         },
-        { headers: getAuthHeaders() },
+        { headers: getPortalAdminAuthHeaders() },
       );
       setMessage(`Sessoes encerradas: ${response.data.revoked_count}.`);
       await loadSummary();

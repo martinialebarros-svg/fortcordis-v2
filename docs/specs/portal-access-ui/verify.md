@@ -26,24 +26,37 @@ Status: done
 | NFR-006 | nao funcional | `frontend/components/portal/PortalTutorWorkspace.tsx` fixa canal `email` e remove seletor de WhatsApp da UI preliminar | ok |
 | NFR-007 | nao funcional | Varredura das strings visiveis de `PortalTutorWorkspace`, `PortalExamResults`, `PortalClinicaWorkspace`, `PortalClinicActivationWorkspace` e `PortalClinicResetPasswordWorkspace` sem termos sem diacriticos necessarios | ok |
 | CA-011 | aceitacao | QA local de `/area-pacientes` e `/clinica-parceira` confirmou labels e mensagens acentuadas em desktop e mobile | ok |
+| CA-012 | aceitacao | `GET /api/v1/portal/admin/clinicas/acessos/painel` + `frontend/app/clinicas/portal/page.tsx` renderizando metricas, filtros e lista panoramica | ok |
+| CA-013 | aceitacao | `frontend/app/clinicas/portal/page.tsx` + `frontend/lib/portal-clinic-admin.ts` com convite, link e mensagem reutilizando o endpoint administrativo | ok |
+| CA-014 | aceitacao | `frontend/app/clinicas/portal/page.tsx` acionando revogacao de convite, sessoes e conta com confirmacao local | ok |
+| CA-015 | aceitacao | `backend/app/api/v1/endpoints/portal.py` + `backend/app/api/v1/endpoints/portal_clinic_auth.py` + `test_admin_can_load_portal_access_overview_with_download_analytics` | ok |
+| CA-016 | aceitacao | `frontend/app/clinicas/portal/page.tsx` exportando CSV da visao filtrada localmente | ok |
+| CA-017 | aceitacao | calculos de adesao/inatividade em `frontend/app/clinicas/portal/page.tsx` combinando ultimo login e ultimo download | ok |
+| NFR-008 | nao funcional | auditoria de download enriquecida com `actor_type`, `clinica_id` e `account_id` em `backend/app/api/v1/endpoints/portal.py` | ok |
+| NFR-009 | nao funcional | confirmacoes explicitas antes de revogacoes no cockpit administrativo | ok |
+| NFR-010 | nao funcional | painel calcula metricas somente a partir dos dados de acesso ja autorizados no backend | ok |
 
 ## 2) Testes automatizados executados
 
 Comandos:
 
 ```bash
-cd frontend
-npm run build
+backend/venv/bin/python -m unittest backend/tests/test_portal_clinic_invite_auth.py
 
-cd ../backend
-venv/bin/python -m unittest tests/test_portal_access_http_flow.py -v
+cd frontend
+npx eslint app/clinicas/portal/page.tsx app/clinicas/page.tsx app/clinicas/components/ClinicaPortalAccessCard.tsx app/layout-dashboard.tsx lib/portal-api.ts lib/portal-clinic-admin.ts
+npx tsc --noEmit --pretty false
+git diff --check
 ```
 
 Resumo dos resultados:
-- Frontend:
-  - `npm run build`: ok
 - Backend:
-  - `test_portal_access_http_flow`: 3/3 pass
+  - `test_portal_clinic_invite_auth`: 5/5 pass
+- Frontend:
+  - `npx eslint ...`: ok
+  - `npx tsc --noEmit --pretty false`: ok
+- Qualidade de diff:
+  - `git diff --check`: ok
 
 ## 3) Testes manuais
 
@@ -69,12 +82,23 @@ Resumo dos resultados:
 - Lint e typecheck concluidos sem erros.
 - Build do frontend concluido com 33 paginas compiladas.
 
+### Refinamento administrativo de 2026-07-21
+
+- `/clinicas/portal` validada localmente com resposta HTTP `200`.
+- Filtros por status, fila rapida e opcao `Mostrar apenas quem ja baixou laudo` revisados por codigo.
+- Exportacao CSV revisada por codigo para refletir somente a lista filtrada.
+- Revogacao de convite, revogacao de conta e encerramento de sessoes revisados por codigo com confirmacao antes da chamada de API.
+- Reuso do convite administrativo individual pela tela panoramica confirmado em `frontend/lib/portal-clinic-admin.ts` e `frontend/app/clinicas/components/ClinicaPortalAccessCard.tsx`.
+- Feed de downloads validado com auditoria de `actor_type=clinica` coberta por teste automatizado.
+
 ## 4) Regressao e riscos residuais
 
 - Risco residual 1: QA manual depende de ambiente com dados validos e `debug_code` exposto.
 - Risco residual 2: a clinica ainda autentica pela unidade/cadastro, nao por usuario nominal persistente.
 - Risco residual 3: o browser embutido nao conclui downloads nativos; a verificacao do arquivo segue coberta por HTTP e teste automatizado.
 - Risco residual 4: WhatsApp deve ser reabilitado em uma fase posterior, depois de credenciais e webhook aprovados/configurados.
+- Risco residual 5: o CSV representa o recorte filtrado localmente; para analytics historico/executivo amplo ainda sera melhor uma camada dedicada de relatorios.
+- Risco residual 6: o indicador de inatividade de 30 dias depende da auditoria de download enriquecida e do ultimo login existente; eventos antigos sem esse contexto nao entram na leitura administrativa.
 
 ## 5) Itens fora de escopo entregues
 
