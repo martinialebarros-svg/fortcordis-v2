@@ -1,6 +1,6 @@
 # Intent - portal-access-ui
 
-Data: 2026-06-16
+Data: 2026-07-21
 Responsavel: Equipe FortCordis
 Status: done
 
@@ -86,6 +86,20 @@ Expandir `portal-access-ui` para incluir um cockpit administrativo dentro do app
 - encerrar sessoes ou revogar contas com confirmacao;
 - acompanhar auditoria de downloads da clinica;
 - exportar a visao filtrada para CSV e medir adesao/inatividade.
+
+### Refinamento complementar desta leva
+
+Na operacao real, o cockpit ainda precisava responder melhor a tres perguntas:
+- quais clinicas ja deram o primeiro sinal concreto de adesao ao portal;
+- quais clinicas ativas esfriaram e estao sem acesso ha muitos dias;
+- qual foi a sequencia recente de eventos de cada clinica sem abrir telas paralelas.
+
+Por isso, esta iteracao adiciona:
+- alerta visual para clinicas ativas sem acesso ha 30 dias ou mais;
+- reenvio rapido de convite direto na lista quando email institucional e WhatsApp ja estao conhecidos;
+- filtro explicito para clinicas com primeiro download concluido;
+- linha do tempo resumida por clinica com convite, ativacao, revogacoes e downloads;
+- exportacao CSV mais analitica com primeiro download, ultimo acesso e dias sem atividade.
 
 ### Nao objetivos complementares
 

@@ -37,6 +37,7 @@ import type {
   PortalAdminClinicAccessOverviewItem,
   PortalAdminClinicAccessOverviewResponse,
   PortalAdminClinicInviteResponse,
+  PortalAdminClinicTimelineEvent,
 } from "@/lib/portal-api";
 
 type StatusFilter =
@@ -48,7 +49,15 @@ type StatusFilter =
   | "locked"
   | "pending_verification";
 
-type QuickView = "all" | "needs_attention" | "never_accessed" | "expired_invites" | "recent_downloads";
+type QuickView =
+  | "all"
+  | "needs_attention"
+  | "never_accessed"
+  | "expired_invites"
+  | "recent_downloads"
+  | "inactive_30d"
+  | "first_download_completed";
+type TimelineTone = PortalAdminClinicTimelineEvent["tone"];
 
 const STATUS_FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
   { value: "all", label: "Todas as clinicas" },
@@ -68,7 +77,16 @@ function hasRecentDownload(item: PortalAdminClinicAccessOverviewItem, days = 7):
   return timestamp >= Date.now() - days * 24 * 60 * 60 * 1000;
 }
 
+function hasFirstDownload(item: PortalAdminClinicAccessOverviewItem): boolean {
+  return Boolean(item.first_download_at);
+}
+
 function getLatestPortalActivityMillis(item: PortalAdminClinicAccessOverviewItem): number {
+  const explicitTimestamp = portalDateTimeMillis(item.last_access_at);
+  if (Number.isFinite(explicitTimestamp)) {
+    return explicitTimestamp;
+  }
+
   const timestamps = [
     portalDateTimeMillis(item.account?.last_login_at),
     portalDateTimeMillis(item.last_download_at),
@@ -86,12 +104,45 @@ function isInactiveForDays(item: PortalAdminClinicAccessOverviewItem, days = 30)
     return false;
   }
 
+  if (typeof item.days_since_last_activity === "number") {
+    return item.days_since_last_activity >= days;
+  }
+
   const latestActivity = getLatestPortalActivityMillis(item);
   if (!Number.isFinite(latestActivity)) {
     return true;
   }
 
   return latestActivity < Date.now() - days * 24 * 60 * 60 * 1000;
+}
+
+function getInactivityAlert(item: PortalAdminClinicAccessOverviewItem): {
+  tone: TimelineTone;
+  title: string;
+  description: string;
+} | null {
+  if (item.status_key !== "active") {
+    return null;
+  }
+
+  const inactiveDays = item.days_since_last_activity;
+  if (typeof inactiveDays !== "number" || inactiveDays < 30) {
+    return null;
+  }
+
+  if (inactiveDays >= 60) {
+    return {
+      tone: "danger",
+      title: `Sem acesso ha ${inactiveDays} dias`,
+      description: "Vale revisar se a unidade perdeu o acesso, se precisa de novo convite ou se o relacionamento esfriou.",
+    };
+  }
+
+  return {
+    tone: "warning",
+    title: `Sem acesso ha ${inactiveDays} dias`,
+    description: "Bom momento para retomar o contato e incentivar o uso do portal pela equipe da clinica.",
+  };
 }
 
 function formatPercent(numerator: number, denominator: number): string {
@@ -151,6 +202,48 @@ function buildClinicLocation(item: PortalAdminClinicAccessOverviewItem): string 
   return values.length ? values.join(" / ") : "Localizacao nao informada";
 }
 
+function buildTimelineToneClasses(tone: TimelineTone): string {
+  if (tone === "success") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+  if (tone === "warning") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+  if (tone === "danger") {
+    return "border-rose-200 bg-rose-50 text-rose-700";
+  }
+  return "border-slate-200 bg-slate-50 text-slate-700";
+}
+
+function TimelineIcon({ eventType, tone }: { eventType: string; tone: TimelineTone }) {
+  if (eventType === "download") {
+    return <Download className="h-4 w-4" />;
+  }
+  if (eventType.startsWith("invite")) {
+    return <KeyRound className="h-4 w-4" />;
+  }
+  if (eventType === "account_revoked") {
+    return <UserMinus className="h-4 w-4" />;
+  }
+  if (tone === "success") {
+    return <CheckCircle2 className="h-4 w-4" />;
+  }
+  if (tone === "warning" || tone === "danger") {
+    return <TriangleAlert className="h-4 w-4" />;
+  }
+  return <Mail className="h-4 w-4" />;
+}
+
+function buildQuickInviteLabel(item: PortalAdminClinicAccessOverviewItem): string {
+  if (item.invite?.status === "pending" || item.invite?.status === "expired" || item.invite?.status === "revoked") {
+    return "Reenviar convite";
+  }
+  if (item.account) {
+    return "Atualizar acesso";
+  }
+  return "Enviar convite";
+}
+
 function matchesStatusFilter(item: PortalAdminClinicAccessOverviewItem, statusFilter: StatusFilter): boolean {
   if (statusFilter === "all") {
     return true;
@@ -180,7 +273,7 @@ export default function PortalClinicManagementPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [quickView, setQuickView] = useState<QuickView>("all");
-  const [downloadsOnly, setDownloadsOnly] = useState(false);
+  const [firstDownloadOnly, setFirstDownloadOnly] = useState(false);
   const [selectedClinicId, setSelectedClinicId] = useState("");
   const [deliveryTarget, setDeliveryTarget] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
@@ -224,10 +317,16 @@ export default function PortalClinicManagementPage() {
       if (quickView === "recent_downloads" && !hasRecentDownload(item)) {
         return false;
       }
+      if (quickView === "inactive_30d" && !isInactiveForDays(item, 30)) {
+        return false;
+      }
+      if (quickView === "first_download_completed" && !hasFirstDownload(item)) {
+        return false;
+      }
       if (!matchesStatusFilter(item, statusFilter)) {
         return false;
       }
-      if (downloadsOnly && item.download_count <= 0) {
+      if (firstDownloadOnly && !hasFirstDownload(item)) {
         return false;
       }
       if (!normalizedSearch) {
@@ -238,6 +337,7 @@ export default function PortalClinicManagementPage() {
         item.clinica_nome,
         item.contato_email,
         item.contato_whatsapp,
+        item.login_email,
         item.cidade,
         item.estado,
         item.account?.email_masked,
@@ -249,7 +349,7 @@ export default function PortalClinicManagementPage() {
 
       return haystack.includes(normalizedSearch);
     });
-  }, [downloadsOnly, overview?.items, search, statusFilter]);
+  }, [firstDownloadOnly, overview?.items, quickView, search, statusFilter]);
 
   const pendingOperationalItems = useMemo(
     () => (overview?.items || []).filter((item) => needsOperationalAttention(item)).length,
@@ -263,6 +363,8 @@ export default function PortalClinicManagementPage() {
       neverAccessed: items.filter((item) => hasNeverAccessed(item)).length,
       expiredInvites: items.filter((item) => item.status_key === "invite_expired").length,
       recentDownloads: items.filter((item) => hasRecentDownload(item)).length,
+      inactive30d: items.filter((item) => isInactiveForDays(item, 30)).length,
+      firstDownloadCompleted: items.filter((item) => hasFirstDownload(item)).length,
     };
   }, [overview?.items]);
 
@@ -309,7 +411,7 @@ export default function PortalClinicManagementPage() {
   function focusInviteComposer(item: PortalAdminClinicAccessOverviewItem) {
     setSelectedClinicId(String(item.clinica_id));
     setDeliveryTarget(item.contato_whatsapp || "");
-    setInviteEmail(item.contato_email || "");
+    setInviteEmail(item.login_email || item.contato_email || "");
     setMessage("");
     setError("");
     inviteComposerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -324,7 +426,7 @@ export default function PortalClinicManagementPage() {
       return;
     }
     setDeliveryTarget(selectedClinic.contato_whatsapp || "");
-    setInviteEmail(selectedClinic.contato_email || "");
+    setInviteEmail(selectedClinic.login_email || selectedClinic.contato_email || "");
   }, [selectedClinic]);
 
   async function handleGenerateInvite() {
@@ -406,7 +508,52 @@ export default function PortalClinicManagementPage() {
     setSearch("");
     setStatusFilter("all");
     setQuickView("all");
-    setDownloadsOnly(false);
+    setFirstDownloadOnly(false);
+  }
+
+  async function handleQuickInvite(item: PortalAdminClinicAccessOverviewItem) {
+    const deliveryTargetValue = (item.contato_whatsapp || "").trim();
+    const inviteEmailValue = (item.login_email || item.contato_email || "").trim();
+
+    if (!deliveryTargetValue || !inviteEmailValue) {
+      focusInviteComposer(item);
+      setError("Preencha WhatsApp e email institucional da clinica para gerar ou reenviar o convite.");
+      setMessage("");
+      return;
+    }
+
+    setActionLoadingKey(`quick-invite-${item.clinica_id}`);
+    setError("");
+    setMessage("");
+    try {
+      const response = await api.post<PortalAdminClinicInviteResponse>(
+        `/portal/admin/clinicas/${item.clinica_id}/convites`,
+        {
+          delivery_channel: "whatsapp",
+          delivery_target: deliveryTargetValue,
+          account_email: inviteEmailValue,
+          expires_in_hours: Number.parseInt(expiresInHours, 10) || 72,
+          allow_manual_copy: true,
+        },
+        { headers: getPortalAdminAuthHeaders() },
+      );
+      setSelectedClinicId(String(item.clinica_id));
+      setDeliveryTarget(deliveryTargetValue);
+      setInviteEmail(inviteEmailValue);
+      setGeneratedInvite(response.data);
+      setGeneratedClinicName(item.clinica_nome);
+      setMessage(
+        response.data.delivery_status === "sent"
+          ? `Convite reenviado para ${item.clinica_nome}.`
+          : `Convite atualizado para ${item.clinica_nome}. Copie a mensagem pronta abaixo.`,
+      );
+      inviteComposerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      await loadOverview();
+    } catch (err) {
+      setError(extractApiErrorMessageSync(err, "Nao foi possivel gerar o convite rapido da clinica."));
+    } finally {
+      setActionLoadingKey("");
+    }
   }
 
   function handleExportCsv() {
@@ -419,16 +566,23 @@ export default function PortalClinicManagementPage() {
       "clinica_id",
       "clinica_nome",
       "status",
+      "status_chave",
       "contato_email",
       "contato_whatsapp",
       "email_login",
       "cidade",
       "estado",
+      "convite_status",
+      "convite_criado_em",
+      "convite_expira_em",
       "sessoes_ativas",
       "downloads_total",
+      "primeiro_download",
       "ultimo_login",
       "ultimo_download",
-      "ultima_atividade_portal",
+      "ultimo_acesso_portal",
+      "dias_sem_atividade",
+      "fez_primeiro_download",
       "precisa_informar_email",
     ];
 
@@ -443,16 +597,23 @@ export default function PortalClinicManagementPage() {
         item.clinica_id,
         item.clinica_nome,
         item.status_label,
+        item.status_key,
         item.contato_email || "",
         item.contato_whatsapp || "",
-        item.account?.email_masked || item.invite_account_email_masked || "",
+        item.login_email || item.account?.email_masked || item.invite_account_email_masked || "",
         item.cidade || "",
         item.estado || "",
+        item.invite?.status || "",
+        item.invite?.created_at ? formatPortalDateTime(item.invite.created_at) : "",
+        item.invite?.expires_at ? formatPortalDateTime(item.invite.expires_at) : "",
         item.active_session_count,
         item.download_count,
+        item.first_download_at ? formatPortalDateTime(item.first_download_at) : "",
         item.account?.last_login_at ? formatPortalDateTime(item.account.last_login_at) : "",
         item.last_download_at ? formatPortalDateTime(item.last_download_at) : "",
         latestActivity,
+        typeof item.days_since_last_activity === "number" ? item.days_since_last_activity : "",
+        hasFirstDownload(item) ? "sim" : "nao",
         item.needs_email_definition ? "sim" : "nao",
       ];
     });
@@ -944,6 +1105,42 @@ export default function PortalClinicManagementPage() {
 
               <button
                 type="button"
+                onClick={() => setQuickView("inactive_30d")}
+                className={`rounded-2xl border px-4 py-4 text-left transition ${
+                  quickView === "inactive_30d"
+                    ? "border-amber-300 bg-amber-50"
+                    : "border-slate-200 bg-slate-50 hover:border-slate-300"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Sem acesso ha 30+ dias</p>
+                    <p className="mt-1 text-sm text-slate-500">Mostra clinicas ativas que esfriaram no uso do portal.</p>
+                  </div>
+                  <strong className="text-2xl font-semibold text-slate-950">{managementQueue.inactive30d}</strong>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setQuickView("first_download_completed")}
+                className={`rounded-2xl border px-4 py-4 text-left transition ${
+                  quickView === "first_download_completed"
+                    ? "border-emerald-300 bg-emerald-50"
+                    : "border-slate-200 bg-slate-50 hover:border-slate-300"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Primeiro download concluido</p>
+                    <p className="mt-1 text-sm text-slate-500">Ajuda a enxergar clinicas que ja aderiram de verdade ao portal.</p>
+                  </div>
+                  <strong className="text-2xl font-semibold text-slate-950">{managementQueue.firstDownloadCompleted}</strong>
+                </div>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setQuickView("all")}
                 className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
               >
@@ -991,7 +1188,14 @@ export default function PortalClinicManagementPage() {
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <h3 className="text-sm font-semibold text-slate-900">{downloadEvent.clinica_nome}</h3>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-sm font-semibold text-slate-900">{downloadEvent.clinica_nome}</h3>
+                          {downloadEvent.is_first_download ? (
+                            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                              Primeiro download
+                            </span>
+                          ) : null}
+                        </div>
                         <p className="mt-1 text-sm text-slate-600">
                           {downloadEvent.paciente_nome || "Pet nao identificado"}
                           {downloadEvent.tutor_nome ? ` • Tutor ${downloadEvent.tutor_nome}` : ""}
@@ -1074,11 +1278,11 @@ export default function PortalClinicManagementPage() {
             <label className="inline-flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700">
               <input
                 type="checkbox"
-                checked={downloadsOnly}
-                onChange={(event) => setDownloadsOnly(event.target.checked)}
+                checked={firstDownloadOnly}
+                onChange={(event) => setFirstDownloadOnly(event.target.checked)}
                 className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
               />
-              Mostrar apenas quem ja baixou laudo
+              Mostrar apenas clinicas com primeiro download concluido
             </label>
           </div>
 
@@ -1089,6 +1293,8 @@ export default function PortalClinicManagementPage() {
               { value: "never_accessed" as const, label: "Nunca acessaram" },
               { value: "expired_invites" as const, label: "Convites expirados" },
               { value: "recent_downloads" as const, label: "Downloads recentes" },
+              { value: "inactive_30d" as const, label: "Sem acesso ha 30+ dias" },
+              { value: "first_download_completed" as const, label: "Primeiro download" },
             ].map((option) => (
               <button
                 key={option.value}
@@ -1162,7 +1368,7 @@ export default function PortalClinicManagementPage() {
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Conta</p>
                           <p className="mt-2 text-sm text-slate-700">
-                            {item.account?.email_masked || item.invite_account_email_masked || "Nao definida"}
+                            {item.login_email || item.account?.email_masked || item.invite_account_email_masked || "Nao definida"}
                           </p>
                           <p className="mt-1 text-sm text-slate-500">
                             Ultimo login: {formatPortalDateTime(item.account?.last_login_at)}
@@ -1176,6 +1382,9 @@ export default function PortalClinicManagementPage() {
                           <p className="mt-1 text-sm text-slate-500">
                             Expira: {formatPortalDateTime(item.invite?.expires_at)}
                           </p>
+                          <p className="mt-1 text-sm text-slate-500">
+                            Criado: {formatPortalDateTime(item.invite?.created_at)}
+                          </p>
                         </div>
                       </div>
 
@@ -1184,12 +1393,70 @@ export default function PortalClinicManagementPage() {
                           Esta clinica ainda precisa informar o email institucional que sera usado no login.
                         </div>
                       ) : null}
+
+                      {getInactivityAlert(item) ? (
+                        <div
+                          className={`rounded-2xl border px-4 py-3 text-sm ${buildTimelineToneClasses(getInactivityAlert(item)?.tone || "warning")}`}
+                        >
+                          <p className="font-semibold">{getInactivityAlert(item)?.title}</p>
+                          <p className="mt-1">{getInactivityAlert(item)?.description}</p>
+                        </div>
+                      ) : null}
+
+                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                              Linha do tempo do portal
+                            </p>
+                            <p className="mt-1 text-sm text-slate-500">
+                              Convites, ativacao, revogacoes e downloads auditados desta clinica.
+                            </p>
+                          </div>
+                          <span className="text-xs font-medium text-slate-500">
+                            {item.timeline.length} evento(s)
+                          </span>
+                        </div>
+
+                        <div className="mt-4 space-y-3">
+                          {item.timeline.length === 0 ? (
+                            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
+                              Nenhum evento relevante do portal foi auditado para esta clinica ainda.
+                            </div>
+                          ) : (
+                            item.timeline.map((event) => (
+                              <div
+                                key={event.event_id}
+                                className="flex gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+                              >
+                                <div
+                                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${buildTimelineToneClasses(event.tone)}`}
+                                >
+                                  <TimelineIcon eventType={event.event_type} tone={event.tone} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <p className="text-sm font-semibold text-slate-900">{event.title}</p>
+                                    <span className="text-xs font-medium text-slate-500">
+                                      {formatPortalDateTime(event.occurred_at)}
+                                    </span>
+                                  </div>
+                                  {event.description ? (
+                                    <p className="mt-1 text-sm text-slate-500">{event.description}</p>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
                     </div>
 
                     <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Downloads</p>
                         <p className="mt-2 text-2xl font-semibold text-slate-950">{item.download_count}</p>
+                        <p className="mt-1 text-sm text-slate-500">Primeiro: {formatPortalDateTime(item.first_download_at)}</p>
                         <p className="mt-1 text-sm text-slate-500">Ultimo: {formatPortalDateTime(item.last_download_at)}</p>
                       </div>
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
@@ -1200,18 +1467,36 @@ export default function PortalClinicManagementPage() {
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Situacao</p>
                         <p className="mt-2 text-sm font-medium text-slate-900">{item.status_label}</p>
-                        <p className="mt-1 text-sm text-slate-500">{buildStatusDescription(item)}</p>
+                        <p className="mt-1 text-sm text-slate-500">Ultimo acesso: {formatPortalDateTime(item.last_access_at)}</p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {typeof item.days_since_last_activity === "number"
+                            ? `${item.days_since_last_activity} dia(s) sem atividade`
+                            : buildStatusDescription(item)}
+                        </p>
                       </div>
                     </div>
 
                     <div className="flex flex-col gap-3 xl:min-w-[220px]">
                       <button
                         type="button"
-                        onClick={() => focusInviteComposer(item)}
-                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                        onClick={() => void handleQuickInvite(item)}
+                        disabled={actionLoadingKey === `quick-invite-${item.clinica_id}`}
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
                       >
-                        <MessageCircle className="h-4 w-4" />
-                        {item.account ? "Atualizar acesso" : "Convidar clinica"}
+                        {actionLoadingKey === `quick-invite-${item.clinica_id}` ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <MessageCircle className="h-4 w-4" />
+                        )}
+                        {buildQuickInviteLabel(item)}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => focusInviteComposer(item)}
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
+                      >
+                        <Mail className="h-4 w-4" />
+                        Editar convite
                       </button>
                       <Link
                         href={`/clinicas/${item.clinica_id}`}

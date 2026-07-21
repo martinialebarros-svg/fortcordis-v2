@@ -1,6 +1,6 @@
 # Plan - portal-access-ui
 
-Data: 2026-06-16
+Data: 2026-07-21
 Responsavel: Equipe FortCordis
 Status: done
 
@@ -122,3 +122,35 @@ Status: done
   - gerar convite a partir do cockpit;
   - revogar convite, encerrar sessao e revogar conta com confirmacao;
   - exportar CSV da visao filtrada.
+
+## 8) Refinamento operacional - 2026-07-21
+
+### Fase 6 (cockpit de relacionamento e adesao)
+
+- [x] T6.1 Enriquecer o endpoint panoramico com `login_email`, `first_download_at`, `last_access_at`, `days_since_last_activity` e linha do tempo por clinica.
+- [x] T6.2 Distinguir primeiro download no feed recente e nas estatisticas por clinica.
+- [x] T6.3 Adicionar alerta visual para clinicas ativas sem acesso ha 30 dias ou mais.
+- [x] T6.4 Permitir reenvio rapido de convite direto na lista quando os dados minimos ja existirem.
+- [x] T6.5 Adicionar filtro/quick view para primeiro download concluido.
+- [x] T6.6 Tornar a exportacao CSV mais analitica com status do convite, primeiro download, ultimo acesso e dias sem atividade.
+- [x] T6.7 Exibir linha do tempo resumida por clinica com historico de convite, cadastro, revogacoes e downloads.
+- Criterio de conclusao:
+  - a operacao consegue identificar rapidamente adesao real, esfriamento de uso e historico recente de cada clinica sem sair do cockpit.
+- Risco:
+  - o painel crescer em densidade e perder clareza se os estados nao tiverem boa hierarquia visual.
+- Rollback:
+  - remover os novos campos/atalhos mantendo a versao anterior do cockpit com panorama, convite e feed recente.
+
+### Plano de testes desta fase
+
+- Automatizados:
+  - `backend/venv/bin/python -m unittest backend/tests/test_portal_clinic_invite_auth.py`
+  - `cd frontend && npx eslint app/clinicas/portal/page.tsx app/clinicas/page.tsx app/clinicas/components/ClinicaPortalAccessCard.tsx app/layout-dashboard.tsx lib/portal-api.ts lib/portal-clinic-admin.ts`
+  - `cd frontend && npx tsc --noEmit --pretty false`
+  - `git diff --check`
+- Manuais:
+  - validar quick views `Sem acesso ha 30+ dias` e `Primeiro download`;
+  - validar o checkbox de primeiro download concluido;
+  - acionar reenvio rapido a partir da lista;
+  - revisar a linha do tempo de uma clinica com convite, conta e download;
+  - exportar CSV e conferir as novas colunas analiticas.

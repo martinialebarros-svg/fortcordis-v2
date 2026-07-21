@@ -1,6 +1,6 @@
 # Verify - portal-access-ui
 
-Data: 2026-06-17
+Data: 2026-07-21
 Responsavel: Equipe FortCordis
 Status: done
 
@@ -32,9 +32,15 @@ Status: done
 | CA-015 | aceitacao | `backend/app/api/v1/endpoints/portal.py` + `backend/app/api/v1/endpoints/portal_clinic_auth.py` + `test_admin_can_load_portal_access_overview_with_download_analytics` | ok |
 | CA-016 | aceitacao | `frontend/app/clinicas/portal/page.tsx` exportando CSV da visao filtrada localmente | ok |
 | CA-017 | aceitacao | calculos de adesao/inatividade em `frontend/app/clinicas/portal/page.tsx` combinando ultimo login e ultimo download | ok |
+| CA-018 | aceitacao | alerta visual por clinica inativa em `frontend/app/clinicas/portal/page.tsx` usando `days_since_last_activity` do backend | ok |
+| CA-019 | aceitacao | reenvio rapido pela propria lista em `frontend/app/clinicas/portal/page.tsx` reutilizando `POST /api/v1/portal/admin/clinicas/{clinica_id}/convites` | ok |
+| CA-020 | aceitacao | filtros `Primeiro download` e checkbox de primeiro download no cockpit administrativo | ok |
+| CA-021 | aceitacao | linha do tempo por clinica baseada em `timeline[]` do endpoint administrativo | ok |
+| CA-022 | aceitacao | CSV analitico com `first_download_at`, `last_access_at` e `days_since_last_activity` | ok |
 | NFR-008 | nao funcional | auditoria de download enriquecida com `actor_type`, `clinica_id` e `account_id` em `backend/app/api/v1/endpoints/portal.py` | ok |
 | NFR-009 | nao funcional | confirmacoes explicitas antes de revogacoes no cockpit administrativo | ok |
 | NFR-010 | nao funcional | painel calcula metricas somente a partir dos dados de acesso ja autorizados no backend | ok |
+| NFR-011 | nao funcional | reenvio rapido orienta completar email/WhatsApp no compositor quando faltarem dados minimos | ok |
 
 ## 2) Testes automatizados executados
 
@@ -90,6 +96,8 @@ Resumo dos resultados:
 - Revogacao de convite, revogacao de conta e encerramento de sessoes revisados por codigo com confirmacao antes da chamada de API.
 - Reuso do convite administrativo individual pela tela panoramica confirmado em `frontend/lib/portal-clinic-admin.ts` e `frontend/app/clinicas/components/ClinicaPortalAccessCard.tsx`.
 - Feed de downloads validado com auditoria de `actor_type=clinica` coberta por teste automatizado.
+- Reenvio rapido, filtro de primeiro download, alerta de inatividade e linha do tempo por clinica revisados por codigo.
+- Payload administrativo `GET /api/v1/portal/admin/clinicas/acessos/painel` ampliado com `login_email`, `first_download_at`, `last_access_at`, `days_since_last_activity`, `timeline[]` e `recent_downloads[].is_first_download`.
 
 ## 4) Regressao e riscos residuais
 
@@ -99,6 +107,7 @@ Resumo dos resultados:
 - Risco residual 4: WhatsApp deve ser reabilitado em uma fase posterior, depois de credenciais e webhook aprovados/configurados.
 - Risco residual 5: o CSV representa o recorte filtrado localmente; para analytics historico/executivo amplo ainda sera melhor uma camada dedicada de relatorios.
 - Risco residual 6: o indicador de inatividade de 30 dias depende da auditoria de download enriquecida e do ultimo login existente; eventos antigos sem esse contexto nao entram na leitura administrativa.
+- Risco residual 7: a linha do tempo usa os eventos hoje disponiveis em convite, conta e auditoria de download; se no futuro houver novas etapas operacionais, elas precisarao ser auditadas para aparecer no cockpit.
 
 ## 5) Itens fora de escopo entregues
 

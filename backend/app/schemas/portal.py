@@ -188,6 +188,7 @@ class PortalAdminClinicAccessOverviewItem(BaseModel):
     estado: Optional[str] = None
     contato_email: Optional[str] = None
     contato_whatsapp: Optional[str] = None
+    login_email: Optional[str] = None
     invite: Optional[PortalAdminClinicInviteSnapshot] = None
     invite_account_email_masked: Optional[str] = None
     account: Optional[PortalAdminClinicAccountSnapshot] = None
@@ -197,6 +198,10 @@ class PortalAdminClinicAccessOverviewItem(BaseModel):
     needs_email_definition: bool = False
     download_count: int = 0
     last_download_at: Optional[datetime] = None
+    first_download_at: Optional[datetime] = None
+    last_access_at: Optional[datetime] = None
+    days_since_last_activity: Optional[int] = None
+    timeline: list["PortalAdminClinicTimelineEventResponse"] = Field(default_factory=list)
 
 
 class PortalAdminClinicDownloadEventResponse(BaseModel):
@@ -210,6 +215,16 @@ class PortalAdminClinicDownloadEventResponse(BaseModel):
     tipo_exame: Optional[str] = None
     anexo_nome: Optional[str] = None
     downloaded_at: datetime
+    is_first_download: bool = False
+
+
+class PortalAdminClinicTimelineEventResponse(BaseModel):
+    event_id: str
+    event_type: str
+    title: str
+    description: Optional[str] = None
+    occurred_at: datetime
+    tone: Literal["neutral", "success", "warning", "danger"] = "neutral"
 
 
 class PortalAdminClinicAccessOverviewResponse(BaseModel):
