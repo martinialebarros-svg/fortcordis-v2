@@ -18,6 +18,7 @@ Rollback: desabilitar `ASSISTENTE_IA_ENABLED`; as tabelas novas permanecem isola
 2. Implementar ferramentas financeiras e de agenda com saidas minimizadas.
 3. Implementar loop da Responses API com limite, estado e auditoria.
 4. Implementar pedido de exclusao como acao pendente, nunca como delete direto.
+5. Implementar criacao de reserva/agendamento como acao pendente, reutilizando resolucao de cadastros e validadores oficiais da agenda.
 
 Rollback: remover o router do modulo; nenhum endpoint atual e substituido.
 
@@ -35,6 +36,7 @@ Rollback: retirar `include_router`; dados persistidos ficam inertes.
 2. Criar pagina conversacional com estados vazio, carregando, erro e resposta.
 3. Exibir ferramentas usadas e cartao de confirmacao para acao pendente.
 4. Redirecionar nao-admin e manter a API como barreira de seguranca definitiva.
+5. Generalizar o cartao para criacao de horario e, apos a execucao, oferecer copia da mensagem e abertura manual do WhatsApp.
 
 Rollback: remover pagina e item de navegacao sem afetar backend.
 

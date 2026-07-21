@@ -18,7 +18,11 @@ Status: passed
 | CA-008 | aprovacao executa o fluxo oficial e registra auditoria | aprovado |
 | CA-009 | expiracao, replay e divergencia de snapshot retornam 409 | aprovado |
 | CA-010 | TypeScript, ESLint e build Next com rota `/assistente-ia` | aprovado |
-| CA-011 | teste do validador de status e workflow de segredo exclusivo de stage | aprovado local; confirmacao final pelo workflow |
+| CA-011 | teste do validador de status e workflow de segredo exclusivo de stage | aprovado |
+| CA-012 | reserva gera acao pendente, snapshot com prazo/contatos e zero insercoes antes da decisao | aprovado |
+| CA-013 | rejeicao nao chama escrita; aprovacao chama `criar_agendamento` com payload validado | aprovado |
+| CA-014 | referencias e regras sao revalidadas na aprovacao, sem override operacional | aprovado |
+| CA-015 | cartao de criacao, mensagem, selecao de telefone, copia e abertura manual do WhatsApp | aprovado |
 
 ## 2) Comandos executados
 
@@ -34,8 +38,8 @@ cd frontend && npm run build
 
 ## 3) Resultado
 
-- testes focais: 45 aprovados;
-- suite isolada do commit de release: 340 testes aprovados;
+- testes focais desta extensao: 15 aprovados;
+- suite completa atual: 345 testes aprovados;
 - migration SQLite executada duas vezes no mesmo banco: aprovada e idempotente;
 - dependencias Python: `No broken requirements found`;
 - frontend: compilacao, tipos, lint e build aprovados; rota estatica `/assistente-ia` gerada;
@@ -43,4 +47,6 @@ cd frontend && npm run build
 - smoke real de roteamento: pedido de cinco meses produziu a chamada `analisar_faturamento`;
 - segredo `OPENAI_API_KEY_STAGE` registrado no GitHub Actions e workflow validado sintaticamente;
 - nenhum segredo foi impresso, copiado para outro arquivo ou enviado ao frontend;
-- deploy nao realizado, conforme escopo desta iteracao.
+- versao inicial implantada em stage no commit `6190661`; extensao de criacao/reserva autorizada para a release de stage deste ciclo;
+- fluxo novo de criacao/reserva: testes de preparacao sem escrita, rejeicao e aprovacao pelo endpoint oficial aprovados;
+- frontend novo: cartao diferenciado para reserva/agendamento e comunicacao manual tipados e aprovados no lint.

@@ -6,11 +6,15 @@ import {
   AlertTriangle,
   BarChart3,
   BrainCircuit,
+  CalendarPlus,
   CalendarSearch,
   Check,
   CheckCircle2,
   Clock3,
+  Copy,
+  ExternalLink,
   Loader2,
+  MessageCircle,
   MessageSquare,
   Plus,
   ReceiptText,
@@ -24,6 +28,8 @@ import {
 
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { montarLinkWhatsAppReserva } from "@/lib/agenda-reserva-manual";
+import { formatarWhatsAppVisual } from "@/lib/clinica-whatsapp";
 
 type ToolTrace = {
   name: string;
@@ -48,6 +54,9 @@ type PendingAction = {
   arguments: {
     agendamento_id?: number;
     motivo?: string;
+    tipo?: "agendamento" | "reserva";
+    destinatario_mensagem?: "clinica" | "tutor";
+    observacoes?: string | null;
   };
   target: {
     agendamento_id?: number;
@@ -56,10 +65,31 @@ type PendingAction = {
     clinica_nome?: string;
     servico_nome?: string;
     paciente_primeiro_nome?: string | null;
+    paciente_nome?: string | null;
+    tutor_nome?: string | null;
+    tipo?: "agendamento" | "reserva";
+    reserva_expira_em?: string | null;
+    destinatario_mensagem?: {
+      tipo?: "clinica" | "tutor";
+      nome?: string | null;
+      telefones?: string[];
+    };
   };
   result?: {
     message?: string;
     reason?: string;
+    agendamento?: {
+      id?: number;
+      status?: string;
+      inicio?: string | null;
+    };
+    comunicacao?: {
+      destinatario_tipo?: "clinica" | "tutor";
+      destinatario_nome?: string | null;
+      telefones?: string[];
+      mensagem?: string;
+      envio_manual?: boolean;
+    };
   } | null;
   expires_at?: string | null;
 };
@@ -93,6 +123,10 @@ const EXAMPLES = [
   {
     icon: CalendarSearch,
     text: "Verifique disponibilidade de horário para ecocardiograma na Vet World.",
+  },
+  {
+    icon: CalendarPlus,
+    text: "Reserve amanhã às 10h um ecocardiograma na Animal Care e deixe a mensagem pronta para a clínica.",
   },
   {
     icon: ReceiptText,
@@ -151,6 +185,8 @@ export default function AssistenteIAPage() {
   const [loading, setLoading] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [decidingActionId, setDecidingActionId] = useState<string | null>(null);
+  const [selectedWhatsapps, setSelectedWhatsapps] = useState<Record<string, string>>({});
+  const [copiedActionId, setCopiedActionId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const refreshConversations = async () => {
@@ -201,6 +237,8 @@ export default function AssistenteIAPage() {
     setMessages([]);
     setPendingActions([]);
     setInput("");
+    setSelectedWhatsapps({});
+    setCopiedActionId(null);
     setError("");
   };
 
@@ -280,6 +318,27 @@ export default function AssistenteIAPage() {
     }
   };
 
+  const copyCommunication = async (action: PendingAction) => {
+    const message = String(action.result?.comunicacao?.mensagem || "");
+    if (!message) return;
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopiedActionId(action.id);
+      window.setTimeout(() => setCopiedActionId((current) => (current === action.id ? null : current)), 1800);
+    } catch {
+      setError("Não foi possível copiar a mensagem automaticamente.");
+    }
+  };
+
+  const openWhatsApp = (action: PendingAction) => {
+    const communication = action.result?.comunicacao;
+    const message = String(communication?.mensagem || "");
+    const phones = Array.isArray(communication?.telefones) ? communication.telefones.filter(Boolean) : [];
+    const selectedPhone = selectedWhatsapps[action.id] || phones[0] || "";
+    if (!message) return;
+    window.open(montarLinkWhatsAppReserva(selectedPhone, message), "_blank", "noopener,noreferrer");
+  };
+
   if (authorized !== true) {
     return (
       <DashboardLayout>
@@ -309,7 +368,7 @@ export default function AssistenteIAPage() {
                 <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Mente FortCordis</h1>
                 <p className="mt-3 max-w-2xl text-sm leading-6 text-white/70 sm:text-base">
                   Consulte a operação em linguagem natural. A IA usa ferramentas delimitadas do sistema,
-                  mantém o histórico e pede sua confirmação antes de qualquer exclusão.
+                  mantém o histórico e pede sua confirmação antes de criar, reservar ou excluir horários.
                 </p>
               </div>
               <div className="flex items-center gap-2 rounded-2xl bg-white/10 px-4 py-3 text-sm backdrop-blur">
@@ -368,7 +427,7 @@ export default function AssistenteIAPage() {
                 <div className="mb-1 flex items-center gap-2 font-semibold">
                   <ShieldCheck className="h-4 w-4" /> Controle administrativo
                 </div>
-                Leitura de dados é automática. Ações destrutivas exigem confirmação e deixam registro de auditoria.
+                Consultas são automáticas. Criações, reservas e exclusões exigem confirmação e deixam registro de auditoria.
               </div>
             </aside>
 
@@ -434,12 +493,23 @@ export default function AssistenteIAPage() {
                       const badge = actionStatus(action);
                       const BadgeIcon = badge.Icon;
                       const isDeciding = decidingActionId === action.id;
+                      const isCreation = action.type === "create_appointment";
+                      const isReservation = action.target.tipo === "reserva" || action.arguments.tipo === "reserva";
+                      const ActionIcon = isCreation ? CalendarPlus : Trash2;
+                      const communication = action.result?.comunicacao;
+                      const phones = Array.isArray(communication?.telefones)
+                        ? communication.telefones.filter(Boolean)
+                        : [];
+                      const selectedPhone = selectedWhatsapps[action.id] || phones[0] || "";
                       return (
                         <div key={action.id} className="rounded-2xl border border-amber-200 bg-amber-50/60 p-5 shadow-sm">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
                               <p className="flex items-center gap-2 font-semibold text-ink-900">
-                                <Trash2 className="h-4 w-4 text-cordis-600" /> Exclusão de agendamento
+                                <ActionIcon className="h-4 w-4 text-cordis-600" />
+                                {isCreation
+                                  ? isReservation ? "Reserva de horário" : "Novo agendamento"
+                                  : "Exclusão de agendamento"}
                               </p>
                               <p className="mt-1 text-sm text-ink-500">Esta ação não é executada sem a sua decisão.</p>
                             </div>
@@ -451,8 +521,21 @@ export default function AssistenteIAPage() {
                             <div><dt className="text-xs text-ink-400">Clínica</dt><dd className="font-medium text-ink-800">{action.target.clinica_nome || "Não informada"}</dd></div>
                             <div><dt className="text-xs text-ink-400">Data e hora</dt><dd className="font-medium text-ink-800">{formatDateTime(action.target.inicio)}</dd></div>
                             <div><dt className="text-xs text-ink-400">Serviço</dt><dd className="font-medium text-ink-800">{action.target.servico_nome || "Não informado"}</dd></div>
-                            <div><dt className="text-xs text-ink-400">Paciente</dt><dd className="font-medium text-ink-800">{action.target.paciente_primeiro_nome || "Não informado"}</dd></div>
-                            <div className="sm:col-span-2"><dt className="text-xs text-ink-400">Motivo</dt><dd className="font-medium text-ink-800">{action.arguments.motivo || "Não informado"}</dd></div>
+                            <div><dt className="text-xs text-ink-400">Paciente</dt><dd className="font-medium text-ink-800">{action.target.paciente_nome || action.target.paciente_primeiro_nome || (isReservation ? "Pendente" : "Não informado")}</dd></div>
+                            {isCreation ? (
+                              <>
+                                <div><dt className="text-xs text-ink-400">Tutor</dt><dd className="font-medium text-ink-800">{action.target.tutor_nome || "Pendente"}</dd></div>
+                                <div><dt className="text-xs text-ink-400">Mensagem para</dt><dd className="font-medium text-ink-800">{action.target.destinatario_mensagem?.nome || "Não informado"}</dd></div>
+                                {isReservation ? (
+                                  <div className="sm:col-span-2"><dt className="text-xs text-ink-400">Prazo de confirmação</dt><dd className="font-medium text-ink-800">{formatDateTime(action.target.reserva_expira_em)}</dd></div>
+                                ) : null}
+                                {action.arguments.observacoes ? (
+                                  <div className="sm:col-span-2"><dt className="text-xs text-ink-400">Observações</dt><dd className="font-medium text-ink-800">{action.arguments.observacoes}</dd></div>
+                                ) : null}
+                              </>
+                            ) : (
+                              <div className="sm:col-span-2"><dt className="text-xs text-ink-400">Motivo</dt><dd className="font-medium text-ink-800">{action.arguments.motivo || "Não informado"}</dd></div>
+                            )}
                           </dl>
                           {action.status === "pending" ? (
                             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
@@ -470,9 +553,65 @@ export default function AssistenteIAPage() {
                                 onClick={() => void decideAction(action.id, "approve")}
                                 className="flex items-center justify-center gap-2 rounded-xl bg-cordis-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-cordis-700 disabled:opacity-60"
                               >
-                                {isDeciding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                                Confirmar exclusão
+                                {isDeciding ? <Loader2 className="h-4 w-4 animate-spin" /> : <ActionIcon className="h-4 w-4" />}
+                                {isCreation
+                                  ? isReservation ? "Confirmar reserva" : "Confirmar agendamento"
+                                  : "Confirmar exclusão"}
                               </button>
+                            </div>
+                          ) : null}
+                          {action.status === "executed" && action.result?.message ? (
+                            <div className="mt-4 flex items-start gap-2 rounded-xl border border-vital-100 bg-vital-50 p-3 text-sm text-vital-800">
+                              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                              <span>{action.result.message}{action.result.agendamento?.id ? ` Código #${action.result.agendamento.id}.` : ""}</span>
+                            </div>
+                          ) : null}
+                          {action.status === "executed" && communication?.mensagem ? (
+                            <div className="mt-4 rounded-xl border border-emerald-100 bg-white p-4">
+                              <div className="flex items-start gap-3">
+                                <MessageCircle className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-semibold text-ink-900">Mensagem pronta para envio manual</p>
+                                  <p className="mt-1 text-xs text-ink-500">
+                                    {communication.destinatario_nome || "Destinatário"}
+                                    {phones.length > 0 ? ` · ${phones.map(formatarWhatsAppVisual).join(" / ")}` : " · sem WhatsApp cadastrado"}
+                                  </p>
+                                </div>
+                              </div>
+                              <pre className="mt-3 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg bg-ink-50 p-3 font-sans text-xs leading-5 text-ink-700">
+                                {communication.mensagem}
+                              </pre>
+                              {phones.length > 1 ? (
+                                <label className="mt-3 block text-xs font-medium text-ink-600">
+                                  Número para abrir
+                                  <select
+                                    value={selectedPhone}
+                                    onChange={(event) => setSelectedWhatsapps((current) => ({ ...current, [action.id]: event.target.value }))}
+                                    className="mt-1 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-800 outline-none focus:border-cordis-300"
+                                  >
+                                    {phones.map((phone) => (
+                                      <option key={phone} value={phone}>{formatarWhatsAppVisual(phone)}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                              ) : null}
+                              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => void copyCommunication(action)}
+                                  className="flex items-center justify-center gap-2 rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm font-semibold text-ink-700 transition hover:bg-ink-50"
+                                >
+                                  {copiedActionId === action.id ? <Check className="h-4 w-4 text-vital-600" /> : <Copy className="h-4 w-4" />}
+                                  {copiedActionId === action.id ? "Copiada" : "Copiar mensagem"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openWhatsApp(action)}
+                                  className="flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                                >
+                                  <ExternalLink className="h-4 w-4" /> Abrir WhatsApp
+                                </button>
+                              </div>
                             </div>
                           ) : null}
                         </div>
@@ -525,7 +664,7 @@ export default function AssistenteIAPage() {
                     </button>
                   </div>
                   <p className="mt-2 text-center text-[11px] leading-4 text-ink-400">
-                    A IA pode errar interpretações. Dados vêm das ferramentas do sistema; confirme sempre ações irreversíveis.
+                    A IA pode errar interpretações. Dados vêm das ferramentas do sistema; revise o cartão antes de confirmar qualquer ação.
                   </p>
                 </div>
               </div>

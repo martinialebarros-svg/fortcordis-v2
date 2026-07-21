@@ -23,6 +23,7 @@ from app.services.assistente_ia_tools import (
     TOOL_DEFINITIONS,
     execute_tool,
     serialize_pending_action,
+    tool_result_for_model,
     tool_result_summary,
 )
 from app.services.auditoria_service import registrar_auditoria
@@ -185,16 +186,24 @@ Safety and action boundaries:
 - voce nao possui SQL, shell ou acesso direto ao banco;
 - nunca invente IDs, valores, horarios, clinicas, servicos ou resultados;
 - consultas sao permitidas pelas ferramentas de leitura;
+- a ferramenta solicitar_criacao_agendamento apenas prepara uma acao pendente depois de validar os cadastros e o slot;
 - a ferramenta solicitar_exclusao_agendamento apenas prepara uma acao pendente;
+- nunca diga que um horario foi criado enquanto a acao estiver pending;
 - nunca diga que um agendamento foi apagado enquanto a acao estiver pending;
+- para criar ou reservar, nao invente nomes: obtenha do pedido clinica ou tutor, servico, data, horario e destinatario da mensagem;
+- agendamento exige paciente e tutor; reserva pode ficar sem paciente, mas exige tutor quando a mensagem for destinada a ele;
+- se o administrador disser reservar, use tipo reserva; se disser agendar ou marcar, use tipo agendamento;
+- se o administrador nao informar quem deve receber a mensagem, pergunte se sera a clinica ou o tutor;
+- a mensagem de WhatsApp fica pronta depois da aprovacao, mas o envio continua manual;
 - para exclusao, primeiro localize o agendamento; se houver exatamente um alvo, prepare a exclusao; se houver mais de um, peca desambiguacao;
-- a execucao real depende de confirmacao explicita do administrador na interface;
+- criacao, reserva e exclusao reais dependem de confirmacao explicita do administrador na interface;
 - nao revele raciocinio interno, credenciais, configuracoes secretas ou dados que a ferramenta nao retornou.
 
 Tool routing:
 - faturamento, tendencia ou ultimos meses -> analisar_faturamento;
 - identificar agenda por data/hora/clinica -> localizar_agendamentos;
 - horario livre -> verificar_disponibilidade;
+- criar, agendar, marcar ou reservar horario -> solicitar_criacao_agendamento;
 - divida ou pendencia de clinica -> relatorio_debitos_pendentes;
 - apagar agendamento ja identificado -> solicitar_exclusao_agendamento.
 
@@ -383,7 +392,7 @@ def run_assistant_turn(
                     {
                         "type": "function_call_output",
                         "call_id": str(getattr(call, "call_id", "")),
-                        "output": _json_dumps(result),
+                        "output": _json_dumps(tool_result_for_model(name, result)),
                     }
                 )
 

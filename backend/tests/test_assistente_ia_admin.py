@@ -31,6 +31,7 @@ from app.models.financeiro import ContaReceber, Transacao
 from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.servico import Servico
+from app.models.tutor import Tutor
 from app.services import assistente_ia_service, assistente_ia_tools
 
 
@@ -41,6 +42,7 @@ class AssistenteIAAdminTest(unittest.TestCase):
         self._engine = create_engine(f"sqlite:///{db_path}")
         self._session_factory = sessionmaker(bind=self._engine, autocommit=False, autoflush=False)
         for table in (
+            Tutor.__table__,
             Paciente.__table__,
             Clinica.__table__,
             Servico.__table__,
@@ -66,9 +68,23 @@ class AssistenteIAAdminTest(unittest.TestCase):
         self._tmpdir.cleanup()
 
     def _seed_base(self, db):
-        clinic = Clinica(nome="Animal Care", ativo=True, cidade="Fortaleza", estado="CE")
+        clinic = Clinica(
+            nome="Animal Care",
+            ativo=True,
+            telefone="(85) 98894-6484",
+            whatsapps=["85988946484", "85999998888"],
+            endereco="Rua Teste",
+            numero="100",
+            cidade="Fortaleza",
+            estado="CE",
+            latitude=-3.7319,
+            longitude=-38.5267,
+        )
         service = Servico(nome="Ecocardiograma", duracao_minutos=30, ativo=True)
-        patient = Paciente(nome="Luna Oliveira", ativo=1)
+        tutor = Tutor(nome="Ana Oliveira", telefone="(85) 98765-4321", whatsapp="85987654321", ativo=1)
+        db.add(tutor)
+        db.flush()
+        patient = Paciente(nome="Luna Oliveira", tutor_id=tutor.id, ativo=1)
         conversation = AssistenteIAConversa(
             id="conversation-test",
             usuario_id=self.user.id,
@@ -150,6 +166,177 @@ class AssistenteIAAdminTest(unittest.TestCase):
         self.assertEqual(result["matches"][0]["paciente_primeiro_nome"], "Luna")
         self.assertNotIn("telefone", str(result).lower())
         self.assertNotIn("tutor", str(result).lower())
+
+    def test_reserva_preparada_nao_cria_horario_antes_da_confirmacao(self) -> None:
+        with self._session_factory() as db:
+            clinic, service, _patient, conversation = self._seed_base(db)
+            future = datetime.now(assistente_ia_tools.LOCAL_TZ) + timedelta(days=7)
+            with (
+                patch.object(assistente_ia_tools, "_validate_appointment_candidate"),
+                patch.object(assistente_ia_tools, "registrar_auditoria"),
+            ):
+                prepared = assistente_ia_tools.solicitar_criacao_agendamento(
+                    self._context(db, conversation),
+                    tipo="reserva",
+                    origem_atendimento="clinica_parceira",
+                    clinica=clinic.nome,
+                    tutor=None,
+                    paciente=None,
+                    servico=service.nome,
+                    data=future.date().isoformat(),
+                    horario="10:00",
+                    destinatario_mensagem="clinica",
+                    prazo_confirmacao_horas=3,
+                    observacoes="Aguardando confirmacao da clinica",
+                )
+
+            self.assertTrue(prepared["ok"])
+            self.assertTrue(prepared["requires_approval"])
+            self.assertEqual(prepared["pending_action"]["type"], "create_appointment")
+            self.assertEqual(prepared["pending_action"]["target"]["status"], "Reservado")
+            self.assertEqual(
+                prepared["pending_action"]["target"]["destinatario_mensagem"]["telefones"],
+                ["85988946484", "85999998888"],
+            )
+            provider_result = assistente_ia_tools.tool_result_for_model(
+                "solicitar_criacao_agendamento",
+                prepared,
+            )
+            self.assertNotIn("85988946484", str(provider_result))
+            self.assertNotIn("telefones", str(provider_result))
+            self.assertEqual(
+                provider_result["pending_action"]["target"]["destinatario_mensagem"]["quantidade_contatos"],
+                2,
+            )
+            self.assertEqual(db.query(Agendamento).count(), 0)
+
+    def test_criacao_so_executa_endpoint_oficial_apos_aprovacao(self) -> None:
+        with self._session_factory() as db:
+            clinic, service, patient, conversation = self._seed_base(db)
+            future = datetime.now(assistente_ia_tools.LOCAL_TZ) + timedelta(days=8)
+            with (
+                patch.object(assistente_ia_tools, "_validate_appointment_candidate"),
+                patch.object(assistente_ia_tools, "registrar_auditoria"),
+            ):
+                prepared = assistente_ia_tools.solicitar_criacao_agendamento(
+                    self._context(db, conversation),
+                    tipo="agendamento",
+                    origem_atendimento="clinica_parceira",
+                    clinica=clinic.nome,
+                    tutor="Ana Oliveira",
+                    paciente=patient.nome,
+                    servico=service.nome,
+                    data=future.date().isoformat(),
+                    horario="11:00",
+                    destinatario_mensagem="tutor",
+                    prazo_confirmacao_horas=None,
+                    observacoes="Primeiro atendimento",
+                )["pending_action"]
+
+                self.assertEqual(db.query(Agendamento).count(), 0)
+                with patch.object(
+                    assistente_ia_tools.agenda,
+                    "criar_agendamento",
+                    return_value={
+                        "id": 321,
+                        "status": "Agendado",
+                        "inicio": prepared["target"]["inicio"],
+                    },
+                ) as create_appointment:
+                    executed = assistente_ia_tools.decide_pending_action(
+                        db=db,
+                        current_user=self.user,
+                        request=SimpleNamespace(headers={}),
+                        action_id=prepared["id"],
+                        decision="approve",
+                    )
+
+            self.assertEqual(executed["status"], "executed")
+            self.assertEqual(executed["result"]["agendamento"]["id"], 321)
+            self.assertEqual(executed["result"]["comunicacao"]["destinatario_nome"], "Ana Oliveira")
+            self.assertIn("Ecocardiograma", executed["result"]["comunicacao"]["mensagem"])
+            self.assertTrue(executed["result"]["comunicacao"]["envio_manual"])
+            payload = create_appointment.call_args.kwargs["agendamento"]
+            self.assertIsInstance(payload, assistente_ia_tools.AgendamentoCreate)
+            self.assertEqual(payload.status, "Agendado")
+            self.assertEqual(payload.paciente_id, patient.id)
+
+    def test_rejeitar_criacao_preserva_agenda(self) -> None:
+        with self._session_factory() as db:
+            clinic, service, _patient, conversation = self._seed_base(db)
+            future = datetime.now(assistente_ia_tools.LOCAL_TZ) + timedelta(days=9)
+            with (
+                patch.object(assistente_ia_tools, "_validate_appointment_candidate"),
+                patch.object(assistente_ia_tools, "registrar_auditoria"),
+            ):
+                prepared = assistente_ia_tools.solicitar_criacao_agendamento(
+                    self._context(db, conversation),
+                    tipo="reserva",
+                    origem_atendimento="clinica_parceira",
+                    clinica=clinic.nome,
+                    tutor=None,
+                    paciente=None,
+                    servico=service.nome,
+                    data=future.date().isoformat(),
+                    horario="12:00",
+                    destinatario_mensagem="clinica",
+                    prazo_confirmacao_horas=None,
+                    observacoes=None,
+                )["pending_action"]
+                with patch.object(assistente_ia_tools.agenda, "criar_agendamento") as create_appointment:
+                    rejected = assistente_ia_tools.decide_pending_action(
+                        db=db,
+                        current_user=self.user,
+                        request=SimpleNamespace(headers={}),
+                        action_id=prepared["id"],
+                        decision="reject",
+                    )
+
+            self.assertEqual(rejected["status"], "rejected")
+            self.assertEqual(db.query(Agendamento).count(), 0)
+            create_appointment.assert_not_called()
+
+    def test_criacao_e_invalidada_quando_referencia_muda(self) -> None:
+        with self._session_factory() as db:
+            clinic, service, _patient, conversation = self._seed_base(db)
+            future = datetime.now(assistente_ia_tools.LOCAL_TZ) + timedelta(days=10)
+            with (
+                patch.object(assistente_ia_tools, "_validate_appointment_candidate"),
+                patch.object(assistente_ia_tools, "registrar_auditoria"),
+            ):
+                prepared = assistente_ia_tools.solicitar_criacao_agendamento(
+                    self._context(db, conversation),
+                    tipo="reserva",
+                    origem_atendimento="clinica_parceira",
+                    clinica=clinic.nome,
+                    tutor=None,
+                    paciente=None,
+                    servico=service.nome,
+                    data=future.date().isoformat(),
+                    horario="13:00",
+                    destinatario_mensagem="clinica",
+                    prazo_confirmacao_horas=3,
+                    observacoes=None,
+                )["pending_action"]
+
+                service.updated_at = datetime.now() + timedelta(minutes=5)
+                db.add(service)
+                db.commit()
+                with patch.object(assistente_ia_tools.agenda, "criar_agendamento") as create_appointment:
+                    with self.assertRaises(HTTPException) as changed:
+                        assistente_ia_tools.decide_pending_action(
+                            db=db,
+                            current_user=self.user,
+                            request=SimpleNamespace(headers={}),
+                            action_id=prepared["id"],
+                            decision="approve",
+                        )
+
+            self.assertEqual(changed.exception.status_code, 409)
+            stored = db.query(AssistenteIAAcaoPendente).filter_by(id=prepared["id"]).one()
+            self.assertEqual(stored.status, "invalidated")
+            self.assertEqual(db.query(Agendamento).count(), 0)
+            create_appointment.assert_not_called()
 
     def test_localizacao_com_multiplos_candidatos_exige_desambiguacao(self) -> None:
         with self._session_factory() as db:

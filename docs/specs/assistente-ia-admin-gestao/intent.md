@@ -17,6 +17,8 @@ Informacoes de agenda, faturamento, debitos e operacao estao distribuidas em mod
 - assistente conversacional disponivel apenas para usuarios com papel `admin`;
 - consultas sobre faturamento, debitos, agenda e disponibilidade usando dados atuais do banco;
 - exclusao de agendamento somente depois de uma confirmacao explicita na interface;
+- criacao de agendamento ou reserva somente depois de uma confirmacao explicita na interface;
+- mensagem pos-criacao pronta para copiar ou abrir manualmente no WhatsApp da clinica ou do tutor;
 - conversas persistidas por administrador para continuidade entre acessos;
 - chamadas da IA e acoes aprovadas com trilha auditavel;
 - nenhuma capacidade de SQL livre, shell, acesso irrestrito ao banco ou escrita generica.
@@ -25,7 +27,7 @@ Informacoes de agenda, faturamento, debitos e operacao estao distribuidas em mod
 
 - liberar o assistente para recepcao, veterinarios ou clinicas parceiras;
 - gerar ou alterar laudos automaticamente;
-- permitir criacao/edicao generica de registros;
+- permitir criacao/edicao generica de registros fora do fluxo controlado de agenda;
 - treinar ou ajustar um modelo com dados do FortCordis;
 - executar acoes destrutivas sem confirmacao humana;
 - implantar em stage ou producao neste ciclo local.
