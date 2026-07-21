@@ -139,6 +139,7 @@ export type PortalAdminClinicAccessOverviewItem = {
   estado?: string | null;
   contato_email?: string | null;
   contato_whatsapp?: string | null;
+  login_email?: string | null;
   invite?: PortalAdminClinicInviteSnapshot | null;
   invite_account_email_masked?: string | null;
   account?: PortalAdminClinicAccountSnapshot | null;
@@ -148,6 +149,10 @@ export type PortalAdminClinicAccessOverviewItem = {
   needs_email_definition: boolean;
   download_count: number;
   last_download_at?: string | null;
+  first_download_at?: string | null;
+  last_access_at?: string | null;
+  days_since_last_activity?: number | null;
+  timeline: PortalAdminClinicTimelineEvent[];
 };
 
 export type PortalAdminClinicDownloadEvent = {
@@ -161,6 +166,16 @@ export type PortalAdminClinicDownloadEvent = {
   tipo_exame?: string | null;
   anexo_nome?: string | null;
   downloaded_at: string;
+  is_first_download: boolean;
+};
+
+export type PortalAdminClinicTimelineEvent = {
+  event_id: string;
+  event_type: string;
+  title: string;
+  description?: string | null;
+  occurred_at: string;
+  tone: "neutral" | "success" | "warning" | "danger";
 };
 
 export type PortalAdminClinicAccessOverviewResponse = {

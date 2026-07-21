@@ -1,6 +1,6 @@
 # Spec - portal-access-ui
 
-Data: 2026-06-16
+Data: 2026-07-21
 Responsavel: Equipe FortCordis
 Status: done
 
@@ -26,6 +26,11 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - RF-014: o cockpit administrativo deve exibir feed recente de downloads de laudos pelas clinicas parceiras.
 - RF-015: o cockpit administrativo deve permitir exportar a visao filtrada em CSV.
 - RF-016: o cockpit administrativo deve exibir indicadores de adesao e inatividade do portal com base em contas ativas, ultimo login e ultimo download.
+- RF-017: o cockpit administrativo deve destacar visualmente clinicas ativas sem acesso por 30 dias ou mais.
+- RF-018: o cockpit administrativo deve permitir reenviar convite diretamente na lista, reaproveitando email institucional e WhatsApp ja conhecidos.
+- RF-019: o cockpit administrativo deve permitir filtrar clinicas que ja concluíram o primeiro download de laudo no portal.
+- RF-020: cada clinica da lista deve exibir uma linha do tempo resumida com convites, ativacao, revogacoes e downloads auditados.
+- RF-021: a exportacao CSV do cockpit deve incluir primeiro download, ultimo acesso, dias sem atividade e dados do convite mais recente.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -39,6 +44,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - NFR-008 (auditabilidade): downloads de anexos por clinicas devem registrar contexto minimo de auditoria (`actor_type`, `clinica_id`, `account_id`) para alimentar o painel administrativo.
 - NFR-009 (seguranca operacional): acoes de revogar convite, encerrar sessoes e revogar conta devem exigir confirmacao na UI antes da chamada de API.
 - NFR-010 (observabilidade operacional): indicadores do painel devem ser calculados apenas com dados do escopo da propria unidade/autenticacao sem ampliar permissao de leitura.
+- NFR-011 (operacao): o reenvio rapido do convite deve falhar com mensagem clara quando faltarem email institucional ou WhatsApp da clinica.
 
 ## 4) Contratos tecnicos
 
@@ -100,7 +106,13 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
     - `generated_at`
     - `metrics`
     - `items[]` com status, conta, convite, sessoes e downloads por clinica
+    - `items[].login_email`
+    - `items[].first_download_at`
+    - `items[].last_access_at`
+    - `items[].days_since_last_activity`
+    - `items[].timeline[]` com `event_type`, `title`, `description`, `occurred_at` e `tone`
     - `recent_downloads[]` com feed recente auditado
+    - `recent_downloads[].is_first_download`
 
 - `POST /api/v1/portal/admin/clinicas/{clinica_id}/convites`
   - auth:
@@ -192,6 +204,11 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CA-015: o feed recente de downloads mostra apenas eventos auditados de clinicas.
 - CA-016: a exportacao CSV reflete a lista filtrada atualmente visivel.
 - CA-017: a taxa de adesao e o indicador de inatividade de 30 dias refletem as contas ativas e a ultima atividade do portal.
+- CA-018: clinica ativa sem acesso por 30 dias ou mais aparece com alerta visual no cockpit.
+- CA-019: a lista permite reenviar convite diretamente quando email institucional e WhatsApp ja estiverem disponiveis.
+- CA-020: o filtro por primeiro download mostra apenas clinicas que ja baixaram ao menos um laudo.
+- CA-021: cada card de clinica exibe linha do tempo resumida com historico auditado de convite, conta e download.
+- CA-022: o CSV exportado inclui primeiro download, ultimo acesso e dias sem atividade.
 
 ## 7) Casos de borda
 
@@ -204,6 +221,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CB-007: evento de download antigo sem `actor_type=clinica` nao deve contaminar o feed administrativo.
 - CB-008: clinica sem email salvo, sem convite e sem conta deve aparecer como pendencia de email no cockpit.
 - CB-009: conta ativa sem login nem download recente por 30 dias deve contar como inativa no indicador administrativo.
+- CB-010: clinica com conta ativa, mas sem email/WhatsApp suficientes para reenvio rapido, deve orientar o operador a completar os dados no compositor.
 
 ## 8) Fora de escopo
 

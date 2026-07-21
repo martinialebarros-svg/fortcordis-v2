@@ -287,6 +287,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
     def test_admin_can_load_portal_access_overview_with_download_analytics(self) -> None:
         seed = self._seed_portal_data()
         self._install_overrides()
+        fixed_now = datetime(2026, 7, 21, 15, 0)
 
         db = self._session_factory()
         try:
@@ -299,6 +300,20 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
             self.assertIsNotNone(attachment)
 
             other_clinic.email = None
+
+            db.add(
+                PortalClinicInvite(
+                    clinica_id=clinic.id,
+                    token_hash="invite-token-hash-overview-1",
+                    status="revoked",
+                    delivery_channel="whatsapp",
+                    delivery_target_masked="***8899",
+                    expires_at=datetime(2026, 7, 7, 20, 32),
+                    revoked_at=datetime(2026, 7, 4, 12, 0),
+                    contexto_json=json.dumps({"account_email": "portal.clinica@example.com"}),
+                    created_at=datetime(2026, 7, 4, 8, 0),
+                )
+            )
 
             account = PortalClinicAccount(
                 clinica_id=clinic.id,
@@ -342,6 +357,27 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                             "via_download_token": True,
                         }
                     ),
+                    created_at=datetime(2026, 7, 5, 12, 10),
+                )
+            )
+
+            db.add(
+                AuditoriaEvento(
+                    modulo="portal",
+                    entidade="anexo_atendimento",
+                    entidade_id=str(attachment.id),
+                    acao="PORTAL_DOWNLOAD_ARQUIVO",
+                    descricao="Segundo download de laudo pela clinica.",
+                    detalhes_json=json.dumps(
+                        {
+                            "exame_id": seed["exame_id"],
+                            "actor_type": "clinica",
+                            "actor_id": clinic.id,
+                            "clinica_id": clinic.id,
+                            "account_id": account.id,
+                            "via_download_token": True,
+                        }
+                    ),
                     created_at=datetime(2026, 7, 5, 13, 15),
                 )
             )
@@ -351,6 +387,7 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
 
         with ExitStack() as stack:
             stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
+            stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.utcnow", return_value=fixed_now))
             with TestClient(self._app) as client:
                 response = client.get("/api/v1/portal/admin/clinicas/acessos/painel")
                 self.assertEqual(response.status_code, 200)
@@ -362,17 +399,28 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
         self.assertEqual(payload["metrics"]["clinicas_precisam_email"], 1)
         self.assertEqual(payload["metrics"]["sessoes_ativas"], 1)
         self.assertEqual(payload["metrics"]["clinicas_com_downloads"], 1)
-        self.assertEqual(payload["metrics"]["downloads_total"], 1)
-        self.assertEqual(payload["metrics"]["downloads_ultimos_30_dias"], 1)
-        self.assertEqual(len(payload["recent_downloads"]), 1)
+        self.assertEqual(payload["metrics"]["downloads_total"], 2)
+        self.assertEqual(payload["metrics"]["downloads_ultimos_30_dias"], 2)
+        self.assertEqual(len(payload["recent_downloads"]), 2)
         self.assertEqual(payload["recent_downloads"][0]["clinica_id"], seed["clinica_id"])
         self.assertEqual(payload["recent_downloads"][0]["tipo_exame"], "Ecocardiograma")
+        self.assertFalse(payload["recent_downloads"][0]["is_first_download"])
+        self.assertTrue(payload["recent_downloads"][1]["is_first_download"])
 
         items_by_id = {item["clinica_id"]: item for item in payload["items"]}
         self.assertEqual(items_by_id[seed["clinica_id"]]["status_key"], "active")
         self.assertEqual(items_by_id[seed["clinica_id"]]["active_session_count"], 1)
-        self.assertEqual(items_by_id[seed["clinica_id"]]["download_count"], 1)
+        self.assertEqual(items_by_id[seed["clinica_id"]]["download_count"], 2)
         self.assertEqual(items_by_id[seed["clinica_id"]]["account"]["email_masked"], "po***@example.com")
+        self.assertEqual(items_by_id[seed["clinica_id"]]["login_email"], "portal.clinica@example.com")
+        self.assertEqual(items_by_id[seed["clinica_id"]]["first_download_at"], "2026-07-05T12:10:00")
+        self.assertEqual(items_by_id[seed["clinica_id"]]["last_download_at"], "2026-07-05T13:15:00")
+        self.assertEqual(items_by_id[seed["clinica_id"]]["last_access_at"], "2026-07-05T13:15:00")
+        self.assertEqual(items_by_id[seed["clinica_id"]]["days_since_last_activity"], 16)
+        timeline_types = {event["event_type"] for event in items_by_id[seed["clinica_id"]]["timeline"]}
+        self.assertIn("download", timeline_types)
+        self.assertIn("invite_revoked", timeline_types)
+        self.assertIn("account_activated", timeline_types)
 
         other_items = [item for item in payload["items"] if item["clinica_id"] != seed["clinica_id"]]
         self.assertEqual(len(other_items), 1)

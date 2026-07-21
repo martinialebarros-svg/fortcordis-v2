@@ -37,6 +37,7 @@ from app.schemas.portal import (
     PortalAdminClinicInviteResponse,
     PortalAdminClinicInviteSnapshot,
     PortalAdminClinicAccountSnapshot,
+    PortalAdminClinicTimelineEventResponse,
     PortalAdminClinicSessionSnapshot,
     PortalAdminClinicSessionsRevokeRequest,
     PortalAdminClinicSessionsRevokeResponse,
@@ -103,6 +104,8 @@ from app.services.portal_clinic_auth_service import (
 router = APIRouter()
 PORTAL_DOWNLOAD_AUDIT_ACTION = "PORTAL_DOWNLOAD_ARQUIVO"
 PORTAL_RECENT_DOWNLOADS_LIMIT = 20
+PORTAL_TIMELINE_LIMIT_PER_CLINICA = 8
+PORTAL_TIMELINE_DOWNLOAD_LIMIT_PER_CLINICA = 6
 
 
 def _require_portal_admin(current_user: User = Depends(require_papel("admin"))) -> User:
@@ -195,6 +198,19 @@ def _normalized_invite_account_email(invite: PortalClinicInvite | None) -> str:
     return normalize_email(json_load_dict(invite.contexto_json).get("account_email"))
 
 
+def _preferred_login_email(
+    clinica: Clinica,
+    invite: PortalClinicInvite | None,
+    account: PortalClinicAccount | None,
+) -> str | None:
+    if account and normalize_email(account.email_normalized):
+        return normalize_email(account.email_normalized)
+    invite_email = _normalized_invite_account_email(invite)
+    if invite_email:
+        return invite_email
+    return normalize_email(getattr(clinica, "email", None)) or None
+
+
 def _needs_email_definition(clinica: Clinica, invite: PortalClinicInvite | None, account: PortalClinicAccount | None) -> bool:
     if account and account.status in {ACCOUNT_STATUS_PENDING, ACCOUNT_STATUS_ACTIVE, ACCOUNT_STATUS_LOCKED}:
         return False
@@ -253,12 +269,31 @@ def _refresh_latest_invites_if_needed(db: Session, invites: list[PortalClinicInv
             db.refresh(invite)
 
 
+def _max_datetime(*values: datetime | None) -> datetime | None:
+    valid = [value for value in values if value is not None]
+    return max(valid) if valid else None
+
+
+def _days_since(reference: datetime | None, now: datetime) -> int | None:
+    if reference is None:
+        return None
+    delta = now.date() - reference.date()
+    return max(delta.days, 0)
+
+
 def _load_portal_download_analytics(
     db: Session,
     *,
     clinicas_by_id: dict[int, Clinica],
     accounts_by_id: dict[int, PortalClinicAccount],
-) -> tuple[dict[int, int], dict[int, datetime], int, list[PortalAdminClinicDownloadEventResponse]]:
+) -> tuple[
+    dict[int, int],
+    dict[int, datetime],
+    dict[int, datetime],
+    int,
+    list[PortalAdminClinicDownloadEventResponse],
+    dict[int, list[PortalAdminClinicDownloadEventResponse]],
+]:
     rows = (
         db.query(AuditoriaEvento)
         .filter(
@@ -272,8 +307,10 @@ def _load_portal_download_analytics(
     cutoff_30d = utcnow() - timedelta(days=30)
     download_count_by_clinica: dict[int, int] = {}
     last_download_at_by_clinica: dict[int, datetime] = {}
+    first_download_at_by_clinica: dict[int, datetime] = {}
     downloads_30d = 0
     recent_rows: list[tuple[AuditoriaEvento, dict]] = []
+    timeline_rows_by_clinica: dict[int, list[tuple[AuditoriaEvento, dict]]] = {}
 
     for row in rows:
         details = _safe_json_dict(row.detalhes_json)
@@ -290,19 +327,32 @@ def _load_portal_download_analytics(
         download_count_by_clinica[clinica_id] = download_count_by_clinica.get(clinica_id, 0) + 1
         if clinica_id not in last_download_at_by_clinica:
             last_download_at_by_clinica[clinica_id] = row.created_at
+        first_download_at_by_clinica[clinica_id] = row.created_at
         if row.created_at >= cutoff_30d:
             downloads_30d += 1
         if len(recent_rows) < PORTAL_RECENT_DOWNLOADS_LIMIT:
             recent_rows.append((row, details))
+        clinic_timeline_rows = timeline_rows_by_clinica.setdefault(clinica_id, [])
+        if len(clinic_timeline_rows) < PORTAL_TIMELINE_DOWNLOAD_LIMIT_PER_CLINICA:
+            clinic_timeline_rows.append((row, details))
+
+    selected_rows_by_audit_id: dict[int, tuple[AuditoriaEvento, dict]] = {}
+    for row, details in recent_rows:
+        selected_rows_by_audit_id[row.id] = (row, details)
+    for clinic_rows in timeline_rows_by_clinica.values():
+        for row, details in clinic_rows:
+            selected_rows_by_audit_id.setdefault(row.id, (row, details))
+
+    selected_rows = list(selected_rows_by_audit_id.values())
 
     exam_ids = {
         int(details["exame_id"])
-        for _, details in recent_rows
+        for _, details in selected_rows
         if isinstance(details.get("exame_id"), (int, str)) and str(details.get("exame_id")).isdigit()
     }
     attachment_ids = {
         int(row.entidade_id)
-        for row, _ in recent_rows
+        for row, _ in selected_rows
         if str(row.entidade_id or "").isdigit()
     }
     patient_ids: set[int] = set()
@@ -350,8 +400,8 @@ def _load_portal_download_analytics(
     )
     tutors_by_id = {tutor.id: tutor for tutor in tutors}
 
-    recent_downloads: list[PortalAdminClinicDownloadEventResponse] = []
-    for row, details in recent_rows:
+    download_events_by_audit_id: dict[int, PortalAdminClinicDownloadEventResponse] = {}
+    for row, details in selected_rows:
         clinica_id = int(details["clinica_id"])
         exam = exams_by_id.get(int(details["exame_id"])) if str(details.get("exame_id") or "").isdigit() else None
         attachment = attachments_by_id.get(int(row.entidade_id)) if str(row.entidade_id or "").isdigit() else None
@@ -359,7 +409,7 @@ def _load_portal_download_analytics(
         tutor = tutors_by_id.get(patient.tutor_id) if patient and patient.tutor_id else None
         account = accounts_by_id.get(int(details["account_id"])) if str(details.get("account_id") or "").isdigit() else None
 
-        recent_downloads.append(
+        download_events_by_audit_id[row.id] = (
             PortalAdminClinicDownloadEventResponse(
                 audit_event_id=row.id,
                 clinica_id=clinica_id,
@@ -371,10 +421,144 @@ def _load_portal_download_analytics(
                 tipo_exame=getattr(exam, "tipo_exame", None),
                 anexo_nome=getattr(attachment, "nome_original", None),
                 downloaded_at=row.created_at,
+                is_first_download=first_download_at_by_clinica.get(clinica_id) == row.created_at,
             )
         )
 
-    return download_count_by_clinica, last_download_at_by_clinica, downloads_30d, recent_downloads
+    recent_downloads = [download_events_by_audit_id[row.id] for row, _ in recent_rows if row.id in download_events_by_audit_id]
+    timeline_downloads_by_clinica = {
+        clinica_id: [
+            download_events_by_audit_id[row.id]
+            for row, _ in clinic_rows
+            if row.id in download_events_by_audit_id
+        ]
+        for clinica_id, clinic_rows in timeline_rows_by_clinica.items()
+    }
+
+    return (
+        download_count_by_clinica,
+        last_download_at_by_clinica,
+        first_download_at_by_clinica,
+        downloads_30d,
+        recent_downloads,
+        timeline_downloads_by_clinica,
+    )
+
+
+def _build_clinic_timeline(
+    *,
+    clinica: Clinica,
+    invites: list[PortalClinicInvite],
+    accounts: list[PortalClinicAccount],
+    timeline_downloads: list[PortalAdminClinicDownloadEventResponse],
+) -> list[PortalAdminClinicTimelineEventResponse]:
+    events: list[PortalAdminClinicTimelineEventResponse] = []
+
+    for invite in invites:
+        invite_email = mask_email(_normalized_invite_account_email(invite)) if _normalized_invite_account_email(invite) else None
+        invite_target = invite.delivery_target_masked or "destino nao identificado"
+        invite_desc_parts = [f"Canal {invite.delivery_channel}", invite_target]
+        if invite_email:
+            invite_desc_parts.append(f"login {invite_email}")
+
+        events.append(
+            PortalAdminClinicTimelineEventResponse(
+                event_id=f"invite-created-{invite.id}",
+                event_type="invite_created",
+                title="Convite gerado",
+                description=" • ".join(invite_desc_parts),
+                occurred_at=invite.created_at,
+                tone="neutral",
+            )
+        )
+
+        if invite.delivered_at and invite.delivered_at != invite.created_at:
+            events.append(
+                PortalAdminClinicTimelineEventResponse(
+                    event_id=f"invite-delivered-{invite.id}",
+                    event_type="invite_delivered",
+                    title="Convite enviado",
+                    description=invite_target,
+                    occurred_at=invite.delivered_at,
+                    tone="success",
+                )
+            )
+
+        if invite.used_at:
+            events.append(
+                PortalAdminClinicTimelineEventResponse(
+                    event_id=f"invite-used-{invite.id}",
+                    event_type="invite_used",
+                    title="Convite aceito",
+                    description=invite_email or "Ativacao concluida pela unidade.",
+                    occurred_at=invite.used_at,
+                    tone="success",
+                )
+            )
+
+        if invite.revoked_at:
+            events.append(
+                PortalAdminClinicTimelineEventResponse(
+                    event_id=f"invite-revoked-{invite.id}",
+                    event_type="invite_revoked",
+                    title="Convite revogado",
+                    description=invite_target,
+                    occurred_at=invite.revoked_at,
+                    tone="danger",
+                )
+            )
+
+    for account in accounts:
+        account_email = mask_email(account.email_normalized) if account.email_normalized else None
+        account_desc = account_email or account.responsavel_nome or clinica.nome
+
+        if account.activated_at:
+            events.append(
+                PortalAdminClinicTimelineEventResponse(
+                    event_id=f"account-activated-{account.id}",
+                    event_type="account_activated",
+                    title="Cadastro concluido",
+                    description=account_desc,
+                    occurred_at=account.activated_at,
+                    tone="success",
+                )
+            )
+
+        if account.revoked_at:
+            events.append(
+                PortalAdminClinicTimelineEventResponse(
+                    event_id=f"account-revoked-{account.id}",
+                    event_type="account_revoked",
+                    title="Conta revogada",
+                    description=account_desc,
+                    occurred_at=account.revoked_at,
+                    tone="danger",
+                )
+            )
+
+    for download_event in timeline_downloads:
+        download_title = "Primeiro laudo baixado" if download_event.is_first_download else "Laudo baixado"
+        download_desc_parts = []
+        if download_event.tipo_exame:
+            download_desc_parts.append(download_event.tipo_exame)
+        if download_event.paciente_nome:
+            download_desc_parts.append(download_event.paciente_nome)
+        if download_event.account_email_masked:
+            download_desc_parts.append(download_event.account_email_masked)
+
+        events.append(
+            PortalAdminClinicTimelineEventResponse(
+                event_id=f"download-{download_event.audit_event_id}",
+                event_type="download",
+                title=download_title,
+                description=" • ".join(download_desc_parts) or "Arquivo do portal baixado pela unidade.",
+                occurred_at=download_event.downloaded_at,
+                tone="success" if download_event.is_first_download else "neutral",
+            )
+        )
+
+    events.sort(key=lambda item: (item.occurred_at, item.event_id), reverse=True)
+    return events[:PORTAL_TIMELINE_LIMIT_PER_CLINICA]
 
 
 def _login_result_response(result, *, message: str | None = None) -> PortalClinicAuthResponse:
@@ -469,8 +653,10 @@ def consultar_painel_acessos_clinicas(
         .all()
     )
     latest_invites_by_clinica: dict[int, PortalClinicInvite] = {}
+    invite_history_by_clinica: dict[int, list[PortalClinicInvite]] = {}
     for invite in invites:
         latest_invites_by_clinica.setdefault(invite.clinica_id, invite)
+        invite_history_by_clinica.setdefault(invite.clinica_id, []).append(invite)
     _refresh_latest_invites_if_needed(db, list(latest_invites_by_clinica.values()))
 
     accounts = (
@@ -481,9 +667,11 @@ def consultar_painel_acessos_clinicas(
     )
     latest_accounts_by_clinica: dict[int, PortalClinicAccount] = {}
     accounts_by_id: dict[int, PortalClinicAccount] = {}
+    account_history_by_clinica: dict[int, list[PortalClinicAccount]] = {}
     for account in accounts:
         latest_accounts_by_clinica.setdefault(account.clinica_id, account)
         accounts_by_id[account.id] = account
+        account_history_by_clinica.setdefault(account.clinica_id, []).append(account)
 
     active_session_rows = (
         db.query(
@@ -505,8 +693,10 @@ def consultar_painel_acessos_clinicas(
     (
         download_count_by_clinica,
         last_download_at_by_clinica,
+        first_download_at_by_clinica,
         downloads_30d,
         recent_downloads,
+        timeline_downloads_by_clinica,
     ) = _load_portal_download_analytics(
         db,
         clinicas_by_id=clinicas_by_id,
@@ -515,6 +705,7 @@ def consultar_painel_acessos_clinicas(
 
     items: list[PortalAdminClinicAccessOverviewItem] = []
     metrics = PortalAdminClinicAccessOverviewMetrics(total_clinicas=len(clinicas))
+    now = utcnow()
 
     for clinica in clinicas:
         invite = latest_invites_by_clinica.get(clinica.id)
@@ -523,6 +714,10 @@ def consultar_painel_acessos_clinicas(
         status_key, status_label = _status_for_clinic_overview(clinica, invite, account)
         active_session_count = active_session_count_by_clinica.get(clinica.id, 0)
         download_count = download_count_by_clinica.get(clinica.id, 0)
+        last_access_at = _max_datetime(
+            account.last_login_at if account else None,
+            last_download_at_by_clinica.get(clinica.id),
+        )
 
         if invite and invite.status == INVITE_STATUS_PENDING:
             metrics.convites_pendentes += 1
@@ -545,6 +740,7 @@ def consultar_painel_acessos_clinicas(
                 estado=clinica.estado,
                 contato_email=normalize_email(clinica.email) or None,
                 contato_whatsapp=_first_clinic_whatsapp(clinica),
+                login_email=_preferred_login_email(clinica, invite, account),
                 invite=_invite_snapshot(invite),
                 invite_account_email_masked=mask_email(_normalized_invite_account_email(invite))
                 if _normalized_invite_account_email(invite)
@@ -556,6 +752,15 @@ def consultar_painel_acessos_clinicas(
                 needs_email_definition=needs_email_definition,
                 download_count=download_count,
                 last_download_at=last_download_at_by_clinica.get(clinica.id),
+                first_download_at=first_download_at_by_clinica.get(clinica.id),
+                last_access_at=last_access_at,
+                days_since_last_activity=_days_since(last_access_at, now),
+                timeline=_build_clinic_timeline(
+                    clinica=clinica,
+                    invites=invite_history_by_clinica.get(clinica.id, []),
+                    accounts=account_history_by_clinica.get(clinica.id, []),
+                    timeline_downloads=timeline_downloads_by_clinica.get(clinica.id, []),
+                ),
             )
         )
 
