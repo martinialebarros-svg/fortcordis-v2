@@ -31,6 +31,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - RF-019: o cockpit administrativo deve permitir filtrar clinicas que ja concluíram o primeiro download de laudo no portal.
 - RF-020: cada clinica da lista deve exibir uma linha do tempo resumida com convites, ativacao, revogacoes e downloads auditados.
 - RF-021: a exportacao CSV do cockpit deve incluir primeiro download, ultimo acesso, dias sem atividade e dados do convite mais recente.
+- RF-022: links do portal compartilhados por WhatsApp devem expor metadata institucional com logomarca oficial da Fort Cordis no host `app.fortcordis.com.br`.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -45,6 +46,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - NFR-009 (seguranca operacional): acoes de revogar convite, encerrar sessoes e revogar conta devem exigir confirmacao na UI antes da chamada de API.
 - NFR-010 (observabilidade operacional): indicadores do painel devem ser calculados apenas com dados do escopo da propria unidade/autenticacao sem ampliar permissao de leitura.
 - NFR-011 (operacao): o reenvio rapido do convite deve falhar com mensagem clara quando faltarem email institucional ou WhatsApp da clinica.
+- NFR-012 (branding compartilhado): o layout raiz do app deve publicar `metadataBase`, `openGraph`, `twitter` e `icons` coerentes para que previews de compartilhamento mostrem a identidade visual correta da Fort Cordis.
 
 ## 4) Contratos tecnicos
 
@@ -158,6 +160,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
   - `frontend/app/clinicas/page.tsx`
   - `frontend/app/clinicas/portal/page.tsx`
 - Componentes novos/alterados:
+  - `frontend/app/layout.tsx`
   - `frontend/components/portal/PortalTutorWorkspace.tsx`
   - `frontend/components/portal/PortalClinicaWorkspace.tsx`
   - `frontend/components/portal/PortalClinicActivationWorkspace.tsx`
@@ -209,6 +212,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CA-020: o filtro por primeiro download mostra apenas clinicas que ja baixaram ao menos um laudo.
 - CA-021: cada card de clinica exibe linha do tempo resumida com historico auditado de convite, conta e download.
 - CA-022: o CSV exportado inclui primeiro download, ultimo acesso e dias sem atividade.
+- CA-023: um link compartilhado do portal gera preview institucional com nome, descricao e logomarca oficial da Fort Cordis.
 
 ## 7) Casos de borda
 
@@ -222,6 +226,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CB-008: clinica sem email salvo, sem convite e sem conta deve aparecer como pendencia de email no cockpit.
 - CB-009: conta ativa sem login nem download recente por 30 dias deve contar como inativa no indicador administrativo.
 - CB-010: clinica com conta ativa, mas sem email/WhatsApp suficientes para reenvio rapido, deve orientar o operador a completar os dados no compositor.
+- CB-011: um link ja compartilhado pode continuar com preview antigo ate o cache externo do mensageiro expirar; novos compartilhamentos devem usar a metadata vigente do host.
 
 ## 8) Fora de escopo
 

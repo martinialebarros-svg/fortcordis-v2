@@ -37,10 +37,12 @@ Status: done
 | CA-020 | aceitacao | filtros `Primeiro download` e checkbox de primeiro download no cockpit administrativo | ok |
 | CA-021 | aceitacao | linha do tempo por clinica baseada em `timeline[]` do endpoint administrativo | ok |
 | CA-022 | aceitacao | CSV analitico com `first_download_at`, `last_access_at` e `days_since_last_activity` | ok |
+| CA-023 | aceitacao | `frontend/app/layout.tsx` publicando `metadataBase`, `openGraph`, `twitter` e `icons` para o host `https://app.fortcordis.com.br` com a logomarca oficial | ok |
 | NFR-008 | nao funcional | auditoria de download enriquecida com `actor_type`, `clinica_id` e `account_id` em `backend/app/api/v1/endpoints/portal.py` | ok |
 | NFR-009 | nao funcional | confirmacoes explicitas antes de revogacoes no cockpit administrativo | ok |
 | NFR-010 | nao funcional | painel calcula metricas somente a partir dos dados de acesso ja autorizados no backend | ok |
 | NFR-011 | nao funcional | reenvio rapido orienta completar email/WhatsApp no compositor quando faltarem dados minimos | ok |
+| NFR-012 | nao funcional | `frontend/app/layout.tsx` com metadata institucional coerente para previews de compartilhamento | ok |
 
 ## 2) Testes automatizados executados
 
@@ -50,8 +52,10 @@ Comandos:
 backend/venv/bin/python -m unittest backend/tests/test_portal_clinic_invite_auth.py
 
 cd frontend
+npx eslint app/layout.tsx
 npx eslint app/clinicas/portal/page.tsx app/clinicas/page.tsx app/clinicas/components/ClinicaPortalAccessCard.tsx app/layout-dashboard.tsx lib/portal-api.ts lib/portal-clinic-admin.ts
 npx tsc --noEmit --pretty false
+npm run build
 git diff --check
 ```
 
@@ -59,8 +63,10 @@ Resumo dos resultados:
 - Backend:
   - `test_portal_clinic_invite_auth`: 5/5 pass
 - Frontend:
+  - `npx eslint app/layout.tsx`: ok
   - `npx eslint ...`: ok
   - `npx tsc --noEmit --pretty false`: ok
+  - `npm run build`: ok
 - Qualidade de diff:
   - `git diff --check`: ok
 
@@ -99,6 +105,12 @@ Resumo dos resultados:
 - Reenvio rapido, filtro de primeiro download, alerta de inatividade e linha do tempo por clinica revisados por codigo.
 - Payload administrativo `GET /api/v1/portal/admin/clinicas/acessos/painel` ampliado com `login_email`, `first_download_at`, `last_access_at`, `days_since_last_activity`, `timeline[]` e `recent_downloads[].is_first_download`.
 
+### Refinamento de compartilhamento de 2026-07-22
+
+- `frontend/app/layout.tsx` revisado para publicar `metadataBase`, `openGraph`, `twitter` e `icons` apontando para a logomarca oficial em `/brand/fortcordis-logo-oficial.png`.
+- Confirmado por codigo que o host canonico do preview esta configurado como `https://app.fortcordis.com.br`.
+- Observacao operacional: mensageiros podem manter cache do preview antigo por algum tempo; o comportamento esperado e que novos compartilhamentos passem a refletir a metadata publicada.
+
 ## 4) Regressao e riscos residuais
 
 - Risco residual 1: QA manual depende de ambiente com dados validos e `debug_code` exposto.
@@ -108,6 +120,7 @@ Resumo dos resultados:
 - Risco residual 5: o CSV representa o recorte filtrado localmente; para analytics historico/executivo amplo ainda sera melhor uma camada dedicada de relatorios.
 - Risco residual 6: o indicador de inatividade de 30 dias depende da auditoria de download enriquecida e do ultimo login existente; eventos antigos sem esse contexto nao entram na leitura administrativa.
 - Risco residual 7: a linha do tempo usa os eventos hoje disponiveis em convite, conta e auditoria de download; se no futuro houver novas etapas operacionais, elas precisarao ser auditadas para aparecer no cockpit.
+- Risco residual 8: a atualizacao da logomarca em previews depende do tempo de cache do WhatsApp e de outros mensageiros, mesmo com a metadata correta no app.
 
 ## 5) Itens fora de escopo entregues
 
@@ -115,6 +128,6 @@ Resumo dos resultados:
 
 ## 6) Decisao de release
 
-- [x] Aprovado para stage.
+- [ ] Aprovado para stage.
 - [ ] Aprovado para producao.
 - [ ] Nao aprovado (descrever motivo).

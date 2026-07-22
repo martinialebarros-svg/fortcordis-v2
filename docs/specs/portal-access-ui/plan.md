@@ -154,3 +154,28 @@ Status: done
   - acionar reenvio rapido a partir da lista;
   - revisar a linha do tempo de uma clinica com convite, conta e download;
   - exportar CSV e conferir as novas colunas analiticas.
+
+## 9) Refinamento de compartilhamento - 2026-07-22
+
+### Fase 7 (metadata institucional do app)
+
+- [x] T7.1 Configurar `metadataBase`, `openGraph`, `twitter` e `icons` no `frontend/app/layout.tsx`.
+- [x] T7.2 Apontar a preview institucional para a logomarca oficial em `frontend/public/brand/fortcordis-logo-oficial.png`.
+- [x] T7.3 Validar build/typecheck para garantir que o metadata global nao regrediu.
+- Criterio de conclusao:
+  - links compartilhados do portal passam a publicar preview institucional coerente com a marca Fort Cordis.
+- Risco:
+  - plataformas externas manterem cache temporario do preview antigo mesmo apos a publicacao.
+- Rollback:
+  - remover os metadados adicionados do `frontend/app/layout.tsx` e voltar ao comportamento anterior.
+
+### Plano de testes desta fase
+
+- Automatizados:
+  - `cd frontend && npx eslint app/layout.tsx`
+  - `cd frontend && npx tsc --noEmit --pretty false`
+  - `cd frontend && npm run build`
+  - `git diff --check`
+- Manuais:
+  - compartilhar um link novo do portal em um mensageiro com preview;
+  - confirmar nome, descricao e logomarca oficial no card.
