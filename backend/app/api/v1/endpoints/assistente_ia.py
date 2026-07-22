@@ -16,6 +16,20 @@ from app.schemas.assistente_ia import (
     AssistenteIAFeedbackCreateRequest,
     AssistenteIAMemoriaCreateRequest,
     AssistenteIAMemoriaDecisaoRequest,
+    AssistenteIAMissaoCreateRequest,
+    AssistenteIAMissaoUpdateRequest,
+)
+from app.services.assistente_ia_autonomy import (
+    create_mission,
+    enqueue_execution,
+    enqueue_knowledge_index,
+    enqueue_mission_now,
+    latest_radar,
+    list_executions,
+    list_missions,
+    run_radar_now,
+    serialize_execution,
+    update_mission,
 )
 from app.services.assistente_ia_management import (
     archive_document,
@@ -73,8 +87,176 @@ def assistente_ia_status(
             "rascunhos_clinicos_sem_finalizacao_automatica",
             "caixa_central_de_aprovacoes",
             "feedback_e_metricas",
+            "radar_proativo_somente_leitura",
+            "missoes_recorrentes_somente_leitura",
+            "memoria_semantica_com_fontes",
+            "laboratorio_automatico_sem_execucao_de_ferramentas",
         ],
     }
+
+
+@router.get("/radar")
+def obter_radar_assistente_ia(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    return {"execution": latest_radar(db, current_user)}
+
+
+@router.post("/radar/executar")
+def executar_radar_assistente_ia(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    execution = run_radar_now(db, current_user)
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="assistente_ia",
+        entidade="radar",
+        entidade_id=execution["id"],
+        acao="ASSISTENTE_IA_RADAR_EXECUTADO",
+        descricao="Administrador atualizou o radar proativo somente de leitura.",
+        detalhes={"alertas": len((execution.get("output") or {}).get("alerts") or [])},
+        request=request,
+    )
+    return {"execution": execution}
+
+
+@router.get("/missoes")
+def listar_missoes_assistente_ia(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    return {"items": list_missions(db, current_user)}
+
+
+@router.post("/missoes")
+def criar_missao_assistente_ia(
+    payload: AssistenteIAMissaoCreateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    mission = create_mission(
+        db,
+        current_user,
+        title=payload.titulo,
+        kind=payload.tipo,
+        config=payload.configuracao,
+        recurrence=payload.recorrencia,
+        local_time=payload.horario_local,
+        weekdays=payload.dias_semana,
+        enabled=payload.enabled,
+    )
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="assistente_ia",
+        entidade="missao",
+        entidade_id=mission["id"],
+        acao="ASSISTENTE_IA_MISSAO_CRIADA",
+        descricao="Administrador criou uma missao recorrente somente de leitura.",
+        detalhes={"tipo": mission["type"], "recorrencia": mission["recurrence"]},
+        request=request,
+    )
+    return {"mission": mission}
+
+
+@router.patch("/missoes/{mission_id}")
+def atualizar_missao_assistente_ia(
+    mission_id: str,
+    payload: AssistenteIAMissaoUpdateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    raw = payload.model_dump(exclude_unset=True)
+    changes = {
+        "title": raw.get("titulo"),
+        "config": raw.get("configuracao"),
+        "recurrence": raw.get("recorrencia"),
+        "local_time": raw.get("horario_local"),
+        "weekdays": raw.get("dias_semana"),
+        "enabled": raw.get("enabled"),
+    }
+    mission = update_mission(db, current_user, mission_id=mission_id, changes=changes)
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="assistente_ia",
+        entidade="missao",
+        entidade_id=mission["id"],
+        acao="ASSISTENTE_IA_MISSAO_ATUALIZADA",
+        descricao="Administrador atualizou uma missao recorrente da Mente.",
+        detalhes={"tipo": mission["type"], "enabled": mission["enabled"]},
+        request=request,
+    )
+    return {"mission": mission}
+
+
+@router.post("/missoes/{mission_id}/executar")
+def executar_missao_agora_assistente_ia(
+    mission_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    execution = enqueue_mission_now(db, current_user, mission_id=mission_id)
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="assistente_ia",
+        entidade="missao_execucao",
+        entidade_id=execution["id"],
+        acao="ASSISTENTE_IA_MISSAO_ENFILEIRADA",
+        descricao="Administrador solicitou execucao imediata de missao somente de leitura.",
+        detalhes={"missao_id": mission_id, "tipo": execution["type"]},
+        request=request,
+    )
+    return {"execution": execution}
+
+
+@router.get("/execucoes")
+def listar_execucoes_assistente_ia(
+    tipo: str | None = Query(default=None, max_length=40),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    return {"items": list_executions(db, current_user, kind=tipo, limit=limit)}
+
+
+@router.get("/avaliacoes")
+def listar_avaliacoes_assistente_ia(
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    return {"items": list_executions(db, current_user, kind="eval_lab", limit=limit)}
+
+
+@router.post("/avaliacoes/executar")
+def executar_avaliacao_assistente_ia(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    execution = enqueue_execution(
+        db,
+        current_user,
+        kind="eval_lab",
+        input_data={"dataset": "assistente_ia_admin_cases.json"},
+        source="manual",
+    )
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="assistente_ia",
+        entidade="avaliacao",
+        entidade_id=execution.id,
+        acao="ASSISTENTE_IA_AVALIACAO_ENFILEIRADA",
+        descricao="Administrador iniciou laboratorio seguro de roteamento da Mente.",
+        detalhes={"modelo": str(settings.ASSISTENTE_IA_MODEL)},
+        request=request,
+    )
+    return {"execution": serialize_execution(execution)}
 
 
 @router.get("/resumo-executivo")
@@ -171,6 +353,10 @@ def criar_conhecimento_assistente_ia(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_papel("admin")),
 ):
+    if payload.indexar_semanticamente and not bool(settings.ASSISTENTE_IA_SEMANTIC_SEARCH_ENABLED):
+        raise HTTPException(status_code=503, detail="A busca semantica esta desabilitada neste ambiente.")
+    if payload.indexar_semanticamente and not str(settings.OPENAI_API_KEY or "").strip():
+        raise HTTPException(status_code=503, detail="A credencial da OpenAI e necessaria para indexacao semantica.")
     document = create_document(
             db,
             current_user,
@@ -178,7 +364,11 @@ def criar_conhecimento_assistente_ia(
             content=payload.conteudo,
             category=payload.categoria,
             source=payload.fonte,
+            semantic_index=payload.indexar_semanticamente,
         )
+    indexing = None
+    if payload.indexar_semanticamente:
+        indexing = enqueue_knowledge_index(db, current_user, document_id=document["id"])
     registrar_auditoria(
         current_user=current_user,
         modulo="assistente_ia",
@@ -186,10 +376,35 @@ def criar_conhecimento_assistente_ia(
         entidade_id=document["id"],
         acao="ASSISTENTE_IA_CONHECIMENTO_ADICIONADO",
         descricao="Administrador adicionou conteudo a base interna da Mente FortCordis.",
-        detalhes={"titulo": document["title"], "categoria": document["category"]},
+        detalhes={
+            "titulo": document["title"],
+            "categoria": document["category"],
+            "indexacao_semantica": bool(payload.indexar_semanticamente),
+        },
         request=request,
     )
-    return {"document": document}
+    return {"document": document, "indexing": indexing}
+
+
+@router.post("/conhecimento/{document_id}/reindexar")
+def reindexar_conhecimento_assistente_ia(
+    document_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    execution = enqueue_knowledge_index(db, current_user, document_id=document_id)
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="assistente_ia",
+        entidade="conhecimento_documento",
+        entidade_id=document_id,
+        acao="ASSISTENTE_IA_CONHECIMENTO_REINDEXADO",
+        descricao="Administrador solicitou reindexacao semantica de documento explicito.",
+        detalhes={"execucao_id": execution["id"]},
+        request=request,
+    )
+    return {"execution": execution}
 
 
 @router.post("/conhecimento/{document_id}/arquivar")

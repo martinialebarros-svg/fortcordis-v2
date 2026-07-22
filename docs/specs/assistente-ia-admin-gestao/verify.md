@@ -20,6 +20,15 @@ Status: passed
 | CA-010 | feedback, tokens, latencia e metricas | aprovado |
 | CA-011 | migration, 359 testes, lint, TypeScript e build | aprovado |
 | CA-012 | 12 casos versionados, ferramentas strict e proibicoes | aprovado |
+| CA-013 | teste do radar confirma persistencia e ausencia de mutacao operacional | aprovado |
+| CA-014 | criacao tipada, calendario semanal e validacao de configuracao | aprovado |
+| CA-015 | worker persistente, advisory lock e `skip_locked` no PostgreSQL | aprovado em inspecao e teste focal |
+| CA-016 | teste semantico com sinonimo e fonte mais fallback lexical existente | aprovado |
+| CA-017 | opt-in visivel, fonte obrigatoria, chunks locais e fila de indexacao | aprovado |
+| CA-018 | mock do laboratorio confirma 100% dos casos sem chamada a `execute_tool` | aprovado |
+| CA-019 | inspecao automatica inclui todas as novas rotas com guard admin | aprovado |
+| CA-020 | migration 54 idempotente, 367 testes, lint, TypeScript e build | aprovado |
+| CA-021 | `deploy-stage.yml` usa `OPENAI_API_KEY_STAGE`; `deploy.yml` usa `OPENAI_API_KEY_PROD`; nomes confirmados no repositorio sem leitura dos valores | aprovado |
 | CR-001 | seis rotas da base inspecionadas com dependencia `admin`; nao-admin recebe 403 | aprovado |
 | CR-002 | serie de cinco meses, filtro de clinica e total financeiro | aprovado |
 | CR-003 | localizacao exata e retorno de desambiguacao para multiplos candidatos | aprovado |
@@ -44,6 +53,7 @@ Status: passed
 ```bash
 cd backend && ./venv/bin/python -m unittest tests/test_assistente_ia_admin.py tests/test_assistente_ia_migration.py tests/test_assistente_ia_copiloto_migration.py
 cd backend && ./venv/bin/python -m unittest tests/test_assistente_ia_evals.py
+cd backend && ./venv/bin/python -m unittest tests/test_assistente_ia_autonomy.py tests/test_assistente_ia_autonomy_migration.py
 cd backend && ./venv/bin/python -m unittest discover -s tests
 cd frontend && npx eslint app/assistente-ia/page.tsx --max-warnings=0
 cd frontend && npx tsc --noEmit
@@ -66,3 +76,14 @@ git diff --check
 - segredos `OPENAI_API_KEY_STAGE` e `OPENAI_API_KEY_PROD` permanecem separados e os workflows validam o status autenticado;
 - stage: quality gate, SDD guardrail, migration CI, deploy e canario autenticado aprovados para `25cd5e0`;
 - smoke publico de stage: `/assistente-ia` responde, redireciona sessao anonima ao login, APIs protegidas retornam 401 e o pacote servido contem as seis areas novas.
+
+## Ciclo Radar, Missoes, Semantica e Avaliacoes
+
+- 6 testes focais novos cobrem radar somente de leitura, recorrencia tipada, revogacao de admin, fonte obrigatoria, busca semantica e laboratorio sem execucao;
+- migration `20260721_54` exercitada duas vezes no mesmo SQLite;
+- suite completa: 367 testes aprovados;
+- ESLint, TypeScript, `py_compile`, `pip check`, `git diff --check` e build Next aprovados;
+- build confirmou `/assistente-ia` com Radar, Missoes, Memoria semantica e Avaliacoes;
+- worker aguarda a migration sem loop de erro, recupera execucoes interrompidas e aparece na saude do runtime;
+- stage: quality gate, SDD guardrail, migration `20260721_54`, deploy, runtime readiness e canario autenticado aprovados para `896928f`;
+- smoke publico de stage: `/assistente-ia` responde 200, API protegida responde 401 sem sessao e o pacote servido contem Radar, Missoes, Memoria semantica e Avaliacoes.

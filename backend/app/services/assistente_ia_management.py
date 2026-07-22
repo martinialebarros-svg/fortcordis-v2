@@ -169,6 +169,11 @@ def serialize_document(row: AssistenteIAConhecimentoDocumento, *, include_conten
         "category": row.categoria,
         "source": row.fonte,
         "status": row.status,
+        "semantic_enabled": bool(getattr(row, "semantic_enabled", False)),
+        "semantic_status": str(getattr(row, "semantic_status", "disabled") or "disabled"),
+        "embedding_model": getattr(row, "embedding_model", None),
+        "semantic_error": getattr(row, "semantic_error", None),
+        "indexed_at": row.indexed_at.isoformat() if getattr(row, "indexed_at", None) else None,
         "content_sha256": row.conteudo_sha256,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -186,6 +191,7 @@ def create_document(
     content: str,
     category: str,
     source: Optional[str],
+    semantic_index: bool = False,
 ) -> dict[str, Any]:
     clean_title = str(title or "").strip()[:220]
     clean_content = str(content or "").strip()
@@ -193,6 +199,12 @@ def create_document(
         raise HTTPException(status_code=422, detail="Informe titulo e conteudo com ao menos 20 caracteres.")
     if len(clean_content) > 250_000:
         raise HTTPException(status_code=413, detail="O documento deve ter no maximo 250 mil caracteres.")
+    clean_source = str(source or "").strip()[:500] or None
+    if semantic_index and not clean_source:
+        raise HTTPException(
+            status_code=422,
+            detail="Informe a fonte antes de ativar a memoria semantica.",
+        )
     digest = hashlib.sha256(clean_content.encode("utf-8")).hexdigest()
     duplicate = db.query(AssistenteIAConhecimentoDocumento).filter(
         AssistenteIAConhecimentoDocumento.conteudo_sha256 == digest,
@@ -205,9 +217,11 @@ def create_document(
         titulo=clean_title,
         categoria=(str(category or "manual").strip() or "manual")[:60],
         conteudo=clean_content,
-        fonte=str(source or "").strip()[:500] or None,
+        fonte=clean_source,
         conteudo_sha256=digest,
         status="active",
+        semantic_enabled=bool(semantic_index),
+        semantic_status="queued" if semantic_index else "disabled",
         criado_por_id=int(current_user.id),
     )
     db.add(row)
@@ -253,22 +267,74 @@ def search_knowledge(db: Session, *, query: str, limit: int = 5) -> dict[str, An
         if score:
             ranked.append((score, row, matches))
     ranked.sort(key=lambda item: (item[0], item[1].updated_at or item[1].created_at), reverse=True)
-    items = []
+    lexical_items = []
     for score, row, matches in ranked[: max(1, min(10, limit))]:
         normalized_content = _normalize(row.conteudo)
         first_position = min((normalized_content.find(term) for term in matches if term in normalized_content), default=0)
         start = max(0, first_position - 250)
         excerpt = row.conteudo[start : start + 1600].strip()
-        items.append({
+        lexical_items.append({
             "document_id": row.id,
             "title": row.titulo,
             "category": row.categoria,
             "source": row.fonte,
-            "score": score,
+            "keyword_score": score,
             "matched_terms": matches,
             "excerpt": excerpt,
+            "retrieval": "keyword",
         })
-    return {"ok": True, "query": query, "total": len(items), "items": items}
+
+    semantic_items: list[dict[str, Any]] = []
+    try:
+        from app.services.assistente_ia_autonomy import semantic_search_documents
+
+        semantic_items = semantic_search_documents(
+            db,
+            query=query,
+            limit=max(3, min(30, limit * 3)),
+        )
+    except Exception:
+        semantic_items = []
+
+    max_keyword = max((float(item["keyword_score"]) for item in lexical_items), default=1.0)
+    combined: dict[str, dict[str, Any]] = {}
+    for item in lexical_items:
+        keyword_normalized = float(item["keyword_score"]) / max_keyword
+        combined[str(item["document_id"])] = {
+            **item,
+            "semantic_score": None,
+            "score": round(0.35 * keyword_normalized, 5),
+        }
+    for item in semantic_items:
+        document_id = str(item["document_id"])
+        semantic_score = float(item.get("semantic_score") or 0.0)
+        existing = combined.get(document_id)
+        if existing is None:
+            combined[document_id] = {
+                **item,
+                "keyword_score": 0,
+                "matched_terms": [],
+                "score": round(0.65 * max(0.0, semantic_score), 5),
+            }
+            continue
+        if semantic_score > float(existing.get("semantic_score") or 0.0):
+            existing["semantic_score"] = semantic_score
+            existing["score"] = round(float(existing["score"]) + 0.65 * max(0.0, semantic_score), 5)
+            existing["retrieval"] = "hybrid"
+            if len(str(existing.get("excerpt") or "")) < 80:
+                existing["excerpt"] = item.get("excerpt")
+
+    items = sorted(combined.values(), key=lambda item: float(item.get("score") or 0), reverse=True)
+    items = items[: max(1, min(10, limit))]
+    for item in items:
+        item["excerpt"] = str(item.get("excerpt") or "")[:1600]
+    return {
+        "ok": True,
+        "query": query,
+        "total": len(items),
+        "items": items,
+        "retrieval": "hybrid" if semantic_items else "keyword",
+    }
 
 
 def create_feedback(
