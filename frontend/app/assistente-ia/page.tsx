@@ -19,15 +19,19 @@ import {
   ExternalLink,
   Loader2,
   FileHeart,
+  FlaskConical,
   MessageCircle,
   MessageSquare,
   Plus,
   ReceiptText,
+  Radar,
   RefreshCw,
   Save,
   Send,
   ShieldCheck,
   Sparkles,
+  Target,
+  Play,
   ThumbsDown,
   ThumbsUp,
   Trash2,
@@ -164,7 +168,67 @@ type KnowledgeDocument = {
   category: string;
   source?: string | null;
   status: string;
+  semantic_enabled: boolean;
+  semantic_status: "disabled" | "queued" | "indexing" | "ready" | "error" | string;
+  embedding_model?: string | null;
+  semantic_error?: string | null;
+  indexed_at?: string | null;
   created_at?: string | null;
+};
+
+type RadarOutput = {
+  date: string;
+  generated_at: string;
+  alerts: Array<{
+    key: string;
+    level: "ok" | "info" | "attention" | "critical" | string;
+    title: string;
+    evidence: string;
+    recommendation: string;
+  }>;
+  indicators: {
+    revenue: {
+      current_period: number;
+      previous_comparable_period: number;
+      change_percent?: number | null;
+      comparable_days: number;
+    };
+    appointments: {
+      last_7_days: number;
+      previous_7_days: number;
+      cancelled_last_7_days: number;
+      cancelled_previous_7_days: number;
+    };
+    overdue: { count: number; total: number };
+    reservations_expiring_6h: number;
+    pending_approvals: number;
+  };
+  safety: string;
+};
+
+type AutonomousExecution = {
+  id: string;
+  mission_id?: string | null;
+  type: string;
+  source: string;
+  status: "queued" | "running" | "completed" | "error" | string;
+  output?: Record<string, unknown> | null;
+  error?: string | null;
+  created_at?: string | null;
+  finished_at?: string | null;
+};
+
+type AssistantMission = {
+  id: string;
+  title: string;
+  type: "radar" | "executive_summary" | "billing_trend" | "overdue_debts" | "eval_lab";
+  config: { months?: number; clinic?: string | null; overdue_only?: boolean };
+  recurrence: "daily" | "weekly";
+  local_time: string;
+  weekdays: number[];
+  enabled: boolean;
+  next_run_at?: string | null;
+  last_run_at?: string | null;
 };
 
 type ClinicalDraft = {
@@ -187,7 +251,7 @@ type AssistantMetrics = {
   actions: Record<string, number>;
 };
 
-type WorkspaceView = "chat" | "brief" | "approvals" | "memory" | "knowledge" | "clinical";
+type WorkspaceView = "chat" | "radar" | "brief" | "missions" | "approvals" | "memory" | "knowledge" | "evaluations" | "clinical";
 
 const EXAMPLES = [
   {
@@ -218,10 +282,13 @@ const EXAMPLES = [
 
 const WORKSPACE_VIEWS: Array<{ id: WorkspaceView; label: string; icon: typeof BrainCircuit }> = [
   { id: "chat", label: "Conversa", icon: MessageSquare },
+  { id: "radar", label: "Radar", icon: Radar },
   { id: "brief", label: "Resumo diário", icon: BarChart3 },
+  { id: "missions", label: "Missões", icon: Target },
   { id: "approvals", label: "Aprovações", icon: ClipboardList },
   { id: "memory", label: "Memória", icon: BrainCircuit },
   { id: "knowledge", label: "Conhecimento", icon: BookOpen },
+  { id: "evaluations", label: "Avaliações", icon: FlaskConical },
   { id: "clinical", label: "Rascunhos clínicos", icon: FileHeart },
 ];
 
@@ -275,6 +342,16 @@ function actionStatus(action: PendingAction): { label: string; className: string
   return { label: "Aguardando sua confirmação", className: "bg-amber-50 text-amber-800", Icon: Clock3 };
 }
 
+const MISSION_LABELS: Record<AssistantMission["type"], string> = {
+  radar: "Radar proativo",
+  executive_summary: "Resumo executivo",
+  billing_trend: "Tendência de faturamento",
+  overdue_debts: "Débitos pendentes por clínica",
+  eval_lab: "Laboratório de avaliações",
+};
+
+const WEEKDAY_LABELS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+
 export default function AssistenteIAPage() {
   const router = useRouter();
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -292,15 +369,29 @@ export default function AssistenteIAPage() {
   const [selectedWhatsapps, setSelectedWhatsapps] = useState<Record<string, string>>({});
   const [copiedActionId, setCopiedActionId] = useState<string | null>(null);
   const [executiveSummary, setExecutiveSummary] = useState<ExecutiveSummary | null>(null);
+  const [radarExecution, setRadarExecution] = useState<AutonomousExecution | null>(null);
+  const [missions, setMissions] = useState<AssistantMission[]>([]);
+  const [executions, setExecutions] = useState<AutonomousExecution[]>([]);
+  const [evaluationRuns, setEvaluationRuns] = useState<AutonomousExecution[]>([]);
   const [approvalInbox, setApprovalInbox] = useState<PendingAction[]>([]);
   const [memories, setMemories] = useState<SupervisedMemory[]>([]);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [clinicalDrafts, setClinicalDrafts] = useState<ClinicalDraft[]>([]);
   const [metrics, setMetrics] = useState<AssistantMetrics | null>(null);
   const [managementLoading, setManagementLoading] = useState(false);
+  const [autonomyAction, setAutonomyAction] = useState<string | null>(null);
   const [feedbackSent, setFeedbackSent] = useState<Record<string, "positive" | "negative">>({});
   const [memoryForm, setMemoryForm] = useState({ titulo: "", conteudo: "", categoria: "operacao" });
-  const [documentForm, setDocumentForm] = useState({ titulo: "", conteudo: "", categoria: "manual", fonte: "" });
+  const [documentForm, setDocumentForm] = useState({ titulo: "", conteudo: "", categoria: "manual", fonte: "", indexar_semanticamente: false });
+  const [missionForm, setMissionForm] = useState({
+    titulo: "Radar diário da gestão",
+    tipo: "radar" as AssistantMission["type"],
+    recorrencia: "daily" as AssistantMission["recurrence"],
+    horario_local: "07:00",
+    dias_semana: [0] as number[],
+    clinic: "",
+    months: 5,
+  });
   const [error, setError] = useState("");
 
   const refreshConversations = async () => {
@@ -318,6 +409,10 @@ export default function AssistenteIAPage() {
         api.get("/assistente-ia/conhecimento"),
         api.get("/assistente-ia/rascunhos-clinicos"),
         api.get("/assistente-ia/metricas"),
+        api.get("/assistente-ia/radar"),
+        api.get("/assistente-ia/missoes"),
+        api.get("/assistente-ia/execucoes?limit=30"),
+        api.get("/assistente-ia/avaliacoes"),
       ]);
       if (results[0].status === "fulfilled") setExecutiveSummary(results[0].value.data);
       if (results[1].status === "fulfilled") setApprovalInbox(Array.isArray(results[1].value.data?.items) ? results[1].value.data.items : []);
@@ -325,6 +420,10 @@ export default function AssistenteIAPage() {
       if (results[3].status === "fulfilled") setDocuments(Array.isArray(results[3].value.data?.items) ? results[3].value.data.items : []);
       if (results[4].status === "fulfilled") setClinicalDrafts(Array.isArray(results[4].value.data?.items) ? results[4].value.data.items : []);
       if (results[5].status === "fulfilled") setMetrics(results[5].value.data);
+      if (results[6].status === "fulfilled") setRadarExecution(results[6].value.data?.execution || null);
+      if (results[7].status === "fulfilled") setMissions(Array.isArray(results[7].value.data?.items) ? results[7].value.data.items : []);
+      if (results[8].status === "fulfilled") setExecutions(Array.isArray(results[8].value.data?.items) ? results[8].value.data.items : []);
+      if (results[9].status === "fulfilled") setEvaluationRuns(Array.isArray(results[9].value.data?.items) ? results[9].value.data.items : []);
     } finally {
       setManagementLoading(false);
     }
@@ -500,12 +599,109 @@ export default function AssistenteIAPage() {
 
   const submitDocument = async () => {
     if (!documentForm.titulo.trim() || documentForm.conteudo.trim().length < 20) return;
+    if (documentForm.indexar_semanticamente && !documentForm.fonte.trim()) {
+      setError("Informe a fonte do documento antes de ativar a memória semântica.");
+      return;
+    }
     try {
       await api.post("/assistente-ia/conhecimento", documentForm);
-      setDocumentForm({ titulo: "", conteudo: "", categoria: "manual", fonte: "" });
+      setDocumentForm({ titulo: "", conteudo: "", categoria: "manual", fonte: "", indexar_semanticamente: false });
       await refreshManagement();
     } catch (documentError) {
       setError(errorMessage(documentError, "Não foi possível incluir o documento."));
+    }
+  };
+
+  const runRadar = async () => {
+    setAutonomyAction("radar");
+    setError("");
+    try {
+      const response = await api.post("/assistente-ia/radar/executar");
+      setRadarExecution(response.data?.execution || null);
+      await refreshManagement();
+    } catch (radarError) {
+      setError(errorMessage(radarError, "Não foi possível atualizar o radar."));
+    } finally {
+      setAutonomyAction(null);
+    }
+  };
+
+  const submitMission = async () => {
+    if (!missionForm.titulo.trim()) return;
+    setAutonomyAction("create-mission");
+    setError("");
+    const configuration = missionForm.tipo === "billing_trend"
+      ? { months: missionForm.months, clinic: missionForm.clinic.trim() || null }
+      : missionForm.tipo === "overdue_debts"
+        ? { clinic: missionForm.clinic.trim(), overdue_only: true }
+        : {};
+    try {
+      await api.post("/assistente-ia/missoes", {
+        titulo: missionForm.titulo,
+        tipo: missionForm.tipo,
+        configuracao: configuration,
+        recorrencia: missionForm.recorrencia,
+        horario_local: missionForm.horario_local,
+        dias_semana: missionForm.recorrencia === "weekly" ? missionForm.dias_semana : [],
+        enabled: true,
+      });
+      await refreshManagement();
+    } catch (missionError) {
+      setError(errorMessage(missionError, "Não foi possível criar a missão."));
+    } finally {
+      setAutonomyAction(null);
+    }
+  };
+
+  const toggleMission = async (mission: AssistantMission) => {
+    setAutonomyAction(`toggle-${mission.id}`);
+    setError("");
+    try {
+      await api.patch(`/assistente-ia/missoes/${mission.id}`, { enabled: !mission.enabled });
+      await refreshManagement();
+    } catch (missionError) {
+      setError(errorMessage(missionError, "Não foi possível alterar a missão."));
+    } finally {
+      setAutonomyAction(null);
+    }
+  };
+
+  const runMission = async (mission: AssistantMission) => {
+    setAutonomyAction(`run-${mission.id}`);
+    setError("");
+    try {
+      await api.post(`/assistente-ia/missoes/${mission.id}/executar`);
+      await refreshManagement();
+    } catch (missionError) {
+      setError(errorMessage(missionError, "Não foi possível enfileirar a missão."));
+    } finally {
+      setAutonomyAction(null);
+    }
+  };
+
+  const runEvaluation = async () => {
+    setAutonomyAction("evaluation");
+    setError("");
+    try {
+      await api.post("/assistente-ia/avaliacoes/executar");
+      await refreshManagement();
+    } catch (evaluationError) {
+      setError(errorMessage(evaluationError, "Não foi possível iniciar o laboratório."));
+    } finally {
+      setAutonomyAction(null);
+    }
+  };
+
+  const reindexDocument = async (documentId: string) => {
+    setAutonomyAction(`index-${documentId}`);
+    setError("");
+    try {
+      await api.post(`/assistente-ia/conhecimento/${documentId}/reindexar`);
+      await refreshManagement();
+    } catch (indexError) {
+      setError(errorMessage(indexError, "Não foi possível iniciar a indexação semântica."));
+    } finally {
+      setAutonomyAction(null);
     }
   };
 
@@ -544,6 +740,7 @@ export default function AssistenteIAPage() {
   }
 
   const assistantReady = Boolean(status?.enabled && status?.configured);
+  const radarOutput = radarExecution?.output as unknown as RadarOutput | undefined;
 
   return (
     <DashboardLayout>
@@ -615,6 +812,40 @@ export default function AssistenteIAPage() {
                 </div>
               ) : null}
 
+              {view === "radar" ? (
+                <div className="space-y-6">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-3"><Radar className="h-7 w-7 text-cordis-600" /><h2 className="text-2xl font-bold text-ink-900">Radar proativo</h2></div>
+                      <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-500">Compara faturamento, agenda, cancelamentos, débitos e pendências para chamar sua atenção antes que virem problemas.</p>
+                    </div>
+                    <button type="button" onClick={() => void runRadar()} disabled={autonomyAction === "radar"} className="flex items-center gap-2 rounded-xl bg-cordis-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
+                      {autonomyAction === "radar" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Atualizar radar
+                    </button>
+                  </div>
+                  {radarOutput ? (
+                    <>
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                        <div className="rounded-2xl border border-ink-100 p-5"><p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Faturamento comparável</p><p className="mt-2 text-2xl font-bold text-ink-900">{radarOutput.indicators.revenue.change_percent == null ? "—" : `${radarOutput.indicators.revenue.change_percent > 0 ? "+" : ""}${radarOutput.indicators.revenue.change_percent}%`}</p><p className="mt-1 text-xs text-ink-500">R$ {radarOutput.indicators.revenue.current_period.toLocaleString("pt-BR", { minimumFractionDigits: 2 })} no período atual</p></div>
+                        <div className="rounded-2xl border border-ink-100 p-5"><p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Agenda · 7 dias</p><p className="mt-2 text-2xl font-bold text-ink-900">{radarOutput.indicators.appointments.last_7_days}</p><p className="mt-1 text-xs text-ink-500">anterior: {radarOutput.indicators.appointments.previous_7_days}</p></div>
+                        <div className="rounded-2xl border border-ink-100 p-5"><p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Cancelamentos</p><p className="mt-2 text-2xl font-bold text-ink-900">{radarOutput.indicators.appointments.cancelled_last_7_days}</p><p className="mt-1 text-xs text-ink-500">anterior: {radarOutput.indicators.appointments.cancelled_previous_7_days}</p></div>
+                        <div className="rounded-2xl border border-ink-100 p-5"><p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Débitos vencidos</p><p className="mt-2 text-2xl font-bold text-ink-900">R$ {radarOutput.indicators.overdue.total.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</p><p className="mt-1 text-xs text-ink-500">{radarOutput.indicators.overdue.count} conta(s)</p></div>
+                      </div>
+                      <div className="space-y-3">
+                        {radarOutput.alerts.map((alert) => (
+                          <article key={alert.key} className={`rounded-2xl border p-5 ${alert.level === "critical" ? "border-cordis-200 bg-cordis-50" : alert.level === "ok" ? "border-vital-100 bg-vital-50" : "border-amber-200 bg-amber-50/60"}`}>
+                            <div className="flex items-start gap-3"><AlertTriangle className={`mt-0.5 h-5 w-5 shrink-0 ${alert.level === "ok" ? "text-vital-600" : alert.level === "critical" ? "text-cordis-600" : "text-amber-600"}`} /><div><h3 className="font-semibold text-ink-900">{alert.title}</h3><p className="mt-1 text-sm leading-6 text-ink-600">{alert.evidence}</p><p className="mt-2 text-sm font-medium text-ink-800">Próximo passo: {alert.recommendation}</p></div></div>
+                          </article>
+                        ))}
+                      </div>
+                      <p className="flex items-center gap-2 text-xs font-semibold text-vital-700"><ShieldCheck className="h-4 w-4" /> {radarOutput.safety}</p>
+                    </>
+                  ) : (
+                    <div className="rounded-2xl bg-ink-50 p-6 text-sm text-ink-600">O Radar ainda não possui uma leitura. Clique em “Atualizar radar” ou crie uma missão recorrente.</div>
+                  )}
+                </div>
+              ) : null}
+
               {view === "brief" ? (
                 <div className="space-y-6">
                   <div className="flex flex-wrap items-end justify-between gap-3">
@@ -642,6 +873,33 @@ export default function AssistenteIAPage() {
                 </div>
               ) : null}
 
+              {view === "missions" ? (
+                <div className="grid gap-6 lg:grid-cols-[380px_minmax(0,1fr)]">
+                  <div>
+                    <div className="flex items-center gap-3"><Target className="h-7 w-7 text-cordis-600" /><h2 className="text-2xl font-bold text-ink-900">Missões recorrentes</h2></div>
+                    <p className="mt-2 text-sm leading-6 text-ink-500">A Mente executa apenas consultas permitidas. Missões nunca criam, apagam ou alteram dados operacionais.</p>
+                    <div className="mt-5 space-y-3 rounded-2xl bg-ink-50 p-4">
+                      <input value={missionForm.titulo} onChange={(event) => setMissionForm((current) => ({ ...current, titulo: event.target.value }))} placeholder="Nome da missão" className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" />
+                      <select value={missionForm.tipo} onChange={(event) => setMissionForm((current) => ({ ...current, tipo: event.target.value as AssistantMission["type"], titulo: MISSION_LABELS[event.target.value as AssistantMission["type"]] }))} className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm">
+                        {Object.entries(MISSION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                      {missionForm.tipo === "billing_trend" ? <div className="grid grid-cols-2 gap-2"><input type="number" min={2} max={24} value={missionForm.months} onChange={(event) => setMissionForm((current) => ({ ...current, months: Number(event.target.value) || 5 }))} className="rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /><input value={missionForm.clinic} onChange={(event) => setMissionForm((current) => ({ ...current, clinic: event.target.value }))} placeholder="Clínica opcional" className="rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /></div> : null}
+                      {missionForm.tipo === "overdue_debts" ? <input value={missionForm.clinic} onChange={(event) => setMissionForm((current) => ({ ...current, clinic: event.target.value }))} placeholder="Clínica obrigatória" className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /> : null}
+                      <div className="grid grid-cols-2 gap-2"><select value={missionForm.recorrencia} onChange={(event) => setMissionForm((current) => ({ ...current, recorrencia: event.target.value as AssistantMission["recurrence"] }))} className="rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm"><option value="daily">Todos os dias</option><option value="weekly">Semanal</option></select><input type="time" value={missionForm.horario_local} onChange={(event) => setMissionForm((current) => ({ ...current, horario_local: event.target.value }))} className="rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /></div>
+                      {missionForm.recorrencia === "weekly" ? <div className="flex flex-wrap gap-1.5">{WEEKDAY_LABELS.map((label, index) => <button key={label} type="button" onClick={() => setMissionForm((current) => ({ ...current, dias_semana: current.dias_semana.includes(index) ? current.dias_semana.filter((day) => day !== index) : [...current.dias_semana, index] }))} className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${missionForm.dias_semana.includes(index) ? "bg-ink-900 text-white" : "bg-white text-ink-500"}`}>{label}</button>)}</div> : null}
+                      <button type="button" onClick={() => void submitMission()} disabled={autonomyAction === "create-mission" || (missionForm.tipo === "overdue_debts" && !missionForm.clinic.trim())} className="flex w-full items-center justify-center gap-2 rounded-xl bg-cordis-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{autonomyAction === "create-mission" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Criar missão</button>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {missions.map((mission) => {
+                      const recentExecution = executions.find((item) => item.mission_id === mission.id);
+                      return <article key={mission.id} className="rounded-2xl border border-ink-100 p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold text-ink-900">{mission.title}</p><p className="mt-1 text-xs text-ink-400">{MISSION_LABELS[mission.type]} · {mission.recurrence === "daily" ? "diária" : `semanal (${mission.weekdays.map((day) => WEEKDAY_LABELS[day]).join(", ")})`} às {mission.local_time}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${mission.enabled ? "bg-vital-50 text-vital-700" : "bg-ink-50 text-ink-500"}`}>{mission.enabled ? "Ativa" : "Pausada"}</span></div><div className="mt-4 grid gap-2 text-xs text-ink-500 sm:grid-cols-2"><p>Próxima: {mission.enabled ? formatDateTime(mission.next_run_at) : "pausada"}</p><p>Última: {mission.last_run_at ? formatDateTime(mission.last_run_at) : "ainda não executada"}</p></div>{recentExecution ? <div className="mt-3 rounded-xl bg-ink-50 px-3 py-2 text-xs text-ink-600">Execução mais recente: <strong>{recentExecution.status === "completed" ? "concluída" : recentExecution.status === "error" ? "falhou" : "na fila/processando"}</strong>{recentExecution.error ? ` · ${recentExecution.error}` : ""}</div> : null}<div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => void toggleMission(mission)} disabled={autonomyAction === `toggle-${mission.id}`} className="rounded-lg border border-ink-200 px-3 py-2 text-xs font-semibold text-ink-600">{mission.enabled ? "Pausar" : "Ativar"}</button><button type="button" onClick={() => void runMission(mission)} disabled={autonomyAction === `run-${mission.id}`} className="flex items-center gap-2 rounded-lg bg-ink-900 px-3 py-2 text-xs font-semibold text-white">{autonomyAction === `run-${mission.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} Executar agora</button></div></article>;
+                    })}
+                    {missions.length === 0 ? <div className="rounded-2xl bg-ink-50 p-5 text-sm text-ink-500">Nenhuma missão criada. Comece pelo Radar diário da gestão.</div> : null}
+                  </div>
+                </div>
+              ) : null}
+
               {view === "approvals" ? (
                 <div><h2 className="text-2xl font-bold text-ink-900">Caixa central de aprovações</h2><p className="mt-1 text-sm text-ink-500">Todas as ações propostas pela Mente, independentemente da conversa.</p><div className="mt-6 space-y-4">{approvalInbox.length === 0 ? <div className="rounded-2xl bg-vital-50 p-5 text-sm text-vital-800">Nenhuma ação aguardando sua decisão.</div> : approvalInbox.map((action) => <div key={action.id} className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold text-ink-900">{action.type.replaceAll("_", " ")}</p><p className="mt-1 text-xs text-ink-500">Expira em {formatDateTime(action.expires_at)}</p></div><span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Requer confirmação</span></div><pre className="mt-4 max-h-52 overflow-auto whitespace-pre-wrap rounded-xl bg-white p-4 text-xs leading-5 text-ink-600">{JSON.stringify(action.target, null, 2)}</pre><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => void decideAction(action.id, "reject")} className="rounded-xl border border-ink-200 bg-white px-4 py-2 text-sm font-semibold text-ink-700">Rejeitar</button><button type="button" onClick={() => void decideAction(action.id, "approve")} className="rounded-xl bg-cordis-600 px-4 py-2 text-sm font-semibold text-white">Confirmar ação</button></div></div>)}</div></div>
               ) : null}
@@ -651,7 +909,20 @@ export default function AssistenteIAPage() {
               ) : null}
 
               {view === "knowledge" ? (
-                <div className="grid gap-6 lg:grid-cols-[420px_minmax(0,1fr)]"><div><h2 className="text-2xl font-bold text-ink-900">Conhecimento interno</h2><p className="mt-1 text-sm leading-6 text-ink-500">Adicione manuais, modelos e procedimentos em texto. A Mente pesquisa essa base quando necessário.</p><div className="mt-5 space-y-3 rounded-2xl bg-ink-50 p-4"><input value={documentForm.titulo} onChange={(event) => setDocumentForm((current) => ({ ...current, titulo: event.target.value }))} placeholder="Título do documento" className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /><div className="grid grid-cols-2 gap-2"><input value={documentForm.categoria} onChange={(event) => setDocumentForm((current) => ({ ...current, categoria: event.target.value }))} placeholder="Categoria" className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /><input value={documentForm.fonte} onChange={(event) => setDocumentForm((current) => ({ ...current, fonte: event.target.value }))} placeholder="Fonte opcional" className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /></div><textarea value={documentForm.conteudo} onChange={(event) => setDocumentForm((current) => ({ ...current, conteudo: event.target.value }))} rows={12} placeholder="Cole aqui o conteúdo..." className="w-full resize-y rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /><button type="button" onClick={() => void submitDocument()} className="flex w-full items-center justify-center gap-2 rounded-xl bg-cordis-600 px-4 py-2.5 text-sm font-semibold text-white"><Database className="h-4 w-4" /> Incluir na base</button></div></div><div className="space-y-3">{documents.map((document) => <div key={document.id} className="flex items-start gap-3 rounded-2xl border border-ink-100 p-4"><BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-cordis-600" /><div><p className="font-semibold text-ink-900">{document.title}</p><p className="mt-1 text-xs text-ink-400">{document.category}{document.source ? ` · ${document.source}` : ""}</p></div></div>)}{documents.length === 0 ? <p className="text-sm text-ink-400">Nenhum documento ativo na base interna.</p> : null}</div></div>
+                <div className="grid gap-6 lg:grid-cols-[420px_minmax(0,1fr)]"><div><h2 className="text-2xl font-bold text-ink-900">Memória semântica com fontes</h2><p className="mt-1 text-sm leading-6 text-ink-500">Adicione manuais, modelos e procedimentos. A busca híbrida combina palavras e significado, sempre citando a fonte cadastrada.</p><div className="mt-5 space-y-3 rounded-2xl bg-ink-50 p-4"><input value={documentForm.titulo} onChange={(event) => setDocumentForm((current) => ({ ...current, titulo: event.target.value }))} placeholder="Título do documento" className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /><div className="grid grid-cols-2 gap-2"><input value={documentForm.categoria} onChange={(event) => setDocumentForm((current) => ({ ...current, categoria: event.target.value }))} placeholder="Categoria" className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /><input value={documentForm.fonte} onChange={(event) => setDocumentForm((current) => ({ ...current, fonte: event.target.value }))} placeholder="Fonte recomendada" className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /></div><textarea value={documentForm.conteudo} onChange={(event) => setDocumentForm((current) => ({ ...current, conteudo: event.target.value }))} rows={12} placeholder="Cole aqui o conteúdo..." className="w-full resize-y rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /><label className="flex items-start gap-3 rounded-xl border border-vital-100 bg-white p-3 text-xs leading-5 text-ink-600"><input type="checkbox" checked={documentForm.indexar_semanticamente} onChange={(event) => setDocumentForm((current) => ({ ...current, indexar_semanticamente: event.target.checked }))} className="mt-1" /><span><strong className="block text-ink-800">Ativar memória semântica</strong>O texto será enviado à OpenAI apenas para gerar vetores; os vetores e os trechos permanecem no banco da FortCordis.</span></label><button type="button" onClick={() => void submitDocument()} className="flex w-full items-center justify-center gap-2 rounded-xl bg-cordis-600 px-4 py-2.5 text-sm font-semibold text-white"><Database className="h-4 w-4" /> Incluir na base</button></div></div><div className="space-y-3">{documents.map((document) => <div key={document.id} className="flex items-start gap-3 rounded-2xl border border-ink-100 p-4"><BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-cordis-600" /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-semibold text-ink-900">{document.title}</p><p className="mt-1 text-xs text-ink-400">{document.category}{document.source ? ` · fonte: ${document.source}` : " · fonte não informada"}</p></div><span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${document.semantic_status === "ready" ? "bg-vital-50 text-vital-700" : document.semantic_status === "error" ? "bg-cordis-50 text-cordis-700" : document.semantic_status === "queued" || document.semantic_status === "indexing" ? "bg-amber-50 text-amber-800" : "bg-ink-50 text-ink-500"}`}>{document.semantic_status === "ready" ? "Semântica pronta" : document.semantic_status === "error" ? "Falha na indexação" : document.semantic_status === "queued" ? "Na fila" : document.semantic_status === "indexing" ? "Indexando" : "Busca por palavras"}</span></div>{document.semantic_error ? <p className="mt-2 text-xs text-cordis-700">{document.semantic_error}</p> : null}{document.semantic_status !== "queued" && document.semantic_status !== "indexing" ? <button type="button" onClick={() => void reindexDocument(document.id)} disabled={autonomyAction === `index-${document.id}`} className="mt-3 flex items-center gap-2 rounded-lg border border-ink-200 px-3 py-2 text-xs font-semibold text-ink-600 disabled:opacity-50">{autonomyAction === `index-${document.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} {document.semantic_status === "ready" ? "Reindexar" : "Ativar semântica"}</button> : null}</div></div>)}{documents.length === 0 ? <p className="text-sm text-ink-400">Nenhum documento ativo na base interna.</p> : null}</div></div>
+              ) : null}
+
+              {view === "evaluations" ? (
+                <div className="space-y-6">
+                  <div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-3"><FlaskConical className="h-7 w-7 text-cordis-600" /><h2 className="text-2xl font-bold text-ink-900">Laboratório automático de avaliações</h2></div><p className="mt-2 max-w-2xl text-sm leading-6 text-ink-500">Executa casos versionados contra o modelo atual e mede o roteamento. As ferramentas reais nunca são chamadas durante o teste.</p></div><button type="button" onClick={() => void runEvaluation()} disabled={autonomyAction === "evaluation" || evaluationRuns.some((item) => item.status === "queued" || item.status === "running")} className="flex items-center gap-2 rounded-xl bg-cordis-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{autonomyAction === "evaluation" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Executar avaliação</button></div>
+                  <div className="space-y-3">
+                    {evaluationRuns.map((run) => {
+                      const output = run.output as { dataset_version?: string; model?: string; total?: number; passed?: number; failed?: number; score_percent?: number; cases?: Array<{ id: string; expected_tool: string; selected_tools: string[]; passed: boolean; error?: string | null }>; safety?: string } | null | undefined;
+                      return <article key={run.id} className="rounded-2xl border border-ink-100 p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold text-ink-900">Avaliação de {formatDateTime(run.created_at)}</p><p className="mt-1 text-xs text-ink-400">{output?.model || status?.model} · dataset {output?.dataset_version || "versionado"}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${run.status === "completed" ? "bg-vital-50 text-vital-700" : run.status === "error" ? "bg-cordis-50 text-cordis-700" : "bg-amber-50 text-amber-800"}`}>{run.status === "completed" ? "Concluída" : run.status === "error" ? "Falhou" : "Na fila/processando"}</span></div>{output ? <><div className="mt-4 grid grid-cols-3 gap-3"><div className="rounded-xl bg-ink-50 p-3"><p className="text-xs text-ink-400">Nota</p><p className="mt-1 text-xl font-bold text-ink-900">{output.score_percent ?? 0}%</p></div><div className="rounded-xl bg-vital-50 p-3"><p className="text-xs text-vital-700">Aprovados</p><p className="mt-1 text-xl font-bold text-vital-800">{output.passed ?? 0}</p></div><div className="rounded-xl bg-cordis-50 p-3"><p className="text-xs text-cordis-700">Falhas</p><p className="mt-1 text-xl font-bold text-cordis-800">{output.failed ?? 0}</p></div></div>{(output.cases || []).some((item) => !item.passed) ? <div className="mt-4 space-y-2">{(output.cases || []).filter((item) => !item.passed).map((item) => <div key={item.id} className="rounded-xl bg-cordis-50 p-3 text-xs text-cordis-800"><strong>{item.id}</strong>: esperava {item.expected_tool}; escolheu {item.selected_tools.join(", ") || "nenhuma"}{item.error ? ` · ${item.error}` : ""}</div>)}</div> : <p className="mt-4 flex items-center gap-2 text-sm font-semibold text-vital-700"><CheckCircle2 className="h-4 w-4" /> Todos os casos escolheram a ferramenta esperada.</p>}<p className="mt-4 flex items-center gap-2 text-xs text-ink-500"><ShieldCheck className="h-4 w-4 text-vital-600" /> {output.safety}</p></> : run.error ? <p className="mt-4 text-sm text-cordis-700">{run.error}</p> : <p className="mt-4 text-sm text-ink-500">Aguardando o worker seguro concluir os casos.</p>}</article>;
+                    })}
+                    {evaluationRuns.length === 0 ? <div className="rounded-2xl bg-ink-50 p-5 text-sm text-ink-500">Nenhuma avaliação executada. Você também pode criar uma missão semanal para este laboratório.</div> : null}
+                  </div>
+                </div>
               ) : null}
 
               {view === "clinical" ? (

@@ -122,6 +122,11 @@ class AssistenteIAConhecimentoDocumento(Base):
     fonte = Column(String(500), nullable=True)
     conteudo_sha256 = Column(String(64), nullable=False, index=True)
     status = Column(String(24), nullable=False, default="active", index=True)
+    semantic_enabled = Column(Boolean, nullable=False, default=False)
+    semantic_status = Column(String(24), nullable=False, default="disabled", index=True)
+    embedding_model = Column(String(80), nullable=True)
+    semantic_error = Column(Text, nullable=True)
+    indexed_at = Column(DateTime(timezone=True), nullable=True)
     criado_por_id = Column(Integer, nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
@@ -131,6 +136,95 @@ class AssistenteIAConhecimentoDocumento(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class AssistenteIAConhecimentoTrecho(Base):
+    __tablename__ = "assistente_ia_conhecimento_trechos"
+    __table_args__ = (
+        Index(
+            "ix_assistente_ia_trechos_documento_ordem",
+            "documento_id",
+            "ordem",
+            unique=True,
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    documento_id = Column(String(36), nullable=False, index=True)
+    ordem = Column(Integer, nullable=False)
+    conteudo = Column(Text, nullable=False)
+    conteudo_sha256 = Column(String(64), nullable=False)
+    embedding_json = Column(Text, nullable=False)
+    embedding_model = Column(String(80), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class AssistenteIAMissao(Base):
+    __tablename__ = "assistente_ia_missoes"
+    __table_args__ = (
+        Index(
+            "ix_assistente_ia_missoes_enabled_next_run",
+            "enabled",
+            "next_run_at",
+        ),
+        Index(
+            "ix_assistente_ia_missoes_usuario_updated",
+            "usuario_id",
+            "updated_at",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True)
+    usuario_id = Column(Integer, nullable=False, index=True)
+    titulo = Column(String(180), nullable=False)
+    tipo = Column(String(40), nullable=False, index=True)
+    configuracao_json = Column(Text, nullable=False, default="{}")
+    recorrencia = Column(String(16), nullable=False, default="daily")
+    horario_local = Column(String(5), nullable=False, default="07:00")
+    dias_semana_json = Column(Text, nullable=False, default="[]")
+    timezone = Column(String(64), nullable=False, default="America/Fortaleza")
+    enabled = Column(Boolean, nullable=False, default=True, index=True)
+    next_run_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    last_run_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class AssistenteIAExecucao(Base):
+    __tablename__ = "assistente_ia_execucoes"
+    __table_args__ = (
+        Index(
+            "ix_assistente_ia_execucoes_status_created",
+            "status",
+            "created_at",
+        ),
+        Index(
+            "ix_assistente_ia_execucoes_usuario_tipo_created",
+            "usuario_id",
+            "tipo",
+            "created_at",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True)
+    usuario_id = Column(Integer, nullable=False, index=True)
+    missao_id = Column(String(36), nullable=True, index=True)
+    tipo = Column(String(40), nullable=False, index=True)
+    origem = Column(String(24), nullable=False, default="manual")
+    status = Column(String(24), nullable=False, default="queued", index=True)
+    entrada_json = Column(Text, nullable=False, default="{}")
+    saida_json = Column(Text, nullable=True)
+    erro = Column(Text, nullable=True)
+    provider_response_id = Column(String(255), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class AssistenteIAFeedback(Base):

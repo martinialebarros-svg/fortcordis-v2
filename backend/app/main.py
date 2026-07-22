@@ -60,6 +60,10 @@ from app.services.push_scheduler_service import (
     shutdown_push_scheduler_worker,
     start_push_scheduler_worker,
 )
+from app.services.assistente_ia_autonomy import (
+    shutdown_assistant_scheduler_worker,
+    start_assistant_scheduler_worker,
+)
 from app.services.runtime_observability import record_http_request
 from app.services.xml_import_jobs import (
     restart_incomplete_xml_import_jobs,
@@ -435,6 +439,7 @@ def startup_schema_compatibility() -> None:
     restart_incomplete_eco_study_import_jobs()
     start_upload_dedupe_cleanup_worker()
     start_push_scheduler_worker()
+    start_assistant_scheduler_worker()
 
 
 @app.on_event("shutdown")
@@ -444,6 +449,7 @@ def shutdown_background_workers() -> None:
     shutdown_eco_study_import_jobs()
     shutdown_upload_dedupe_cleanup_worker()
     shutdown_push_scheduler_worker()
+    shutdown_assistant_scheduler_worker()
 
 
 # WebSocket endpoint
@@ -494,6 +500,7 @@ def _health_payload(report: dict) -> dict:
                 "http_latency_monitor": report["observability"].get("http_latency_monitor"),
                 "upload_dedupe_cleanup_worker": report["observability"].get("upload_dedupe_cleanup_worker"),
                 "push_scheduler_worker": report["observability"].get("push_scheduler_worker"),
+                "assistant_scheduler_worker": report["observability"].get("assistant_scheduler_worker"),
             },
         },
         "compatibility_modes": report["compatibility_modes"],

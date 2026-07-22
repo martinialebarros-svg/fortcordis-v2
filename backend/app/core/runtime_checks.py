@@ -18,6 +18,7 @@ from app.services.upload_dedupe_cleanup_service import (
     get_upload_dedupe_cleanup_worker_runtime_state,
 )
 from app.services.push_scheduler_service import get_push_scheduler_worker_runtime_state
+from app.services.assistente_ia_autonomy import get_assistant_scheduler_worker_runtime_state
 from app.services.tesseract_runtime import resolve_tesseract_command
 from migrations.runner import get_migration_status
 
@@ -175,6 +176,7 @@ def build_runtime_report() -> dict[str, Any]:
     http_latency_monitor = get_http_latency_monitor_status()
     upload_cleanup_worker = get_upload_dedupe_cleanup_worker_runtime_state()
     push_scheduler_worker = get_push_scheduler_worker_runtime_state()
+    assistant_scheduler_worker = get_assistant_scheduler_worker_runtime_state()
     eco_study_ocr = _check_eco_study_ocr()
 
     warnings: list[str] = []
@@ -202,6 +204,8 @@ def build_runtime_report() -> dict[str, Any]:
         warnings.append("Worker de auto-cleanup dedupe habilitado, mas inativo.")
     if push_scheduler_worker.get("enabled") and not push_scheduler_worker.get("thread_alive"):
         warnings.append("Worker de push agendado habilitado, mas inativo.")
+    if assistant_scheduler_worker.get("enabled") and not assistant_scheduler_worker.get("thread_alive"):
+        warnings.append("Worker de missoes da Mente habilitado, mas inativo.")
     if not eco_study_ocr.get("available"):
         warnings.append("OCR de estudos indisponivel: Tesseract nao encontrado ou inacessivel.")
     elif eco_study_ocr.get("missing_languages"):
@@ -278,6 +282,7 @@ def build_runtime_report() -> dict[str, Any]:
             "http_latency_monitor": http_latency_monitor,
             "upload_dedupe_cleanup_worker": upload_cleanup_worker,
             "push_scheduler_worker": push_scheduler_worker,
+            "assistant_scheduler_worker": assistant_scheduler_worker,
         },
         "warnings": warnings,
         "startup_enforced_issues": startup_enforced_issues,
