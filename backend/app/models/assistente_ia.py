@@ -49,6 +49,12 @@ class AssistenteIAMensagem(Base):
     conteudo = Column(Text, nullable=False)
     ferramentas_json = Column(Text, nullable=True)
     acao_pendente_id = Column(String(36), nullable=True, index=True)
+    provider_response_id = Column(String(255), nullable=True)
+    input_tokens = Column(Integer, nullable=True)
+    output_tokens = Column(Integer, nullable=True)
+    total_tokens = Column(Integer, nullable=True)
+    latency_ms = Column(Integer, nullable=True)
+    provider_status = Column(String(32), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -75,3 +81,95 @@ class AssistenteIAAcaoPendente(Base):
     executed_at = Column(DateTime(timezone=True), nullable=True)
     resultado_json = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class AssistenteIAMemoria(Base):
+    __tablename__ = "assistente_ia_memorias"
+    __table_args__ = (
+        Index("ix_assistente_ia_memorias_status_categoria", "status", "categoria", "created_at"),
+    )
+
+    id = Column(String(36), primary_key=True)
+    titulo = Column(String(180), nullable=False)
+    conteudo = Column(Text, nullable=False)
+    categoria = Column(String(60), nullable=False, default="operacao")
+    origem = Column(String(40), nullable=False, default="admin")
+    status = Column(String(24), nullable=False, default="pending", index=True)
+    criado_por_id = Column(Integer, nullable=False, index=True)
+    aprovado_por_id = Column(Integer, nullable=True)
+    aprovado_em = Column(DateTime(timezone=True), nullable=True)
+    rejeitado_em = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class AssistenteIAConhecimentoDocumento(Base):
+    __tablename__ = "assistente_ia_conhecimento_documentos"
+    __table_args__ = (
+        Index("ix_assistente_ia_documentos_status_categoria", "status", "categoria", "created_at"),
+    )
+
+    id = Column(String(36), primary_key=True)
+    titulo = Column(String(220), nullable=False)
+    categoria = Column(String(60), nullable=False, default="manual")
+    conteudo = Column(Text, nullable=False)
+    fonte = Column(String(500), nullable=True)
+    conteudo_sha256 = Column(String(64), nullable=False, index=True)
+    status = Column(String(24), nullable=False, default="active", index=True)
+    criado_por_id = Column(Integer, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class AssistenteIAFeedback(Base):
+    __tablename__ = "assistente_ia_feedbacks"
+    __table_args__ = (
+        Index("ix_assistente_ia_feedbacks_usuario_created", "usuario_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    mensagem_id = Column(Integer, nullable=False, index=True)
+    conversa_id = Column(String(36), nullable=False, index=True)
+    usuario_id = Column(Integer, nullable=False, index=True)
+    avaliacao = Column(String(16), nullable=False)
+    categoria = Column(String(60), nullable=True)
+    comentario = Column(Text, nullable=True)
+    correcao_esperada = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class AssistenteIARascunhoClinico(Base):
+    __tablename__ = "assistente_ia_rascunhos_clinicos"
+    __table_args__ = (
+        Index("ix_assistente_ia_rascunhos_usuario_status", "usuario_id", "status", "created_at"),
+    )
+
+    id = Column(String(36), primary_key=True)
+    laudo_id = Column(Integer, nullable=False, index=True)
+    conversa_id = Column(String(36), nullable=False, index=True)
+    usuario_id = Column(Integer, nullable=False, index=True)
+    titulo = Column(String(220), nullable=False)
+    conteudo = Column(Text, nullable=False)
+    alertas_json = Column(Text, nullable=True)
+    fontes_json = Column(Text, nullable=True)
+    status = Column(String(24), nullable=False, default="draft", index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )

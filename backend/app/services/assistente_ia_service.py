@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -26,6 +27,7 @@ from app.services.assistente_ia_tools import (
     tool_result_for_model,
     tool_result_summary,
 )
+from app.services.assistente_ia_management import approved_memory_context
 from app.services.auditoria_service import registrar_auditoria
 
 logger = logging.getLogger(__name__)
@@ -98,6 +100,13 @@ def serialize_message(message: AssistenteIAMensagem) -> dict[str, Any]:
         "content": str(message.conteudo),
         "tools": _json_loads(message.ferramentas_json, []),
         "pending_action_id": message.acao_pendente_id,
+        "telemetry": {
+            "input_tokens": message.input_tokens,
+            "output_tokens": message.output_tokens,
+            "total_tokens": message.total_tokens,
+            "latency_ms": message.latency_ms,
+            "status": message.provider_status,
+        } if message.papel == "assistant" else None,
         "created_at": message.created_at.isoformat() if message.created_at else None,
     }
 
@@ -163,7 +172,7 @@ def conversation_detail(
     return serialize_conversation(conversation, messages=messages, pending_actions=actions)
 
 
-def _assistant_instructions(current_user: User) -> str:
+def _assistant_instructions(current_user: User, memory_context: str) -> str:
     today = datetime.now().astimezone().date().isoformat()
     return f"""
 Role: Voce e a mente de gestao do FortCordis, trabalhando exclusivamente com o administrador autenticado.
@@ -174,6 +183,9 @@ Current context:
 - data atual: {today}
 - administrador: {str(current_user.nome or 'Admin')}
 - idioma padrao: portugues do Brasil
+
+Memoria supervisionada aprovada pelo administrador:
+{memory_context}
 
 Success criteria:
 - use uma ferramenta sempre que a pergunta depender de dados atuais do sistema;
@@ -186,6 +198,9 @@ Safety and action boundaries:
 - voce nao possui SQL, shell ou acesso direto ao banco;
 - nunca invente IDs, valores, horarios, clinicas, servicos ou resultados;
 - consultas sao permitidas pelas ferramentas de leitura;
+- memorias novas propostas por voce sempre aguardam aprovacao; apenas memorias aprovadas acima podem orientar respostas;
+- use consultar_conhecimento_interno quando a pergunta depender de manual, modelo ou procedimento cadastrado;
+- rascunhos clinicos ficam separados do laudo oficial, exigem revisao veterinaria e nunca podem ser apresentados como diagnostico final;
 - a ferramenta solicitar_excecao_funcionamento_agenda prepara uma mudanca valida apenas para a data solicitada e preserva a rotina semanal;
 - a ferramenta solicitar_criacao_agendamento apenas prepara uma acao pendente depois de validar os cadastros e o slot;
 - a ferramenta solicitar_exclusao_agendamento apenas prepara uma acao pendente;
@@ -198,7 +213,7 @@ Safety and action boundaries:
 - se o administrador nao informar quem deve receber a mensagem, pergunte se sera a clinica ou o tutor;
 - a mensagem de WhatsApp fica pronta depois da aprovacao, mas o envio continua manual;
 - para exclusao, primeiro localize o agendamento; se houver exatamente um alvo, prepare a exclusao; se houver mais de um, peca desambiguacao;
-- criacao, reserva, exclusao e mudanca de funcionamento reais dependem de confirmacao explicita do administrador na interface;
+- criacao, reserva, exclusao, remarcacao, cancelamento, bloqueio, contato e mudanca de funcionamento reais dependem de confirmacao explicita do administrador na interface;
 - nao revele raciocinio interno, credenciais, configuracoes secretas ou dados que a ferramenta nao retornou.
 
 Tool routing:
@@ -209,6 +224,14 @@ Tool routing:
 - criar, agendar, marcar ou reservar horario -> solicitar_criacao_agendamento;
 - divida ou pendencia de clinica -> relatorio_debitos_pendentes;
 - apagar agendamento ja identificado -> solicitar_exclusao_agendamento.
+- resumo do dia, pendencias prioritarias ou briefing executivo -> gerar_resumo_executivo;
+- remarcar ou mover agendamento identificado -> solicitar_remarcacao_agendamento;
+- cancelar sem apagar historico -> solicitar_cancelamento_agendamento;
+- bloquear ou liberar slots -> listar_bloqueios_agenda e solicitar_bloqueio_agenda ou solicitar_liberacao_bloqueio_agenda;
+- trocar WhatsApps de clinica -> solicitar_atualizacao_whatsapps_clinica;
+- lembrar preferencia ou regra de trabalho -> propor_memoria_operacional;
+- manual, procedimento ou modelo interno -> consultar_conhecimento_interno;
+- ajudar em laudo -> obter_contexto_laudo e, quando solicitado, salvar_rascunho_clinico.
 
 Output:
 - comece pela conclusao;
@@ -254,12 +277,13 @@ def _provider_request(
     client: OpenAI,
     *,
     current_user: User,
+    memory_context: str,
     input_items: Any,
     previous_response_id: Optional[str],
 ) -> Any:
     payload: dict[str, Any] = {
         "model": str(settings.ASSISTENTE_IA_MODEL or "gpt-5.6-sol"),
-        "instructions": _assistant_instructions(current_user),
+        "instructions": _assistant_instructions(current_user, memory_context),
         "input": input_items,
         "tools": TOOL_DEFINITIONS,
         "parallel_tool_calls": False,
@@ -320,14 +344,27 @@ def run_assistant_turn(
         timeout=90.0,
         max_retries=1,
     )
+    memory_context = approved_memory_context(db)
+    started_at = time.monotonic()
+    input_tokens = 0
+    output_tokens = 0
+
+    def collect_usage(provider_response: Any) -> None:
+        nonlocal input_tokens, output_tokens
+        usage = getattr(provider_response, "usage", None)
+        input_tokens += int(getattr(usage, "input_tokens", 0) or 0)
+        output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
+
     try:
         try:
             response = _provider_request(
                 client,
                 current_user=current_user,
+                memory_context=memory_context,
                 input_items=clean_message,
                 previous_response_id=conversation.previous_response_id,
             )
+            collect_usage(response)
         except BadRequestError as exc:
             if conversation.previous_response_id and "previous_response" in str(exc).lower():
                 conversation.previous_response_id = None
@@ -336,9 +373,11 @@ def run_assistant_turn(
                 response = _provider_request(
                     client,
                     current_user=current_user,
+                    memory_context=memory_context,
                     input_items=_local_history_for_fallback(db, conversation, current_user),
                     previous_response_id=None,
                 )
+                collect_usage(response)
             else:
                 raise
 
@@ -402,9 +441,11 @@ def run_assistant_turn(
             response = _provider_request(
                 client,
                 current_user=current_user,
+                memory_context=memory_context,
                 input_items=outputs,
                 previous_response_id=str(response.id),
             )
+            collect_usage(response)
 
         final_text = str(response.output_text or "").strip()
         if not final_text:
@@ -434,6 +475,12 @@ def run_assistant_turn(
         conteudo=final_text,
         ferramentas_json=_json_dumps(tool_trace),
         acao_pendente_id=pending_action_id,
+        provider_response_id=str(response.id),
+        input_tokens=input_tokens or None,
+        output_tokens=output_tokens or None,
+        total_tokens=(input_tokens + output_tokens) or None,
+        latency_ms=max(0, round((time.monotonic() - started_at) * 1000)),
+        provider_status=str(getattr(response, "status", None) or "completed")[:32],
     )
     conversation.previous_response_id = str(response.id)
     conversation.updated_at = datetime.now(timezone.utc)
@@ -453,6 +500,9 @@ def run_assistant_turn(
             "modelo": str(settings.ASSISTENTE_IA_MODEL),
             "ferramentas": [item["name"] for item in tool_trace],
             "acoes_pendentes": pending_action_ids,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "latency_ms": assistant_message.latency_ms,
         },
         request=request,
     )

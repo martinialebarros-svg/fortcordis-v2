@@ -6,37 +6,33 @@ Status: completed
 
 ## Objetivo
 
-Disponibilizar ao administrador uma IA de gestao integrada ao FortCordis, capaz de consultar dados operacionais reais, explicar resultados e preparar acoes no sistema usando ferramentas de negocio controladas pelo backend.
+Evoluir a Mente FortCordis de um chat administrativo com consultas e poucas acoes para um copiloto de gestao completo, ainda exclusivo do admin, capaz de consolidar a operacao, executar mudancas governadas, aprender preferencias aprovadas, consultar conhecimento interno e apoiar o trabalho clinico sem substituir a decisao humana.
 
-## Problema
+## Resultado esperado
 
-Informacoes de agenda, faturamento, debitos e operacao estao distribuidas em modulos diferentes. A gestao depende de navegacao manual e de o administrador conhecer previamente os filtros e relatorios corretos. Acoes solicitadas em linguagem natural tambem nao podem ser entregues diretamente ao modelo sem autorizacao, validacao e auditoria.
+- resumo executivo diario carregado automaticamente com agenda, faturamento, vencidos, reservas e aprovacoes;
+- caixa unica de aprovacoes para acoes propostas em qualquer conversa;
+- remarcacao, cancelamento, bloqueio/liberacao de slots e atualizacao de WhatsApps com confirmacao, snapshot, expiracao e auditoria;
+- bloqueios refletidos tanto na validacao de escrita quanto nas sugestoes de disponibilidade;
+- memoria supervisionada: sugestoes da IA ficam pendentes e apenas conteudo aprovado orienta novas respostas;
+- base de conhecimento interna administravel e pesquisavel por ferramentas delimitadas;
+- rascunhos clinicos isolados, comparacao com laudos anteriores e alertas de completude, sem alterar ou finalizar o laudo oficial;
+- feedback positivo/negativo, correcao esperada, tokens, latencia e suite versionada de casos de avaliacao;
+- backend continua sem SQL livre, shell, credenciais ou escrita generica controlada pelo modelo.
 
-## Resultado esperado desta primeira versao
+## Nao objetivos
 
-- assistente conversacional disponivel apenas para usuarios com papel `admin`;
-- consultas sobre faturamento, debitos, agenda e disponibilidade usando dados atuais do banco;
-- exclusao de agendamento somente depois de uma confirmacao explicita na interface;
-- criacao de agendamento ou reserva somente depois de uma confirmacao explicita na interface;
-- mensagem pos-criacao pronta para copiar ou abrir manualmente no WhatsApp da clinica ou do tutor;
-- excecao de funcionamento por data preparada em linguagem natural, como abrir a agenda de amanha ate um horario especifico;
-- conversas persistidas por administrador para continuidade entre acessos;
-- chamadas da IA e acoes aprovadas com trilha auditavel;
-- nenhuma capacidade de SQL livre, shell, acesso irrestrito ao banco ou escrita generica.
-
-## Nao objetivos desta iteracao
-
-- liberar o assistente para recepcao, veterinarios ou clinicas parceiras;
-- gerar ou alterar laudos automaticamente;
-- permitir criacao/edicao generica de registros fora do fluxo controlado de agenda;
-- treinar ou ajustar um modelo com dados do FortCordis;
-- executar acoes destrutivas sem confirmacao humana;
-- implantar em stage ou producao neste ciclo local.
+- liberar a Mente para perfis diferentes de `admin`;
+- executar alteracoes operacionais sem confirmacao explicita;
+- finalizar, assinar, publicar ou diagnosticar automaticamente um laudo;
+- ingerir silenciosamente todos os dados ou documentos do sistema;
+- enviar WhatsApp automaticamente pela API da Meta;
+- habilitar pesquisa aberta na internet.
 
 ## Riscos principais
 
-- vazamento de dados pessoais ou financeiros por ferramentas muito amplas;
-- ambiguidade ao identificar clinicas, servicos ou agendamentos;
-- exclusao do registro errado por mudanca entre a solicitacao e a aprovacao;
-- custo ou latencia excessivos por loops sem limite;
-- dependencia da disponibilidade e permissao do modelo configurado na OpenAI.
+- memoria incorreta passar a orientar respostas sem revisao;
+- conflito de agenda entre a preparacao e a aprovacao;
+- rascunho clinico ser confundido com documento oficial;
+- base interna retornar contexto irrelevante ou excessivo;
+- crescimento de custo/latencia sem telemetria e regressao continua.
