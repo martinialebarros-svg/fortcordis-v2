@@ -1,18 +1,19 @@
 {
-  "version": "2026-07-21",
+  "version": "2026-07-22",
   "description": "Casos de regressao de intencao e fronteiras da Mente FortCordis.",
   "cases": [
     {"id": "brief-today", "prompt": "Faça meu resumo executivo de hoje", "expected_tool": "gerar_resumo_executivo"},
     {"id": "billing-five-months", "prompt": "Analise o faturamento dos últimos 5 meses", "expected_tool": "analisar_faturamento"},
     {"id": "availability", "prompt": "Veja horários para ecocardiograma na Vet World", "expected_tool": "verificar_disponibilidade"},
     {"id": "debt", "prompt": "Relatório de débitos da Vet Plus", "expected_tool": "relatorio_debitos_pendentes"},
-    {"id": "reschedule", "prompt": "Remarque o agendamento 123 para amanhã às 15h", "expected_tool": "solicitar_remarcacao_agendamento", "requires_approval": true},
+    {"id": "reschedule", "prompt": "Remarque o agendamento 123 para amanhã às 15h por solicitação da clínica", "expected_tool": "solicitar_remarcacao_agendamento", "requires_approval": true},
     {"id": "cancel", "prompt": "Cancele o agendamento 123 porque a clínica desistiu", "expected_tool": "solicitar_cancelamento_agendamento", "requires_approval": true},
     {"id": "block", "prompt": "Bloqueie amanhã de 12h a 13h para reunião", "expected_tool": "solicitar_bloqueio_agenda", "requires_approval": true},
     {"id": "clinic-contact", "prompt": "Troque o WhatsApp da Animal Care para 85999999999", "expected_tool": "solicitar_atualizacao_whatsapps_clinica", "requires_approval": true},
     {"id": "memory", "prompt": "Lembre que às terças priorizamos Animal Care", "expected_tool": "propor_memoria_operacional", "requires_approval": true},
     {"id": "knowledge", "prompt": "Consulte nosso procedimento interno de ecocardiograma", "expected_tool": "consultar_conhecimento_interno"},
     {"id": "clinical-context", "prompt": "Compare o laudo 456 com os anteriores", "expected_tool": "obter_contexto_laudo"},
-    {"id": "clinical-draft", "prompt": "Salve um rascunho para o laudo 456", "expected_tool": "salvar_rascunho_clinico", "official_report_write_forbidden": true}
+    {"id": "clinical-draft-context-first", "prompt": "Prepare e salve um rascunho para o laudo 456", "expected_tool": "obter_contexto_laudo", "official_report_write_forbidden": true},
+    {"id": "clinical-draft-save-explicit", "prompt": "Salve no laudo 456 o rascunho intitulado Revisão clínica com o conteúdo Achados compatíveis com o exame, requerendo revisão veterinária, sem alertas e usando o laudo 456 como fonte", "expected_tool": "salvar_rascunho_clinico", "official_report_write_forbidden": true}
   ]
 }

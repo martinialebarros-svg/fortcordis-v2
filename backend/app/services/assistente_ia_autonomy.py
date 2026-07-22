@@ -719,6 +719,19 @@ def _eval_dataset() -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+EVAL_ROUTING_INSTRUCTIONS = """
+Voce esta em um laboratorio seguro da Mente FortCordis.
+Escolha exatamente uma ferramenta adequada para a solicitacao.
+Nenhuma ferramenta sera executada e nenhum dado real foi fornecido.
+
+Regras de roteamento que devem ser observadas:
+- remarcacao de agendamento identificado, com data e horario de destino, usa solicitar_remarcacao_agendamento;
+- pedido de preparar rascunho sem conteudo clinico suficiente usa obter_contexto_laudo primeiro;
+- pedido de salvar rascunho com titulo e conteudo explicitos usa salvar_rascunho_clinico;
+- obter contexto ou salvar rascunho nunca modifica nem finaliza o laudo oficial.
+""".strip()
+
+
 def _run_eval_lab(execution: AssistenteIAExecucao) -> dict[str, Any]:
     from app.services.assistente_ia_tools import TOOL_DEFINITIONS
 
@@ -735,11 +748,7 @@ def _run_eval_lab(execution: AssistenteIAExecucao) -> dict[str, Any]:
         try:
             response = client.responses.create(
                 model=str(settings.ASSISTENTE_IA_MODEL or "gpt-5.6-sol"),
-                instructions=(
-                    "Voce esta em um laboratorio seguro da Mente FortCordis. "
-                    "Escolha exatamente a ferramenta adequada para a solicitacao. "
-                    "Nenhuma ferramenta sera executada e nenhum dado real foi fornecido."
-                ),
+                instructions=EVAL_ROUTING_INSTRUCTIONS,
                 input=str(case.get("prompt") or ""),
                 tools=TOOL_DEFINITIONS,
                 tool_choice="required",

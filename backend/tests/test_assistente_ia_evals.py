@@ -20,13 +20,35 @@ class AssistenteIAEvalContractTest(unittest.TestCase):
             type("Admin", (), {"nome": "Admin"})(),
             "Nenhuma memoria aprovada.",
         )
-        self.assertGreaterEqual(len(payload["cases"]), 12)
+        self.assertGreaterEqual(len(payload["cases"]), 13)
         for case in payload["cases"]:
             tool_name = case["expected_tool"]
             self.assertIn(tool_name, definitions, case["id"])
             self.assertTrue(definitions[tool_name]["strict"], case["id"])
             self.assertFalse(definitions[tool_name]["parameters"]["additionalProperties"], case["id"])
             self.assertIn(tool_name, instructions, case["id"])
+
+        cases = {case["id"]: case for case in payload["cases"]}
+        self.assertIn("solicitação da clínica", cases["reschedule"]["prompt"])
+        self.assertEqual(
+            cases["clinical-draft-context-first"]["expected_tool"],
+            "obter_contexto_laudo",
+        )
+        self.assertEqual(
+            cases["clinical-draft-save-explicit"]["expected_tool"],
+            "salvar_rascunho_clinico",
+        )
+        self.assertIn("conteúdo", cases["clinical-draft-save-explicit"]["prompt"])
+
+    def test_instrucoes_distinguem_contexto_de_gravacao_do_rascunho(self) -> None:
+        instructions = _assistant_instructions(
+            type("Admin", (), {"nome": "Admin"})(),
+            "Nenhuma memoria aprovada.",
+        )
+
+        self.assertIn("Solicitacao do administrador", instructions)
+        self.assertIn("obter_contexto_laudo primeiro", instructions)
+        self.assertIn("salvar_rascunho_clinico", instructions)
 
     def test_acoes_operacionais_do_eval_nunca_sao_escritas_genericas(self) -> None:
         tool_names = {item["name"] for item in TOOL_DEFINITIONS}

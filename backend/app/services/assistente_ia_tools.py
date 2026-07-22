@@ -2612,7 +2612,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "type": "function",
         "name": "solicitar_remarcacao_agendamento",
-        "description": "Prepara a remarcacao de um agendamento identificado. Revalida funcionamento e slot, mas so executa apos confirmacao do admin.",
+        "description": "Prepara a remarcacao de um agendamento identificado quando data e horario de destino estao definidos. Revalida funcionamento e slot, mas so executa apos confirmacao do admin. Se a causa nao foi informada, use o motivo neutro 'Solicitacao do administrador' e nunca invente justificativa clinica.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -2750,7 +2750,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "type": "function",
         "name": "salvar_rascunho_clinico",
-        "description": "Salva uma sugestao clinica em area separada para revisao humana. Nunca altera ou finaliza o laudo oficial.",
+        "description": "Salva uma sugestao clinica em area separada quando titulo e conteudo foram fornecidos ou obtidos do contexto do laudo. Se o pedido nao trouxer conteudo clinico suficiente, use obter_contexto_laudo antes. Nunca altera ou finaliza o laudo oficial.",
         "parameters": {
             "type": "object",
             "properties": {
