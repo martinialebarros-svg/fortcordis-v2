@@ -1,6 +1,7 @@
 "use client";
 
 import { portalDateTimeMillis } from "@/lib/portal-datetime";
+import { portalErrorMessageFromBody } from "@/lib/portal-errors";
 
 export type PortalActorType = "tutor" | "clinica";
 
@@ -258,24 +259,7 @@ function getCookie(name: string): string | null {
 
 async function readErrorMessage(response: Response, fallback: string): Promise<string> {
   try {
-    const text = await response.text();
-    if (!text.trim()) {
-      return fallback;
-    }
-
-    try {
-      const parsed = JSON.parse(text) as { detail?: unknown; message?: unknown };
-      if (typeof parsed.detail === "string" && parsed.detail.trim()) {
-        return parsed.detail.trim();
-      }
-      if (typeof parsed.message === "string" && parsed.message.trim()) {
-        return parsed.message.trim();
-      }
-    } catch {
-      return text.trim();
-    }
-
-    return text.trim() || fallback;
+    return portalErrorMessageFromBody(await response.text(), fallback);
   } catch {
     return fallback;
   }

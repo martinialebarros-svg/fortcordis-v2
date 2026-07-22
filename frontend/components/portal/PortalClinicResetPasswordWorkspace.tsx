@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Loader2, ShieldCheck } from "lucide-react";
 
 import { resetClinicPassword } from "@/lib/portal-api";
+import { validatePortalPasswordConfirmation } from "@/lib/portal-password";
 
 type PortalClinicResetPasswordWorkspaceProps = {
   resetToken: string;
@@ -25,6 +26,13 @@ export default function PortalClinicResetPasswordWorkspace({
     setSubmitting(true);
     setError("");
     setMessage("");
+
+    const passwordError = validatePortalPasswordConfirmation(password, passwordConfirmation);
+    if (passwordError) {
+      setError(passwordError);
+      setSubmitting(false);
+      return;
+    }
 
     try {
       const response = await resetClinicPassword({
@@ -83,6 +91,7 @@ export default function PortalClinicResetPasswordWorkspace({
             <input
               required
               type="password"
+              autoComplete="new-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-600"
@@ -95,6 +104,7 @@ export default function PortalClinicResetPasswordWorkspace({
             <input
               required
               type="password"
+              autoComplete="new-password"
               value={passwordConfirmation}
               onChange={(event) => setPasswordConfirmation(event.target.value)}
               className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-600"
