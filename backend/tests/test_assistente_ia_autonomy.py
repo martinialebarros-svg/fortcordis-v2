@@ -210,7 +210,39 @@ class AssistenteIAAutonomyTest(unittest.TestCase):
         ))
         self.assertTrue(all(call["store"] is False for call in fake_client.responses.calls))
         self.assertTrue(all(call["tool_choice"] == "required" for call in fake_client.responses.calls))
+        self.assertTrue(all(call["max_output_tokens"] == 800 for call in fake_client.responses.calls))
+        self.assertIn("solicitar_bloqueio_agenda", assistente_ia_autonomy.EVAL_ROUTING_INSTRUCTIONS)
+        self.assertIn("obrigatoriamente com uma chamada", assistente_ia_autonomy.EVAL_ROUTING_INSTRUCTIONS)
         execute_tool.assert_not_called()
+
+    def test_laboratorio_registra_diagnostico_quando_modelo_nao_chama_ferramenta(self) -> None:
+        class FakeResponses:
+            def create(self, **kwargs):
+                return SimpleNamespace(
+                    id="response-incomplete",
+                    status="incomplete",
+                    incomplete_details=SimpleNamespace(reason="max_output_tokens"),
+                    output=[],
+                )
+
+        fake_client = SimpleNamespace(responses=FakeResponses())
+        execution = AssistenteIAExecucao(
+            id="eval-run-incomplete",
+            usuario_id=self.user.id,
+            tipo="eval_lab",
+            origem="manual",
+            status="running",
+            entrada_json="{}",
+        )
+        with (
+            patch.object(assistente_ia_autonomy, "OpenAI", return_value=fake_client),
+            patch.object(assistente_ia_autonomy.settings, "OPENAI_API_KEY", "test-key"),
+        ):
+            result = assistente_ia_autonomy._run_eval_lab(execution)
+
+        self.assertEqual(result["score_percent"], 0.0)
+        self.assertTrue(all("status=incomplete" in item["error"] for item in result["cases"]))
+        self.assertTrue(all("motivo=max_output_tokens" in item["error"] for item in result["cases"]))
 
     def test_scheduler_processa_missao_de_admin_e_pausa_quando_papel_e_removido(self) -> None:
         with self._session_factory() as db:

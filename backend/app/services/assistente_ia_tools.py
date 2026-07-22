@@ -2659,7 +2659,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "type": "function",
         "name": "solicitar_bloqueio_agenda",
-        "description": "Prepara um bloqueio futuro de slot por intervalo. O bloqueio so passa a valer depois da confirmacao explicita.",
+        "description": "Prepara diretamente um bloqueio futuro quando data, inicio, fim e motivo estao definidos. Nao consulte antes: o bloqueio so passa a valer depois da confirmacao explicita do admin.",
         "parameters": {
             "type": "object",
             "properties": {
