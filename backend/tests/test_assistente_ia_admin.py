@@ -25,11 +25,14 @@ from app.models.agendamento import Agendamento
 from app.models.agenda_bloqueio import AgendaBloqueio
 from app.models.assistente_ia import (
     AssistenteIAAcaoPendente,
+    AssistenteIAAprendizado,
     AssistenteIAConhecimentoDocumento,
     AssistenteIAConversa,
     AssistenteIAFeedback,
     AssistenteIAMemoria,
+    AssistenteIAMemoriaVersao,
     AssistenteIAMensagem,
+    AssistenteIARegressaoCaso,
     AssistenteIARascunhoClinico,
 )
 from app.models.clinica import Clinica
@@ -64,6 +67,9 @@ class AssistenteIAAdminTest(unittest.TestCase):
             AssistenteIAMensagem.__table__,
             AssistenteIAAcaoPendente.__table__,
             AssistenteIAMemoria.__table__,
+            AssistenteIAAprendizado.__table__,
+            AssistenteIAMemoriaVersao.__table__,
+            AssistenteIARegressaoCaso.__table__,
             AssistenteIAConhecimentoDocumento.__table__,
             AssistenteIAFeedback.__table__,
             AssistenteIARascunhoClinico.__table__,
@@ -836,6 +842,121 @@ class AssistenteIAAdminTest(unittest.TestCase):
             )
         self.assertEqual(feedback["rating"], "negative")
         self.assertEqual(feedback["expected_correction"], "Usar a clinica correta.")
+        self.assertEqual(feedback["learning_suggestion"]["status"], "pending")
+
+    def test_correcao_so_altera_memoria_depois_de_aprovada_e_cria_regressao(self) -> None:
+        with self._session_factory() as db:
+            _clinic, _service, _patient, conversation = self._seed_base(db)
+            user_message = AssistenteIAMensagem(
+                conversa_id=conversation.id,
+                usuario_id=self.user.id,
+                papel="user",
+                conteudo="Como devo confirmar um encaixe?",
+            )
+            db.add(user_message)
+            db.flush()
+            assistant_message = AssistenteIAMensagem(
+                conversa_id=conversation.id,
+                usuario_id=self.user.id,
+                papel="assistant",
+                conteudo="Confirme automaticamente.",
+            )
+            db.add(assistant_message)
+            db.commit()
+            db.refresh(assistant_message)
+            with patch.object(assistente_ia_management, "registrar_auditoria"):
+                feedback = assistente_ia_management.create_feedback(
+                    db,
+                    self.user,
+                    message_id=assistant_message.id,
+                    rating="negative",
+                    category="agenda",
+                    comment="Precisa de aprovacao.",
+                    expected_correction="Todo encaixe deve ser confirmado pelo administrador.",
+                )
+                learning_id = feedback["learning_suggestion"]["id"]
+                self.assertNotIn("Todo encaixe", assistente_ia_management.approved_memory_context(db))
+                learning = assistente_ia_management.decide_learning(
+                    db,
+                    self.user,
+                    None,
+                    learning_id=learning_id,
+                    decision="approve",
+                )
+            memory = db.query(AssistenteIAMemoria).filter_by(id=learning["memory_id"]).one()
+            versions = db.query(AssistenteIAMemoriaVersao).filter_by(memoria_id=memory.id).all()
+            regressions = db.query(AssistenteIARegressaoCaso).filter_by(memoria_id=memory.id, status="active").all()
+            self.assertIn("Todo encaixe", assistente_ia_management.approved_memory_context(db))
+            self.assertEqual(memory.versao_atual, 1)
+            self.assertEqual(len(versions), 1)
+            self.assertEqual(len(regressions), 1)
+
+    def test_ajuste_rejeicao_e_reversao_preservam_historico(self) -> None:
+        with self._session_factory() as db:
+            with patch.object(assistente_ia_management, "registrar_auditoria"):
+                original = assistente_ia_management.create_learning(
+                    db,
+                    self.user,
+                    None,
+                    title="Confirmacao de encaixes",
+                    content="Confirmar encaixes pelo telefone.",
+                    category="agenda",
+                )
+                approved = assistente_ia_management.decide_learning(
+                    db,
+                    self.user,
+                    None,
+                    learning_id=original["id"],
+                    decision="approve",
+                )
+                rejected = assistente_ia_management.create_learning(
+                    db,
+                    self.user,
+                    None,
+                    title="Regra descartada",
+                    content="Aplicar sem confirmacao.",
+                    category="agenda",
+                    target_memory_id=approved["memory_id"],
+                )
+                assistente_ia_management.decide_learning(
+                    db,
+                    self.user,
+                    None,
+                    learning_id=rejected["id"],
+                    decision="reject",
+                )
+                adjustment = assistente_ia_management.create_learning(
+                    db,
+                    self.user,
+                    None,
+                    title="Confirmacao de encaixes",
+                    content="Confirmar encaixes por WhatsApp.",
+                    category="agenda",
+                    target_memory_id=approved["memory_id"],
+                )
+                assistente_ia_management.decide_learning(
+                    db,
+                    self.user,
+                    None,
+                    learning_id=adjustment["id"],
+                    decision="approve",
+                )
+                restored = assistente_ia_management.rollback_memory(
+                    db,
+                    self.user,
+                    None,
+                    memory_id=approved["memory_id"],
+                    target_version=1,
+                )
+            versions = assistente_ia_management.list_memory_versions(db, memory_id=approved["memory_id"])
+            self.assertEqual(restored["current_version"], 3)
+            self.assertEqual([item["version"] for item in versions], [3, 2, 1])
+            self.assertEqual(versions[0]["change_type"], "rollback")
+            self.assertEqual(versions[0]["content"], "Confirmar encaixes pelo telefone.")
+            self.assertEqual(
+                db.query(AssistenteIARegressaoCaso).filter_by(memoria_id=approved["memory_id"], status="active").count(),
+                1,
+            )
 
     def test_remarcacao_revalida_e_chama_fluxo_oficial_so_na_aprovacao(self) -> None:
         with self._session_factory() as db:

@@ -11,11 +11,14 @@ from app.db.database import get_db
 from app.models.user import User
 from app.schemas.assistente_ia import (
     AssistenteIAAcaoDecisaoRequest,
+    AssistenteIAAprendizadoCreateRequest,
+    AssistenteIAAprendizadoDecisaoRequest,
     AssistenteIAChatRequest,
     AssistenteIAConhecimentoCreateRequest,
     AssistenteIAFeedbackCreateRequest,
     AssistenteIAMemoriaCreateRequest,
     AssistenteIAMemoriaDecisaoRequest,
+    AssistenteIAMemoriaRollbackRequest,
     AssistenteIAMissaoCreateRequest,
     AssistenteIAMissaoUpdateRequest,
 )
@@ -36,13 +39,19 @@ from app.services.assistente_ia_management import (
     assistant_metrics,
     create_document,
     create_feedback,
+    create_learning,
     create_memory,
     decide_memory,
+    decide_learning,
     executive_summary,
     list_clinical_drafts,
     list_documents,
+    list_learnings,
     list_memories,
+    list_memory_versions,
     list_pending_actions,
+    list_regression_cases,
+    rollback_memory,
 )
 from app.services.assistente_ia_service import (
     AssistenteIAProviderError,
@@ -91,6 +100,9 @@ def assistente_ia_status(
             "missoes_recorrentes_somente_leitura",
             "memoria_semantica_com_fontes",
             "laboratorio_automatico_sem_execucao_de_ferramentas",
+            "aprendizado_continuo_supervisionado",
+            "versionamento_e_reversao_de_memorias",
+            "regressoes_automaticas_de_memoria",
         ],
     }
 
@@ -337,6 +349,96 @@ def decidir_memoria_assistente_ia(
     }
 
 
+@router.get("/memorias/{memory_id}/versoes")
+def listar_versoes_memoria_assistente_ia(
+    memory_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    return {"items": list_memory_versions(db, memory_id=memory_id)}
+
+
+@router.post("/memorias/{memory_id}/reverter")
+def reverter_memoria_assistente_ia(
+    memory_id: str,
+    payload: AssistenteIAMemoriaRollbackRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    return {
+        "memory": rollback_memory(
+            db,
+            current_user,
+            request,
+            memory_id=memory_id,
+            target_version=payload.versao,
+        )
+    }
+
+
+@router.get("/aprendizados")
+def listar_aprendizados_assistente_ia(
+    status: str | None = Query(default=None, max_length=24),
+    limit: int = Query(default=100, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    return list_learnings(db, current_user, status=status, limit=limit)
+
+
+@router.post("/aprendizados")
+def criar_aprendizado_assistente_ia(
+    payload: AssistenteIAAprendizadoCreateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    return {
+        "learning": create_learning(
+            db,
+            current_user,
+            request,
+            title=payload.titulo,
+            content=payload.conteudo,
+            category=payload.categoria,
+            target_memory_id=payload.memoria_alvo_id,
+        )
+    }
+
+
+@router.post("/aprendizados/{learning_id}/decisao")
+def decidir_aprendizado_assistente_ia(
+    learning_id: str,
+    payload: AssistenteIAAprendizadoDecisaoRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    return {
+        "learning": decide_learning(
+            db,
+            current_user,
+            request,
+            learning_id=learning_id,
+            decision=payload.decisao,
+            title=payload.titulo,
+            content=payload.conteudo,
+            category=payload.categoria,
+        )
+    }
+
+
+@router.get("/aprendizados/regressoes")
+def listar_regressoes_aprendizado_assistente_ia(
+    incluir_arquivados: bool = Query(default=False),
+    limit: int = Query(default=100, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    return {"items": list_regression_cases(db, include_archived=incluir_arquivados, limit=limit)}
+
+
 @router.get("/conhecimento")
 def listar_conhecimento_assistente_ia(
     incluir_arquivados: bool = Query(default=False),
@@ -431,6 +533,7 @@ def arquivar_conhecimento_assistente_ia(
 @router.post("/feedbacks")
 def registrar_feedback_assistente_ia(
     payload: AssistenteIAFeedbackCreateRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_papel("admin")),
 ):
@@ -443,6 +546,7 @@ def registrar_feedback_assistente_ia(
             category=payload.categoria,
             comment=payload.comentario,
             expected_correction=payload.correcao_esperada,
+            request=request,
         )
     }
 

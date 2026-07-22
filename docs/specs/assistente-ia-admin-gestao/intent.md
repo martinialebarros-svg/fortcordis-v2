@@ -1,6 +1,6 @@
 # Intent - assistente-ia-admin-gestao
 
-Data: 2026-07-21
+Data: 2026-07-22
 Responsavel: Martiniano + Codex
 Status: completed
 
@@ -19,6 +19,9 @@ Evoluir a Mente FortCordis de um chat administrativo com consultas e poucas acoe
 - rascunhos clinicos isolados, comparacao com laudos anteriores e alertas de completude, sem alterar ou finalizar o laudo oficial;
 - feedback positivo/negativo, correcao esperada, tokens, latencia e suite versionada de casos de avaliacao;
 - backend continua sem SQL livre, shell, credenciais ou escrita generica controlada pelo modelo.
+- correcao explicita gera apenas sugestao pendente, revisavel pelo administrador;
+- memoria aprovada possui versoes imutaveis, restauracao auditada e contrato de regressao automatico;
+- laboratorio verifica roteamento e preservacao das memorias sem executar ferramenta real.
 
 ## Nao objetivos
 
@@ -36,3 +39,5 @@ Evoluir a Mente FortCordis de um chat administrativo com consultas e poucas acoe
 - rascunho clinico ser confundido com documento oficial;
 - base interna retornar contexto irrelevante ou excessivo;
 - crescimento de custo/latencia sem telemetria e regressao continua.
+- correcao isolada ser generalizada de forma indevida para toda a gestao;
+- restauracao apagar contexto historico ou deixar contrato de regressao obsoleto.

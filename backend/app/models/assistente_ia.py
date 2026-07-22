@@ -95,10 +95,103 @@ class AssistenteIAMemoria(Base):
     categoria = Column(String(60), nullable=False, default="operacao")
     origem = Column(String(40), nullable=False, default="admin")
     status = Column(String(24), nullable=False, default="pending", index=True)
+    versao_atual = Column(Integer, nullable=False, default=1)
     criado_por_id = Column(Integer, nullable=False, index=True)
     aprovado_por_id = Column(Integer, nullable=True)
     aprovado_em = Column(DateTime(timezone=True), nullable=True)
     rejeitado_em = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class AssistenteIAAprendizado(Base):
+    __tablename__ = "assistente_ia_aprendizados"
+    __table_args__ = (
+        Index(
+            "ix_assistente_ia_aprendizados_usuario_status_created",
+            "usuario_id",
+            "status",
+            "created_at",
+        ),
+        Index("ix_assistente_ia_aprendizados_feedback", "feedback_id"),
+    )
+
+    id = Column(String(36), primary_key=True)
+    usuario_id = Column(Integer, nullable=False, index=True)
+    feedback_id = Column(Integer, nullable=True)
+    memoria_alvo_id = Column(String(36), nullable=True, index=True)
+    titulo = Column(String(180), nullable=False)
+    conteudo = Column(Text, nullable=False)
+    categoria = Column(String(60), nullable=False, default="operacao")
+    origem = Column(String(40), nullable=False, default="manual")
+    fonte_json = Column(Text, nullable=False, default="{}")
+    impacto_json = Column(Text, nullable=False, default="{}")
+    status = Column(String(24), nullable=False, default="pending", index=True)
+    revisado_por_id = Column(Integer, nullable=True)
+    revisado_em = Column(DateTime(timezone=True), nullable=True)
+    memoria_id = Column(String(36), nullable=True, index=True)
+    caso_regressao_id = Column(String(36), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class AssistenteIAMemoriaVersao(Base):
+    __tablename__ = "assistente_ia_memoria_versoes"
+    __table_args__ = (
+        Index(
+            "ix_assistente_ia_memoria_versoes_memoria_versao",
+            "memoria_id",
+            "versao",
+            unique=True,
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    memoria_id = Column(String(36), nullable=False, index=True)
+    versao = Column(Integer, nullable=False)
+    titulo = Column(String(180), nullable=False)
+    conteudo = Column(Text, nullable=False)
+    categoria = Column(String(60), nullable=False)
+    origem = Column(String(40), nullable=False)
+    tipo_alteracao = Column(String(24), nullable=False, default="create")
+    aprendizado_id = Column(String(36), nullable=True, index=True)
+    criado_por_id = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class AssistenteIARegressaoCaso(Base):
+    __tablename__ = "assistente_ia_regressao_casos"
+    __table_args__ = (
+        Index(
+            "ix_assistente_ia_regressao_casos_status_created",
+            "status",
+            "created_at",
+        ),
+        Index("ix_assistente_ia_regressao_casos_memoria", "memoria_id"),
+    )
+
+    id = Column(String(36), primary_key=True)
+    aprendizado_id = Column(String(36), nullable=True, index=True)
+    memoria_id = Column(String(36), nullable=False, index=True)
+    tipo = Column(String(40), nullable=False, default="memory_contract")
+    prompt = Column(Text, nullable=False)
+    expectativa_json = Column(Text, nullable=False)
+    status = Column(String(24), nullable=False, default="active", index=True)
+    ultimo_status = Column(String(24), nullable=True)
+    verificado_em = Column(DateTime(timezone=True), nullable=True)
+    criado_por_id = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),

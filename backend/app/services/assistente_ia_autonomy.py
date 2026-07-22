@@ -26,7 +26,9 @@ from app.models.assistente_ia import (
     AssistenteIAConhecimentoDocumento,
     AssistenteIAConhecimentoTrecho,
     AssistenteIAExecucao,
+    AssistenteIAMemoria,
     AssistenteIAMissao,
+    AssistenteIARegressaoCaso,
 )
 from app.models.financeiro import ContaReceber, Transacao
 from app.models.user import User
@@ -735,7 +737,61 @@ Regras de roteamento que devem ser observadas:
 """.strip()
 
 
-def _run_eval_lab(execution: AssistenteIAExecucao) -> dict[str, Any]:
+def _memory_contract_results(db: Session) -> list[dict[str, Any]]:
+    bind = db.get_bind()
+    if bind is None:
+        return []
+    available_tables = set(inspect(bind).get_table_names())
+    if not {"assistente_ia_memorias", "assistente_ia_regressao_casos"}.issubset(available_tables):
+        return []
+    now_utc = _utc_now()
+    results: list[dict[str, Any]] = []
+    rows = db.query(AssistenteIARegressaoCaso).filter(
+        AssistenteIARegressaoCaso.status == "active",
+        AssistenteIARegressaoCaso.tipo == "memory_contract",
+    ).order_by(AssistenteIARegressaoCaso.created_at.asc()).limit(500).all()
+    for row in rows:
+        expected = _json_loads(row.expectativa_json, {})
+        memory = db.query(AssistenteIAMemoria).filter(
+            AssistenteIAMemoria.id == row.memoria_id,
+            AssistenteIAMemoria.status == "approved",
+        ).first()
+        expected_version = int(expected.get("version") or 0)
+        expected_digest = str(expected.get("content_sha256") or "")
+        actual_version = int(getattr(memory, "versao_atual", 0) or 0) if memory else 0
+        actual_digest = hashlib.sha256(memory.conteudo.encode("utf-8")).hexdigest() if memory else ""
+        passed = bool(
+            memory
+            and expected_version > 0
+            and actual_version == expected_version
+            and expected_digest
+            and actual_digest == expected_digest
+        )
+        expected_label = f"memoria_aprovada_v{expected_version}"
+        error = None
+        if not passed:
+            error = (
+                "Contrato de memoria divergente: "
+                f"versao esperada={expected_version}, atual={actual_version}."
+            )
+        row.ultimo_status = "passed" if passed else "failed"
+        row.verificado_em = now_utc
+        db.add(row)
+        results.append({
+            "id": f"memory-contract-{row.id}",
+            "case_type": "memory_contract",
+            "memory_id": row.memoria_id,
+            "expected_tool": expected_label,
+            "selected_tools": [expected_label] if passed else [],
+            "passed": passed,
+            "error": error,
+        })
+    if rows:
+        db.flush()
+    return results
+
+
+def _run_eval_lab(db: Session, execution: AssistenteIAExecucao) -> dict[str, Any]:
     from app.services.assistente_ia_tools import TOOL_DEFINITIONS
 
     api_key = str(settings.OPENAI_API_KEY or "").strip()
@@ -784,11 +840,13 @@ def _run_eval_lab(execution: AssistenteIAExecucao) -> dict[str, Any]:
         expected = str(case.get("expected_tool") or "")
         results.append({
             "id": case.get("id"),
+            "case_type": "tool_routing",
             "expected_tool": expected,
             "selected_tools": selected_tools,
             "passed": bool(selected_tools and selected_tools[0] == expected and error is None),
             "error": error,
         })
+    results.extend(_memory_contract_results(db))
     passed = sum(1 for item in results if item["passed"])
     execution.provider_response_id = last_response_id
     return {
@@ -799,7 +857,7 @@ def _run_eval_lab(execution: AssistenteIAExecucao) -> dict[str, Any]:
         "failed": len(results) - passed,
         "score_percent": round((passed / len(results)) * 100, 1) if results else 0.0,
         "cases": results,
-        "safety": "Somente o roteamento foi observado; nenhuma ferramenta ou escrita real foi executada.",
+        "safety": "Somente roteamento e contratos determinísticos de memória foram verificados; nenhuma ferramenta ou escrita operacional foi executada.",
     }
 
 
@@ -869,7 +927,7 @@ def process_execution(db: Session, execution: AssistenteIAExecucao) -> None:
         if execution.tipo == "knowledge_index":
             result = _index_document(db, execution)
         elif execution.tipo == "eval_lab":
-            result = _run_eval_lab(execution)
+            result = _run_eval_lab(db, execution)
         else:
             result = _run_readonly_kind(
                 db,

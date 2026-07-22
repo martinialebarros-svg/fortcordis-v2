@@ -1,6 +1,6 @@
 # Plan - assistente-ia-admin-gestao
 
-Data: 2026-07-21
+Data: 2026-07-22
 Responsavel: Martiniano + Codex
 Status: completed
 
@@ -50,3 +50,14 @@ Rollback: desabilitar as novas ferramentas e abas, mantendo a conversa e as oper
 4. Executar os casos versionados de avaliacao e smokes reais da OpenAI sem expor a chave.
 5. Publicar em stage, validar o canario autenticado, as rotas protegidas e os pacotes servidos.
 6. Promover o SHA exato para producao e repetir migrations, guardrail SDD, canario e smokes.
+
+## Fase 6 - Aprendizado continuo supervisionado
+
+1. Transformar correcao explicita de feedback em sugestao pendente, sem mutacao automatica da memoria.
+2. Permitir revisao, aprovacao e rejeicao de criacoes ou ajustes direcionados de memoria.
+3. Versionar todas as mudancas, restaurando versoes antigas apenas como uma nova versao auditada.
+4. Criar e executar contratos de regressao para o estado vigente de cada memoria aprovada.
+5. Entregar fila administrativa, edicao, contadores, origem, contratos e historico na interface.
+6. Validar migration idempotente, testes focais, suite completa, frontend e release guardado stage/producao.
+
+Rollback: desabilitar as novas superficies de aprendizado e conservar a ultima memoria aprovada. As tabelas sao aditivas; nenhum dado operacional depende delas.
