@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.models.agendamento import Agendamento
+from app.models.agenda_bloqueio import AgendaBloqueio
 from app.models.paciente import Paciente
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao, ConfiguracaoUsuario
@@ -105,6 +106,17 @@ def _usuario_tem_papel(usuario: Any, papel: str) -> bool:
         except Exception:
             return False
     return False
+
+
+def _listar_bloqueios_ativos(db: Session) -> list[AgendaBloqueio]:
+    cache_key = "_agenda_bloqueios_table_available"
+    available = db.info.get(cache_key)
+    if available is None:
+        available = "agenda_bloqueios" in inspect(db.bind).get_table_names()
+        db.info[cache_key] = available
+    if not available:
+        return []
+    return db.query(AgendaBloqueio).filter(AgendaBloqueio.ativo.is_(True)).all()
 
 
 def _ensure_agendamento_workflow_columns(db: Session) -> None:
@@ -2194,6 +2206,22 @@ def _validar_slot_disponivel(
     if fim_local <= inicio_local:
         raise HTTPException(status_code=422, detail="Horario final invalido para validar disponibilidade.")
 
+    for bloqueio in _listar_bloqueios_ativos(db):
+        bloqueio_inicio = _to_local_naive(_coerce_datetime(bloqueio.inicio))
+        bloqueio_fim = _to_local_naive(_coerce_datetime(bloqueio.fim))
+        if bloqueio_inicio is None or bloqueio_fim is None:
+            continue
+        if inicio_local < bloqueio_fim and fim_local > bloqueio_inicio:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Horario indisponivel: o slot esta bloqueado "
+                    f"de {bloqueio_inicio.strftime('%d/%m/%Y %H:%M')} a "
+                    f"{bloqueio_fim.strftime('%d/%m/%Y %H:%M')} "
+                    f"({str(bloqueio.motivo or 'bloqueio administrativo')})."
+                ),
+            )
+
     data_referencia = inicio_local.date().isoformat()
     data_sem_vazio = func.nullif(func.trim(Agendamento.data), "")
 
@@ -3579,6 +3607,14 @@ def sugerir_horarios_agenda(
         agendamentos_dia_todos,
         cache_janelas={data_iso: (janela_inicio, janela_fim, None)},
     )
+    bloqueios_dia: list[tuple[datetime, datetime]] = []
+    for bloqueio in _listar_bloqueios_ativos(db):
+        bloqueio_inicio = _to_local_naive(_coerce_datetime(bloqueio.inicio))
+        bloqueio_fim = _to_local_naive(_coerce_datetime(bloqueio.fim))
+        if bloqueio_inicio is None or bloqueio_fim is None:
+            continue
+        if bloqueio_inicio.date().isoformat() <= data_iso <= bloqueio_fim.date().isoformat():
+            bloqueios_dia.append((bloqueio_inicio, bloqueio_fim))
     perfil_norm = normalizar_perfil(payload.perfil_deslocamento)
     intervalo_minutos = max(5, int(payload.intervalo_minutos))
     margem_segura_min = int(thresholds.get("safe_margin_min") or MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN)
@@ -3639,6 +3675,10 @@ def sugerir_horarios_agenda(
         conflita = any(
             inicio_candidato < item["fim"] and fim_candidato > item["inicio"]
             for item in agendamentos_dia_todos
+        )
+        conflita = conflita or any(
+            inicio_candidato < bloqueio_fim and fim_candidato > bloqueio_inicio
+            for bloqueio_inicio, bloqueio_fim in bloqueios_dia
         )
         if conflita:
             inicio_candidato += timedelta(minutes=intervalo_minutos)

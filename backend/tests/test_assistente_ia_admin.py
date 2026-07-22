@@ -22,19 +22,25 @@ os.environ.setdefault("SECRET_KEY", "assistente-ia-admin-test-secret-key-1234567
 from app.core.security import require_papel
 from app.api.v1.endpoints import assistente_ia as assistente_ia_endpoint
 from app.models.agendamento import Agendamento
+from app.models.agenda_bloqueio import AgendaBloqueio
 from app.models.assistente_ia import (
     AssistenteIAAcaoPendente,
+    AssistenteIAConhecimentoDocumento,
     AssistenteIAConversa,
+    AssistenteIAFeedback,
+    AssistenteIAMemoria,
     AssistenteIAMensagem,
+    AssistenteIARascunhoClinico,
 )
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
 from app.models.financeiro import ContaReceber, Transacao
+from app.models.laudo import Laudo
 from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.servico import Servico
 from app.models.tutor import Tutor
-from app.services import assistente_ia_service, assistente_ia_tools
+from app.services import assistente_ia_management, assistente_ia_service, assistente_ia_tools
 
 
 class AssistenteIAAdminTest(unittest.TestCase):
@@ -53,9 +59,15 @@ class AssistenteIAAdminTest(unittest.TestCase):
             Transacao.__table__,
             OrdemServico.__table__,
             ContaReceber.__table__,
+            Laudo.__table__,
             AssistenteIAConversa.__table__,
             AssistenteIAMensagem.__table__,
             AssistenteIAAcaoPendente.__table__,
+            AssistenteIAMemoria.__table__,
+            AssistenteIAConhecimentoDocumento.__table__,
+            AssistenteIAFeedback.__table__,
+            AssistenteIARascunhoClinico.__table__,
+            AgendaBloqueio.__table__,
         ):
             table.create(self._engine, checkfirst=True)
 
@@ -152,7 +164,7 @@ class AssistenteIAAdminTest(unittest.TestCase):
             )
             self.assertTrue(has_admin_guard, f"Rota sem guard admin: {getattr(route, 'path', '')}")
             protected_routes += 1
-        self.assertEqual(protected_routes, 6)
+        self.assertGreaterEqual(protected_routes, 17)
 
         guard = require_papel("admin")
         non_admin = SimpleNamespace(tem_papel=lambda _role: False)
@@ -724,6 +736,233 @@ class AssistenteIAAdminTest(unittest.TestCase):
 
             self.assertEqual(replay.exception.status_code, 409)
             self.assertIsNotNone(db.query(Agendamento).filter_by(id=second.id).first())
+
+    def test_memoria_so_orienta_depois_de_aprovada(self) -> None:
+        with self._session_factory() as db:
+            pending = assistente_ia_management.create_memory(
+                db,
+                self.user,
+                title="Prioridade proposta",
+                content="Priorizar a clinica Animal Care nas terca-feiras.",
+                category="agenda",
+                source="assistant",
+                approve_immediately=False,
+            )
+            self.assertNotIn("Animal Care", assistente_ia_management.approved_memory_context(db))
+            with patch.object(assistente_ia_management, "registrar_auditoria"):
+                assistente_ia_management.decide_memory(
+                    db,
+                    self.user,
+                    SimpleNamespace(headers={}),
+                    memory_id=pending["id"],
+                    decision="approve",
+                )
+            self.assertIn("Animal Care", assistente_ia_management.approved_memory_context(db))
+
+    def test_conhecimento_interno_e_pesquisavel_sem_expor_toda_a_base(self) -> None:
+        with self._session_factory() as db:
+            assistente_ia_management.create_document(
+                db,
+                self.user,
+                title="Procedimento de ecocardiograma",
+                content="Antes do ecocardiograma, confirmar identificacao do paciente e peso atualizado.",
+                category="procedimento",
+                source="Manual interno",
+            )
+            result = assistente_ia_management.search_knowledge(db, query="peso ecocardiograma", limit=3)
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0]["title"], "Procedimento de ecocardiograma")
+        self.assertLessEqual(len(result["items"][0]["excerpt"]), 1600)
+
+    def test_bloqueio_so_afeta_disponibilidade_depois_da_aprovacao(self) -> None:
+        with self._session_factory() as db:
+            _clinic, _service, _patient, conversation = self._seed_base(db)
+            reference = datetime.now(assistente_ia_tools.LOCAL_TZ) + timedelta(days=12)
+            with patch.object(assistente_ia_tools, "registrar_auditoria"):
+                prepared = assistente_ia_tools.solicitar_bloqueio_agenda(
+                    self._context(db, conversation),
+                    data=reference.date().isoformat(),
+                    inicio="14:00",
+                    fim="15:00",
+                    motivo="Reuniao administrativa",
+                )["pending_action"]
+                self.assertEqual(db.query(AgendaBloqueio).count(), 0)
+                executed = assistente_ia_tools.decide_pending_action(
+                    db=db,
+                    current_user=self.user,
+                    request=SimpleNamespace(headers={}),
+                    action_id=prepared["id"],
+                    decision="approve",
+                )
+            self.assertEqual(executed["status"], "executed")
+            self.assertEqual(db.query(AgendaBloqueio).filter_by(ativo=True).count(), 1)
+            candidate = Agendamento(
+                inicio=datetime.combine(reference.date(), datetime.min.time()).replace(
+                    hour=14,
+                    minute=30,
+                    tzinfo=assistente_ia_tools.LOCAL_TZ,
+                ),
+                fim=datetime.combine(reference.date(), datetime.min.time()).replace(
+                    hour=15,
+                    minute=0,
+                    tzinfo=assistente_ia_tools.LOCAL_TZ,
+                ),
+                status="Agendado",
+            )
+            with self.assertRaises(HTTPException) as blocked:
+                assistente_ia_tools.agenda._validar_slot_disponivel(db, candidate)
+            self.assertEqual(blocked.exception.status_code, 409)
+
+    def test_feedback_fica_vinculado_a_resposta_do_admin(self) -> None:
+        with self._session_factory() as db:
+            _clinic, _service, _patient, conversation = self._seed_base(db)
+            message = AssistenteIAMensagem(
+                conversa_id=conversation.id,
+                usuario_id=self.user.id,
+                papel="assistant",
+                conteudo="Resposta de teste",
+            )
+            db.add(message)
+            db.commit()
+            db.refresh(message)
+            feedback = assistente_ia_management.create_feedback(
+                db,
+                self.user,
+                message_id=message.id,
+                rating="negative",
+                category="correcao",
+                comment=None,
+                expected_correction="Usar a clinica correta.",
+            )
+        self.assertEqual(feedback["rating"], "negative")
+        self.assertEqual(feedback["expected_correction"], "Usar a clinica correta.")
+
+    def test_remarcacao_revalida_e_chama_fluxo_oficial_so_na_aprovacao(self) -> None:
+        with self._session_factory() as db:
+            clinic, service, patient, conversation = self._seed_base(db)
+            appointment = self._appointment(db, clinic, service, patient)
+            future = datetime.now(assistente_ia_tools.LOCAL_TZ) + timedelta(days=15)
+            with (
+                patch.object(assistente_ia_tools.agenda, "_validar_agendamento_no_funcionamento"),
+                patch.object(assistente_ia_tools.agenda, "_validar_slot_disponivel"),
+                patch.object(assistente_ia_tools, "registrar_auditoria"),
+            ):
+                prepared = assistente_ia_tools.solicitar_remarcacao_agendamento(
+                    self._context(db, conversation),
+                    agendamento_id=appointment.id,
+                    data=future.date().isoformat(),
+                    horario="15:30",
+                    motivo="Solicitacao da clinica",
+                )["pending_action"]
+                with patch.object(
+                    assistente_ia_tools.agenda,
+                    "atualizar_agendamento",
+                    return_value={"id": appointment.id, "inicio": prepared["target"]["after"]["inicio"]},
+                ) as official_update:
+                    executed = assistente_ia_tools.decide_pending_action(
+                        db=db,
+                        current_user=self.user,
+                        request=SimpleNamespace(headers={}),
+                        action_id=prepared["id"],
+                        decision="approve",
+                    )
+            self.assertEqual(executed["status"], "executed")
+            official_update.assert_called_once()
+            self.assertEqual(official_update.call_args.kwargs["agendamento_id"], appointment.id)
+            self.assertEqual(official_update.call_args.kwargs["agendamento"].inicio.hour, 15)
+
+    def test_atualizacao_whatsapps_preserva_outros_dados_da_clinica(self) -> None:
+        with self._session_factory() as db:
+            clinic, _service, _patient, conversation = self._seed_base(db)
+            original_email = "animalcare@example.com"
+            clinic.email = original_email
+            db.commit()
+            with patch.object(assistente_ia_tools, "registrar_auditoria"):
+                prepared = assistente_ia_tools.solicitar_atualizacao_whatsapps_clinica(
+                    self._context(db, conversation),
+                    clinica="Animal Care",
+                    whatsapps=["85912345678"],
+                    motivo="Numero atualizado",
+                )["pending_action"]
+                executed = assistente_ia_tools.decide_pending_action(
+                    db=db,
+                    current_user=self.user,
+                    request=SimpleNamespace(headers={}),
+                    action_id=prepared["id"],
+                    decision="approve",
+                )
+            db.refresh(clinic)
+            self.assertEqual(executed["status"], "executed")
+            self.assertEqual(clinic.whatsapps, ["85912345678"])
+            self.assertEqual(clinic.email, original_email)
+
+    def test_rascunho_clinico_nunca_altera_laudo_oficial(self) -> None:
+        with self._session_factory() as db:
+            _clinic, _service, patient, conversation = self._seed_base(db)
+            report = Laudo(
+                paciente_id=patient.id,
+                veterinario_id=self.user.id,
+                tipo="ecocardiograma",
+                titulo="Ecocardiograma",
+                descricao="Descricao oficial",
+                diagnostico="Diagnostico oficial",
+                status="Rascunho",
+            )
+            db.add(report)
+            db.commit()
+            db.refresh(report)
+            draft = assistente_ia_management.save_clinical_draft(
+                db,
+                self.user,
+                conversation_id=conversation.id,
+                report_id=report.id,
+                title="Sugestao comparativa",
+                content="Texto sugerido para revisao do medico veterinario.",
+                alerts=["Confirmar medida antes de finalizar."],
+                source_report_ids=[],
+            )
+            db.refresh(report)
+            self.assertFalse(draft["official_report_modified"])
+            self.assertEqual(report.descricao, "Descricao oficial")
+            self.assertEqual(report.diagnostico, "Diagnostico oficial")
+            self.assertEqual(report.status, "Rascunho")
+
+    def test_motor_de_sugestoes_remove_intervalo_bloqueado(self) -> None:
+        with self._session_factory() as db:
+            clinic, service, _patient, _conversation = self._seed_base(db)
+            reference = datetime.now(assistente_ia_tools.LOCAL_TZ).date() + timedelta(days=10)
+            while reference.isoweekday() > 5:
+                reference += timedelta(days=1)
+            start = datetime.combine(reference, datetime.min.time()).replace(
+                hour=8,
+                tzinfo=assistente_ia_tools.LOCAL_TZ,
+            )
+            db.add(
+                AgendaBloqueio(
+                    id="block-full-day-test",
+                    inicio=start,
+                    fim=start.replace(hour=18),
+                    motivo="Treinamento interno",
+                    ativo=True,
+                    criado_por_id=self.user.id,
+                )
+            )
+            db.commit()
+            result = assistente_ia_tools.agenda.sugerir_horarios_agenda(
+                payload=assistente_ia_tools.agenda.SugestaoHorarioPayload(
+                    data=reference.isoformat(),
+                    origem_atendimento="clinica_parceira",
+                    clinica_id=clinic.id,
+                    servico_id=service.id,
+                    duracao_minutos=30,
+                    intervalo_minutos=30,
+                    limite=6,
+                    perfil_deslocamento="comercial",
+                ),
+                db=db,
+                current_user=self.user,
+            )
+            self.assertEqual(result["items"], [])
 
     def test_turno_da_ia_executa_tool_loop_e_persiste_historico(self) -> None:
         with self._session_factory() as db:

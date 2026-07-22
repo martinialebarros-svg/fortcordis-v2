@@ -60,6 +60,11 @@ from app.models.portal_clinic_auth import (
 )
 from app.models.assistente_ia import (
     AssistenteIAAcaoPendente,
+    AssistenteIAConhecimentoDocumento,
     AssistenteIAConversa,
+    AssistenteIAFeedback,
+    AssistenteIAMemoria,
     AssistenteIAMensagem,
+    AssistenteIARascunhoClinico,
 )
+from app.models.agenda_bloqueio import AgendaBloqueio

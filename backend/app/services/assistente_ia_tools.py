@@ -13,7 +13,7 @@ from fastapi import HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.v1.endpoints import agenda, configuracoes
+from app.api.v1.endpoints import agenda, clinicas, configuracoes
 from app.core.agenda_config import (
     DEFAULT_AGENDA_SEMANAL,
     DEFAULT_EXCECAO_FIM,
@@ -26,6 +26,7 @@ from app.core.agenda_config import (
 )
 from app.core.config import settings
 from app.models.agendamento import Agendamento
+from app.models.agenda_bloqueio import AgendaBloqueio
 from app.models.assistente_ia import AssistenteIAAcaoPendente, AssistenteIAConversa
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
@@ -35,7 +36,14 @@ from app.models.paciente import Paciente
 from app.models.servico import Servico
 from app.models.tutor import Tutor
 from app.models.user import User
-from app.schemas.agendamento import AgendamentoCreate
+from app.schemas.agendamento import AgendamentoCreate, AgendamentoUpdate
+from app.services.assistente_ia_management import (
+    clinical_report_context,
+    create_memory,
+    executive_summary,
+    save_clinical_draft,
+    search_knowledge,
+)
 from app.services.auditoria_service import registrar_auditoria
 
 LOCAL_TZ = ZoneInfo("America/Fortaleza")
@@ -1321,6 +1329,296 @@ def solicitar_exclusao_agendamento(
     }
 
 
+def _prepare_pending_action(
+    ctx: AssistenteIAToolContext,
+    *,
+    action_type: str,
+    arguments: dict[str, Any],
+    snapshot: dict[str, Any],
+    audit_entity: str,
+    audit_entity_id: Any,
+    audit_description: str,
+) -> dict[str, Any]:
+    now_utc = datetime.now(timezone.utc)
+    signature = _json_dumps(arguments)
+    existing = (
+        ctx.db.query(AssistenteIAAcaoPendente)
+        .filter(
+            AssistenteIAAcaoPendente.usuario_id == ctx.current_user.id,
+            AssistenteIAAcaoPendente.conversa_id == ctx.conversa.id,
+            AssistenteIAAcaoPendente.tipo_acao == action_type,
+            AssistenteIAAcaoPendente.status == "pending",
+        )
+        .order_by(AssistenteIAAcaoPendente.created_at.desc())
+        .all()
+    )
+    for row in existing:
+        expires_at = _as_utc_datetime(row.expires_at)
+        if row.argumentos_json == signature and expires_at and expires_at > now_utc:
+            return {
+                "ok": True,
+                "requires_approval": True,
+                "pending_action": serialize_pending_action(row),
+                "message": "Esta acao ja esta aguardando confirmacao do administrador.",
+            }
+    action = AssistenteIAAcaoPendente(
+        id=str(uuid.uuid4()),
+        conversa_id=ctx.conversa.id,
+        usuario_id=int(ctx.current_user.id),
+        tipo_acao=action_type,
+        argumentos_json=signature,
+        alvo_snapshot_json=_json_dumps(snapshot),
+        status="pending",
+        expires_at=now_utc + timedelta(minutes=max(5, int(settings.ASSISTENTE_IA_ACTION_TTL_MINUTES))),
+    )
+    ctx.db.add(action)
+    ctx.db.commit()
+    ctx.db.refresh(action)
+    registrar_auditoria(
+        current_user=ctx.current_user,
+        modulo="assistente_ia",
+        entidade=audit_entity,
+        entidade_id=audit_entity_id,
+        acao="ASSISTENTE_IA_ACAO_SOLICITADA",
+        descricao=audit_description,
+        detalhes={"acao_pendente_id": action.id, "tipo_acao": action_type, "snapshot": snapshot},
+        request=ctx.request,
+    )
+    return {
+        "ok": True,
+        "requires_approval": True,
+        "pending_action": serialize_pending_action(action),
+        "message": "A acao foi preparada e so sera executada depois da confirmacao explicita.",
+    }
+
+
+def solicitar_remarcacao_agendamento(
+    ctx: AssistenteIAToolContext,
+    *,
+    agendamento_id: int,
+    data: str,
+    horario: str,
+    motivo: str,
+) -> dict[str, Any]:
+    appointment = ctx.db.query(Agendamento).filter(Agendamento.id == int(agendamento_id)).first()
+    if appointment is None:
+        return {"ok": False, "error": "Agendamento nao encontrado."}
+    try:
+        reference = _parse_iso_date(data)
+        hour = _parse_hhmm(horario)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    if hour is None:
+        return {"ok": False, "error": "Informe o novo horario no formato HH:MM."}
+    start = datetime.combine(reference, hour, tzinfo=LOCAL_TZ)
+    if start <= datetime.now(LOCAL_TZ):
+        return {"ok": False, "error": "O novo horario deve estar no futuro."}
+    old_start = _as_local_datetime(appointment.inicio)
+    old_end = _as_local_datetime(appointment.fim)
+    duration = (old_end - old_start) if old_start and old_end and old_end > old_start else timedelta(minutes=30)
+    end = start + duration
+    candidate = Agendamento(
+        id=appointment.id,
+        paciente_id=appointment.paciente_id,
+        tutor_id=getattr(appointment, "tutor_id", None),
+        clinica_id=appointment.clinica_id,
+        servico_id=appointment.servico_id,
+        origem_atendimento=appointment.origem_atendimento,
+        inicio=start,
+        fim=end,
+        status=appointment.status,
+        reserva_expira_em=appointment.reserva_expira_em,
+    )
+    try:
+        agenda._validar_agendamento_no_funcionamento(ctx.db, candidate)
+        agenda._validar_slot_disponivel(ctx.db, candidate, agendamento_id_excluir=int(appointment.id))
+    except HTTPException as exc:
+        return {"ok": False, "error": str(exc.detail)}
+    before = _appointment_snapshot(ctx.db, appointment)
+    after = {**before, "inicio": start.isoformat(), "fim": end.isoformat()}
+    return _prepare_pending_action(
+        ctx,
+        action_type="reschedule_appointment",
+        arguments={
+            "agendamento_id": int(appointment.id),
+            "inicio": start.isoformat(),
+            "fim": end.isoformat(),
+            "motivo": (str(motivo or "").strip() or "Remarcacao solicitada pelo administrador")[:500],
+        },
+        snapshot={"before": before, "after": after},
+        audit_entity="agendamento",
+        audit_entity_id=appointment.id,
+        audit_description="Mente FortCordis preparou remarcacao de agendamento.",
+    )
+
+
+def solicitar_cancelamento_agendamento(
+    ctx: AssistenteIAToolContext,
+    *,
+    agendamento_id: int,
+    motivo: str,
+) -> dict[str, Any]:
+    appointment = ctx.db.query(Agendamento).filter(Agendamento.id == int(agendamento_id)).first()
+    if appointment is None:
+        return {"ok": False, "error": "Agendamento nao encontrado."}
+    if str(appointment.status or "") == "Cancelado":
+        return {"ok": True, "changed": False, "message": "O agendamento ja esta cancelado."}
+    return _prepare_pending_action(
+        ctx,
+        action_type="cancel_appointment",
+        arguments={
+            "agendamento_id": int(appointment.id),
+            "motivo": (str(motivo or "").strip() or "Cancelamento solicitado pelo administrador")[:500],
+        },
+        snapshot=_appointment_snapshot(ctx.db, appointment),
+        audit_entity="agendamento",
+        audit_entity_id=appointment.id,
+        audit_description="Mente FortCordis preparou cancelamento de agendamento.",
+    )
+
+
+def listar_bloqueios_agenda(
+    ctx: AssistenteIAToolContext,
+    *,
+    data_inicio: str,
+    dias: int,
+) -> dict[str, Any]:
+    try:
+        start_date = _parse_iso_date(data_inicio)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    end_date = start_date + timedelta(days=max(1, min(31, int(dias or 7))))
+    items = []
+    for row in ctx.db.query(AgendaBloqueio).filter(AgendaBloqueio.ativo.is_(True)).all():
+        start = _as_local_datetime(row.inicio)
+        end = _as_local_datetime(row.fim)
+        if start is None or end is None or start.date() >= end_date or end.date() < start_date:
+            continue
+        items.append({
+            "bloqueio_id": row.id,
+            "inicio": start.isoformat(),
+            "fim": end.isoformat(),
+            "motivo": row.motivo,
+        })
+    items.sort(key=lambda item: item["inicio"])
+    return {"ok": True, "periodo": {"inicio": start_date.isoformat(), "fim": end_date.isoformat()}, "items": items}
+
+
+def solicitar_bloqueio_agenda(
+    ctx: AssistenteIAToolContext,
+    *,
+    data: str,
+    inicio: str,
+    fim: str,
+    motivo: str,
+) -> dict[str, Any]:
+    try:
+        reference = _parse_iso_date(data)
+        start_time = _parse_hhmm(inicio)
+        end_time = _parse_hhmm(fim)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    if start_time is None or end_time is None:
+        return {"ok": False, "error": "Informe inicio e fim no formato HH:MM."}
+    start = datetime.combine(reference, start_time, tzinfo=LOCAL_TZ)
+    end = datetime.combine(reference, end_time, tzinfo=LOCAL_TZ)
+    if end <= start:
+        return {"ok": False, "error": "O fim do bloqueio deve ser posterior ao inicio."}
+    if start <= datetime.now(LOCAL_TZ):
+        return {"ok": False, "error": "O bloqueio deve comecar no futuro."}
+    candidate = Agendamento(inicio=start, fim=end, status="Agendado")
+    try:
+        agenda._validar_slot_disponivel(ctx.db, candidate)
+    except HTTPException as exc:
+        return {"ok": False, "error": str(exc.detail)}
+    block_id = str(uuid.uuid4())
+    target = {
+        "bloqueio_id": block_id,
+        "inicio": start.isoformat(),
+        "fim": end.isoformat(),
+        "motivo": (str(motivo or "").strip() or "Bloqueio solicitado pelo administrador")[:500],
+    }
+    return _prepare_pending_action(
+        ctx,
+        action_type="create_agenda_block",
+        arguments=target,
+        snapshot=target,
+        audit_entity="agenda_bloqueio",
+        audit_entity_id=block_id,
+        audit_description="Mente FortCordis preparou bloqueio de slot da agenda.",
+    )
+
+
+def solicitar_liberacao_bloqueio_agenda(
+    ctx: AssistenteIAToolContext,
+    *,
+    bloqueio_id: str,
+    motivo: str,
+) -> dict[str, Any]:
+    row = ctx.db.query(AgendaBloqueio).filter(
+        AgendaBloqueio.id == str(bloqueio_id),
+        AgendaBloqueio.ativo.is_(True),
+    ).first()
+    if row is None:
+        return {"ok": False, "error": "Bloqueio ativo nao encontrado."}
+    snapshot = {
+        "bloqueio_id": row.id,
+        "inicio": _as_local_datetime(row.inicio).isoformat() if _as_local_datetime(row.inicio) else None,
+        "fim": _as_local_datetime(row.fim).isoformat() if _as_local_datetime(row.fim) else None,
+        "motivo": row.motivo,
+        "ativo": bool(row.ativo),
+    }
+    return _prepare_pending_action(
+        ctx,
+        action_type="release_agenda_block",
+        arguments={"bloqueio_id": row.id, "motivo": str(motivo or "").strip()[:500] or None},
+        snapshot=snapshot,
+        audit_entity="agenda_bloqueio",
+        audit_entity_id=row.id,
+        audit_description="Mente FortCordis preparou liberacao de bloqueio da agenda.",
+    )
+
+
+def solicitar_atualizacao_whatsapps_clinica(
+    ctx: AssistenteIAToolContext,
+    *,
+    clinica: str,
+    whatsapps: list[str],
+    motivo: str,
+) -> dict[str, Any]:
+    clinic, error = _resolve_named_record(ctx.db, Clinica, clinica, entity_label="clinica")
+    if error:
+        return error
+    try:
+        payload = clinicas.ClinicaWhatsappsUpdate(whatsapps=whatsapps)
+    except Exception as exc:
+        return {"ok": False, "error": f"WhatsApps invalidos: {exc}"}
+    before = _contact_numbers(getattr(clinic, "whatsapps", None))
+    after = list(payload.whatsapps)
+    if before == after:
+        return {"ok": True, "changed": False, "message": "A clinica ja possui esses WhatsApps."}
+    snapshot = {
+        "clinica_id": int(clinic.id),
+        "clinica_nome": str(clinic.nome),
+        "whatsapps_antes": before,
+        "whatsapps_depois": after,
+        "versao": _record_version(clinic),
+    }
+    return _prepare_pending_action(
+        ctx,
+        action_type="update_clinic_whatsapps",
+        arguments={
+            "clinica_id": int(clinic.id),
+            "whatsapps": after,
+            "motivo": str(motivo or "").strip()[:500] or None,
+        },
+        snapshot=snapshot,
+        audit_entity="clinica",
+        audit_entity_id=clinic.id,
+        audit_description="Mente FortCordis preparou atualizacao de WhatsApps da clinica.",
+    )
+
+
 def serialize_pending_action(action: AssistenteIAAcaoPendente) -> dict[str, Any]:
     return {
         "id": str(action.id),
@@ -1709,6 +2007,259 @@ def _approve_agenda_exception_update(
     return serialize_pending_action(action)
 
 
+def _mark_action_executed(
+    *,
+    db: Session,
+    current_user: User,
+    request: Optional[Request],
+    action: AssistenteIAAcaoPendente,
+    now_utc: datetime,
+    message: str,
+    result: dict[str, Any],
+    observation: Optional[str],
+) -> dict[str, Any]:
+    action.status = "executed"
+    action.decided_at = action.decided_at or now_utc
+    action.executed_at = now_utc
+    action.resultado_json = _json_dumps(
+        {"ok": True, "decision": "approved", "message": message, "observation": observation, **result}
+    )
+    db.add(action)
+    db.commit()
+    db.refresh(action)
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="assistente_ia",
+        entidade="acao_pendente",
+        entidade_id=action.id,
+        acao="ASSISTENTE_IA_ACAO_EXECUTADA",
+        descricao="Administrador aprovou e executou uma acao preparada pela Mente FortCordis.",
+        detalhes={"tipo_acao": action.tipo_acao, "observacao": observation, **result},
+        request=request,
+    )
+    return serialize_pending_action(action)
+
+
+def _current_appointment_or_invalidate(
+    db: Session,
+    action: AssistenteIAAcaoPendente,
+    *,
+    now_utc: datetime,
+    snapshot: dict[str, Any],
+) -> Agendamento:
+    arguments = _json_loads(action.argumentos_json, {})
+    appointment_id = int(arguments.get("agendamento_id") or 0)
+    appointment = db.query(Agendamento).filter(Agendamento.id == appointment_id).first()
+    expected = snapshot.get("before") if isinstance(snapshot.get("before"), dict) else snapshot
+    if appointment is None:
+        _invalidate_pending_action(
+            db,
+            action,
+            now_utc=now_utc,
+            reason="target_missing",
+            detail="O agendamento nao existe mais.",
+        )
+        raise HTTPException(status_code=409, detail="O agendamento nao existe mais; a acao foi invalidada.")
+    if _snapshot_fingerprint(_appointment_snapshot(db, appointment)) != _snapshot_fingerprint(expected):
+        _invalidate_pending_action(
+            db,
+            action,
+            now_utc=now_utc,
+            reason="target_changed",
+            detail="O agendamento mudou depois da solicitacao.",
+        )
+        raise HTTPException(status_code=409, detail="O agendamento mudou. Revise e solicite novamente.")
+    return appointment
+
+
+def _approve_reschedule_or_cancel(
+    *,
+    db: Session,
+    current_user: User,
+    request: Optional[Request],
+    action: AssistenteIAAcaoPendente,
+    now_utc: datetime,
+    observation: Optional[str],
+) -> dict[str, Any]:
+    arguments = _json_loads(action.argumentos_json, {})
+    snapshot = _json_loads(action.alvo_snapshot_json, {})
+    appointment = _current_appointment_or_invalidate(db, action, now_utc=now_utc, snapshot=snapshot)
+    action.status = "processing"
+    action.decided_at = now_utc
+    db.add(action)
+    db.flush()
+    try:
+        if action.tipo_acao == "reschedule_appointment":
+            updated = agenda.atualizar_agendamento(
+                agendamento_id=int(appointment.id),
+                agendamento=AgendamentoUpdate(
+                    inicio=_stored_datetime(arguments.get("inicio"), field_label="Novo horario"),
+                    fim=_stored_datetime(arguments.get("fim"), field_label="Novo horario final"),
+                ),
+                request=request,
+                db=db,
+                current_user=current_user,
+            )
+            message = "Agendamento remarcado com sucesso."
+        else:
+            updated = agenda.atualizar_status(
+                agendamento_id=int(appointment.id),
+                request=request,
+                status="Cancelado",
+                tipo_horario="comercial",
+                db=db,
+                current_user=current_user,
+            )
+            message = "Agendamento cancelado com sucesso."
+    except HTTPException as exc:
+        _invalidate_pending_action(
+            db,
+            action,
+            now_utc=now_utc,
+            reason="agenda_validation_failed",
+            detail=str(exc.detail),
+        )
+        raise HTTPException(status_code=409, detail=f"A agenda mudou ou bloqueou a operacao: {exc.detail}") from exc
+    payload = updated if isinstance(updated, dict) else {"id": getattr(updated, "id", appointment.id)}
+    return _mark_action_executed(
+        db=db,
+        current_user=current_user,
+        request=request,
+        action=action,
+        now_utc=now_utc,
+        message=message,
+        result={"agendamento": payload, "motivo": arguments.get("motivo")},
+        observation=observation,
+    )
+
+
+def _approve_create_agenda_block(
+    *,
+    db: Session,
+    current_user: User,
+    request: Optional[Request],
+    action: AssistenteIAAcaoPendente,
+    now_utc: datetime,
+    observation: Optional[str],
+) -> dict[str, Any]:
+    arguments = _json_loads(action.argumentos_json, {})
+    start = _stored_datetime(arguments.get("inicio"), field_label="Inicio do bloqueio")
+    end = _stored_datetime(arguments.get("fim"), field_label="Fim do bloqueio")
+    candidate = Agendamento(inicio=start, fim=end, status="Agendado")
+    try:
+        agenda._validar_slot_disponivel(db, candidate)
+    except HTTPException as exc:
+        _invalidate_pending_action(
+            db,
+            action,
+            now_utc=now_utc,
+            reason="slot_changed",
+            detail=str(exc.detail),
+        )
+        raise HTTPException(status_code=409, detail=f"O slot nao pode mais ser bloqueado: {exc.detail}") from exc
+    block_id = str(arguments.get("bloqueio_id") or uuid.uuid4())
+    if db.query(AgendaBloqueio).filter(AgendaBloqueio.id == block_id).first():
+        _invalidate_pending_action(db, action, now_utc=now_utc, reason="duplicate_block", detail="Bloqueio ja existe.")
+        raise HTTPException(status_code=409, detail="O bloqueio ja existe.")
+    row = AgendaBloqueio(
+        id=block_id,
+        inicio=start,
+        fim=end,
+        motivo=str(arguments.get("motivo") or "Bloqueio administrativo"),
+        ativo=True,
+        criado_por_id=int(current_user.id),
+        criado_por_nome=str(current_user.nome or "Admin"),
+    )
+    db.add(row)
+    db.commit()
+    return _mark_action_executed(
+        db=db,
+        current_user=current_user,
+        request=request,
+        action=action,
+        now_utc=now_utc,
+        message="Slot bloqueado com sucesso.",
+        result={"bloqueio": {"id": row.id, "inicio": start.isoformat(), "fim": end.isoformat(), "motivo": row.motivo}},
+        observation=observation,
+    )
+
+
+def _approve_release_agenda_block(
+    *,
+    db: Session,
+    current_user: User,
+    request: Optional[Request],
+    action: AssistenteIAAcaoPendente,
+    now_utc: datetime,
+    observation: Optional[str],
+) -> dict[str, Any]:
+    arguments = _json_loads(action.argumentos_json, {})
+    snapshot = _json_loads(action.alvo_snapshot_json, {})
+    row = db.query(AgendaBloqueio).filter(AgendaBloqueio.id == arguments.get("bloqueio_id")).first()
+    current = {
+        "bloqueio_id": row.id if row else None,
+        "inicio": _as_local_datetime(row.inicio).isoformat() if row and _as_local_datetime(row.inicio) else None,
+        "fim": _as_local_datetime(row.fim).isoformat() if row and _as_local_datetime(row.fim) else None,
+        "motivo": row.motivo if row else None,
+        "ativo": bool(row.ativo) if row else False,
+    }
+    if row is None or current != snapshot:
+        _invalidate_pending_action(db, action, now_utc=now_utc, reason="target_changed", detail="O bloqueio mudou.")
+        raise HTTPException(status_code=409, detail="O bloqueio mudou ou ja foi liberado.")
+    row.ativo = False
+    row.liberado_por_id = int(current_user.id)
+    row.liberado_em = now_utc
+    db.add(row)
+    db.commit()
+    return _mark_action_executed(
+        db=db,
+        current_user=current_user,
+        request=request,
+        action=action,
+        now_utc=now_utc,
+        message="Bloqueio liberado com sucesso.",
+        result={"bloqueio": {**current, "ativo": False}},
+        observation=observation,
+    )
+
+
+def _approve_update_clinic_whatsapps(
+    *,
+    db: Session,
+    current_user: User,
+    request: Optional[Request],
+    action: AssistenteIAAcaoPendente,
+    now_utc: datetime,
+    observation: Optional[str],
+) -> dict[str, Any]:
+    arguments = _json_loads(action.argumentos_json, {})
+    snapshot = _json_loads(action.alvo_snapshot_json, {})
+    clinic = db.query(Clinica).filter(Clinica.id == int(arguments.get("clinica_id") or 0)).first()
+    if clinic is None or _record_version(clinic) != snapshot.get("versao"):
+        _invalidate_pending_action(db, action, now_utc=now_utc, reason="target_changed", detail="A clinica mudou.")
+        raise HTTPException(status_code=409, detail="O cadastro da clinica mudou. Revise e solicite novamente.")
+    updated = clinicas.atualizar_whatsapps_clinica(
+        clinica_id=int(clinic.id),
+        payload=clinicas.ClinicaWhatsappsUpdate(whatsapps=arguments.get("whatsapps") or []),
+        db=db,
+        current_user=current_user,
+    )
+    return _mark_action_executed(
+        db=db,
+        current_user=current_user,
+        request=request,
+        action=action,
+        now_utc=now_utc,
+        message="WhatsApps da clinica atualizados com sucesso.",
+        result={
+            "clinica": updated if isinstance(updated, dict) else {"id": clinic.id},
+            "whatsapps_antes": snapshot.get("whatsapps_antes"),
+            "whatsapps_depois": arguments.get("whatsapps") or [],
+        },
+        observation=observation,
+    )
+
+
 def decide_pending_action(
     *,
     db: Session,
@@ -1774,6 +2325,42 @@ def decide_pending_action(
         )
     if action.tipo_acao == "update_agenda_exception":
         return _approve_agenda_exception_update(
+            db=db,
+            current_user=current_user,
+            request=request,
+            action=action,
+            now_utc=now_utc,
+            observation=observation,
+        )
+    if action.tipo_acao in {"reschedule_appointment", "cancel_appointment"}:
+        return _approve_reschedule_or_cancel(
+            db=db,
+            current_user=current_user,
+            request=request,
+            action=action,
+            now_utc=now_utc,
+            observation=observation,
+        )
+    if action.tipo_acao == "create_agenda_block":
+        return _approve_create_agenda_block(
+            db=db,
+            current_user=current_user,
+            request=request,
+            action=action,
+            now_utc=now_utc,
+            observation=observation,
+        )
+    if action.tipo_acao == "release_agenda_block":
+        return _approve_release_agenda_block(
+            db=db,
+            current_user=current_user,
+            request=request,
+            action=action,
+            now_utc=now_utc,
+            observation=observation,
+        )
+    if action.tipo_acao == "update_clinic_whatsapps":
+        return _approve_update_clinic_whatsapps(
             db=db,
             current_user=current_user,
             request=request,
@@ -2010,6 +2597,174 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
         "strict": True,
     },
+    {
+        "type": "function",
+        "name": "gerar_resumo_executivo",
+        "description": "Consolida agenda, faturamento do mes, contas vencidas, reservas proximas do prazo e aprovacoes para uma leitura executiva diaria.",
+        "parameters": {
+            "type": "object",
+            "properties": {"data": {"type": ["string", "null"], "description": "Data YYYY-MM-DD ou null para hoje."}},
+            "required": ["data"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
+        "name": "solicitar_remarcacao_agendamento",
+        "description": "Prepara a remarcacao de um agendamento identificado. Revalida funcionamento e slot, mas so executa apos confirmacao do admin.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agendamento_id": {"type": "integer", "minimum": 1},
+                "data": {"type": "string"},
+                "horario": {"type": "string"},
+                "motivo": {"type": "string", "minLength": 3, "maxLength": 500},
+            },
+            "required": ["agendamento_id", "data", "horario", "motivo"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
+        "name": "solicitar_cancelamento_agendamento",
+        "description": "Prepara o cancelamento de um agendamento identificado pelo fluxo oficial de status. Exige confirmacao explicita.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agendamento_id": {"type": "integer", "minimum": 1},
+                "motivo": {"type": "string", "minLength": 3, "maxLength": 500},
+            },
+            "required": ["agendamento_id", "motivo"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
+        "name": "listar_bloqueios_agenda",
+        "description": "Lista bloqueios administrativos ativos da agenda em um periodo. Use antes de liberar um bloqueio.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "data_inicio": {"type": "string"},
+                "dias": {"type": "integer", "minimum": 1, "maximum": 31},
+            },
+            "required": ["data_inicio", "dias"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
+        "name": "solicitar_bloqueio_agenda",
+        "description": "Prepara um bloqueio futuro de slot por intervalo. O bloqueio so passa a valer depois da confirmacao explicita.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "data": {"type": "string"},
+                "inicio": {"type": "string"},
+                "fim": {"type": "string"},
+                "motivo": {"type": "string", "minLength": 3, "maxLength": 500},
+            },
+            "required": ["data", "inicio", "fim", "motivo"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
+        "name": "solicitar_liberacao_bloqueio_agenda",
+        "description": "Prepara a liberacao de um bloqueio ativo ja identificado. Exige confirmacao explicita.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "bloqueio_id": {"type": "string", "minLength": 36, "maxLength": 36},
+                "motivo": {"type": "string", "minLength": 3, "maxLength": 500},
+            },
+            "required": ["bloqueio_id", "motivo"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
+        "name": "solicitar_atualizacao_whatsapps_clinica",
+        "description": "Prepara a substituicao da lista de WhatsApps de uma clinica. Preserva os outros dados e exige confirmacao.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "clinica": {"type": "string"},
+                "whatsapps": {"type": "array", "items": {"type": "string"}, "maxItems": 10},
+                "motivo": {"type": "string", "minLength": 3, "maxLength": 500},
+            },
+            "required": ["clinica", "whatsapps", "motivo"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
+        "name": "propor_memoria_operacional",
+        "description": "Propoe uma memoria sobre preferencias, regras de trabalho ou convencoes da FortCordis. A memoria so passa a orientar a Mente apos aprovacao do admin.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "titulo": {"type": "string", "minLength": 3, "maxLength": 180},
+                "conteudo": {"type": "string", "minLength": 3, "maxLength": 8000},
+                "categoria": {"type": "string", "maxLength": 60},
+            },
+            "required": ["titulo", "conteudo", "categoria"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
+        "name": "consultar_conhecimento_interno",
+        "description": "Pesquisa manuais, modelos e procedimentos que o administrador adicionou a base interna da FortCordis.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "consulta": {"type": "string", "minLength": 3, "maxLength": 500},
+                "limite": {"type": "integer", "minimum": 1, "maximum": 10},
+            },
+            "required": ["consulta", "limite"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
+        "name": "obter_contexto_laudo",
+        "description": "Le o contexto de um laudo e ate cinco laudos anteriores do paciente para apoiar comparacao e completude. Nao modifica nem finaliza o laudo.",
+        "parameters": {
+            "type": "object",
+            "properties": {"laudo_id": {"type": "integer", "minimum": 1}},
+            "required": ["laudo_id"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
+        "name": "salvar_rascunho_clinico",
+        "description": "Salva uma sugestao clinica em area separada para revisao humana. Nunca altera ou finaliza o laudo oficial.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "laudo_id": {"type": "integer", "minimum": 1},
+                "titulo": {"type": "string", "minLength": 3, "maxLength": 220},
+                "conteudo": {"type": "string", "minLength": 20, "maxLength": 60000},
+                "alertas": {"type": "array", "items": {"type": "string"}, "maxItems": 20},
+                "laudos_fonte_ids": {"type": "array", "items": {"type": "integer"}, "maxItems": 20},
+            },
+            "required": ["laudo_id", "titulo", "conteudo", "alertas", "laudos_fonte_ids"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
 ]
 
 
@@ -2073,6 +2828,101 @@ def execute_tool(
             agendamento_id=int(arguments["agendamento_id"]),
             motivo=arguments["motivo"],
         )
+    if name == "gerar_resumo_executivo":
+        try:
+            reference = _parse_iso_date(arguments.get("data")) if arguments.get("data") else None
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        return executive_summary(ctx.db, ctx.current_user, reference=reference)
+    if name == "solicitar_remarcacao_agendamento":
+        return solicitar_remarcacao_agendamento(
+            ctx,
+            agendamento_id=int(arguments["agendamento_id"]),
+            data=arguments["data"],
+            horario=arguments["horario"],
+            motivo=arguments["motivo"],
+        )
+    if name == "solicitar_cancelamento_agendamento":
+        return solicitar_cancelamento_agendamento(
+            ctx,
+            agendamento_id=int(arguments["agendamento_id"]),
+            motivo=arguments["motivo"],
+        )
+    if name == "listar_bloqueios_agenda":
+        return listar_bloqueios_agenda(ctx, data_inicio=arguments["data_inicio"], dias=arguments["dias"])
+    if name == "solicitar_bloqueio_agenda":
+        return solicitar_bloqueio_agenda(
+            ctx,
+            data=arguments["data"],
+            inicio=arguments["inicio"],
+            fim=arguments["fim"],
+            motivo=arguments["motivo"],
+        )
+    if name == "solicitar_liberacao_bloqueio_agenda":
+        return solicitar_liberacao_bloqueio_agenda(
+            ctx,
+            bloqueio_id=arguments["bloqueio_id"],
+            motivo=arguments["motivo"],
+        )
+    if name == "solicitar_atualizacao_whatsapps_clinica":
+        return solicitar_atualizacao_whatsapps_clinica(
+            ctx,
+            clinica=arguments["clinica"],
+            whatsapps=arguments["whatsapps"],
+            motivo=arguments["motivo"],
+        )
+    if name == "propor_memoria_operacional":
+        memory = create_memory(
+                ctx.db,
+                ctx.current_user,
+                title=arguments["titulo"],
+                content=arguments["conteudo"],
+                category=arguments["categoria"],
+                source="assistant",
+                approve_immediately=False,
+            )
+        registrar_auditoria(
+            current_user=ctx.current_user,
+            modulo="assistente_ia",
+            entidade="memoria",
+            entidade_id=memory["id"],
+            acao="ASSISTENTE_IA_MEMORIA_PROPOSTA",
+            descricao="Mente FortCordis propos memoria para revisao do administrador.",
+            detalhes={"titulo": memory["title"], "categoria": memory["category"]},
+            request=ctx.request,
+        )
+        return {
+            "ok": True,
+            "memory": memory,
+            "requires_admin_approval": True,
+        }
+    if name == "consultar_conhecimento_interno":
+        return search_knowledge(ctx.db, query=arguments["consulta"], limit=arguments["limite"])
+    if name == "obter_contexto_laudo":
+        return clinical_report_context(ctx.db, ctx.current_user, report_id=int(arguments["laudo_id"]))
+    if name == "salvar_rascunho_clinico":
+        draft = save_clinical_draft(
+            ctx.db,
+            ctx.current_user,
+            conversation_id=ctx.conversa.id,
+            report_id=int(arguments["laudo_id"]),
+            title=arguments["titulo"],
+            content=arguments["conteudo"],
+            alerts=arguments["alertas"],
+            source_report_ids=arguments["laudos_fonte_ids"],
+        )
+        if draft.get("ok") is not False:
+            registrar_auditoria(
+                current_user=ctx.current_user,
+                modulo="assistente_ia",
+                entidade="rascunho_clinico",
+                entidade_id=draft.get("id"),
+                acao="ASSISTENTE_IA_RASCUNHO_CLINICO_CRIADO",
+                descricao="Mente FortCordis salvou rascunho clinico isolado para revisao humana.",
+                detalhes={"laudo_id": draft.get("report_id"), "laudo_oficial_modificado": False},
+                request=ctx.request,
+            )
+        return draft
     return {"ok": False, "error": f"Ferramenta desconhecida: {name}"}
 
 
@@ -2097,6 +2947,26 @@ def tool_result_summary(name: str, result: dict[str, Any]) -> str:
         return "Aguardando confirmacao para criar o horario"
     if name == "solicitar_exclusao_agendamento":
         return "Aguardando confirmacao do administrador"
+    if name == "gerar_resumo_executivo":
+        return f"Resumo executivo de {result.get('date')} gerado"
+    if name in {
+        "solicitar_remarcacao_agendamento",
+        "solicitar_cancelamento_agendamento",
+        "solicitar_bloqueio_agenda",
+        "solicitar_liberacao_bloqueio_agenda",
+        "solicitar_atualizacao_whatsapps_clinica",
+    }:
+        return "Aguardando confirmacao do administrador"
+    if name == "listar_bloqueios_agenda":
+        return f"{len(result.get('items') or [])} bloqueio(s) ativo(s)"
+    if name == "propor_memoria_operacional":
+        return "Memoria proposta para revisao do administrador"
+    if name == "consultar_conhecimento_interno":
+        return f"{result.get('total', 0)} documento(s) relevante(s)"
+    if name == "obter_contexto_laudo":
+        return "Contexto clinico carregado sem modificar o laudo"
+    if name == "salvar_rascunho_clinico":
+        return "Rascunho clinico salvo para revisao"
     return "Ferramenta executada"
 
 
