@@ -47,6 +47,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - NFR-010 (observabilidade operacional): indicadores do painel devem ser calculados apenas com dados do escopo da propria unidade/autenticacao sem ampliar permissao de leitura.
 - NFR-011 (operacao): o reenvio rapido do convite deve falhar com mensagem clara quando faltarem email institucional ou WhatsApp da clinica.
 - NFR-012 (branding compartilhado): o layout raiz do app deve publicar `metadataBase`, `openGraph`, `twitter` e `icons` coerentes para que previews de compartilhamento mostrem a identidade visual correta da Fort Cordis.
+- NFR-013 (robustez temporal): o cockpit administrativo deve tolerar timestamps do banco com e sem timezone no mesmo payload, normalizando as datas do painel antes de calcular inatividade, downloads recentes e ordenacao da linha do tempo.
 
 ## 4) Contratos tecnicos
 
@@ -213,6 +214,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CA-021: cada card de clinica exibe linha do tempo resumida com historico auditado de convite, conta e download.
 - CA-022: o CSV exportado inclui primeiro download, ultimo acesso e dias sem atividade.
 - CA-023: um link compartilhado do portal gera preview institucional com nome, descricao e logomarca oficial da Fort Cordis.
+- CA-024: a tela `/clinicas/portal` continua carregando metricas, downloads recentes e linha do tempo mesmo quando a auditoria trouxer timestamps timezone-aware misturados com timestamps sem timezone.
 
 ## 7) Casos de borda
 
