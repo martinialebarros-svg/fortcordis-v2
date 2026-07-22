@@ -532,9 +532,9 @@ def send_whatsapp_invite(
     return send_portal_whatsapp_message(
         destination=destination,
         message=(
-            f"Fort Cordis: crie a senha de acesso da clinica {clinica_nome} pelo link seguro: "
-            f"{activation_url} . Este convite e individual e expira em {expires_in_hours} hora(s). "
-            "Nao compartilhe este link com pessoas nao autorizadas."
+            f"Fort Cordis: sua clinica ja pode ativar o portal seguro para consultar exames e laudos liberados. "
+            f"Use este link individual para criar a senha da unidade: {activation_url} . "
+            f"Este convite expira em {expires_in_hours} hora(s) e nao deve ser compartilhado com pessoas nao autorizadas."
         ),
         metadata={
             "invite_kind": "portal_clinic_activation",

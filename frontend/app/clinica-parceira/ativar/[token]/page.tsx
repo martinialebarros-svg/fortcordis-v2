@@ -1,8 +1,17 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
 
 import PortalClinicActivationWorkspace from "@/components/portal/PortalClinicActivationWorkspace";
+import { buildPortalMetadata } from "@/lib/portal-metadata";
+
+export const metadata: Metadata = buildPortalMetadata({
+  title: "Ative o portal da sua clínica | Fort Cordis",
+  description:
+    "Conclua o cadastro da unidade e passe a consultar exames e laudos liberados no Portal Fort Cordis, com acesso seguro para a equipe responsavel.",
+  path: "/clinica-parceira/ativar",
+});
 
 type ClinicaParceiraAtivarPageProps = {
   params: Promise<{

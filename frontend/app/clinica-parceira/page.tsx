@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import {
@@ -10,6 +11,14 @@ import {
   UserCheck,
 } from "lucide-react";
 import PortalClinicaWorkspace from "@/components/portal/PortalClinicaWorkspace";
+import { buildPortalMetadata } from "@/lib/portal-metadata";
+
+export const metadata: Metadata = buildPortalMetadata({
+  title: "Portal da clínica parceira | Fort Cordis",
+  description:
+    "Sua clinica acompanha exames e laudos liberados com mais agilidade, seguranca e continuidade no cuidado dos pacientes atendidos com a Fort Cordis.",
+  path: "/clinica-parceira",
+});
 
 const partnershipBenefits = [
   {

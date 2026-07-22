@@ -115,3 +115,28 @@ Status: done
 - [x] Fases, riscos e rollback revisados.
 - [x] Regra operacional de email institucional confirmada.
 - [x] Clinicas piloto definidas para o primeiro rollout.
+
+## 6) Refinamento de preview comercial - 2026-07-22
+
+### Fase 6 (metadata de compartilhamento da clinica)
+
+- [x] T6.1 Extrair helper de metadata do portal para reaproveitar base URL, imagem oficial e estrutura Open Graph/Twitter.
+- [x] T6.2 Publicar copy dedicada para `/clinica-parceira`, `/clinica-parceira/ativar/[token]` e `/clinica-parceira/redefinir-senha`.
+- [x] T6.3 Validar lint, build e smoke HTML das tags `og:*`/`twitter:*` antes de publicar.
+- Criterio de conclusao:
+  - o convite da clinica parceira passa a abrir com preview mais comercial e mais claro sobre o valor do portal para a unidade.
+- Risco:
+  - mensageiros manterem cache do preview antigo por algum tempo mesmo com a metadata nova publicada.
+- Rollback:
+  - remover a metadata dedicada das rotas da clinica e voltar ao texto generico do app.
+
+### Plano de testes desta fase
+
+- Automatizados:
+  - `cd frontend && npx eslint app/layout.tsx app/clinica-parceira/page.tsx 'app/clinica-parceira/ativar/[token]/page.tsx' app/clinica-parceira/redefinir-senha/page.tsx lib/portal-metadata.ts`
+  - `cd frontend && npx tsc --noEmit --pretty false`
+  - `cd frontend && npm run build`
+  - `git diff --check`
+- Manuais:
+  - inspecionar o HTML das rotas publicas da clinica e confirmar `og:title`, `og:description`, `twitter:title` e `twitter:description`;
+  - reenviar um link novo do convite e observar o card do WhatsApp.

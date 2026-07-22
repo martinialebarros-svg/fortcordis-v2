@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { APP_BASE_URL, APP_PREVIEW_IMAGE, buildPortalMetadata } from "@/lib/portal-metadata";
 import "./globals.css";
-
-const APP_BASE_URL = "https://app.fortcordis.com.br";
-const APP_PREVIEW_IMAGE = "/brand/fortcordis-logo-oficial.png";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -11,14 +9,12 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
+  ...buildPortalMetadata({
+    title: "Fort Cordis",
+    description: "Cardiologia veterinaria integrada, com portal seguro para tutores e clinicas parceiras.",
+  }),
   metadataBase: new URL(APP_BASE_URL),
-  title: "Fort Cordis",
-  description:
-    "Cardiologia veterinária integrada, portal para tutores e acesso seguro para clínicas parceiras.",
   applicationName: "Fort Cordis",
-  alternates: {
-    canonical: APP_BASE_URL,
-  },
   icons: {
     icon: [
       {
@@ -34,30 +30,6 @@ export const metadata: Metadata = {
       },
     ],
     shortcut: [APP_PREVIEW_IMAGE],
-  },
-  openGraph: {
-    type: "website",
-    locale: "pt_BR",
-    url: APP_BASE_URL,
-    siteName: "Fort Cordis",
-    title: "Fort Cordis",
-    description:
-      "Cardiologia veterinária integrada, portal para tutores e acesso seguro para clínicas parceiras.",
-    images: [
-      {
-        url: APP_PREVIEW_IMAGE,
-        width: 1563,
-        height: 1563,
-        alt: "Logomarca Fort Cordis",
-      },
-    ],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Fort Cordis",
-    description:
-      "Cardiologia veterinária integrada, portal para tutores e acesso seguro para clínicas parceiras.",
-    images: [APP_PREVIEW_IMAGE],
   },
   other: {
     google: "notranslate",
