@@ -19,7 +19,7 @@ Status: passed
 | CA-009 | rascunho isolado e campos oficiais preservados em teste | aprovado |
 | CA-010 | feedback, tokens, latencia e metricas | aprovado |
 | CA-011 | migration, 359 testes, lint, TypeScript e build | aprovado |
-| CA-012 | 12 casos versionados, ferramentas strict e proibicoes | aprovado |
+| CA-012 | 13 casos versionados, ferramentas strict e proibicoes | aprovado |
 | CA-013 | teste do radar confirma persistencia e ausencia de mutacao operacional | aprovado |
 | CA-014 | criacao tipada, calendario semanal e validacao de configuracao | aprovado |
 | CA-015 | worker persistente, advisory lock e `skip_locked` no PostgreSQL | aprovado em inspecao e teste focal |
@@ -29,6 +29,7 @@ Status: passed
 | CA-019 | inspecao automatica inclui todas as novas rotas com guard admin | aprovado |
 | CA-020 | migration 54 idempotente, 367 testes, lint, TypeScript e build | aprovado |
 | CA-021 | `deploy-stage.yml` usa `OPENAI_API_KEY_STAGE`; `deploy.yml` usa `OPENAI_API_KEY_PROD`; nomes confirmados no repositorio sem leitura dos valores | aprovado |
+| CA-022 | remarcacao explicita, contexto antes do rascunho incompleto e gravacao direta do rascunho completo | aprovado em contrato local |
 
 ## Evidencias executadas ate agora
 
@@ -63,3 +64,14 @@ git diff --check
 - ESLint, TypeScript, `py_compile`, `pip check`, `git diff --check` e build Next aprovados;
 - build confirmou `/assistente-ia` com Radar, Missoes, Memoria semantica e Avaliacoes;
 - worker aguarda a migration sem loop de erro, recupera execucoes interrompidas e aparece na saude do runtime.
+
+## Ciclo de calibracao de roteamento - 22/07/2026
+
+- linha de base real em producao: 10/12 casos, nota 83,3%;
+- o caso de remarcacao nao informava o motivo exigido pelo schema estrito;
+- o pedido generico de rascunho selecionou corretamente `obter_contexto_laudo`, mas o dataset esperava gravacao imediata sem conteudo;
+- o dataset agora separa contexto primeiro de gravacao com conteudo completo e inclui motivo explicito na remarcacao;
+- as instrucoes reais e do laboratorio preservam confirmacao da remarcacao, isolamento do rascunho e proibicao de finalizar o laudo;
+- 10 testes focais do contrato e da autonomia aprovados;
+- suite completa: 368 testes aprovados;
+- ESLint, TypeScript, `py_compile`, `pip check`, `git diff --check` e build Next aprovados.

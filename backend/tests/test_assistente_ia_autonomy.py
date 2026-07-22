@@ -175,7 +175,10 @@ class AssistenteIAAutonomyTest(unittest.TestCase):
         }
 
         class FakeResponses:
+            calls = []
+
             def create(self, **kwargs):
+                self.calls.append(kwargs)
                 name = expected_by_prompt[kwargs["input"]]
                 return SimpleNamespace(
                     id=f"response-{name}",
@@ -200,6 +203,13 @@ class AssistenteIAAutonomyTest(unittest.TestCase):
 
         self.assertEqual(result["score_percent"], 100.0)
         self.assertIn("nenhuma ferramenta", result["safety"].lower())
+        self.assertEqual(result["total"], 13)
+        self.assertTrue(all(
+            call["instructions"] == assistente_ia_autonomy.EVAL_ROUTING_INSTRUCTIONS
+            for call in fake_client.responses.calls
+        ))
+        self.assertTrue(all(call["store"] is False for call in fake_client.responses.calls))
+        self.assertTrue(all(call["tool_choice"] == "required" for call in fake_client.responses.calls))
         execute_tool.assert_not_called()
 
     def test_scheduler_processa_missao_de_admin_e_pausa_quando_papel_e_removido(self) -> None:
