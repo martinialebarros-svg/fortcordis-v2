@@ -24,7 +24,9 @@ Status: done
 | CA-014 | schema | `backend/migrations/versions/20260704_44_laudos_clinic_id_alignment.py` garante `laudos.clinic_id` para escopo por laudo no portal da clinica | ok |
 | CA-015 | schema | `test_clinic_exam_date_sort_does_not_use_legacy_created_at` evita `COALESCE` entre timestamp e `exames.created_at` textual em banco legado | ok |
 | CA-016 | aceitacao | `frontend/app/clinica-parceira/page.tsx`, `frontend/app/clinica-parceira/ativar/[token]/page.tsx` e `frontend/app/clinica-parceira/redefinir-senha/page.tsx` publicam preview com copy dedicada para a clinica | ok |
+| CA-017 | aceitacao/seguranca | `frontend/lib/portal-password.ts` valida o minimo de 12 caracteres; `frontend/lib/portal-errors.ts` traduz erro estruturado sem reproduzir o campo `input`; telas de ativacao e redefinicao aplicam ambos os controles | ok |
 | NFR-013 | nao funcional | `frontend/lib/portal-metadata.ts` centraliza metadata de compartilhamento da clinica com Open Graph/Twitter e imagem oficial | ok |
+| NFR-014 | seguranca/UX | teste isolado de `portalErrorMessageFromBody` confirma mensagem em portugues e ausencia da senha presente no payload Pydantic | ok |
 
 ## 2) Testes automatizados executados
 
@@ -108,6 +110,10 @@ Resumo dos resultados:
   - `test_laudos_clinic_id_migration`: valida `laudos.clinic_id` e idempotencia da migracao de schema.
   - `test_portal_access_http_flow`: 3/3 pass.
 - Frontend:
+  - Regressao isolada do payload Pydantic da senha curta: 7/7 assercoes ok; a resposta foi normalizada para `A senha deve ter pelo menos 12 caracteres.` sem reproduzir o valor presente em `input`.
+  - ESLint dos componentes de ativacao/redefinicao e dos helpers `portal-api`, `portal-errors` e `portal-password`: ok.
+  - `npx tsc --noEmit`: ok.
+  - `npm run build`: ok apos a correcao da mensagem de senha curta.
   - ESLint dos arquivos afetados: ok.
   - `frontend/lib/portal-clinic-admin.ts` alinha a mensagem copiada pela operacao com a proposta de valor do portal para a clinica parceira.
   - `frontend/lib/portal-metadata.ts` padroniza `title`, `description`, `og:*` e `twitter:*` para o portal.
