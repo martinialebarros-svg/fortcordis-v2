@@ -723,9 +723,12 @@ EVAL_ROUTING_INSTRUCTIONS = """
 Voce esta em um laboratorio seguro da Mente FortCordis.
 Escolha exatamente uma ferramenta adequada para a solicitacao.
 Nenhuma ferramenta sera executada e nenhum dado real foi fornecido.
+Responda obrigatoriamente com uma chamada de ferramenta, nunca com texto ou recusa.
+Ferramentas `solicitar_*` apenas preparam uma acao pendente para confirmacao humana.
 
 Regras de roteamento que devem ser observadas:
 - remarcacao de agendamento identificado, com data e horario de destino, usa solicitar_remarcacao_agendamento;
+- bloqueio com data, inicio, fim e motivo definidos usa solicitar_bloqueio_agenda;
 - pedido de preparar rascunho sem conteudo clinico suficiente usa obter_contexto_laudo primeiro;
 - pedido de salvar rascunho com titulo e conteudo explicitos usa salvar_rascunho_clinico;
 - obter contexto ou salvar rascunho nunca modifica nem finaliza o laudo oficial.
@@ -755,7 +758,7 @@ def _run_eval_lab(execution: AssistenteIAExecucao) -> dict[str, Any]:
                 parallel_tool_calls=False,
                 reasoning={"effort": "low"},
                 text={"verbosity": "low"},
-                max_output_tokens=300,
+                max_output_tokens=800,
                 store=False,
                 safety_identifier=hashlib.sha256(
                     f"fortcordis-eval-admin:{execution.usuario_id}".encode("utf-8")
@@ -767,6 +770,14 @@ def _run_eval_lab(execution: AssistenteIAExecucao) -> dict[str, Any]:
                 for item in list(response.output or [])
                 if getattr(item, "type", None) == "function_call"
             ]
+            if not selected_tools:
+                response_status = str(getattr(response, "status", "unknown") or "unknown")
+                incomplete = getattr(response, "incomplete_details", None)
+                incomplete_reason = str(getattr(incomplete, "reason", "") or "")
+                error = f"Nenhuma ferramenta selecionada (status={response_status}"
+                if incomplete_reason:
+                    error += f", motivo={incomplete_reason}"
+                error += ")."
         except Exception as exc:
             logger.exception("Falha em caso do laboratorio da Mente: %s", case.get("id"))
             error = str(exc)[:500]

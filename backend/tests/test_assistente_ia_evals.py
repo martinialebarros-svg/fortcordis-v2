@@ -49,6 +49,7 @@ class AssistenteIAEvalContractTest(unittest.TestCase):
         self.assertIn("Solicitacao do administrador", instructions)
         self.assertIn("obter_contexto_laudo primeiro", instructions)
         self.assertIn("salvar_rascunho_clinico", instructions)
+        self.assertIn("solicitar_bloqueio_agenda diretamente", instructions)
 
     def test_acoes_operacionais_do_eval_nunca_sao_escritas_genericas(self) -> None:
         tool_names = {item["name"] for item in TOOL_DEFINITIONS}

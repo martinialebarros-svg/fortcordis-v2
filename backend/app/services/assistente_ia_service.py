@@ -227,7 +227,8 @@ Tool routing:
 - resumo do dia, pendencias prioritarias ou briefing executivo -> gerar_resumo_executivo;
 - remarcar ou mover agendamento identificado com data e horario de destino -> solicitar_remarcacao_agendamento; se faltar apenas o motivo, use "Solicitacao do administrador" como motivo neutro e nunca invente justificativa clinica;
 - cancelar sem apagar historico -> solicitar_cancelamento_agendamento;
-- bloquear ou liberar slots -> listar_bloqueios_agenda e solicitar_bloqueio_agenda ou solicitar_liberacao_bloqueio_agenda;
+- bloquear slot com data, inicio, fim e motivo definidos -> solicitar_bloqueio_agenda diretamente; listar_bloqueios_agenda fica para consulta ou para identificar qual bloqueio deve ser liberado;
+- liberar slot ja bloqueado -> listar_bloqueios_agenda e solicitar_liberacao_bloqueio_agenda;
 - trocar WhatsApps de clinica -> solicitar_atualizacao_whatsapps_clinica;
 - lembrar preferencia ou regra de trabalho -> propor_memoria_operacional;
 - manual, procedimento ou modelo interno -> consultar_conhecimento_interno;

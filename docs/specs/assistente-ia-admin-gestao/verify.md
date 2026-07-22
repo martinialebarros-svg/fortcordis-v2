@@ -30,6 +30,7 @@ Status: passed
 | CA-020 | migration 54 idempotente, 367 testes, lint, TypeScript e build | aprovado |
 | CA-021 | `deploy-stage.yml` usa `OPENAI_API_KEY_STAGE`; `deploy.yml` usa `OPENAI_API_KEY_PROD`; nomes confirmados no repositorio sem leitura dos valores | aprovado |
 | CA-022 | remarcacao explicita, contexto antes do rascunho incompleto e gravacao direta do rascunho completo | aprovado em contrato local |
+| CA-023 | chamada obrigatoria, bloqueio direto, orcamento de 800 tokens e diagnostico de resposta sem ferramenta | aprovado em contrato local |
 
 ## Evidencias executadas ate agora
 
@@ -75,3 +76,12 @@ git diff --check
 - 10 testes focais do contrato e da autonomia aprovados;
 - suite completa: 368 testes aprovados;
 - ESLint, TypeScript, `py_compile`, `pip check`, `git diff --check` e build Next aprovados.
+
+## Segunda calibracao de roteamento - 22/07/2026
+
+- primeira avaliacao apos a publicacao: 11/13 casos, nota 84,6%;
+- o rascunho clinico foi corrigido, mas remarcacao e bloqueio retornaram sem `function_call`;
+- o laboratorio agora explicita que `solicitar_*` apenas prepara acao pendente, exige resposta por ferramenta, cobre bloqueio direto e amplia o orcamento de saida para 800 tokens;
+- respostas sem ferramenta passam a registrar status e motivo de incompletude por caso, sem executar nenhuma ferramenta real.
+- 11 testes focais e a suite completa com 369 testes foram aprovados;
+- `py_compile`, `pip check` e `git diff --check` aprovados.
