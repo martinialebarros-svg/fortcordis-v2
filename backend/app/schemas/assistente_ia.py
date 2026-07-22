@@ -25,6 +25,24 @@ class AssistenteIAMemoriaDecisaoRequest(BaseModel):
     decisao: Literal["approve", "reject"]
 
 
+class AssistenteIAAprendizadoCreateRequest(BaseModel):
+    titulo: str = Field(..., min_length=3, max_length=180)
+    conteudo: str = Field(..., min_length=3, max_length=8000)
+    categoria: str = Field(default="operacao", min_length=2, max_length=60)
+    memoria_alvo_id: Optional[str] = Field(default=None, min_length=36, max_length=36)
+
+
+class AssistenteIAAprendizadoDecisaoRequest(BaseModel):
+    decisao: Literal["approve", "reject"]
+    titulo: Optional[str] = Field(default=None, min_length=3, max_length=180)
+    conteudo: Optional[str] = Field(default=None, min_length=3, max_length=8000)
+    categoria: Optional[str] = Field(default=None, min_length=2, max_length=60)
+
+
+class AssistenteIAMemoriaRollbackRequest(BaseModel):
+    versao: int = Field(..., ge=1)
+
+
 class AssistenteIAConhecimentoCreateRequest(BaseModel):
     titulo: str = Field(..., min_length=3, max_length=220)
     conteudo: str = Field(..., min_length=20, max_length=250_000)

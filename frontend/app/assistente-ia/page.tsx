@@ -20,12 +20,15 @@ import {
   Loader2,
   FileHeart,
   FlaskConical,
+  History,
+  Lightbulb,
   MessageCircle,
   MessageSquare,
   Plus,
   ReceiptText,
   Radar,
   RefreshCw,
+  RotateCcw,
   Save,
   Send,
   ShieldCheck,
@@ -159,7 +162,47 @@ type SupervisedMemory = {
   category: string;
   source: string;
   status: string;
+  current_version: number;
   created_at?: string | null;
+};
+
+type LearningSuggestion = {
+  id: string;
+  feedback_id?: number | null;
+  target_memory_id?: string | null;
+  title: string;
+  content: string;
+  category: string;
+  source: string;
+  source_context: { user_request?: string | null; assistant_response?: string | null; feedback_comment?: string | null };
+  impact: { scope?: string; applies_after_approval?: boolean; operational_writes?: boolean };
+  status: "pending" | "approved" | "rejected" | string;
+  memory_id?: string | null;
+  regression_case_id?: string | null;
+  created_at?: string | null;
+};
+
+type MemoryVersion = {
+  id: number;
+  memory_id: string;
+  version: number;
+  title: string;
+  content: string;
+  category: string;
+  change_type: "create" | "update" | "rollback" | string;
+  created_at?: string | null;
+};
+
+type RegressionCase = {
+  id: string;
+  learning_id?: string | null;
+  memory_id: string;
+  type: string;
+  prompt: string;
+  expectation: { version?: number; content_sha256?: string };
+  status: string;
+  last_status?: "passed" | "failed" | null;
+  verified_at?: string | null;
 };
 
 type KnowledgeDocument = {
@@ -251,7 +294,7 @@ type AssistantMetrics = {
   actions: Record<string, number>;
 };
 
-type WorkspaceView = "chat" | "radar" | "brief" | "missions" | "approvals" | "memory" | "knowledge" | "evaluations" | "clinical";
+type WorkspaceView = "chat" | "radar" | "brief" | "missions" | "approvals" | "learning" | "memory" | "knowledge" | "evaluations" | "clinical";
 
 const EXAMPLES = [
   {
@@ -286,6 +329,7 @@ const WORKSPACE_VIEWS: Array<{ id: WorkspaceView; label: string; icon: typeof Br
   { id: "brief", label: "Resumo diário", icon: BarChart3 },
   { id: "missions", label: "Missões", icon: Target },
   { id: "approvals", label: "Aprovações", icon: ClipboardList },
+  { id: "learning", label: "Aprendizados", icon: Lightbulb },
   { id: "memory", label: "Memória", icon: BrainCircuit },
   { id: "knowledge", label: "Conhecimento", icon: BookOpen },
   { id: "evaluations", label: "Avaliações", icon: FlaskConical },
@@ -375,13 +419,20 @@ export default function AssistenteIAPage() {
   const [evaluationRuns, setEvaluationRuns] = useState<AutonomousExecution[]>([]);
   const [approvalInbox, setApprovalInbox] = useState<PendingAction[]>([]);
   const [memories, setMemories] = useState<SupervisedMemory[]>([]);
+  const [learnings, setLearnings] = useState<LearningSuggestion[]>([]);
+  const [learningCounts, setLearningCounts] = useState({ pending: 0, approved: 0, rejected: 0 });
+  const [regressionCases, setRegressionCases] = useState<RegressionCase[]>([]);
+  const [memoryVersions, setMemoryVersions] = useState<Record<string, MemoryVersion[]>>({});
+  const [expandedMemoryId, setExpandedMemoryId] = useState<string | null>(null);
+  const [learningEdits, setLearningEdits] = useState<Record<string, { titulo: string; conteudo: string; categoria: string }>>({});
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [clinicalDrafts, setClinicalDrafts] = useState<ClinicalDraft[]>([]);
   const [metrics, setMetrics] = useState<AssistantMetrics | null>(null);
   const [managementLoading, setManagementLoading] = useState(false);
   const [autonomyAction, setAutonomyAction] = useState<string | null>(null);
   const [feedbackSent, setFeedbackSent] = useState<Record<string, "positive" | "negative">>({});
-  const [memoryForm, setMemoryForm] = useState({ titulo: "", conteudo: "", categoria: "operacao" });
+  const [feedbackDraft, setFeedbackDraft] = useState<{ messageId: number; correcao: string; categoria: string; comentario: string } | null>(null);
+  const [memoryForm, setMemoryForm] = useState({ titulo: "", conteudo: "", categoria: "operacao", memoria_alvo_id: "" });
   const [documentForm, setDocumentForm] = useState({ titulo: "", conteudo: "", categoria: "manual", fonte: "", indexar_semanticamente: false });
   const [missionForm, setMissionForm] = useState({
     titulo: "Radar diário da gestão",
@@ -413,6 +464,8 @@ export default function AssistenteIAPage() {
         api.get("/assistente-ia/missoes"),
         api.get("/assistente-ia/execucoes?limit=30"),
         api.get("/assistente-ia/avaliacoes"),
+        api.get("/assistente-ia/aprendizados"),
+        api.get("/assistente-ia/aprendizados/regressoes"),
       ]);
       if (results[0].status === "fulfilled") setExecutiveSummary(results[0].value.data);
       if (results[1].status === "fulfilled") setApprovalInbox(Array.isArray(results[1].value.data?.items) ? results[1].value.data.items : []);
@@ -424,6 +477,11 @@ export default function AssistenteIAPage() {
       if (results[7].status === "fulfilled") setMissions(Array.isArray(results[7].value.data?.items) ? results[7].value.data.items : []);
       if (results[8].status === "fulfilled") setExecutions(Array.isArray(results[8].value.data?.items) ? results[8].value.data.items : []);
       if (results[9].status === "fulfilled") setEvaluationRuns(Array.isArray(results[9].value.data?.items) ? results[9].value.data.items : []);
+      if (results[10].status === "fulfilled") {
+        setLearnings(Array.isArray(results[10].value.data?.items) ? results[10].value.data.items : []);
+        setLearningCounts(results[10].value.data?.counts || { pending: 0, approved: 0, rejected: 0 });
+      }
+      if (results[11].status === "fulfilled") setRegressionCases(Array.isArray(results[11].value.data?.items) ? results[11].value.data.items : []);
     } finally {
       setManagementLoading(false);
     }
@@ -558,17 +616,17 @@ export default function AssistenteIAPage() {
 
   const submitFeedback = async (message: AssistantMessage, rating: "positive" | "negative") => {
     if (typeof message.id !== "number" || feedbackSent[String(message.id)]) return;
-    let correction = "";
     if (rating === "negative") {
-      correction = window.prompt("O que a Mente deveria ter respondido ou feito diferente?", "") || "";
+      setFeedbackDraft({ messageId: message.id, correcao: "", categoria: "correcao", comentario: "" });
+      return;
     }
     try {
       await api.post("/assistente-ia/feedbacks", {
         mensagem_id: message.id,
         avaliacao: rating,
-        categoria: rating === "negative" ? "correcao" : "util",
+        categoria: "util",
         comentario: null,
-        correcao_esperada: correction || null,
+        correcao_esperada: null,
       });
       setFeedbackSent((current) => ({ ...current, [String(message.id)]: rating }));
       void refreshManagement();
@@ -577,14 +635,109 @@ export default function AssistenteIAPage() {
     }
   };
 
+  const submitCorrection = async () => {
+    if (!feedbackDraft?.correcao.trim()) return;
+    try {
+      await api.post("/assistente-ia/feedbacks", {
+        mensagem_id: feedbackDraft.messageId,
+        avaliacao: "negative",
+        categoria: feedbackDraft.categoria.trim() || "correcao",
+        comentario: feedbackDraft.comentario.trim() || null,
+        correcao_esperada: feedbackDraft.correcao.trim(),
+      });
+      setFeedbackSent((current) => ({ ...current, [String(feedbackDraft.messageId)]: "negative" }));
+      setFeedbackDraft(null);
+      setView("learning");
+      await refreshManagement();
+    } catch (feedbackError) {
+      setError(errorMessage(feedbackError, "Não foi possível criar a sugestão de aprendizado."));
+    }
+  };
+
   const submitMemory = async () => {
     if (!memoryForm.titulo.trim() || !memoryForm.conteudo.trim()) return;
     try {
-      await api.post("/assistente-ia/memorias", memoryForm);
-      setMemoryForm({ titulo: "", conteudo: "", categoria: "operacao" });
+      await api.post("/assistente-ia/aprendizados", {
+        ...memoryForm,
+        memoria_alvo_id: memoryForm.memoria_alvo_id || null,
+      });
+      setMemoryForm({ titulo: "", conteudo: "", categoria: "operacao", memoria_alvo_id: "" });
       await refreshManagement();
     } catch (memoryError) {
-      setError(errorMessage(memoryError, "Não foi possível salvar a memória."));
+      setError(errorMessage(memoryError, "Não foi possível propor o aprendizado."));
+    }
+  };
+
+  const decideLearning = async (learning: LearningSuggestion, decision: "approve" | "reject") => {
+    const edit = learningEdits[learning.id] || {
+      titulo: learning.title,
+      conteudo: learning.content,
+      categoria: learning.category,
+    };
+    setAutonomyAction(`learning-${learning.id}`);
+    setError("");
+    try {
+      await api.post(`/assistente-ia/aprendizados/${learning.id}/decisao`, {
+        decisao: decision,
+        ...(decision === "approve" ? edit : {}),
+      });
+      setLearningEdits((current) => {
+        const next = { ...current };
+        delete next[learning.id];
+        return next;
+      });
+      await refreshManagement();
+    } catch (learningError) {
+      setError(errorMessage(learningError, "Não foi possível decidir este aprendizado."));
+    } finally {
+      setAutonomyAction(null);
+    }
+  };
+
+  const proposeMemoryAdjustment = (memory: SupervisedMemory) => {
+    setMemoryForm({
+      titulo: memory.title,
+      conteudo: memory.content,
+      categoria: memory.category,
+      memoria_alvo_id: memory.id,
+    });
+    setView("learning");
+  };
+
+  const toggleMemoryVersions = async (memoryId: string) => {
+    if (expandedMemoryId === memoryId) {
+      setExpandedMemoryId(null);
+      return;
+    }
+    setExpandedMemoryId(memoryId);
+    if (memoryVersions[memoryId]) return;
+    try {
+      const response = await api.get(`/assistente-ia/memorias/${memoryId}/versoes`);
+      setMemoryVersions((current) => ({
+        ...current,
+        [memoryId]: Array.isArray(response.data?.items) ? response.data.items : [],
+      }));
+    } catch (versionError) {
+      setError(errorMessage(versionError, "Não foi possível carregar o histórico da memória."));
+    }
+  };
+
+  const rollbackMemory = async (memoryId: string, version: number) => {
+    setAutonomyAction(`rollback-${memoryId}-${version}`);
+    setError("");
+    try {
+      await api.post(`/assistente-ia/memorias/${memoryId}/reverter`, { versao: version });
+      setMemoryVersions((current) => {
+        const next = { ...current };
+        delete next[memoryId];
+        return next;
+      });
+      await refreshManagement();
+      await toggleMemoryVersions(memoryId);
+    } catch (versionError) {
+      setError(errorMessage(versionError, "Não foi possível restaurar esta versão."));
+    } finally {
+      setAutonomyAction(null);
     }
   };
 
@@ -790,6 +943,9 @@ export default function AssistenteIAPage() {
                 {id === "approvals" && approvalInbox.length > 0 ? (
                   <span className="rounded-full bg-cordis-500 px-1.5 py-0.5 text-[10px] text-white">{approvalInbox.length}</span>
                 ) : null}
+                {id === "learning" && learningCounts.pending > 0 ? (
+                  <span className="rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] text-ink-900">{learningCounts.pending}</span>
+                ) : null}
                 {id === "memory" && memories.some((item) => item.status === "pending") ? (
                   <span className="h-2 w-2 rounded-full bg-amber-400" />
                 ) : null}
@@ -904,8 +1060,46 @@ export default function AssistenteIAPage() {
                 <div><h2 className="text-2xl font-bold text-ink-900">Caixa central de aprovações</h2><p className="mt-1 text-sm text-ink-500">Todas as ações propostas pela Mente, independentemente da conversa.</p><div className="mt-6 space-y-4">{approvalInbox.length === 0 ? <div className="rounded-2xl bg-vital-50 p-5 text-sm text-vital-800">Nenhuma ação aguardando sua decisão.</div> : approvalInbox.map((action) => <div key={action.id} className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold text-ink-900">{action.type.replaceAll("_", " ")}</p><p className="mt-1 text-xs text-ink-500">Expira em {formatDateTime(action.expires_at)}</p></div><span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Requer confirmação</span></div><pre className="mt-4 max-h-52 overflow-auto whitespace-pre-wrap rounded-xl bg-white p-4 text-xs leading-5 text-ink-600">{JSON.stringify(action.target, null, 2)}</pre><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => void decideAction(action.id, "reject")} className="rounded-xl border border-ink-200 bg-white px-4 py-2 text-sm font-semibold text-ink-700">Rejeitar</button><button type="button" onClick={() => void decideAction(action.id, "approve")} className="rounded-xl bg-cordis-600 px-4 py-2 text-sm font-semibold text-white">Confirmar ação</button></div></div>)}</div></div>
               ) : null}
 
+              {view === "learning" ? (
+                <div className="space-y-7">
+                  <div className="flex items-start gap-3">
+                    <Lightbulb className="h-7 w-7 text-amber-500" />
+                    <div>
+                      <h2 className="text-2xl font-bold text-ink-900">Aprendizado contínuo supervisionado</h2>
+                      <p className="mt-1 max-w-3xl text-sm leading-6 text-ink-500">Correções e novas regras entram como sugestões. A memória ativa só muda depois da sua aprovação, com versão e regressão automática.</p>
+                    </div>
+                  </div>
+                  <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+                    <div className="space-y-3 rounded-2xl bg-ink-50 p-4">
+                      <p className="text-sm font-semibold text-ink-800">Propor aprendizado</p>
+                      <select value={memoryForm.memoria_alvo_id} onChange={(event) => setMemoryForm((current) => ({ ...current, memoria_alvo_id: event.target.value }))} className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm">
+                        <option value="">Criar uma nova memória</option>
+                        {memories.filter((memory) => memory.status === "approved").map((memory) => <option key={memory.id} value={memory.id}>Ajustar: {memory.title}</option>)}
+                      </select>
+                      <input value={memoryForm.titulo} onChange={(event) => setMemoryForm((current) => ({ ...current, titulo: event.target.value }))} placeholder="Título da regra ou preferência" className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" />
+                      <input value={memoryForm.categoria} onChange={(event) => setMemoryForm((current) => ({ ...current, categoria: event.target.value }))} placeholder="Categoria" className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" />
+                      <textarea value={memoryForm.conteudo} onChange={(event) => setMemoryForm((current) => ({ ...current, conteudo: event.target.value }))} rows={6} placeholder="Ex.: sempre priorizamos..." className="w-full resize-y rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" />
+                      <button type="button" onClick={() => void submitMemory()} className="flex w-full items-center justify-center gap-2 rounded-xl bg-cordis-600 px-4 py-2.5 text-sm font-semibold text-white"><Save className="h-4 w-4" /> Enviar para revisão</button>
+                      <p className="text-xs leading-5 text-ink-400">Escopo global da gestão, sem escrita operacional e sem aplicação automática.</p>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-3 gap-3 text-center text-xs"><div className="rounded-xl bg-amber-50 p-3 text-amber-800"><strong className="block text-xl">{learningCounts.pending}</strong>Pendentes</div><div className="rounded-xl bg-vital-50 p-3 text-vital-800"><strong className="block text-xl">{learningCounts.approved}</strong>Aprovados</div><div className="rounded-xl bg-ink-50 p-3 text-ink-600"><strong className="block text-xl">{learningCounts.rejected}</strong>Rejeitados</div></div>
+                      {learnings.map((learning) => {
+                        const edit = learningEdits[learning.id] || { titulo: learning.title, conteudo: learning.content, categoria: learning.category };
+                        return <article key={learning.id} className={`rounded-2xl border p-4 ${learning.status === "pending" ? "border-amber-200 bg-amber-50/30" : "border-ink-100"}`}>
+                          <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-ink-400">{learning.source === "feedback" ? "Correção a partir de feedback" : learning.target_memory_id ? "Ajuste de memória" : "Nova memória"}</p><p className="mt-1 text-xs text-ink-400">{formatDateTime(learning.created_at)}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${learning.status === "approved" ? "bg-vital-50 text-vital-700" : learning.status === "pending" ? "bg-amber-100 text-amber-800" : "bg-ink-100 text-ink-600"}`}>{learning.status === "approved" ? "Aprovado" : learning.status === "pending" ? "Aguardando você" : "Rejeitado"}</span></div>
+                          {learning.status === "pending" ? <div className="mt-4 space-y-3"><input value={edit.titulo} onChange={(event) => setLearningEdits((current) => ({ ...current, [learning.id]: { ...edit, titulo: event.target.value } }))} className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm font-semibold" /><div className="grid gap-2 sm:grid-cols-[160px_1fr]"><input value={edit.categoria} onChange={(event) => setLearningEdits((current) => ({ ...current, [learning.id]: { ...edit, categoria: event.target.value } }))} className="rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /><textarea value={edit.conteudo} onChange={(event) => setLearningEdits((current) => ({ ...current, [learning.id]: { ...edit, conteudo: event.target.value } }))} rows={4} className="resize-y rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm leading-6" /></div>{learning.source_context?.user_request ? <details className="rounded-xl bg-white p-3 text-xs text-ink-500"><summary className="cursor-pointer font-semibold">Ver solicitação e resposta que originaram a correção</summary><p className="mt-2"><strong>Solicitação:</strong> {learning.source_context.user_request}</p><p className="mt-2"><strong>Resposta:</strong> {learning.source_context.assistant_response}</p></details> : null}<div className="flex justify-end gap-2"><button type="button" onClick={() => void decideLearning(learning, "reject")} disabled={autonomyAction === `learning-${learning.id}`} className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-xs font-semibold text-ink-600">Rejeitar</button><button type="button" onClick={() => void decideLearning(learning, "approve")} disabled={autonomyAction === `learning-${learning.id}`} className="rounded-lg bg-vital-600 px-3 py-2 text-xs font-semibold text-white">Aprovar e versionar</button></div></div> : <><p className="mt-3 font-semibold text-ink-900">{learning.title}</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink-600">{learning.content}</p></>}
+                        </article>;
+                      })}
+                      {learnings.length === 0 ? <div className="rounded-2xl bg-ink-50 p-5 text-sm text-ink-500">Nenhum aprendizado sugerido ainda.</div> : null}
+                    </div>
+                  </div>
+                  <div><h3 className="flex items-center gap-2 font-semibold text-ink-900"><FlaskConical className="h-4 w-4 text-cordis-600" /> Contratos de regressão ativos</h3><div className="mt-3 grid gap-3 lg:grid-cols-2">{regressionCases.map((item) => <div key={item.id} className="rounded-xl border border-ink-100 p-3 text-xs text-ink-600"><div className="flex items-start justify-between gap-2"><strong>{item.prompt}</strong><span className={`rounded-full px-2 py-0.5 font-semibold ${item.last_status === "failed" ? "bg-cordis-50 text-cordis-700" : item.last_status === "passed" ? "bg-vital-50 text-vital-700" : "bg-ink-50 text-ink-500"}`}>{item.last_status === "passed" ? "Passou" : item.last_status === "failed" ? "Falhou" : "Ainda não executado"}</span></div><p className="mt-2 text-ink-400">Memória v{item.expectation.version || "?"}{item.verified_at ? ` · verificada ${formatDateTime(item.verified_at)}` : ""}</p></div>)}{regressionCases.length === 0 ? <p className="text-sm text-ink-400">Os contratos aparecem após o primeiro aprendizado aprovado.</p> : null}</div></div>
+                </div>
+              ) : null}
+
               {view === "memory" ? (
-                <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]"><div><h2 className="text-2xl font-bold text-ink-900">Memória supervisionada</h2><p className="mt-1 text-sm leading-6 text-ink-500">O que você cadastrar entra aprovado. O que a IA propuser fica pendente até sua decisão.</p><div className="mt-5 space-y-3 rounded-2xl bg-ink-50 p-4"><input value={memoryForm.titulo} onChange={(event) => setMemoryForm((current) => ({ ...current, titulo: event.target.value }))} placeholder="Título da regra ou preferência" className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /><input value={memoryForm.categoria} onChange={(event) => setMemoryForm((current) => ({ ...current, categoria: event.target.value }))} placeholder="Categoria" className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /><textarea value={memoryForm.conteudo} onChange={(event) => setMemoryForm((current) => ({ ...current, conteudo: event.target.value }))} rows={5} placeholder="Ex.: sempre priorizamos..." className="w-full resize-y rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /><button type="button" onClick={() => void submitMemory()} className="flex w-full items-center justify-center gap-2 rounded-xl bg-cordis-600 px-4 py-2.5 text-sm font-semibold text-white"><Save className="h-4 w-4" /> Salvar memória aprovada</button></div></div><div className="space-y-3">{memories.map((memory) => <div key={memory.id} className="rounded-2xl border border-ink-100 p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-ink-900">{memory.title}</p><p className="mt-1 text-xs text-ink-400">{memory.category} · origem {memory.source}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${memory.status === "approved" ? "bg-vital-50 text-vital-700" : memory.status === "pending" ? "bg-amber-50 text-amber-800" : "bg-ink-50 text-ink-500"}`}>{memory.status === "approved" ? "Aprovada" : memory.status === "pending" ? "Aguardando revisão" : "Rejeitada"}</span></div><p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-ink-600">{memory.content}</p>{memory.status === "pending" ? <div className="mt-3 flex justify-end gap-2"><button type="button" onClick={() => void decideMemory(memory.id, "reject")} className="rounded-lg border border-ink-200 px-3 py-2 text-xs font-semibold text-ink-600">Rejeitar</button><button type="button" onClick={() => void decideMemory(memory.id, "approve")} className="rounded-lg bg-vital-600 px-3 py-2 text-xs font-semibold text-white">Aprovar memória</button></div> : null}</div>)}{memories.length === 0 ? <p className="text-sm text-ink-400">Nenhuma memória cadastrada ainda.</p> : null}</div></div>
+                <div><div className="flex items-start gap-3"><BrainCircuit className="h-7 w-7 text-cordis-600" /><div><h2 className="text-2xl font-bold text-ink-900">Memória ativa e versionada</h2><p className="mt-1 text-sm leading-6 text-ink-500">Somente conteúdos aprovados orientam a Mente. Cada alteração preserva o histórico e pode ser revertida.</p></div></div><div className="mt-6 space-y-3">{memories.map((memory) => <article key={memory.id} className="rounded-2xl border border-ink-100 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold text-ink-900">{memory.title}</p><p className="mt-1 text-xs text-ink-400">{memory.category} · origem {memory.source} · versão {memory.current_version || 1}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${memory.status === "approved" ? "bg-vital-50 text-vital-700" : memory.status === "pending" ? "bg-amber-50 text-amber-800" : "bg-ink-50 text-ink-500"}`}>{memory.status === "approved" ? "Ativa" : memory.status === "pending" ? "Legado aguardando revisão" : "Rejeitada"}</span></div><p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-ink-600">{memory.content}</p><div className="mt-4 flex flex-wrap justify-end gap-2">{memory.status === "pending" ? <><button type="button" onClick={() => void decideMemory(memory.id, "reject")} className="rounded-lg border border-ink-200 px-3 py-2 text-xs font-semibold text-ink-600">Rejeitar</button><button type="button" onClick={() => void decideMemory(memory.id, "approve")} className="rounded-lg bg-vital-600 px-3 py-2 text-xs font-semibold text-white">Aprovar legado</button></> : <><button type="button" onClick={() => proposeMemoryAdjustment(memory)} className="flex items-center gap-2 rounded-lg border border-ink-200 px-3 py-2 text-xs font-semibold text-ink-600"><Lightbulb className="h-3.5 w-3.5" /> Propor ajuste</button><button type="button" onClick={() => void toggleMemoryVersions(memory.id)} className="flex items-center gap-2 rounded-lg border border-ink-200 px-3 py-2 text-xs font-semibold text-ink-600"><History className="h-3.5 w-3.5" /> Histórico</button></>}</div>{expandedMemoryId === memory.id ? <div className="mt-4 space-y-2 border-t border-ink-100 pt-4">{(memoryVersions[memory.id] || []).map((version) => <div key={version.id} className="flex flex-wrap items-start justify-between gap-3 rounded-xl bg-ink-50 p-3"><div><p className="text-sm font-semibold text-ink-800">Versão {version.version} · {version.change_type === "rollback" ? "restauração" : version.change_type === "update" ? "ajuste" : "criação"}</p><p className="mt-1 max-w-2xl text-xs text-ink-500">{version.content}</p></div>{version.version !== (memory.current_version || 1) ? <button type="button" onClick={() => void rollbackMemory(memory.id, version.version)} disabled={autonomyAction === `rollback-${memory.id}-${version.version}`} className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-ink-600 shadow-sm"><RotateCcw className="h-3.5 w-3.5" /> Restaurar como nova versão</button> : <span className="rounded-full bg-vital-100 px-2 py-1 text-xs font-semibold text-vital-700">Atual</span>}</div>)}{!memoryVersions[memory.id] ? <p className="text-xs text-ink-400">Carregando histórico...</p> : null}</div> : null}</article>)}{memories.length === 0 ? <p className="text-sm text-ink-400">Nenhuma memória aprovada ainda.</p> : null}</div></div>
               ) : null}
 
               {view === "knowledge" ? (
@@ -1046,6 +1240,14 @@ export default function AssistenteIAPage() {
                               >
                                 <ThumbsDown className="h-3.5 w-3.5" />
                               </button>
+                            </div>
+                          ) : null}
+                          {typeof message.id === "number" && feedbackDraft?.messageId === message.id ? (
+                            <div className="mt-3 space-y-2 rounded-xl border border-cordis-100 bg-white p-3">
+                              <p className="text-xs font-semibold text-ink-800">Ensine o que deveria ser diferente</p>
+                              <textarea autoFocus value={feedbackDraft.correcao} onChange={(event) => setFeedbackDraft((current) => current ? { ...current, correcao: event.target.value } : current)} rows={4} placeholder="Escreva a resposta, regra ou comportamento correto..." className="w-full resize-y rounded-lg border border-ink-200 px-3 py-2 text-xs leading-5" />
+                              <div className="grid gap-2 sm:grid-cols-2"><input value={feedbackDraft.categoria} onChange={(event) => setFeedbackDraft((current) => current ? { ...current, categoria: event.target.value } : current)} placeholder="Categoria" className="rounded-lg border border-ink-200 px-3 py-2 text-xs" /><input value={feedbackDraft.comentario} onChange={(event) => setFeedbackDraft((current) => current ? { ...current, comentario: event.target.value } : current)} placeholder="Comentário opcional" className="rounded-lg border border-ink-200 px-3 py-2 text-xs" /></div>
+                              <div className="flex items-center justify-between gap-3"><p className="text-[11px] leading-4 text-ink-400">Isso criará uma sugestão pendente; a Mente ainda não aprenderá até você aprovar.</p><div className="flex shrink-0 gap-2"><button type="button" onClick={() => setFeedbackDraft(null)} className="rounded-lg px-3 py-2 text-xs font-semibold text-ink-500">Cancelar</button><button type="button" onClick={() => void submitCorrection()} disabled={!feedbackDraft.correcao.trim()} className="rounded-lg bg-cordis-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Criar sugestão</button></div></div>
                             </div>
                           ) : null}
                         </div>

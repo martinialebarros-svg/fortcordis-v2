@@ -1,6 +1,6 @@
 # Verify - assistente-ia-admin-gestao
 
-Data: 2026-07-21
+Data: 2026-07-22
 Responsavel: Martiniano + Codex
 Status: passed
 
@@ -31,6 +31,13 @@ Status: passed
 | CA-021 | `deploy-stage.yml` usa `OPENAI_API_KEY_STAGE`; `deploy.yml` usa `OPENAI_API_KEY_PROD`; nomes confirmados no repositorio sem leitura dos valores | aprovado |
 | CA-022 | remarcacao explicita, contexto antes do rascunho incompleto e gravacao direta do rascunho completo | aprovado em contrato local |
 | CA-023 | chamada obrigatoria, bloqueio direto, orcamento de 800 tokens e diagnostico de resposta sem ferramenta | aprovado em contrato local |
+| CA-024 | teste de feedback negativo confirma sugestao pending e contexto aprovado inalterado | aprovado em teste focal |
+| CA-025 | testes de aprovacao confirmam memoria v1, ajuste v2 e contrato ativo unico | aprovado em teste focal |
+| CA-026 | teste de rejeicao e restauracao confirma historico v1/v2/v3 append-only | aprovado em teste focal |
+| CA-027 | laboratorio inclui contrato determinista e confirma zero chamadas a `execute_tool` | aprovado em teste focal |
+| CA-028 | inspecao automatica cobre as novas rotas com guard admin | aprovado em teste focal |
+| CA-029 | migration 55 executada duas vezes no mesmo SQLite | aprovado em teste focal |
+| CA-030 | suite completa e frontend locais; smokes dos dois ambientes apos publicacao | aprovado localmente, release pendente |
 
 ## Evidencias executadas ate agora
 
@@ -46,6 +53,19 @@ cd backend && ./venv/bin/python -m pip check
 python3 -m py_compile <arquivos alterados do backend>
 git diff --check
 ```
+
+## Ciclo de aprendizado continuo supervisionado - 22/07/2026
+
+- feedback negativo com correcao esperada cria sugestao pendente com origem rastreavel e sem mudar o prompt ativo;
+- aprovacao cria ou atualiza memoria, registra versao imutavel e substitui o contrato de regressao ativo;
+- rejeicao nao altera memoria e restauracao de versao antiga cria uma nova versao, sem apagar historico;
+- laboratorio combina roteamento do modelo e contratos deterministas, sem executar ferramentas;
+- migration `20260722_55` foi executada duas vezes no mesmo SQLite;
+- 37 testes focais do admin, autonomia e migration aprovados;
+- suite completa: 373 testes aprovados;
+- ESLint, TypeScript, `pip check`, `git diff --check` e build Next aprovados;
+- build confirmou `/assistente-ia` com Aprendizados, versoes, restauracao e contratos de regressao;
+- smokes de stage e producao serao registrados depois da publicacao guardada do mesmo SHA.
 
 ## Resultado
 

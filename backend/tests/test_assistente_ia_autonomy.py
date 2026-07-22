@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import sys
@@ -25,7 +26,9 @@ from app.models.assistente_ia import (
     AssistenteIAConhecimentoDocumento,
     AssistenteIAConhecimentoTrecho,
     AssistenteIAExecucao,
+    AssistenteIAMemoria,
     AssistenteIAMissao,
+    AssistenteIARegressaoCaso,
 )
 from app.models.financeiro import ContaReceber, Transacao
 from app.models.papel import Papel, usuario_papel
@@ -50,6 +53,8 @@ class AssistenteIAAutonomyTest(unittest.TestCase):
             AssistenteIAConhecimentoTrecho.__table__,
             AssistenteIAMissao.__table__,
             AssistenteIAExecucao.__table__,
+            AssistenteIAMemoria.__table__,
+            AssistenteIARegressaoCaso.__table__,
         ):
             table.create(self._engine, checkfirst=True)
         self.user = SimpleNamespace(id=17, nome="Admin", tem_papel=lambda role: role == "admin")
@@ -199,7 +204,8 @@ class AssistenteIAAutonomyTest(unittest.TestCase):
             patch.object(assistente_ia_tools, "execute_tool") as execute_tool,
             patch.object(assistente_ia_autonomy.settings, "OPENAI_API_KEY", "test-key"),
         ):
-            result = assistente_ia_autonomy._run_eval_lab(execution)
+            with self._session_factory() as db:
+                result = assistente_ia_autonomy._run_eval_lab(db, execution)
 
         self.assertEqual(result["score_percent"], 100.0)
         self.assertIn("nenhuma ferramenta", result["safety"].lower())
@@ -238,11 +244,64 @@ class AssistenteIAAutonomyTest(unittest.TestCase):
             patch.object(assistente_ia_autonomy, "OpenAI", return_value=fake_client),
             patch.object(assistente_ia_autonomy.settings, "OPENAI_API_KEY", "test-key"),
         ):
-            result = assistente_ia_autonomy._run_eval_lab(execution)
+            with self._session_factory() as db:
+                result = assistente_ia_autonomy._run_eval_lab(db, execution)
 
         self.assertEqual(result["score_percent"], 0.0)
         self.assertTrue(all("status=incomplete" in item["error"] for item in result["cases"]))
         self.assertTrue(all("motivo=max_output_tokens" in item["error"] for item in result["cases"]))
+
+    def test_laboratorio_verifica_contrato_da_memoria_sem_chamar_ferramenta(self) -> None:
+        content = "Confirmar encaixes por WhatsApp antes de agendar."
+        with self._session_factory() as db:
+            memory = AssistenteIAMemoria(
+                id="memory-contract",
+                titulo="Confirmacao de encaixes",
+                conteudo=content,
+                categoria="agenda",
+                origem="aprendizado_supervisionado",
+                status="approved",
+                versao_atual=2,
+                criado_por_id=self.user.id,
+                aprovado_por_id=self.user.id,
+            )
+            regression = AssistenteIARegressaoCaso(
+                id="regression-contract",
+                memoria_id=memory.id,
+                tipo="memory_contract",
+                prompt="Preservar confirmacao de encaixes",
+                expectativa_json=json.dumps({
+                    "version": 2,
+                    "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                }),
+                status="active",
+                criado_por_id=self.user.id,
+            )
+            db.add_all([memory, regression])
+            db.commit()
+            execution = AssistenteIAExecucao(
+                id="eval-memory-contract",
+                usuario_id=self.user.id,
+                tipo="eval_lab",
+                origem="manual",
+                status="running",
+                entrada_json="{}",
+            )
+            fake_client = SimpleNamespace(responses=SimpleNamespace(create=lambda **_kwargs: None))
+            with (
+                patch.object(assistente_ia_autonomy, "OpenAI", return_value=fake_client),
+                patch.object(assistente_ia_autonomy, "_eval_dataset", return_value={"version": "test", "cases": []}),
+                patch.object(assistente_ia_autonomy.settings, "OPENAI_API_KEY", "test-key"),
+                patch.object(assistente_ia_tools, "execute_tool") as execute_tool,
+            ):
+                result = assistente_ia_autonomy._run_eval_lab(db, execution)
+            db.refresh(regression)
+            self.assertEqual(result["total"], 1)
+            self.assertEqual(result["score_percent"], 100.0)
+            self.assertEqual(result["cases"][0]["case_type"], "memory_contract")
+            self.assertEqual(regression.ultimo_status, "passed")
+            self.assertIsNotNone(regression.verificado_em)
+            execute_tool.assert_not_called()
 
     def test_scheduler_processa_missao_de_admin_e_pausa_quando_papel_e_removido(self) -> None:
         with self._session_factory() as db:

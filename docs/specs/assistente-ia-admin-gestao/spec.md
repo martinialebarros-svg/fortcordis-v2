@@ -1,6 +1,6 @@
 # Spec - assistente-ia-admin-gestao
 
-Data: 2026-07-21
+Data: 2026-07-22
 Responsavel: Martiniano + Codex
 Status: completed
 
@@ -43,6 +43,14 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - RF-031: o contrato de roteamento distingue rascunho sem conteudo, que carrega primeiro o contexto do laudo, de rascunho completo, que pode ser salvo diretamente na area isolada.
 - RF-032: remarcacao com alvo, data e horario definidos usa a ferramenta governada mesmo sem justificativa adicional; nesse caso o unico motivo permitido por padrao e `Solicitacao do administrador`.
 - RF-033: o laboratorio exige uma chamada de ferramenta, explicita que `solicitar_*` apenas cria acao pendente, reserva orcamento suficiente para o roteamento estrito e registra o motivo quando o provedor nao selecionar ferramenta.
+- RF-034: feedback negativo com correcao esperada cria uma sugestao de aprendizado `pending`, vinculada a resposta e ao contexto minimo da solicitacao, sem alterar a memoria ativa.
+- RF-035: sugestoes manuais e originadas por feedback podem criar nova memoria ou apontar explicitamente para uma memoria aprovada existente.
+- RF-036: o administrador pode revisar titulo, conteudo e categoria antes de aprovar ou rejeitar uma sugestao; somente a aprovacao altera o contexto da Mente.
+- RF-037: cada criacao, ajuste ou restauracao aprovada gera uma versao imutavel em `assistente_ia_memoria_versoes` e atualiza `versao_atual`.
+- RF-038: uma versao anterior pode ser restaurada, mas a restauracao sempre cria uma nova versao e preserva todo o historico.
+- RF-039: cada estado vigente de memoria aprovada possui um unico contrato de regressao ativo com versao e hash esperados; contratos substituidos sao arquivados.
+- RF-040: o laboratorio automatico combina os casos versionados de roteamento com contratos deterministas de memoria, sem chamar ferramenta nem executar escrita operacional.
+- RF-041: a interface administrativa oferece fila de aprendizados, edicao antes da decisao, contadores, origem da correcao, contratos ativos, versoes e restauracao.
 
 ## 3) Requisitos nao funcionais
 
@@ -61,13 +69,17 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - NFR-013 (isolamento de avaliacao): o laboratorio usa casos sinteticos, `store=false` e observa function calls sem enviar seus outputs para qualquer executor.
 - NFR-014 (degradacao): falha de embeddings preserva a busca lexical; falha de uma execucao fica registrada sem afetar agenda, financeiro ou laudos.
 - NFR-015 (segredos por ambiente): stage injeta somente `OPENAI_API_KEY_STAGE` e producao injeta somente `OPENAI_API_KEY_PROD` no `backend/.env` do ambiente correspondente, sem expor valores em logs ou frontend.
+- NFR-016 (aprendizado supervisionado): nenhuma correcao, preferencia inferida ou feedback negativo muda automaticamente a memoria ativa.
+- NFR-017 (reversibilidade): atualizacoes de memoria sao append-only no historico e a reversao nunca apaga versoes anteriores.
+- NFR-018 (regressao segura): contratos de memoria usam somente identificador, versao e hash do conteudo aprovado; nao executam ferramentas nem carregam dados operacionais.
 
 ## 4) Persistencia
 
 - existentes: `assistente_ia_conversas`, `assistente_ia_mensagens`, `assistente_ia_acoes_pendentes`;
 - novos no copiloto: `assistente_ia_memorias`, `assistente_ia_conhecimento_documentos`, `assistente_ia_feedbacks`, `assistente_ia_rascunhos_clinicos`, `agenda_bloqueios`;
 - novos na autonomia segura: `assistente_ia_conhecimento_trechos`, `assistente_ia_missoes`, `assistente_ia_execucoes` e colunas semanticas em `assistente_ia_conhecimento_documentos`;
-- migrations: `20260721_53_assistente_ia_copiloto.py` e `20260721_54_assistente_ia_autonomia.py`.
+- novos no aprendizado continuo: `assistente_ia_aprendizados`, `assistente_ia_memoria_versoes`, `assistente_ia_regressao_casos` e `assistente_ia_memorias.versao_atual`;
+- migrations: `20260721_53_assistente_ia_copiloto.py`, `20260721_54_assistente_ia_autonomia.py` e `20260722_55_assistente_ia_aprendizado_supervisionado.py`.
 
 ## 5) Ferramentas
 
@@ -102,6 +114,13 @@ Preparacao/escrita governada: `solicitar_exclusao_agendamento`, `solicitar_criac
 - CA-021: workflows de stage e producao falham fechados quando o segredo OpenAI do ambiente estiver ausente e escrevem apenas `OPENAI_API_KEY` no arquivo privado do backend correspondente.
 - CA-022: o dataset versionado cobre separadamente contexto clinico, rascunho completo e remarcacao com motivo explicito, mantendo `store=false` e zero chamadas a `execute_tool`.
 - CA-023: o contrato do laboratorio cobre bloqueio direto, usa `max_output_tokens=800` e transforma ausencia de `function_call` em diagnostico persistido por caso.
+- CA-024: feedback negativo com correcao cria aprendizado pendente e o contexto aprovado permanece inalterado antes da decisao.
+- CA-025: aprovar nova sugestao cria memoria v1 e contrato ativo; aprovar ajuste cria a versao seguinte e arquiva o contrato anterior.
+- CA-026: rejeitar sugestao nao altera a memoria; restaurar v1 depois de v2 cria v3 com o conteudo de v1.
+- CA-027: o laboratorio marca contrato coerente como aprovado e divergencia de versao/hash como falha, sem chamar `execute_tool`.
+- CA-028: todas as rotas de aprendizados, versoes, restauracao e regressoes possuem `require_papel("admin")`.
+- CA-029: migration `20260722_55` e idempotente em SQLite e compativel com PostgreSQL.
+- CA-030: testes focais, suite completa, lint, TypeScript, build e smokes de stage/producao passam antes da promocao.
 
 ## 7) Fora de escopo
 
@@ -113,3 +132,5 @@ Preparacao/escrita governada: `solicitar_exclusao_agendamento`, `solicitar_criac
 - missao com prompt livre, SQL, endpoint generico ou escrita autonoma;
 - ingestao automatica de dados clinicos, conversas, pacientes ou tutores na memoria semantica;
 - notificacao externa automatica a partir de alerta ou missao.
+- aprendizado automatico sem revisao do administrador;
+- apagamento ou sobrescrita silenciosa do historico de memoria.
