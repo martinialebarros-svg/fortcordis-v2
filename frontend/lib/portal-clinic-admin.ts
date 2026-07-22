@@ -28,13 +28,13 @@ export function buildClinicInviteMessage({
   return [
     `Ola, equipe ${clinicaNome}.`,
     "",
-    "A Fort Cordis criou um acesso seguro para a clinica parceira consultar exames e laudos liberados no Portal Fort Cordis.",
-    "Use o link abaixo para criar a senha da unidade e entrar no portal:",
+    "A Fort Cordis liberou um acesso seguro para a sua clinica acompanhar exames e laudos dos pets atendidos na unidade.",
+    "Use o link abaixo para ativar o portal da unidade, criar a senha e comecar a consultar os resultados:",
     activationUrl,
     "",
     emailLine,
     `Este link e individual, expira em ${expirationText} e nao deve ser compartilhado fora da equipe autorizada.`,
-    "Depois da ativacao, o acesso sera feito pelo portal com email, senha e confirmacao adicional quando necessario.",
+    "Depois da ativacao, o acesso passa a ser feito pelo portal com email, senha e confirmacao adicional apenas quando necessario.",
   ].join("\n");
 }
 

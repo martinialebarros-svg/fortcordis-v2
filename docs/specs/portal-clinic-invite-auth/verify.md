@@ -8,7 +8,7 @@ Status: done
 
 | ID | Tipo | Evidencia | Status |
 | --- | --- | --- | --- |
-| CA-001 | aceitacao | `frontend/app/clinicas/[id]/page.tsx` + `frontend/app/clinicas/components/ClinicaPortalAccessCard.tsx` com mensagem contextual de WhatsApp | ok |
+| CA-001 | aceitacao | `frontend/app/clinicas/[id]/page.tsx` + `frontend/app/clinicas/components/ClinicaPortalAccessCard.tsx` + `frontend/lib/portal-clinic-admin.ts` + `backend/app/services/portal_clinic_auth_service.py::send_whatsapp_invite` com mensagem contextual de WhatsApp | ok |
 | CA-002 | aceitacao | `backend/app/api/v1/endpoints/portal_clinic_auth.py::criar_convite_clinica` + `::revogar_convite_clinica` | ok |
 | CA-003 | aceitacao | `frontend/app/clinica-parceira/ativar/[token]/page.tsx` + `frontend/components/portal/PortalClinicActivationWorkspace.tsx` + `test_invite_activation_autologin_refresh_and_exam_scope` | ok |
 | CA-004 | aceitacao | `frontend/components/portal/PortalClinicaWorkspace.tsx` + `backend/app/api/v1/endpoints/portal_clinic_auth.py::login_clinica_com_senha` | ok |
@@ -23,6 +23,8 @@ Status: done
 | CA-013 | auditoria | `frontend/lib/portal-datetime.ts` trata timestamp ISO sem timezone como UTC e exibe em `America/Fortaleza` | ok |
 | CA-014 | schema | `backend/migrations/versions/20260704_44_laudos_clinic_id_alignment.py` garante `laudos.clinic_id` para escopo por laudo no portal da clinica | ok |
 | CA-015 | schema | `test_clinic_exam_date_sort_does_not_use_legacy_created_at` evita `COALESCE` entre timestamp e `exames.created_at` textual em banco legado | ok |
+| CA-016 | aceitacao | `frontend/app/clinica-parceira/page.tsx`, `frontend/app/clinica-parceira/ativar/[token]/page.tsx` e `frontend/app/clinica-parceira/redefinir-senha/page.tsx` publicam preview com copy dedicada para a clinica | ok |
+| NFR-013 | nao funcional | `frontend/lib/portal-metadata.ts` centraliza metadata de compartilhamento da clinica com Open Graph/Twitter e imagem oficial | ok |
 
 ## 2) Testes automatizados executados
 
@@ -55,6 +57,7 @@ raise SystemExit(0 if result.wasSuccessful() else 1)
 PY
 
 cd frontend && npx eslint \
+  app/layout.tsx \
   app/clinica-parceira/page.tsx \
   'app/clinica-parceira/ativar/[token]/page.tsx' \
   app/clinica-parceira/redefinir-senha/page.tsx \
@@ -63,6 +66,8 @@ cd frontend && npx eslint \
   components/portal/PortalClinicaWorkspace.tsx \
   components/portal/PortalClinicActivationWorkspace.tsx \
   components/portal/PortalClinicResetPasswordWorkspace.tsx \
+  lib/portal-clinic-admin.ts \
+  lib/portal-metadata.ts \
   lib/portal-api.ts \
   --max-warnings=0
 
@@ -104,6 +109,8 @@ Resumo dos resultados:
   - `test_portal_access_http_flow`: 3/3 pass.
 - Frontend:
   - ESLint dos arquivos afetados: ok.
+  - `frontend/lib/portal-clinic-admin.ts` alinha a mensagem copiada pela operacao com a proposta de valor do portal para a clinica parceira.
+  - `frontend/lib/portal-metadata.ts` padroniza `title`, `description`, `og:*` e `twitter:*` para o portal.
   - ESLint especifico do dashboard da clinica: ok.
   - Helper `portal-datetime` centraliza exibicao de timestamps do portal em `America/Fortaleza`.
   - ESLint do card administrativo de convite apos mensagem contextual: ok.
@@ -112,6 +119,13 @@ Resumo dos resultados:
   - `https://stage.fortcordis.com.br/clinica-parceira`: 200 OK.
   - `https://stage.fortcordis.com.br/clinica-parceira/ativar/teste`: 200 OK.
   - Copy da pagina de ativacao revisada para remover a etapa antiga de codigo no primeiro acesso.
+- Refinamento de preview comercial em 2026-07-22:
+  - `curl -Ls http://127.0.0.1:3101/clinica-parceira | rg 'og:title|og:description|twitter:title|twitter:description|og:image'`: confirmou preview comercial dedicado para a landing da clinica.
+  - `curl -Ls http://127.0.0.1:3101/clinica-parceira/ativar/teste | rg 'og:title|og:description|twitter:title|twitter:description|og:image'`: confirmou preview comercial dedicado para o link de ativacao da unidade.
+  - `curl -Ls 'http://127.0.0.1:3101/clinica-parceira/redefinir-senha?token=teste' | rg 'og:title|og:description|twitter:title|twitter:description|og:image'`: confirmou preview comercial dedicado para recuperacao de acesso da clinica.
+  - `/clinica-parceira` passou a anunciar o valor para a unidade com copy comercial dedicada.
+  - `/clinica-parceira/ativar/[token]` passou a anunciar criacao segura da senha e consulta de exames/laudos pelo portal.
+  - A mensagem de convite copiada no admin e o texto do provider de WhatsApp passaram a reforcar ativacao do portal, consulta de laudos e uso restrito a equipe autorizada.
 - Rollout prod:
   - o teste manual em producao expôs `404 Fluxo de convite da clinica indisponivel.` ao gerar convite no admin, indicando ausencia de `PORTAL_CLINIC_INVITE_AUTH_ENABLED` e `PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED` no `.env` prod apesar da UI ja estar publicada.
   - `backend/app/core/config.py` passou a usar default `true` para ambos os flags, preservando override explicito por ambiente e evitando regressao silenciosa em novos deploys.

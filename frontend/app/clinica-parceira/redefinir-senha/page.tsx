@@ -1,8 +1,17 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowLeft, KeyRound } from "lucide-react";
 
 import PortalClinicResetPasswordWorkspace from "@/components/portal/PortalClinicResetPasswordWorkspace";
+import { buildPortalMetadata } from "@/lib/portal-metadata";
+
+export const metadata: Metadata = buildPortalMetadata({
+  title: "Recupere o acesso da clínica | Fort Cordis",
+  description:
+    "Redefina a senha da unidade e volte a consultar exames e laudos liberados no Portal Fort Cordis com seguranca.",
+  path: "/clinica-parceira/redefinir-senha",
+});
 
 type ClinicaParceiraResetPageProps = {
   searchParams: Promise<{

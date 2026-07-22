@@ -31,6 +31,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
 - RF-017: a tela publica de ativacao deve orientar a clinica a conferir o email institucional, cadastrar responsavel/senha e entrar direto no portal, sem instruir confirmacao de codigo no primeiro cadastro.
 - RF-018: apos login com sucesso, a clinica deve entrar em um ambiente operacional explicito de `clinica parceira`, separado da pagina institucional, com identificacao da unidade autenticada.
 - RF-019: o ambiente da clinica deve exibir visao panoramica dos exames liberados da propria unidade, com filtros por busca geral, pet, tutor, especie, tipo de exame e periodo, alem de ordenacao por data, tipo, pet, tutor ou especie.
+- RF-020: links publicos da clinica parceira compartilhados pela operacao devem exibir preview com copy comercial apropriada para a unidade, preservando a logomarca oficial da Fort Cordis.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -46,6 +47,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
 - NFR-010 (UX): o portal da clinica deve informar claramente expiracao do convite, email institucional do acesso, sessao ativa ate horario estimado e expiracao da sessao estendida.
 - NFR-011 (UX/adesao): a rotina diaria da clinica deve priorizar busca e download em uma tela unica, reduzindo dependencia de IDs internos do pet para localizar exames.
 - NFR-012 (auditoria/tempo): timestamps do portal retornados sem timezone explicito devem ser tratados pelo frontend como UTC e exibidos em `America/Fortaleza`, evitando mostrar horarios de auditoria tres horas adiantados.
+- NFR-013 (branding/compartilhamento): as rotas publicas `/clinica-parceira`, `/clinica-parceira/ativar/[token]` e `/clinica-parceira/redefinir-senha` devem publicar metadata dedicada de titulo e descricao para mensageiros sociais, sem depender apenas da copy generica do app.
 
 ## 4) Contratos tecnicos
 
