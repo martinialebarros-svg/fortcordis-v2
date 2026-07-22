@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import func
@@ -270,15 +270,27 @@ def _refresh_latest_invites_if_needed(db: Session, invites: list[PortalClinicInv
 
 
 def _max_datetime(*values: datetime | None) -> datetime | None:
-    valid = [value for value in values if value is not None]
+    valid = [_normalize_utc_naive_datetime(value) for value in values if value is not None]
     return max(valid) if valid else None
 
 
 def _days_since(reference: datetime | None, now: datetime) -> int | None:
     if reference is None:
         return None
-    delta = now.date() - reference.date()
+    normalized_reference = _normalize_utc_naive_datetime(reference)
+    normalized_now = _normalize_utc_naive_datetime(now)
+    if normalized_reference is None or normalized_now is None:
+        return None
+    delta = normalized_now.date() - normalized_reference.date()
     return max(delta.days, 0)
+
+
+def _normalize_utc_naive_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _load_portal_download_analytics(
@@ -304,7 +316,7 @@ def _load_portal_download_analytics(
         .all()
     )
 
-    cutoff_30d = utcnow() - timedelta(days=30)
+    cutoff_30d = _normalize_utc_naive_datetime(utcnow() - timedelta(days=30))
     download_count_by_clinica: dict[int, int] = {}
     last_download_at_by_clinica: dict[int, datetime] = {}
     first_download_at_by_clinica: dict[int, datetime] = {}
@@ -324,11 +336,15 @@ def _load_portal_download_analytics(
         if clinica_id not in clinicas_by_id:
             continue
 
+        created_at = _normalize_utc_naive_datetime(row.created_at)
+        if created_at is None:
+            continue
+
         download_count_by_clinica[clinica_id] = download_count_by_clinica.get(clinica_id, 0) + 1
         if clinica_id not in last_download_at_by_clinica:
-            last_download_at_by_clinica[clinica_id] = row.created_at
-        first_download_at_by_clinica[clinica_id] = row.created_at
-        if row.created_at >= cutoff_30d:
+            last_download_at_by_clinica[clinica_id] = created_at
+        first_download_at_by_clinica[clinica_id] = created_at
+        if cutoff_30d is not None and created_at >= cutoff_30d:
             downloads_30d += 1
         if len(recent_rows) < PORTAL_RECENT_DOWNLOADS_LIMIT:
             recent_rows.append((row, details))
@@ -403,6 +419,9 @@ def _load_portal_download_analytics(
     download_events_by_audit_id: dict[int, PortalAdminClinicDownloadEventResponse] = {}
     for row, details in selected_rows:
         clinica_id = int(details["clinica_id"])
+        created_at = _normalize_utc_naive_datetime(row.created_at)
+        if created_at is None:
+            continue
         exam = exams_by_id.get(int(details["exame_id"])) if str(details.get("exame_id") or "").isdigit() else None
         attachment = attachments_by_id.get(int(row.entidade_id)) if str(row.entidade_id or "").isdigit() else None
         patient = patients_by_id.get(exam.paciente_id) if exam and exam.paciente_id else None
@@ -420,8 +439,8 @@ def _load_portal_download_analytics(
                 tutor_nome=getattr(tutor, "nome", None),
                 tipo_exame=getattr(exam, "tipo_exame", None),
                 anexo_nome=getattr(attachment, "nome_original", None),
-                downloaded_at=row.created_at,
-                is_first_download=first_download_at_by_clinica.get(clinica_id) == row.created_at,
+                downloaded_at=created_at,
+                is_first_download=first_download_at_by_clinica.get(clinica_id) == created_at,
             )
         )
 
@@ -467,7 +486,7 @@ def _build_clinic_timeline(
                 event_type="invite_created",
                 title="Convite gerado",
                 description=" • ".join(invite_desc_parts),
-                occurred_at=invite.created_at,
+                occurred_at=_normalize_utc_naive_datetime(invite.created_at),
                 tone="neutral",
             )
         )
@@ -479,7 +498,7 @@ def _build_clinic_timeline(
                     event_type="invite_delivered",
                     title="Convite enviado",
                     description=invite_target,
-                    occurred_at=invite.delivered_at,
+                    occurred_at=_normalize_utc_naive_datetime(invite.delivered_at),
                     tone="success",
                 )
             )
@@ -491,7 +510,7 @@ def _build_clinic_timeline(
                     event_type="invite_used",
                     title="Convite aceito",
                     description=invite_email or "Ativacao concluida pela unidade.",
-                    occurred_at=invite.used_at,
+                    occurred_at=_normalize_utc_naive_datetime(invite.used_at),
                     tone="success",
                 )
             )
@@ -503,7 +522,7 @@ def _build_clinic_timeline(
                     event_type="invite_revoked",
                     title="Convite revogado",
                     description=invite_target,
-                    occurred_at=invite.revoked_at,
+                    occurred_at=_normalize_utc_naive_datetime(invite.revoked_at),
                     tone="danger",
                 )
             )
@@ -519,7 +538,7 @@ def _build_clinic_timeline(
                     event_type="account_activated",
                     title="Cadastro concluido",
                     description=account_desc,
-                    occurred_at=account.activated_at,
+                    occurred_at=_normalize_utc_naive_datetime(account.activated_at),
                     tone="success",
                 )
             )
@@ -531,7 +550,7 @@ def _build_clinic_timeline(
                     event_type="account_revoked",
                     title="Conta revogada",
                     description=account_desc,
-                    occurred_at=account.revoked_at,
+                    occurred_at=_normalize_utc_naive_datetime(account.revoked_at),
                     tone="danger",
                 )
             )
@@ -557,7 +576,10 @@ def _build_clinic_timeline(
             )
         )
 
-    events.sort(key=lambda item: (item.occurred_at, item.event_id), reverse=True)
+    events.sort(
+        key=lambda item: (_normalize_utc_naive_datetime(item.occurred_at) or datetime.min, item.event_id),
+        reverse=True,
+    )
     return events[:PORTAL_TIMELINE_LIMIT_PER_CLINICA]
 
 

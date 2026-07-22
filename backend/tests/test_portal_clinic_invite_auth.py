@@ -3,7 +3,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import ExitStack
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -104,6 +104,21 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
         self.assertIn("exames.data_solicitacao", compiled)
         self.assertIn("exames.data_resultado", compiled)
         self.assertNotIn("exames.created_at", compiled)
+
+    def test_portal_overview_datetime_helpers_normalize_mixed_timezones(self) -> None:
+        aware_download = datetime(2026, 7, 5, 13, 15, tzinfo=timezone.utc)
+        naive_login = datetime(2026, 7, 5, 12, 0)
+        naive_now = datetime(2026, 7, 21, 18, 0)
+
+        self.assertEqual(
+            portal_clinic_auth._normalize_utc_naive_datetime(aware_download),
+            datetime(2026, 7, 5, 13, 15),
+        )
+        self.assertEqual(
+            portal_clinic_auth._max_datetime(naive_login, aware_download),
+            datetime(2026, 7, 5, 13, 15),
+        )
+        self.assertEqual(portal_clinic_auth._days_since(aware_download, naive_now), 16)
 
     def _seed_portal_data(self):
         db = self._session_factory()
