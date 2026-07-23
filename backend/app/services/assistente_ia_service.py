@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import time
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -223,6 +225,7 @@ Safety and action boundaries:
 Tool routing:
 - faturamento, tendencia ou ultimos meses -> analisar_faturamento;
 - servicos realizados, producao por atendimento ou todas as ordens de servico do periodo, pagos ou nao -> analisar_servicos_realizados;
+- faturamento previsto, valor da agenda ou soma dos servicos agendados em uma data futura -> projetar_faturamento_agenda; esta ferramenta ja consulta clinica, tabela e preco em uma unica chamada;
 - perfil, relacionamento, visao 360, saude operacional, motivo de queda ou plano de acao de uma clinica -> consultar_clinica_360;
 - comparar desempenho, prioridade ou relacionamento entre duas ou mais clinicas -> comparar_clinicas_360;
 - identificar agenda por data/hora/clinica -> localizar_agendamentos;
@@ -263,6 +266,35 @@ def _safety_identifier(current_user: User) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _normalize_intent_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or "").strip().lower())
+    return " ".join(
+        "".join(char for char in normalized if not unicodedata.combining(char)).split()
+    )
+
+
+def _is_agenda_revenue_forecast_request(message: str) -> bool:
+    text = _normalize_intent_text(message)
+    financial = any(
+        token in text
+        for token in ("fatur", "valor", "dinheiro", "somar", "soma")
+    )
+    scheduled = any(
+        token in text
+        for token in ("agendad", "agenda", "previst", "previs")
+    )
+    dated = (
+        any(token in text for token in ("amanha", "hoje", "depois de amanha"))
+        or bool(re.search(r"\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b", text))
+    )
+    pricing_follow_up = (
+        "tabela" in text
+        and "servic" in text
+        and any(token in text for token in ("previst", "executad", "agendad"))
+    )
+    return bool(financial and ((scheduled and dated) or pricing_follow_up))
+
+
 def _local_history_for_fallback(
     db: Session,
     conversation: AssistenteIAConversa,
@@ -292,19 +324,25 @@ def _provider_request(
     memory_context: str,
     input_items: Any,
     previous_response_id: Optional[str],
+    tool_definitions: Optional[list[dict[str, Any]]] = None,
+    tool_choice: Optional[dict[str, str] | str] = None,
 ) -> Any:
+    selected_tools = TOOL_DEFINITIONS if tool_definitions is None else tool_definitions
     payload: dict[str, Any] = {
         "model": str(settings.ASSISTENTE_IA_MODEL or "gpt-5.6-sol"),
         "instructions": _assistant_instructions(current_user, memory_context),
         "input": input_items,
-        "tools": TOOL_DEFINITIONS,
-        "parallel_tool_calls": False,
         "reasoning": {"effort": "medium"},
         "text": {"verbosity": "medium"},
         "max_output_tokens": 4000,
         "store": True,
         "safety_identifier": _safety_identifier(current_user),
     }
+    if selected_tools:
+        payload["tools"] = selected_tools
+        payload["parallel_tool_calls"] = False
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
     if previous_response_id:
         payload["previous_response_id"] = previous_response_id
     return client.responses.create(**payload)
@@ -378,6 +416,21 @@ def run_assistant_turn(
     started_at = time.monotonic()
     input_tokens = 0
     output_tokens = 0
+    forecast_route = _is_agenda_revenue_forecast_request(clean_message)
+    forecast_tools = (
+        [
+            definition
+            for definition in TOOL_DEFINITIONS
+            if definition.get("name") == "projetar_faturamento_agenda"
+        ]
+        if forecast_route
+        else None
+    )
+    forecast_tool_choice = (
+        {"type": "function", "name": "projetar_faturamento_agenda"}
+        if forecast_route
+        else None
+    )
 
     def collect_usage(provider_response: Any) -> None:
         nonlocal input_tokens, output_tokens
@@ -393,6 +446,8 @@ def run_assistant_turn(
                 memory_context=memory_context,
                 input_items=clean_message,
                 previous_response_id=conversation.previous_response_id,
+                tool_definitions=forecast_tools,
+                tool_choice=forecast_tool_choice,
             )
             collect_usage(response)
         except BadRequestError as exc:
@@ -406,6 +461,8 @@ def run_assistant_turn(
                     memory_context=memory_context,
                     input_items=_local_history_for_fallback(db, conversation, current_user),
                     previous_response_id=None,
+                    tool_definitions=forecast_tools,
+                    tool_choice=forecast_tool_choice,
                 )
                 collect_usage(response)
             else:
@@ -474,6 +531,12 @@ def run_assistant_turn(
                 memory_context=memory_context,
                 input_items=outputs,
                 previous_response_id=str(response.id),
+                tool_definitions=(
+                    []
+                    if forecast_route
+                    and any(str(getattr(call, "name", "")) == "projetar_faturamento_agenda" for call in function_calls)
+                    else None
+                ),
             )
             collect_usage(response)
 

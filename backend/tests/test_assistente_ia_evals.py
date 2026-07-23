@@ -35,6 +35,14 @@ class AssistenteIAEvalContractTest(unittest.TestCase):
         self.assertIn("Animla", cases["debt-clinic-typo"]["prompt"])
         self.assertIn("Uninassal", cases["reservation-clinic-typo"]["prompt"])
         self.assertEqual(cases["services-performed-month"]["expected_tool"], "analisar_servicos_realizados")
+        self.assertEqual(
+            cases["agenda-revenue-tomorrow"]["expected_tool"],
+            "projetar_faturamento_agenda",
+        )
+        self.assertEqual(
+            cases["agenda-revenue-pricing-followup"]["expected_tool"],
+            "projetar_faturamento_agenda",
+        )
         self.assertEqual(cases["clinic-travel-time"]["expected_tool"], "consultar_deslocamento_clinicas")
         self.assertEqual(cases["agenda-closing-time"]["expected_tool"], "consultar_funcionamento_agenda")
         self.assertEqual(

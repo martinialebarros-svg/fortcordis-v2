@@ -1,10 +1,12 @@
 {
-  "version": "2026-07-23",
+  "version": "2026-07-23.2",
   "description": "Casos de regressao de intencao e fronteiras da Mente FortCordis.",
   "cases": [
     {"id": "brief-today", "prompt": "Faça meu resumo executivo de hoje", "expected_tool": "gerar_resumo_executivo"},
     {"id": "billing-five-months", "prompt": "Analise o faturamento dos últimos 5 meses", "expected_tool": "analisar_faturamento"},
     {"id": "services-performed-month", "prompt": "Consulte todas as ordens de serviço geradas neste mês e calcule o valor dos serviços realizados, pagos ou não", "expected_tool": "analisar_servicos_realizados"},
+    {"id": "agenda-revenue-tomorrow", "prompt": "Verifique pra mim amanhã qual o previsto pra faturamento do que tem de agendado.", "expected_tool": "projetar_faturamento_agenda"},
+    {"id": "agenda-revenue-pricing-followup", "prompt": "Olhe o nome da clínica, a tabela Fortaleza ou Metropolitana e some os valores dos serviços previstos.", "expected_tool": "projetar_faturamento_agenda"},
     {"id": "availability", "prompt": "Veja horários para ecocardiograma na Vet World", "expected_tool": "verificar_disponibilidade"},
     {"id": "availability-clinic-typo", "prompt": "Veja horários para ecocardiograma na Vet Wrold", "expected_tool": "verificar_disponibilidade"},
     {"id": "reservation-clinic-typo", "prompt": "Reserve segunda às 11:30 para ecocardiograma no Hospital Veterinário Uninassal, com mensagem para a clínica", "expected_tool": "solicitar_criacao_agendamento", "requires_approval": true},
