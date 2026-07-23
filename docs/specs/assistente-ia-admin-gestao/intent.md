@@ -22,6 +22,8 @@ Evoluir a Mente FortCordis de um chat administrativo com consultas e poucas acoe
 - correcao explicita gera apenas sugestao pendente, revisavel pelo administrador;
 - memoria aprovada possui versoes imutaveis, restauracao auditada e contrato de regressao automatico;
 - laboratorio verifica roteamento e preservacao das memorias sem executar ferramenta real.
+- mapa operacional vivo consolida cada clinica em uma visao 360 com agenda, faturamento, debitos, atividade, preferencias aprovadas e fontes;
+- comparacao entre clinicas usa o mesmo contrato deterministico e permite aprofundar a analise na conversa da Mente.
 
 ## Nao objetivos
 
@@ -31,6 +33,8 @@ Evoluir a Mente FortCordis de um chat administrativo com consultas e poucas acoe
 - ingerir silenciosamente todos os dados ou documentos do sistema;
 - enviar WhatsApp automaticamente pela API da Meta;
 - habilitar pesquisa aberta na internet.
+- expor nomes, contatos ou outros dados de pacientes e tutores no mapa de clinicas;
+- transformar alertas do mapa em escrita ou comunicacao automatica.
 
 ## Riscos principais
 
@@ -41,3 +45,5 @@ Evoluir a Mente FortCordis de um chat administrativo com consultas e poucas acoe
 - crescimento de custo/latencia sem telemetria e regressao continua.
 - correcao isolada ser generalizada de forma indevida para toda a gestao;
 - restauracao apagar contexto historico ou deixar contrato de regressao obsoleto.
+- somar ordens de servico e contas a receber como se fossem dividas distintas quando elas puderem representar o mesmo debito;
+- apresentar indicador sem periodo, fonte ou atualizacao, levando a uma conclusao gerencial sem rastreabilidade.

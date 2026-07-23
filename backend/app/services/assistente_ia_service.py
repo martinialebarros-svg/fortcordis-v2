@@ -218,6 +218,8 @@ Safety and action boundaries:
 
 Tool routing:
 - faturamento, tendencia ou ultimos meses -> analisar_faturamento;
+- perfil, relacionamento, visao 360, saude operacional ou motivo de queda de uma clinica -> consultar_clinica_360;
+- comparar desempenho, prioridade ou relacionamento entre duas ou mais clinicas -> comparar_clinicas_360;
 - identificar agenda por data/hora/clinica -> localizar_agendamentos;
 - horario livre -> verificar_disponibilidade;
 - abrir, ampliar, reduzir ou fechar a agenda em uma data especifica -> solicitar_excecao_funcionamento_agenda;

@@ -729,6 +729,8 @@ Responda obrigatoriamente com uma chamada de ferramenta, nunca com texto ou recu
 Ferramentas `solicitar_*` apenas preparam uma acao pendente para confirmacao humana.
 
 Regras de roteamento que devem ser observadas:
+- visao 360, saude operacional ou motivo de queda de uma clinica usa consultar_clinica_360;
+- comparacao de desempenho ou prioridade entre clinicas usa comparar_clinicas_360;
 - remarcacao de agendamento identificado, com data e horario de destino, usa solicitar_remarcacao_agendamento;
 - bloqueio com data, inicio, fim e motivo definidos usa solicitar_bloqueio_agenda;
 - pedido de preparar rascunho sem conteudo clinico suficiente usa obter_contexto_laudo primeiro;

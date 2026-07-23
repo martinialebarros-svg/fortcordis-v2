@@ -61,3 +61,14 @@ Rollback: desabilitar as novas ferramentas e abas, mantendo a conversa e as oper
 6. Validar migration idempotente, testes focais, suite completa, frontend e release guardado stage/producao.
 
 Rollback: desabilitar as novas superficies de aprendizado e conservar a ultima memoria aprovada. As tabelas sao aditivas; nenhum dado operacional depende delas.
+
+## Fase 6 - Mapa operacional vivo de clinicas
+
+1. Consolidar ao vivo cadastro institucional, agenda, transacoes recebidas, ordens de servico, contas a receber e memorias aprovadas, sem nova persistencia.
+2. Calcular periodo atual e anterior equivalente, alertas e rankings por regras deterministicas e explicitas.
+3. Expor listagem, perfil e comparacao em rotas exclusivas do admin, sem dados de pacientes ou tutores.
+4. Adicionar as ferramentas estritas `consultar_clinica_360` e `comparar_clinicas_360` ao roteamento da Mente.
+5. Entregar a area `Clinicas 360`, com busca, selecao comparativa, aprofundamento por clinica e fontes visiveis.
+6. Ampliar dataset, testes, validacao local e release guardado em stage e producao.
+
+Rollback: retirar as rotas, ferramentas e aba `Clinicas 360`; nenhuma tabela ou dado operacional novo precisa ser removido.
