@@ -109,6 +109,7 @@ def assistente_ia_status(
             "versionamento_e_reversao_de_memorias",
             "regressoes_automaticas_de_memoria",
             "clinicas_360_somente_leitura",
+            "planos_de_acao_360_com_aprovacao",
         ],
     }
 

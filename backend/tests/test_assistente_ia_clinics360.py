@@ -202,6 +202,25 @@ class AssistenteIAClinics360Test(unittest.TestCase):
             {item["key"] for item in profile["alerts"]},
             {"revenue_drop", "cancellation_rate", "overdue_debt"},
         )
+        plans = profile["action_plan"]
+        self.assertEqual(plans["status"], "attention")
+        self.assertTrue(plans["requires_admin_approval"])
+        self.assertFalse(plans["automatic_execution"])
+        self.assertFalse(plans["external_send"])
+        self.assertEqual(
+            {item["source_alert"] for item in plans["items"]},
+            {"revenue_drop", "cancellation_rate", "overdue_debt"},
+        )
+        debt_plan = next(item for item in plans["items"] if item["source_alert"] == "overdue_debt")
+        self.assertEqual(debt_plan["priority"], "critical")
+        mission_step = next(
+            item for item in debt_plan["steps"] if item["kind"] == "read_only_mission"
+        )
+        self.assertEqual(mission_step["mission_template"]["type"], "clinic_360")
+        self.assertTrue(mission_step["mission_template"]["read_only"])
+        self.assertTrue(mission_step["requires_admin_approval"])
+        self.assertTrue(all(not item["external_send"] for item in debt_plan["steps"]))
+        self.assertTrue(all(not item["automatic_business_write"] for item in debt_plan["steps"]))
         serialized = str(profile).lower()
         self.assertNotIn("paciente_id", serialized)
         self.assertNotIn("tutor_id", serialized)
@@ -219,6 +238,8 @@ class AssistenteIAClinics360Test(unittest.TestCase):
 
         self.assertEqual(portfolio["portfolio"]["clinics"], 2)
         self.assertEqual(portfolio["portfolio"]["revenue"], 4000.0)
+        self.assertIn("items_count", portfolio["items"][0]["action_plan"])
+        self.assertNotIn("items", portfolio["items"][0]["action_plan"])
         self.assertEqual(comparison["insights"][0]["clinic_name"], "Vet World")
         self.assertEqual(comparison["insights"][1]["clinic_name"], "Animal Care")
         self.assertTrue(comparison["provenance"]["read_only"])

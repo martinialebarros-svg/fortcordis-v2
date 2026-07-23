@@ -44,6 +44,12 @@ Status: in_progress
 | CA-034 | teste focal compara duas clinicas e confirma lideres e contrato compartilhado | aprovado |
 | CA-035 | 15 casos no dataset e definicoes estritas para consulta e comparacao | aprovado |
 | CA-036 | ESLint, TypeScript e build confirmam busca, periodo, perfil, comparacao, conversa e fontes | aprovado localmente; smokes remotos pendentes |
+| CA-037 | teste focal confirma um plano por alerta suportado e prioridade critica para debito vencido | aprovado |
+| CA-038 | assercoes confirmam ausencia de execucao, envio e escrita automatica em plano e passos | aprovado |
+| CA-039 | teste de autonomia confirma missao `clinic_360` tipada, periodo limitado e rejeicao sem clinica | aprovado |
+| CA-040 | interface possui revisao separada e botao final `Aprovar e criar missao` | aprovado em lint e TypeScript |
+| CA-041 | contato e revisao apenas transferem prompt para a conversa; contratos mantem aprovacao de escritas | aprovado em inspecao e contrato |
+| CA-042 | portfolio resumido, 16 casos versionados, suite limpa, lint, TypeScript e build | aprovado |
 
 ## Evidencias executadas ate agora
 
@@ -69,6 +75,20 @@ git diff --check
 - perfil e comparacao declaram `read_only=true` e `contains_patient_or_tutor_data=false`;
 - nenhuma migration nova: leitura calculada sob demanda sobre tabelas oficiais;
 - smokes de stage e producao serao anexados apos a publicacao guardada do mesmo SHA.
+
+## Ciclo Planos de acao supervisionados - 22/07/2026
+
+- alertas de queda de faturamento, cancelamentos, debito vencido e inatividade geram planos deterministas com evidencia e prioridade;
+- cada plano oferece missao somente de leitura, rascunho de contato sem envio e revisao operacional sem escrita direta;
+- a missao `clinic_360` aceita apenas clinica e periodo, e a interface exige revisao seguida de aprovacao explicita;
+- portfolio e comparacao carregam apenas o resumo dos planos; o perfil focal preserva o contrato completo;
+- nenhuma migration nova: missoes aprovadas reutilizam a persistencia e o scheduler tipado existentes;
+- 17 testes focais de Clinicas 360, autonomia e contratos de avaliacao aprovados;
+- 48 testes focais de toda a Mente, incluindo migrations, admin, autonomia, Clinicas 360 e avaliacoes, aprovados;
+- suite completa em worktree limpo do commit: 381 testes aprovados;
+- ESLint focal, TypeScript, `py_compile`, `pip check`, `git diff --check`, guardrail SDD e build Next aprovados;
+- build confirmou `/assistente-ia` com planos de acao, revisao explicita de missao e protecao contra sugestao duplicada;
+- release remoto permanece separado desta validacao local.
 
 ## Ciclo de aprendizado continuo supervisionado - 22/07/2026
 

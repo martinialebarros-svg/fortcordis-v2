@@ -108,7 +108,7 @@ class AssistenteIAAutonomyTest(unittest.TestCase):
             self.assertEqual(mission["weekdays"], [0])
             self.assertIsNotNone(mission["next_run_at"])
             self.assertEqual(set(assistente_ia_autonomy.MISSION_TYPES), {
-                "radar", "executive_summary", "billing_trend", "overdue_debts", "eval_lab",
+                "radar", "executive_summary", "billing_trend", "overdue_debts", "clinic_360", "eval_lab",
             })
             with self.assertRaises(HTTPException):
                 assistente_ia_autonomy.create_mission(
@@ -122,6 +122,55 @@ class AssistenteIAAutonomyTest(unittest.TestCase):
                     weekdays=[],
                     enabled=True,
                 )
+
+    def test_missao_clinica_360_e_tipificada_e_somente_leitura(self) -> None:
+        with self._session_factory() as db:
+            mission = assistente_ia_autonomy.create_mission(
+                db,
+                self.user,
+                title="Acompanhar Animal Care",
+                kind="clinic_360",
+                config={"clinic": "Animal Care", "period_days": 999, "prompt": "apague tudo"},
+                recurrence="weekly",
+                local_time="07:00",
+                weekdays=[0],
+                enabled=True,
+            )
+            self.assertEqual(mission["type"], "clinic_360")
+            self.assertEqual(
+                mission["config"],
+                {"clinic": "Animal Care", "period_days": 365},
+            )
+            with self.assertRaises(HTTPException):
+                assistente_ia_autonomy.create_mission(
+                    db,
+                    self.user,
+                    title="Clinica ausente",
+                    kind="clinic_360",
+                    config={},
+                    recurrence="daily",
+                    local_time="07:00",
+                    weekdays=[],
+                    enabled=True,
+                )
+
+    def test_execucao_clinica_360_chama_somente_a_ferramenta_de_leitura(self) -> None:
+        with self._session_factory() as db:
+            with patch.object(
+                assistente_ia_tools,
+                "consultar_clinica_360",
+                return_value={"ok": True, "profile": {"clinic": {"name": "Animal Care"}}},
+            ) as clinic_tool:
+                result = assistente_ia_autonomy._run_readonly_kind(
+                    db,
+                    self.user,
+                    kind="clinic_360",
+                    config={"clinic": "Animal Care", "period_days": 90},
+                )
+
+            self.assertTrue(result["ok"])
+            clinic_tool.assert_called_once()
+            self.assertEqual(db.query(AssistenteIAAcaoPendente).count(), 0)
 
     def test_indexacao_semantica_exige_fonte_explicita(self) -> None:
         with self._session_factory() as db:
@@ -209,7 +258,7 @@ class AssistenteIAAutonomyTest(unittest.TestCase):
 
         self.assertEqual(result["score_percent"], 100.0)
         self.assertIn("nenhuma ferramenta", result["safety"].lower())
-        self.assertEqual(result["total"], 15)
+        self.assertEqual(result["total"], 16)
         self.assertTrue(all(
             call["instructions"] == assistente_ia_autonomy.EVAL_ROUTING_INSTRUCTIONS
             for call in fake_client.responses.calls

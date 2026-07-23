@@ -111,6 +111,159 @@ def _period(period_days: int) -> dict[str, Any]:
     }
 
 
+def _action_plan_step(
+    alert_key: str,
+    kind: str,
+    *,
+    title: str,
+    description: str,
+    cta: str,
+    prompt: str | None = None,
+    mission_template: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": f"{alert_key}:{kind}",
+        "kind": kind,
+        "title": title,
+        "description": description,
+        "cta": cta,
+        "prompt": prompt,
+        "mission_template": mission_template,
+        "requires_admin_approval": kind == "read_only_mission",
+        "external_send": False,
+        "automatic_business_write": False,
+    }
+
+
+def _build_action_plan(
+    *,
+    clinic_id: int,
+    clinic_name: str,
+    period_days: int,
+    alerts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    mission_template = {
+        "title": f"Acompanhar saude operacional · {clinic_name}",
+        "type": "clinic_360",
+        "config": {"clinic": clinic_name, "period_days": period_days},
+        "recurrence": "weekly",
+        "local_time": "07:00",
+        "weekdays": [0],
+        "enabled": True,
+        "read_only": True,
+    }
+    definitions = {
+        "revenue_drop": {
+            "title": "Plano de recuperacao de faturamento",
+            "objective": "Identificar a origem da queda e acompanhar a recuperacao sem presumir causas.",
+            "contact": (
+                f"Prepare um rascunho institucional para a {clinic_name} perguntando se houve mudanca "
+                "na demanda, nos servicos ou na rotina de encaminhamentos. Nao envie a mensagem."
+            ),
+            "review": (
+                f"Analise a visao 360 da {clinic_name} nos ultimos {period_days} dias, detalhe quais "
+                "servicos e variacoes explicam a queda e proponha proximos passos. Qualquer mudanca "
+                "operacional deve aguardar minha confirmacao."
+            ),
+        },
+        "cancellation_rate": {
+            "title": "Plano de reducao de cancelamentos",
+            "objective": "Entender os padroes de cancelamento antes de sugerir mudancas na agenda.",
+            "contact": (
+                f"Prepare um rascunho institucional para a {clinic_name} para entender os motivos "
+                "mais frequentes de cancelamento e confirmar preferencias de horario. Nao envie a mensagem."
+            ),
+            "review": (
+                f"Revise agenda, horarios e servicos da {clinic_name} nos ultimos {period_days} dias e "
+                "proponha ajustes para reduzir cancelamentos. Nao altere a agenda sem criar uma acao "
+                "pendente para minha confirmacao."
+            ),
+        },
+        "overdue_debt": {
+            "title": "Plano de regularizacao financeira",
+            "objective": "Conferir os debitos vencidos e preparar uma abordagem de cobranca rastreavel.",
+            "contact": (
+                f"Emita primeiro o relatorio de debitos vencidos da {clinic_name} e prepare uma mensagem "
+                "de cobranca cordial com os valores conferidos. Nao envie a mensagem."
+            ),
+            "review": (
+                f"Verifique os debitos vencidos da {clinic_name}, mantendo ordens de servico e contas a "
+                "receber separadas, e proponha uma ordem de acompanhamento. Nao registre baixa nem altere valores."
+            ),
+        },
+        "inactivity": {
+            "title": "Plano de reativacao do relacionamento",
+            "objective": "Retomar contato com contexto e verificar oportunidades reais de atendimento.",
+            "contact": (
+                f"Prepare um rascunho de reativacao para a {clinic_name}, considerando as preferencias "
+                "aprovadas e os servicos historicos. Nao envie a mensagem."
+            ),
+            "review": (
+                f"Analise a ultima atividade e os servicos historicos da {clinic_name}; depois verifique "
+                "oportunidades de agenda antes de propor qualquer reserva ou ajuste. Toda escrita deve "
+                "aguardar minha confirmacao."
+            ),
+        },
+    }
+    items: list[dict[str, Any]] = []
+    for alert in alerts:
+        key = str(alert.get("key") or "")
+        definition = definitions.get(key)
+        if definition is None:
+            continue
+        priority = "critical" if alert.get("level") == "critical" else "high"
+        items.append(
+            {
+                "id": f"clinic:{clinic_id}:{key}",
+                "source_alert": key,
+                "priority": priority,
+                "title": definition["title"],
+                "objective": definition["objective"],
+                "evidence": str(alert.get("evidence") or ""),
+                "steps": [
+                    _action_plan_step(
+                        key,
+                        "read_only_mission",
+                        title="Monitorar semanalmente",
+                        description="Criar uma missao tipada que apenas atualiza a visao 360 da clinica.",
+                        cta="Revisar missao",
+                        mission_template=mission_template,
+                    ),
+                    _action_plan_step(
+                        key,
+                        "contact_draft",
+                        title="Preparar contato",
+                        description="Levar o contexto para a Mente redigir uma mensagem institucional sem envio automatico.",
+                        cta="Preparar rascunho",
+                        prompt=definition["contact"],
+                    ),
+                    _action_plan_step(
+                        key,
+                        "operational_review",
+                        title="Avaliar ajuste operacional",
+                        description="Investigar a causa e, se cabivel, preparar uma acao governada para aprovacao.",
+                        cta="Avaliar com a Mente",
+                        prompt=definition["review"],
+                    ),
+                ],
+            }
+        )
+    items.sort(key=lambda item: (0 if item["priority"] == "critical" else 1, item["source_alert"]))
+    return {
+        "status": "attention" if items else "healthy",
+        "clinic_id": clinic_id,
+        "period_days": period_days,
+        "items": items,
+        "requires_admin_approval": True,
+        "automatic_execution": False,
+        "external_send": False,
+        "safety": (
+            "Planos sao sugestoes deterministicamente ligadas aos alertas. Missoes exigem aprovacao "
+            "explicita; contatos ficam em rascunho; escritas operacionais continuam na caixa de aprovacoes."
+        ),
+    }
+
+
 def _address(clinic: Clinica) -> str | None:
     street = " ".join(
         part for part in [str(clinic.endereco or "").strip(), str(clinic.numero or "").strip()] if part
@@ -249,6 +402,8 @@ def _clinic_profile(
     clinic: Clinica,
     scope: dict[str, Any],
     period: dict[str, Any],
+    *,
+    include_action_plan: bool = True,
 ) -> dict[str, Any]:
     clinic_id = int(clinic.id)
     appointments = [item for item in scope["appointments"] if int(item.clinica_id) == clinic_id]
@@ -410,6 +565,12 @@ def _clinic_profile(
         _source("approved_memories", "Memorias aprovadas", count=len(preferences), last_updated_at=source_updates["memories"]),
     ]
 
+    action_plan = _build_action_plan(
+        clinic_id=clinic_id,
+        clinic_name=str(clinic.nome),
+        period_days=period["days"],
+        alerts=alerts,
+    )
     return {
         "clinic": {
             "id": clinic_id,
@@ -474,6 +635,12 @@ def _clinic_profile(
             "approved_preferences": preferences,
         },
         "alerts": alerts,
+        "action_plan": action_plan if include_action_plan else {
+            "status": action_plan["status"],
+            "items_count": len(action_plan["items"]),
+            "requires_admin_approval": True,
+            "automatic_execution": False,
+        },
         "attention_score": sum(2 if item["level"] == "critical" else 1 for item in alerts),
         "provenance": {
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -511,7 +678,10 @@ def list_clinics_360(
         query = query.filter(Clinica.ativo.in_([True, 1]))
     clinics = query.order_by(Clinica.nome.asc(), Clinica.id.asc()).limit(max(1, min(200, int(limit)))).all()
     scope = _load_scope(db, clinics, period)
-    items = [_clinic_profile(clinic, scope, period) for clinic in clinics]
+    items = [
+        _clinic_profile(clinic, scope, period, include_action_plan=False)
+        for clinic in clinics
+    ]
     _decorate_rankings(items)
     items.sort(key=lambda item: (-item["attention_score"], item["clinic"]["name"]))
     return {
@@ -543,7 +713,10 @@ def clinic_360_profile(db: Session, clinic_id: int, *, period_days: int = 90) ->
     if clinic is None:
         return {"ok": False, "error": "Clinica nao encontrada."}
     period = _period(period_days)
-    return {"ok": True, "profile": _clinic_profile(clinic, _load_scope(db, [clinic], period), period)}
+    return {
+        "ok": True,
+        "profile": _clinic_profile(clinic, _load_scope(db, [clinic], period), period),
+    }
 
 
 def compare_clinics_360(
@@ -562,7 +735,10 @@ def compare_clinics_360(
         return {"ok": False, "error": "Uma ou mais clinicas nao foram encontradas.", "missing_ids": missing}
     period = _period(period_days)
     scope = _load_scope(db, [clinic_map[item] for item in ids], period)
-    items = [_clinic_profile(clinic_map[item], scope, period) for item in ids]
+    items = [
+        _clinic_profile(clinic_map[item], scope, period, include_action_plan=False)
+        for item in ids
+    ]
     _decorate_rankings(items)
     revenue_leader = max(items, key=lambda item: item["finance"]["revenue"])
     activity_leader = max(items, key=lambda item: item["appointments"]["total"])

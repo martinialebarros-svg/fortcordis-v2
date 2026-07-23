@@ -24,6 +24,8 @@ Evoluir a Mente FortCordis de um chat administrativo com consultas e poucas acoe
 - laboratorio verifica roteamento e preservacao das memorias sem executar ferramenta real.
 - mapa operacional vivo consolida cada clinica em uma visao 360 com agenda, faturamento, debitos, atividade, preferencias aprovadas e fontes;
 - comparacao entre clinicas usa o mesmo contrato deterministico e permite aprofundar a analise na conversa da Mente.
+- alertas do Clinicas 360 geram planos de acao rastreaveis, com missao de leitura, rascunho de contato e revisao operacional;
+- a missao sugerida so nasce apos confirmacao explicita, o contato nao e enviado e qualquer escrita operacional continua governada pela caixa de aprovacoes.
 
 ## Nao objetivos
 
@@ -34,7 +36,7 @@ Evoluir a Mente FortCordis de um chat administrativo com consultas e poucas acoe
 - enviar WhatsApp automaticamente pela API da Meta;
 - habilitar pesquisa aberta na internet.
 - expor nomes, contatos ou outros dados de pacientes e tutores no mapa de clinicas;
-- transformar alertas do mapa em escrita ou comunicacao automatica.
+- executar escrita ou comunicacao automaticamente a partir dos alertas do mapa.
 
 ## Riscos principais
 
@@ -47,3 +49,4 @@ Evoluir a Mente FortCordis de um chat administrativo com consultas e poucas acoe
 - restauracao apagar contexto historico ou deixar contrato de regressao obsoleto.
 - somar ordens de servico e contas a receber como se fossem dividas distintas quando elas puderem representar o mesmo debito;
 - apresentar indicador sem periodo, fonte ou atualizacao, levando a uma conclusao gerencial sem rastreabilidade.
+- uma sugestao de plano ser confundida com decisao executada, contato enviado ou autorizacao para alterar a operacao.
