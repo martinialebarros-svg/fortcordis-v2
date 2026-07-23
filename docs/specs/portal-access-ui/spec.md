@@ -53,6 +53,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - NFR-013 (robustez temporal): o cockpit administrativo deve tolerar timestamps do banco com e sem timezone no mesmo payload, normalizando as datas do painel antes de calcular inatividade, downloads recentes e ordenacao da linha do tempo.
 - NFR-014 (operacao): o painel operacional da clinica deve adotar um SLA padrao visivel de 48 horas para previsao de liberacao quando o exame ainda nao estiver publicado no portal.
 - NFR-015 (UX/layout): a rota `/clinica-parceira` nao deve manter camadas concorrentes da landing publica sob o ambiente autenticado, evitando sobreposicao de textos, rolagens duplicadas e secoes institucionais visiveis durante a sessao da clinica.
+- NFR-016 (UX/sessao): durante o bootstrap da sessao da clinica, a shell autenticada nao deve propagar estado `null` transitorio para o roteamento da pagina, evitando alternancia visual entre landing publica e dashboard autenticado.
 
 ## 4) Contratos tecnicos
 
@@ -190,6 +191,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
   - exibir mensagem vazia quando nenhum exame autorizado existir;
   - encerrar somente a sessao do portal ao clicar em sair;
   - trocar integralmente da landing publica para o workspace autenticado quando houver sessao valida da clinica;
+  - ao montar o workspace autenticado, reutilizar a sessao ja hidratada pela pagina e so propagar mudancas de sessao apos concluir o bootstrap local;
   - mostrar confirmacao antes de revogar convite, conta ou sessoes;
   - exportar somente a visao atualmente filtrada no cockpit administrativo.
 
@@ -233,6 +235,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CA-025: a tela autenticada da clinica parceira exibe um painel operacional com os quatro indicadores principais da unidade.
 - CA-026: a tela autenticada da clinica parceira exibe fila operacional recente com status do exame e previsao ou data de liberacao do portal.
 - CA-027: com sessao valida da clinica, a rota `/clinica-parceira` exibe somente o ambiente autenticado da unidade, sem manter a landing institucional ativa por baixo nem causar sobreposicao visual durante a rolagem.
+- CA-028: com sessao valida persistida no navegador, a rota `/clinica-parceira` nao oscila entre landing publica e dashboard autenticado durante a hidratacao do client-side.
 
 ## 7) Casos de borda
 
@@ -247,6 +250,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CB-009: conta ativa sem login nem download recente por 30 dias deve contar como inativa no indicador administrativo.
 - CB-010: clinica com conta ativa, mas sem email/WhatsApp suficientes para reenvio rapido, deve orientar o operador a completar os dados no compositor.
 - CB-011: um link ja compartilhado pode continuar com preview antigo ate o cache externo do mensageiro expirar; novos compartilhamentos devem usar a metadata vigente do host.
+- CB-012: ao recarregar `/clinica-parceira` com sessao valida salva no navegador, o shell nao deve disparar callback com `null` antes de terminar a propria hidratacao local.
 
 ## 8) Fora de escopo
 

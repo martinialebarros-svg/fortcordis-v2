@@ -46,6 +46,7 @@ import { formatPortalDate, formatPortalDateTime, portalDateTimeMillis } from "@/
 
 type PortalClinicaWorkspaceProps = {
   mode?: "embedded" | "standalone";
+  initialSession?: PortalSessionResponse | null;
   onSessionChange?: (session: PortalSessionResponse | null) => void;
 };
 
@@ -163,10 +164,11 @@ function compactFilters(filters: ClinicExamFiltersState): PortalClinicExamFilter
 
 export default function PortalClinicaWorkspace({
   mode = "embedded",
+  initialSession = null,
   onSessionChange,
 }: PortalClinicaWorkspaceProps) {
-  const [bootstrapping, setBootstrapping] = useState(true);
-  const [session, setSession] = useState<PortalSessionResponse | null>(null);
+  const [bootstrapping, setBootstrapping] = useState(!initialSession);
+  const [session, setSession] = useState<PortalSessionResponse | null>(initialSession);
   const [mfaChallengeId, setMfaChallengeId] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -273,8 +275,14 @@ export default function PortalClinicaWorkspace({
   }
 
   useEffect(() => {
+    if (initialSession) {
+      setSession(initialSession);
+      setBootstrapping(false);
+      return;
+    }
+
     void hydrateClinicSession();
-  }, []);
+  }, [initialSession]);
 
   useEffect(() => {
     if (session) {
@@ -284,8 +292,10 @@ export default function PortalClinicaWorkspace({
   }, [session?.access_token]);
 
   useEffect(() => {
-    onSessionChange?.(session);
-  }, [onSessionChange, session]);
+    if (!bootstrapping) {
+      onSessionChange?.(session);
+    }
+  }, [bootstrapping, onSessionChange, session]);
 
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

@@ -260,7 +260,13 @@ export default function PortalClinicaPageShell() {
   }
 
   if (session) {
-    return <PortalClinicaWorkspace mode="standalone" onSessionChange={handleSessionChange} />;
+    return (
+      <PortalClinicaWorkspace
+        mode="standalone"
+        initialSession={session}
+        onSessionChange={handleSessionChange}
+      />
+    );
   }
 
   return <PublicLanding onSessionChange={handleSessionChange} />;
