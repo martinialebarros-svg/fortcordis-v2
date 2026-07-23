@@ -44,6 +44,11 @@ import {
 } from "@/lib/portal-api";
 import { formatPortalDate, formatPortalDateTime, portalDateTimeMillis } from "@/lib/portal-datetime";
 
+type PortalClinicaWorkspaceProps = {
+  mode?: "embedded" | "standalone";
+  onSessionChange?: (session: PortalSessionResponse | null) => void;
+};
+
 type ClinicSortBy = NonNullable<PortalClinicExamFilters["sort_by"]>;
 type ClinicSortDir = NonNullable<PortalClinicExamFilters["sort_dir"]>;
 
@@ -156,7 +161,10 @@ function compactFilters(filters: ClinicExamFiltersState): PortalClinicExamFilter
   };
 }
 
-export default function PortalClinicaWorkspace() {
+export default function PortalClinicaWorkspace({
+  mode = "embedded",
+  onSessionChange,
+}: PortalClinicaWorkspaceProps) {
   const [bootstrapping, setBootstrapping] = useState(true);
   const [session, setSession] = useState<PortalSessionResponse | null>(null);
   const [mfaChallengeId, setMfaChallengeId] = useState<string | null>(null);
@@ -274,6 +282,10 @@ export default function PortalClinicaWorkspace() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.access_token]);
+
+  useEffect(() => {
+    onSessionChange?.(session);
+  }, [onSessionChange, session]);
 
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -431,10 +443,14 @@ export default function PortalClinicaWorkspace() {
   }
 
   if (session) {
+    if (mode !== "standalone") {
+      return null;
+    }
+
     const clinicLabel = clinicName || (session.clinica_id ? `Clínica #${session.clinica_id}` : "Clínica parceira");
 
     return (
-      <section className="fc-clinic-dashboard fixed inset-0 z-50 overflow-y-auto bg-[#f6fafb] text-slate-950">
+      <section className="fc-clinic-dashboard min-h-screen bg-[#f6fafb] text-slate-950">
         <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur sm:px-8">
           <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
