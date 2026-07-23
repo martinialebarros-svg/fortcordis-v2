@@ -43,6 +43,7 @@ Status: done
 | CA-026 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx` renderiza a fila operacional com status e previsao/data de liberacao | ok |
 | CA-027 | frontend | `frontend/components/portal/PortalClinicaPageShell.tsx` + `frontend/components/portal/PortalClinicaWorkspace.tsx` alternando entre landing publica e shell autenticado sem sobreposicao | ok |
 | CA-028 | frontend | `PortalClinicaPageShell` reutiliza a sessao ja hidratada em `standalone` e `PortalClinicaWorkspace` so notifica o shell pai apos concluir o bootstrap local, evitando piscar entre landing e dashboard | ok |
+| CA-029 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx` + `frontend/app/globals.css` mantem o card `Sessao ativa` legivel dentro do hero autenticado da clinica | ok |
 | NFR-008 | nao funcional | auditoria de download enriquecida com `actor_type`, `clinica_id` e `account_id` em `backend/app/api/v1/endpoints/portal.py` | ok |
 | NFR-009 | nao funcional | confirmacoes explicitas antes de revogacoes no cockpit administrativo | ok |
 | NFR-010 | nao funcional | painel calcula metricas somente a partir dos dados de acesso ja autorizados no backend | ok |
@@ -51,6 +52,7 @@ Status: done
 | NFR-013 | nao funcional | normalizacao defensiva de timestamps do cockpit antes de comparar recencia, ultimo acesso e ordem da linha do tempo | ok |
 | NFR-015 | nao funcional | shell exclusivo em `/clinica-parceira`, sem camadas publicas concorrentes durante sessao autenticada | ok |
 | NFR-016 | nao funcional | bootstrap da sessao autenticada nao propaga `null` transitorio para o roteamento da pagina | ok |
+| NFR-017 | nao funcional | hero autenticado restringe contraste invertido ao bloco institucional e preserva cards de apoio com fundo claro e texto escuro | ok |
 
 ## 2) Testes automatizados executados
 
@@ -141,6 +143,15 @@ Resumo dos resultados:
   - `PortalClinicaPageShell` passou a reutilizar a sessao ja hidratada via prop `initialSession` ao montar o workspace standalone.
   - `PortalClinicaWorkspace` passou a adiar o callback `onSessionChange` ate o fim do bootstrap local.
 - Validacao por codigo confirma que o shell autenticado nao derruba mais o estado pai para `null` no primeiro render com sessao valida.
+
+### Ajuste de legibilidade do hero autenticado de 2026-07-23
+
+- Causa confirmada por codigo: o seletor global `.fc-clinic-dashboard main > section:first-child` ainda estiliza genericamente o primeiro `section` do dashboard autenticado, inclusive o card `Sessao ativa`.
+- Impacto observado: o hero institucional aplicava texto branco tambem sobre o card lateral claro, deixando a sessao praticamente invisivel e reforcando blocos brancos sem contexto.
+- Correcao aplicada:
+  - `PortalClinicaWorkspace` passou a marcar explicitamente o hero, o kicker institucional e o card `Sessao ativa`.
+  - `frontend/app/globals.css` passou a estilizar essas partes por classes dedicadas, removendo a heranca global de contraste invertido.
+- Validacao por codigo confirma que o gradiente e o contraste alto ficam restritos ao bloco institucional, enquanto o card lateral preserva superficie clara e texto escuro legivel.
 
 ### Regressao de timezone de 2026-07-22
 
