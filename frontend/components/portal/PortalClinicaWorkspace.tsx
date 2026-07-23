@@ -494,9 +494,9 @@ export default function PortalClinicaWorkspace({
         </header>
 
         <main className="mx-auto max-w-7xl px-5 py-6 sm:px-8">
-          <section className="grid gap-4 lg:grid-cols-[1fr_0.72fr] lg:items-start">
-            <div>
-              <p className="inline-flex items-center gap-2 rounded-lg bg-teal-50 px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-teal-800">
+          <section className="fc-clinic-dashboard-hero grid gap-4 lg:grid-cols-[1fr_0.72fr] lg:items-start">
+            <div className="fc-clinic-dashboard-hero-copy">
+              <p className="fc-clinic-dashboard-hero-kicker inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-[0.12em]">
                 <LayoutDashboard className="h-4 w-4" />
                 Portal da unidade
               </p>
@@ -505,7 +505,7 @@ export default function PortalClinicaWorkspace({
               </h2>
             </div>
 
-            <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+            <div className="fc-clinic-dashboard-session rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
               <p className="font-bold text-slate-950">Sessão ativa</p>
               <p className="mt-2">ID da clínica: {session.clinica_id ?? "-"}</p>
               <p className="mt-1">Válida até {formatPortalDateTime(session.expires_at)}</p>

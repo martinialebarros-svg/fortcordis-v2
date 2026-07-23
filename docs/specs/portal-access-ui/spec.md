@@ -54,6 +54,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - NFR-014 (operacao): o painel operacional da clinica deve adotar um SLA padrao visivel de 48 horas para previsao de liberacao quando o exame ainda nao estiver publicado no portal.
 - NFR-015 (UX/layout): a rota `/clinica-parceira` nao deve manter camadas concorrentes da landing publica sob o ambiente autenticado, evitando sobreposicao de textos, rolagens duplicadas e secoes institucionais visiveis durante a sessao da clinica.
 - NFR-016 (UX/sessao): durante o bootstrap da sessao da clinica, a shell autenticada nao deve propagar estado `null` transitorio para o roteamento da pagina, evitando alternancia visual entre landing publica e dashboard autenticado.
+- NFR-017 (UX/legibilidade): o hero autenticado da clinica deve restringir o contraste invertido ao bloco institucional, preservando cards de apoio com superficie clara e texto escuro legivel.
 
 ## 4) Contratos tecnicos
 
@@ -192,6 +193,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
   - encerrar somente a sessao do portal ao clicar em sair;
   - trocar integralmente da landing publica para o workspace autenticado quando houver sessao valida da clinica;
   - ao montar o workspace autenticado, reutilizar a sessao ja hidratada pela pagina e so propagar mudancas de sessao apos concluir o bootstrap local;
+  - manter o card de `Sessao ativa` e outros apoios do dashboard autenticado com fundo claro e contraste proprio, sem herdar texto branco do hero institucional;
   - mostrar confirmacao antes de revogar convite, conta ou sessoes;
   - exportar somente a visao atualmente filtrada no cockpit administrativo.
 
@@ -236,6 +238,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CA-026: a tela autenticada da clinica parceira exibe fila operacional recente com status do exame e previsao ou data de liberacao do portal.
 - CA-027: com sessao valida da clinica, a rota `/clinica-parceira` exibe somente o ambiente autenticado da unidade, sem manter a landing institucional ativa por baixo nem causar sobreposicao visual durante a rolagem.
 - CA-028: com sessao valida persistida no navegador, a rota `/clinica-parceira` nao oscila entre landing publica e dashboard autenticado durante a hidratacao do client-side.
+- CA-029: o hero autenticado da clinica exibe o bloco institucional com contraste elevado sem apagar o conteudo do card `Sessao ativa`.
 
 ## 7) Casos de borda
 

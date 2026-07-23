@@ -5498,14 +5498,21 @@ body {
     box-shadow: 0 4px 18px rgba(23, 32, 29, 0.05);
   }
 
-  .fc-clinic-dashboard main > section:first-child {
+  .fc-clinic-dashboard-hero {
     @apply rounded-lg border border-ink-900/20 p-5 text-white shadow-fort-card;
     background: linear-gradient(112deg, #4c0519 0%, #17201d 58%, #0f766e 100%);
   }
 
-  .fc-clinic-dashboard main > section:first-child h2,
-  .fc-clinic-dashboard main > section:first-child p {
+  .fc-clinic-dashboard-hero-copy > h2 {
     color: #fff;
+  }
+
+  .fc-clinic-dashboard-hero-kicker {
+    @apply border border-white/20 bg-white/10 text-white backdrop-blur-sm;
+  }
+
+  .fc-clinic-dashboard-session {
+    @apply border-white/20 bg-white/95 text-slate-600 shadow-2xl backdrop-blur-md;
   }
 
   @media (max-width: 639px) {
