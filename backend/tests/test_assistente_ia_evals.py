@@ -20,7 +20,7 @@ class AssistenteIAEvalContractTest(unittest.TestCase):
             type("Admin", (), {"nome": "Admin"})(),
             "Nenhuma memoria aprovada.",
         )
-        self.assertGreaterEqual(len(payload["cases"]), 16)
+        self.assertGreaterEqual(len(payload["cases"]), 23)
         for case in payload["cases"]:
             tool_name = case["expected_tool"]
             self.assertIn(tool_name, definitions, case["id"])
@@ -31,6 +31,16 @@ class AssistenteIAEvalContractTest(unittest.TestCase):
         cases = {case["id"]: case for case in payload["cases"]}
         self.assertIn("solicitação da clínica", cases["reschedule"]["prompt"])
         self.assertEqual(cases["clinic-360"]["expected_tool"], "consultar_clinica_360")
+        self.assertIn("Wrold", cases["availability-clinic-typo"]["prompt"])
+        self.assertIn("Animla", cases["debt-clinic-typo"]["prompt"])
+        self.assertIn("Uninassal", cases["reservation-clinic-typo"]["prompt"])
+        self.assertEqual(cases["services-performed-month"]["expected_tool"], "analisar_servicos_realizados")
+        self.assertEqual(cases["clinic-travel-time"]["expected_tool"], "consultar_deslocamento_clinicas")
+        self.assertEqual(cases["agenda-closing-time"]["expected_tool"], "consultar_funcionamento_agenda")
+        self.assertEqual(
+            cases["attach-patient-reservation"]["expected_tool"],
+            "solicitar_vinculo_paciente_reserva",
+        )
         self.assertEqual(
             cases["clinic-360-action-plan"]["expected_tool"],
             "consultar_clinica_360",

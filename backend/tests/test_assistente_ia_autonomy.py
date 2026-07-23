@@ -258,7 +258,7 @@ class AssistenteIAAutonomyTest(unittest.TestCase):
 
         self.assertEqual(result["score_percent"], 100.0)
         self.assertIn("nenhuma ferramenta", result["safety"].lower())
-        self.assertEqual(result["total"], 16)
+        self.assertEqual(result["total"], 23)
         self.assertTrue(all(
             call["instructions"] == assistente_ia_autonomy.EVAL_ROUTING_INSTRUCTIONS
             for call in fake_client.responses.calls

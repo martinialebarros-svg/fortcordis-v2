@@ -1,6 +1,6 @@
 # Spec - assistente-ia-admin-gestao
 
-Data: 2026-07-22
+Data: 2026-07-23
 Responsavel: Martiniano + Codex
 Status: completed
 
@@ -65,6 +65,18 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - RF-053: contato sugerido abre apenas um pedido de rascunho na conversa e nunca dispara WhatsApp, e-mail ou outra notificacao.
 - RF-054: revisao operacional abre um pedido delimitado na conversa; se resultar em escrita, o fluxo existente deve criar acao pendente e aguardar aprovacao.
 - RF-055: portfolio e comparacao retornam apenas resumo da quantidade de planos, enquanto o perfil focal e a ferramenta `consultar_clinica_360` recebem o plano completo.
+- RF-056: a resolucao de clinicas aceita pequenas diferencas de digitacao, acentuacao, pontuacao ou transposicao apenas quando o melhor cadastro ativo supera limiar e margem de confianca; aproximacoes ambiguas continuam exigindo esclarecimento.
+- RF-057: a rota `POST /api/v1/assistente-ia/voz/transcrever` recebe audio limitado e suportado, exige `admin` e usa transcricao em portugues com vocabulario contextual de termos FortCordis e nomes de clinicas ativas.
+- RF-058: a transcricao preenche o campo da conversa para revisao; ela nao e enviada automaticamente, nao cria conversa e nao aciona ferramenta antes do comando explicito de envio.
+- RF-059: o audio bruto nunca e persistido pela FortCordis; a auditoria registra somente metadados operacionais, sem audio ou conteudo transcrito.
+- RF-060: comandos originados por voz percorrem o mesmo `/chat`, as mesmas ferramentas estritas e as mesmas confirmacoes de qualquer comando digitado.
+- RF-061: a interface oferece gravar, parar, transcrever, revisar e enviar, com limite automatico de duracao, estados acessiveis e mensagem de uso seguro.
+- RF-062: `analisar_servicos_realizados` soma OS por `data_atendimento`, pagas ou pendentes, exclui `Cancelado`, aceita toda a FortCordis ou uma clinica e separa o indicador de recebimentos financeiros.
+- RF-063: `consultar_deslocamento_clinicas` resolve origem e destino, reutiliza a matriz logistica oficial e devolve distancia, duracao, perfil e fonte como estimativa operacional.
+- RF-064: `consultar_funcionamento_agenda` responde pelo horario geral efetivo de uma data usando excecao, feriado ou rotina semanal, sem exigir clinica ou servico.
+- RF-065: `solicitar_vinculo_paciente_reserva` prepara uma acao pendente para associar paciente e tutor existentes a uma reserva ativa, sem cancelar, recriar ou mudar o horario.
+- RF-066: a aprovacao do vinculo revalida proprietario, TTL, snapshot da reserva, expiracao, paciente, tutor e versoes; divergencia invalida a acao.
+- RF-067: quando o provedor falhar depois de persistir um comando, a conversa e devolvida ao frontend, o texto volta ao campo e a nova tentativa identica reutiliza a mensagem sem resposta.
 
 ## 3) Requisitos nao funcionais
 
@@ -92,6 +104,15 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - NFR-022 (autonomia supervisionada): plano, missao, contato e revisao nao concedem ao scheduler nem ao modelo uma ferramenta generica de escrita.
 - NFR-023 (explicabilidade): todo plano referencia um alerta e sua evidencia; nenhuma recomendacao usa score preditivo ou causa inferida de forma opaca.
 - NFR-024 (minimizacao): os prompts sugeridos incluem apenas nome institucional, periodo e contexto gerencial do alerta, sem paciente ou tutor.
+- NFR-025 (resolucao conservadora): correspondencia aproximada nunca vence uma ambiguidade por substring/token e exige vantagem minima sobre o segundo candidato.
+- NFR-026 (privacidade de voz): nenhum byte de audio e gravado no banco, logs ou auditoria; somente a transcricao enviada pelo admin passa a integrar a conversa.
+- NFR-027 (limites de upload): tipo, extensao, conteudo vazio e tamanho maximo sao validados no backend antes da chamada ao provedor.
+- NFR-028 (segredo): a chave OpenAI permanece exclusiva do backend; o navegador envia audio somente ao dominio autenticado da FortCordis.
+- NFR-029 (degradacao): navegador sem `MediaRecorder`, permissao negada ou falha de transcricao mantem a entrada por texto disponivel e retorna erro controlado.
+- NFR-030 (fontes): producao por OS, recebimentos financeiros, debitos, funcionamento e deslocamento declaram fontes distintas e nao podem ser apresentados como equivalentes.
+- NFR-031 (minimizacao): consultas de OS e deslocamento nao retornam paciente, tutor, telefone ou endereco.
+- NFR-032 (retomada): falha temporaria nao deve apagar o comando digitado/transcrito nem criar repeticoes consecutivas no historico ao tentar novamente.
+- NFR-033 (vinculo governado): nenhuma reserva recebe paciente antes da confirmacao e o fluxo oficial de atualizacao da agenda continua responsavel pela escrita e auditoria.
 
 ## 4) Persistencia
 
@@ -102,6 +123,8 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - migrations: `20260721_53_assistente_ia_copiloto.py`, `20260721_54_assistente_ia_autonomia.py` e `20260722_55_assistente_ia_aprendizado_supervisionado.py`.
 - Clinicas 360 nao cria tabela ou migration: todos os indicadores sao calculados sob demanda sobre as fontes oficiais existentes.
 - planos de acao tambem nao criam tabela ou migration; somente a missao aprovada reutiliza `assistente_ia_missoes` e `assistente_ia_execucoes`.
+- voz e tolerancia de nomes nao criam tabela ou migration; audio nao e persistido e a transcricao so entra nas mensagens depois do envio do admin.
+- as novas consultas, retomada e vinculacao reutilizam modelos, matriz logistica, mensagens e acoes pendentes existentes; nao ha nova migration.
 
 ## 5) Ferramentas
 
@@ -155,6 +178,20 @@ Preparacao/escrita governada: `solicitar_exclusao_agendamento`, `solicitar_criac
 - CA-040: interface exige `Revisar missao` e depois `Aprovar e criar missao`; antes da segunda acao nenhuma missao e persistida.
 - CA-041: botoes de contato e revisao apenas preenchem a conversa; envio externo e escrita operacional continuam ausentes ou sujeitos a acao pendente.
 - CA-042: portfolio nao inclui os itens completos do plano, dataset cobre pedido de plano de acao e suite, lint, TypeScript e build passam.
+- CA-043: `Animla Care` e `Vet Wrold` resolvem respectivamente `Animal Care` e `Vet World` quando nao existe concorrente proximo.
+- CA-044: `Animal` com `Animal Care` e `Animal Clinic` permanece ambiguo e retorna as duas opcoes sem escolher silenciosamente.
+- CA-045: rota de voz exige `admin`, rejeita tipo/extensao invalidos e bloqueia payload acima do limite.
+- CA-046: transcricao usa `language=pt`, modelo configurado e prompt contendo termos veterinarios e nomes ativos de clinicas.
+- CA-047: resposta declara revisao obrigatoria e ausencia de persistencia; auditoria nao recebe audio nem transcricao.
+- CA-048: interface possui controles acessiveis para gravar/parar, limite automatico, estado de transcricao e preenchimento sem envio automatico.
+- CA-049: comando transcrito usa o fluxo de chat existente e qualquer escrita continua `pending` ate aprovacao valida.
+- CA-050: auditoria somente leitura identifica no historico real as lacunas de OS realizadas, deslocamento, funcionamento geral, vinculo de paciente e mensagens sem resposta.
+- CA-051: teste soma OS `Pendente` e `Pago` de todas as clinicas e exclui `Cancelado`.
+- CA-052: teste de deslocamento resolve `Vet Wrold`, chama a matriz oficial e preserva fonte e estimativa.
+- CA-053: teste de funcionamento retorna a excecao efetiva sem clinica ou servico.
+- CA-054: teste de vinculo confirma que nenhuma escrita ocorre antes da aprovacao e que o fluxo oficial recebe apenas paciente e tutor, preservando o horario.
+- CA-055: teste de nova tentativa confirma duas mensagens finais, e nao tres, quando ja existe comando identico sem resposta.
+- CA-056: dataset possui 23 casos, incluindo as cinco falhas reais e o erro `Uninassal`, com ferramentas estritas e laboratorio sem execucao.
 
 ## 7) Fora de escopo
 
@@ -170,3 +207,4 @@ Preparacao/escrita governada: `solicitar_exclusao_agendamento`, `solicitar_criac
 - apagamento ou sobrescrita silenciosa do historico de memoria.
 - score preditivo opaco, recomendacao automatica a cliente ou alteracao operacional a partir do mapa Clinicas 360.
 - criacao silenciosa de missao, contato externo automatico ou aplicacao direta de ajuste sugerido pelo plano.
+- gravacao continua em segundo plano, envio automatico de transcricao ou aprovacao operacional por voz.

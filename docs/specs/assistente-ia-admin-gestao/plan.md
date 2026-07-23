@@ -1,6 +1,6 @@
 # Plan - assistente-ia-admin-gestao
 
-Data: 2026-07-22
+Data: 2026-07-23
 Responsavel: Martiniano + Codex
 Status: completed
 
@@ -69,3 +69,17 @@ Rollback: retirar as rotas, ferramentas e aba `Clinicas 360`; nenhuma tabela ou 
 6. Ampliar dataset, testes, interface e SDD sem nova migration.
 
 Rollback: remover `action_plan` do perfil, o tipo de missao `clinic_360` e o painel de planos; nenhuma tabela ou dado de negocio precisa ser revertido.
+
+## Fase 8 - Recuperacao de falhas, nomes tolerantes e voz
+
+1. Auditar as conversas reais do administrador e transformar falhas reproduziveis em regras de roteamento, ferramentas ou casos de regressao.
+2. Resolver erros evidentes em nomes de clinicas por similaridade conservadora, preservando desambiguacao quando dois cadastros forem proximos.
+3. Adicionar transcricao de audio no backend com idioma portugues, vocabulario FortCordis, limite de tamanho, formatos permitidos e zero persistencia do arquivo.
+4. Entregar um controle de microfone com gravacao limitada, parada, transcricao e revisao antes do envio.
+5. Garantir que pedidos por voz percorram o chat e a caixa de aprovacoes existentes sem qualquer atalho para escrita.
+6. Adicionar consultas estritas para OS realizadas no periodo, deslocamento entre clinicas e funcionamento geral da agenda.
+7. Vincular paciente e tutor a reserva existente por acao pendente, preservando horario e revalidando alvo e referencias na aprovacao.
+8. Reutilizar a ultima mensagem identica sem resposta em uma nova tentativa e devolver o identificador da conversa quando o provedor falhar.
+9. Ampliar dataset, testes, SDD, frontend e smokes autenticados antes da promocao.
+
+Rollback: ocultar o controle de voz e retirar a rota de transcricao e o matching aproximado; texto, ferramentas e confirmacoes atuais continuam funcionando sem migration.
