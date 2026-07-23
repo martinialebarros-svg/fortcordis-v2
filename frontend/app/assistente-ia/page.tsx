@@ -1306,8 +1306,8 @@ export default function AssistenteIAPage() {
 
   return (
     <DashboardLayout>
-      <div className="min-h-screen bg-shell p-4 sm:p-6 lg:p-8">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5">
+      <div className="min-h-screen min-w-0 overflow-x-hidden bg-shell p-4 sm:p-6 lg:p-8">
+        <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-5">
           <header className="overflow-hidden rounded-3xl bg-gradient-to-br from-ink-900 via-ink-700 to-vital-900 p-6 text-white shadow-fort-card sm:p-8">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
               <div className="max-w-3xl">
@@ -1820,8 +1820,8 @@ export default function AssistenteIAPage() {
               ) : null}
             </section>
           ) : (
-          <div className="grid min-h-[680px] overflow-hidden rounded-3xl border border-ink-100 bg-white shadow-fort-card lg:grid-cols-[280px_minmax(0,1fr)]">
-            <aside className="border-b border-ink-100 bg-ink-50/60 p-4 lg:border-b-0 lg:border-r">
+          <div className="grid min-h-[680px] w-full min-w-0 grid-cols-[minmax(0,1fr)] overflow-hidden rounded-3xl border border-ink-100 bg-white shadow-fort-card lg:grid-cols-[280px_minmax(0,1fr)]">
+            <aside className="min-w-0 border-b border-ink-100 bg-ink-50/60 p-4 lg:border-b-0 lg:border-r">
               <button
                 type="button"
                 onClick={startConversation}
@@ -1855,7 +1855,7 @@ export default function AssistenteIAPage() {
                   ))
                 )}
               </div>
-              <div className="mt-5 rounded-2xl border border-vital-100 bg-vital-50 p-4 text-xs leading-5 text-vital-900">
+              <div className="mt-5 min-w-0 break-words rounded-2xl border border-vital-100 bg-vital-50 p-4 text-xs leading-5 text-vital-900">
                 <div className="mb-1 flex items-center gap-2 font-semibold">
                   <ShieldCheck className="h-4 w-4" /> Controle administrativo
                 </div>
@@ -1863,31 +1863,31 @@ export default function AssistenteIAPage() {
               </div>
             </aside>
 
-            <section className="flex min-h-[680px] min-w-0 flex-col">
-              <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+            <section className="flex min-h-[680px] w-full min-w-0 flex-col">
+              <div className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
                 {loadingHistory ? (
                   <div className="flex h-full items-center justify-center gap-2 text-sm text-ink-400">
                     <Loader2 className="h-5 w-5 animate-spin" /> Carregando conversa...
                   </div>
                 ) : messages.length === 0 ? (
-                  <div className="mx-auto flex min-h-[480px] max-w-3xl flex-col justify-center">
+                  <div className="mx-auto flex min-h-[480px] w-full min-w-0 max-w-3xl flex-col justify-center">
                     <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-cordis-50 text-cordis-600">
                       <Sparkles className="h-7 w-7" />
                     </div>
-                    <h2 className="mt-5 text-center text-2xl font-bold text-ink-900">Como posso ajudar na gestão hoje?</h2>
-                    <p className="mx-auto mt-2 max-w-xl text-center text-sm leading-6 text-ink-500">
+                    <h2 className="mt-5 break-words text-center text-xl font-bold text-ink-900 sm:text-2xl">Como posso ajudar na gestão hoje?</h2>
+                    <p className="mx-auto mt-2 max-w-xl break-words text-center text-sm leading-6 text-ink-500">
                       Comece por um destes exemplos ou escreva sua solicitação com clínica, período e serviço quando souber.
                     </p>
-                    <div className="mt-7 grid gap-3 sm:grid-cols-2">
+                    <div className="mt-7 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
                       {EXAMPLES.map(({ icon: Icon, text }) => (
                         <button
                           type="button"
                           key={text}
                           onClick={() => setInput(text)}
-                          className="group flex items-start gap-3 rounded-2xl border border-ink-100 p-4 text-left text-sm leading-5 text-ink-700 transition hover:-translate-y-0.5 hover:border-cordis-200 hover:bg-cordis-50/50 hover:shadow-sm"
+                          className="group flex w-full min-w-0 items-start gap-3 rounded-2xl border border-ink-100 p-4 text-left text-sm leading-5 text-ink-700 transition hover:-translate-y-0.5 hover:border-cordis-200 hover:bg-cordis-50/50 hover:shadow-sm"
                         >
                           <Icon className="mt-0.5 h-5 w-5 shrink-0 text-cordis-500" />
-                          {text}
+                          <span className="min-w-0 whitespace-normal break-words">{text}</span>
                         </button>
                       ))}
                     </div>
@@ -1906,7 +1906,7 @@ export default function AssistenteIAPage() {
                               : "rounded-bl-md border border-ink-100 bg-ink-50 text-ink-800"
                           }`}
                         >
-                          <p className="whitespace-pre-wrap">{message.content}</p>
+                          <p className="whitespace-pre-wrap break-words">{message.content}</p>
                           {Array.isArray(message.tools) && message.tools.length > 0 ? (
                             <div className="mt-3 border-t border-ink-100 pt-2">
                               {message.tools.map((tool, index) => (
@@ -2165,7 +2165,7 @@ export default function AssistenteIAPage() {
                       rows={2}
                       disabled={!assistantReady || loading}
                       placeholder="Ex.: analise o faturamento dos últimos cinco meses..."
-                      className="max-h-40 min-h-[48px] flex-1 resize-none border-0 bg-transparent px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 disabled:cursor-not-allowed"
+                      className="max-h-40 min-h-[48px] min-w-0 flex-1 resize-none border-0 bg-transparent px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 disabled:cursor-not-allowed"
                     />
                     <button
                       type="button"
