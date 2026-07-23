@@ -23,6 +23,7 @@ import {
   FlaskConical,
   History,
   Lightbulb,
+  Mic,
   MessageCircle,
   MessageSquare,
   Plus,
@@ -34,6 +35,7 @@ import {
   Send,
   ShieldCheck,
   Sparkles,
+  Square,
   Target,
   Play,
   ThumbsDown,
@@ -146,6 +148,13 @@ type AssistantStatus = {
   configured: boolean;
   model: string;
   admin_only: boolean;
+  voice?: {
+    enabled: boolean;
+    model: string;
+    max_seconds: number;
+    review_before_send: boolean;
+    audio_persisted: boolean;
+  };
 };
 
 type ExecutiveSummary = {
@@ -422,6 +431,7 @@ type Clinics360Comparison = {
 };
 
 type WorkspaceView = "chat" | "clinics" | "radar" | "brief" | "missions" | "approvals" | "learning" | "memory" | "knowledge" | "evaluations" | "clinical";
+type VoiceState = "idle" | "recording" | "transcribing" | "review";
 
 const EXAMPLES = [
   {
@@ -541,6 +551,9 @@ const WEEKDAY_LABELS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 export default function AssistenteIAPage() {
   const router = useRouter();
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const voiceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [status, setStatus] = useState<AssistantStatus | null>(null);
   const [view, setView] = useState<WorkspaceView>("chat");
@@ -549,6 +562,9 @@ export default function AssistenteIAPage() {
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [pendingActions, setPendingActions] = useState<PendingAction[]>([]);
   const [input, setInput] = useState("");
+  const [voiceState, setVoiceState] = useState<VoiceState>("idle");
+  const [voiceSupported, setVoiceSupported] = useState(true);
+  const [voiceNotice, setVoiceNotice] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [decidingActionId, setDecidingActionId] = useState<string | null>(null);
@@ -768,11 +784,29 @@ export default function AssistenteIAPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, pendingActions, loading]);
 
+  useEffect(() => {
+    setVoiceSupported(
+      Boolean(
+        typeof window !== "undefined"
+        && typeof navigator.mediaDevices?.getUserMedia === "function"
+        && typeof window.MediaRecorder !== "undefined",
+      ),
+    );
+    return () => {
+      if (voiceTimeoutRef.current) clearTimeout(voiceTimeoutRef.current);
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state !== "inactive") recorder.stop();
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
   const startConversation = () => {
     setConversationId(null);
     setMessages([]);
     setPendingActions([]);
     setInput("");
+    setVoiceState("idle");
+    setVoiceNotice("");
     setSelectedWhatsapps({});
     setCopiedActionId(null);
     setError("");
@@ -795,6 +829,119 @@ export default function AssistenteIAPage() {
     }
   };
 
+  const releaseVoiceResources = () => {
+    if (voiceTimeoutRef.current) {
+      clearTimeout(voiceTimeoutRef.current);
+      voiceTimeoutRef.current = null;
+    }
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mediaStreamRef.current = null;
+    mediaRecorderRef.current = null;
+  };
+
+  const transcribeVoiceBlob = async (blob: Blob) => {
+    if (!blob.size) {
+      setVoiceState("idle");
+      setVoiceNotice("");
+      setError("Nenhum áudio foi capturado. Tente gravar novamente.");
+      return;
+    }
+    setVoiceState("transcribing");
+    setVoiceNotice("Transcrevendo o comando de voz...");
+    setError("");
+    try {
+      const contentType = String(blob.type || "audio/webm").split(";", 1)[0];
+      const extension = contentType.includes("mp4") || contentType.includes("m4a")
+        ? "m4a"
+        : contentType.includes("ogg")
+          ? "ogg"
+          : contentType.includes("wav")
+            ? "wav"
+            : "webm";
+      const formData = new FormData();
+      formData.append("arquivo", blob, `comando-voz.${extension}`);
+      const response = await api.post("/assistente-ia/voz/transcrever", formData);
+      const transcript = String(response.data?.transcript || "").trim();
+      if (!transcript) throw new Error("Transcrição vazia");
+      setInput(transcript);
+      setVoiceState("review");
+      setVoiceNotice("Comando transcrito. Revise se puder e toque em enviar.");
+    } catch (voiceError) {
+      setVoiceState("idle");
+      setVoiceNotice("");
+      setError(errorMessage(voiceError, "Não foi possível transcrever o comando de voz."));
+    }
+  };
+
+  const startVoiceRecording = async () => {
+    if (!voiceSupported || voiceState === "transcribing" || loading) return;
+    setError("");
+    setVoiceNotice("Solicitando acesso ao microfone...");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          autoGainControl: true,
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      });
+      const preferredTypes = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/mp4",
+        "audio/ogg;codecs=opus",
+      ];
+      const mimeType = preferredTypes.find((item) => MediaRecorder.isTypeSupported(item));
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      const chunks: BlobPart[] = [];
+      let recordingFailed = false;
+      mediaStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+      recorder.onerror = () => {
+        recordingFailed = true;
+        releaseVoiceResources();
+        setVoiceState("idle");
+        setVoiceNotice("");
+        setError("A gravação foi interrompida. Tente novamente.");
+      };
+      recorder.onstop = () => {
+        if (recordingFailed) return;
+        const recordedType = String(recorder.mimeType || mimeType || "audio/webm");
+        const blob = new Blob(chunks, { type: recordedType });
+        releaseVoiceResources();
+        void transcribeVoiceBlob(blob);
+      };
+      recorder.start(250);
+      setVoiceState("recording");
+      setVoiceNotice("Ouvindo. Toque novamente para parar e transcrever.");
+      const maxSeconds = Math.max(10, Number(status?.voice?.max_seconds || 60));
+      voiceTimeoutRef.current = setTimeout(() => {
+        if (recorder.state !== "inactive") recorder.stop();
+      }, maxSeconds * 1000);
+    } catch (voiceError) {
+      releaseVoiceResources();
+      setVoiceState("idle");
+      setVoiceNotice("");
+      setError(
+        errorMessage(
+          voiceError,
+          "Não foi possível acessar o microfone. Verifique a permissão do navegador.",
+        ),
+      );
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") return;
+    setVoiceState("transcribing");
+    setVoiceNotice("Finalizando a gravação...");
+    recorder.stop();
+  };
+
   const sendMessage = async () => {
     const cleanInput = input.trim();
     if (!cleanInput || loading || !status?.enabled || !status?.configured) return;
@@ -805,6 +952,8 @@ export default function AssistenteIAPage() {
       { id: optimisticId, role: "user", content: cleanInput },
     ]);
     setInput("");
+    setVoiceState("idle");
+    setVoiceNotice("");
     setError("");
     setLoading(true);
 
@@ -830,6 +979,15 @@ export default function AssistenteIAPage() {
       }
       await refreshConversations();
     } catch (sendError) {
+      const responseHeaders = (
+        sendError as { response?: { headers?: Record<string, unknown> } }
+      ).response?.headers;
+      const recoveredConversationId = String(
+        responseHeaders?.["x-assistente-conversation-id"] || "",
+      ).trim();
+      if (recoveredConversationId) setConversationId(recoveredConversationId);
+      setMessages((current) => current.filter((message) => message.id !== optimisticId));
+      setInput(cleanInput);
       setError(errorMessage(sendError, "A Mente FortCordis não conseguiu concluir a solicitação."));
     } finally {
       setLoading(false);
@@ -1807,6 +1965,7 @@ export default function AssistenteIAPage() {
                         create_agenda_block: "Bloqueio de slot da agenda",
                         release_agenda_block: "Liberação de bloqueio",
                         update_clinic_whatsapps: "Atualização de WhatsApps da clínica",
+                        attach_patient_to_reservation: "Vincular paciente à reserva",
                       };
                       const ActionIcon = isAgendaException ? CalendarClock : isCreation ? CalendarPlus : isDelete ? Trash2 : ShieldCheck;
                       const communication = action.result?.comunicacao;
@@ -1973,6 +2132,27 @@ export default function AssistenteIAPage() {
                 ) : null}
                 <div className="mx-auto max-w-3xl">
                   <div className="flex items-end gap-2 rounded-2xl border border-ink-200 bg-white p-2 shadow-sm focus-within:border-cordis-300 focus-within:ring-4 focus-within:ring-cordis-50">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (voiceState === "recording") stopVoiceRecording();
+                        else void startVoiceRecording();
+                      }}
+                      disabled={!assistantReady || loading || voiceState === "transcribing" || !voiceSupported}
+                      aria-label={voiceState === "recording" ? "Parar gravação e transcrever" : "Gravar comando de voz"}
+                      title={voiceSupported ? "Gravar comando de voz" : "Comandos de voz não são suportados neste navegador"}
+                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition disabled:cursor-not-allowed disabled:bg-ink-100 disabled:text-ink-300 ${
+                        voiceState === "recording"
+                          ? "animate-pulse bg-red-600 text-white hover:bg-red-700"
+                          : "bg-vital-50 text-vital-700 hover:bg-vital-100"
+                      }`}
+                    >
+                      {voiceState === "transcribing"
+                        ? <Loader2 className="h-5 w-5 animate-spin" />
+                        : voiceState === "recording"
+                          ? <Square className="h-4 w-4 fill-current" />
+                          : <Mic className="h-5 w-5" />}
+                    </button>
                     <textarea
                       value={input}
                       onChange={(event) => setInput(event.target.value)}
@@ -1997,8 +2177,18 @@ export default function AssistenteIAPage() {
                       {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
                     </button>
                   </div>
+                  {voiceNotice ? (
+                    <p
+                      role="status"
+                      className={`mt-2 text-center text-xs font-medium ${
+                        voiceState === "recording" ? "text-red-700" : "text-vital-700"
+                      }`}
+                    >
+                      {voiceNotice}
+                    </p>
+                  ) : null}
                   <p className="mt-2 text-center text-[11px] leading-4 text-ink-400">
-                    A IA pode errar interpretações. Dados vêm das ferramentas do sistema; revise o cartão antes de confirmar qualquer ação.
+                    A voz apenas transcreve o pedido e não guarda o áudio. Use a tela somente quando for seguro; ações reais continuam exigindo sua confirmação.
                   </p>
                 </div>
               </div>

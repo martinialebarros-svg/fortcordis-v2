@@ -49,6 +49,7 @@ from app.services.assistente_ia_clinics360 import (
     compare_clinics_360,
 )
 from app.services.auditoria_service import registrar_auditoria
+from app.services.logistica_service import obter_ou_criar_deslocamento, serialize_deslocamento
 
 LOCAL_TZ = ZoneInfo("America/Fortaleza")
 ACTIVE_APPOINTMENT_STATUSES = {
@@ -86,7 +87,45 @@ def _normalize_text(value: Any) -> str:
     raw = str(value or "").strip().lower()
     normalized = unicodedata.normalize("NFKD", raw)
     without_accents = "".join(char for char in normalized if not unicodedata.combining(char))
-    return " ".join(without_accents.replace("-", " ").replace("_", " ").split())
+    alphanumeric = "".join(
+        char if char.isalnum() else " "
+        for char in without_accents
+    )
+    return " ".join(alphanumeric.split())
+
+
+def _fuzzy_name_score(requested: str, candidate: str) -> float:
+    direct = SequenceMatcher(None, requested, candidate).ratio()
+    compact = SequenceMatcher(
+        None,
+        requested.replace(" ", ""),
+        candidate.replace(" ", ""),
+    ).ratio()
+    requested_tokens = requested.split()
+    candidate_tokens = candidate.split()
+    token_score = 0.0
+    if requested_tokens and candidate_tokens:
+        token_score = sum(
+            max(SequenceMatcher(None, token, candidate_token).ratio() for candidate_token in candidate_tokens)
+            for token in requested_tokens
+        ) / len(requested_tokens)
+    return max(direct, compact, (direct * 0.55) + (token_score * 0.45))
+
+
+def _confident_fuzzy_match(
+    normalized_request: str,
+    ranked: list[tuple[float, Any]],
+) -> Any | None:
+    if not ranked or len(normalized_request.replace(" ", "")) < 5:
+        return None
+    top_score, top_record = ranked[0]
+    runner_up_score = ranked[1][0] if len(ranked) > 1 else 0.0
+    request_length = len(normalized_request.replace(" ", ""))
+    threshold = 0.86 if request_length <= 7 else 0.80 if request_length <= 14 else 0.77
+    minimum_margin = 0.08 if top_score >= 0.92 else 0.12
+    if top_score >= threshold and (top_score - runner_up_score) >= minimum_margin:
+        return top_record
+    return None
 
 
 def _resolve_named_record(
@@ -146,12 +185,16 @@ def _resolve_named_record(
 
     ranked = sorted(
         (
-            (SequenceMatcher(None, normalized_request, name).ratio(), record)
+            (_fuzzy_name_score(normalized_request, name), record)
             for record, name in names
         ),
         key=lambda item: item[0],
         reverse=True,
     )
+    if _normalize_text(entity_label) == "clinica":
+        fuzzy_match = _confident_fuzzy_match(normalized_request, ranked)
+        if fuzzy_match is not None:
+            return fuzzy_match, None
     suggestions = [
         {"id": int(record.id), "nome": str(record.nome)}
         for score, record in ranked[:5]
@@ -300,6 +343,103 @@ def analisar_faturamento(
             "menor_mes": worst,
         },
         "serie_mensal": series,
+    }
+
+
+def analisar_servicos_realizados(
+    ctx: AssistenteIAToolContext,
+    *,
+    data_inicio: str,
+    data_fim: str,
+    clinica: Optional[str],
+) -> dict[str, Any]:
+    try:
+        inicio = _parse_iso_date(data_inicio)
+        fim = _parse_iso_date(data_fim)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    if fim < inicio:
+        return {"ok": False, "error": "A data final nao pode ser anterior a data inicial."}
+    if (fim - inicio).days > 366:
+        return {"ok": False, "error": "O periodo deve ter no maximo 367 dias."}
+
+    clinica_obj: Optional[Clinica] = None
+    if str(clinica or "").strip():
+        clinica_obj, error = _resolve_named_record(
+            ctx.db,
+            Clinica,
+            str(clinica),
+            entity_label="clinica",
+        )
+        if error:
+            return error
+
+    filters = [
+        func.date(OrdemServico.data_atendimento) >= inicio.isoformat(),
+        func.date(OrdemServico.data_atendimento) <= fim.isoformat(),
+        func.lower(func.coalesce(OrdemServico.status, "")) != "cancelado",
+    ]
+    if clinica_obj is not None:
+        filters.append(OrdemServico.clinica_id == clinica_obj.id)
+    orders = (
+        ctx.db.query(OrdemServico)
+        .filter(*filters)
+        .order_by(OrdemServico.data_atendimento.asc(), OrdemServico.id.asc())
+        .limit(5000)
+        .all()
+    )
+
+    clinic_ids = {int(item.clinica_id) for item in orders if item.clinica_id}
+    service_ids = {int(item.servico_id) for item in orders if item.servico_id}
+    clinic_map = {
+        int(item.id): str(item.nome)
+        for item in ctx.db.query(Clinica).filter(Clinica.id.in_(clinic_ids)).all()
+    } if clinic_ids else {}
+    service_map = {
+        int(item.id): str(item.nome)
+        for item in ctx.db.query(Servico).filter(Servico.id.in_(service_ids)).all()
+    } if service_ids else {}
+
+    def aggregate(key_for: Any) -> list[dict[str, Any]]:
+        grouped: dict[str, dict[str, Any]] = {}
+        for order in orders:
+            key = str(key_for(order) or "Nao informado")
+            item = grouped.setdefault(key, {"nome": key, "quantidade": 0, "valor": 0.0})
+            item["quantidade"] += 1
+            item["valor"] = round(float(item["valor"]) + float(order.valor_final or 0), 2)
+        return sorted(grouped.values(), key=lambda item: (-float(item["valor"]), str(item["nome"])))
+
+    total = round(sum(float(item.valor_final or 0) for item in orders), 2)
+    by_status = aggregate(lambda item: str(item.status or "Nao informado"))
+    by_clinic = aggregate(
+        lambda item: clinic_map.get(int(item.clinica_id), "Sem clinica")
+        if item.clinica_id
+        else "Sem clinica"
+    )
+    by_service = aggregate(
+        lambda item: service_map.get(int(item.servico_id), f"Servico #{item.servico_id}")
+        if item.servico_id
+        else "Servico nao informado"
+    )
+    return {
+        "ok": True,
+        "fonte": "ordens de servico por data de atendimento, excluindo status Cancelado",
+        "periodo": {"inicio": inicio.isoformat(), "fim": fim.isoformat()},
+        "clinica": (
+            {"id": int(clinica_obj.id), "nome": str(clinica_obj.nome)}
+            if clinica_obj is not None
+            else None
+        ),
+        "resumo": {
+            "ordens_servico": len(orders),
+            "valor_servicos_realizados": total,
+            "ticket_medio": round(total / len(orders), 2) if orders else 0.0,
+        },
+        "por_status": by_status,
+        "por_clinica": by_clinic[:25],
+        "por_servico": by_service[:25],
+        "truncado": len(orders) >= 5000,
+        "aviso": "Este valor mede servicos realizados pelas ordens de servico, independentemente do recebimento financeiro.",
     }
 
 
@@ -527,6 +667,64 @@ def verificar_disponibilidade(
     }
 
 
+def consultar_deslocamento_clinicas(
+    ctx: AssistenteIAToolContext,
+    *,
+    origem: str,
+    destino: str,
+    perfil: str,
+) -> dict[str, Any]:
+    origem_obj, error = _resolve_named_record(
+        ctx.db,
+        Clinica,
+        origem,
+        entity_label="clinica",
+    )
+    if error:
+        return {**error, "campo": "origem"}
+    destino_obj, error = _resolve_named_record(
+        ctx.db,
+        Clinica,
+        destino,
+        entity_label="clinica",
+    )
+    if error:
+        return {**error, "campo": "destino"}
+    perfil_normalizado = _normalize_text(perfil).replace(" ", "_") or "comercial"
+    if perfil_normalizado not in {"comercial", "plantao"}:
+        return {"ok": False, "error": "Perfil invalido. Use comercial ou plantao."}
+    if int(origem_obj.id) == int(destino_obj.id):
+        return {
+            "ok": True,
+            "origem": {"id": int(origem_obj.id), "nome": str(origem_obj.nome)},
+            "destino": {"id": int(destino_obj.id), "nome": str(destino_obj.nome)},
+            "perfil": perfil_normalizado,
+            "distancia_km": 0.0,
+            "duracao_min": 0,
+            "fonte": "mesma_clinica",
+        }
+    route = obter_ou_criar_deslocamento(
+        ctx.db,
+        origem_clinica_id=int(origem_obj.id),
+        destino_clinica_id=int(destino_obj.id),
+        perfil=perfil_normalizado,
+    )
+    if route is None:
+        return {"ok": False, "error": "Nao foi possivel estimar o deslocamento entre as clinicas."}
+    serialized = serialize_deslocamento(route)
+    return {
+        "ok": True,
+        "origem": {"id": int(origem_obj.id), "nome": str(origem_obj.nome)},
+        "destino": {"id": int(destino_obj.id), "nome": str(destino_obj.nome)},
+        "perfil": perfil_normalizado,
+        "distancia_km": serialized.get("distancia_km"),
+        "duracao_min": serialized.get("duracao_min"),
+        "fonte": serialized.get("fonte"),
+        "atualizado_em": serialized.get("updated_at"),
+        "orientacao": "Informe que o tempo e uma estimativa operacional e pode variar com o transito.",
+    }
+
+
 def relatorio_debitos_pendentes(
     ctx: AssistenteIAToolContext,
     *,
@@ -706,6 +904,34 @@ def _agenda_day_window(
             else None
         ),
         "fonte": "feriado" if holiday is not None else "agenda_semanal",
+    }
+
+
+def consultar_funcionamento_agenda(
+    ctx: AssistenteIAToolContext,
+    *,
+    data: str,
+) -> dict[str, Any]:
+    try:
+        reference_date = _parse_iso_date(data)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    exceptions, weekly, holidays = _agenda_configuration_rules(ctx.db)
+    window = _agenda_day_window(
+        reference_date,
+        exceptions=exceptions,
+        weekly=weekly,
+        holidays=holidays,
+    )
+    return {
+        "ok": True,
+        "funcionamento": window,
+        "escopo": "agenda geral da FortCordis",
+        "orientacao": (
+            "A agenda esta aberta no periodo informado."
+            if window["ativo"]
+            else "A agenda esta fechada na data informada."
+        ),
     }
 
 
@@ -1279,6 +1505,8 @@ def _appointment_snapshot(db: Session, appointment: Agendamento) -> dict[str, An
         "clinica_nome": str(clinic.nome) if clinic else str(appointment.clinica or ""),
         "servico_id": int(appointment.servico_id) if appointment.servico_id else None,
         "servico_nome": str(service.nome) if service else str(appointment.servico or ""),
+        "paciente_id": int(appointment.paciente_id) if appointment.paciente_id else None,
+        "tutor_id": int(getattr(appointment, "tutor_id", 0) or 0) or None,
         "paciente_primeiro_nome": (
             str(patient.nome or "").strip().split()[0]
             if patient and str(patient.nome or "").strip()
@@ -1442,6 +1670,71 @@ def _prepare_pending_action(
         "pending_action": serialize_pending_action(action),
         "message": "A acao foi preparada e so sera executada depois da confirmacao explicita.",
     }
+
+
+def solicitar_vinculo_paciente_reserva(
+    ctx: AssistenteIAToolContext,
+    *,
+    agendamento_id: int,
+    tutor: str,
+    paciente: str,
+) -> dict[str, Any]:
+    if not ctx.current_user.tem_papel("admin"):
+        return {"ok": False, "error": "Apenas administradores podem preparar a vinculacao."}
+    appointment = ctx.db.query(Agendamento).filter(Agendamento.id == int(agendamento_id)).first()
+    if appointment is None:
+        return {"ok": False, "error": "Agendamento nao encontrado."}
+    if str(appointment.status or "") != "Reservado":
+        return {"ok": False, "error": "Apenas uma reserva ativa pode receber paciente por esta ferramenta."}
+    if appointment.paciente_id:
+        return {"ok": False, "error": "A reserva ja possui paciente vinculado."}
+
+    tutor_obj, error = _resolve_named_record(
+        ctx.db,
+        Tutor,
+        tutor,
+        entity_label="tutor",
+    )
+    if error:
+        return error
+    patient_obj, error = _resolve_patient_record(
+        ctx.db,
+        paciente,
+        tutor=tutor_obj,
+    )
+    if error:
+        return error
+    if patient_obj.tutor_id and int(patient_obj.tutor_id) != int(tutor_obj.id):
+        return {"ok": False, "error": "O paciente informado nao pertence ao tutor selecionado."}
+
+    before = _appointment_snapshot(ctx.db, appointment)
+    snapshot = {
+        "before": before,
+        "after": {
+            **before,
+            "paciente_id": int(patient_obj.id),
+            "paciente_primeiro_nome": str(patient_obj.nome or "").strip().split()[0],
+            "tutor_id": int(tutor_obj.id),
+            "tutor_nome": str(tutor_obj.nome),
+        },
+        "referencias": {
+            "paciente": _record_version(patient_obj),
+            "tutor": _record_version(tutor_obj),
+        },
+    }
+    return _prepare_pending_action(
+        ctx,
+        action_type="attach_patient_to_reservation",
+        arguments={
+            "agendamento_id": int(appointment.id),
+            "paciente_id": int(patient_obj.id),
+            "tutor_id": int(tutor_obj.id),
+        },
+        snapshot=snapshot,
+        audit_entity="agendamento",
+        audit_entity_id=appointment.id,
+        audit_description="Mente FortCordis preparou o vinculo de paciente a uma reserva.",
+    )
 
 
 def solicitar_remarcacao_agendamento(
@@ -2312,6 +2605,106 @@ def _approve_update_clinic_whatsapps(
     )
 
 
+def _approve_attach_patient_to_reservation(
+    *,
+    db: Session,
+    current_user: User,
+    request: Optional[Request],
+    action: AssistenteIAAcaoPendente,
+    now_utc: datetime,
+    observation: Optional[str],
+) -> dict[str, Any]:
+    arguments = _json_loads(action.argumentos_json, {})
+    snapshot = _json_loads(action.alvo_snapshot_json, {})
+    appointment = _current_appointment_or_invalidate(
+        db,
+        action,
+        now_utc=now_utc,
+        snapshot=snapshot,
+    )
+    expected_before = snapshot.get("before") if isinstance(snapshot.get("before"), dict) else {}
+    if (
+        int(appointment.paciente_id or 0) != int(expected_before.get("paciente_id") or 0)
+        or int(getattr(appointment, "tutor_id", 0) or 0) != int(expected_before.get("tutor_id") or 0)
+    ):
+        _invalidate_pending_action(
+            db,
+            action,
+            now_utc=now_utc,
+            reason="target_changed",
+            detail="O vinculo da reserva mudou depois da solicitacao.",
+        )
+        raise HTTPException(status_code=409, detail="A reserva mudou. Revise e solicite novamente.")
+    expires_at = _as_utc_datetime(getattr(appointment, "reserva_expira_em", None))
+    if expires_at is not None and expires_at <= now_utc:
+        _invalidate_pending_action(
+            db,
+            action,
+            now_utc=now_utc,
+            reason="reservation_expired",
+            detail="A reserva expirou antes da confirmacao.",
+        )
+        raise HTTPException(status_code=409, detail="A reserva expirou. Crie um novo agendamento.")
+
+    patient = (
+        db.query(Paciente)
+        .filter(
+            Paciente.id == int(arguments.get("paciente_id") or 0),
+            Paciente.ativo.in_([True, 1]),
+        )
+        .first()
+    )
+    tutor = (
+        db.query(Tutor)
+        .filter(
+            Tutor.id == int(arguments.get("tutor_id") or 0),
+            Tutor.ativo.in_([True, 1]),
+        )
+        .first()
+    )
+    references = snapshot.get("referencias") if isinstance(snapshot.get("referencias"), dict) else {}
+    if (
+        patient is None
+        or tutor is None
+        or (patient.tutor_id and int(patient.tutor_id) != int(tutor.id))
+        or _record_version(patient) != references.get("paciente")
+        or _record_version(tutor) != references.get("tutor")
+    ):
+        _invalidate_pending_action(
+            db,
+            action,
+            now_utc=now_utc,
+            reason="reference_changed",
+            detail="O paciente ou tutor mudou depois da solicitacao.",
+        )
+        raise HTTPException(status_code=409, detail="O paciente ou tutor mudou. Revise e solicite novamente.")
+
+    updated = agenda.atualizar_agendamento(
+        agendamento_id=int(appointment.id),
+        agendamento=AgendamentoUpdate(
+            paciente_id=int(patient.id),
+            tutor_id=int(tutor.id),
+        ),
+        request=request,
+        db=db,
+        current_user=current_user,
+    )
+    return _mark_action_executed(
+        db=db,
+        current_user=current_user,
+        request=request,
+        action=action,
+        now_utc=now_utc,
+        message="Paciente vinculado a reserva com sucesso.",
+        result={
+            "agendamento": updated,
+            "paciente": {"id": int(patient.id), "nome": str(patient.nome)},
+            "tutor": {"id": int(tutor.id), "nome": str(tutor.nome)},
+        },
+        observation=observation,
+    )
+
+
 def decide_pending_action(
     *,
     db: Session,
@@ -2420,6 +2813,15 @@ def decide_pending_action(
             now_utc=now_utc,
             observation=observation,
         )
+    if action.tipo_acao == "attach_patient_to_reservation":
+        return _approve_attach_patient_to_reservation(
+            db=db,
+            current_user=current_user,
+            request=request,
+            action=action,
+            now_utc=now_utc,
+            observation=observation,
+        )
     if action.tipo_acao != "delete_appointment":
         raise HTTPException(status_code=422, detail="Tipo de acao ainda nao suportado.")
 
@@ -2509,6 +2911,25 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "type": "function",
+        "name": "analisar_servicos_realizados",
+        "description": "Calcula o valor dos servicos realizados pelas ordens de servico na data de atendimento, pagos ou nao. Use quando o pedido for producao, servicos realizados ou todas as OS do periodo, e nao faturamento recebido.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "data_inicio": {"type": "string", "description": "Data inicial YYYY-MM-DD."},
+                "data_fim": {"type": "string", "description": "Data final YYYY-MM-DD."},
+                "clinica": {
+                    "type": ["string", "null"],
+                    "description": "Nome da clinica ou null para toda a FortCordis.",
+                },
+            },
+            "required": ["data_inicio", "data_fim", "clinica"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
         "name": "localizar_agendamentos",
         "description": "Localiza agendamentos ativos por data, horario, clinica e servico. Use antes de qualquer pedido de exclusao. Se houver mais de um resultado, peca desambiguacao.",
         "parameters": {
@@ -2543,6 +2964,22 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "type": "function",
+        "name": "consultar_deslocamento_clinicas",
+        "description": "Consulta distancia e tempo estimado de deslocamento entre duas clinicas cadastradas usando a matriz logistica da FortCordis.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "origem": {"type": "string"},
+                "destino": {"type": "string"},
+                "perfil": {"type": "string", "enum": ["comercial", "plantao"]},
+            },
+            "required": ["origem", "destino", "perfil"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
         "name": "relatorio_debitos_pendentes",
         "description": "Gera relatorio de ordens de servico e contas a receber pendentes de uma clinica. As fontes sao separadas para evitar conclusoes incorretas.",
         "parameters": {
@@ -2552,6 +2989,20 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "somente_vencidos": {"type": "boolean"},
             },
             "required": ["clinica", "somente_vencidos"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
+        "name": "consultar_funcionamento_agenda",
+        "description": "Consulta se a agenda geral esta aberta ou fechada em uma data e retorna os horarios efetivos, considerando rotina semanal, feriado e excecao. Nao depende de clinica ou servico.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "data": {"type": "string", "description": "Data YYYY-MM-DD."},
+            },
+            "required": ["data"],
             "additionalProperties": False,
         },
         "strict": True,
@@ -2680,6 +3131,22 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "motivo": {"type": "string", "minLength": 5, "maxLength": 500},
             },
             "required": ["agendamento_id", "motivo"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
+        "name": "solicitar_vinculo_paciente_reserva",
+        "description": "Prepara o vinculo de um paciente e seu tutor a uma reserva ja localizada. Mantem o horario e exige confirmacao explicita do admin; nao cancele nem recrie a reserva para essa finalidade.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agendamento_id": {"type": "integer", "minimum": 1},
+                "tutor": {"type": "string", "minLength": 2},
+                "paciente": {"type": "string", "minLength": 1},
+            },
+            "required": ["agendamento_id", "tutor", "paciente"],
             "additionalProperties": False,
         },
         "strict": True,
@@ -2863,6 +3330,13 @@ def execute_tool(
 ) -> dict[str, Any]:
     if name == "analisar_faturamento":
         return analisar_faturamento(ctx, meses=arguments["meses"], clinica=arguments.get("clinica"))
+    if name == "analisar_servicos_realizados":
+        return analisar_servicos_realizados(
+            ctx,
+            data_inicio=arguments["data_inicio"],
+            data_fim=arguments["data_fim"],
+            clinica=arguments.get("clinica"),
+        )
     if name == "localizar_agendamentos":
         return localizar_agendamentos(
             ctx,
@@ -2879,12 +3353,21 @@ def execute_tool(
             data_inicio=arguments.get("data_inicio"),
             dias=arguments["dias"],
         )
+    if name == "consultar_deslocamento_clinicas":
+        return consultar_deslocamento_clinicas(
+            ctx,
+            origem=arguments["origem"],
+            destino=arguments["destino"],
+            perfil=arguments["perfil"],
+        )
     if name == "relatorio_debitos_pendentes":
         return relatorio_debitos_pendentes(
             ctx,
             clinica=arguments["clinica"],
             somente_vencidos=bool(arguments["somente_vencidos"]),
         )
+    if name == "consultar_funcionamento_agenda":
+        return consultar_funcionamento_agenda(ctx, data=arguments["data"])
     if name == "consultar_clinica_360":
         return consultar_clinica_360(
             ctx,
@@ -2926,6 +3409,13 @@ def execute_tool(
             ctx,
             agendamento_id=int(arguments["agendamento_id"]),
             motivo=arguments["motivo"],
+        )
+    if name == "solicitar_vinculo_paciente_reserva":
+        return solicitar_vinculo_paciente_reserva(
+            ctx,
+            agendamento_id=int(arguments["agendamento_id"]),
+            tutor=arguments["tutor"],
+            paciente=arguments["paciente"],
         )
     if name == "gerar_resumo_executivo":
         try:
@@ -3030,14 +3520,25 @@ def tool_result_summary(name: str, result: dict[str, Any]) -> str:
         return str(result.get("error") or "Falha na ferramenta")[:180]
     if name == "analisar_faturamento":
         return f"{result.get('periodo', {}).get('meses', 0)} meses analisados"
+    if name == "analisar_servicos_realizados":
+        return f"{result.get('resumo', {}).get('ordens_servico', 0)} OS analisada(s)"
     if name == "localizar_agendamentos":
         return f"{result.get('total', 0)} agendamento(s) localizado(s)"
     if name == "verificar_disponibilidade":
         return f"{len(result.get('slots') or [])} slot(s) candidato(s)"
+    if name == "consultar_deslocamento_clinicas":
+        return f"{result.get('duracao_min', 0)} min de deslocamento estimado"
     if name == "relatorio_debitos_pendentes":
         orders = result.get("ordens_servico_pendentes") or {}
         accounts = result.get("contas_receber_pendentes") or {}
         return f"{orders.get('quantidade', 0)} OS e {accounts.get('quantidade', 0)} conta(s) pendente(s)"
+    if name == "consultar_funcionamento_agenda":
+        funcionamento = result.get("funcionamento") or {}
+        return (
+            f"Agenda aberta ate {funcionamento.get('fim')}"
+            if funcionamento.get("ativo")
+            else "Agenda fechada na data"
+        )
     if name == "consultar_clinica_360":
         profile = result.get("profile") or {}
         clinic = profile.get("clinic") or {}
@@ -3060,6 +3561,7 @@ def tool_result_summary(name: str, result: dict[str, Any]) -> str:
         "solicitar_bloqueio_agenda",
         "solicitar_liberacao_bloqueio_agenda",
         "solicitar_atualizacao_whatsapps_clinica",
+        "solicitar_vinculo_paciente_reserva",
     }:
         return "Aguardando confirmacao do administrador"
     if name == "listar_bloqueios_agenda":

@@ -191,7 +191,9 @@ Success criteria:
 - use uma ferramenta sempre que a pergunta depender de dados atuais do sistema;
 - apresente numeros, periodo e clinica usados na consulta;
 - diferencie fato retornado pela ferramenta de interpretacao gerencial;
-- quando houver ambiguidade de clinica, servico ou agendamento, mostre as opcoes e peca o menor esclarecimento necessario;
+- aceite pequenas diferencas de digitacao em nomes de clinicas quando a ferramenta resolver um unico cadastro com alta confianca;
+- quando a ferramenta corrigir um nome de clinica, diga brevemente qual cadastro foi interpretado;
+- quando houver ambiguidade real de clinica, servico ou agendamento, mostre as opcoes e peca o menor esclarecimento necessario;
 - conclua em linguagem direta, com achados principais e proximo passo util.
 
 Safety and action boundaries:
@@ -203,6 +205,7 @@ Safety and action boundaries:
 - rascunhos clinicos ficam separados do laudo oficial, exigem revisao veterinaria e nunca podem ser apresentados como diagnostico final;
 - a ferramenta solicitar_excecao_funcionamento_agenda prepara uma mudanca valida apenas para a data solicitada e preserva a rotina semanal;
 - a ferramenta solicitar_criacao_agendamento apenas prepara uma acao pendente depois de validar os cadastros e o slot;
+- a ferramenta solicitar_vinculo_paciente_reserva vincula paciente e tutor sem cancelar ou recriar o horario e tambem exige aprovacao;
 - a ferramenta solicitar_exclusao_agendamento apenas prepara uma acao pendente;
 - nunca diga que um horario foi criado enquanto a acao estiver pending;
 - nunca diga que o funcionamento foi alterado enquanto a excecao estiver pending;
@@ -219,14 +222,18 @@ Safety and action boundaries:
 
 Tool routing:
 - faturamento, tendencia ou ultimos meses -> analisar_faturamento;
+- servicos realizados, producao por atendimento ou todas as ordens de servico do periodo, pagos ou nao -> analisar_servicos_realizados;
 - perfil, relacionamento, visao 360, saude operacional, motivo de queda ou plano de acao de uma clinica -> consultar_clinica_360;
 - comparar desempenho, prioridade ou relacionamento entre duas ou mais clinicas -> comparar_clinicas_360;
 - identificar agenda por data/hora/clinica -> localizar_agendamentos;
 - horario livre -> verificar_disponibilidade;
+- tempo ou distancia de deslocamento entre clinicas -> consultar_deslocamento_clinicas;
+- saber se a agenda geral esta aberta, fechada ou ate que horas funciona em uma data -> consultar_funcionamento_agenda; nao solicite clinica ou servico;
 - abrir, ampliar, reduzir ou fechar a agenda em uma data especifica -> solicitar_excecao_funcionamento_agenda;
 - criar, agendar, marcar ou reservar horario -> solicitar_criacao_agendamento;
 - divida ou pendencia de clinica -> relatorio_debitos_pendentes;
 - apagar agendamento ja identificado -> solicitar_exclusao_agendamento.
+- incluir ou vincular paciente e tutor em reserva ja localizada -> solicitar_vinculo_paciente_reserva; nao cancele a reserva para recria-la;
 - resumo do dia, pendencias prioritarias ou briefing executivo -> gerar_resumo_executivo;
 - remarcar ou mover agendamento identificado com data e horario de destino -> solicitar_remarcacao_agendamento; se faltar apenas o motivo, use "Solicitacao do administrador" como motivo neutro e nunca invente justificativa clinica;
 - cancelar sem apagar historico -> solicitar_cancelamento_agendamento;
@@ -330,13 +337,31 @@ def run_assistant_turn(
     if not clean_message:
         raise HTTPException(status_code=422, detail="Informe uma mensagem para o assistente.")
 
-    user_message = AssistenteIAMensagem(
-        conversa_id=conversation.id,
-        usuario_id=int(current_user.id),
-        papel="user",
-        conteudo=clean_message,
+    last_message = (
+        db.query(AssistenteIAMensagem)
+        .filter(
+            AssistenteIAMensagem.conversa_id == conversation.id,
+            AssistenteIAMensagem.usuario_id == current_user.id,
+        )
+        .order_by(AssistenteIAMensagem.created_at.desc(), AssistenteIAMensagem.id.desc())
+        .first()
     )
-    db.add(user_message)
+    retrying_unanswered_message = bool(
+        last_message is not None
+        and str(last_message.papel) == "user"
+        and str(last_message.conteudo).strip() == clean_message
+    )
+    if retrying_unanswered_message:
+        user_message = last_message
+        user_message.provider_status = "retrying"
+    else:
+        user_message = AssistenteIAMensagem(
+            conversa_id=conversation.id,
+            usuario_id=int(current_user.id),
+            papel="user",
+            conteudo=clean_message,
+        )
+        db.add(user_message)
     if conversation.titulo == "Nova conversa":
         conversation.titulo = clean_message.replace("\n", " ")[:90]
     conversation.updated_at = datetime.now(timezone.utc)
@@ -457,8 +482,14 @@ def run_assistant_turn(
             raise AssistenteIAProviderError("O assistente nao produziu uma resposta final.")
 
     except AssistenteIAProviderError:
+        user_message.provider_status = "failed"
+        db.add(user_message)
+        db.commit()
         raise
     except Exception as exc:
+        user_message.provider_status = "failed"
+        db.add(user_message)
+        db.commit()
         logger.exception("Falha na chamada do assistente IA")
         raise _safe_provider_error(exc) from exc
 
@@ -487,6 +518,7 @@ def run_assistant_turn(
         latency_ms=max(0, round((time.monotonic() - started_at) * 1000)),
         provider_status=str(getattr(response, "status", None) or "completed")[:32],
     )
+    user_message.provider_status = "completed"
     conversation.previous_response_id = str(response.id)
     conversation.updated_at = datetime.now(timezone.utc)
     db.add_all([assistant_message, conversation])

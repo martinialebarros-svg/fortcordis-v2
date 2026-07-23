@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -68,6 +68,7 @@ from app.services.assistente_ia_service import (
     serialize_conversation,
 )
 from app.services.assistente_ia_tools import decide_pending_action
+from app.services.assistente_ia_voice import transcribe_voice_command
 from app.services.auditoria_service import registrar_auditoria
 
 router = APIRouter()
@@ -110,7 +111,15 @@ def assistente_ia_status(
             "regressoes_automaticas_de_memoria",
             "clinicas_360_somente_leitura",
             "planos_de_acao_360_com_aprovacao",
+            "comandos_de_voz_com_revisao",
         ],
+        "voice": {
+            "enabled": True,
+            "model": str(settings.ASSISTENTE_IA_VOICE_TRANSCRIPTION_MODEL),
+            "max_seconds": int(settings.ASSISTENTE_IA_VOICE_MAX_SECONDS),
+            "review_before_send": True,
+            "audio_persisted": False,
+        },
     }
 
 
@@ -663,6 +672,37 @@ def conversar_com_assistente_ia(
             request=request,
             message=payload.mensagem,
             conversation=conversation,
+        )
+    except AssistenteIAProviderError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+            headers={"X-Assistente-Conversation-Id": str(conversation.id)},
+        ) from exc
+
+
+@router.post("/voz/transcrever")
+async def transcrever_comando_voz_assistente_ia(
+    request: Request,
+    arquivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    max_bytes = max(1, int(settings.ASSISTENTE_IA_VOICE_MAX_BYTES))
+    file_name = arquivo.filename
+    content_type = arquivo.content_type
+    try:
+        audio_bytes = await arquivo.read(max_bytes + 1)
+    finally:
+        await arquivo.close()
+    try:
+        return transcribe_voice_command(
+            db=db,
+            current_user=current_user,
+            request=request,
+            file_name=file_name,
+            content_type=content_type,
+            audio_bytes=audio_bytes,
         )
     except AssistenteIAProviderError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

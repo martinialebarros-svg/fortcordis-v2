@@ -1,6 +1,6 @@
 # Intent - assistente-ia-admin-gestao
 
-Data: 2026-07-22
+Data: 2026-07-23
 Responsavel: Martiniano + Codex
 Status: completed
 
@@ -26,6 +26,10 @@ Evoluir a Mente FortCordis de um chat administrativo com consultas e poucas acoe
 - comparacao entre clinicas usa o mesmo contrato deterministico e permite aprofundar a analise na conversa da Mente.
 - alertas do Clinicas 360 geram planos de acao rastreaveis, com missao de leitura, rascunho de contato e revisao operacional;
 - a missao sugerida so nasce apos confirmacao explicita, o contato nao e enviado e qualquer escrita operacional continua governada pela caixa de aprovacoes.
+- nomes de clinicas com pequenos erros de digitacao ou transcricao sao resolvidos quando existe um unico cadastro com alta confianca;
+- comandos de voz em portugues podem preencher a conversa sem persistir o audio e sem contornar as confirmacoes operacionais.
+- falhas observadas nas conversas reais viram ferramentas e casos de regressao para servicos realizados, deslocamento, funcionamento geral e vinculacao de paciente a reserva;
+- uma falha temporaria do provedor preserva o comando para nova tentativa e nao duplica a mensagem sem resposta.
 
 ## Nao objetivos
 
@@ -37,6 +41,7 @@ Evoluir a Mente FortCordis de um chat administrativo com consultas e poucas acoe
 - habilitar pesquisa aberta na internet.
 - expor nomes, contatos ou outros dados de pacientes e tutores no mapa de clinicas;
 - executar escrita ou comunicacao automaticamente a partir dos alertas do mapa.
+- enviar automaticamente uma transcricao ou aprovar uma acao operacional pela voz.
 
 ## Riscos principais
 
@@ -50,3 +55,7 @@ Evoluir a Mente FortCordis de um chat administrativo com consultas e poucas acoe
 - somar ordens de servico e contas a receber como se fossem dividas distintas quando elas puderem representar o mesmo debito;
 - apresentar indicador sem periodo, fonte ou atualizacao, levando a uma conclusao gerencial sem rastreabilidade.
 - uma sugestao de plano ser confundida com decisao executada, contato enviado ou autorizacao para alterar a operacao.
+- uma aproximacao de nome selecionar a clinica errada quando houver cadastros semelhantes;
+- audio sensivel ser persistido, exceder limites ou ser enviado sem revisao consciente do administrador.
+- uma soma de servicos realizados ser confundida com recebimentos financeiros ou incluir OS cancelada;
+- vinculacao de paciente alterar silenciosamente horario, status ou reserva sem revalidacao e aprovacao.

@@ -1,6 +1,6 @@
 # Verify - assistente-ia-admin-gestao
 
-Data: 2026-07-22
+Data: 2026-07-23
 Responsavel: Martiniano + Codex
 Status: in_progress
 
@@ -68,6 +68,20 @@ Status: in_progress
 | CR-016 | pedido de ampliacao prepara `update_agenda_exception`, mostra antes/depois e nao escreve configuracao | aprovado |
 | CR-017 | rejeicao preserva; aprovacao atualiza somente a excecao solicitada pelo endpoint oficial | aprovado |
 | CR-018 | snapshot divergente invalida a acao com 409 | aprovado |
+| CA-043 | testes de resolucao aproximada com `Animla Care` e `Vet Wrold` | aprovado localmente |
+| CA-044 | teste preserva ambiguidade entre `Animal Care` e `Animal Clinic` | aprovado localmente |
+| CA-045 | testes da rota/servico de voz para guard, formato e limite | aprovado |
+| CA-046 | mock do provedor confirma idioma, modelo e vocabulario de clinicas | aprovado |
+| CA-047 | teste confirma revisao, ausencia de persistencia e auditoria sem conteudo | aprovado |
+| CA-048 | ESLint, TypeScript e build da gravacao/transcricao/revisao | aprovado |
+| CA-049 | regressao confirma que voz nao altera o fluxo governado de ferramentas | aprovado |
+| CA-050 | consulta somente leitura de 78 mensagens de producao identificou quatro lacunas funcionais e duas tentativas sem resposta | aprovado |
+| CA-051 | teste soma OS `Pendente` e `Pago` e exclui `Cancelado` | aprovado |
+| CA-052 | teste consulta matriz de deslocamento e resolve `Vet Wrold`; `Uninassal` obteve score 0,9667 e margem 0,2170 no cadastro real | aprovado |
+| CA-053 | teste retorna funcionamento por excecao sem exigir clinica ou servico | aprovado |
+| CA-054 | teste prepara vinculo sem escrita e chama atualizacao oficial apenas apos aprovacao, sem enviar horario no payload | aprovado |
+| CA-055 | teste reutiliza mensagem identica sem resposta e preserva apenas um comando no historico | aprovado |
+| CA-056 | 23 casos versionados, incluindo falhas reais, com schemas estritos e laboratorio sem executar ferramentas | aprovado |
 
 ## Evidencias executadas ate agora
 
@@ -109,6 +123,26 @@ git diff --check
 - ESLint focal, TypeScript, `py_compile`, `pip check`, `git diff --check`, guardrail SDD e build Next aprovados;
 - build confirmou `/assistente-ia` com planos de acao, revisao explicita de missao e protecao contra sugestao duplicada;
 - release remoto permanece separado desta validacao local.
+
+## Ciclo Nomes tolerantes e comandos de voz - 23/07/2026
+
+- auditoria somente leitura percorreu as 78 mensagens existentes em producao e preservou conversas e dados operacionais;
+- lacunas confirmadas: todas as OS do mes, deslocamento entre clinicas, funcionamento geral da agenda e vinculo de paciente a reserva;
+- duas mensagens `Agora realize o agendamento` ficaram sem resposta final; a nova tentativa agora recupera a conversa e reutiliza o comando persistido;
+- recusas de horario retroativo e de reserva cujo prazo minimo termina depois do slot foram mantidas como protecoes corretas;
+- matching de clinicas passou a aceitar erro evidente somente com limiar e margem sobre o segundo candidato;
+- ambiguidades por substring/token continuam interrompendo o fluxo e pedindo esclarecimento;
+- `Hospital Veterinario Uninassal` resolve o cadastro real `Hospital Veterinario Uninassau` com score 0,9667 contra 0,7497 do segundo candidato;
+- novas ferramentas estritas cobrem OS realizadas, matriz de deslocamento e funcionamento geral da agenda;
+- vinculo de paciente e tutor a reserva usa acao pendente, snapshot, TTL, revalidacao e o fluxo oficial de atualizacao;
+- audio e transcrito no backend em portugues, com vocabulario das clinicas ativas e sem persistencia do arquivo;
+- frontend grava por tempo limitado, transcreve e preenche o campo sem enviar automaticamente;
+- toda solicitacao transcrita continua usando `/chat`; qualquer escrita permanece sujeita a acao pendente e confirmacao;
+- 50 testes focais da Mente aprovados e suite completa com 390 testes aprovados;
+- `py_compile`, `pip check`, `git diff --check`, ESLint, TypeScript e build Next aprovados;
+- build confirmou `/assistente-ia` com 24,5 kB e controles de voz/revisao;
+- stage `5496b16`: Migration CI, quality gate, guardrail SDD, deploy, saude interna e canario autenticado aprovados;
+- smokes de stage aprovados para pagina, APIs protegidas, pacote servido, voz real e novas consultas; producao permanece pendente.
 
 ## Ciclo de aprendizado continuo supervisionado - 22/07/2026
 

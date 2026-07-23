@@ -3,7 +3,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -198,6 +198,47 @@ class AssistenteIAAdminTest(unittest.TestCase):
         self.assertEqual(result["matches"][0]["paciente_primeiro_nome"], "Luna")
         self.assertNotIn("telefone", str(result).lower())
         self.assertNotIn("tutor", str(result).lower())
+
+    def test_resolve_erro_evidente_no_nome_da_clinica_sem_assumir_ambiguidade(self) -> None:
+        with self._session_factory() as db:
+            animal_care, _service, _patient, _conversation = self._seed_base(db)
+            db.add_all(
+                [
+                    Clinica(nome="Animal Clinic", ativo=True),
+                    Clinica(nome="Vet World", ativo=True),
+                ]
+            )
+            db.commit()
+
+            resolved_typo, typo_error = assistente_ia_tools._resolve_named_record(
+                db,
+                Clinica,
+                "Animla Care",
+                entity_label="clinica",
+            )
+            resolved_voice, voice_error = assistente_ia_tools._resolve_named_record(
+                db,
+                Clinica,
+                "Vet Wrold",
+                entity_label="clinica",
+            )
+            ambiguous, ambiguous_error = assistente_ia_tools._resolve_named_record(
+                db,
+                Clinica,
+                "Animal",
+                entity_label="clinica",
+            )
+
+        self.assertEqual(resolved_typo.id, animal_care.id)
+        self.assertIsNone(typo_error)
+        self.assertEqual(resolved_voice.nome, "Vet World")
+        self.assertIsNone(voice_error)
+        self.assertIsNone(ambiguous)
+        self.assertIn("ambiguo", ambiguous_error["error"].lower())
+        self.assertEqual(
+            {item["nome"] for item in ambiguous_error["matches"]},
+            {"Animal Care", "Animal Clinic"},
+        )
 
     def test_excecao_de_funcionamento_fica_pendente_sem_alterar_configuracao(self) -> None:
         with self._session_factory() as db:
@@ -543,6 +584,128 @@ class AssistenteIAAdminTest(unittest.TestCase):
         self.assertEqual(len(result["serie_mensal"]), 5)
         self.assertEqual(result["resumo"]["faturamento_total"], 640.0)
         self.assertEqual(result["serie_mensal"][-1]["faturamento_liquido"], 180.0)
+
+    def test_servicos_realizados_soma_todas_as_os_do_periodo_independente_de_pagamento(self) -> None:
+        with self._session_factory() as db:
+            clinic, service, patient, conversation = self._seed_base(db)
+            other_clinic = Clinica(nome="Vet World", ativo=True)
+            db.add(other_clinic)
+            db.flush()
+            reference = datetime.now(assistente_ia_tools.LOCAL_TZ)
+            db.add_all(
+                [
+                    OrdemServico(
+                        numero_os="OS-REALIZADA-1",
+                        agendamento_id=101,
+                        paciente_id=patient.id,
+                        clinica_id=clinic.id,
+                        servico_id=service.id,
+                        data_atendimento=reference,
+                        valor_final=250,
+                        status="Pendente",
+                    ),
+                    OrdemServico(
+                        numero_os="OS-REALIZADA-2",
+                        agendamento_id=102,
+                        paciente_id=patient.id,
+                        clinica_id=other_clinic.id,
+                        servico_id=service.id,
+                        data_atendimento=reference,
+                        valor_final=300,
+                        status="Pago",
+                    ),
+                    OrdemServico(
+                        numero_os="OS-CANCELADA",
+                        agendamento_id=103,
+                        paciente_id=patient.id,
+                        clinica_id=clinic.id,
+                        servico_id=service.id,
+                        data_atendimento=reference,
+                        valor_final=900,
+                        status="Cancelado",
+                    ),
+                ]
+            )
+            db.commit()
+            result = assistente_ia_tools.analisar_servicos_realizados(
+                self._context(db, conversation),
+                data_inicio=reference.date().isoformat(),
+                data_fim=reference.date().isoformat(),
+                clinica=None,
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["resumo"]["ordens_servico"], 2)
+        self.assertEqual(result["resumo"]["valor_servicos_realizados"], 550.0)
+        self.assertEqual({item["nome"] for item in result["por_status"]}, {"Pago", "Pendente"})
+        self.assertIn("independentemente", result["aviso"])
+
+    def test_consulta_funcionamento_geral_sem_exigir_clinica_ou_servico(self) -> None:
+        with self._session_factory() as db:
+            _clinic, _service, _patient, conversation = self._seed_base(db)
+            reference = datetime.now(assistente_ia_tools.LOCAL_TZ).date() + timedelta(days=4)
+            self._agenda_config(
+                db,
+                exceptions=[
+                    {
+                        "data": reference.isoformat(),
+                        "ativo": True,
+                        "inicio": "08:00",
+                        "fim": "18:30",
+                        "motivo": "Extensao administrativa",
+                    }
+                ],
+            )
+            result = assistente_ia_tools.consultar_funcionamento_agenda(
+                self._context(db, conversation),
+                data=reference.isoformat(),
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["funcionamento"]["fim"], "18:30")
+        self.assertEqual(result["funcionamento"]["fonte"], "excecao")
+        self.assertEqual(result["escopo"], "agenda geral da FortCordis")
+
+    def test_deslocamento_entre_clinicas_reutiliza_matriz_logistica(self) -> None:
+        with self._session_factory() as db:
+            clinic, _service, _patient, conversation = self._seed_base(db)
+            destination = Clinica(nome="Vet World", ativo=True)
+            db.add(destination)
+            db.commit()
+            with (
+                patch.object(
+                    assistente_ia_tools,
+                    "obter_ou_criar_deslocamento",
+                    return_value=SimpleNamespace(id=44),
+                ) as route_lookup,
+                patch.object(
+                    assistente_ia_tools,
+                    "serialize_deslocamento",
+                    return_value={
+                        "distancia_km": 12.4,
+                        "duracao_min": 28,
+                        "fonte": "google_routes_api",
+                        "updated_at": "2026-07-23 12:00:00",
+                    },
+                ),
+            ):
+                result = assistente_ia_tools.consultar_deslocamento_clinicas(
+                    self._context(db, conversation),
+                    origem=clinic.nome,
+                    destino="Vet Wrold",
+                    perfil="comercial",
+                )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["destino"]["nome"], "Vet World")
+        self.assertEqual(result["duracao_min"], 28)
+        self.assertEqual(result["distancia_km"], 12.4)
+        route_lookup.assert_called_once_with(
+            db,
+            origem_clinica_id=clinic.id,
+            destino_clinica_id=destination.id,
+            perfil="comercial",
+        )
 
     def test_relatorio_mantem_ordens_e_contas_em_subtotais_separados(self) -> None:
         with self._session_factory() as db:
@@ -1017,6 +1180,61 @@ class AssistenteIAAdminTest(unittest.TestCase):
             self.assertEqual(clinic.whatsapps, ["85912345678"])
             self.assertEqual(clinic.email, original_email)
 
+    def test_vinculo_de_paciente_a_reserva_exige_aprovacao_e_preserva_horario(self) -> None:
+        with self._session_factory() as db:
+            clinic, service, patient, conversation = self._seed_base(db)
+            tutor = db.query(Tutor).filter(Tutor.id == patient.tutor_id).one()
+            patient_id = int(patient.id)
+            tutor_id = int(tutor.id)
+            start = datetime.now(assistente_ia_tools.LOCAL_TZ) + timedelta(days=5)
+            reservation = Agendamento(
+                paciente_id=None,
+                tutor_id=None,
+                clinica_id=clinic.id,
+                servico_id=service.id,
+                inicio=start,
+                fim=start + timedelta(minutes=30),
+                data=start.date().isoformat(),
+                hora=start.strftime("%H:%M"),
+                status="Reservado",
+                reserva_expira_em=datetime.now(timezone.utc) + timedelta(hours=2),
+            )
+            db.add(reservation)
+            db.commit()
+            db.refresh(reservation)
+            with patch.object(assistente_ia_tools, "registrar_auditoria"):
+                prepared = assistente_ia_tools.solicitar_vinculo_paciente_reserva(
+                    self._context(db, conversation),
+                    agendamento_id=reservation.id,
+                    tutor=tutor.nome,
+                    paciente=patient.nome,
+                )["pending_action"]
+                self.assertEqual(prepared["type"], "attach_patient_to_reservation")
+                self.assertIsNone(reservation.paciente_id)
+                with patch.object(
+                    assistente_ia_tools.agenda,
+                    "atualizar_agendamento",
+                    return_value={
+                        "id": reservation.id,
+                        "inicio": start.isoformat(),
+                        "status": "Reservado",
+                        "paciente_id": patient.id,
+                    },
+                ) as official_update:
+                    executed = assistente_ia_tools.decide_pending_action(
+                        db=db,
+                        current_user=self.user,
+                        request=SimpleNamespace(headers={}),
+                        action_id=prepared["id"],
+                        decision="approve",
+                    )
+
+        self.assertEqual(executed["status"], "executed")
+        payload = official_update.call_args.kwargs["agendamento"]
+        self.assertEqual(payload.paciente_id, patient_id)
+        self.assertEqual(payload.tutor_id, tutor_id)
+        self.assertNotIn("inicio", payload.model_dump(exclude_unset=True))
+
     def test_rascunho_clinico_nunca_altera_laudo_oficial(self) -> None:
         with self._session_factory() as db:
             _clinic, _service, patient, conversation = self._seed_base(db)
@@ -1126,6 +1344,41 @@ class AssistenteIAAdminTest(unittest.TestCase):
             self.assertEqual(result["assistant_message"]["content"], final_response.output_text)
             self.assertEqual(conversation.previous_response_id, "resp-2")
             self.assertEqual(db.query(AssistenteIAMensagem).count(), 2)
+
+    def test_retentativa_reutiliza_comando_sem_resposta_em_vez_de_duplica_lo(self) -> None:
+        with self._session_factory() as db:
+            _clinic, _service, _patient, conversation = self._seed_base(db)
+            failed_message = AssistenteIAMensagem(
+                conversa_id=conversation.id,
+                usuario_id=self.user.id,
+                papel="user",
+                conteudo="Agora realize o agendamento",
+                provider_status="failed",
+            )
+            db.add(failed_message)
+            db.commit()
+            final_response = SimpleNamespace(
+                id="resp-retry",
+                output=[],
+                output_text="Vou preparar o próximo passo com os dados disponíveis.",
+            )
+            with (
+                patch.object(assistente_ia_service, "ensure_assistant_available"),
+                patch.object(assistente_ia_service, "OpenAI", return_value=SimpleNamespace()),
+                patch.object(assistente_ia_service, "_provider_request", return_value=final_response),
+                patch.object(assistente_ia_service, "registrar_auditoria"),
+            ):
+                result = assistente_ia_service.run_assistant_turn(
+                    db=db,
+                    current_user=self.user,
+                    request=SimpleNamespace(headers={}),
+                    message="Agora realize o agendamento",
+                    conversation=conversation,
+                )
+
+            self.assertEqual(db.query(AssistenteIAMensagem).count(), 2)
+            self.assertEqual(result["user_message"]["id"], failed_message.id)
+            self.assertEqual(failed_message.provider_status, "completed")
 
 
 if __name__ == "__main__":

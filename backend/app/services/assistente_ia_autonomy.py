@@ -744,10 +744,14 @@ Responda obrigatoriamente com uma chamada de ferramenta, nunca com texto ou recu
 Ferramentas `solicitar_*` apenas preparam uma acao pendente para confirmacao humana.
 
 Regras de roteamento que devem ser observadas:
+- servicos realizados ou todas as ordens de servico do periodo usa analisar_servicos_realizados;
+- tempo ou distancia entre clinicas usa consultar_deslocamento_clinicas;
+- funcionamento geral ou horario de encerramento da agenda usa consultar_funcionamento_agenda;
 - visao 360, saude operacional, motivo de queda ou plano de acao de uma clinica usa consultar_clinica_360;
 - comparacao de desempenho ou prioridade entre clinicas usa comparar_clinicas_360;
 - remarcacao de agendamento identificado, com data e horario de destino, usa solicitar_remarcacao_agendamento;
 - bloqueio com data, inicio, fim e motivo definidos usa solicitar_bloqueio_agenda;
+- incluir paciente e tutor em reserva existente usa solicitar_vinculo_paciente_reserva sem cancelar o horario;
 - pedido de preparar rascunho sem conteudo clinico suficiente usa obter_contexto_laudo primeiro;
 - pedido de salvar rascunho com titulo e conteudo explicitos usa salvar_rascunho_clinico;
 - obter contexto ou salvar rascunho nunca modifica nem finaliza o laudo oficial.
