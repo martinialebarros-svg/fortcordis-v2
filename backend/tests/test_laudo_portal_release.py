@@ -22,7 +22,11 @@ sys.path.insert(0, str(BACKEND_DIR))
 from app.api.v1.endpoints import laudos
 from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
+from app.models.clinica import Clinica
 from app.models.laudo import Exame, Laudo
+from app.models.paciente import Paciente
+from app.models.portal_clinic_auth import PortalClinicAccount, PortalClinicInvite
+from app.models.tutor import Tutor
 
 
 PDF_BYTES = b"%PDF-1.4\nportal laudo pdf\n"
@@ -60,10 +64,15 @@ class LaudoPortalReleaseTest(unittest.TestCase):
         db_path = Path(tmpdir.name) / "laudo-portal-release.db"
         engine = create_engine(f"sqlite:///{db_path}")
         for table in (
+            Tutor.__table__,
+            Paciente.__table__,
+            Clinica.__table__,
             AtendimentoClinico.__table__,
             Laudo.__table__,
             Exame.__table__,
             AnexoAtendimento.__table__,
+            PortalClinicInvite.__table__,
+            PortalClinicAccount.__table__,
         ):
             table.create(engine, checkfirst=True)
         session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()
@@ -87,13 +96,20 @@ class LaudoPortalReleaseTest(unittest.TestCase):
     def test_liberar_laudo_cria_exame_publicado_no_portal(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
+            tutor = Tutor(nome="Monica", email="monica@example.com", ativo=1)
+            db.add(tutor)
+            db.flush()
+            paciente = Paciente(nome="Luna", especie="Canina", tutor_id=tutor.id, ativo=1)
+            clinica = Clinica(id=8, nome="Clinica Parceira", email="contato@clinica.com", ativo=True)
+            db.add_all([paciente, clinica])
+            db.flush()
             laudo = Laudo(
-                paciente_id=182,
+                paciente_id=paciente.id,
                 veterinario_id=7,
                 tipo="ecocardiograma",
                 titulo="Laudo ecocardiografico - Luna",
                 status="Finalizado",
-                clinic_id=8,
+                clinic_id=clinica.id,
                 data_exame=datetime(2026, 7, 4, 15, 30),
                 criado_por_id=7,
                 criado_por_nome="Dr. Martiniano",
@@ -107,7 +123,9 @@ class LaudoPortalReleaseTest(unittest.TestCase):
                 patch.object(laudos, "render_laudo_pdf", return_value=self._fake_pdf()) as render_mock,
                 patch.object(laudos, "store_atendimento_attachment_file", side_effect=self._fake_store(tmpdir)) as store_mock,
                 patch.object(laudos, "registrar_auditoria", return_value=None) as audit_mock,
+                patch("app.services.portal_clinic_notification_service.send_portal_email_message") as email_mock,
             ):
+                email_mock.return_value = SimpleNamespace(provider="smtp", channel="email")
                 response = laudos.liberar_laudo_para_portal_clinica(
                     laudo.id,
                     request=_make_request(),
@@ -134,9 +152,11 @@ class LaudoPortalReleaseTest(unittest.TestCase):
             self.assertEqual(anexo.origem, laudos.PORTAL_LAUDO_ATTACHMENT_ORIGIN)
             self.assertEqual(anexo.url, f"/api/v1/portal/anexos/{anexo.id}/arquivo")
             self.assertTrue(Path(anexo.caminho_arquivo).exists())
+            self.assertEqual(response["notificacao_clinica"]["status"], "sent")
+            self.assertEqual(response["notificacao_clinica"]["destination_masked"], "co***@clinica.com")
             render_mock.assert_called_once()
             store_mock.assert_called_once()
-            audit_mock.assert_called_once()
+            self.assertEqual(audit_mock.call_count, 2)
         finally:
             db.close()
             engine.dispose()
@@ -145,13 +165,16 @@ class LaudoPortalReleaseTest(unittest.TestCase):
     def test_liberar_laudo_reusa_anexo_pdf_existente(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
+            clinica = Clinica(id=8, nome="Clinica Parceira", email="contato@clinica.com", ativo=True)
+            db.add(clinica)
+            db.flush()
             laudo = Laudo(
                 paciente_id=182,
                 veterinario_id=7,
                 tipo="ecocardiograma",
                 titulo="Laudo ecocardiografico - Luna",
                 status="Finalizado",
-                clinic_id=8,
+                clinic_id=clinica.id,
                 data_exame=datetime(2026, 7, 4, 15, 30),
                 criado_por_id=7,
                 criado_por_nome="Dr. Martiniano",
@@ -192,6 +215,9 @@ class LaudoPortalReleaseTest(unittest.TestCase):
         try:
             pdf_path = Path(tmpdir.name) / "eletro-luke.pdf"
             pdf_path.write_bytes(b"%PDF-1.4\neletro externo\n")
+            clinica = Clinica(id=8, nome="Clinica Parceira", email="contato@clinica.com", ativo=True)
+            db.add(clinica)
+            db.flush()
 
             laudo = Laudo(
                 paciente_id=182,
@@ -199,7 +225,7 @@ class LaudoPortalReleaseTest(unittest.TestCase):
                 tipo=laudos.TIPO_LAUDO_ELETROCARDIOGRAMA,
                 titulo="Laudo de Eletrocardiograma - Luke",
                 status="Finalizado",
-                clinic_id=8,
+                clinic_id=clinica.id,
                 data_exame=datetime(2026, 7, 5, 11, 0),
                 criado_por_id=7,
                 criado_por_nome="Dr. Martiniano",
@@ -300,6 +326,63 @@ class LaudoPortalReleaseTest(unittest.TestCase):
             self.assertEqual(db.query(Exame).count(), 0)
             self.assertEqual(db.query(AnexoAtendimento).count(), 0)
             render_mock.assert_not_called()
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_liberar_laudo_envia_email_para_conta_ativa_da_clinica(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            tutor = Tutor(nome="Monica", email="monica@example.com", ativo=1)
+            db.add(tutor)
+            db.flush()
+            paciente = Paciente(nome="Luke", especie="Canina", tutor_id=tutor.id, ativo=1)
+            clinica = Clinica(id=8, nome="La no Pet", email="contato@lanopet.com", ativo=True)
+            account = PortalClinicAccount(
+                clinica_id=8,
+                email_normalized="portal@lanopet.com",
+                responsavel_nome="Equipe La no Pet",
+                password_hash="hash",
+                status="active",
+            )
+            db.add_all([paciente, clinica, account])
+            db.flush()
+
+            laudo = Laudo(
+                paciente_id=paciente.id,
+                veterinario_id=7,
+                tipo="ecocardiograma",
+                titulo="Laudo ecocardiografico - Luke",
+                status="Finalizado",
+                clinic_id=clinica.id,
+                data_exame=datetime(2026, 7, 21, 14, 0),
+                criado_por_id=7,
+                criado_por_nome="Dr. Martiniano",
+            )
+            db.add(laudo)
+            db.commit()
+            db.refresh(laudo)
+
+            current_user = SimpleNamespace(id=7, nome="Dr. Martiniano", email="vet@example.com")
+            with (
+                patch.object(laudos, "render_laudo_pdf", return_value=self._fake_pdf()),
+                patch.object(laudos, "store_atendimento_attachment_file", side_effect=self._fake_store(tmpdir)),
+                patch.object(laudos, "registrar_auditoria", return_value=None),
+                patch("app.services.portal_clinic_notification_service.send_portal_email_message") as email_mock,
+            ):
+                email_mock.return_value = SimpleNamespace(provider="smtp", channel="email")
+                response = laudos.liberar_laudo_para_portal_clinica(
+                    laudo.id,
+                    request=_make_request(),
+                    db=db,
+                    current_user=current_user,
+                )
+
+            email_mock.assert_called_once()
+            self.assertEqual(email_mock.call_args.kwargs["destination"], "portal@lanopet.com")
+            self.assertEqual(response["notificacao_clinica"]["status"], "sent")
+            self.assertEqual(response["notificacao_clinica"]["destination_masked"], "po***@lanopet.com")
         finally:
             db.close()
             engine.dispose()

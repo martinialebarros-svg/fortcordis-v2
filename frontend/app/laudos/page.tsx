@@ -251,10 +251,15 @@ export default function LaudosPage() {
     try {
       const response = await api.post(`/laudos/${laudo.id}/portal/liberar-clinica`);
       const novoStatus = response.data?.status || PORTAL_RELEASE_STATUS;
+      const notification = response.data?.notificacao_clinica;
       setLaudos((prev) =>
         prev.map((item) => (item.id === laudo.id ? { ...item, status: novoStatus } : item))
       );
-      alert("Laudo liberado no portal da clinica parceira.");
+      const successMessage =
+        notification?.status === "sent" && notification?.destination_masked
+          ? `Laudo liberado no portal da clinica parceira. Email enviado para ${notification.destination_masked}.`
+          : "Laudo liberado no portal da clinica parceira.";
+      alert(successMessage);
     } catch (error) {
       const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
       alert(detail || "Erro ao liberar laudo no portal. Tente novamente.");

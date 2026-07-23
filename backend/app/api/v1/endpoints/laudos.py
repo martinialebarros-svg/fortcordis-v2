@@ -36,6 +36,7 @@ from app.services.laudo_pdf_jobs import (
     submit_laudo_pdf_job,
 )
 from app.services.laudo_pdf_service import compute_laudo_pdf_cache_key, render_laudo_pdf
+from app.services.portal_clinic_notification_service import notify_clinic_report_released
 from app.utils.paciente_helpers import (
     atualizar_observacoes_com_idade,
     extrair_idade_paciente,
@@ -2144,6 +2145,13 @@ def liberar_laudo_para_portal_clinica(
     db.refresh(laudo)
     db.refresh(exame)
     db.refresh(anexo)
+    from app.models.clinica import Clinica
+    from app.models.paciente import Paciente
+    from app.models.tutor import Tutor
+
+    clinica = db.query(Clinica).filter(Clinica.id == laudo.clinic_id).first()
+    paciente = db.query(Paciente).filter(Paciente.id == laudo.paciente_id).first()
+    tutor = db.query(Tutor).filter(Tutor.id == paciente.tutor_id).first() if paciente and paciente.tutor_id else None
 
     registrar_auditoria(
         current_user=current_user,
@@ -2165,6 +2173,34 @@ def liberar_laudo_para_portal_clinica(
         request=request,
     )
 
+    notification_result = notify_clinic_report_released(
+        db=db,
+        request=request,
+        clinica_id=int(laudo.clinic_id),
+        clinica_nome=getattr(clinica, "nome", None),
+        tipo_exame=exame.tipo_exame or _label_tipo_exame_portal(laudo),
+        paciente_nome=getattr(paciente, "nome", None),
+        tutor_nome=getattr(tutor, "nome", None),
+        released_at=released_at,
+    )
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="laudos",
+        entidade="laudo",
+        acao=f"LAUDO_PORTAL_RELEASE_NOTIFICATION_{notification_result.status.upper()}",
+        descricao="Resultado do envio de notificacao da clinica apos liberacao do laudo no portal.",
+        entidade_id=laudo.id,
+        detalhes={
+            "laudo_id": laudo.id,
+            "clinic_id": laudo.clinic_id,
+            "notification_status": notification_result.status,
+            "destination_masked": notification_result.destination_masked,
+            "provider": notification_result.provider,
+            "reason": notification_result.reason,
+        },
+        request=request,
+    )
+
     return {
         "message": "Laudo liberado no portal da clinica parceira com PDF disponivel para download.",
         "laudo_id": laudo.id,
@@ -2176,6 +2212,12 @@ def liberar_laudo_para_portal_clinica(
         "pdf_nome": anexo.nome_original,
         "pdf_tamanho": anexo.tamanho,
         "released_at": released_at.isoformat(),
+        "notificacao_clinica": {
+            "status": notification_result.status,
+            "destination_masked": notification_result.destination_masked,
+            "provider": notification_result.provider,
+            "reason": notification_result.reason,
+        },
     }
 
 
