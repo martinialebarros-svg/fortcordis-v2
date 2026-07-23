@@ -34,6 +34,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - RF-022: links do portal compartilhados por WhatsApp devem expor metadata institucional com logomarca oficial da Fort Cordis no host `app.fortcordis.com.br`.
 - RF-023: o portal autenticado da clinica parceira deve exibir um painel operacional com indicadores de `Realizados hoje`, `Em laudo`, `Aguardando liberacao` e `Liberados hoje`.
 - RF-024: o portal autenticado da clinica parceira deve exibir uma fila operacional recente com status do exame, data de realizacao e previsao ou data de liberacao.
+- RF-025: a rota `/clinica-parceira` deve operar com um shell exclusivo por estado, exibindo a landing publica apenas quando nao houver sessao valida e substituindo-a integralmente pelo ambiente autenticado da unidade quando a clinica estiver logada.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -51,6 +52,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - NFR-012 (branding compartilhado): o layout raiz do app deve publicar `metadataBase`, `openGraph`, `twitter` e `icons` coerentes para que previews de compartilhamento mostrem a identidade visual correta da Fort Cordis.
 - NFR-013 (robustez temporal): o cockpit administrativo deve tolerar timestamps do banco com e sem timezone no mesmo payload, normalizando as datas do painel antes de calcular inatividade, downloads recentes e ordenacao da linha do tempo.
 - NFR-014 (operacao): o painel operacional da clinica deve adotar um SLA padrao visivel de 48 horas para previsao de liberacao quando o exame ainda nao estiver publicado no portal.
+- NFR-015 (UX/layout): a rota `/clinica-parceira` nao deve manter camadas concorrentes da landing publica sob o ambiente autenticado, evitando sobreposicao de textos, rolagens duplicadas e secoes institucionais visiveis durante a sessao da clinica.
 
 ## 4) Contratos tecnicos
 
@@ -174,6 +176,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - Componentes novos/alterados:
   - `frontend/app/layout.tsx`
   - `frontend/components/portal/PortalTutorWorkspace.tsx`
+  - `frontend/components/portal/PortalClinicaPageShell.tsx`
   - `frontend/components/portal/PortalClinicaWorkspace.tsx`
   - `frontend/components/portal/PortalClinicActivationWorkspace.tsx`
   - `frontend/components/portal/PortalClinicResetPasswordWorkspace.tsx`
@@ -186,6 +189,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
   - validar IDs numericos antes de chamar a API;
   - exibir mensagem vazia quando nenhum exame autorizado existir;
   - encerrar somente a sessao do portal ao clicar em sair;
+  - trocar integralmente da landing publica para o workspace autenticado quando houver sessao valida da clinica;
   - mostrar confirmacao antes de revogar convite, conta ou sessoes;
   - exportar somente a visao atualmente filtrada no cockpit administrativo.
 
@@ -228,6 +232,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CA-024: a tela `/clinicas/portal` continua carregando metricas, downloads recentes e linha do tempo mesmo quando a auditoria trouxer timestamps timezone-aware misturados com timestamps sem timezone.
 - CA-025: a tela autenticada da clinica parceira exibe um painel operacional com os quatro indicadores principais da unidade.
 - CA-026: a tela autenticada da clinica parceira exibe fila operacional recente com status do exame e previsao ou data de liberacao do portal.
+- CA-027: com sessao valida da clinica, a rota `/clinica-parceira` exibe somente o ambiente autenticado da unidade, sem manter a landing institucional ativa por baixo nem causar sobreposicao visual durante a rolagem.
 
 ## 7) Casos de borda
 

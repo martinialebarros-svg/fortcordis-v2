@@ -41,12 +41,14 @@ Status: done
 | CA-024 | aceitacao | `backend/app/api/v1/endpoints/portal_clinic_auth.py::_normalize_utc_naive_datetime` + `test_portal_overview_datetime_helpers_normalize_mixed_timezones` cobrindo timestamps mistos no cockpit | ok |
 | CA-025 | aceitacao | `backend/tests/test_portal_access_foundation.py::test_clinica_exam_list_includes_operational_panel` valida `operational_summary` | ok |
 | CA-026 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx` renderiza a fila operacional com status e previsao/data de liberacao | ok |
+| CA-027 | frontend | `frontend/components/portal/PortalClinicaPageShell.tsx` + `frontend/components/portal/PortalClinicaWorkspace.tsx` alternando entre landing publica e shell autenticado sem sobreposicao | ok |
 | NFR-008 | nao funcional | auditoria de download enriquecida com `actor_type`, `clinica_id` e `account_id` em `backend/app/api/v1/endpoints/portal.py` | ok |
 | NFR-009 | nao funcional | confirmacoes explicitas antes de revogacoes no cockpit administrativo | ok |
 | NFR-010 | nao funcional | painel calcula metricas somente a partir dos dados de acesso ja autorizados no backend | ok |
 | NFR-011 | nao funcional | reenvio rapido orienta completar email/WhatsApp no compositor quando faltarem dados minimos | ok |
 | NFR-012 | nao funcional | `frontend/app/layout.tsx` com metadata institucional coerente para previews de compartilhamento | ok |
 | NFR-013 | nao funcional | normalizacao defensiva de timestamps do cockpit antes de comparar recencia, ultimo acesso e ordem da linha do tempo | ok |
+| NFR-015 | nao funcional | shell exclusivo em `/clinica-parceira`, sem camadas publicas concorrentes durante sessao autenticada | ok |
 
 ## 2) Testes automatizados executados
 
@@ -59,6 +61,7 @@ env PYTHONPYCACHEPREFIX=/private/tmp/fortcordis-pycache python3 -m py_compile ba
 cd frontend
 npx eslint app/layout.tsx
 npx eslint app/clinicas/portal/page.tsx app/clinicas/page.tsx app/clinicas/components/ClinicaPortalAccessCard.tsx app/layout-dashboard.tsx lib/portal-api.ts lib/portal-clinic-admin.ts
+npx eslint app/clinica-parceira/page.tsx components/portal/PortalClinicaWorkspace.tsx components/portal/PortalClinicaPageShell.tsx --max-warnings=0
 npx tsc --noEmit --pretty false
 npm run build
 git diff --check
@@ -73,6 +76,7 @@ Resumo dos resultados:
   - `npx eslint components/portal/PortalClinicaWorkspace.tsx lib/portal-api.ts app/laudos/page.tsx 'app/laudos/[id]/page.tsx' --max-warnings=0`: ok
   - `npx eslint app/layout.tsx`: ok
   - `npx eslint ...`: ok
+  - `npx eslint app/clinica-parceira/page.tsx components/portal/PortalClinicaWorkspace.tsx components/portal/PortalClinicaPageShell.tsx --max-warnings=0`: ok
   - `npx tsc --noEmit --pretty false`: ok
   - `npm run build`: ok
 - Qualidade de diff:
@@ -119,6 +123,14 @@ Resumo dos resultados:
 - Confirmado por codigo que o host canonico do preview esta configurado como `https://app.fortcordis.com.br`.
 - Observacao operacional: mensageiros podem manter cache do preview antigo por algum tempo; o comportamento esperado e que novos compartilhamentos passem a refletir a metadata publicada.
 
+### Ajuste de shell autenticado de 2026-07-23
+
+- `frontend/app/clinica-parceira/page.tsx` passou a delegar a decisao de shell para `PortalClinicaPageShell`.
+- `PortalClinicaPageShell` revisado para mostrar a landing publica apenas sem sessao da clinica e substituir a tela integralmente pelo workspace autenticado quando a sessao existe.
+- `PortalClinicaWorkspace` revisado para operar em dois modos: `embedded` na landing publica e `standalone` no ambiente autenticado.
+- `http://127.0.0.1:3005/clinica-parceira` respondeu `200` durante a validacao local apos o ajuste.
+- Revisao por codigo confirmou a remocao do container `fixed inset-0` no estado autenticado, eliminando a camada concorrente que deixava textos institucionais visiveis sob a area logada.
+
 ### Regressao de timezone de 2026-07-22
 
 - Log de producao revisado para o erro em `GET /api/v1/portal/admin/clinicas/acessos/painel`.
@@ -137,6 +149,7 @@ Resumo dos resultados:
 - Risco residual 7: a linha do tempo usa os eventos hoje disponiveis em convite, conta e auditoria de download; se no futuro houver novas etapas operacionais, elas precisarao ser auditadas para aparecer no cockpit.
 - Risco residual 8: a atualizacao da logomarca em previews depende do tempo de cache do WhatsApp e de outros mensageiros, mesmo com a metadata correta no app.
 - Risco residual 9: outros endpoints administrativos que cruzem datas historicas de origens diferentes devem reaproveitar a mesma normalizacao temporal para evitar nova divergencia entre SQLite local e PostgreSQL de producao.
+- Risco residual 10: a validacao visual final em stage continua importante quando houver sessao autentica de clinica, porque o bug corrigido envolvia composicao de layout e rolagem na rota real.
 
 ## 5) Itens fora de escopo entregues
 
