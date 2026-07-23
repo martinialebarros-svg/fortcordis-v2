@@ -42,6 +42,7 @@ Status: done
 | CA-025 | aceitacao | `backend/tests/test_portal_access_foundation.py::test_clinica_exam_list_includes_operational_panel` valida `operational_summary` | ok |
 | CA-026 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx` renderiza a fila operacional com status e previsao/data de liberacao | ok |
 | CA-027 | frontend | `frontend/components/portal/PortalClinicaPageShell.tsx` + `frontend/components/portal/PortalClinicaWorkspace.tsx` alternando entre landing publica e shell autenticado sem sobreposicao | ok |
+| CA-028 | frontend | `PortalClinicaPageShell` reutiliza a sessao ja hidratada em `standalone` e `PortalClinicaWorkspace` so notifica o shell pai apos concluir o bootstrap local, evitando piscar entre landing e dashboard | ok |
 | NFR-008 | nao funcional | auditoria de download enriquecida com `actor_type`, `clinica_id` e `account_id` em `backend/app/api/v1/endpoints/portal.py` | ok |
 | NFR-009 | nao funcional | confirmacoes explicitas antes de revogacoes no cockpit administrativo | ok |
 | NFR-010 | nao funcional | painel calcula metricas somente a partir dos dados de acesso ja autorizados no backend | ok |
@@ -49,6 +50,7 @@ Status: done
 | NFR-012 | nao funcional | `frontend/app/layout.tsx` com metadata institucional coerente para previews de compartilhamento | ok |
 | NFR-013 | nao funcional | normalizacao defensiva de timestamps do cockpit antes de comparar recencia, ultimo acesso e ordem da linha do tempo | ok |
 | NFR-015 | nao funcional | shell exclusivo em `/clinica-parceira`, sem camadas publicas concorrentes durante sessao autenticada | ok |
+| NFR-016 | nao funcional | bootstrap da sessao autenticada nao propaga `null` transitorio para o roteamento da pagina | ok |
 
 ## 2) Testes automatizados executados
 
@@ -131,6 +133,15 @@ Resumo dos resultados:
 - `http://127.0.0.1:3005/clinica-parceira` respondeu `200` durante a validacao local apos o ajuste.
 - Revisao por codigo confirmou a remocao do container `fixed inset-0` no estado autenticado, eliminando a camada concorrente que deixava textos institucionais visiveis sob a area logada.
 
+### Correcao do bootstrap autenticado de 2026-07-23
+
+- Causa do incidente em producao confirmada por codigo: `PortalClinicaWorkspace` notificava `onSessionChange(null)` durante o proprio mount em `mode="standalone"`, antes de concluir a hidratacao da sessao local.
+- Impacto observado: a shell de `/clinica-parceira` alternava entre landing publica e dashboard autenticado, causando piscar, sobreposicao de textos institucionais e rolagem inconsistente.
+- Correcao aplicada:
+  - `PortalClinicaPageShell` passou a reutilizar a sessao ja hidratada via prop `initialSession` ao montar o workspace standalone.
+  - `PortalClinicaWorkspace` passou a adiar o callback `onSessionChange` ate o fim do bootstrap local.
+- Validacao por codigo confirma que o shell autenticado nao derruba mais o estado pai para `null` no primeiro render com sessao valida.
+
 ### Regressao de timezone de 2026-07-22
 
 - Log de producao revisado para o erro em `GET /api/v1/portal/admin/clinicas/acessos/painel`.
@@ -150,6 +161,7 @@ Resumo dos resultados:
 - Risco residual 8: a atualizacao da logomarca em previews depende do tempo de cache do WhatsApp e de outros mensageiros, mesmo com a metadata correta no app.
 - Risco residual 9: outros endpoints administrativos que cruzem datas historicas de origens diferentes devem reaproveitar a mesma normalizacao temporal para evitar nova divergencia entre SQLite local e PostgreSQL de producao.
 - Risco residual 10: a validacao visual final em stage continua importante quando houver sessao autentica de clinica, porque o bug corrigido envolvia composicao de layout e rolagem na rota real.
+- Risco residual 11: como o incidente dependia do ciclo de hidratacao do client-side com sessao persistida, a validacao final em stage e producao deve recarregar a pagina autenticada, nao apenas navegar uma vez apos o login.
 
 ## 5) Itens fora de escopo entregues
 
