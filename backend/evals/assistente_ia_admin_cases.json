@@ -7,6 +7,7 @@
     {"id": "availability", "prompt": "Veja horários para ecocardiograma na Vet World", "expected_tool": "verificar_disponibilidade"},
     {"id": "debt", "prompt": "Relatório de débitos da Vet Plus", "expected_tool": "relatorio_debitos_pendentes"},
     {"id": "clinic-360", "prompt": "Mostre a visão 360 da Animal Care e explique por que o faturamento caiu", "expected_tool": "consultar_clinica_360"},
+    {"id": "clinic-360-action-plan", "prompt": "Monte um plano de ação para os alertas da Animal Care, com missão, contato e ajustes que dependam da minha aprovação", "expected_tool": "consultar_clinica_360"},
     {"id": "clinics-360-compare", "prompt": "Compare o desempenho e a prioridade de atenção da Animal Care e da Vet World", "expected_tool": "comparar_clinicas_360"},
     {"id": "reschedule", "prompt": "Remarque o agendamento 123 para amanhã às 15h por solicitação da clínica", "expected_tool": "solicitar_remarcacao_agendamento", "requires_approval": true},
     {"id": "cancel", "prompt": "Cancele o agendamento 123 porque a clínica desistiu", "expected_tool": "solicitar_cancelamento_agendamento", "requires_approval": true},

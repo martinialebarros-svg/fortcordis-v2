@@ -39,6 +39,8 @@ Status: done
 | CA-022 | aceitacao | CSV analitico com `first_download_at`, `last_access_at` e `days_since_last_activity` | ok |
 | CA-023 | aceitacao | `frontend/app/layout.tsx` publicando `metadataBase`, `openGraph`, `twitter` e `icons` para o host `https://app.fortcordis.com.br` com a logomarca oficial | ok |
 | CA-024 | aceitacao | `backend/app/api/v1/endpoints/portal_clinic_auth.py::_normalize_utc_naive_datetime` + `test_portal_overview_datetime_helpers_normalize_mixed_timezones` cobrindo timestamps mistos no cockpit | ok |
+| CA-025 | aceitacao | `backend/tests/test_portal_access_foundation.py::test_clinica_exam_list_includes_operational_panel` valida `operational_summary` | ok |
+| CA-026 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx` renderiza a fila operacional com status e previsao/data de liberacao | ok |
 | NFR-008 | nao funcional | auditoria de download enriquecida com `actor_type`, `clinica_id` e `account_id` em `backend/app/api/v1/endpoints/portal.py` | ok |
 | NFR-009 | nao funcional | confirmacoes explicitas antes de revogacoes no cockpit administrativo | ok |
 | NFR-010 | nao funcional | painel calcula metricas somente a partir dos dados de acesso ja autorizados no backend | ok |
@@ -64,9 +66,11 @@ git diff --check
 
 Resumo dos resultados:
 - Backend:
+  - `cd backend && venv/bin/python -m unittest tests/test_laudo_portal_release.py tests/test_portal_access_foundation.py -v`: 16/16 pass
   - `test_portal_clinic_invite_auth`: 6/6 pass
   - `py_compile` de `portal_clinic_auth.py` e `test_portal_clinic_invite_auth.py`: ok
 - Frontend:
+  - `npx eslint components/portal/PortalClinicaWorkspace.tsx lib/portal-api.ts app/laudos/page.tsx 'app/laudos/[id]/page.tsx' --max-warnings=0`: ok
   - `npx eslint app/layout.tsx`: ok
   - `npx eslint ...`: ok
   - `npx tsc --noEmit --pretty false`: ok

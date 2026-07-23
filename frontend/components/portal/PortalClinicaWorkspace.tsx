@@ -37,6 +37,8 @@ import {
   verifyClinicPortalMfa,
   type PortalClinicAuthResponse,
   type PortalClinicExamFilters,
+  type PortalClinicOperationalItem,
+  type PortalClinicOperationalSummary,
   type PortalExamItem,
   type PortalSessionResponse,
 } from "@/lib/portal-api";
@@ -70,6 +72,32 @@ const INITIAL_FILTERS: ClinicExamFiltersState = {
   sort_by: "data",
   sort_dir: "desc",
 };
+
+const EMPTY_OPERATIONAL_SUMMARY: PortalClinicOperationalSummary = {
+  realizados_hoje: 0,
+  em_laudo: 0,
+  aguardando_liberacao: 0,
+  liberados_hoje: 0,
+  sla_horas: 48,
+};
+
+const OPERATIONAL_STATUS_LABELS: Record<string, string> = {
+  liberado_portal: "Liberado no portal",
+  aguardando_liberacao: "Aguardando liberação",
+  em_laudo: "Em laudo",
+  em_andamento: "Em andamento",
+};
+
+function operationalStatusClasses(statusKey: string): string {
+  switch (statusKey) {
+    case "liberado_portal":
+      return "bg-teal-50 text-teal-800";
+    case "aguardando_liberacao":
+      return "bg-amber-50 text-amber-800";
+    default:
+      return "bg-slate-100 text-slate-700";
+  }
+}
 
 function formatFileSize(value: number | null): string {
   if (!value || value <= 0) {
@@ -144,6 +172,10 @@ export default function PortalClinicaWorkspace() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [downloadingAttachmentId, setDownloadingAttachmentId] = useState<number | null>(null);
   const [exams, setExams] = useState<PortalExamItem[]>([]);
+  const [operationalSummary, setOperationalSummary] = useState<PortalClinicOperationalSummary>(
+    EMPTY_OPERATIONAL_SUMMARY,
+  );
+  const [operationalItems, setOperationalItems] = useState<PortalClinicOperationalItem[]>([]);
   const [clinicName, setClinicName] = useState<string | null>(null);
   const [totalAvailable, setTotalAvailable] = useState(0);
   const [dashboardLoaded, setDashboardLoaded] = useState(false);
@@ -213,6 +245,8 @@ export default function PortalClinicaWorkspace() {
       const usableSession = await ensureClinicSession(activeSession);
       const response = await listPortalClinicExams(compactFilters(nextFilters), usableSession.access_token);
       setExams(response.items);
+      setOperationalSummary(response.operational_summary ?? EMPTY_OPERATIONAL_SUMMARY);
+      setOperationalItems(response.operational_items ?? []);
       setClinicName(response.clinica_nome || null);
       setTotalAvailable(response.total);
       setDashboardLoaded(true);
@@ -221,6 +255,8 @@ export default function PortalClinicaWorkspace() {
       }
     } catch (err) {
       setExams([]);
+      setOperationalSummary(EMPTY_OPERATIONAL_SUMMARY);
+      setOperationalItems([]);
       setTotalAvailable(0);
       setError(err instanceof Error ? err.message : "Não foi possível carregar o painel da clínica.");
     } finally {
@@ -495,6 +531,143 @@ export default function PortalClinicaWorkspace() {
                 </div>
               </div>
             ))}
+          </section>
+
+          <section className="mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="inline-flex items-center gap-2 text-sm font-bold text-slate-950">
+                  <ShieldCheck className="h-4 w-4" />
+                  Painel operacional da unidade
+                </p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Acompanhe o andamento dos exames da clínica e a janela padrão de liberação no portal.
+                </p>
+              </div>
+              <p className="text-sm text-slate-500">
+                Prazo padrão: até {operationalSummary.sla_horas}h após a realização.
+              </p>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {[
+                {
+                  label: "Realizados hoje",
+                  value: operationalSummary.realizados_hoje,
+                  detail: "casos no escopo da unidade",
+                  icon: Stethoscope,
+                },
+                {
+                  label: "Em laudo",
+                  value: operationalSummary.em_laudo,
+                  detail: "ainda em produção clínica",
+                  icon: FileCheck2,
+                },
+                {
+                  label: "Aguardando liberação",
+                  value: operationalSummary.aguardando_liberacao,
+                  detail: "prontos para publicação",
+                  icon: ShieldCheck,
+                },
+                {
+                  label: "Liberados hoje",
+                  value: operationalSummary.liberados_hoje,
+                  detail: "já disponíveis no portal",
+                  icon: CheckCircle2,
+                },
+              ].map(({ label, value, detail, icon: Icon }) => (
+                <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+                      <p className="mt-3 text-2xl font-bold text-slate-950">{value}</p>
+                      <p className="mt-1 text-sm text-slate-500">{detail}</p>
+                    </div>
+                    <span className="rounded-lg bg-white p-2 text-slate-700 shadow-sm">
+                      <Icon className="h-5 w-5" />
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 border-t border-slate-200 pt-4">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-sm font-bold text-slate-950">Fila operacional da unidade</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Exames recentes com status, previsão e histórico de liberação.
+                  </p>
+                </div>
+              </div>
+
+              {operationalItems.length === 0 ? (
+                <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+                  Ainda não há movimentações operacionais recentes para esta clínica.
+                </div>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  {operationalItems.map((item) => (
+                    <article
+                      key={item.item_id}
+                      className="rounded-lg border border-slate-200 bg-white p-4"
+                    >
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold uppercase tracking-[0.08em] text-slate-600">
+                              {item.origem === "laudo" ? "Laudo" : "Exame"}
+                            </span>
+                            <span
+                              className={`rounded-lg px-2 py-1 text-xs font-bold ${operationalStatusClasses(
+                                item.status_key,
+                              )}`}
+                            >
+                              {OPERATIONAL_STATUS_LABELS[item.status_key] || item.status_label}
+                            </span>
+                          </div>
+                          <h3 className="mt-3 text-lg font-bold text-slate-950">{item.tipo_exame}</h3>
+                          <dl className="mt-3 grid gap-3 text-sm text-slate-600 md:grid-cols-2 xl:grid-cols-5">
+                            <div>
+                              <dt className="font-bold text-slate-900">Pet</dt>
+                              <dd className="mt-1">{item.paciente_nome || "Não informado"}</dd>
+                            </div>
+                            <div>
+                              <dt className="font-bold text-slate-900">Tutor</dt>
+                              <dd className="mt-1">{item.tutor_nome || "Não informado"}</dd>
+                            </div>
+                            <div>
+                              <dt className="font-bold text-slate-900">Espécie</dt>
+                              <dd className="mt-1">{item.especie || "Não informada"}</dd>
+                            </div>
+                            <div>
+                              <dt className="font-bold text-slate-900">Data de realização</dt>
+                              <dd className="mt-1">{formatPortalDateTime(item.data_realizacao || null)}</dd>
+                            </div>
+                            <div>
+                              <dt className="font-bold text-slate-900">
+                                {item.data_liberacao ? "Data de liberação" : "Previsão de liberação"}
+                              </dt>
+                              <dd className="mt-1">
+                                {item.data_liberacao
+                                  ? formatPortalDateTime(item.data_liberacao)
+                                  : formatPortalDateTime(item.previsao_liberacao || null)}
+                              </dd>
+                            </div>
+                          </dl>
+                        </div>
+                      </div>
+
+                      {item.observacoes ? (
+                        <p className="mt-4 border-t border-slate-200 pt-4 text-sm leading-6 text-slate-600">
+                          {item.observacoes}
+                        </p>
+                      ) : null}
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
           </section>
 
           <form

@@ -72,3 +72,14 @@ Rollback: desabilitar as novas superficies de aprendizado e conservar a ultima m
 6. Ampliar dataset, testes, validacao local e release guardado em stage e producao.
 
 Rollback: retirar as rotas, ferramentas e aba `Clinicas 360`; nenhuma tabela ou dado operacional novo precisa ser removido.
+
+## Fase 7 - Planos de acao supervisionados por clinica
+
+1. Transformar cada alerta deterministico do perfil completo em plano de acao com evidencia, objetivo, prioridade e passos tipados.
+2. Propor uma missao recorrente `clinic_360`, estritamente de leitura, com clinica e periodo validados.
+3. Separar rascunho de contato sem envio e revisao operacional que apenas leva um pedido delimitado para a conversa.
+4. Exigir uma confirmacao adicional visivel antes de criar a missao sugerida e conservar a caixa de aprovacoes para qualquer escrita real.
+5. Manter o portfolio e a comparacao leves, devolvendo apenas a quantidade de planos; o conteudo completo fica no perfil focal.
+6. Ampliar dataset, testes, interface e SDD sem nova migration.
+
+Rollback: remover `action_plan` do perfil, o tipo de missao `clinic_360` e o painel de planos; nenhuma tabela ou dado de negocio precisa ser revertido.

@@ -53,7 +53,14 @@ class AssistenteIAConhecimentoCreateRequest(BaseModel):
 
 class AssistenteIAMissaoCreateRequest(BaseModel):
     titulo: str = Field(..., min_length=3, max_length=180)
-    tipo: Literal["radar", "executive_summary", "billing_trend", "overdue_debts", "eval_lab"]
+    tipo: Literal[
+        "radar",
+        "executive_summary",
+        "billing_trend",
+        "overdue_debts",
+        "clinic_360",
+        "eval_lab",
+    ]
     configuracao: dict = Field(default_factory=dict)
     recorrencia: Literal["daily", "weekly"] = "daily"
     horario_local: str = Field(default="07:00", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")

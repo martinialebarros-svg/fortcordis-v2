@@ -563,6 +563,84 @@ class PortalAccessFoundationTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_clinica_exam_list_includes_operational_panel(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            _, paciente, clinica, *_ = self._seed_portal_data(db, tmpdir)
+            laudo_pendente = Laudo(
+                paciente_id=paciente.id,
+                veterinario_id=77,
+                tipo="ecocardiograma",
+                titulo="Eco pendente",
+                status="Rascunho",
+                clinic_id=clinica.id,
+                data_exame=datetime(2026, 6, 16, 11, 30),
+                criado_por_id=77,
+                criado_por_nome="Vet Teste",
+            )
+            laudo_aguardando = Laudo(
+                paciente_id=paciente.id,
+                veterinario_id=77,
+                tipo="eletrocardiograma",
+                titulo="Eletro finalizado",
+                status="Finalizado",
+                clinic_id=clinica.id,
+                data_exame=datetime(2026, 6, 15, 14, 0),
+                criado_por_id=77,
+                criado_por_nome="Vet Teste",
+            )
+            db.add_all([laudo_pendente, laudo_aguardando])
+            db.commit()
+
+            clinic_session = PortalSessionContext(
+                actor_type="clinica",
+                actor_id=clinica.id,
+                paciente_id=None,
+                clinica_id=clinica.id,
+                challenge_id="challenge-clinica",
+                display_name="Responsavel Clinica",
+                channel="email",
+                scope=tuple(portal.PORTAL_SCOPE_CLINICA),
+                expires_at=datetime.utcnow(),
+            )
+
+            with patch.object(
+                portal,
+                "_portal_local_now",
+                return_value=datetime(2026, 6, 16, 12, 0, tzinfo=portal.PORTAL_LOCAL_TZ),
+            ):
+                response = portal.listar_exames_clinica_portal(
+                    q=None,
+                    pet=None,
+                    tutor=None,
+                    especie=None,
+                    tipo_exame=None,
+                    status_exame=None,
+                    data_inicio=None,
+                    data_fim=None,
+                    sort_by="data",
+                    sort_dir="desc",
+                    limit=100,
+                    offset=0,
+                    db=db,
+                    portal_session=clinic_session,
+                )
+
+            self.assertIsNotNone(response.operational_summary)
+            self.assertEqual(response.operational_summary.realizados_hoje, 3)
+            self.assertEqual(response.operational_summary.em_laudo, 1)
+            self.assertEqual(response.operational_summary.aguardando_liberacao, 2)
+            self.assertEqual(response.operational_summary.liberados_hoje, 1)
+            self.assertEqual(response.operational_summary.sla_horas, 48)
+            status_keys = {item.status_key for item in response.operational_items}
+            self.assertIn("em_laudo", status_keys)
+            self.assertIn("aguardando_liberacao", status_keys)
+            self.assertIn("liberado_portal", status_keys)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_clinica_request_creates_email_challenge(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:

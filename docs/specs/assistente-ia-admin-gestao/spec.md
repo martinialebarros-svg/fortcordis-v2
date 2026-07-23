@@ -58,6 +58,13 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - RF-046: o mapa pode exibir contatos institucionais da clinica, mas nunca retorna nome, contato ou identificador de paciente ou tutor.
 - RF-047: a comparacao aceita de duas a dez clinicas, preserva os mesmos indicadores individuais e informa que o ranking vale apenas para a selecao.
 - RF-048: a conversa possui ferramentas estritas para perfil e comparacao 360, resolvendo nomes pelos cadastros ativos e permanecendo somente leitura.
+- RF-049: cada alerta suportado do perfil focal gera um plano deterministico com alerta de origem, prioridade, objetivo, evidencia e passos tipados.
+- RF-050: os passos permitidos sao `read_only_mission`, `contact_draft` e `operational_review`; todos declaram ausencia de envio externo e de escrita automatica de negocio.
+- RF-051: a missao sugerida usa o novo tipo `clinic_360`, aceita apenas clinica e periodo de 30 a 365 dias e executa somente a consulta do perfil vivo.
+- RF-052: criar a missao sugerida exige uma segunda confirmacao explicita no cartao do plano; cancelar a revisao nao persiste nada.
+- RF-053: contato sugerido abre apenas um pedido de rascunho na conversa e nunca dispara WhatsApp, e-mail ou outra notificacao.
+- RF-054: revisao operacional abre um pedido delimitado na conversa; se resultar em escrita, o fluxo existente deve criar acao pendente e aguardar aprovacao.
+- RF-055: portfolio e comparacao retornam apenas resumo da quantidade de planos, enquanto o perfil focal e a ferramenta `consultar_clinica_360` recebem o plano completo.
 
 ## 3) Requisitos nao funcionais
 
@@ -87,6 +94,9 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - NFR-024 (privacidade do portfolio): respostas de Clinicas 360 declaram e cumprem `contains_patient_or_tutor_data=false`.
 - NFR-025 (proveniencia): nenhum indicador 360 e apresentado sem periodo, modo de leitura e fontes oficiais consultadas.
 - NFR-026 (consistencia financeira): ordens pendentes e contas a receber permanecem separadas e o total combinado e rotulado como estimativa sem deduplicacao.
+- NFR-027 (autonomia supervisionada): plano, missao, contato e revisao nao concedem ao scheduler nem ao modelo uma ferramenta generica de escrita.
+- NFR-028 (explicabilidade): todo plano referencia um alerta e sua evidencia; nenhuma recomendacao usa score preditivo ou causa inferida de forma opaca.
+- NFR-029 (minimizacao): os prompts sugeridos incluem apenas nome institucional, periodo e contexto gerencial do alerta, sem paciente ou tutor.
 
 ## 4) Persistencia
 
@@ -96,6 +106,7 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - novos no aprendizado continuo: `assistente_ia_aprendizados`, `assistente_ia_memoria_versoes`, `assistente_ia_regressao_casos` e `assistente_ia_memorias.versao_atual`;
 - migrations: `20260721_53_assistente_ia_copiloto.py`, `20260721_54_assistente_ia_autonomia.py` e `20260722_55_assistente_ia_aprendizado_supervisionado.py`.
 - Clinicas 360 nao cria tabela ou migration: todos os indicadores sao calculados sob demanda sobre as fontes oficiais existentes.
+- planos de acao tambem nao criam tabela ou migration; somente a missao aprovada reutiliza `assistente_ia_missoes` e `assistente_ia_execucoes`.
 
 ## 5) Ferramentas
 
@@ -143,6 +154,12 @@ Preparacao/escrita governada: `solicitar_exclusao_agendamento`, `solicitar_criac
 - CA-034: comparacao usa o mesmo contrato do perfil, aceita no minimo duas clinicas e identifica lideres de receita, agenda e prioridade por regra deterministica.
 - CA-035: dataset versionado cobre consulta e comparacao 360 e as duas ferramentas continuam `strict` e somente leitura.
 - CA-036: interface permite busca, periodo, perfil, selecao comparativa, aprofundamento na conversa e inspecao das fontes.
+- CA-037: perfil com queda, cancelamentos e debito produz tres planos ligados exatamente aos alertas presentes, priorizando debito critico.
+- CA-038: cada plano declara `automatic_execution=false`; todos os passos declaram `external_send=false` e `automatic_business_write=false`.
+- CA-039: tipo `clinic_360` rejeita clinica ausente, limita periodo e descarta qualquer configuracao ou prompt livre nao permitido.
+- CA-040: interface exige `Revisar missao` e depois `Aprovar e criar missao`; antes da segunda acao nenhuma missao e persistida.
+- CA-041: botoes de contato e revisao apenas preenchem a conversa; envio externo e escrita operacional continuam ausentes ou sujeitos a acao pendente.
+- CA-042: portfolio nao inclui os itens completos do plano, dataset cobre pedido de plano de acao e suite, lint, TypeScript e build passam.
 
 ## 7) Criterios de regressao da versao base
 
@@ -178,3 +195,4 @@ Preparacao/escrita governada: `solicitar_exclusao_agendamento`, `solicitar_criac
 - aprendizado automatico sem revisao do administrador;
 - apagamento ou sobrescrita silenciosa do historico de memoria.
 - score preditivo opaco, recomendacao automatica a cliente ou alteracao operacional a partir do mapa Clinicas 360.
+- criacao silenciosa de missao, contato externo automatico ou aplicacao direta de ajuste sugerido pelo plano.

@@ -75,10 +75,36 @@ class PortalExamSummaryResponse(BaseModel):
     anexos: list[PortalExamAttachmentResponse] = Field(default_factory=list)
 
 
+class PortalClinicOperationalSummaryResponse(BaseModel):
+    realizados_hoje: int = 0
+    em_laudo: int = 0
+    aguardando_liberacao: int = 0
+    liberados_hoje: int = 0
+    sla_horas: int = 48
+
+
+class PortalClinicOperationalItemResponse(BaseModel):
+    item_id: str
+    origem: Literal["laudo", "exame"]
+    paciente_id: Optional[int] = None
+    paciente_nome: Optional[str] = None
+    tutor_nome: Optional[str] = None
+    especie: Optional[str] = None
+    tipo_exame: str
+    status_key: str
+    status_label: str
+    data_realizacao: Optional[str] = None
+    data_liberacao: Optional[str] = None
+    previsao_liberacao: Optional[str] = None
+    observacoes: Optional[str] = None
+
+
 class PortalExamListResponse(BaseModel):
     total: int
     clinica_id: Optional[int] = None
     clinica_nome: Optional[str] = None
+    operational_summary: Optional[PortalClinicOperationalSummaryResponse] = None
+    operational_items: list[PortalClinicOperationalItemResponse] = Field(default_factory=list)
     items: list[PortalExamSummaryResponse] = Field(default_factory=list)
 
 

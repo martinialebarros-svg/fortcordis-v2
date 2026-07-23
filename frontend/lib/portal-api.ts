@@ -213,10 +213,36 @@ export type PortalExamItem = {
   anexos: PortalExamAttachment[];
 };
 
+export type PortalClinicOperationalSummary = {
+  realizados_hoje: number;
+  em_laudo: number;
+  aguardando_liberacao: number;
+  liberados_hoje: number;
+  sla_horas: number;
+};
+
+export type PortalClinicOperationalItem = {
+  item_id: string;
+  origem: "laudo" | "exame";
+  paciente_id: number | null;
+  paciente_nome?: string | null;
+  tutor_nome?: string | null;
+  especie?: string | null;
+  tipo_exame: string;
+  status_key: string;
+  status_label: string;
+  data_realizacao?: string | null;
+  data_liberacao?: string | null;
+  previsao_liberacao?: string | null;
+  observacoes?: string | null;
+};
+
 export type PortalExamListResponse = {
   total: number;
   clinica_id?: number | null;
   clinica_nome?: string | null;
+  operational_summary?: PortalClinicOperationalSummary | null;
+  operational_items?: PortalClinicOperationalItem[];
   items: PortalExamItem[];
 };
 

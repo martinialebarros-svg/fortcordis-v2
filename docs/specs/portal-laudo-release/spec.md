@@ -27,6 +27,7 @@ Implementar o primeiro controle operacional de publicacao de laudos no portal. A
 - RF-015: a tela de visualizacao de laudo deve oferecer a mesma acao antes do download/impressao, para apoiar revisao final.
 - RF-016: no painel da clinica, ao selecionar a data inicial vazia, a data final deve ser preenchida automaticamente com a mesma data para orientar busca de dia unico.
 - RF-017: o portal deve rotular separadamente `Data de realizacao` e `Data de liberacao` nos resultados exibidos para clinicas e tutores.
+- RF-018: ao liberar um laudo no portal, o backend deve tentar notificar a clinica por email usando a conta ativa da unidade, o email do convite mais recente ou o email cadastrado da clinica.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -35,6 +36,7 @@ Implementar o primeiro controle operacional de publicacao de laudos no portal. A
 - NFR-003 (auditoria): a acao administrativa de liberacao deve registrar evento best-effort com laudo, exame, anexo, paciente, clinica e metadados do PDF.
 - NFR-004 (compatibilidade): o login interno e o fluxo existente de geracao de PDF nao devem ser alterados.
 - NFR-005 (rollout): a liberacao deve ser transacional do ponto de vista funcional; se o PDF nao puder ser gerado/persistido, o laudo nao deve ficar publicado pela metade.
+- NFR-006 (notificacao): falha no envio do email da clinica nao pode impedir a liberacao funcional do laudo no portal; o resultado do envio deve voltar no payload da acao.
 
 ## 4) Contratos tecnicos
 
@@ -54,6 +56,10 @@ Implementar o primeiro controle operacional de publicacao de laudos no portal. A
     - `pdf_nome`
     - `pdf_tamanho`
     - `released_at`
+    - `notificacao_clinica.status`
+    - `notificacao_clinica.destination_masked`
+    - `notificacao_clinica.provider`
+    - `notificacao_clinica.reason`
 
 ### API portal
 
@@ -82,9 +88,10 @@ Implementar o primeiro controle operacional de publicacao de laudos no portal. A
 - CA-011: data inicial sem data final busca apenas aquele dia.
 - CA-012: painel da clinica preenche `Ate` com a mesma data ao escolher `De` vazio, permitindo alterar depois para periodo.
 - CA-013: resultados do portal exibem explicitamente `Data de realizacao` e `Data de liberacao`, evitando campo generico `Data`.
+- CA-014: liberar um laudo com conta de clinica ativa retorna confirmacao de notificacao por email sem bloquear a publicacao do PDF no portal.
 
 ## 6) Fora de escopo
 
-- Notificacao automatica da clinica ou tutor apos liberacao.
+- Notificacao automatica do tutor apos liberacao.
 - Workflow de republicacao/retirada de laudo ja liberado.
 - Separar status clinico do status de publicacao em nova coluna dedicada.

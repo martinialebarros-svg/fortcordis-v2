@@ -21,6 +21,7 @@ Status: in-progress
 | CA-011 | aceitacao | `backend/tests/test_portal_access_foundation.py::test_clinica_date_filter_uses_exam_execution_date_not_release_date` | ok |
 | CA-012 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx::handleStartDateChange` + eslint focado | ok |
 | CA-013 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx` e `frontend/components/portal/PortalExamResults.tsx` rotulam datas explicitamente + eslint focado | ok |
+| CA-014 | aceitacao | `backend/tests/test_laudo_portal_release.py::test_liberar_laudo_envia_email_para_conta_ativa_da_clinica` | ok |
 
 ## 2) Testes automatizados planejados
 
@@ -55,6 +56,8 @@ python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/stage --head-sha HEA
 
 Resultados executados:
 
+- `cd backend && venv/bin/python -m unittest tests/test_laudo_portal_release.py tests/test_portal_access_foundation.py -v`: 16/16 pass.
+- `cd frontend && npx eslint components/portal/PortalClinicaWorkspace.tsx lib/portal-api.ts app/laudos/page.tsx 'app/laudos/[id]/page.tsx' --max-warnings=0`: ok.
 - `env PYTHONPYCACHEPREFIX=/private/tmp/fortcordis-pycache python3 -m py_compile backend/app/api/v1/endpoints/laudos.py backend/tests/test_laudo_portal_release.py`: ok.
 - `env PYTHONPYCACHEPREFIX=/private/tmp/fortcordis-pycache python3 -m py_compile backend/app/api/v1/endpoints/portal.py backend/app/schemas/portal.py backend/tests/test_portal_access_foundation.py backend/tests/test_portal_clinic_invite_auth.py`: ok.
 - `cd backend && venv/bin/python -m unittest tests/test_laudo_portal_release.py -v`: 3/3 pass.

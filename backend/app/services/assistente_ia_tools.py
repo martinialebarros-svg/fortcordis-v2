@@ -2559,7 +2559,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "type": "function",
         "name": "consultar_clinica_360",
-        "description": "Consulta o perfil operacional vivo de uma clinica: agenda, faturamento, debitos, atividade, servicos, contatos institucionais, alertas, preferencias aprovadas e fontes. E somente leitura e nao retorna dados de pacientes ou tutores.",
+        "description": "Consulta o perfil operacional vivo de uma clinica: agenda, faturamento, debitos, atividade, servicos, contatos institucionais, alertas, preferencias aprovadas, fontes e planos de acao sugeridos. Os planos podem propor missao de leitura, rascunho de contato ou revisao operacional, mas nao executam, enviam ou alteram nada sem aprovacao do admin. Nao retorna dados de pacientes ou tutores.",
         "parameters": {
             "type": "object",
             "properties": {

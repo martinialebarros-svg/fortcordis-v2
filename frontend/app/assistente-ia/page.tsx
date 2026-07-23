@@ -265,8 +265,8 @@ type AutonomousExecution = {
 type AssistantMission = {
   id: string;
   title: string;
-  type: "radar" | "executive_summary" | "billing_trend" | "overdue_debts" | "eval_lab";
-  config: { months?: number; clinic?: string | null; overdue_only?: boolean };
+  type: "radar" | "executive_summary" | "billing_trend" | "overdue_debts" | "clinic_360" | "eval_lab";
+  config: { months?: number; clinic?: string | null; overdue_only?: boolean; period_days?: number };
   recurrence: "daily" | "weekly";
   local_time: string;
   weekdays: number[];
@@ -293,6 +293,40 @@ type AssistantMetrics = {
   average_latency_ms?: number | null;
   feedback: { positive: number; negative: number };
   actions: Record<string, number>;
+};
+
+type Clinic360MissionTemplate = {
+  title: string;
+  type: "clinic_360";
+  config: { clinic: string; period_days: number };
+  recurrence: "weekly";
+  local_time: string;
+  weekdays: number[];
+  enabled: boolean;
+  read_only: boolean;
+};
+
+type Clinic360ActionPlanStep = {
+  id: string;
+  kind: "read_only_mission" | "contact_draft" | "operational_review";
+  title: string;
+  description: string;
+  cta: string;
+  prompt?: string | null;
+  mission_template?: Clinic360MissionTemplate | null;
+  requires_admin_approval: boolean;
+  external_send: boolean;
+  automatic_business_write: boolean;
+};
+
+type Clinic360ActionPlanItem = {
+  id: string;
+  source_alert: string;
+  priority: "critical" | "high";
+  title: string;
+  objective: string;
+  evidence: string;
+  steps: Clinic360ActionPlanStep[];
 };
 
 type Clinic360Profile = {
@@ -348,6 +382,15 @@ type Clinic360Profile = {
     approved_preferences: Array<{ id: string; title: string; content: string; category: string }>;
   };
   alerts: Array<{ key: string; level: string; title: string; evidence: string }>;
+  action_plan: {
+    status: "attention" | "healthy";
+    items?: Clinic360ActionPlanItem[];
+    items_count?: number;
+    requires_admin_approval: boolean;
+    automatic_execution: boolean;
+    external_send?: boolean;
+    safety?: string;
+  };
   attention_score: number;
   ranking?: { revenue: number; attention: number };
   provenance: {
@@ -489,6 +532,7 @@ const MISSION_LABELS: Record<AssistantMission["type"], string> = {
   executive_summary: "Resumo executivo",
   billing_trend: "Tendência de faturamento",
   overdue_debts: "Débitos pendentes por clínica",
+  clinic_360: "Clínica 360 recorrente",
   eval_lab: "Laboratório de avaliações",
 };
 
@@ -533,6 +577,8 @@ export default function AssistenteIAPage() {
   const [selectedClinicIds, setSelectedClinicIds] = useState<number[]>([]);
   const [clinics360Comparison, setClinics360Comparison] = useState<Clinics360Comparison | null>(null);
   const [clinics360Loading, setClinics360Loading] = useState(false);
+  const [planMissionReview, setPlanMissionReview] = useState<{ clinicName: string; step: Clinic360ActionPlanStep } | null>(null);
+  const [planNotice, setPlanNotice] = useState("");
   const [managementLoading, setManagementLoading] = useState(false);
   const [autonomyAction, setAutonomyAction] = useState<string | null>(null);
   const [feedbackSent, setFeedbackSent] = useState<Record<string, "positive" | "negative">>({});
@@ -602,6 +648,8 @@ export default function AssistenteIAPage() {
       setClinics360(response.data as Clinics360Portfolio);
       setSelectedClinic360(null);
       setClinics360Comparison(null);
+      setPlanMissionReview(null);
+      setPlanNotice("");
     } catch (clinicsError) {
       setError(errorMessage(clinicsError, "Não foi possível atualizar o mapa das clínicas."));
     } finally {
@@ -615,6 +663,8 @@ export default function AssistenteIAPage() {
     try {
       const response = await api.get(`/assistente-ia/clinicas-360/${clinicId}?periodo_dias=${clinic360Period}`);
       setSelectedClinic360(response.data?.profile as Clinic360Profile);
+      setPlanMissionReview(null);
+      setPlanNotice("");
     } catch (clinicError) {
       setError(errorMessage(clinicError, "Não foi possível abrir o perfil da clínica."));
     } finally {
@@ -644,6 +694,38 @@ export default function AssistenteIAPage() {
       setError(errorMessage(comparisonError, "Não foi possível comparar as clínicas selecionadas."));
     } finally {
       setClinics360Loading(false);
+    }
+  };
+
+  const openActionPlanPrompt = (prompt?: string | null) => {
+    if (!prompt) return;
+    setInput(prompt);
+    setView("chat");
+  };
+
+  const approvePlanMission = async () => {
+    const template = planMissionReview?.step.mission_template;
+    if (!template) return;
+    setAutonomyAction(`plan-mission-${planMissionReview.step.id}`);
+    setError("");
+    setPlanNotice("");
+    try {
+      await api.post("/assistente-ia/missoes", {
+        titulo: template.title,
+        tipo: template.type,
+        configuracao: template.config,
+        recorrencia: template.recurrence,
+        horario_local: template.local_time,
+        dias_semana: template.weekdays,
+        enabled: template.enabled,
+      });
+      setPlanNotice(`Missão somente de leitura criada para ${planMissionReview.clinicName}.`);
+      setPlanMissionReview(null);
+      await refreshManagement();
+    } catch (missionError) {
+      setError(errorMessage(missionError, "Não foi possível criar a missão sugerida."));
+    } finally {
+      setAutonomyAction(null);
     }
   };
 
@@ -947,6 +1029,8 @@ export default function AssistenteIAPage() {
       ? { months: missionForm.months, clinic: missionForm.clinic.trim() || null }
       : missionForm.tipo === "overdue_debts"
         ? { clinic: missionForm.clinic.trim(), overdue_only: true }
+        : missionForm.tipo === "clinic_360"
+          ? { clinic: missionForm.clinic.trim(), period_days: clinic360Period }
         : {};
     try {
       await api.post("/assistente-ia/missoes", {
@@ -1310,6 +1394,77 @@ export default function AssistenteIAPage() {
                                 </div>
                               ) : <div className="flex items-center gap-2 rounded-xl bg-vital-50 p-4 text-sm font-semibold text-vital-800"><CheckCircle2 className="h-4 w-4" /> Nenhum alerta determinístico para o período.</div>}
 
+                              {(selectedClinic360.action_plan?.items || []).length > 0 ? (
+                                <section className="space-y-4 rounded-2xl border border-cordis-100 bg-gradient-to-br from-white to-cordis-50/40 p-5">
+                                  <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                      <div className="flex items-center gap-2"><Target className="h-5 w-5 text-cordis-600" /><h4 className="text-lg font-bold text-ink-900">Planos de ação sugeridos</h4></div>
+                                      <p className="mt-1 max-w-3xl text-xs leading-5 text-ink-500">Cada plano nasce de um alerta e separa monitoramento, contato e eventual ajuste operacional.</p>
+                                    </div>
+                                    <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Nada é executado automaticamente</span>
+                                  </div>
+
+                                  {planNotice ? <div className="flex items-center gap-2 rounded-xl bg-vital-50 p-3 text-sm font-semibold text-vital-800"><CheckCircle2 className="h-4 w-4" /> {planNotice}</div> : null}
+
+                                  {planMissionReview?.step.mission_template ? (
+                                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                                      <div className="flex items-start gap-3">
+                                        <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                                        <div className="min-w-0 flex-1">
+                                          <p className="font-semibold text-ink-900">Confirme a criação da missão</p>
+                                          <p className="mt-1 text-sm text-ink-600">{planMissionReview.step.mission_template.title}</p>
+                                          <p className="mt-1 text-xs leading-5 text-ink-500">Semanal, às {planMissionReview.step.mission_template.local_time}. Ela somente consulta o perfil 360; não envia mensagens nem altera dados operacionais.</p>
+                                          <div className="mt-4 flex flex-wrap justify-end gap-2">
+                                            <button type="button" onClick={() => setPlanMissionReview(null)} className="rounded-xl border border-ink-200 bg-white px-4 py-2 text-sm font-semibold text-ink-700">Cancelar</button>
+                                            <button type="button" onClick={() => void approvePlanMission()} disabled={autonomyAction === `plan-mission-${planMissionReview.step.id}`} className="flex items-center gap-2 rounded-xl bg-cordis-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                                              {autonomyAction === `plan-mission-${planMissionReview.step.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Aprovar e criar missão
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : null}
+
+                                  <div className="space-y-4">
+                                    {(selectedClinic360.action_plan?.items || []).map((plan) => (
+                                      <article key={plan.id} className="rounded-2xl border border-ink-100 bg-white p-4">
+                                        <div className="flex flex-wrap items-start justify-between gap-3">
+                                          <div><p className="font-semibold text-ink-900">{plan.title}</p><p className="mt-1 text-sm leading-6 text-ink-600">{plan.objective}</p></div>
+                                          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${plan.priority === "critical" ? "bg-cordis-50 text-cordis-700" : "bg-amber-50 text-amber-800"}`}>{plan.priority === "critical" ? "Prioridade crítica" : "Alta prioridade"}</span>
+                                        </div>
+                                        <p className="mt-3 rounded-xl bg-ink-50 px-3 py-2 text-xs leading-5 text-ink-500"><strong className="text-ink-700">Evidência:</strong> {plan.evidence}</p>
+                                        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                                          {plan.steps.map((step) => {
+                                            const Icon = step.kind === "read_only_mission" ? Target : step.kind === "contact_draft" ? MessageCircle : RefreshCw;
+                                            const missionExists = Boolean(step.mission_template && missions.some((mission) => (
+                                              mission.type === "clinic_360"
+                                              && mission.config.clinic?.trim().toLocaleLowerCase("pt-BR") === step.mission_template?.config.clinic.trim().toLocaleLowerCase("pt-BR")
+                                              && mission.config.period_days === step.mission_template?.config.period_days
+                                            )));
+                                            return (
+                                              <div key={step.id} className="flex flex-col rounded-xl border border-ink-100 p-3">
+                                                <div className="flex items-center gap-2"><Icon className="h-4 w-4 text-cordis-600" /><p className="text-sm font-semibold text-ink-900">{step.title}</p></div>
+                                                <p className="mt-2 flex-1 text-xs leading-5 text-ink-500">{step.description}</p>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => step.kind === "read_only_mission" ? setPlanMissionReview({ clinicName: selectedClinic360.clinic.name, step }) : openActionPlanPrompt(step.prompt)}
+                                                  disabled={missionExists}
+                                                  className="mt-3 rounded-lg border border-ink-200 px-3 py-2 text-xs font-semibold text-ink-700 hover:bg-ink-50 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-400"
+                                                >
+                                                  {missionExists ? "Missão já criada" : step.cta}
+                                                </button>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </article>
+                                    ))}
+                                  </div>
+
+                                  <p className="flex items-start gap-2 text-xs leading-5 text-vital-700"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /> {selectedClinic360.action_plan?.safety || "Sugestões aguardam sua decisão e não executam ações automaticamente."}</p>
+                                </section>
+                              ) : null}
+
                               <div className="grid gap-4 lg:grid-cols-2">
                                 <div className="rounded-2xl bg-ink-50 p-5">
                                   <h4 className="font-semibold text-ink-900">Serviços e relacionamento</h4>
@@ -1423,10 +1578,10 @@ export default function AssistenteIAPage() {
                         {Object.entries(MISSION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                       </select>
                       {missionForm.tipo === "billing_trend" ? <div className="grid grid-cols-2 gap-2"><input type="number" min={2} max={24} value={missionForm.months} onChange={(event) => setMissionForm((current) => ({ ...current, months: Number(event.target.value) || 5 }))} className="rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /><input value={missionForm.clinic} onChange={(event) => setMissionForm((current) => ({ ...current, clinic: event.target.value }))} placeholder="Clínica opcional" className="rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /></div> : null}
-                      {missionForm.tipo === "overdue_debts" ? <input value={missionForm.clinic} onChange={(event) => setMissionForm((current) => ({ ...current, clinic: event.target.value }))} placeholder="Clínica obrigatória" className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /> : null}
+                      {missionForm.tipo === "overdue_debts" || missionForm.tipo === "clinic_360" ? <input value={missionForm.clinic} onChange={(event) => setMissionForm((current) => ({ ...current, clinic: event.target.value }))} placeholder="Clínica obrigatória" className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /> : null}
                       <div className="grid grid-cols-2 gap-2"><select value={missionForm.recorrencia} onChange={(event) => setMissionForm((current) => ({ ...current, recorrencia: event.target.value as AssistantMission["recurrence"] }))} className="rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm"><option value="daily">Todos os dias</option><option value="weekly">Semanal</option></select><input type="time" value={missionForm.horario_local} onChange={(event) => setMissionForm((current) => ({ ...current, horario_local: event.target.value }))} className="rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm" /></div>
                       {missionForm.recorrencia === "weekly" ? <div className="flex flex-wrap gap-1.5">{WEEKDAY_LABELS.map((label, index) => <button key={label} type="button" onClick={() => setMissionForm((current) => ({ ...current, dias_semana: current.dias_semana.includes(index) ? current.dias_semana.filter((day) => day !== index) : [...current.dias_semana, index] }))} className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${missionForm.dias_semana.includes(index) ? "bg-ink-900 text-white" : "bg-white text-ink-500"}`}>{label}</button>)}</div> : null}
-                      <button type="button" onClick={() => void submitMission()} disabled={autonomyAction === "create-mission" || (missionForm.tipo === "overdue_debts" && !missionForm.clinic.trim())} className="flex w-full items-center justify-center gap-2 rounded-xl bg-cordis-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{autonomyAction === "create-mission" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Criar missão</button>
+                      <button type="button" onClick={() => void submitMission()} disabled={autonomyAction === "create-mission" || (["overdue_debts", "clinic_360"] as AssistantMission["type"][]).includes(missionForm.tipo) && !missionForm.clinic.trim()} className="flex w-full items-center justify-center gap-2 rounded-xl bg-cordis-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{autonomyAction === "create-mission" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Criar missão</button>
                     </div>
                   </div>
                   <div className="space-y-3">

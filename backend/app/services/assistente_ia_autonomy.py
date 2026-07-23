@@ -36,7 +36,14 @@ from app.models.user import User
 logger = logging.getLogger(__name__)
 
 LOCAL_TZ = ZoneInfo("America/Fortaleza")
-MISSION_TYPES = {"radar", "executive_summary", "billing_trend", "overdue_debts", "eval_lab"}
+MISSION_TYPES = {
+    "radar",
+    "executive_summary",
+    "billing_trend",
+    "overdue_debts",
+    "clinic_360",
+    "eval_lab",
+}
 MISSION_RECURRENCES = {"daily", "weekly"}
 
 _WORKER_THREAD: Optional[threading.Thread] = None
@@ -94,6 +101,14 @@ def _normalize_mission_config(kind: str, config: dict[str, Any]) -> dict[str, An
         if not clinic:
             raise HTTPException(status_code=422, detail="Informe a clinica para a missao de debitos.")
         return {"clinic": clinic, "overdue_only": bool(raw.get("overdue_only", True))}
+    if kind == "clinic_360":
+        clinic = str(raw.get("clinic") or "").strip()[:220]
+        if not clinic:
+            raise HTTPException(status_code=422, detail="Informe a clinica para a missao Clinicas 360.")
+        return {
+            "clinic": clinic,
+            "period_days": max(30, min(365, int(raw.get("period_days") or 90))),
+        }
     return {}
 
 
@@ -729,7 +744,7 @@ Responda obrigatoriamente com uma chamada de ferramenta, nunca com texto ou recu
 Ferramentas `solicitar_*` apenas preparam uma acao pendente para confirmacao humana.
 
 Regras de roteamento que devem ser observadas:
-- visao 360, saude operacional ou motivo de queda de uma clinica usa consultar_clinica_360;
+- visao 360, saude operacional, motivo de queda ou plano de acao de uma clinica usa consultar_clinica_360;
 - comparacao de desempenho ou prioridade entre clinicas usa comparar_clinicas_360;
 - remarcacao de agendamento identificado, com data e horario de destino, usa solicitar_remarcacao_agendamento;
 - bloqueio com data, inicio, fim e motivo definidos usa solicitar_bloqueio_agenda;
@@ -899,6 +914,19 @@ def _run_readonly_kind(
             ctx,
             clinica=str(config.get("clinic") or ""),
             somente_vencidos=bool(config.get("overdue_only", True)),
+        )
+    if kind == "clinic_360":
+        from app.services.assistente_ia_tools import AssistenteIAToolContext, consultar_clinica_360
+
+        return consultar_clinica_360(
+            AssistenteIAToolContext(
+                db=db,
+                current_user=user,
+                conversa=SimpleNamespace(id="readonly-mission"),
+                request=None,
+            ),
+            clinica=str(config.get("clinic") or ""),
+            periodo_dias=int(config.get("period_days") or 90),
         )
     raise RuntimeError("Tipo de execucao autonoma nao permitido.")
 

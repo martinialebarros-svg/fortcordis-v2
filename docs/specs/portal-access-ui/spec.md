@@ -32,6 +32,8 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - RF-020: cada clinica da lista deve exibir uma linha do tempo resumida com convites, ativacao, revogacoes e downloads auditados.
 - RF-021: a exportacao CSV do cockpit deve incluir primeiro download, ultimo acesso, dias sem atividade e dados do convite mais recente.
 - RF-022: links do portal compartilhados por WhatsApp devem expor metadata institucional com logomarca oficial da Fort Cordis no host `app.fortcordis.com.br`.
+- RF-023: o portal autenticado da clinica parceira deve exibir um painel operacional com indicadores de `Realizados hoje`, `Em laudo`, `Aguardando liberacao` e `Liberados hoje`.
+- RF-024: o portal autenticado da clinica parceira deve exibir uma fila operacional recente com status do exame, data de realizacao e previsao ou data de liberacao.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -48,6 +50,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - NFR-011 (operacao): o reenvio rapido do convite deve falhar com mensagem clara quando faltarem email institucional ou WhatsApp da clinica.
 - NFR-012 (branding compartilhado): o layout raiz do app deve publicar `metadataBase`, `openGraph`, `twitter` e `icons` coerentes para que previews de compartilhamento mostrem a identidade visual correta da Fort Cordis.
 - NFR-013 (robustez temporal): o cockpit administrativo deve tolerar timestamps do banco com e sem timezone no mesmo payload, normalizando as datas do painel antes de calcular inatividade, downloads recentes e ordenacao da linha do tempo.
+- NFR-014 (operacao): o painel operacional da clinica deve adotar um SLA padrao visivel de 48 horas para previsao de liberacao quando o exame ainda nao estiver publicado no portal.
 
 ## 4) Contratos tecnicos
 
@@ -95,6 +98,14 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
     - `Authorization: Bearer <portal token>`
   - response:
     - `items[]` com metadados do exame e anexos liberados
+
+- `GET /api/v1/portal/clinicas/exames`
+  - auth:
+    - `Authorization: Bearer <portal token>`
+  - response:
+    - `items[]` com metadados do exame e anexos liberados
+    - `operational_summary` com contadores de andamento da unidade
+    - `operational_items[]` com fila recente de laudos e exames da clinica
 
 - `POST /api/v1/portal/exames/{exame_id}/download-url`
   - auth:
@@ -215,6 +226,8 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CA-022: o CSV exportado inclui primeiro download, ultimo acesso e dias sem atividade.
 - CA-023: um link compartilhado do portal gera preview institucional com nome, descricao e logomarca oficial da Fort Cordis.
 - CA-024: a tela `/clinicas/portal` continua carregando metricas, downloads recentes e linha do tempo mesmo quando a auditoria trouxer timestamps timezone-aware misturados com timestamps sem timezone.
+- CA-025: a tela autenticada da clinica parceira exibe um painel operacional com os quatro indicadores principais da unidade.
+- CA-026: a tela autenticada da clinica parceira exibe fila operacional recente com status do exame e previsao ou data de liberacao do portal.
 
 ## 7) Casos de borda
 
