@@ -44,6 +44,10 @@ from app.services.assistente_ia_management import (
     save_clinical_draft,
     search_knowledge,
 )
+from app.services.assistente_ia_clinics360 import (
+    clinic_360_profile,
+    compare_clinics_360,
+)
 from app.services.auditoria_service import registrar_auditoria
 
 LOCAL_TZ = ZoneInfo("America/Fortaleza")
@@ -612,6 +616,54 @@ def relatorio_debitos_pendentes(
         "total_estimado_sem_deduplicacao": round(total_orders + total_accounts, 2),
         "aviso": "Ordens de servico e contas a receber sao fontes separadas e podem representar o mesmo debito; apresente os subtotais antes do total estimado.",
     }
+
+
+def consultar_clinica_360(
+    ctx: AssistenteIAToolContext,
+    *,
+    clinica: str,
+    periodo_dias: int,
+) -> dict[str, Any]:
+    clinic, error = _resolve_named_record(
+        ctx.db,
+        Clinica,
+        clinica,
+        entity_label="clinica",
+    )
+    if error:
+        return error
+    return clinic_360_profile(
+        ctx.db,
+        int(clinic.id),
+        period_days=max(30, min(365, int(periodo_dias or 90))),
+    )
+
+
+def comparar_clinicas_360(
+    ctx: AssistenteIAToolContext,
+    *,
+    clinicas: list[str],
+    periodo_dias: int,
+) -> dict[str, Any]:
+    resolved_ids: list[int] = []
+    for requested_name in clinicas:
+        clinic, error = _resolve_named_record(
+            ctx.db,
+            Clinica,
+            requested_name,
+            entity_label="clinica",
+        )
+        if error:
+            return {**error, "clinica_solicitada": requested_name}
+        if int(clinic.id) not in resolved_ids:
+            resolved_ids.append(int(clinic.id))
+    if len(resolved_ids) < 2:
+        return {"ok": False, "error": "Informe ao menos duas clinicas diferentes."}
+    return compare_clinics_360(
+        ctx.db,
+        resolved_ids,
+        period_days=max(30, min(365, int(periodo_dias or 90))),
+    )
 
 
 def _agenda_configuration_rules(db: Session) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
@@ -2506,6 +2558,41 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "type": "function",
+        "name": "consultar_clinica_360",
+        "description": "Consulta o perfil operacional vivo de uma clinica: agenda, faturamento, debitos, atividade, servicos, contatos institucionais, alertas, preferencias aprovadas e fontes. E somente leitura e nao retorna dados de pacientes ou tutores.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "clinica": {"type": "string"},
+                "periodo_dias": {"type": "integer", "minimum": 30, "maximum": 365},
+            },
+            "required": ["clinica", "periodo_dias"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
+        "name": "comparar_clinicas_360",
+        "description": "Compara de duas a dez clinicas pelos mesmos indicadores operacionais vivos e explicita a origem dos dados. E somente leitura.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "clinicas": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 2,
+                    "maxItems": 10,
+                },
+                "periodo_dias": {"type": "integer", "minimum": 30, "maximum": 365},
+            },
+            "required": ["clinicas", "periodo_dias"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
         "name": "solicitar_excecao_funcionamento_agenda",
         "description": "Prepara uma excecao de funcionamento para uma data especifica, como abrir a agenda amanha ate 18h ou fechar um dia. Preserva a rotina semanal e nunca altera a configuracao sem confirmacao explicita do admin.",
         "parameters": {
@@ -2798,6 +2885,18 @@ def execute_tool(
             clinica=arguments["clinica"],
             somente_vencidos=bool(arguments["somente_vencidos"]),
         )
+    if name == "consultar_clinica_360":
+        return consultar_clinica_360(
+            ctx,
+            clinica=arguments["clinica"],
+            periodo_dias=int(arguments["periodo_dias"]),
+        )
+    if name == "comparar_clinicas_360":
+        return comparar_clinicas_360(
+            ctx,
+            clinicas=list(arguments["clinicas"]),
+            periodo_dias=int(arguments["periodo_dias"]),
+        )
     if name == "solicitar_excecao_funcionamento_agenda":
         return solicitar_excecao_funcionamento_agenda(
             ctx,
@@ -2939,6 +3038,12 @@ def tool_result_summary(name: str, result: dict[str, Any]) -> str:
         orders = result.get("ordens_servico_pendentes") or {}
         accounts = result.get("contas_receber_pendentes") or {}
         return f"{orders.get('quantidade', 0)} OS e {accounts.get('quantidade', 0)} conta(s) pendente(s)"
+    if name == "consultar_clinica_360":
+        profile = result.get("profile") or {}
+        clinic = profile.get("clinic") or {}
+        return f"Perfil 360 de {clinic.get('name', 'clinica')} atualizado"
+    if name == "comparar_clinicas_360":
+        return f"{len(result.get('items') or [])} clinicas comparadas"
     if name == "solicitar_excecao_funcionamento_agenda":
         if result.get("changed") is False:
             return "A agenda ja possui o funcionamento solicitado"

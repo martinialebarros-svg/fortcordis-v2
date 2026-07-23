@@ -34,6 +34,11 @@ from app.services.assistente_ia_autonomy import (
     serialize_execution,
     update_mission,
 )
+from app.services.assistente_ia_clinics360 import (
+    clinic_360_profile,
+    compare_clinics_360,
+    list_clinics_360,
+)
 from app.services.assistente_ia_management import (
     archive_document,
     assistant_metrics,
@@ -103,8 +108,51 @@ def assistente_ia_status(
             "aprendizado_continuo_supervisionado",
             "versionamento_e_reversao_de_memorias",
             "regressoes_automaticas_de_memoria",
+            "clinicas_360_somente_leitura",
         ],
     }
+
+
+@router.get("/clinicas-360")
+def listar_clinicas_360_assistente_ia(
+    periodo_dias: int = Query(90, ge=30, le=365),
+    incluir_inativas: bool = Query(False),
+    limit: int = Query(100, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    return list_clinics_360(
+        db,
+        period_days=periodo_dias,
+        include_inactive=incluir_inativas,
+        limit=limit,
+    )
+
+
+@router.get("/clinicas-360/comparar")
+def comparar_clinicas_360_assistente_ia(
+    clinica_ids: list[int] = Query(..., min_length=2, max_length=10),
+    periodo_dias: int = Query(90, ge=30, le=365),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    result = compare_clinics_360(db, clinica_ids, period_days=periodo_dias)
+    if result.get("ok") is False:
+        raise HTTPException(status_code=404, detail=result)
+    return result
+
+
+@router.get("/clinicas-360/{clinic_id}")
+def obter_clinica_360_assistente_ia(
+    clinic_id: int,
+    periodo_dias: int = Query(90, ge=30, le=365),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_papel("admin")),
+):
+    result = clinic_360_profile(db, clinic_id, period_days=periodo_dias)
+    if result.get("ok") is False:
+        raise HTTPException(status_code=404, detail=result.get("error"))
+    return result
 
 
 @router.get("/radar")

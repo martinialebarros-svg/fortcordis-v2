@@ -20,7 +20,7 @@ class AssistenteIAEvalContractTest(unittest.TestCase):
             type("Admin", (), {"nome": "Admin"})(),
             "Nenhuma memoria aprovada.",
         )
-        self.assertGreaterEqual(len(payload["cases"]), 13)
+        self.assertGreaterEqual(len(payload["cases"]), 15)
         for case in payload["cases"]:
             tool_name = case["expected_tool"]
             self.assertIn(tool_name, definitions, case["id"])
@@ -30,6 +30,8 @@ class AssistenteIAEvalContractTest(unittest.TestCase):
 
         cases = {case["id"]: case for case in payload["cases"]}
         self.assertIn("solicitação da clínica", cases["reschedule"]["prompt"])
+        self.assertEqual(cases["clinic-360"]["expected_tool"], "consultar_clinica_360")
+        self.assertEqual(cases["clinics-360-compare"]["expected_tool"], "comparar_clinicas_360")
         self.assertEqual(
             cases["clinical-draft-context-first"]["expected_tool"],
             "obter_contexto_laudo",

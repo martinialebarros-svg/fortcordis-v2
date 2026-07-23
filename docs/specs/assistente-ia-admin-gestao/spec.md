@@ -51,6 +51,13 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - RF-039: cada estado vigente de memoria aprovada possui um unico contrato de regressao ativo com versao e hash esperados; contratos substituidos sao arquivados.
 - RF-040: o laboratorio automatico combina os casos versionados de roteamento com contratos deterministas de memoria, sem chamar ferramenta nem executar escrita operacional.
 - RF-041: a interface administrativa oferece fila de aprendizados, edicao antes da decisao, contadores, origem da correcao, contratos ativos, versoes e restauracao.
+- RF-042: o mapa Clinicas 360 consolida ao vivo cada clinica a partir de cadastro, agenda, transacoes recebidas, ordens de servico, contas a receber e memorias aprovadas.
+- RF-043: todo perfil compara um periodo de 30 a 365 dias com o intervalo imediatamente anterior de mesma duracao e identifica quando nao existe base comparavel.
+- RF-044: os alertas de queda de faturamento, cancelamento elevado, debito vencido e inatividade usam limiares deterministicos expostos pelo contrato, sem inferencia oculta.
+- RF-045: listagem, perfil e comparacao mostram periodo, data de geracao, data-limite, fontes, contagem de registros e ultima atualizacao disponivel.
+- RF-046: o mapa pode exibir contatos institucionais da clinica, mas nunca retorna nome, contato ou identificador de paciente ou tutor.
+- RF-047: a comparacao aceita de duas a dez clinicas, preserva os mesmos indicadores individuais e informa que o ranking vale apenas para a selecao.
+- RF-048: a conversa possui ferramentas estritas para perfil e comparacao 360, resolvendo nomes pelos cadastros ativos e permanecendo somente leitura.
 
 ## 3) Requisitos nao funcionais
 
@@ -72,6 +79,9 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - NFR-016 (aprendizado supervisionado): nenhuma correcao, preferencia inferida ou feedback negativo muda automaticamente a memoria ativa.
 - NFR-017 (reversibilidade): atualizacoes de memoria sao append-only no historico e a reversao nunca apaga versoes anteriores.
 - NFR-018 (regressao segura): contratos de memoria usam somente identificador, versao e hash do conteudo aprovado; nao executam ferramentas nem carregam dados operacionais.
+- NFR-019 (privacidade do portfolio): respostas de Clinicas 360 declaram e cumprem `contains_patient_or_tutor_data=false`.
+- NFR-020 (proveniencia): nenhum indicador 360 e apresentado sem periodo, modo de leitura e fontes oficiais consultadas.
+- NFR-021 (consistencia financeira): ordens pendentes e contas a receber permanecem separadas e o total combinado e rotulado como estimativa sem deduplicacao.
 
 ## 4) Persistencia
 
@@ -80,10 +90,11 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - novos na autonomia segura: `assistente_ia_conhecimento_trechos`, `assistente_ia_missoes`, `assistente_ia_execucoes` e colunas semanticas em `assistente_ia_conhecimento_documentos`;
 - novos no aprendizado continuo: `assistente_ia_aprendizados`, `assistente_ia_memoria_versoes`, `assistente_ia_regressao_casos` e `assistente_ia_memorias.versao_atual`;
 - migrations: `20260721_53_assistente_ia_copiloto.py`, `20260721_54_assistente_ia_autonomia.py` e `20260722_55_assistente_ia_aprendizado_supervisionado.py`.
+- Clinicas 360 nao cria tabela ou migration: todos os indicadores sao calculados sob demanda sobre as fontes oficiais existentes.
 
 ## 5) Ferramentas
 
-Leitura: `analisar_faturamento`, `localizar_agendamentos`, `verificar_disponibilidade`, `relatorio_debitos_pendentes`, `gerar_resumo_executivo`, `listar_bloqueios_agenda`, `consultar_conhecimento_interno`, `obter_contexto_laudo`.
+Leitura: `analisar_faturamento`, `localizar_agendamentos`, `verificar_disponibilidade`, `relatorio_debitos_pendentes`, `consultar_clinica_360`, `comparar_clinicas_360`, `gerar_resumo_executivo`, `listar_bloqueios_agenda`, `consultar_conhecimento_interno`, `obter_contexto_laudo`.
 
 Preparacao/escrita governada: `solicitar_exclusao_agendamento`, `solicitar_criacao_agendamento`, `solicitar_excecao_funcionamento_agenda`, `solicitar_remarcacao_agendamento`, `solicitar_cancelamento_agendamento`, `solicitar_bloqueio_agenda`, `solicitar_liberacao_bloqueio_agenda`, `solicitar_atualizacao_whatsapps_clinica`, `propor_memoria_operacional`, `salvar_rascunho_clinico`.
 
@@ -121,6 +132,12 @@ Preparacao/escrita governada: `solicitar_exclusao_agendamento`, `solicitar_criac
 - CA-028: todas as rotas de aprendizados, versoes, restauracao e regressoes possuem `require_papel("admin")`.
 - CA-029: migration `20260722_55` e idempotente em SQLite e compativel com PostgreSQL.
 - CA-030: testes focais, suite completa, lint, TypeScript, build e smokes de stage/producao passam antes da promocao.
+- CA-031: as tres rotas Clinicas 360 possuem `require_papel("admin")` e rejeitam acesso anonimo ou nao administrador.
+- CA-032: perfil focal confirma periodo atual/anterior, faturamento, agenda, servicos, debitos, preferencias, alertas e proveniencia.
+- CA-033: payload completo do mapa nao contem identificador, nome, contato ou texto de paciente/tutor oriundo das fontes operacionais.
+- CA-034: comparacao usa o mesmo contrato do perfil, aceita no minimo duas clinicas e identifica lideres de receita, agenda e prioridade por regra deterministica.
+- CA-035: dataset versionado cobre consulta e comparacao 360 e as duas ferramentas continuam `strict` e somente leitura.
+- CA-036: interface permite busca, periodo, perfil, selecao comparativa, aprofundamento na conversa e inspecao das fontes.
 
 ## 7) Fora de escopo
 
@@ -134,3 +151,4 @@ Preparacao/escrita governada: `solicitar_exclusao_agendamento`, `solicitar_criac
 - notificacao externa automatica a partir de alerta ou missao.
 - aprendizado automatico sem revisao do administrador;
 - apagamento ou sobrescrita silenciosa do historico de memoria.
+- score preditivo opaco, recomendacao automatica a cliente ou alteracao operacional a partir do mapa Clinicas 360.

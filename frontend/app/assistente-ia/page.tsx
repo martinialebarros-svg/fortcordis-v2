@@ -7,6 +7,7 @@ import {
   BarChart3,
   BookOpen,
   BrainCircuit,
+  Building2,
   CalendarClock,
   CalendarPlus,
   CalendarSearch,
@@ -294,7 +295,90 @@ type AssistantMetrics = {
   actions: Record<string, number>;
 };
 
-type WorkspaceView = "chat" | "radar" | "brief" | "missions" | "approvals" | "learning" | "memory" | "knowledge" | "evaluations" | "clinical";
+type Clinic360Profile = {
+  clinic: {
+    id: number;
+    name: string;
+    active: boolean;
+    city?: string | null;
+    state?: string | null;
+    region?: string | null;
+    address?: string | null;
+    contact: { phone?: string | null; whatsapps: string[]; email?: string | null };
+  };
+  period: {
+    days: number;
+    current: { start: string; end: string };
+    previous: { start: string; end: string };
+  };
+  appointments: {
+    total: number;
+    previous_total: number;
+    change_percent?: number | null;
+    realized: number;
+    cancelled: number;
+    no_show: number;
+    cancellation_rate: number;
+    no_show_rate: number;
+    by_status: Record<string, number>;
+    top_services: Array<{ service_id: number; name: string; appointments: number }>;
+    last_appointment_at?: string | null;
+    next_appointment_at?: string | null;
+  };
+  finance: {
+    revenue: number;
+    previous_revenue: number;
+    revenue_change_percent?: number | null;
+    receipts: number;
+    average_ticket: number;
+    fees: number;
+    service_order_production: number;
+    service_orders: number;
+  };
+  debts: {
+    pending_service_orders: { count: number; total: number };
+    pending_receivables: { count: number; total: number };
+    overdue_receivables: { count: number; total: number };
+    estimated_total_without_deduplication: number;
+    warning: string;
+  };
+  relationship: {
+    last_activity_at?: string | null;
+    days_since_activity?: number | null;
+    approved_preferences: Array<{ id: string; title: string; content: string; category: string }>;
+  };
+  alerts: Array<{ key: string; level: string; title: string; evidence: string }>;
+  attention_score: number;
+  ranking?: { revenue: number; attention: number };
+  provenance: {
+    generated_at: string;
+    data_through: string;
+    read_only: boolean;
+    contains_patient_or_tutor_data: boolean;
+    method: string;
+    sources: Array<{ key: string; label: string; record_count: number; last_updated_at?: string | null; mode: string }>;
+  };
+};
+
+type Clinics360Portfolio = {
+  period: Clinic360Profile["period"];
+  portfolio: {
+    clinics: number;
+    with_alerts: number;
+    revenue: number;
+    appointments: number;
+    overdue_receivables: number;
+  };
+  items: Clinic360Profile[];
+  provenance: { generated_at: string; data_through: string; read_only: boolean; contains_patient_or_tutor_data: boolean };
+};
+
+type Clinics360Comparison = {
+  items: Clinic360Profile[];
+  insights: Array<{ key: string; label: string; clinic_id: number; clinic_name: string; value: number }>;
+};
+
+type WorkspaceView = "chat" | "clinics" | "radar" | "brief" | "missions" | "approvals" | "learning" | "memory" | "knowledge" | "evaluations" | "clinical";
 
 const EXAMPLES = [
   {
@@ -321,10 +405,15 @@ const EXAMPLES = [
     icon: ReceiptText,
     text: "Emita um relatório de débitos pendentes na Vet Plus.",
   },
+  {
+    icon: Building2,
+    text: "Mostre a visão 360 da Animal Care e explique o que merece atenção.",
+  },
 ];
 
 const WORKSPACE_VIEWS: Array<{ id: WorkspaceView; label: string; icon: typeof BrainCircuit }> = [
   { id: "chat", label: "Conversa", icon: MessageSquare },
+  { id: "clinics", label: "Clínicas 360", icon: Building2 },
   { id: "radar", label: "Radar", icon: Radar },
   { id: "brief", label: "Resumo diário", icon: BarChart3 },
   { id: "missions", label: "Missões", icon: Target },
@@ -365,6 +454,15 @@ function formatDateOnly(value?: string | null): string {
   const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return value || "data não informada";
   return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+function formatMoney(value?: number | null): string {
+  return `R$ ${Number(value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatChange(value?: number | null): string {
+  if (value == null) return "sem base anterior";
+  return `${value > 0 ? "+" : ""}${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 }
 
 function formatAgendaWindow(value?: AgendaWindow): string {
@@ -428,6 +526,13 @@ export default function AssistenteIAPage() {
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [clinicalDrafts, setClinicalDrafts] = useState<ClinicalDraft[]>([]);
   const [metrics, setMetrics] = useState<AssistantMetrics | null>(null);
+  const [clinics360, setClinics360] = useState<Clinics360Portfolio | null>(null);
+  const [clinic360Period, setClinic360Period] = useState(90);
+  const [clinic360Search, setClinic360Search] = useState("");
+  const [selectedClinic360, setSelectedClinic360] = useState<Clinic360Profile | null>(null);
+  const [selectedClinicIds, setSelectedClinicIds] = useState<number[]>([]);
+  const [clinics360Comparison, setClinics360Comparison] = useState<Clinics360Comparison | null>(null);
+  const [clinics360Loading, setClinics360Loading] = useState(false);
   const [managementLoading, setManagementLoading] = useState(false);
   const [autonomyAction, setAutonomyAction] = useState<string | null>(null);
   const [feedbackSent, setFeedbackSent] = useState<Record<string, "positive" | "negative">>({});
@@ -466,6 +571,7 @@ export default function AssistenteIAPage() {
         api.get("/assistente-ia/avaliacoes"),
         api.get("/assistente-ia/aprendizados"),
         api.get("/assistente-ia/aprendizados/regressoes"),
+        api.get(`/assistente-ia/clinicas-360?periodo_dias=${clinic360Period}`),
       ]);
       if (results[0].status === "fulfilled") setExecutiveSummary(results[0].value.data);
       if (results[1].status === "fulfilled") setApprovalInbox(Array.isArray(results[1].value.data?.items) ? results[1].value.data.items : []);
@@ -482,8 +588,62 @@ export default function AssistenteIAPage() {
         setLearningCounts(results[10].value.data?.counts || { pending: 0, approved: 0, rejected: 0 });
       }
       if (results[11].status === "fulfilled") setRegressionCases(Array.isArray(results[11].value.data?.items) ? results[11].value.data.items : []);
+      if (results[12].status === "fulfilled") setClinics360(results[12].value.data as Clinics360Portfolio);
     } finally {
       setManagementLoading(false);
+    }
+  };
+
+  const refreshClinics360 = async (periodDays = clinic360Period) => {
+    setClinics360Loading(true);
+    setError("");
+    try {
+      const response = await api.get(`/assistente-ia/clinicas-360?periodo_dias=${periodDays}`);
+      setClinics360(response.data as Clinics360Portfolio);
+      setSelectedClinic360(null);
+      setClinics360Comparison(null);
+    } catch (clinicsError) {
+      setError(errorMessage(clinicsError, "Não foi possível atualizar o mapa das clínicas."));
+    } finally {
+      setClinics360Loading(false);
+    }
+  };
+
+  const openClinic360 = async (clinicId: number) => {
+    setClinics360Loading(true);
+    setError("");
+    try {
+      const response = await api.get(`/assistente-ia/clinicas-360/${clinicId}?periodo_dias=${clinic360Period}`);
+      setSelectedClinic360(response.data?.profile as Clinic360Profile);
+    } catch (clinicError) {
+      setError(errorMessage(clinicError, "Não foi possível abrir o perfil da clínica."));
+    } finally {
+      setClinics360Loading(false);
+    }
+  };
+
+  const toggleClinicComparison = (clinicId: number) => {
+    setSelectedClinicIds((current) => {
+      if (current.includes(clinicId)) return current.filter((item) => item !== clinicId);
+      if (current.length >= 5) return current;
+      return [...current, clinicId];
+    });
+    setClinics360Comparison(null);
+  };
+
+  const compareSelectedClinics = async () => {
+    if (selectedClinicIds.length < 2) return;
+    setClinics360Loading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams({ periodo_dias: String(clinic360Period) });
+      selectedClinicIds.forEach((clinicId) => params.append("clinica_ids", String(clinicId)));
+      const response = await api.get(`/assistente-ia/clinicas-360/comparar?${params.toString()}`);
+      setClinics360Comparison(response.data as Clinics360Comparison);
+    } catch (comparisonError) {
+      setError(errorMessage(comparisonError, "Não foi possível comparar as clínicas selecionadas."));
+    } finally {
+      setClinics360Loading(false);
     }
   };
 
@@ -894,6 +1054,13 @@ export default function AssistenteIAPage() {
 
   const assistantReady = Boolean(status?.enabled && status?.configured);
   const radarOutput = radarExecution?.output as unknown as RadarOutput | undefined;
+  const filteredClinics360 = (clinics360?.items || []).filter((item) => {
+    const query = clinic360Search.trim().toLocaleLowerCase("pt-BR");
+    if (!query) return true;
+    return [item.clinic.name, item.clinic.city, item.clinic.region]
+      .filter(Boolean)
+      .some((value) => String(value).toLocaleLowerCase("pt-BR").includes(query));
+  });
 
   return (
     <DashboardLayout>
@@ -965,6 +1132,222 @@ export default function AssistenteIAPage() {
               {error ? (
                 <div className="mb-5 flex items-start gap-2 rounded-xl bg-cordis-50 px-3 py-2 text-sm text-cordis-700">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
+                </div>
+              ) : null}
+
+              {view === "clinics" ? (
+                <div className="space-y-6">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <Building2 className="h-7 w-7 text-cordis-600" />
+                        <h2 className="text-2xl font-bold text-ink-900">Mapa operacional · Clínicas 360</h2>
+                      </div>
+                      <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-500">
+                        Uma leitura viva de relacionamento, agenda, faturamento e pendências por clínica, com comparação e origem de cada indicador.
+                      </p>
+                      <p className="mt-2 flex items-center gap-2 text-xs font-semibold text-vital-700">
+                        <ShieldCheck className="h-4 w-4" /> Somente leitura · sem dados de pacientes ou tutores
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={clinic360Period}
+                        onChange={(event) => {
+                          const period = Number(event.target.value);
+                          setClinic360Period(period);
+                          void refreshClinics360(period);
+                        }}
+                        className="rounded-xl border border-ink-200 bg-white px-3 py-2.5 text-sm font-semibold text-ink-700"
+                      >
+                        <option value={30}>Últimos 30 dias</option>
+                        <option value={90}>Últimos 90 dias</option>
+                        <option value={180}>Últimos 180 dias</option>
+                        <option value={365}>Últimos 365 dias</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => void refreshClinics360()}
+                        disabled={clinics360Loading}
+                        className="flex items-center gap-2 rounded-xl bg-ink-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+                      >
+                        <RefreshCw className={`h-4 w-4 ${clinics360Loading ? "animate-spin" : ""}`} /> Atualizar
+                      </button>
+                    </div>
+                  </div>
+
+                  {clinics360 ? (
+                    <>
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                        {[
+                          { label: "Clínicas ativas", value: clinics360.portfolio.clinics, detail: `${clinics360.portfolio.with_alerts} pedem atenção` },
+                          { label: "Faturamento", value: formatMoney(clinics360.portfolio.revenue), detail: `${clinic360Period} dias` },
+                          { label: "Agendamentos", value: clinics360.portfolio.appointments, detail: "no período atual" },
+                          { label: "Contas vencidas", value: formatMoney(clinics360.portfolio.overdue_receivables), detail: `dados até ${formatDateOnly(clinics360.provenance.data_through)}` },
+                        ].map((item) => (
+                          <div key={item.label} className="rounded-2xl border border-ink-100 p-5">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">{item.label}</p>
+                            <p className="mt-2 text-2xl font-bold text-ink-900">{item.value}</p>
+                            <p className="mt-1 text-xs text-ink-500">{item.detail}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="grid gap-5 xl:grid-cols-[390px_minmax(0,1fr)]">
+                        <aside className="rounded-2xl border border-ink-100 bg-ink-50/60 p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <h3 className="font-semibold text-ink-900">Portfólio</h3>
+                            <span className="text-xs text-ink-400">selecione até 5</span>
+                          </div>
+                          <input
+                            value={clinic360Search}
+                            onChange={(event) => setClinic360Search(event.target.value)}
+                            placeholder="Buscar clínica, cidade ou região"
+                            className="mt-3 w-full rounded-xl border border-ink-200 bg-white px-3 py-2.5 text-sm"
+                          />
+                          <div className="mt-3 max-h-[640px] space-y-2 overflow-y-auto pr-1">
+                            {filteredClinics360.map((profile) => {
+                              const selected = selectedClinicIds.includes(profile.clinic.id);
+                              const active = selectedClinic360?.clinic.id === profile.clinic.id;
+                              return (
+                                <div key={profile.clinic.id} className={`rounded-xl border bg-white p-3 transition ${active ? "border-cordis-300 ring-2 ring-cordis-50" : "border-ink-100"}`}>
+                                  <div className="flex items-start gap-3">
+                                    <input
+                                      type="checkbox"
+                                      checked={selected}
+                                      onChange={() => toggleClinicComparison(profile.clinic.id)}
+                                      aria-label={`Selecionar ${profile.clinic.name} para comparação`}
+                                      className="mt-1 h-4 w-4 rounded border-ink-300 text-cordis-600"
+                                    />
+                                    <button type="button" onClick={() => void openClinic360(profile.clinic.id)} className="min-w-0 flex-1 text-left">
+                                      <div className="flex items-start justify-between gap-2">
+                                        <div>
+                                          <p className="truncate font-semibold text-ink-900">{profile.clinic.name}</p>
+                                          <p className="mt-0.5 text-xs text-ink-400">{profile.clinic.city || "Cidade não informada"} · #{profile.ranking?.revenue || "—"} em faturamento</p>
+                                        </div>
+                                        {profile.attention_score > 0 ? <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">{profile.attention_score} alerta</span> : <CheckCircle2 className="h-4 w-4 text-vital-600" />}
+                                      </div>
+                                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                                        <span className="text-ink-500"><strong className="text-ink-800">{formatMoney(profile.finance.revenue)}</strong><br />faturamento</span>
+                                        <span className="text-ink-500"><strong className="text-ink-800">{profile.appointments.total}</strong><br />agendamentos</span>
+                                      </div>
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void compareSelectedClinics()}
+                            disabled={selectedClinicIds.length < 2 || clinics360Loading}
+                            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-cordis-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+                          >
+                            {clinics360Loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart3 className="h-4 w-4" />}
+                            Comparar {selectedClinicIds.length || ""} clínica(s)
+                          </button>
+                        </aside>
+
+                        <div className="space-y-5">
+                          {clinics360Comparison ? (
+                            <div className="rounded-2xl border border-cordis-100 bg-cordis-50/40 p-5">
+                              <div className="flex items-center justify-between gap-3">
+                                <h3 className="text-lg font-bold text-ink-900">Comparativo selecionado</h3>
+                                <button type="button" onClick={() => setClinics360Comparison(null)} className="rounded-lg p-1.5 text-ink-400 hover:bg-white"><X className="h-4 w-4" /></button>
+                              </div>
+                              <div className="mt-4 overflow-x-auto">
+                                <table className="min-w-full text-left text-sm">
+                                  <thead className="text-xs uppercase tracking-wide text-ink-400"><tr><th className="pb-3 pr-5">Clínica</th><th className="pb-3 pr-5">Faturamento</th><th className="pb-3 pr-5">Variação</th><th className="pb-3 pr-5">Agenda</th><th className="pb-3 pr-5">Cancelamento</th><th className="pb-3">Vencido</th></tr></thead>
+                                  <tbody className="divide-y divide-cordis-100">
+                                    {clinics360Comparison.items.map((profile) => (
+                                      <tr key={profile.clinic.id}>
+                                        <td className="py-3 pr-5 font-semibold text-ink-900">{profile.clinic.name}</td>
+                                        <td className="py-3 pr-5 text-ink-700">{formatMoney(profile.finance.revenue)}</td>
+                                        <td className={`py-3 pr-5 font-semibold ${(profile.finance.revenue_change_percent || 0) < 0 ? "text-cordis-700" : "text-vital-700"}`}>{formatChange(profile.finance.revenue_change_percent)}</td>
+                                        <td className="py-3 pr-5 text-ink-700">{profile.appointments.total}</td>
+                                        <td className="py-3 pr-5 text-ink-700">{profile.appointments.cancellation_rate.toLocaleString("pt-BR")}%</td>
+                                        <td className="py-3 text-ink-700">{formatMoney(profile.debts.overdue_receivables.total)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                                {clinics360Comparison.insights.map((insight) => <div key={insight.key} className="rounded-xl bg-white p-3 text-xs text-ink-500"><p>{insight.label}</p><p className="mt-1 font-semibold text-ink-900">{insight.clinic_name}</p></div>)}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {selectedClinic360 ? (
+                            <div className="space-y-5">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <h3 className="text-2xl font-bold text-ink-900">{selectedClinic360.clinic.name}</h3>
+                                  <p className="mt-1 text-sm text-ink-500">{[selectedClinic360.clinic.address, selectedClinic360.clinic.region].filter(Boolean).join(" · ") || "Localização não informada"}</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setInput(`Analise a visão 360 da ${selectedClinic360.clinic.name} e recomende o próximo passo gerencial.`);
+                                    setView("chat");
+                                  }}
+                                  className="flex items-center gap-2 rounded-xl border border-ink-200 px-4 py-2.5 text-sm font-semibold text-ink-700 hover:bg-ink-50"
+                                >
+                                  <MessageSquare className="h-4 w-4" /> Conversar sobre esta clínica
+                                </button>
+                              </div>
+
+                              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                                <div className="rounded-2xl border border-ink-100 p-4"><p className="text-xs text-ink-400">Faturamento</p><p className="mt-1 text-xl font-bold text-ink-900">{formatMoney(selectedClinic360.finance.revenue)}</p><p className={`mt-1 text-xs font-semibold ${(selectedClinic360.finance.revenue_change_percent || 0) < 0 ? "text-cordis-700" : "text-vital-700"}`}>{formatChange(selectedClinic360.finance.revenue_change_percent)} vs. período anterior</p></div>
+                                <div className="rounded-2xl border border-ink-100 p-4"><p className="text-xs text-ink-400">Agenda</p><p className="mt-1 text-xl font-bold text-ink-900">{selectedClinic360.appointments.total}</p><p className="mt-1 text-xs text-ink-500">{selectedClinic360.appointments.realized} realizados · {selectedClinic360.appointments.no_show} faltas</p></div>
+                                <div className="rounded-2xl border border-ink-100 p-4"><p className="text-xs text-ink-400">Cancelamentos</p><p className="mt-1 text-xl font-bold text-ink-900">{selectedClinic360.appointments.cancellation_rate.toLocaleString("pt-BR")}%</p><p className="mt-1 text-xs text-ink-500">{selectedClinic360.appointments.cancelled} no período</p></div>
+                                <div className="rounded-2xl border border-ink-100 p-4"><p className="text-xs text-ink-400">Vencido</p><p className="mt-1 text-xl font-bold text-ink-900">{formatMoney(selectedClinic360.debts.overdue_receivables.total)}</p><p className="mt-1 text-xs text-ink-500">{selectedClinic360.debts.overdue_receivables.count} conta(s)</p></div>
+                              </div>
+
+                              {selectedClinic360.alerts.length > 0 ? (
+                                <div className="space-y-2">
+                                  {selectedClinic360.alerts.map((alert) => <div key={alert.key} className={`flex items-start gap-3 rounded-xl border p-4 ${alert.level === "critical" ? "border-cordis-200 bg-cordis-50" : "border-amber-200 bg-amber-50"}`}><AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${alert.level === "critical" ? "text-cordis-600" : "text-amber-600"}`} /><div><p className="text-sm font-semibold text-ink-900">{alert.title}</p><p className="mt-1 text-xs leading-5 text-ink-600">{alert.evidence}</p></div></div>)}
+                                </div>
+                              ) : <div className="flex items-center gap-2 rounded-xl bg-vital-50 p-4 text-sm font-semibold text-vital-800"><CheckCircle2 className="h-4 w-4" /> Nenhum alerta determinístico para o período.</div>}
+
+                              <div className="grid gap-4 lg:grid-cols-2">
+                                <div className="rounded-2xl bg-ink-50 p-5">
+                                  <h4 className="font-semibold text-ink-900">Serviços e relacionamento</h4>
+                                  <div className="mt-3 space-y-2 text-sm text-ink-600">
+                                    {selectedClinic360.appointments.top_services.map((service) => <div key={service.service_id} className="flex justify-between rounded-xl bg-white px-3 py-2"><span>{service.name}</span><strong className="text-ink-900">{service.appointments}</strong></div>)}
+                                    {selectedClinic360.appointments.top_services.length === 0 ? <p className="text-ink-400">Sem serviços no período.</p> : null}
+                                  </div>
+                                  <p className="mt-4 text-xs text-ink-500">Última atividade: {selectedClinic360.relationship.last_activity_at ? formatDateTime(selectedClinic360.relationship.last_activity_at) : "não localizada"}</p>
+                                  <p className="mt-1 text-xs text-ink-500">Próximo agendamento: {selectedClinic360.appointments.next_appointment_at ? formatDateTime(selectedClinic360.appointments.next_appointment_at) : "não localizado"}</p>
+                                </div>
+                                <div className="rounded-2xl bg-ink-50 p-5">
+                                  <h4 className="font-semibold text-ink-900">Preferências aprovadas</h4>
+                                  <div className="mt-3 space-y-2">
+                                    {selectedClinic360.relationship.approved_preferences.map((memory) => <div key={memory.id} className="rounded-xl bg-white p-3"><p className="text-sm font-semibold text-ink-900">{memory.title}</p><p className="mt-1 text-xs leading-5 text-ink-500">{memory.content}</p></div>)}
+                                    {selectedClinic360.relationship.approved_preferences.length === 0 ? <p className="text-sm text-ink-400">Nenhuma preferência aprovada vinculada a esta clínica.</p> : null}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <details className="rounded-2xl border border-ink-100 p-5">
+                                <summary className="cursor-pointer text-sm font-semibold text-ink-800">Fontes, atualização e limitações</summary>
+                                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                                  {selectedClinic360.provenance.sources.map((source) => <div key={source.key} className="rounded-xl bg-ink-50 p-3 text-xs text-ink-500"><p className="font-semibold text-ink-800">{source.label}</p><p className="mt-1">{source.record_count} registro(s) · {source.last_updated_at ? formatDateTime(source.last_updated_at) : "sem atualização registrada"}</p></div>)}
+                                </div>
+                                <p className="mt-3 text-xs leading-5 text-ink-500">{selectedClinic360.provenance.method} {selectedClinic360.debts.warning}</p>
+                              </details>
+                            </div>
+                          ) : (
+                            <div className="flex min-h-[360px] items-center justify-center rounded-2xl border border-dashed border-ink-200 bg-ink-50/40 p-8 text-center">
+                              <div><Building2 className="mx-auto h-9 w-9 text-ink-300" /><p className="mt-3 font-semibold text-ink-700">Abra uma clínica para ver o perfil completo</p><p className="mt-1 text-sm text-ink-400">Ou marque duas ou mais para comparar lado a lado.</p></div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex min-h-[300px] items-center justify-center text-sm text-ink-400"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Montando o mapa operacional...</div>
+                  )}
                 </div>
               ) : null}
 

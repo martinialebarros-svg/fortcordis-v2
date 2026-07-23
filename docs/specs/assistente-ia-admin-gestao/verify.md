@@ -2,7 +2,7 @@
 
 Data: 2026-07-22
 Responsavel: Martiniano + Codex
-Status: passed
+Status: in_progress
 
 ## Matriz
 
@@ -38,6 +38,12 @@ Status: passed
 | CA-028 | inspecao automatica cobre as novas rotas com guard admin | aprovado em teste focal |
 | CA-029 | migration 55 executada duas vezes no mesmo SQLite | aprovado em teste focal |
 | CA-030 | suite completa e frontend locais; smokes dos dois ambientes apos publicacao | aprovado localmente, release pendente |
+| CA-031 | inspecao automatica de todas as rotas, incluindo as tres rotas Clinicas 360, com guard admin | aprovado em teste focal |
+| CA-032 | teste focal do agregador confirma agenda, financeiro, debitos, preferencias, alertas e fontes | aprovado |
+| CA-033 | assercoes percorrem o payload e confirmam ausencia de campos ou textos operacionais de paciente/tutor | aprovado |
+| CA-034 | teste focal compara duas clinicas e confirma lideres e contrato compartilhado | aprovado |
+| CA-035 | 15 casos no dataset e definicoes estritas para consulta e comparacao | aprovado |
+| CA-036 | ESLint, TypeScript e build confirmam busca, periodo, perfil, comparacao, conversa e fontes | aprovado localmente; smokes remotos pendentes |
 
 ## Evidencias executadas ate agora
 
@@ -53,6 +59,16 @@ cd backend && ./venv/bin/python -m pip check
 python3 -m py_compile <arquivos alterados do backend>
 git diff --check
 ```
+
+## Ciclo Clinicas 360 - 22/07/2026
+
+- 42 testes focais da Mente aprovados, incluindo agregador, ferramentas, autorizacao e laboratorio;
+- suite completa executada em worktree limpo do commit: 377 testes aprovados;
+- ESLint focal, TypeScript, `py_compile`, `pip check`, `git diff --check` e build Next aprovados;
+- build confirmou `/assistente-ia` com a area Clinicas 360 e bundle de producao valido;
+- perfil e comparacao declaram `read_only=true` e `contains_patient_or_tutor_data=false`;
+- nenhuma migration nova: leitura calculada sob demanda sobre tabelas oficiais;
+- smokes de stage e producao serao anexados apos a publicacao guardada do mesmo SHA.
 
 ## Ciclo de aprendizado continuo supervisionado - 22/07/2026
 
