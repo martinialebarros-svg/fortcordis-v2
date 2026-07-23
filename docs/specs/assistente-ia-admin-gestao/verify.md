@@ -82,6 +82,7 @@ Status: in_progress
 | CA-054 | teste prepara vinculo sem escrita e chama atualizacao oficial apenas apos aprovacao, sem enviar horario no payload | aprovado |
 | CA-055 | teste reutiliza mensagem identica sem resposta e preserva apenas um comando no historico | aprovado |
 | CA-056 | 23 casos versionados, incluindo falhas reais, com schemas estritos e laboratorio sem executar ferramentas | aprovado |
+| CA-057 | faixa mobile explicita `minmax(0, 1fr)`, filhos com `min-w-0`, quebra de texto e layout desktop preservado; lint, TypeScript e build aprovados | aprovado localmente; viewport live pendente |
 
 ## Evidencias executadas ate agora
 
@@ -143,6 +144,16 @@ git diff --check
 - build confirmou `/assistente-ia` com 24,5 kB e controles de voz/revisao;
 - stage `5496b16`: Migration CI, quality gate, guardrail SDD, deploy, saude interna e canario autenticado aprovados;
 - smokes de stage aprovados para pagina, APIs protegidas, pacote servido, voz real e novas consultas; producao permanece pendente.
+
+## Ciclo Responsividade mobile vertical - 23/07/2026
+
+- reproducao em producao: viewport de 663 px, documento com 663 px e coluna interna chegando a 684,44 px dentro do contenedor recortado, confirmando overflow interno mesmo sem rolagem horizontal global;
+- a coluna implicita do grid mobile foi substituida por uma faixa explicita `minmax(0, 1fr)`, impedindo que o maior texto defina uma largura superior ao viewport;
+- contenedores da conversa, aviso administrativo, estado vazio, exemplos, mensagens e textarea agora podem encolher e quebrar texto dentro da largura disponivel;
+- o breakpoint `lg` preserva a composicao desktop com historico de 280 px e conversa flexivel;
+- ESLint sem warnings, TypeScript sem erros, `git diff --check` e build Next aprovados;
+- build confirmou `/assistente-ia` com 24,5 kB e manteve o pacote inicial em 160 kB;
+- viewport live e smokes remotos serao registrados depois da publicacao.
 
 ## Ciclo de aprendizado continuo supervisionado - 22/07/2026
 

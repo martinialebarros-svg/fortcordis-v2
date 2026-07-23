@@ -77,6 +77,7 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - RF-065: `solicitar_vinculo_paciente_reserva` prepara uma acao pendente para associar paciente e tutor existentes a uma reserva ativa, sem cancelar, recriar ou mudar o horario.
 - RF-066: a aprovacao do vinculo revalida proprietario, TTL, snapshot da reserva, expiracao, paciente, tutor e versoes; divergencia invalida a acao.
 - RF-067: quando o provedor falhar depois de persistir um comando, a conversa e devolvida ao frontend, o texto volta ao campo e a nova tentativa identica reutiliza a mensagem sem resposta.
+- RF-068: no mobile vertical, a coluna da conversa usa faixa explicita `minmax(0, 1fr)` e titulo, orientacao, exemplos, mensagens e campo de entrada respeitam a largura disponivel sem exigir rotacao do aparelho.
 
 ## 3) Requisitos nao funcionais
 
@@ -118,6 +119,7 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - NFR-036 (memoria): conteudo pendente ou rejeitado nunca entra no prompt.
 - NFR-037 (conhecimento): ingestao e arquivamento sao explicitos e exclusivos do admin; busca e limitada a dez trechos.
 - NFR-038 (observabilidade): tokens, latencia, status e identificador do provedor sao mensurados sem persistir segredos ou raciocinio interno.
+- NFR-039 (responsividade): a conversa deve permanecer legivel entre 320 e 430 CSS pixels, sem rolagem horizontal da pagina e sem recorte de texto, preservando o layout de duas colunas em desktop.
 
 ## 4) Persistencia
 
@@ -197,6 +199,7 @@ Preparacao/escrita governada: `solicitar_exclusao_agendamento`, `solicitar_criac
 - CA-054: teste de vinculo confirma que nenhuma escrita ocorre antes da aprovacao e que o fluxo oficial recebe apenas paciente e tutor, preservando o horario.
 - CA-055: teste de nova tentativa confirma duas mensagens finais, e nao tres, quando ja existe comando identico sem resposta.
 - CA-056: dataset possui 23 casos, incluindo as cinco falhas reais e o erro `Uninassal`, com ferramentas estritas e laboratorio sem execucao.
+- CA-057: em viewport vertical de 360 CSS pixels, `scrollWidth` nao supera `clientWidth` e o aviso administrativo, titulo, subtitulo, sete exemplos, mensagens e compositor quebram texto dentro da coluna; em desktop, historico e conversa continuam lado a lado.
 
 ## 7) Criterios de regressao da versao base
 
