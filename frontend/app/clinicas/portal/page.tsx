@@ -295,6 +295,7 @@ export default function PortalClinicManagementPage() {
     return buildClinicInviteMessage({
       clinicaNome: generatedClinicName,
       activationUrl: generatedInvite.activation_url,
+      accessMode: generatedInvite.access_mode,
       expiresAt: generatedInvite.expires_at,
       accountEmailMasked: generatedInvite.account_email_masked,
     });
@@ -461,9 +462,13 @@ export default function PortalClinicManagementPage() {
       setGeneratedInvite(response.data);
       setGeneratedClinicName(selectedClinic.clinica_nome);
       setMessage(
-        response.data.delivery_status === "sent"
-          ? "Convite enviado com sucesso. O link e a mensagem continuam disponiveis abaixo."
-          : "Convite gerado. Copie a mensagem e encaminhe pelo WhatsApp da clinica.",
+        response.data.access_mode === "login"
+          ? response.data.delivery_status === "sent"
+            ? "Acesso reenviado com sucesso. O link e a mensagem continuam disponiveis abaixo."
+            : "Acesso pronto. Copie a mensagem e encaminhe pelo WhatsApp da clinica."
+          : response.data.delivery_status === "sent"
+            ? "Convite enviado com sucesso. O link e a mensagem continuam disponiveis abaixo."
+            : "Convite gerado. Copie a mensagem e encaminhe pelo WhatsApp da clinica.",
       );
       await loadOverview();
     } catch (err) {
@@ -479,7 +484,7 @@ export default function PortalClinicManagementPage() {
     }
     try {
       await navigator.clipboard.writeText(generatedInvite.activation_url);
-      setMessage("Link de ativacao copiado.");
+      setMessage(generatedInvite.access_mode === "login" ? "Link de acesso copiado." : "Link de ativacao copiado.");
     } catch {
       setError("Nao foi possivel copiar o link automaticamente.");
     }
@@ -543,9 +548,13 @@ export default function PortalClinicManagementPage() {
       setGeneratedInvite(response.data);
       setGeneratedClinicName(item.clinica_nome);
       setMessage(
-        response.data.delivery_status === "sent"
-          ? `Convite reenviado para ${item.clinica_nome}.`
-          : `Convite atualizado para ${item.clinica_nome}. Copie a mensagem pronta abaixo.`,
+        response.data.access_mode === "login"
+          ? response.data.delivery_status === "sent"
+            ? `Acesso reenviado para ${item.clinica_nome}.`
+            : `Acesso atualizado para ${item.clinica_nome}. Copie a mensagem pronta abaixo.`
+          : response.data.delivery_status === "sent"
+            ? `Convite reenviado para ${item.clinica_nome}.`
+            : `Convite atualizado para ${item.clinica_nome}. Copie a mensagem pronta abaixo.`,
       );
       inviteComposerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       await loadOverview();
@@ -845,7 +854,7 @@ export default function PortalClinicManagementPage() {
                 </span>
                 <h2 className="mt-2 text-xl font-semibold text-slate-950">Convidar ou reenviar acesso da clinica</h2>
                 <p className="mt-2 max-w-2xl text-sm text-slate-500">
-                  Defina o email institucional de login, gere o link individual e acompanhe o retorno da unidade.
+                  Defina o email institucional de login, gere o fluxo correto para a unidade e acompanhe o retorno da clinica.
                 </p>
               </div>
               {overview?.generated_at ? (
@@ -940,7 +949,7 @@ export default function PortalClinicManagementPage() {
                 Gerar convite
               </button>
               <p className="text-sm text-slate-500">
-                Use sempre o email institucional real da unidade para reduzir atrito no primeiro acesso.
+                Clinicas novas recebem um link de ativacao. Clinicas ja ativas recebem o link normal de entrada no portal.
               </p>
             </div>
 
@@ -948,9 +957,13 @@ export default function PortalClinicManagementPage() {
               <div className="mt-6 rounded-3xl border border-teal-100 bg-teal-50/70 p-5">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <h3 className="text-base font-semibold text-slate-950">Convite pronto para envio</h3>
+                    <h3 className="text-base font-semibold text-slate-950">
+                      {generatedInvite.access_mode === "login" ? "Acesso pronto para reenvio" : "Convite pronto para envio"}
+                    </h3>
                     <p className="mt-1 text-sm text-slate-600">
-                      {generatedClinicName} • expira em {formatPortalDateTime(generatedInvite.expires_at)}
+                      {generatedInvite.access_mode === "login"
+                        ? `${generatedClinicName} • entrada normal do portal`
+                        : `${generatedClinicName} • expira em ${formatPortalDateTime(generatedInvite.expires_at)}`}
                     </p>
                   </div>
                   <span className="inline-flex items-center rounded-full border border-teal-200 bg-white px-3 py-1 text-xs font-semibold text-teal-700">
@@ -960,7 +973,7 @@ export default function PortalClinicManagementPage() {
 
                 <div className="mt-4 grid gap-4">
                   <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                    Link de ativacao
+                    {generatedInvite.access_mode === "login" ? "Link de acesso" : "Link de ativacao"}
                     <input
                       type="text"
                       value={generatedInvite.activation_url}

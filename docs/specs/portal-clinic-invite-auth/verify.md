@@ -25,6 +25,7 @@ Status: done
 | CA-015 | schema | `test_clinic_exam_date_sort_does_not_use_legacy_created_at` evita `COALESCE` entre timestamp e `exames.created_at` textual em banco legado | ok |
 | CA-016 | aceitacao | `frontend/app/clinica-parceira/page.tsx`, `frontend/app/clinica-parceira/ativar/[token]/page.tsx` e `frontend/app/clinica-parceira/redefinir-senha/page.tsx` publicam preview com copy dedicada para a clinica | ok |
 | CA-017 | aceitacao/seguranca | `frontend/lib/portal-password.ts` valida o minimo de 12 caracteres; `frontend/lib/portal-errors.ts` traduz erro estruturado sem reproduzir o campo `input`; telas de ativacao e redefinicao aplicam ambos os controles | ok |
+| CA-018 | aceitacao | `backend/app/api/v1/endpoints/portal_clinic_auth.py::criar_convite_clinica` retorna `access_mode=login` para conta ativa e `frontend/lib/portal-clinic-admin.ts` adapta o texto para entrada normal no portal, sem orientar criacao de senha | ok |
 | NFR-013 | nao funcional | `frontend/lib/portal-metadata.ts` centraliza metadata de compartilhamento da clinica com Open Graph/Twitter e imagem oficial | ok |
 | NFR-014 | seguranca/UX | teste isolado de `portalErrorMessageFromBody` confirma mensagem em portugues e ausencia da senha presente no payload Pydantic | ok |
 

@@ -221,6 +221,11 @@ def build_activation_url(request: Request, invite_token: str) -> str:
     return f"{base_url}/clinica-parceira/ativar/{invite_token}"
 
 
+def build_clinic_portal_url(request: Request) -> str:
+    base_url = str(request.base_url).rstrip("/")
+    return f"{base_url}/clinica-parceira"
+
+
 def build_password_reset_url(request: Request, reset_token: str) -> str:
     base_url = str(request.base_url).rstrip("/")
     return f"{base_url}/clinica-parceira/redefinir-senha?token={reset_token}"
@@ -540,6 +545,30 @@ def send_whatsapp_invite(
             "invite_kind": "portal_clinic_activation",
             "activation_url": activation_url,
             "expires_in_hours": expires_in_hours,
+            "clinica_nome": clinica_nome,
+        },
+    )
+
+
+def send_whatsapp_login_access(
+    *,
+    destination: str,
+    clinica_nome: str,
+    portal_url: str,
+    account_email: str,
+) -> PortalDeliveryResult:
+    return send_portal_whatsapp_message(
+        destination=destination,
+        message=(
+            f"Fort Cordis: a clinica {clinica_nome} ja tem acesso ativo ao portal seguro para consultar exames e laudos liberados. "
+            f"Use este link para entrar no portal: {portal_url} . "
+            f"Email de acesso: {account_email}. Se a senha tiver sido esquecida, use a opcao 'Esqueci minha senha' na propria tela de entrada. "
+            "Nao compartilhe este acesso fora da equipe autorizada."
+        ),
+        metadata={
+            "invite_kind": "portal_clinic_login_access",
+            "portal_url": portal_url,
+            "account_email": account_email,
             "clinica_nome": clinica_nome,
         },
     )

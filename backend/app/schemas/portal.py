@@ -132,10 +132,11 @@ class PortalAdminClinicInviteCreateRequest(BaseModel):
 
 
 class PortalAdminClinicInviteResponse(BaseModel):
-    invite_id: int
+    invite_id: Optional[int] = None
     status: str
-    expires_at: datetime
+    expires_at: Optional[datetime] = None
     activation_url: str
+    access_mode: Literal["activation", "login"] = "activation"
     delivery_channel: str
     delivery_target_masked: Optional[str] = None
     account_email_masked: Optional[str] = None

@@ -33,6 +33,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
 - RF-019: o ambiente da clinica deve exibir visao panoramica dos exames liberados da propria unidade, com filtros por busca geral, pet, tutor, especie, tipo de exame e periodo, alem de ordenacao por data, tipo, pet, tutor ou especie.
 - RF-020: links publicos da clinica parceira compartilhados pela operacao devem exibir preview com copy comercial apropriada para a unidade, preservando a logomarca oficial da Fort Cordis.
 - RF-021: ativacao e redefinicao de senha devem validar o minimo de 12 caracteres no cliente e exibir orientacao clara em portugues, sem apresentar o payload tecnico da API.
+- RF-022: quando a clinica ja tiver conta ativa ou bloqueada vinculada a unidade, o admin deve reenviar o link normal de entrada do portal com o email institucional vigente, sem gerar novo convite pendente nem orientar criacao de senha.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -67,10 +68,11 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
     - `expires_in_hours` (default 72)
     - `allow_manual_copy` (bool)
   - resposta:
-    - `invite_id`
+    - `invite_id` opcional (`null` quando a unidade ja tiver conta ativa e o envio for apenas de acesso recorrente)
     - `status`
-    - `expires_at`
-    - `activation_url`
+    - `expires_at` opcional (`null` para reenvio de acesso recorrente)
+    - `activation_url` (`/clinica-parceira/ativar/{token}` para primeira ativacao; `/clinica-parceira` para conta ja ativa)
+    - `access_mode` (`activation` ou `login`)
     - `delivery_channel`
     - `delivery_target_masked`
     - `account_email_masked`
