@@ -215,6 +215,7 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
             maxPG VSVE 4.12 mmHg
             maxPG VSVD 2.24 mmHg
             Vmax RM 3.98 m/s
+            Vmáx RT 3.53 m/s
             DIVdN 1.817
             """,
             source="ocr:vivid_iq:test",
@@ -229,6 +230,7 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
         self.assertEqual(measurements["Grad_aorta"], 4.12)
         self.assertEqual(measurements["Grad_pulmonar"], 2.24)
         self.assertEqual(measurements["IM_Vmax"], 3.98)
+        self.assertEqual(measurements["IT_Vmax"], 3.53)
         self.assertEqual(measurements["DIVEd_normalizado"], 1.817)
         self.assertEqual(conflicts, 0)
 
@@ -268,13 +270,13 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
         self.assertEqual(payload["meta_importacao_estudo"]["formato"], "png")
 
     def test_parses_pdf_text_layer_without_ocr(self) -> None:
-        content = _pdf_bytes(["LVIDd 3.24 cm", "LA/Ao 1.62", "TR Vmax 3.25 m/s"])
+        content = _pdf_bytes(["LVIDd 3.24 cm", "LA/Ao 1.62", "Vmáx RT 3.53 m/s"])
 
         payload = parse_eco_study_import_content("estudo.pdf", content)
 
         self.assertEqual(payload["medidas"]["DIVEd"], 32.4)
         self.assertEqual(payload["medidas"]["AE_Ao"], 1.62)
-        self.assertEqual(payload["medidas"]["IT_Vmax"], 3.25)
+        self.assertEqual(payload["medidas"]["IT_Vmax"], 3.53)
         self.assertEqual(payload["meta_importacao_estudo"]["paginas"], 1)
         self.assertTrue(
             all(item["origem"] == "pdf:text" for item in payload["medidas_extraidas"])

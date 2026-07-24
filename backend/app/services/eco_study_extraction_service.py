@@ -71,7 +71,12 @@ MEASUREMENT_DEFINITIONS: tuple[MeasurementDefinition, ...] = (
     MeasurementDefinition("e_doppler", "e'", (r"TDI\s*e['′]?", r"e['′]\s*(?:Vel(?:ocity)?)?"), "velocity"),
     MeasurementDefinition("a_doppler", "a'", (r"TDI\s*a['′]?", r"a['′]\s*(?:Vel(?:ocity)?)?", r"(?:^|\d\s*)a['′]?"), "velocity"),
     MeasurementDefinition("IM_Vmax", "IM Vmax", (r"(?:MR|RM|IM)\s*Vmax", r"Vmax\s*(?:MR|RM|IM)"), "velocity"),
-    MeasurementDefinition("IT_Vmax", "IT Vmax", (r"(?:TR|IT)\s*Vmax",), "velocity"),
+    MeasurementDefinition(
+        "IT_Vmax",
+        "IT Vmax",
+        (r"(?:TR|IT|RT)\s*Vmax", r"Vmax\s*(?:TR|IT|RT)"),
+        "velocity",
+    ),
     MeasurementDefinition("IA_Vmax", "IA Vmax", (r"(?:AR|IA)\s*Vmax",), "velocity"),
     MeasurementDefinition("IP_Vmax", "IP Vmax", (r"(?:PR|IP)\s*Vmax",), "velocity"),
     MeasurementDefinition("Vmax_aorta", "Vmax aorta", (r"Vmax\s*VSVE", r"(?:AV|Ao|Aorta)\s*Vmax", r"Vmax\s*Aorta"), "velocity"),

@@ -30,6 +30,8 @@ Primeira entrega vertical publicada em stage; perfis GE LOGIQ e e GE Vivid IQ ca
 - Smoke com PDF real externo do Vivid IQ: perfil `ge_vivid_iq`, `Birthdate` calculado contra o campo `Date`, peso reconhecido e 25 medidas extraidas; o resultado identificavel nao foi persistido no repositorio.
 - `npx eslint app/laudos/components/EcoStudyImportUploader.tsx --max-warnings=0`: passou; a interface identifica quando idade e/ou peso serao aplicados junto das medidas.
 - Validacao de regressao: peso importado aceita `7,35 kg`, `7.35kg` ou numero puro; novo/editar usam o valor normalizado na busca de referencia e o componente recalcula ao mudar referencia ou medidas.
+- Regressao do alias de refluxo tricuspide: `Vmax RT 3.53 m/s` e normalizado para `IT_Vmax = 3.53` tanto na extracao textual quanto no caminho de PDF.
+- Smoke com PDF clinico externo `mee180726_20260718_120334.pdf`: perfil `ge_vivid_iq`, linha `Vmax RT 3.53 m/s` reconhecida como `IT_Vmax = 3.53`; o arquivo e os dados identificaveis permaneceram fora do repositorio.
 
 ## Validacao manual pendente
 
