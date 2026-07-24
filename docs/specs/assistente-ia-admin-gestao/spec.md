@@ -81,6 +81,7 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - RF-069: `projetar_faturamento_agenda` calcula o valor previsto dos atendimentos ativos de uma data, reutilizando a OS vinculada quando existir ou a regra oficial `calcular_preco_servico`, que prioriza o preco negociado da clinica e depois sua tabela regional.
 - RF-070: a previsao separa agendados/confirmados/em atendimento de reservas, exclui cancelados, informa itens sem valor e distingue producao prevista de recebimento financeiro realizado.
 - RF-071: pedidos inequivocos de faturamento previsto da agenda restringem a primeira chamada a `projetar_faturamento_agenda` e, depois do resultado, exigem resposta final sem novo ciclo de ferramentas.
+- RF-072: referencias `hoje`, `amanha` e `depois de amanha` sao resolvidas pelo backend em `America/Fortaleza`; a data resolvida substitui argumento divergente do modelo e continuacoes sem data reutilizam a ultima data absoluta da conversa.
 
 ## 3) Requisitos nao funcionais
 
@@ -119,6 +120,7 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - NFR-033 (vinculo governado): nenhuma reserva recebe paciente antes da confirmacao e o fluxo oficial de atualizacao da agenda continua responsavel pela escrita e auditoria.
 - NFR-034 (responsividade): a conversa deve permanecer legivel entre 320 e 430 CSS pixels, sem rolagem horizontal da pagina e sem recorte de texto, preservando o layout de duas colunas em desktop.
 - NFR-035 (consistencia da previsao): o total previsto declara data, status, tabela, fonte de preco e premissas, nao inclui paciente/tutor e nunca e rotulado como valor ja recebido.
+- NFR-036 (tempo operacional): data relativa administrativa nunca depende do timezone UTC do host nem fica a criterio exclusivo do modelo.
 
 ## 4) Persistencia
 
@@ -204,6 +206,7 @@ Preparacao/escrita governada: `solicitar_exclusao_agendamento`, `solicitar_criac
 - CA-059: teste focal combina preco negociado Fortaleza de R$ 150,00 e tabela Metropolitana de R$ 200,00, exclui cancelado e retorna R$ 350,00 com reserva separada.
 - CA-060: teste de privacidade confirma que o payload da previsao nao contem nome de paciente ou tutor e declara `dados_pessoais_incluidos=false`.
 - CA-061: teste do turno confirma uma unica `function_call` forçada para a previsao e uma resposta final sem ferramentas adicionais; o dataset roteia as duas frases reais para a nova ferramenta.
+- CA-062: teste fixa 23/07/2026 em Fortaleza, transforma `amanha` em 24/07, substitui a chamada incorreta 25/07 e recupera 24/07 da resposta anterior no pedido de continuacao.
 
 ## 7) Fora de escopo
 

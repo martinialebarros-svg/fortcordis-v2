@@ -69,6 +69,7 @@ Status: in_progress
 | CA-059 | teste focal aplica preco negociado de R$ 150,00, tabela Metropolitana de R$ 200,00, exclui cancelado e totaliza R$ 350,00 | aprovado |
 | CA-060 | serializacao do resultado nao contem paciente/tutor e declara `dados_pessoais_incluidos=false` | aprovado |
 | CA-061 | teste do turno restringe a chamada a `projetar_faturamento_agenda`, executa uma vez e finaliza sem oferecer novas ferramentas | aprovado |
+| CA-062 | teste fixa fuso Fortaleza, corrige argumento 25/07 para 24/07 e recupera a data absoluta da conversa na continuacao | aprovado |
 
 ## Evidencias executadas ate agora
 
@@ -147,7 +148,10 @@ git diff --check
 - preco negociado por clinica precede a tabela regional, preservando o mesmo calculo usado na geracao oficial de OS;
 - o resultado separa reservas, exclui cancelados, informa premissas e nao inclui paciente ou tutor;
 - as duas formulacoes da conversa real entram no dataset versionado e o roteamento inequivoco encerra as ferramentas depois da projecao;
-- 50 testes focais da Mente e suite completa com 393 testes aprovados;
+- o primeiro canario de stage revelou que o host ja estava em 24/07 UTC enquanto Fortaleza ainda estava em 23/07; o modelo escolheu 25/07 para `amanha` e a promocao foi interrompida;
+- a data operacional agora usa `America/Fortaleza`, e o backend sobrescreve qualquer argumento divergente do modelo antes de consultar a agenda;
+- continuacoes como a correcao sobre tabela de preco recuperam a ultima data absoluta da conversa, sem pedir novamente nem deslocar o dia;
+- 51 testes focais da Mente e suite completa com 394 testes aprovados;
 - `py_compile`, `pip check`, `git diff --check`, ESLint, TypeScript e build Next aprovados;
 - build preservou `/assistente-ia` em 24,5 kB e o pacote inicial em 160 kB; guardrail SDD e release remoto permanecem pendentes.
 

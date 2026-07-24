@@ -7,8 +7,9 @@ import re
 import time
 import unicodedata
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, Request
 from openai import APIConnectionError, APIStatusError, BadRequestError, OpenAI, RateLimitError
@@ -33,6 +34,7 @@ from app.services.assistente_ia_management import approved_memory_context
 from app.services.auditoria_service import registrar_auditoria
 
 logger = logging.getLogger(__name__)
+LOCAL_TZ = ZoneInfo("America/Fortaleza")
 
 
 class AssistenteIAProviderError(RuntimeError):
@@ -175,7 +177,7 @@ def conversation_detail(
 
 
 def _assistant_instructions(current_user: User, memory_context: str) -> str:
-    today = datetime.now().astimezone().date().isoformat()
+    today = _local_today().isoformat()
     return f"""
 Role: Voce e a mente de gestao do FortCordis, trabalhando exclusivamente com o administrador autenticado.
 
@@ -293,6 +295,77 @@ def _is_agenda_revenue_forecast_request(message: str) -> bool:
         and any(token in text for token in ("previst", "executad", "agendad"))
     )
     return bool(financial and ((scheduled and dated) or pricing_follow_up))
+
+
+def _local_today() -> date:
+    return datetime.now(LOCAL_TZ).date()
+
+
+def _absolute_date_from_text(message: str, *, reference: date) -> Optional[date]:
+    raw = str(message or "")
+    iso_match = re.search(r"\b(20\d{2})-(\d{1,2})-(\d{1,2})\b", raw)
+    if iso_match:
+        try:
+            return date(
+                int(iso_match.group(1)),
+                int(iso_match.group(2)),
+                int(iso_match.group(3)),
+            )
+        except ValueError:
+            return None
+    br_match = re.search(r"\b(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b", raw)
+    if not br_match:
+        return None
+    year = int(br_match.group(3) or reference.year)
+    if year < 100:
+        year += 2000
+    try:
+        return date(year, int(br_match.group(2)), int(br_match.group(1)))
+    except ValueError:
+        return None
+
+
+def _relative_date_from_text(message: str, *, reference: date) -> Optional[date]:
+    text = _normalize_intent_text(message)
+    if "depois de amanha" in text:
+        return reference + timedelta(days=2)
+    if "amanha" in text:
+        return reference + timedelta(days=1)
+    if "hoje" in text:
+        return reference
+    return None
+
+
+def _resolve_forecast_date(
+    db: Session,
+    conversation: AssistenteIAConversa,
+    *,
+    message: str,
+    current_message_id: int,
+) -> Optional[date]:
+    reference = _local_today()
+    direct = (
+        _absolute_date_from_text(message, reference=reference)
+        or _relative_date_from_text(message, reference=reference)
+    )
+    if direct is not None:
+        return direct
+
+    history = (
+        db.query(AssistenteIAMensagem)
+        .filter(
+            AssistenteIAMensagem.conversa_id == conversation.id,
+            AssistenteIAMensagem.id != current_message_id,
+        )
+        .order_by(AssistenteIAMensagem.created_at.desc(), AssistenteIAMensagem.id.desc())
+        .limit(8)
+        .all()
+    )
+    for row in history:
+        resolved = _absolute_date_from_text(str(row.conteudo), reference=reference)
+        if resolved is not None:
+            return resolved
+    return None
 
 
 def _local_history_for_fallback(
@@ -417,6 +490,16 @@ def run_assistant_turn(
     input_tokens = 0
     output_tokens = 0
     forecast_route = _is_agenda_revenue_forecast_request(clean_message)
+    forecast_date = (
+        _resolve_forecast_date(
+            db,
+            conversation,
+            message=clean_message,
+            current_message_id=int(user_message.id),
+        )
+        if forecast_route
+        else None
+    )
     forecast_tools = (
         [
             definition
@@ -444,7 +527,12 @@ def run_assistant_turn(
                 client,
                 current_user=current_user,
                 memory_context=memory_context,
-                input_items=clean_message,
+                input_items=(
+                    f"Data operacional resolvida pelo backend: {forecast_date.isoformat()}.\n"
+                    f"Solicitacao do administrador: {clean_message}"
+                    if forecast_date is not None
+                    else clean_message
+                ),
                 previous_response_id=conversation.previous_response_id,
                 tool_definitions=forecast_tools,
                 tool_choice=forecast_tool_choice,
@@ -491,6 +579,8 @@ def run_assistant_turn(
                     arguments = json.loads(str(getattr(call, "arguments", "{}")) or "{}")
                     if not isinstance(arguments, dict):
                         raise ValueError("argumentos invalidos")
+                    if name == "projetar_faturamento_agenda" and forecast_date is not None:
+                        arguments["data"] = forecast_date.isoformat()
                     result = execute_tool(
                         AssistenteIAToolContext(
                             db=db,

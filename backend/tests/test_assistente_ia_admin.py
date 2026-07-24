@@ -3,7 +3,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -745,7 +745,7 @@ class AssistenteIAAdminTest(unittest.TestCase):
             tool_call = SimpleNamespace(
                 type="function_call",
                 name="projetar_faturamento_agenda",
-                arguments='{"data": "2026-07-24", "clinica": null}',
+                arguments='{"data": "2026-07-25", "clinica": null}',
                 call_id="call-forecast",
             )
             responses = [
@@ -765,6 +765,11 @@ class AssistenteIAAdminTest(unittest.TestCase):
             with (
                 patch.object(assistente_ia_service, "ensure_assistant_available"),
                 patch.object(assistente_ia_service, "OpenAI", return_value=SimpleNamespace()),
+                patch.object(
+                    assistente_ia_service,
+                    "_local_today",
+                    return_value=date(2026, 7, 23),
+                ),
                 patch.object(
                     assistente_ia_service,
                     "_provider_request",
@@ -802,6 +807,10 @@ class AssistenteIAAdminTest(unittest.TestCase):
         )
         self.assertEqual(provider_calls[1]["tool_definitions"], [])
         executor.assert_called_once()
+        self.assertEqual(
+            executor.call_args.kwargs["arguments"]["data"],
+            "2026-07-24",
+        )
 
     def test_detector_de_previsao_cobre_a_solicitacao_e_a_correcao_reais(self) -> None:
         self.assertTrue(
@@ -819,6 +828,45 @@ class AssistenteIAAdminTest(unittest.TestCase):
                 "Analise o faturamento recebido dos últimos cinco meses."
             )
         )
+
+    def test_data_da_previsao_usa_fuso_operacional_e_recupera_data_da_conversa(self) -> None:
+        with self._session_factory() as db:
+            _clinic, _service, _patient, conversation = self._seed_base(db)
+            previous = AssistenteIAMensagem(
+                conversa_id=conversation.id,
+                usuario_id=self.user.id,
+                papel="assistant",
+                conteudo="A agenda prevista para 24/07/2026 possui oito atendimentos.",
+                provider_status="completed",
+            )
+            current = AssistenteIAMensagem(
+                conversa_id=conversation.id,
+                usuario_id=self.user.id,
+                papel="user",
+                conteudo="Olhe a tabela da clínica e some os serviços previstos.",
+                provider_status="retrying",
+            )
+            db.add_all([previous, current])
+            db.commit()
+            db.refresh(current)
+            with patch.object(
+                assistente_ia_service,
+                "_local_today",
+                return_value=date(2026, 7, 23),
+            ):
+                direct = assistente_ia_service._relative_date_from_text(
+                    "Qual o valor previsto para amanhã?",
+                    reference=assistente_ia_service._local_today(),
+                )
+                inherited = assistente_ia_service._resolve_forecast_date(
+                    db,
+                    conversation,
+                    message=current.conteudo,
+                    current_message_id=current.id,
+                )
+
+        self.assertEqual(direct, date(2026, 7, 24))
+        self.assertEqual(inherited, date(2026, 7, 24))
 
     def test_consulta_funcionamento_geral_sem_exigir_clinica_ou_servico(self) -> None:
         with self._session_factory() as db:
