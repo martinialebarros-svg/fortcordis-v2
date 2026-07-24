@@ -18,6 +18,7 @@
 - RF-014: em PDFs com camada textual, extrair peso quando estiver explicitamente identificado por `Peso`/`Weight` e calcular a idade a partir de `Birthdate`/`Data de nascimento`, usando a data do exame como referencia quando disponivel e a data da importacao como fallback; preencher os campos correspondentes somente ao aplicar as sugestoes.
 - RF-015: quando o PDF rasterizado nao disponibilizar idade ou peso na camada textual, realizar uma tentativa adicional de OCR para esses campos sem inferir valores clinicos sem rotulo.
 - RF-016: normalizar o peso importado com virgula, ponto e sufixo `kg` antes de consultar a tabela de referencia; na edicao, dados demograficos ausentes no arquivo nao podem apagar os dados existentes do paciente.
+- RF-017: identificar a versao do extrator no resultado do job e reutilizar um job concluido pelo hash do arquivo somente quando ele tiver sido produzido pela versao atual; resultados antigos devem causar novo processamento do mesmo arquivo.
 
 ## Requisitos nao funcionais
 
@@ -82,3 +83,4 @@
 - CA-014: PDF com `Birthdate`, data do exame e `Peso: 7,35 kg` retorna `paciente.idade` em anos completos e `paciente.peso = 7.35`, preservando a aplicacao sob revisao do usuario; abaixo de um ano, a idade e retornada em meses completos.
 - CA-015: aplicar medidas com peso importado em formato `7,35 kg` dispara novamente a busca por referencia e recalcula as comparacoes; importacao parcial no laudo existente preserva especie, peso e identificacao anteriores quando ausentes no arquivo.
 - CA-016: relatorio GE Vivid IQ com `Vmax RT 3.53 m/s` retorna `IT_Vmax = 3.53`, preservando a linha original como evidencia.
+- CA-017: reenviar um PDF processado antes da versao atual do extrator cria um novo processamento em vez de devolver o JSON concluido antigo; repeticoes dentro da versao atual continuam deduplicadas.

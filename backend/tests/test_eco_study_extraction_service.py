@@ -17,6 +17,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
 os.environ.setdefault("SECRET_KEY", "eco-study-extraction-test-secret-key-1234567890")
 
 from app.services.eco_study_extraction_service import (  # noqa: E402
+    ECO_STUDY_EXTRACTOR_VERSION,
     GE_VIVID_IQ_PROFILE,
     MAX_ECO_STUDY_IMPORT_SIZE,
     _keep_most_reliable_candidates,
@@ -277,6 +278,10 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
         self.assertEqual(payload["medidas"]["DIVEd"], 32.4)
         self.assertEqual(payload["medidas"]["AE_Ao"], 1.62)
         self.assertEqual(payload["medidas"]["IT_Vmax"], 3.53)
+        self.assertEqual(
+            payload["meta_importacao_estudo"]["versao_extrator"],
+            ECO_STUDY_EXTRACTOR_VERSION,
+        )
         self.assertEqual(payload["meta_importacao_estudo"]["paginas"], 1)
         self.assertTrue(
             all(item["origem"] == "pdf:text" for item in payload["medidas_extraidas"])

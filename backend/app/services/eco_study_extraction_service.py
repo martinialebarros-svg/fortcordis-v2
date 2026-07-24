@@ -15,6 +15,7 @@ from app.services.image_header_import_service import _extract_text_with_tesserac
 
 MAX_ECO_STUDY_IMPORT_SIZE = 30 * 1024 * 1024
 MAX_ECO_STUDY_PDF_PAGES = 20
+ECO_STUDY_EXTRACTOR_VERSION = "2"
 GE_LOGIQ_E_PROFILE = "ge_logiq_e"
 GE_VIVID_IQ_PROFILE = "ge_vivid_iq"
 ALLOWED_ECO_STUDY_EXTENSIONS = {
@@ -946,6 +947,7 @@ def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict
         "veterinario_solicitante": (header_payload or {}).get("veterinario_solicitante", ""),
         "fc": (header_payload or {}).get("fc", ""),
         "meta_importacao_estudo": {
+            "versao_extrator": ECO_STUDY_EXTRACTOR_VERSION,
             "formato": extension.lstrip("."),
             "arquivo": normalized_filename,
             "paginas": page_count,
