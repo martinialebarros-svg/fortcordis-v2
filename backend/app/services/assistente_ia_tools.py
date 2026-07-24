@@ -34,6 +34,7 @@ from app.models.financeiro import ContaReceber, Transacao
 from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.servico import Servico
+from app.models.tabela_preco import TabelaPreco
 from app.models.tutor import Tutor
 from app.models.user import User
 from app.schemas.agendamento import AgendamentoCreate, AgendamentoUpdate
@@ -50,6 +51,7 @@ from app.services.assistente_ia_clinics360 import (
 )
 from app.services.auditoria_service import registrar_auditoria
 from app.services.logistica_service import obter_ou_criar_deslocamento, serialize_deslocamento
+from app.services.precos_service import calcular_preco_servico
 
 LOCAL_TZ = ZoneInfo("America/Fortaleza")
 ACTIVE_APPOINTMENT_STATUSES = {
@@ -59,6 +61,12 @@ ACTIVE_APPOINTMENT_STATUSES = {
     "Em atendimento",
     "Realizado",
     "Faltou",
+}
+FORECAST_APPOINTMENT_STATUSES = {
+    "Agendado",
+    "Reservado",
+    "Confirmado",
+    "Em atendimento",
 }
 
 
@@ -440,6 +448,232 @@ def analisar_servicos_realizados(
         "por_servico": by_service[:25],
         "truncado": len(orders) >= 5000,
         "aviso": "Este valor mede servicos realizados pelas ordens de servico, independentemente do recebimento financeiro.",
+    }
+
+
+def projetar_faturamento_agenda(
+    ctx: AssistenteIAToolContext,
+    *,
+    data: str,
+    clinica: Optional[str],
+) -> dict[str, Any]:
+    try:
+        data_ref = _parse_iso_date(data)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    clinica_obj: Optional[Clinica] = None
+    if str(clinica or "").strip():
+        clinica_obj, error = _resolve_named_record(
+            ctx.db,
+            Clinica,
+            str(clinica),
+            entity_label="clinica",
+        )
+        if error:
+            return error
+
+    query = ctx.db.query(Agendamento).filter(
+        func.date(Agendamento.inicio) == data_ref.isoformat(),
+        Agendamento.status.in_(sorted(FORECAST_APPOINTMENT_STATUSES)),
+    )
+    if clinica_obj is not None:
+        query = query.filter(Agendamento.clinica_id == clinica_obj.id)
+    appointments = (
+        query
+        .order_by(Agendamento.inicio.asc(), Agendamento.id.asc())
+        .limit(1000)
+        .all()
+    )
+
+    clinic_ids = {int(item.clinica_id) for item in appointments if item.clinica_id}
+    service_ids = {int(item.servico_id) for item in appointments if item.servico_id}
+    appointment_ids = [int(item.id) for item in appointments]
+    clinic_map = {
+        int(item.id): item
+        for item in ctx.db.query(Clinica).filter(Clinica.id.in_(clinic_ids)).all()
+    } if clinic_ids else {}
+    service_map = {
+        int(item.id): item
+        for item in ctx.db.query(Servico).filter(Servico.id.in_(service_ids)).all()
+    } if service_ids else {}
+    table_names = {
+        int(item.id): str(item.nome)
+        for item in ctx.db.query(TabelaPreco).all()
+    }
+    fallback_table_names = {
+        1: "Clinicas Fortaleza",
+        2: "Regiao Metropolitana",
+        3: "Domiciliar",
+        4: "Personalizado",
+    }
+
+    orders_by_appointment: dict[int, OrdemServico] = {}
+    if appointment_ids:
+        orders = (
+            ctx.db.query(OrdemServico)
+            .filter(
+                OrdemServico.agendamento_id.in_(appointment_ids),
+                func.lower(func.coalesce(OrdemServico.status, "")) != "cancelado",
+            )
+            .order_by(OrdemServico.id.desc())
+            .all()
+        )
+        for order in orders:
+            if order.agendamento_id:
+                orders_by_appointment.setdefault(int(order.agendamento_id), order)
+
+    items: list[dict[str, Any]] = []
+    total_scheduled = 0.0
+    total_reserved = 0.0
+    without_price = 0
+    by_clinic: dict[str, dict[str, Any]] = {}
+    by_service: dict[str, dict[str, Any]] = {}
+    by_status: dict[str, dict[str, Any]] = {}
+
+    def add_group(
+        groups: dict[str, dict[str, Any]],
+        name: str,
+        value: Optional[float],
+    ) -> None:
+        group = groups.setdefault(
+            name,
+            {"nome": name, "quantidade": 0, "valor_previsto": 0.0, "sem_valor": 0},
+        )
+        group["quantidade"] += 1
+        if value is None:
+            group["sem_valor"] += 1
+        else:
+            group["valor_previsto"] = round(float(group["valor_previsto"]) + value, 2)
+
+    for appointment in appointments:
+        clinic_record = (
+            clinic_map.get(int(appointment.clinica_id))
+            if appointment.clinica_id
+            else None
+        )
+        service_record = (
+            service_map.get(int(appointment.servico_id))
+            if appointment.servico_id
+            else None
+        )
+        clinic_name = (
+            str(clinic_record.nome)
+            if clinic_record is not None
+            else str(appointment.clinica or "Atendimento domiciliar")
+        )
+        service_name = (
+            str(service_record.nome)
+            if service_record is not None
+            else str(appointment.servico or "Servico nao informado")
+        )
+        table_id = int(clinic_record.tabela_preco_id or 1) if clinic_record is not None else 3
+        table_name = table_names.get(table_id) or fallback_table_names.get(
+            table_id,
+            f"Tabela #{table_id}",
+        )
+        linked_order = orders_by_appointment.get(int(appointment.id))
+        value: Optional[float] = None
+        price_source: Optional[str] = None
+        price_error: Optional[str] = None
+
+        if linked_order is not None and linked_order.valor_final is not None:
+            value = round(float(linked_order.valor_final), 2)
+            price_source = "ordem_de_servico_vinculada"
+        elif service_record is not None and (
+            clinic_record is not None
+            or _normalize_text(appointment.origem_atendimento) == "domiciliar"
+        ):
+            try:
+                calculated = calcular_preco_servico(
+                    db=ctx.db,
+                    clinica_id=int(clinic_record.id) if clinic_record is not None else None,
+                    servico_id=int(service_record.id),
+                    tipo_horario="comercial",
+                    usar_preco_clinica=True,
+                    origem_atendimento=appointment.origem_atendimento,
+                )
+                value = round(float(calculated), 2)
+                price_source = "regra_oficial_de_precos"
+            except HTTPException as exc:
+                price_error = str(exc.detail)
+        else:
+            price_error = "Clinica ou servico sem cadastro vinculado."
+
+        if value is None:
+            without_price += 1
+        elif str(appointment.status) == "Reservado":
+            total_reserved = round(total_reserved + value, 2)
+        else:
+            total_scheduled = round(total_scheduled + value, 2)
+
+        local_start = _as_local_datetime(appointment.inicio)
+        item = {
+            "agendamento_id": int(appointment.id),
+            "horario": local_start.strftime("%H:%M") if local_start else str(appointment.hora or ""),
+            "status": str(appointment.status),
+            "clinica": clinic_name,
+            "tabela_preco": table_name,
+            "servico": service_name,
+            "valor_previsto": value,
+            "fonte_valor": price_source,
+        }
+        if price_error:
+            item["erro_preco"] = price_error
+        items.append(item)
+        add_group(by_clinic, clinic_name, value)
+        add_group(by_service, service_name, value)
+        add_group(by_status, str(appointment.status), value)
+
+    total = round(total_scheduled + total_reserved, 2)
+
+    def sorted_groups(groups: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+        return sorted(
+            groups.values(),
+            key=lambda item: (-float(item["valor_previsto"]), str(item["nome"])),
+        )
+
+    return {
+        "ok": True,
+        "fonte": (
+            "agenda ativa, ordens de servico vinculadas e regra oficial de precos; "
+            "preco negociado da clinica tem prioridade sobre a tabela regional"
+        ),
+        "data": data_ref.isoformat(),
+        "clinica": (
+            {"id": int(clinica_obj.id), "nome": str(clinica_obj.nome)}
+            if clinica_obj is not None
+            else None
+        ),
+        "resumo": {
+            "agendamentos_considerados": len(appointments),
+            "agendados_confirmados_ou_em_atendimento": sum(
+                1 for item in appointments if str(item.status) != "Reservado"
+            ),
+            "reservas": sum(1 for item in appointments if str(item.status) == "Reservado"),
+            "valor_agendado": total_scheduled,
+            "valor_reservado": total_reserved,
+            "valor_total_previsto": total,
+            "sem_valor_configurado": without_price,
+            "ticket_medio_previsto": round(total / (len(appointments) - without_price), 2)
+            if len(appointments) > without_price
+            else 0.0,
+        },
+        "por_status": sorted_groups(by_status),
+        "por_clinica": sorted_groups(by_clinic),
+        "por_servico": sorted_groups(by_service),
+        "itens": items,
+        "truncado": len(appointments) >= 1000,
+        "dados_pessoais_incluidos": False,
+        "premissas": [
+            "Agendado, Confirmado, Em atendimento e Reservado entram na projecao.",
+            "Reservas ficam separadas porque ainda dependem de confirmacao.",
+            "Na ausencia de OS vinculada, aplica-se o preco comercial oficial vigente.",
+            "O total e previsao de producao da agenda, nao valor ja recebido.",
+        ],
+        "aviso": (
+            "Cancelamentos, faltas, descontos e alteracoes posteriores podem mudar o valor realizado."
+        ),
     }
 
 
@@ -2930,6 +3164,24 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "type": "function",
+        "name": "projetar_faturamento_agenda",
+        "description": "Calcula em uma unica consulta o valor previsto dos servicos da agenda em uma data futura, usando primeiro o preco negociado da clinica e depois a tabela regional oficial. Separa reservas e nao representa dinheiro ja recebido.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "data": {"type": "string", "description": "Data da agenda em YYYY-MM-DD."},
+                "clinica": {
+                    "type": ["string", "null"],
+                    "description": "Nome da clinica ou null para toda a agenda.",
+                },
+            },
+            "required": ["data", "clinica"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
         "name": "localizar_agendamentos",
         "description": "Localiza agendamentos ativos por data, horario, clinica e servico. Use antes de qualquer pedido de exclusao. Se houver mais de um resultado, peca desambiguacao.",
         "parameters": {
@@ -3337,6 +3589,12 @@ def execute_tool(
             data_fim=arguments["data_fim"],
             clinica=arguments.get("clinica"),
         )
+    if name == "projetar_faturamento_agenda":
+        return projetar_faturamento_agenda(
+            ctx,
+            data=arguments["data"],
+            clinica=arguments.get("clinica"),
+        )
     if name == "localizar_agendamentos":
         return localizar_agendamentos(
             ctx,
@@ -3522,6 +3780,12 @@ def tool_result_summary(name: str, result: dict[str, Any]) -> str:
         return f"{result.get('periodo', {}).get('meses', 0)} meses analisados"
     if name == "analisar_servicos_realizados":
         return f"{result.get('resumo', {}).get('ordens_servico', 0)} OS analisada(s)"
+    if name == "projetar_faturamento_agenda":
+        summary = result.get("resumo") or {}
+        return (
+            f"{summary.get('agendamentos_considerados', 0)} item(ns), "
+            f"R$ {float(summary.get('valor_total_previsto') or 0):.2f} previsto(s)"
+        )
     if name == "localizar_agendamentos":
         return f"{result.get('total', 0)} agendamento(s) localizado(s)"
     if name == "verificar_disponibilidade":

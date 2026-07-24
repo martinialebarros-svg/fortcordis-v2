@@ -78,6 +78,10 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - RF-066: a aprovacao do vinculo revalida proprietario, TTL, snapshot da reserva, expiracao, paciente, tutor e versoes; divergencia invalida a acao.
 - RF-067: quando o provedor falhar depois de persistir um comando, a conversa e devolvida ao frontend, o texto volta ao campo e a nova tentativa identica reutiliza a mensagem sem resposta.
 - RF-068: no mobile vertical, a coluna da conversa usa faixa explicita `minmax(0, 1fr)` e titulo, orientacao, exemplos, mensagens e campo de entrada respeitam a largura disponivel sem exigir rotacao do aparelho.
+- RF-069: `projetar_faturamento_agenda` calcula o valor previsto dos atendimentos ativos de uma data, reutilizando a OS vinculada quando existir ou a regra oficial `calcular_preco_servico`, que prioriza o preco negociado da clinica e depois sua tabela regional.
+- RF-070: a previsao separa agendados/confirmados/em atendimento de reservas, exclui cancelados, informa itens sem valor e distingue producao prevista de recebimento financeiro realizado.
+- RF-071: pedidos inequivocos de faturamento previsto da agenda restringem a primeira chamada a `projetar_faturamento_agenda` e, depois do resultado, exigem resposta final sem novo ciclo de ferramentas.
+- RF-072: referencias `hoje`, `amanha` e `depois de amanha` sao resolvidas pelo backend em `America/Fortaleza`; a data resolvida substitui argumento divergente do modelo e continuacoes sem data reutilizam a ultima data absoluta da conversa.
 
 ## 3) Requisitos nao funcionais
 
@@ -120,6 +124,8 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - NFR-037 (conhecimento): ingestao e arquivamento sao explicitos e exclusivos do admin; busca e limitada a dez trechos.
 - NFR-038 (observabilidade): tokens, latencia, status e identificador do provedor sao mensurados sem persistir segredos ou raciocinio interno.
 - NFR-039 (responsividade): a conversa deve permanecer legivel entre 320 e 430 CSS pixels, sem rolagem horizontal da pagina e sem recorte de texto, preservando o layout de duas colunas em desktop.
+- NFR-040 (consistencia da previsao): o total previsto declara data, status, tabela, fonte de preco e premissas, nao inclui paciente/tutor e nunca e rotulado como valor ja recebido.
+- NFR-041 (tempo operacional): data relativa administrativa nunca depende do timezone UTC do host nem fica a criterio exclusivo do modelo.
 
 ## 4) Persistencia
 
@@ -132,10 +138,11 @@ Disponibilizar a Mente FortCordis somente ao administrador como copiloto de gest
 - planos de acao tambem nao criam tabela ou migration; somente a missao aprovada reutiliza `assistente_ia_missoes` e `assistente_ia_execucoes`.
 - voz e tolerancia de nomes nao criam tabela ou migration; audio nao e persistido e a transcricao so entra nas mensagens depois do envio do admin.
 - as novas consultas, retomada e vinculacao reutilizam modelos, matriz logistica, mensagens e acoes pendentes existentes; nao ha nova migration.
+- a previsao financeira da agenda reutiliza agendamentos, ordens de servico e tabelas de preco existentes; nao ha nova migration.
 
 ## 5) Ferramentas
 
-Leitura: `analisar_faturamento`, `analisar_servicos_realizados`, `localizar_agendamentos`, `verificar_disponibilidade`, `consultar_funcionamento_agenda`, `consultar_deslocamento_clinicas`, `relatorio_debitos_pendentes`, `consultar_clinica_360`, `comparar_clinicas_360`, `gerar_resumo_executivo`, `listar_bloqueios_agenda`, `consultar_conhecimento_interno`, `obter_contexto_laudo`.
+Leitura: `analisar_faturamento`, `analisar_servicos_realizados`, `projetar_faturamento_agenda`, `localizar_agendamentos`, `verificar_disponibilidade`, `consultar_deslocamento_clinicas`, `consultar_funcionamento_agenda`, `relatorio_debitos_pendentes`, `consultar_clinica_360`, `comparar_clinicas_360`, `gerar_resumo_executivo`, `listar_bloqueios_agenda`, `consultar_conhecimento_interno`, `obter_contexto_laudo`.
 
 Preparacao/escrita governada: `solicitar_exclusao_agendamento`, `solicitar_criacao_agendamento`, `solicitar_vinculo_paciente_reserva`, `solicitar_excecao_funcionamento_agenda`, `solicitar_remarcacao_agendamento`, `solicitar_cancelamento_agendamento`, `solicitar_bloqueio_agenda`, `solicitar_liberacao_bloqueio_agenda`, `solicitar_atualizacao_whatsapps_clinica`, `propor_memoria_operacional`, `salvar_rascunho_clinico`.
 
@@ -198,8 +205,13 @@ Preparacao/escrita governada: `solicitar_exclusao_agendamento`, `solicitar_criac
 - CA-053: teste de funcionamento retorna a excecao efetiva sem clinica ou servico.
 - CA-054: teste de vinculo confirma que nenhuma escrita ocorre antes da aprovacao e que o fluxo oficial recebe apenas paciente e tutor, preservando o horario.
 - CA-055: teste de nova tentativa confirma duas mensagens finais, e nao tres, quando ja existe comando identico sem resposta.
-- CA-056: dataset possui 23 casos, incluindo as cinco falhas reais e o erro `Uninassal`, com ferramentas estritas e laboratorio sem execucao.
+- CA-056: dataset possui 25 casos, incluindo as cinco falhas anteriores, o erro `Uninassal` e as duas formas reais do pedido de previsao, com ferramentas estritas e laboratorio sem execucao.
 - CA-057: em viewport vertical de 360 CSS pixels, `scrollWidth` nao supera `clientWidth` e o aviso administrativo, titulo, subtitulo, sete exemplos, mensagens e compositor quebram texto dentro da coluna; em desktop, historico e conversa continuam lado a lado.
+- CA-058: auditoria da conversa `4353140f-485c-48a2-bda1-375b85ca50be` confirma que a primeira resposta consultou agenda e resumo, e que a correcao seguinte terminou em 502 depois de atingir o teto seguro de ferramentas.
+- CA-059: teste focal combina preco negociado Fortaleza de R$ 150,00 e tabela Metropolitana de R$ 200,00, exclui cancelado e retorna R$ 350,00 com reserva separada.
+- CA-060: teste de privacidade confirma que o payload da previsao nao contem nome de paciente ou tutor e declara `dados_pessoais_incluidos=false`.
+- CA-061: teste do turno confirma uma unica `function_call` forçada para a previsao e uma resposta final sem ferramentas adicionais; o dataset roteia as duas frases reais para a nova ferramenta.
+- CA-062: teste fixa 23/07/2026 em Fortaleza, transforma `amanha` em 24/07, substitui a chamada incorreta 25/07 e recupera 24/07 da resposta anterior no pedido de continuacao.
 
 ## 7) Criterios de regressao da versao base
 

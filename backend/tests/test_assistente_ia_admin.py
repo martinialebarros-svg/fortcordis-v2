@@ -3,7 +3,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -42,6 +42,7 @@ from app.models.laudo import Laudo
 from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.servico import Servico
+from app.models.tabela_preco import PrecoServico, PrecoServicoClinica, TabelaPreco
 from app.models.tutor import Tutor
 from app.services import assistente_ia_management, assistente_ia_service, assistente_ia_tools
 
@@ -58,6 +59,9 @@ class AssistenteIAAdminTest(unittest.TestCase):
             Paciente.__table__,
             Clinica.__table__,
             Servico.__table__,
+            TabelaPreco.__table__,
+            PrecoServico.__table__,
+            PrecoServicoClinica.__table__,
             Agendamento.__table__,
             Transacao.__table__,
             OrdemServico.__table__,
@@ -639,6 +643,230 @@ class AssistenteIAAdminTest(unittest.TestCase):
         self.assertEqual(result["resumo"]["valor_servicos_realizados"], 550.0)
         self.assertEqual({item["nome"] for item in result["por_status"]}, {"Pago", "Pendente"})
         self.assertIn("independentemente", result["aviso"])
+
+    def test_previsao_da_agenda_aplica_preco_negociado_e_tabela_regional_sem_dados_pessoais(self) -> None:
+        with self._session_factory() as db:
+            fortaleza, service, patient, conversation = self._seed_base(db)
+            fortaleza.tabela_preco_id = 1
+            service.preco_fortaleza_comercial = 180
+            service.preco_rm_comercial = 200
+            metropolitana = Clinica(
+                nome="Pet Sanus Caucaia",
+                ativo=True,
+                tabela_preco_id=2,
+            )
+            db.add_all(
+                [
+                    metropolitana,
+                    TabelaPreco(id=1, nome="Clinicas Fortaleza", ativo=1),
+                    TabelaPreco(id=2, nome="Regiao Metropolitana", ativo=1),
+                ]
+            )
+            db.flush()
+            db.add(
+                PrecoServicoClinica(
+                    clinica_id=fortaleza.id,
+                    servico_id=service.id,
+                    preco_comercial=150,
+                    preco_plantao=220,
+                    ativo=1,
+                )
+            )
+            reference_date = datetime.now(assistente_ia_tools.LOCAL_TZ).date() + timedelta(days=1)
+            scheduled_start = datetime.combine(
+                reference_date,
+                datetime.min.time(),
+                tzinfo=assistente_ia_tools.LOCAL_TZ,
+            ).replace(hour=9)
+            db.add_all(
+                [
+                    Agendamento(
+                        paciente_id=patient.id,
+                        tutor_id=patient.tutor_id,
+                        clinica_id=fortaleza.id,
+                        servico_id=service.id,
+                        inicio=scheduled_start,
+                        fim=scheduled_start + timedelta(minutes=30),
+                        data=reference_date.isoformat(),
+                        hora="09:00",
+                        status="Agendado",
+                    ),
+                    Agendamento(
+                        paciente_id=patient.id,
+                        tutor_id=patient.tutor_id,
+                        clinica_id=metropolitana.id,
+                        servico_id=service.id,
+                        inicio=scheduled_start.replace(hour=10),
+                        fim=scheduled_start.replace(hour=10, minute=30),
+                        data=reference_date.isoformat(),
+                        hora="10:00",
+                        status="Reservado",
+                    ),
+                    Agendamento(
+                        paciente_id=patient.id,
+                        tutor_id=patient.tutor_id,
+                        clinica_id=metropolitana.id,
+                        servico_id=service.id,
+                        inicio=scheduled_start.replace(hour=11),
+                        fim=scheduled_start.replace(hour=11, minute=30),
+                        data=reference_date.isoformat(),
+                        hora="11:00",
+                        status="Cancelado",
+                    ),
+                ]
+            )
+            db.commit()
+
+            result = assistente_ia_tools.projetar_faturamento_agenda(
+                self._context(db, conversation),
+                data=reference_date.isoformat(),
+                clinica=None,
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["resumo"]["agendamentos_considerados"], 2)
+        self.assertEqual(result["resumo"]["valor_agendado"], 150.0)
+        self.assertEqual(result["resumo"]["valor_reservado"], 200.0)
+        self.assertEqual(result["resumo"]["valor_total_previsto"], 350.0)
+        self.assertEqual(result["resumo"]["sem_valor_configurado"], 0)
+        self.assertEqual(
+            {item["tabela_preco"] for item in result["itens"]},
+            {"Clinicas Fortaleza", "Regiao Metropolitana"},
+        )
+        serialized = json.dumps(result, ensure_ascii=False)
+        self.assertNotIn("Luna", serialized)
+        self.assertNotIn("Ana Oliveira", serialized)
+        self.assertFalse(result["dados_pessoais_incluidos"])
+        self.assertIn("nao valor ja recebido", result["premissas"][-1])
+
+    def test_pedido_de_previsao_forca_uma_unica_ferramenta_e_depois_resposta_final(self) -> None:
+        with self._session_factory() as db:
+            _clinic, _service, _patient, conversation = self._seed_base(db)
+            tool_call = SimpleNamespace(
+                type="function_call",
+                name="projetar_faturamento_agenda",
+                arguments='{"data": "2026-07-25", "clinica": null}',
+                call_id="call-forecast",
+            )
+            responses = [
+                SimpleNamespace(id="resp-forecast-tool", output=[tool_call], output_text=""),
+                SimpleNamespace(
+                    id="resp-forecast-final",
+                    output=[],
+                    output_text="A agenda de amanha soma R$ 1.590,00.",
+                ),
+            ]
+            provider_calls = []
+
+            def provider_request(*_args, **kwargs):
+                provider_calls.append(kwargs)
+                return responses[len(provider_calls) - 1]
+
+            with (
+                patch.object(assistente_ia_service, "ensure_assistant_available"),
+                patch.object(assistente_ia_service, "OpenAI", return_value=SimpleNamespace()),
+                patch.object(
+                    assistente_ia_service,
+                    "_local_today",
+                    return_value=date(2026, 7, 23),
+                ),
+                patch.object(
+                    assistente_ia_service,
+                    "_provider_request",
+                    side_effect=provider_request,
+                ),
+                patch.object(
+                    assistente_ia_service,
+                    "execute_tool",
+                    return_value={
+                        "ok": True,
+                        "resumo": {
+                            "agendamentos_considerados": 8,
+                            "valor_total_previsto": 1590.0,
+                        },
+                    },
+                ) as executor,
+                patch.object(assistente_ia_service, "registrar_auditoria"),
+            ):
+                result = assistente_ia_service.run_assistant_turn(
+                    db=db,
+                    current_user=self.user,
+                    request=SimpleNamespace(headers={}),
+                    message=(
+                        "Verifique pra mim amanhã qual o previsto pra faturamento "
+                        "do que tem de agendado."
+                    ),
+                    conversation=conversation,
+                )
+
+        self.assertEqual(result["assistant_message"]["content"], responses[-1].output_text)
+        self.assertEqual(len(provider_calls[0]["tool_definitions"]), 1)
+        self.assertEqual(
+            provider_calls[0]["tool_choice"]["name"],
+            "projetar_faturamento_agenda",
+        )
+        self.assertEqual(provider_calls[1]["tool_definitions"], [])
+        executor.assert_called_once()
+        self.assertEqual(
+            executor.call_args.kwargs["arguments"]["data"],
+            "2026-07-24",
+        )
+
+    def test_detector_de_previsao_cobre_a_solicitacao_e_a_correcao_reais(self) -> None:
+        self.assertTrue(
+            assistente_ia_service._is_agenda_revenue_forecast_request(
+                "Verifique pra mim amanhã qual o previsto pra faturamento do que tem de agendado."
+            )
+        )
+        self.assertTrue(
+            assistente_ia_service._is_agenda_revenue_forecast_request(
+                "Olhe a tabela da clínica e some os valores dos serviços previstos para executar."
+            )
+        )
+        self.assertFalse(
+            assistente_ia_service._is_agenda_revenue_forecast_request(
+                "Analise o faturamento recebido dos últimos cinco meses."
+            )
+        )
+
+    def test_data_da_previsao_usa_fuso_operacional_e_recupera_data_da_conversa(self) -> None:
+        with self._session_factory() as db:
+            _clinic, _service, _patient, conversation = self._seed_base(db)
+            previous = AssistenteIAMensagem(
+                conversa_id=conversation.id,
+                usuario_id=self.user.id,
+                papel="assistant",
+                conteudo="A agenda prevista para 24/07/2026 possui oito atendimentos.",
+                provider_status="completed",
+            )
+            current = AssistenteIAMensagem(
+                conversa_id=conversation.id,
+                usuario_id=self.user.id,
+                papel="user",
+                conteudo="Olhe a tabela da clínica e some os serviços previstos.",
+                provider_status="retrying",
+            )
+            db.add_all([previous, current])
+            db.commit()
+            db.refresh(current)
+            with patch.object(
+                assistente_ia_service,
+                "_local_today",
+                return_value=date(2026, 7, 23),
+            ):
+                direct = assistente_ia_service._relative_date_from_text(
+                    "Qual o valor previsto para amanhã?",
+                    reference=assistente_ia_service._local_today(),
+                )
+                inherited = assistente_ia_service._resolve_forecast_date(
+                    db,
+                    conversation,
+                    message=current.conteudo,
+                    current_message_id=current.id,
+                )
+
+        self.assertEqual(direct, date(2026, 7, 24))
+        self.assertEqual(inherited, date(2026, 7, 24))
 
     def test_consulta_funcionamento_geral_sem_exigir_clinica_ou_servico(self) -> None:
         with self._session_factory() as db:

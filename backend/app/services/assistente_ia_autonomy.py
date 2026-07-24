@@ -745,6 +745,7 @@ Ferramentas `solicitar_*` apenas preparam uma acao pendente para confirmacao hum
 
 Regras de roteamento que devem ser observadas:
 - servicos realizados ou todas as ordens de servico do periodo usa analisar_servicos_realizados;
+- faturamento previsto, valor da agenda ou soma dos servicos agendados em uma data futura usa projetar_faturamento_agenda;
 - tempo ou distancia entre clinicas usa consultar_deslocamento_clinicas;
 - funcionamento geral ou horario de encerramento da agenda usa consultar_funcionamento_agenda;
 - visao 360, saude operacional, motivo de queda ou plano de acao de uma clinica usa consultar_clinica_360;

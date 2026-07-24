@@ -81,8 +81,13 @@ Status: in_progress
 | CA-053 | teste retorna funcionamento por excecao sem exigir clinica ou servico | aprovado |
 | CA-054 | teste prepara vinculo sem escrita e chama atualizacao oficial apenas apos aprovacao, sem enviar horario no payload | aprovado |
 | CA-055 | teste reutiliza mensagem identica sem resposta e preserva apenas um comando no historico | aprovado |
-| CA-056 | 23 casos versionados, incluindo falhas reais, com schemas estritos e laboratorio sem executar ferramentas | aprovado |
+| CA-056 | 25 casos versionados, incluindo falhas reais e duas formas do pedido de previsao, com schemas estritos e laboratorio sem executar ferramentas | aprovado |
 | CA-057 | faixa mobile explicita `minmax(0, 1fr)`, filhos com `min-w-0`, quebra de texto e layout desktop preservado; lint, TypeScript e build aprovados | aprovado localmente; viewport live pendente |
+| CA-058 | conversa `4353140f-485c-48a2-bda1-375b85ca50be`: agenda + resumo na primeira resposta, mensagem seguinte `failed` e POST `/chat` 502 apos teto de ferramentas | aprovado em auditoria somente leitura de producao |
+| CA-059 | teste focal aplica preco negociado de R$ 150,00, tabela Metropolitana de R$ 200,00, exclui cancelado e totaliza R$ 350,00 | aprovado |
+| CA-060 | serializacao do resultado nao contem paciente/tutor e declara `dados_pessoais_incluidos=false` | aprovado |
+| CA-061 | teste do turno restringe a chamada a `projetar_faturamento_agenda`, executa uma vez e finaliza sem oferecer novas ferramentas | aprovado |
+| CA-062 | teste fixa fuso Fortaleza, corrige argumento 25/07 para 24/07 e recupera a data absoluta da conversa na continuacao | aprovado |
 
 ## Evidencias executadas ate agora
 
@@ -154,6 +159,22 @@ git diff --check
 - ESLint sem warnings, TypeScript sem erros, `git diff --check` e build Next aprovados;
 - build confirmou `/assistente-ia` com 24,5 kB e manteve o pacote inicial em 160 kB;
 - viewport live e smokes remotos serao registrados depois da publicacao.
+
+## Ciclo Previsao de faturamento da agenda - 23/07/2026
+
+- auditoria somente leitura confirmou a conversa mais recente: 8 atendimentos foram encontrados, mas a primeira resposta combinou agenda com faturamento recebido do mes e nao consultou precos;
+- a explicacao seguinte do administrador foi persistida com status `failed`; o acesso registrou `POST /api/v1/assistente-ia/chat` 502 depois de o fluxo atingir o limite seguro de ferramentas;
+- consulta direta da regra oficial em producao para 24/07/2026 confirmou R$ 1.590,00: R$ 1.390,00 em sete agendamentos e R$ 200,00 em uma reserva, sem item sem preco;
+- `projetar_faturamento_agenda` conecta agenda, clinica, tabela, preco negociado e OS vinculada em uma unica ferramenta somente leitura;
+- preco negociado por clinica precede a tabela regional, preservando o mesmo calculo usado na geracao oficial de OS;
+- o resultado separa reservas, exclui cancelados, informa premissas e nao inclui paciente ou tutor;
+- as duas formulacoes da conversa real entram no dataset versionado e o roteamento inequivoco encerra as ferramentas depois da projecao;
+- o primeiro canario de stage revelou que o host ja estava em 24/07 UTC enquanto Fortaleza ainda estava em 23/07; o modelo escolheu 25/07 para `amanha` e a promocao foi interrompida;
+- a data operacional agora usa `America/Fortaleza`, e o backend sobrescreve qualquer argumento divergente do modelo antes de consultar a agenda;
+- continuacoes como a correcao sobre tabela de preco recuperam a ultima data absoluta da conversa, sem pedir novamente nem deslocar o dia;
+- 51 testes focais da Mente e suite completa com 394 testes aprovados;
+- `py_compile`, `pip check`, `git diff --check`, ESLint, TypeScript e build Next aprovados;
+- build preservou `/assistente-ia` em 24,5 kB e o pacote inicial em 160 kB; guardrail SDD e release remoto permanecem pendentes.
 
 ## Ciclo de aprendizado continuo supervisionado - 22/07/2026
 
