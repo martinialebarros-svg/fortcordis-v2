@@ -14,7 +14,7 @@
 - RF-010: reconhecer o perfil GE LOGIQ e em imagens exportadas, lendo cabecalho e quadros de medidas nas regioes conhecidas sem depender de XML; `VET WORLD` identifica a clinica exibida no cabecalho, nao o modelo do equipamento.
 - RF-011: preencher apenas dados textualmente presentes no arquivo; achados, diagnostico e conclusao permanecem sob revisao do veterinario.
 - RF-012: reconhecer o perfil GE Vivid IQ em capturas de tela e relatorios PDF exportados, usando regioes e aliases proprios sem misturar essa calibracao com o perfil GE LOGIQ e.
-- RF-013: no perfil GE Vivid IQ, reconhecer abreviacoes exibidas pelo equipamento para raiz aortica, atrio esquerdo, E/A, tempo de desaceleracao, gradientes de VSVE/VSVD, velocidade de refluxo mitral e DIVdN.
+- RF-013: no perfil GE Vivid IQ, reconhecer abreviacoes exibidas pelo equipamento para raiz aortica, atrio esquerdo, E/A, tempo de desaceleracao, gradientes de VSVE/VSVD, velocidades de refluxo mitral e tricuspide, inclusive o rotulo portugues `Vmax RT`, e DIVdN.
 - RF-014: em PDFs com camada textual, extrair peso quando estiver explicitamente identificado por `Peso`/`Weight` e calcular a idade a partir de `Birthdate`/`Data de nascimento`, usando a data do exame como referencia quando disponivel e a data da importacao como fallback; preencher os campos correspondentes somente ao aplicar as sugestoes.
 - RF-015: quando o PDF rasterizado nao disponibilizar idade ou peso na camada textual, realizar uma tentativa adicional de OCR para esses campos sem inferir valores clinicos sem rotulo.
 - RF-016: normalizar o peso importado com virgula, ponto e sufixo `kg` antes de consultar a tabela de referencia; na edicao, dados demograficos ausentes no arquivo nao podem apagar os dados existentes do paciente.
@@ -81,3 +81,4 @@
 - CA-013: dados identificaveis nao confirmados pelo layout do Vivid IQ nao sao inferidos nem preenchidos automaticamente.
 - CA-014: PDF com `Birthdate`, data do exame e `Peso: 7,35 kg` retorna `paciente.idade` em anos completos e `paciente.peso = 7.35`, preservando a aplicacao sob revisao do usuario; abaixo de um ano, a idade e retornada em meses completos.
 - CA-015: aplicar medidas com peso importado em formato `7,35 kg` dispara novamente a busca por referencia e recalcula as comparacoes; importacao parcial no laudo existente preserva especie, peso e identificacao anteriores quando ausentes no arquivo.
+- CA-016: relatorio GE Vivid IQ com `Vmax RT 3.53 m/s` retorna `IT_Vmax = 3.53`, preservando a linha original como evidencia.
