@@ -153,6 +153,8 @@ def _sincronizar_exame_liberado_para_portal(
     laudo: Laudo,
     current_user: User,
     released_at: datetime,
+    *,
+    preserve_release_timestamp: bool = False,
 ) -> Exame:
     exame = (
         db.query(Exame)
@@ -181,7 +183,8 @@ def _sincronizar_exame_liberado_para_portal(
     exame.prioridade = exame.prioridade or "Rotina"
     exame.status = PORTAL_RELEASED_STATUS
     exame.data_solicitacao = laudo.data_exame or laudo.data_laudo or released_at
-    exame.data_resultado = released_at
+    if not preserve_release_timestamp or not exame.data_resultado:
+        exame.data_resultado = released_at
     exame.observacoes = PORTAL_LAUDO_RELEASE_MESSAGE
     if not exame.criado_por_id:
         exame.criado_por_id = getattr(current_user, "id", None)
@@ -227,6 +230,22 @@ def _buscar_anexo_portal_laudo_existente(
             AnexoAtendimento.exame_id == exame_id,
             AnexoAtendimento.origem == PORTAL_LAUDO_ATTACHMENT_ORIGIN,
             AnexoAtendimento.dedupe_key == dedupe_key,
+        )
+        .order_by(AnexoAtendimento.id.desc())
+        .first()
+    )
+
+
+def _buscar_anexo_portal_laudo_atual(
+    db: Session,
+    *,
+    exame_id: int,
+) -> AnexoAtendimento | None:
+    return (
+        db.query(AnexoAtendimento)
+        .filter(
+            AnexoAtendimento.exame_id == exame_id,
+            AnexoAtendimento.origem == PORTAL_LAUDO_ATTACHMENT_ORIGIN,
         )
         .order_by(AnexoAtendimento.id.desc())
         .first()
@@ -313,17 +332,21 @@ def _persistir_pdf_laudo_para_portal(
     laudo: Laudo,
     exame: Exame,
     current_user: User,
-) -> AnexoAtendimento:
+) -> tuple[AnexoAtendimento, Optional[str], Optional[str]]:
     if not exame.id:
         db.flush()
 
     pdf_externo = _buscar_anexo_pdf_externo_laudo(db, laudo)
     if pdf_externo:
-        return _vincular_pdf_externo_ao_portal(
-            db,
-            laudo=laudo,
-            exame=exame,
-            anexo=pdf_externo,
+        return (
+            _vincular_pdf_externo_ao_portal(
+                db,
+                laudo=laudo,
+                exame=exame,
+                anexo=pdf_externo,
+            ),
+            None,
+            None,
         )
 
     pdf = render_laudo_pdf(db, laudo.id, current_user)
@@ -335,7 +358,9 @@ def _persistir_pdf_laudo_para_portal(
         dedupe_key=dedupe_key,
     )
     if anexo_existente and anexo_existente.caminho_arquivo and os.path.exists(anexo_existente.caminho_arquivo):
-        return anexo_existente
+        return anexo_existente, None, None
+
+    anexo_atual = _buscar_anexo_portal_laudo_atual(db, exame_id=exame.id)
 
     atendimento_id = _resolver_atendimento_id_para_anexo_portal(db, laudo, exame)
     storage_path = None
@@ -346,11 +371,16 @@ def _persistir_pdf_laudo_para_portal(
             pdf.content,
             "application/pdf",
         )
-        anexo = anexo_existente or AnexoAtendimento(
-            atendimento_id=atendimento_id,
-            exame_id=exame.id,
-            origem=PORTAL_LAUDO_ATTACHMENT_ORIGIN,
-        )
+        anexo = anexo_existente or anexo_atual
+        old_path = None
+        if anexo is None:
+            anexo = AnexoAtendimento(
+                atendimento_id=atendimento_id,
+                exame_id=exame.id,
+                origem=PORTAL_LAUDO_ATTACHMENT_ORIGIN,
+            )
+        elif anexo.caminho_arquivo and anexo.caminho_arquivo != storage_path:
+            old_path = anexo.caminho_arquivo
         anexo.atendimento_id = atendimento_id
         anexo.exame_id = exame.id
         anexo.tipo = "documento"
@@ -362,15 +392,48 @@ def _persistir_pdf_laudo_para_portal(
         anexo.dedupe_key = dedupe_key
         anexo.caminho_arquivo = storage_path
         anexo.origem = PORTAL_LAUDO_ATTACHMENT_ORIGIN
-        if anexo_existente is None:
+        if anexo.id is None:
             anexo.url = ""
             db.add(anexo)
             db.flush()
         anexo.url = f"/api/v1/portal/anexos/{anexo.id}/arquivo"
-        return anexo
+        return anexo, old_path, storage_path
     except Exception:
         remove_atendimento_attachment_file(storage_path)
         raise
+
+
+def _sincronizar_publicacao_laudo_no_portal(
+    db: Session,
+    *,
+    laudo: Laudo,
+    current_user: User,
+) -> tuple[Exame | None, AnexoAtendimento | None, Optional[str], Optional[str]]:
+    exame = (
+        db.query(Exame)
+        .filter(Exame.laudo_id == laudo.id)
+        .order_by(Exame.id.desc())
+        .first()
+    )
+    if laudo.status != PORTAL_RELEASED_STATUS and exame is None:
+        return None, None, None, None
+
+    released_at = exame.data_resultado if exame and exame.data_resultado else datetime.utcnow()
+    laudo.status = PORTAL_RELEASED_STATUS
+    exame = _sincronizar_exame_liberado_para_portal(
+        db,
+        laudo,
+        current_user,
+        released_at,
+        preserve_release_timestamp=True,
+    )
+    anexo, old_path, new_path = _persistir_pdf_laudo_para_portal(
+        db,
+        laudo=laudo,
+        exame=exame,
+        current_user=current_user,
+    )
+    return exame, anexo, old_path, new_path
 
 
 def _parse_filtro_data(value: Optional[str]) -> Optional[date]:
@@ -1844,9 +1907,24 @@ def atualizar_laudo_ultrassonografia_abdominal(
         ultrassonografia_abdominal=ultrassonografia_abdominal,
     )
     laudo.updated_at = datetime.now()
+    _, anexo_portal, old_portal_path, new_portal_path = _sincronizar_publicacao_laudo_no_portal(
+        db,
+        laudo=laudo,
+        current_user=current_user,
+    )
 
-    db.commit()
-    db.refresh(laudo)
+    try:
+        db.commit()
+        db.refresh(laudo)
+        if anexo_portal is not None:
+            db.refresh(anexo_portal)
+    except Exception:
+        db.rollback()
+        remove_atendimento_attachment_file(new_portal_path)
+        raise
+
+    if old_portal_path and old_portal_path != new_portal_path:
+        remove_atendimento_attachment_file(old_portal_path)
 
     return {
         "id": laudo.id,
@@ -2078,8 +2156,24 @@ def atualizar_laudo(
             setattr(laudo, field, value)
 
     laudo.updated_at = datetime.now()
-    db.commit()
-    db.refresh(laudo)
+    _, anexo_portal, old_portal_path, new_portal_path = _sincronizar_publicacao_laudo_no_portal(
+        db,
+        laudo=laudo,
+        current_user=current_user,
+    )
+
+    try:
+        db.commit()
+        db.refresh(laudo)
+        if anexo_portal is not None:
+            db.refresh(anexo_portal)
+    except Exception:
+        db.rollback()
+        remove_atendimento_attachment_file(new_portal_path)
+        raise
+
+    if old_portal_path and old_portal_path != new_portal_path:
+        remove_atendimento_attachment_file(old_portal_path)
     return laudo
 
 
@@ -2134,17 +2228,25 @@ def liberar_laudo_para_portal_clinica(
     laudo.status = PORTAL_RELEASED_STATUS
     laudo.updated_at = released_at
     exame = _sincronizar_exame_liberado_para_portal(db, laudo, current_user, released_at)
-    anexo = _persistir_pdf_laudo_para_portal(
+    anexo, old_portal_path, new_portal_path = _persistir_pdf_laudo_para_portal(
         db,
         laudo=laudo,
         exame=exame,
         current_user=current_user,
     )
 
-    db.commit()
-    db.refresh(laudo)
-    db.refresh(exame)
-    db.refresh(anexo)
+    try:
+        db.commit()
+        db.refresh(laudo)
+        db.refresh(exame)
+        db.refresh(anexo)
+    except Exception:
+        db.rollback()
+        remove_atendimento_attachment_file(new_portal_path)
+        raise
+
+    if old_portal_path and old_portal_path != new_portal_path:
+        remove_atendimento_attachment_file(old_portal_path)
     from app.models.clinica import Clinica
     from app.models.paciente import Paciente
     from app.models.tutor import Tutor

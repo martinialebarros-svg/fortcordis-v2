@@ -299,6 +299,68 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                 self.assertEqual(summary_after_revoke.status_code, 200)
                 self.assertEqual(summary_after_revoke.json()["invite"]["status"], "revoked")
 
+    def test_admin_reenvia_acesso_para_conta_ativa_sem_criar_novo_convite(self) -> None:
+        seed = self._seed_portal_data()
+        self._install_overrides()
+
+        db = self._session_factory()
+        try:
+            db.add(
+                PortalClinicAccount(
+                    clinica_id=seed["clinica_id"],
+                    email_normalized="portal.clinica@example.com",
+                    responsavel_nome="Dra. Parceira",
+                    password_hash="hash-existente",
+                    status="active",
+                    activated_at=datetime(2026, 7, 4, 9, 0),
+                    email_verified_at=datetime(2026, 7, 4, 9, 5),
+                    last_login_at=datetime(2026, 7, 5, 12, 45),
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
+            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
+            with TestClient(self._app) as client:
+                response = client.post(
+                    f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/convites",
+                    json={
+                        "delivery_channel": "whatsapp",
+                        "delivery_target": "85999990000",
+                        "account_email": "portal.clinica@example.com",
+                        "expires_in_hours": 72,
+                        "allow_manual_copy": True,
+                    },
+                )
+                self.assertEqual(response.status_code, 200)
+                payload = response.json()
+                self.assertIsNone(payload["invite_id"])
+                self.assertEqual(payload["status"], "active")
+                self.assertIsNone(payload["expires_at"])
+                self.assertEqual(payload["access_mode"], "login")
+                self.assertTrue(payload["activation_url"].endswith("/clinica-parceira"))
+                self.assertEqual(payload["account_email_masked"], "po***@example.com")
+
+                summary_response = client.get(
+                    f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/acesso",
+                )
+                self.assertEqual(summary_response.status_code, 200)
+                summary_payload = summary_response.json()
+                self.assertIsNone(summary_payload["invite"])
+                self.assertEqual(summary_payload["account"]["status"], "active")
+                self.assertEqual(summary_payload["account"]["email_masked"], "po***@example.com")
+
+        db = self._session_factory()
+        try:
+            invite_count = db.query(PortalClinicInvite).filter(PortalClinicInvite.clinica_id == seed["clinica_id"]).count()
+            self.assertEqual(invite_count, 0)
+        finally:
+            db.close()
+
     def test_admin_can_load_portal_access_overview_with_download_analytics(self) -> None:
         seed = self._seed_portal_data()
         self._install_overrides()

@@ -67,6 +67,7 @@ from app.services.portal_clinic_auth_service import (
     SESSION_STATUS_ACTIVE,
     SESSION_STATUS_LOGGED_OUT,
     build_activation_url,
+    build_clinic_portal_url,
     build_password_reset_url,
     clear_portal_refresh_cookie,
     create_auth_challenge,
@@ -75,6 +76,7 @@ from app.services.portal_clinic_auth_service import (
     create_password_reset_token,
     expire_invite_if_needed,
     get_account_by_email,
+    get_active_account_by_clinica,
     get_active_clinica_or_404,
     get_invite_by_raw_token,
     get_password_reset_token,
@@ -86,6 +88,7 @@ from app.services.portal_clinic_auth_service import (
     issue_clinic_session,
     json_load_dict,
     mask_email,
+    mask_phone,
     maybe_require_mfa,
     normalize_email,
     request_user_agent_hash,
@@ -94,6 +97,7 @@ from app.services.portal_clinic_auth_service import (
     send_login_mfa_code,
     send_password_reset_email,
     send_whatsapp_invite,
+    send_whatsapp_login_access,
     set_portal_refresh_cookie,
     utcnow,
     validate_password_reset_token_or_401,
@@ -806,29 +810,65 @@ def criar_convite_clinica(
 ):
     _assert_invite_auth_enabled()
     clinica = get_active_clinica_or_404(db, clinica_id)
-    invite, raw_token = create_clinic_invite(
-        db,
-        clinica_id=clinica.id,
-        delivery_channel=payload.delivery_channel,
-        delivery_target=payload.delivery_target,
-        account_email=payload.account_email,
-        expires_in_hours=payload.expires_in_hours,
-        created_by_user_id=current_user.id,
-    )
-    activation_url = build_activation_url(request, raw_token)
+    normalized_payload_email = normalize_email(payload.account_email)
+    active_account = get_active_account_by_clinica(db, clinica.id)
+    account_allows_login_reminder = active_account is not None and active_account.status in {
+        ACCOUNT_STATUS_ACTIVE,
+        ACCOUNT_STATUS_LOCKED,
+    }
+
+    if account_allows_login_reminder and normalized_payload_email and normalized_payload_email != normalize_email(
+        active_account.email_normalized
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="A clinica ja possui acesso ativo com outro email. Revogue a conta atual antes de trocar o email institucional.",
+        )
+
+    invite = None
+    access_mode: str = "activation"
+    access_url: str
+    account_email_masked: str | None
+
+    if account_allows_login_reminder:
+        access_mode = "login"
+        access_url = build_clinic_portal_url(request)
+        account_email_masked = mask_email(active_account.email_normalized)
+    else:
+        invite, raw_token = create_clinic_invite(
+            db,
+            clinica_id=clinica.id,
+            delivery_channel=payload.delivery_channel,
+            delivery_target=payload.delivery_target,
+            account_email=payload.account_email,
+            expires_in_hours=payload.expires_in_hours,
+            created_by_user_id=current_user.id,
+        )
+        access_url = build_activation_url(request, raw_token)
+        account_email_masked = mask_email(payload.account_email) if payload.account_email else None
+
     delivery_status = "manual_copy"
     delivery_provider = None
 
     if settings.PORTAL_WHATSAPP_ENABLED:
         try:
-            result = send_whatsapp_invite(
-                destination=payload.delivery_target,
-                clinica_nome=clinica.nome,
-                activation_url=activation_url,
-                expires_in_hours=payload.expires_in_hours,
-            )
-            invite.delivered_at = utcnow()
-            db.commit()
+            if access_mode == "login":
+                result = send_whatsapp_login_access(
+                    destination=payload.delivery_target,
+                    clinica_nome=clinica.nome,
+                    portal_url=access_url,
+                    account_email=normalize_email(active_account.email_normalized),
+                )
+            else:
+                result = send_whatsapp_invite(
+                    destination=payload.delivery_target,
+                    clinica_nome=clinica.nome,
+                    activation_url=access_url,
+                    expires_in_hours=payload.expires_in_hours,
+                )
+            if invite is not None:
+                invite.delivered_at = utcnow()
+                db.commit()
             delivery_status = "sent"
             delivery_provider = result.provider
         except Exception:
@@ -846,25 +886,29 @@ def criar_convite_clinica(
     registrar_auditoria(
         current_user=current_user,
         modulo="portal",
-        entidade="portal_clinic_invite",
-        acao="PORTAL_CLINIC_INVITE_CREATED",
-        descricao="Convite da clinica parceira criado.",
-        entidade_id=invite.id,
+        entidade="portal_clinic_account" if access_mode == "login" else "portal_clinic_invite",
+        acao="PORTAL_CLINIC_ACCESS_REMINDER_SENT" if access_mode == "login" else "PORTAL_CLINIC_INVITE_CREATED",
+        descricao="Acesso da clinica parceira reenviado." if access_mode == "login" else "Convite da clinica parceira criado.",
+        entidade_id=active_account.id if access_mode == "login" else invite.id,
         detalhes={
             "clinica_id": clinica.id,
             "delivery_channel": payload.delivery_channel,
             "delivery_status": delivery_status,
+            "access_mode": access_mode,
         },
         request=request,
     )
     return PortalAdminClinicInviteResponse(
-        invite_id=invite.id,
-        status=invite.status,
-        expires_at=invite.expires_at,
-        activation_url=activation_url,
-        delivery_channel=invite.delivery_channel,
-        delivery_target_masked=invite.delivery_target_masked,
-        account_email_masked=mask_email(payload.account_email) if payload.account_email else None,
+        invite_id=invite.id if invite is not None else None,
+        status=active_account.status if access_mode == "login" else invite.status,
+        expires_at=invite.expires_at if invite is not None else None,
+        activation_url=access_url,
+        access_mode=access_mode,
+        delivery_channel=payload.delivery_channel,
+        delivery_target_masked=mask_phone(payload.delivery_target)
+        if payload.delivery_channel == "whatsapp"
+        else mask_email(payload.delivery_target),
+        account_email_masked=account_email_masked,
         delivery_status=delivery_status,
         delivery_provider=delivery_provider,
     )

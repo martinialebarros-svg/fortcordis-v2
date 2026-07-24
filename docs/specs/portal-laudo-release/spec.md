@@ -28,6 +28,7 @@ Implementar o primeiro controle operacional de publicacao de laudos no portal. A
 - RF-016: no painel da clinica, ao selecionar a data inicial vazia, a data final deve ser preenchida automaticamente com a mesma data para orientar busca de dia unico.
 - RF-017: o portal deve rotular separadamente `Data de realizacao` e `Data de liberacao` nos resultados exibidos para clinicas e tutores.
 - RF-018: ao liberar um laudo no portal, o backend deve tentar notificar a clinica por email usando a conta ativa da unidade, o email do convite mais recente ou o email cadastrado da clinica.
+- RF-019: ao salvar alteracoes em um laudo interno ja liberado no portal, o backend deve resincronizar o exame publicado e atualizar o PDF disponivel para download da clinica sem exigir nova liberacao manual.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -89,9 +90,10 @@ Implementar o primeiro controle operacional de publicacao de laudos no portal. A
 - CA-012: painel da clinica preenche `Ate` com a mesma data ao escolher `De` vazio, permitindo alterar depois para periodo.
 - CA-013: resultados do portal exibem explicitamente `Data de realizacao` e `Data de liberacao`, evitando campo generico `Data`.
 - CA-014: liberar um laudo com conta de clinica ativa retorna confirmacao de notificacao por email sem bloquear a publicacao do PDF no portal.
+- CA-015: editar um laudo interno ja liberado substitui o PDF publicado no portal pela versao corrigida e preserva o mesmo exame visivel para a clinica.
 
 ## 6) Fora de escopo
 
 - Notificacao automatica do tutor apos liberacao.
-- Workflow de republicacao/retirada de laudo ja liberado.
+- Workflow de retirada manual de laudo ja liberado.
 - Separar status clinico do status de publicacao em nova coluna dedicada.

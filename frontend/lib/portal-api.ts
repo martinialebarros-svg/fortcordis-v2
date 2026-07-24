@@ -67,10 +67,11 @@ export type PortalSimpleAcceptedResponse = {
 };
 
 export type PortalAdminClinicInviteResponse = {
-  invite_id: number;
+  invite_id?: number | null;
   status: string;
-  expires_at: string;
+  expires_at?: string | null;
   activation_url: string;
+  access_mode: "activation" | "login";
   delivery_channel: string;
   delivery_target_masked?: string | null;
   account_email_masked?: string | null;

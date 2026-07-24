@@ -54,10 +54,11 @@ export default function ClinicaPortalAccessCard({
     return buildClinicInviteMessage({
       clinicaNome,
       activationUrl: lastInvite.activation_url,
+      accessMode: lastInvite.access_mode,
       expiresAt: lastInvite.expires_at,
       accountEmailMasked: lastInvite.account_email_masked,
     });
-  }, [clinicaNome, lastInvite?.account_email_masked, lastInvite?.activation_url, lastInvite?.expires_at]);
+  }, [clinicaNome, lastInvite?.access_mode, lastInvite?.account_email_masked, lastInvite?.activation_url, lastInvite?.expires_at]);
 
   const canRevokeInvite = useMemo(
     () => currentInvite && currentInvite.status === "pending",
@@ -102,9 +103,13 @@ export default function ClinicaPortalAccessCard({
       );
       setLastInvite(response.data);
       setMessage(
-        response.data.delivery_status === "sent"
-          ? "Convite enviado com sucesso para a clinica."
-          : "Convite gerado. Copie a mensagem e encaminhe pelo WhatsApp institucional.",
+        response.data.access_mode === "login"
+          ? response.data.delivery_status === "sent"
+            ? "Acesso reenviado com sucesso para a clinica."
+            : "Acesso preparado. Copie a mensagem e encaminhe pelo WhatsApp institucional."
+          : response.data.delivery_status === "sent"
+            ? "Convite enviado com sucesso para a clinica."
+            : "Convite gerado. Copie a mensagem e encaminhe pelo WhatsApp institucional.",
       );
       await loadSummary();
     } catch (err) {
@@ -120,7 +125,7 @@ export default function ClinicaPortalAccessCard({
     }
     try {
       await navigator.clipboard.writeText(lastInvite.activation_url);
-      setMessage("Link de ativacao copiado.");
+      setMessage(lastInvite.access_mode === "login" ? "Link de acesso copiado." : "Link de ativacao copiado.");
     } catch {
       setError("Nao foi possivel copiar o link automaticamente.");
     }
@@ -234,7 +239,9 @@ export default function ClinicaPortalAccessCard({
       <div className="mt-5 grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="space-y-4">
           <div className="rounded-lg border border-gray-200 p-4">
-            <p className="text-sm font-semibold text-gray-900">Gerar convite para {clinicaNome}</p>
+            <p className="text-sm font-semibold text-gray-900">
+              {currentAccount ? `Reenviar acesso para ${clinicaNome}` : `Gerar convite para ${clinicaNome}`}
+            </p>
             <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr_120px]">
               <label className="block text-sm font-medium text-gray-700">
                 WhatsApp da unidade
@@ -276,15 +283,21 @@ export default function ClinicaPortalAccessCard({
               className="mt-4 inline-flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-teal-300"
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Smartphone className="w-4 h-4" />}
-              Gerar convite
+              {currentAccount ? "Reenviar acesso" : "Gerar convite"}
             </button>
 
             {lastInvite ? (
               <div className="mt-4 rounded-lg border border-teal-200 bg-teal-50 p-4">
-                <p className="text-sm font-semibold text-teal-950">Ultimo link gerado nesta sessao</p>
+                <p className="text-sm font-semibold text-teal-950">
+                  {lastInvite.access_mode === "login"
+                    ? "Ultimo link de acesso gerado nesta sessao"
+                    : "Ultimo link de ativacao gerado nesta sessao"}
+                </p>
                 <p className="mt-2 break-all text-sm text-teal-900">{lastInvite.activation_url}</p>
                 <label className="mt-4 block text-sm font-semibold text-teal-950">
-                  Mensagem sugerida para WhatsApp
+                  {lastInvite.access_mode === "login"
+                    ? "Mensagem sugerida para reenvio de acesso"
+                    : "Mensagem sugerida para WhatsApp"}
                   <textarea
                     readOnly
                     value={inviteMessage}
@@ -308,7 +321,7 @@ export default function ClinicaPortalAccessCard({
                     className="inline-flex items-center gap-2 rounded-lg border border-teal-300 px-3 py-2 text-sm font-medium text-teal-900 hover:bg-white"
                   >
                     <Copy className="w-4 h-4" />
-                    Copiar link
+                    {lastInvite.access_mode === "login" ? "Copiar acesso" : "Copiar link"}
                   </button>
                   <a
                     href={lastInvite.activation_url}
