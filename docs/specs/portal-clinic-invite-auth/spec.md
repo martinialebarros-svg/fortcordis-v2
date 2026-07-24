@@ -32,7 +32,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
 - RF-018: apos login com sucesso, a clinica deve entrar em um ambiente operacional explicito de `clinica parceira`, separado da pagina institucional, com identificacao da unidade autenticada.
 - RF-019: o ambiente da clinica deve exibir visao panoramica dos exames liberados da propria unidade, com filtros por busca geral, pet, tutor, especie, tipo de exame e periodo, alem de ordenacao por data, tipo, pet, tutor ou especie.
 - RF-020: links publicos da clinica parceira compartilhados pela operacao devem exibir preview com copy comercial apropriada para a unidade, preservando a logomarca oficial da Fort Cordis.
-- RF-021: ativacao e redefinicao de senha devem validar o minimo de 12 caracteres no cliente e exibir orientacao clara em portugues, sem apresentar o payload tecnico da API.
+- RF-021: ativacao e redefinicao de senha devem validar o minimo de 8 caracteres no cliente e exibir orientacao clara em portugues, sem apresentar o payload tecnico da API.
 - RF-022: quando a clinica ja tiver conta ativa ou bloqueada vinculada a unidade, o admin deve reenviar o link normal de entrada do portal com o email institucional vigente, sem gerar novo convite pendente nem orientar criacao de senha.
 
 ## 3) Requisitos nao funcionais (NFR)
@@ -402,7 +402,7 @@ O fluxo atual de tutor com codigo temporario permanece inalterado nesta iteracao
 - CA-008: o fluxo de tutor por codigo temporario continua funcional e sem regressao.
 - CA-009: esqueceu-a-senha responde de forma generica e permite redefinicao segura por email institucional.
 - CA-010: a operacao consegue revogar conta e sessoes ativas da clinica.
-- CA-017: ao informar senha com menos de 12 caracteres na ativacao ou redefinicao, a clinica recebe `A senha deve ter pelo menos 12 caracteres.` e nenhum JSON tecnico ou valor de senha aparece na mensagem.
+- CA-017: ao informar senha com menos de 8 caracteres na ativacao ou redefinicao, a clinica recebe `A senha deve ter pelo menos 8 caracteres.` e nenhum JSON tecnico ou valor de senha aparece na mensagem.
 
 ## 7) Casos de borda
 
