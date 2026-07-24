@@ -44,6 +44,7 @@ Status: done
 | CA-027 | frontend | `frontend/components/portal/PortalClinicaPageShell.tsx` + `frontend/components/portal/PortalClinicaWorkspace.tsx` alternando entre landing publica e shell autenticado sem sobreposicao | ok |
 | CA-028 | frontend | `PortalClinicaPageShell` reutiliza a sessao ja hidratada em `standalone` e `PortalClinicaWorkspace` so notifica o shell pai apos concluir o bootstrap local, evitando piscar entre landing e dashboard | ok |
 | CA-029 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx` + `frontend/app/globals.css` mantem o card `Sessao ativa` legivel dentro do hero autenticado da clinica | ok |
+| CA-030 | aceitacao | `frontend/app/clinicas/portal/espelho/page.tsx` + `frontend/components/portal/PortalClinicaWorkspace.tsx` em `mode="admin_preview"` + `backend/tests/test_portal_access_foundation.py::test_admin_mirror_reuses_clinic_portal_scope_and_downloads` | ok |
 | NFR-008 | nao funcional | auditoria de download enriquecida com `actor_type`, `clinica_id` e `account_id` em `backend/app/api/v1/endpoints/portal.py` | ok |
 | NFR-009 | nao funcional | confirmacoes explicitas antes de revogacoes no cockpit administrativo | ok |
 | NFR-010 | nao funcional | painel calcula metricas somente a partir dos dados de acesso ja autorizados no backend | ok |
@@ -53,6 +54,7 @@ Status: done
 | NFR-015 | nao funcional | shell exclusivo em `/clinica-parceira`, sem camadas publicas concorrentes durante sessao autenticada | ok |
 | NFR-016 | nao funcional | bootstrap da sessao autenticada nao propaga `null` transitorio para o roteamento da pagina | ok |
 | NFR-017 | nao funcional | hero autenticado restringe contraste invertido ao bloco institucional e preserva cards de apoio com fundo claro e texto escuro | ok |
+| NFR-018 | nao funcional | rotas administrativas de espelho reutilizam `listar_exames_clinica_portal` e `gerar_download_url_exame_portal`, evitando duplicacao do motor de escopo da clinica | ok |
 
 ## 2) Testes automatizados executados
 
@@ -65,6 +67,7 @@ env PYTHONPYCACHEPREFIX=/private/tmp/fortcordis-pycache python3 -m py_compile ba
 cd frontend
 npx eslint app/layout.tsx
 npx eslint app/clinicas/portal/page.tsx app/clinicas/page.tsx app/clinicas/components/ClinicaPortalAccessCard.tsx app/layout-dashboard.tsx lib/portal-api.ts lib/portal-clinic-admin.ts
+npx eslint app/clinicas/portal/espelho/page.tsx components/portal/PortalClinicaWorkspace.tsx lib/portal-api.ts --max-warnings=0
 npx eslint app/clinica-parceira/page.tsx components/portal/PortalClinicaWorkspace.tsx components/portal/PortalClinicaPageShell.tsx --max-warnings=0
 npx tsc --noEmit --pretty false
 npm run build
@@ -74,12 +77,14 @@ git diff --check
 Resumo dos resultados:
 - Backend:
   - `cd backend && venv/bin/python -m unittest tests/test_laudo_portal_release.py tests/test_portal_access_foundation.py -v`: 16/16 pass
+  - `cd backend && venv/bin/python -m unittest tests/test_portal_access_foundation.py -v`: 10/10 pass
   - `test_portal_clinic_invite_auth`: 6/6 pass
-  - `py_compile` de `portal_clinic_auth.py` e `test_portal_clinic_invite_auth.py`: ok
+  - `py_compile` de `portal_clinic_auth.py` e `test_portal_access_foundation.py`: ok
 - Frontend:
   - `npx eslint components/portal/PortalClinicaWorkspace.tsx lib/portal-api.ts app/laudos/page.tsx 'app/laudos/[id]/page.tsx' --max-warnings=0`: ok
   - `npx eslint app/layout.tsx`: ok
   - `npx eslint ...`: ok
+  - `npx eslint app/clinicas/portal/espelho/page.tsx components/portal/PortalClinicaWorkspace.tsx lib/portal-api.ts --max-warnings=0`: ok
   - `npx eslint app/clinica-parceira/page.tsx components/portal/PortalClinicaWorkspace.tsx components/portal/PortalClinicaPageShell.tsx --max-warnings=0`: ok
   - `npx tsc --noEmit --pretty false`: ok
   - `npm run build`: ok
@@ -152,6 +157,16 @@ Resumo dos resultados:
   - `PortalClinicaWorkspace` passou a marcar explicitamente o hero, o kicker institucional e o card `Sessao ativa`.
   - `frontend/app/globals.css` passou a estilizar essas partes por classes dedicadas, removendo a heranca global de contraste invertido.
 - Validacao por codigo confirma que o gradiente e o contraste alto ficam restritos ao bloco institucional, enquanto o card lateral preserva superficie clara e texto escuro legivel.
+
+### Espelho administrativo da clinica de 2026-07-24
+
+- `frontend/app/clinicas/portal/espelho/page.tsx` passou a oferecer uma rota dedicada para selecionar a clinica e abrir a mesma experiencia do portal parceiro.
+- `frontend/components/portal/PortalClinicaWorkspace.tsx` ganhou `mode="admin_preview"`, reutilizando a mesma interface de filtros, indicadores, fila operacional, lista e downloads da clinica.
+- `backend/app/api/v1/endpoints/portal_clinic_auth.py` passou a expor:
+  - `GET /api/v1/portal/admin/clinicas/{clinica_id}/espelho`
+  - `POST /api/v1/portal/admin/clinicas/{clinica_id}/exames/{exame_id}/download-url`
+- As rotas administrativas de espelho reaproveitam o mesmo motor de escopo e download do portal autenticado da clinica, reduzindo risco de divergencia entre visao interna e visao da unidade.
+- `frontend/app/clinicas/portal/page.tsx` ganhou atalhos para abrir o espelho diretamente do painel e da lista de clinicas.
 
 ### Regressao de timezone de 2026-07-22
 

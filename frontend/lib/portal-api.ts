@@ -1,5 +1,6 @@
 "use client";
 
+import { getPortalAdminAuthHeaders } from "@/lib/portal-clinic-admin";
 import { portalDateTimeMillis } from "@/lib/portal-datetime";
 import { portalErrorMessageFromBody } from "@/lib/portal-errors";
 
@@ -628,6 +629,28 @@ export async function listPortalClinicExams(
   );
 }
 
+export async function listPortalAdminClinicMirrorExams(
+  clinicaId: number,
+  filters: PortalClinicExamFilters,
+): Promise<PortalExamListResponse> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+    params.set(key, String(value));
+  });
+
+  const query = params.toString();
+  return portalFetchJson<PortalExamListResponse>(
+    `/api/v1/portal/admin/clinicas/${clinicaId}/espelho${query ? `?${query}` : ""}`,
+    {
+      headers: getPortalAdminAuthHeaders(),
+    },
+    "Nao foi possivel carregar a visao espelhada da clinica.",
+  );
+}
+
 export async function createPortalExamDownloadUrls(
   exameId: number,
   token: string,
@@ -642,6 +665,21 @@ export async function createPortalExamDownloadUrls(
       body: JSON.stringify({}),
     },
     "Nao foi possivel preparar o download.",
+  );
+}
+
+export async function createPortalAdminClinicExamDownloadUrls(
+  clinicaId: number,
+  exameId: number,
+): Promise<PortalDownloadUrlResponse> {
+  return portalFetchJson<PortalDownloadUrlResponse>(
+    `/api/v1/portal/admin/clinicas/${clinicaId}/exames/${exameId}/download-url`,
+    {
+      method: "POST",
+      headers: getPortalAdminAuthHeaders(),
+      body: JSON.stringify({}),
+    },
+    "Nao foi possivel preparar o download na visao espelhada.",
   );
 }
 

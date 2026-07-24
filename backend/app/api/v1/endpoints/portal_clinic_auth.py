@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.api.v1.endpoints import portal as portal_endpoints
 from app.core.config import settings
+from app.core.portal_security import PortalSessionContext
 from app.core.security import require_papel
 from app.db.database import get_db
 from app.models.atendimento_clinico import AnexoAtendimento
@@ -49,6 +51,8 @@ from app.schemas.portal import (
     PortalClinicLoginRequest,
     PortalClinicMfaVerifyRequest,
     PortalCodeVerifyRequest,
+    PortalDownloadUrlResponse,
+    PortalExamListResponse,
     PortalPasswordResetConfirmRequest,
     PortalPasswordResetRequest,
     PortalSimpleAcceptedResponse,
@@ -119,6 +123,21 @@ def _require_portal_admin(current_user: User = Depends(require_papel("admin"))) 
 def _assert_invite_auth_enabled() -> None:
     if not settings.PORTAL_CLINIC_INVITE_AUTH_ENABLED:
         raise HTTPException(status_code=404, detail="Fluxo de convite da clinica indisponivel.")
+
+
+def _build_admin_preview_portal_session(*, clinica_id: int, clinica_nome: str) -> PortalSessionContext:
+    return PortalSessionContext(
+        actor_type="clinica",
+        actor_id=clinica_id,
+        paciente_id=None,
+        clinica_id=clinica_id,
+        challenge_id="admin-preview",
+        display_name=f"Preview administrativo - {clinica_nome}",
+        channel="admin",
+        scope=tuple(portal_endpoints.PORTAL_SCOPE_CLINICA),
+        expires_at=utcnow() + timedelta(minutes=30),
+        auth_method="admin_preview",
+    )
 
 
 def _assert_password_login_enabled() -> None:
@@ -644,6 +663,67 @@ def consultar_acesso_clinica_admin(
         account=_account_snapshot(latest_account),
         active_session_count=len(active_sessions),
         active_sessions=[_session_snapshot(session) for session in active_sessions],
+    )
+
+
+@router.get("/admin/clinicas/{clinica_id}/espelho", response_model=PortalExamListResponse)
+def consultar_espelho_portal_clinica_admin(
+    clinica_id: int,
+    q: str | None = Query(default=None, max_length=120),
+    pet: str | None = Query(default=None, max_length=120),
+    tutor: str | None = Query(default=None, max_length=120),
+    especie: str | None = Query(default=None, max_length=80),
+    tipo_exame: str | None = Query(default=None, max_length=120),
+    status_exame: str | None = Query(default=None, max_length=80),
+    data_inicio: date | None = None,
+    data_fim: date | None = None,
+    sort_by: str = Query(default="data", pattern="^(data|tipo_exame|especie|pet|tutor|status)$"),
+    sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_portal_admin),
+):
+    del current_user
+    _assert_invite_auth_enabled()
+    clinica = get_active_clinica_or_404(db, clinica_id)
+    preview_session = _build_admin_preview_portal_session(clinica_id=clinica.id, clinica_nome=clinica.nome)
+    return portal_endpoints.listar_exames_clinica_portal(
+        q=q,
+        pet=pet,
+        tutor=tutor,
+        especie=especie,
+        tipo_exame=tipo_exame,
+        status_exame=status_exame,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        limit=limit,
+        offset=offset,
+        db=db,
+        portal_session=preview_session,
+    )
+
+
+@router.post(
+    "/admin/clinicas/{clinica_id}/exames/{exame_id}/download-url",
+    response_model=PortalDownloadUrlResponse,
+)
+def gerar_download_espelho_portal_clinica_admin(
+    clinica_id: int,
+    exame_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_portal_admin),
+):
+    del current_user
+    _assert_invite_auth_enabled()
+    clinica = get_active_clinica_or_404(db, clinica_id)
+    preview_session = _build_admin_preview_portal_session(clinica_id=clinica.id, clinica_nome=clinica.nome)
+    return portal_endpoints.gerar_download_url_exame_portal(
+        exame_id=exame_id,
+        db=db,
+        portal_session=preview_session,
     )
 
 

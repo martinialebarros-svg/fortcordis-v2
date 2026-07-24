@@ -19,7 +19,7 @@ sys.path.insert(0, str(BACKEND_DIR))
 os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
 os.environ.setdefault("SECRET_KEY", "portal-access-foundation-test-secret-key-1234567890")
 
-from app.api.v1.endpoints import portal
+from app.api.v1.endpoints import portal, portal_clinic_auth
 from app.core.config import settings
 from app.core.portal_security import (
     PORTAL_DOWNLOAD_TOKEN_HEADER,
@@ -636,6 +636,50 @@ class PortalAccessFoundationTest(unittest.TestCase):
             self.assertIn("em_laudo", status_keys)
             self.assertIn("aguardando_liberacao", status_keys)
             self.assertIn("liberado_portal", status_keys)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_admin_mirror_reuses_clinic_portal_scope_and_downloads(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            _, _, clinica, *_ = self._seed_portal_data(db, tmpdir)
+
+            with patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True):
+                response = portal_clinic_auth.consultar_espelho_portal_clinica_admin(
+                    clinica_id=clinica.id,
+                    q=None,
+                    pet=None,
+                    tutor=None,
+                    especie=None,
+                    tipo_exame=None,
+                    status_exame=None,
+                    data_inicio=None,
+                    data_fim=None,
+                    sort_by="data",
+                    sort_dir="desc",
+                    limit=100,
+                    offset=0,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+                self.assertEqual(response.clinica_id, clinica.id)
+                self.assertEqual(response.clinica_nome, clinica.nome)
+                self.assertEqual(response.total, 1)
+                self.assertEqual(response.items[0].tipo_exame, "Ecocardiograma")
+
+                download_response = portal_clinic_auth.gerar_download_espelho_portal_clinica_admin(
+                    clinica_id=clinica.id,
+                    exame_id=response.items[0].id,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertEqual(download_response.exame_id, response.items[0].id)
+            self.assertEqual(len(download_response.items), 1)
+            self.assertEqual(download_response.items[0].download_token_header, PORTAL_DOWNLOAD_TOKEN_HEADER)
         finally:
             db.close()
             engine.dispose()

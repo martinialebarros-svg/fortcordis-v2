@@ -35,6 +35,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - RF-023: o portal autenticado da clinica parceira deve exibir um painel operacional com indicadores de `Realizados hoje`, `Em laudo`, `Aguardando liberacao` e `Liberados hoje`.
 - RF-024: o portal autenticado da clinica parceira deve exibir uma fila operacional recente com status do exame, data de realizacao e previsao ou data de liberacao.
 - RF-025: a rota `/clinica-parceira` deve operar com um shell exclusivo por estado, exibindo a landing publica apenas quando nao houver sessao valida e substituindo-a integralmente pelo ambiente autenticado da unidade quando a clinica estiver logada.
+- RF-026: o app administrativo deve oferecer uma tela de espelho em `/clinicas/portal/espelho` para abrir a mesma visao da clinica parceira, no escopo de uma unidade selecionada.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -55,6 +56,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - NFR-015 (UX/layout): a rota `/clinica-parceira` nao deve manter camadas concorrentes da landing publica sob o ambiente autenticado, evitando sobreposicao de textos, rolagens duplicadas e secoes institucionais visiveis durante a sessao da clinica.
 - NFR-016 (UX/sessao): durante o bootstrap da sessao da clinica, a shell autenticada nao deve propagar estado `null` transitorio para o roteamento da pagina, evitando alternancia visual entre landing publica e dashboard autenticado.
 - NFR-017 (UX/legibilidade): o hero autenticado da clinica deve restringir o contraste invertido ao bloco institucional, preservando cards de apoio com superficie clara e texto escuro legivel.
+- NFR-018 (consistencia operacional): a visao espelhada administrativa deve reutilizar o mesmo contrato de exames, fila operacional e downloads do portal autenticado da clinica, sem manter uma segunda implementacao paralela dos dados.
 
 ## 4) Contratos tecnicos
 
@@ -132,6 +134,18 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
     - `recent_downloads[]` com feed recente auditado
     - `recent_downloads[].is_first_download`
 
+- `GET /api/v1/portal/admin/clinicas/{clinica_id}/espelho`
+  - auth:
+    - papel administrativo interno
+  - response:
+    - mesmo contrato de `GET /api/v1/portal/clinicas/exames`, restrito explicitamente ao escopo da clinica escolhida
+
+- `POST /api/v1/portal/admin/clinicas/{clinica_id}/exames/{exame_id}/download-url`
+  - auth:
+    - papel administrativo interno
+  - response:
+    - mesmo contrato de `POST /api/v1/portal/exames/{exame_id}/download-url`, respeitando o escopo da clinica espelhada
+
 - `POST /api/v1/portal/admin/clinicas/{clinica_id}/convites`
   - auth:
     - papel administrativo interno
@@ -175,6 +189,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
   - `frontend/app/clinica-parceira/redefinir-senha/page.tsx`
   - `frontend/app/clinicas/page.tsx`
   - `frontend/app/clinicas/portal/page.tsx`
+  - `frontend/app/clinicas/portal/espelho/page.tsx`
 - Componentes novos/alterados:
   - `frontend/app/layout.tsx`
   - `frontend/components/portal/PortalTutorWorkspace.tsx`
@@ -196,6 +211,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
   - manter o card de `Sessao ativa` e outros apoios do dashboard autenticado com fundo claro e contraste proprio, sem herdar texto branco do hero institucional;
   - mostrar confirmacao antes de revogar convite, conta ou sessoes;
   - exportar somente a visao atualmente filtrada no cockpit administrativo.
+  - a visao espelhada deve reutilizar o mesmo workspace autenticado da clinica, alterando apenas o contexto de cabecalho para deixar claro que se trata de uma conferencia administrativa.
 
 ## 5) Compatibilidade e rollout
 
@@ -239,6 +255,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CA-027: com sessao valida da clinica, a rota `/clinica-parceira` exibe somente o ambiente autenticado da unidade, sem manter a landing institucional ativa por baixo nem causar sobreposicao visual durante a rolagem.
 - CA-028: com sessao valida persistida no navegador, a rota `/clinica-parceira` nao oscila entre landing publica e dashboard autenticado durante a hidratacao do client-side.
 - CA-029: o hero autenticado da clinica exibe o bloco institucional com contraste elevado sem apagar o conteudo do card `Sessao ativa`.
+- CA-030: a rota `/clinicas/portal/espelho` permite selecionar uma clinica e abrir a mesma visao de filtros, indicadores, fila operacional, lista de exames e downloads que a unidade parceira enxerga.
 
 ## 7) Casos de borda
 
@@ -254,6 +271,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CB-010: clinica com conta ativa, mas sem email/WhatsApp suficientes para reenvio rapido, deve orientar o operador a completar os dados no compositor.
 - CB-011: um link ja compartilhado pode continuar com preview antigo ate o cache externo do mensageiro expirar; novos compartilhamentos devem usar a metadata vigente do host.
 - CB-012: ao recarregar `/clinica-parceira` com sessao valida salva no navegador, o shell nao deve disparar callback com `null` antes de terminar a propria hidratacao local.
+- CB-013: o espelho administrativo nao deve permitir baixar arquivo de exame que esteja fora do escopo da clinica selecionada, mesmo quando o operador interno estiver autenticado.
 
 ## 8) Fora de escopo
 
