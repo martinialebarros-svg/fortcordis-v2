@@ -748,6 +748,13 @@ export default function PortalClinicManagementPage() {
 
           <div className="flex flex-wrap items-center gap-3">
             <Link
+              href={selectedClinicId ? `/clinicas/portal/espelho?clinica=${selectedClinicId}` : "/clinicas/portal/espelho"}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
+            >
+              <ExternalLink className="h-4 w-4" />
+              Ver espelho da clínica
+            </Link>
+            <Link
               href="/clinicas"
               className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
             >
@@ -1511,6 +1518,13 @@ export default function PortalClinicManagementPage() {
                         <Mail className="h-4 w-4" />
                         Editar convite
                       </button>
+                      <Link
+                        href={`/clinicas/portal/espelho?clinica=${item.clinica_id}`}
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Ver portal da clínica
+                      </Link>
                       <Link
                         href={`/clinicas/${item.clinica_id}`}
                         className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:text-slate-900"

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowLeft,
   Building2,
   CalendarDays,
   CheckCircle2,
@@ -24,9 +25,11 @@ import {
 } from "lucide-react";
 
 import {
+  createPortalAdminClinicExamDownloadUrls,
   clearPortalSession,
   createPortalExamDownloadUrls,
   downloadPortalAttachment,
+  listPortalAdminClinicMirrorExams,
   listPortalClinicExams,
   loadPortalSession,
   loginClinicPortal,
@@ -45,9 +48,14 @@ import {
 import { formatPortalDate, formatPortalDateTime, portalDateTimeMillis } from "@/lib/portal-datetime";
 
 type PortalClinicaWorkspaceProps = {
-  mode?: "embedded" | "standalone";
+  mode?: "embedded" | "standalone" | "admin_preview";
   initialSession?: PortalSessionResponse | null;
   onSessionChange?: (session: PortalSessionResponse | null) => void;
+  adminPreview?: {
+    clinicaId: number;
+    clinicaNome?: string | null;
+    backHref?: string;
+  } | null;
 };
 
 type ClinicSortBy = NonNullable<PortalClinicExamFilters["sort_by"]>;
@@ -166,8 +174,11 @@ export default function PortalClinicaWorkspace({
   mode = "embedded",
   initialSession = null,
   onSessionChange,
+  adminPreview = null,
 }: PortalClinicaWorkspaceProps) {
-  const [bootstrapping, setBootstrapping] = useState(!initialSession);
+  const isAdminPreview = mode === "admin_preview";
+  const previewClinicId = adminPreview?.clinicaId ?? null;
+  const [bootstrapping, setBootstrapping] = useState(() => (isAdminPreview ? false : !initialSession));
   const [session, setSession] = useState<PortalSessionResponse | null>(initialSession);
   const [mfaChallengeId, setMfaChallengeId] = useState<string | null>(null);
   const [email, setEmail] = useState("");
@@ -191,6 +202,26 @@ export default function PortalClinicaWorkspace({
   const [dashboardLoaded, setDashboardLoaded] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const previewSession = useMemo<PortalSessionResponse | null>(() => {
+    if (!isAdminPreview || !previewClinicId) {
+      return null;
+    }
+    return {
+      access_token: "__admin_preview__",
+      token_type: "preview",
+      expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      actor_type: "clinica",
+      actor_id: previewClinicId,
+      clinica_id: previewClinicId,
+      paciente_id: null,
+      account_id: null,
+      auth_method: "admin_preview",
+      trusted_session_expires_at: null,
+      scope: ["clinic:read", "exam:read", "exam:download"],
+      message: null,
+    };
+  }, [isAdminPreview, previewClinicId]);
+  const activeSession = previewSession ?? session;
 
   const dashboardStats = useMemo(() => {
     const petIds = new Set(exams.map((exam) => exam.paciente_id));
@@ -243,21 +274,32 @@ export default function PortalClinicaWorkspace({
     return refreshed;
   }
 
-  async function loadClinicDashboard(
-    activeSession: PortalSessionResponse,
+  async function loadDashboard(
     nextFilters: ClinicExamFiltersState = filters,
+    currentSession: PortalSessionResponse | null = session,
   ) {
     setSearchLoading(true);
     setError("");
     setMessage("");
 
     try {
-      const usableSession = await ensureClinicSession(activeSession);
-      const response = await listPortalClinicExams(compactFilters(nextFilters), usableSession.access_token);
+      let response;
+      if (isAdminPreview) {
+        if (!previewClinicId) {
+          throw new Error("Selecione a clinica que deseja espelhar.");
+        }
+        response = await listPortalAdminClinicMirrorExams(previewClinicId, compactFilters(nextFilters));
+      } else {
+        if (!currentSession) {
+          throw new Error("Nao foi possivel identificar a sessao da clinica.");
+        }
+        const usableSession = await ensureClinicSession(currentSession);
+        response = await listPortalClinicExams(compactFilters(nextFilters), usableSession.access_token);
+      }
       setExams(response.items);
       setOperationalSummary(response.operational_summary ?? EMPTY_OPERATIONAL_SUMMARY);
       setOperationalItems(response.operational_items ?? []);
-      setClinicName(response.clinica_nome || null);
+      setClinicName(response.clinica_nome || adminPreview?.clinicaNome || null);
       setTotalAvailable(response.total);
       setDashboardLoaded(true);
       if (response.total === 0) {
@@ -268,13 +310,24 @@ export default function PortalClinicaWorkspace({
       setOperationalSummary(EMPTY_OPERATIONAL_SUMMARY);
       setOperationalItems([]);
       setTotalAvailable(0);
-      setError(err instanceof Error ? err.message : "Não foi possível carregar o painel da clínica.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : isAdminPreview
+            ? "Nao foi possivel carregar a visao espelhada da clinica."
+            : "Não foi possível carregar o painel da clínica.",
+      );
     } finally {
       setSearchLoading(false);
     }
   }
 
   useEffect(() => {
+    if (isAdminPreview) {
+      setBootstrapping(false);
+      return;
+    }
+
     if (initialSession) {
       setSession(initialSession);
       setBootstrapping(false);
@@ -282,20 +335,34 @@ export default function PortalClinicaWorkspace({
     }
 
     void hydrateClinicSession();
-  }, [initialSession]);
+  }, [initialSession, isAdminPreview]);
 
   useEffect(() => {
+    if (isAdminPreview) {
+      if (previewClinicId) {
+        void loadDashboard(filters, previewSession);
+      } else {
+        setExams([]);
+        setOperationalSummary(EMPTY_OPERATIONAL_SUMMARY);
+        setOperationalItems([]);
+        setClinicName(null);
+        setTotalAvailable(0);
+        setDashboardLoaded(false);
+      }
+      return;
+    }
+
     if (session) {
-      void loadClinicDashboard(session);
+      void loadDashboard(filters, session);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.access_token]);
+  }, [isAdminPreview, previewClinicId, session?.access_token]);
 
   useEffect(() => {
-    if (!bootstrapping) {
+    if (!isAdminPreview && !bootstrapping) {
       onSessionChange?.(session);
     }
-  }, [bootstrapping, onSessionChange, session]);
+  }, [bootstrapping, isAdminPreview, onSessionChange, session]);
 
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -382,8 +449,8 @@ export default function PortalClinicaWorkspace({
 
   async function handleFilterSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (session) {
-      await loadClinicDashboard(session, filters);
+    if (isAdminPreview || session) {
+      await loadDashboard(filters, session);
     }
   }
 
@@ -404,8 +471,8 @@ export default function PortalClinicaWorkspace({
 
   async function handleClearFilters() {
     setFilters(INITIAL_FILTERS);
-    if (session) {
-      await loadClinicDashboard(session, INITIAL_FILTERS);
+    if (isAdminPreview || session) {
+      await loadDashboard(INITIAL_FILTERS, session);
     }
   }
 
@@ -431,15 +498,19 @@ export default function PortalClinicaWorkspace({
   }
 
   async function handleDownload(examId: number, attachmentId: number) {
-    if (!session) {
+    if (!activeSession) {
       return;
     }
 
     setDownloadingAttachmentId(attachmentId);
     setError("");
     try {
-      const usableSession = await ensureClinicSession(session);
-      const response = await createPortalExamDownloadUrls(examId, usableSession.access_token);
+      const response = isAdminPreview
+        ? await createPortalAdminClinicExamDownloadUrls(previewClinicId as number, examId)
+        : await createPortalExamDownloadUrls(
+            examId,
+            (await ensureClinicSession(activeSession)).access_token,
+          );
       const item = response.items.find((entry) => entry.anexo_id === attachmentId);
       if (!item) {
         throw new Error("O anexo solicitado não está disponível para download.");
@@ -452,12 +523,15 @@ export default function PortalClinicaWorkspace({
     }
   }
 
-  if (session) {
-    if (mode !== "standalone") {
+  if (activeSession) {
+    if (mode !== "standalone" && !isAdminPreview) {
       return null;
     }
 
-    const clinicLabel = clinicName || (session.clinica_id ? `Clínica #${session.clinica_id}` : "Clínica parceira");
+    const clinicLabel =
+      clinicName ||
+      adminPreview?.clinicaNome ||
+      (activeSession.clinica_id ? `Clínica #${activeSession.clinica_id}` : "Clínica parceira");
 
     return (
       <section className="fc-clinic-dashboard min-h-screen bg-[#f6fafb] text-slate-950">
@@ -465,7 +539,7 @@ export default function PortalClinicaWorkspace({
           <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-700">
-                Ambiente da clínica parceira
+                {isAdminPreview ? "Pré-visualização administrativa" : "Ambiente da clínica parceira"}
               </p>
               <h1 className="mt-1 truncate text-2xl font-bold text-slate-950">
                 {clinicLabel}
@@ -474,21 +548,31 @@ export default function PortalClinicaWorkspace({
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <button
                 type="button"
-                onClick={() => session && void loadClinicDashboard(session, filters)}
+                onClick={() => void loadDashboard(filters, session)}
                 disabled={searchLoading}
                 className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {searchLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
                 Atualizar
               </button>
-              <button
-                type="button"
-                onClick={() => void handleLogout()}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800"
-              >
-                <LogOut className="h-4 w-4" />
-                Sair
-              </button>
+              {isAdminPreview ? (
+                <Link
+                  href={adminPreview?.backHref || "/clinicas/portal"}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Voltar à gestão
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleLogout()}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sair
+                </button>
+              )}
             </div>
           </div>
         </header>
@@ -506,14 +590,22 @@ export default function PortalClinicaWorkspace({
             </div>
 
             <div className="fc-clinic-dashboard-session rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
-              <p className="font-bold text-slate-950">Sessão ativa</p>
-              <p className="mt-2">ID da clínica: {session.clinica_id ?? "-"}</p>
-              <p className="mt-1">Válida até {formatPortalDateTime(session.expires_at)}</p>
-              {session.trusted_session_expires_at ? (
+              <p className="font-bold text-slate-950">{isAdminPreview ? "Visao espelhada" : "Sessão ativa"}</p>
+              <p className="mt-2">ID da clínica: {activeSession.clinica_id ?? "-"}</p>
+              {isAdminPreview ? (
                 <p className="mt-1">
-                  Acesso neste computador até {formatPortalDateTime(session.trusted_session_expires_at)}
+                  Conferindo o mesmo painel, filtros e downloads que a unidade parceira enxerga no portal.
                 </p>
-              ) : null}
+              ) : (
+                <>
+                  <p className="mt-1">Válida até {formatPortalDateTime(activeSession.expires_at)}</p>
+                  {activeSession.trusted_session_expires_at ? (
+                    <p className="mt-1">
+                      Acesso neste computador até {formatPortalDateTime(activeSession.trusted_session_expires_at)}
+                    </p>
+                  ) : null}
+                </>
+              )}
             </div>
           </section>
 
