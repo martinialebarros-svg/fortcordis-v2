@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
@@ -34,8 +35,10 @@ from app.models.paciente import Paciente
 from app.models.portal_access import PortalAccessChallenge
 from app.models.tutor import Tutor
 from app.schemas.portal import (
+    PortalClinicActivationRequest,
     PortalClinicaSessionLinkRequest,
     PortalCodeVerifyRequest,
+    PortalPasswordResetConfirmRequest,
     PortalTutorSessionLinkRequest,
 )
 
@@ -66,6 +69,44 @@ def _make_request(
 
 
 class PortalAccessFoundationTest(unittest.TestCase):
+    def test_portal_clinic_password_min_length_accepts_8_and_rejects_7(self) -> None:
+        activation_payload = {
+            "invite_token": "tokentokentokentoken",
+            "email": "clinica@example.com",
+            "responsavel_nome": "Responsavel Teste",
+            "password": "Senha123",
+            "password_confirmation": "Senha123",
+        }
+        reset_payload = {
+            "reset_token": "resettokenresettoken",
+            "password": "Senha123",
+            "password_confirmation": "Senha123",
+        }
+
+        activation = PortalClinicActivationRequest(**activation_payload)
+        reset = PortalPasswordResetConfirmRequest(**reset_payload)
+
+        self.assertEqual(activation.password, "Senha123")
+        self.assertEqual(reset.password_confirmation, "Senha123")
+
+        with self.assertRaises(ValidationError):
+            PortalClinicActivationRequest(
+                **{
+                    **activation_payload,
+                    "password": "Senha12",
+                    "password_confirmation": "Senha12",
+                }
+            )
+
+        with self.assertRaises(ValidationError):
+            PortalPasswordResetConfirmRequest(
+                **{
+                    **reset_payload,
+                    "password": "Senha12",
+                    "password_confirmation": "Senha12",
+                }
+            )
+
     def _build_session(self):
         tmpdir = tempfile.TemporaryDirectory()
         db_path = Path(tmpdir.name) / "portal-access-foundation.db"

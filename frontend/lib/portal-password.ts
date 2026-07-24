@@ -1,4 +1,4 @@
-export const PORTAL_PASSWORD_MIN_LENGTH = 12;
+export const PORTAL_PASSWORD_MIN_LENGTH = 8;
 
 export function validatePortalPasswordConfirmation(
   password: string,

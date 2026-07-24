@@ -291,12 +291,15 @@ class PortalClinicInviteStatusResponse(BaseModel):
     email_hint: Optional[str] = None
 
 
+PORTAL_CLINIC_PASSWORD_MIN_LENGTH = 8
+
+
 class PortalClinicActivationRequest(BaseModel):
     invite_token: str = Field(..., min_length=16, max_length=255)
     email: Optional[str] = Field(default=None, min_length=5, max_length=255)
     responsavel_nome: str = Field(..., min_length=2, max_length=255)
-    password: str = Field(..., min_length=12, max_length=255)
-    password_confirmation: str = Field(..., min_length=12, max_length=255)
+    password: str = Field(..., min_length=PORTAL_CLINIC_PASSWORD_MIN_LENGTH, max_length=255)
+    password_confirmation: str = Field(..., min_length=PORTAL_CLINIC_PASSWORD_MIN_LENGTH, max_length=255)
 
 
 class PortalClinicActivationResponse(BaseModel):
@@ -353,5 +356,5 @@ class PortalPasswordResetRequest(BaseModel):
 
 class PortalPasswordResetConfirmRequest(BaseModel):
     reset_token: str = Field(..., min_length=16, max_length=255)
-    password: str = Field(..., min_length=12, max_length=255)
-    password_confirmation: str = Field(..., min_length=12, max_length=255)
+    password: str = Field(..., min_length=PORTAL_CLINIC_PASSWORD_MIN_LENGTH, max_length=255)
+    password_confirmation: str = Field(..., min_length=PORTAL_CLINIC_PASSWORD_MIN_LENGTH, max_length=255)
