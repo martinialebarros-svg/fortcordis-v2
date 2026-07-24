@@ -22,6 +22,7 @@ Status: in-progress
 | CA-012 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx::handleStartDateChange` + eslint focado | ok |
 | CA-013 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx` e `frontend/components/portal/PortalExamResults.tsx` rotulam datas explicitamente + eslint focado | ok |
 | CA-014 | aceitacao | `backend/tests/test_laudo_portal_release.py::test_liberar_laudo_envia_email_para_conta_ativa_da_clinica` | ok |
+| CA-015 | aceitacao | `backend/tests/test_laudo_portal_release.py::test_atualizar_laudo_liberado_atualiza_pdf_publicado_no_portal` | ok |
 
 ## 2) Testes automatizados planejados
 
@@ -67,6 +68,8 @@ Resultados executados:
 - `cd backend && venv/bin/python -m unittest tests/test_portal_clinic_invite_auth.py -v`: 4/4 pass.
 - `cd backend && venv/bin/python - <<'PY' ... unittest discover('tests') ... PY`: 260/260 pass, com stub temporario de `app.services.cnpj_consulta` por exclusao local fora do escopo.
 - `cd backend && venv/bin/python - <<'PY' ... tests.test_portal_access_http_flow ... PY`: 3/3 pass, com stub temporario de `app.services.cnpj_consulta` por exclusao local fora do escopo.
+- `env PYTHONPYCACHEPREFIX=/private/tmp/fortcordis-pycache python3 -m py_compile backend/app/api/v1/endpoints/laudos.py backend/tests/test_laudo_portal_release.py`: ok.
+- `cd backend && venv/bin/python -m unittest tests/test_laudo_portal_release.py -v`: 8/8 pass.
 - `cd frontend && npx eslint app/laudos/page.tsx 'app/laudos/[id]/page.tsx' --max-warnings=0`: ok.
 - `cd frontend && npx eslint components/portal/PortalClinicaWorkspace.tsx components/portal/PortalExamResults.tsx lib/portal-api.ts --max-warnings=0`: ok.
 - `cd frontend && npx eslint components/portal/PortalClinicaWorkspace.tsx components/portal/PortalExamResults.tsx --max-warnings=0`: ok.

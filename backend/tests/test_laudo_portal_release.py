@@ -583,6 +583,104 @@ class LaudoPortalReleaseTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_atualizar_laudo_liberado_atualiza_pdf_publicado_no_portal(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            old_pdf_path = Path(tmpdir.name) / "eco-portal-antigo.pdf"
+            old_pdf_path.write_bytes(b"%PDF-1.4\neco portal antigo\n")
+
+            laudo = Laudo(
+                paciente_id=182,
+                veterinario_id=7,
+                tipo="ecocardiograma",
+                titulo="Laudo ecocardiografico - Luke",
+                descricao="Descricao antiga",
+                diagnostico="Diagnostico antigo",
+                status=PORTAL_RELEASED_STATUS,
+                clinic_id=8,
+                data_exame=datetime(2026, 7, 5, 11, 0),
+                criado_por_id=7,
+                criado_por_nome="Dr. Martiniano",
+            )
+            db.add(laudo)
+            db.flush()
+
+            exame = Exame(
+                laudo_id=laudo.id,
+                atendimento_id=55,
+                paciente_id=laudo.paciente_id,
+                tipo_exame="Ecocardiograma",
+                categoria_exame="Laudo",
+                prioridade="Rotina",
+                status=PORTAL_RELEASED_STATUS,
+                valor=0,
+                data_solicitacao=datetime(2026, 7, 5, 11, 0),
+                data_resultado=datetime(2026, 7, 6, 13, 30),
+            )
+            db.add(exame)
+            db.flush()
+
+            anexo = AnexoAtendimento(
+                atendimento_id=55,
+                exame_id=exame.id,
+                tipo="documento",
+                descricao=laudos.PORTAL_LAUDO_ATTACHMENT_DESCRIPTION,
+                url="",
+                nome_original="eco-portal-antigo.pdf",
+                tamanho=old_pdf_path.stat().st_size,
+                mime_type="application/pdf",
+                arquivo_hash="ecoportaloldhash",
+                dedupe_key=laudos.build_upload_dedupe_key(exame.id, "ecoportaloldhash"),
+                caminho_arquivo=str(old_pdf_path),
+                origem=laudos.PORTAL_LAUDO_ATTACHMENT_ORIGIN,
+            )
+            db.add(anexo)
+            db.flush()
+            anexo.url = f"/api/v1/portal/anexos/{anexo.id}/arquivo"
+            anexo_id_original = anexo.id
+            db.commit()
+            db.refresh(laudo)
+            db.refresh(exame)
+            db.refresh(anexo)
+
+            current_user = SimpleNamespace(id=7, nome="Dr. Martiniano", email="vet@example.com")
+            novo_pdf = SimpleNamespace(
+                content=b"%PDF-1.4\neco portal corrigido\n",
+                filename="eco-portal-corrigido.pdf",
+                cache_key="cache-key-corrigido",
+            )
+            with (
+                patch.object(laudos, "render_laudo_pdf", return_value=novo_pdf) as render_mock,
+                patch.object(laudos, "store_atendimento_attachment_file", side_effect=self._fake_store(tmpdir)),
+            ):
+                response = laudos.atualizar_laudo(
+                    laudo.id,
+                    {"diagnostico": "Diagnostico corrigido"},
+                    db=db,
+                    current_user=current_user,
+                )
+
+            db.refresh(laudo)
+            db.refresh(exame)
+            db.refresh(anexo)
+
+            self.assertEqual(response.id, laudo.id)
+            self.assertEqual(laudo.diagnostico, "Diagnostico corrigido")
+            self.assertEqual(laudo.status, PORTAL_RELEASED_STATUS)
+            self.assertEqual(exame.id, anexo.exame_id)
+            self.assertEqual(exame.data_resultado, datetime(2026, 7, 6, 13, 30))
+            self.assertEqual(anexo.id, anexo_id_original)
+            self.assertEqual(db.query(AnexoAtendimento).count(), 1)
+            self.assertEqual(anexo.nome_original, "eco-portal-corrigido.pdf")
+            self.assertEqual(anexo.url, f"/api/v1/portal/anexos/{anexo.id}/arquivo")
+            self.assertIn("eco-portal-corrigido.pdf", anexo.caminho_arquivo)
+            self.assertFalse(old_pdf_path.exists())
+            render_mock.assert_called_once()
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()
