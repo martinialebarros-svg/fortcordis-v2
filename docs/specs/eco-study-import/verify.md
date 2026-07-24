@@ -32,6 +32,7 @@ Primeira entrega vertical publicada em stage; perfis GE LOGIQ e e GE Vivid IQ ca
 - Validacao de regressao: peso importado aceita `7,35 kg`, `7.35kg` ou numero puro; novo/editar usam o valor normalizado na busca de referencia e o componente recalcula ao mudar referencia ou medidas.
 - Regressao do alias de refluxo tricuspide: `Vmax RT 3.53 m/s` e normalizado para `IT_Vmax = 3.53` tanto na extracao textual quanto no caminho de PDF.
 - Smoke com PDF clinico externo `mee180726_20260718_120334.pdf`: perfil `ge_vivid_iq`, linha `Vmax RT 3.53 m/s` reconhecida como `IT_Vmax = 3.53`; o arquivo e os dados identificaveis permaneceram fora do repositorio.
+- Regressao de cache: jobs concluidos sem `meta_importacao_estudo.versao_extrator` ou com versao anterior nao sao reutilizados; resultados da versao atual continuam elegiveis para deduplicacao pelo mesmo usuario e hash.
 
 ## Validacao manual pendente
 

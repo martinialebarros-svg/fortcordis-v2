@@ -17,6 +17,7 @@ from app.core.config import settings
 from app.db.database import SessionLocal
 from app.models.eco_study_import_job import EcoStudyImportJob
 from app.services.eco_study_extraction_service import (
+    ECO_STUDY_EXTRACTOR_VERSION,
     normalize_eco_study_filename,
     parse_eco_study_import_content,
     validate_eco_study_filename,
@@ -67,6 +68,14 @@ def _parse_result_json(value: str | None) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _result_uses_current_extractor(value: str | None) -> bool:
+    result = _parse_result_json(value)
+    metadata = result.get("meta_importacao_estudo") if result else None
+    if not isinstance(metadata, dict):
+        return False
+    return str(metadata.get("versao_extrator") or "") == ECO_STUDY_EXTRACTOR_VERSION
+
+
 def serialize_eco_study_import_job(job: EcoStudyImportJob) -> dict[str, Any]:
     return {
         "job_id": job.id,
@@ -100,7 +109,9 @@ def _get_cached_job(
         .all()
     )
     for job in jobs:
-        if job.status == JOB_STATUS_COMPLETED and _parse_result_json(job.resultado_json):
+        if job.status == JOB_STATUS_COMPLETED and _result_uses_current_extractor(
+            job.resultado_json
+        ):
             return job
     for job in jobs:
         if job.status in {JOB_STATUS_PENDING, JOB_STATUS_PROCESSING}:
