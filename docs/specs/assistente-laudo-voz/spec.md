@@ -120,6 +120,8 @@ para essas tabelas.
 - nenhum segredo chega ao navegador;
 - áudio e transcrição integral não entram em logs;
 - logs técnicos usam IDs, etapa, duração, status, provedor, modelo e prompt;
+- falhas internas registram a subetapa técnica segura, sem mensagem de exceção,
+  áudio, transcrição ou conteúdo clínico;
 - e-mail, telefone, documento e rótulos de pessoa são removidos antes da
   estruturação;
 - somente transcrição e preferências clínicas mínimas são enviadas ao provedor;

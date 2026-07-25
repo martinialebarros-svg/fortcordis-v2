@@ -360,6 +360,25 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
             self.assertEqual(report.status, "Rascunho")
             self.assertEqual(report.descricao, "texto anterior")
 
+    def test_internal_failure_exposes_only_safe_processing_step(self) -> None:
+        with self.session_factory() as db:
+            session = self.create_session(db)
+            ai_echo_service._mark_failed(
+                db,
+                session.id,
+                RuntimeError("detalhe interno que não deve chegar ao cliente"),
+                processing_step="transcription_persistence",
+            )
+            db.refresh(session)
+            self.assertEqual(
+                session.last_error_code,
+                "processing_failed_transcription_persistence",
+            )
+            self.assertNotIn(
+                "detalhe interno",
+                str(session.last_error_message or ""),
+            )
+
     def test_audio_is_temporary_and_can_be_deleted(self) -> None:
         with self.session_factory() as db:
             session = self.create_session(db)

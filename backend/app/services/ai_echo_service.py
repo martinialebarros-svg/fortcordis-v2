@@ -426,7 +426,13 @@ def _phrase_preferences(db: Session, user_id: int) -> list[dict[str, Any]]:
     ]
 
 
-def _mark_failed(db: Session, session_id: str, error: Exception) -> None:
+def _mark_failed(
+    db: Session,
+    session_id: str,
+    error: Exception,
+    *,
+    processing_step: str = "provider",
+) -> None:
     session = db.query(AIEchoSession).filter(AIEchoSession.id == session_id).first()
     if not session:
         return
@@ -434,7 +440,7 @@ def _mark_failed(db: Session, session_id: str, error: Exception) -> None:
         code = error.code
         message = str(error)
     else:
-        code = "processing_failed"
+        code = f"processing_failed_{processing_step}"
         message = "Falha técnica no processamento. O laudo manual permanece disponível."
     session.status = "failed"
     session.last_error_code = code
@@ -447,7 +453,7 @@ def _mark_failed(db: Session, session_id: str, error: Exception) -> None:
         session.id,
         session.clinic_id,
         session.user_id,
-        "provider",
+        processing_step,
         code,
     )
 
@@ -467,10 +473,12 @@ def _active_audio(db: Session, session_id: str) -> AIEchoAudioAsset | None:
 def _process_transcription(session_id: str) -> None:
     db = SessionLocal()
     started = _utcnow()
+    processing_step = "transcription_load"
     try:
         session = db.query(AIEchoSession).filter(AIEchoSession.id == session_id).first()
         if not session:
             return
+        processing_step = "transcription_audio_validation"
         asset = _active_audio(db, session.id)
         if not asset or asset.expires_at < _utcnow() or not os.path.isfile(asset.storage_path):
             raise AIEchoProviderError(
@@ -482,6 +490,7 @@ def _process_transcription(session_id: str) -> None:
                 "O limite de tentativas desta sessão foi atingido. Crie uma nova sessão.",
                 code="attempt_limit",
             )
+        processing_step = "transcription_attempt"
         session.status = "transcribing"
         session.attempts = int(session.attempts or 0) + 1
         session.last_error_code = None
@@ -490,14 +499,18 @@ def _process_transcription(session_id: str) -> None:
 
         with open(asset.storage_path, "rb") as file_obj:
             audio_bytes = file_obj.read()
+        processing_step = "transcription_vocabulary"
+        vocabulary = _custom_vocabulary(db, session.user_id)
+        processing_step = "transcription_provider"
         provider = get_speech_to_text_provider()
         result = provider.transcribe(
             file_name=f"ditado{Path(asset.storage_path).suffix}",
             content_type=asset.mime_type,
             audio_bytes=audio_bytes,
-            vocabulary=_custom_vocabulary(db, session.user_id),
+            vocabulary=vocabulary,
         )
 
+        processing_step = "transcription_persistence"
         db.query(AIEchoTranscript).filter(AIEchoTranscript.session_id == session.id).delete(
             synchronize_session=False
         )
@@ -528,7 +541,12 @@ def _process_transcription(session_id: str) -> None:
         )
     except Exception as exc:
         db.rollback()
-        _mark_failed(db, session_id, exc)
+        _mark_failed(
+            db,
+            session_id,
+            exc,
+            processing_step=processing_step,
+        )
     finally:
         db.close()
         with _SUBMIT_LOCK:
@@ -571,6 +589,7 @@ def _estimated_cost(input_tokens: int | None, output_tokens: int | None) -> floa
 def _process_structure(session_id: str) -> None:
     db = SessionLocal()
     started = _utcnow()
+    processing_step = "structuring_load"
     try:
         session = db.query(AIEchoSession).filter(AIEchoSession.id == session_id).first()
         if not session:
@@ -591,6 +610,7 @@ def _process_structure(session_id: str) -> None:
                 "O limite de tentativas desta sessão foi atingido. Crie uma nova sessão.",
                 code="attempt_limit",
             )
+        processing_step = "structuring_attempt"
         session.status = "structuring"
         session.attempts = int(session.attempts or 0) + 1
         session.last_error_code = None
@@ -598,14 +618,19 @@ def _process_structure(session_id: str) -> None:
         db.commit()
 
         minimized_transcript = redact_personal_data(transcript.edited_text)
+        processing_step = "structuring_preferences"
+        phrase_preferences = _phrase_preferences(db, session.user_id)
+        processing_step = "structuring_provider"
         provider = get_clinical_structuring_provider()
         result = provider.structure(
             transcript=minimized_transcript,
-            phrase_preferences=_phrase_preferences(db, session.user_id),
+            phrase_preferences=phrase_preferences,
             safety_user_id=session.user_id,
         )
+        processing_step = "structuring_validation"
         output = validate_and_enrich_clinical_output(result.output, transcript.edited_text)
 
+        processing_step = "structuring_persistence"
         db.query(AIEchoFieldSuggestion).filter(
             AIEchoFieldSuggestion.session_id == session.id
         ).delete(synchronize_session=False)
@@ -698,7 +723,12 @@ def _process_structure(session_id: str) -> None:
         )
     except Exception as exc:
         db.rollback()
-        _mark_failed(db, session_id, exc)
+        _mark_failed(
+            db,
+            session_id,
+            exc,
+            processing_step=processing_step,
+        )
     finally:
         db.close()
         with _SUBMIT_LOCK:

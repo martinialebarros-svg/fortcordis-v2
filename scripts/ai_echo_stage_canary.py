@@ -165,7 +165,9 @@ def _wait_for_review(
         if payload.get("status") == "failed":
             error = payload.get("last_error")
             code = error.get("code") if isinstance(error, dict) else "unknown"
-            raise RuntimeError(f"Processamento de IA falhou ({code}).")
+            raise RuntimeError(
+                f"Processamento de IA falhou ({code})."
+            )
         if payload.get("status") == "awaiting_review":
             if needs_transcript and not payload.get("transcript"):
                 time.sleep(1)
