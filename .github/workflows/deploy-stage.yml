@@ -159,6 +159,48 @@ jobs:
               echo "Stage backend OpenAI secret configured."
             '
 
+      - name: Configure echo voice assistant on Stage VPS
+        run: |
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            set -euo pipefail
+            env_file="/var/www/fortcordis-stage/backend/.env"
+            if [ ! -f "$env_file" ]; then
+              echo "Stage backend env file not found."
+              exit 1
+            fi
+
+            upsert_env() {
+              key="$1"
+              value="$2"
+              temp_file="${env_file}.${key}.$$"
+              awk -v key="$key" -v value="$value" '
+                BEGIN { found = 0 }
+                index($0, key "=") == 1 {
+                  print key "=" value
+                  found = 1
+                  next
+                }
+                { print }
+                END {
+                  if (!found) print key "=" value
+                }
+              ' "$env_file" > "$temp_file"
+              chmod --reference="$env_file" "$temp_file"
+              mv "$temp_file" "$env_file"
+            }
+
+            upsert_env AI_ECHO_ASSISTANT_ENABLED true
+            upsert_env AI_PROVIDER openai
+            upsert_env AI_TRANSCRIPTION_MODEL gpt-4o-transcribe
+            upsert_env AI_STRUCTURING_MODEL gpt-5.6-sol
+            upsert_env AI_AUDIO_RETENTION_HOURS 2
+            upsert_env AI_ECHO_AUDIO_MAX_BYTES 20971520
+            upsert_env AI_ECHO_AUDIO_MAX_SECONDS 600
+            upsert_env AI_ECHO_MAX_ATTEMPTS 3
+            upsert_env AI_ECHO_MONTHLY_SESSION_LIMIT 100
+            echo "Stage echo voice assistant configuration updated."
+          EOF
+
       - name: Deploy to Stage (VPS)
         run: |
           ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.endpoints import (
     admin,
     agenda,
+    ai_echo,
     assistente_ia,
     atendimento,
     auth,
@@ -72,6 +73,11 @@ from app.services.xml_import_jobs import (
 from app.services.eco_study_import_jobs import (
     restart_incomplete_eco_study_import_jobs,
     shutdown_eco_study_import_jobs,
+)
+from app.services.ai_echo_service import (
+    restart_incomplete_ai_echo_sessions,
+    shutdown_ai_echo_cleanup_worker,
+    start_ai_echo_cleanup_worker,
 )
 
 app = FastAPI(
@@ -394,6 +400,11 @@ app.include_router(
     prefix="/api/v1/assistente-ia",
     tags=["assistente_ia"],
 )
+app.include_router(
+    ai_echo.router,
+    prefix="/api/v1/ai/echo-sessions",
+    tags=["ai_echo"],
+)
 app.include_router(agenda.router, prefix="/api/v1/agenda", tags=["agenda"])
 app.include_router(pacientes.router, prefix="/api/v1/pacientes", tags=["pacientes"])
 app.include_router(clinicas.router, prefix="/api/v1/clinicas", tags=["clinicas"])
@@ -437,9 +448,11 @@ def startup_schema_compatibility() -> None:
     restart_incomplete_laudo_pdf_jobs()
     restart_incomplete_xml_import_jobs()
     restart_incomplete_eco_study_import_jobs()
+    restart_incomplete_ai_echo_sessions()
     start_upload_dedupe_cleanup_worker()
     start_push_scheduler_worker()
     start_assistant_scheduler_worker()
+    start_ai_echo_cleanup_worker()
 
 
 @app.on_event("shutdown")
@@ -450,6 +463,7 @@ def shutdown_background_workers() -> None:
     shutdown_upload_dedupe_cleanup_worker()
     shutdown_push_scheduler_worker()
     shutdown_assistant_scheduler_worker()
+    shutdown_ai_echo_cleanup_worker()
 
 
 # WebSocket endpoint

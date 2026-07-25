@@ -21,6 +21,7 @@ import ImageUploader from "../../components/ImageUploader";
 import EcoStudyImportUploader from "../../components/EcoStudyImportUploader";
 import EcocardiogramaEstruturadoEditor from "../../components/EcocardiogramaEstruturadoEditor";
 import EcocardiogramaEstruturadoBiblioteca from "../../components/EcocardiogramaEstruturadoBiblioteca";
+import EchoVoiceAssistant from "../../components/EchoVoiceAssistant";
 import { ArrowLeft, Save, User, Activity, Heart, BookOpen, Settings, Image as ImageIcon, Minus, Plus, FolderOpen } from "lucide-react";
 import { ReferenciaComparison } from "../../components/ReferenciaComparison";
 import {
@@ -958,6 +959,34 @@ export default function EditarLaudoPage() {
     setMedidas(prev => ({ ...prev, [key]: value }));
   };
 
+  const handleEchoAssistantApply = (patch: {
+    fields: Record<string, string>;
+    measurements: Record<string, string>;
+    skipped: string[];
+  }) => {
+    if (Object.keys(patch.measurements).length) {
+      setMedidas((previous) => ({ ...previous, ...patch.measurements }));
+    }
+    if (Object.keys(patch.fields).length) {
+      setEcocardiogramaEstruturado((previous) => ({
+        ...previous,
+        usar_no_laudo: true,
+        textos: {
+          ...previous.textos,
+          ...patch.fields,
+        },
+        updated_at: new Date().toISOString(),
+      }));
+    }
+    setAba(Object.keys(patch.fields).length ? "qualitativa" : "medidas");
+    setStatus("Rascunho");
+    setMensagemSucesso(
+      patch.skipped.length
+        ? `Sugestões aplicadas ao rascunho. ${patch.skipped.length} item(ns) permaneceram para revisão manual.`
+        : "Sugestões selecionadas aplicadas ao rascunho. Revise antes de salvar."
+    );
+  };
+
   if (loading) {
     return (
       <DashboardLayout>
@@ -1044,6 +1073,19 @@ export default function EditarLaudoPage() {
               </div>
             ) : (
               <>
+                {laudoId && Number.isFinite(Number(laudoId)) ? (
+                  <EchoVoiceAssistant
+                    laudoId={Number(laudoId)}
+                    currentFields={{
+                      ...ecocardiogramaEstruturado.textos,
+                      conclusao:
+                        ecocardiogramaEstruturado.textos.conclusao || diagnostico,
+                    }}
+                    currentMeasurements={medidas}
+                    onApply={handleEchoAssistantApply}
+                  />
+                ) : null}
+
                 <div className="fc-report-editor-side-card">
                   <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                     <ImageIcon className="w-5 h-5 text-teal-600" />
