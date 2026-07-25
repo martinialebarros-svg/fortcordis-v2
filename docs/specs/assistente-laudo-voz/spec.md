@@ -2,7 +2,7 @@
 
 Data: 2026-07-25
 Responsável: Martiniano + Codex
-Status: local_validated_stage_pending
+Status: stage_validated
 
 ## 1. Arquitetura encontrada
 

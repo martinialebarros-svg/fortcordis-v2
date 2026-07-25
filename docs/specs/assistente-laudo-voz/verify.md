@@ -2,13 +2,13 @@
 
 Data: 2026-07-25
 Responsável: Martiniano + Codex
-Status: local_pass_stage_pending
+Status: stage_pass
 
 ## Matriz
 
 | Critério | Evidência | Status |
 | --- | --- | --- |
-| CA-001 | componente compilado com gravação, pausa, upload, reprodução, exclusão e regravação; smoke no navegador pendente | local_pass |
+| CA-001 | componente compilado e bundle do editor servido em stage com gravação, pausa, upload, reprodução, exclusão e regravação; teste manual de microfone em tablet/desktop fica na matriz exploratória | stage_bundle_pass |
 | CA-002 | transcrição original somente leitura e cópia editável antes de `/structure` | local_pass |
 | CA-003 | Pydantic estrito, Structured Outputs e UI com edição/rejeição, origem e confiança | local_pass |
 | CA-004 | testes de decimal, negativo, unidade, percentual, contradição e `ΔP = 4 × V²` | local_pass |
@@ -19,9 +19,9 @@ Status: local_pass_stage_pending
 | CA-009 | testes de exclusão manual e `cleanup_expired_audio()` | local_pass |
 | CA-010 | testes da flag desativada e chave ausente | local_pass |
 | CA-011 | upgrade repetido, downgrade restrito e ciclo global de migrations | local_pass |
-| CA-012 | 427 testes, pip check, ESLint, TypeScript e build Next.js | local_pass |
-| CA-013 | deploys `30177544271` e `30177966805` aprovados até o VPS; telemetria isolou incompatibilidade naive/aware na expiração, corrigida e coberta nos dois formatos | in_progress |
-| CA-014 | `origin/main` e produção sem alteração | pendente |
+| CA-012 | 429 testes, pip check, ESLint, TypeScript e build Next.js | stage_pass |
+| CA-013 | workflow `30178211835`: deploy, transcrição real, estruturação, AE/Ao, aplicação seletiva sem persistência, auditoria, exclusão e limpeza | stage_pass |
+| CA-014 | `origin/main=6a12cf9a815d6e2e14d58604e03242948f8e1093`; produção sem alteração | pass |
 
 ## Evidência local executada
 
@@ -32,7 +32,7 @@ cd backend
   tests/test_ai_echo_migration.py
 # 24 testes, OK
 ./venv/bin/python -m unittest discover -s tests -p "test_*.py"
-# 427 testes, OK
+# 429 testes, OK
 ./venv/bin/python -m pip check
 # No broken requirements found.
 ./venv/bin/python -m unittest tests/test_migration_ci_cycle.py
@@ -66,3 +66,20 @@ O canary específico descartável falhou antes de registrar a transcrição com
 era timezone-aware e o relógio legado era naive. A correção compara corretamente
 timestamps de SQLite e PostgreSQL. Usar somente caso artificial, sem nome,
 telefone, endereço, documento ou dado oficial.
+
+### Evidência final
+
+- Migration CI `30178211800`: sucesso em `d317ac806de21304bf3a3d40ce406d7a50522dbf`.
+- Deploy Stage `30178211835`: quality gate, guardrail SDD e VPS aprovados.
+- Runtime: readiness pronta, zero 5xx, cleanup worker vivo, canary autenticado
+  geral e restore drill aprovados.
+- Canary específico: configuração pronta; transcrição real; estruturação;
+  `AE/Ao=1,74`; aplicação seletiva e auditoria; `report_persisted=false`;
+  `Rascunho`; exclusão do áudio; limpeza integral dos registros artificiais.
+- Smoke público: institucional `200`, aplicação `200`, editor `200` e endpoint
+  protegido do módulo `401` sem credenciais, conforme esperado.
+- O chunk do editor de laudos servido por stage contém o componente do assistente.
+- Nenhuma credencial, transcrição, conteúdo clínico ou dado pessoal foi impresso.
+- O teste manual autenticado de `MediaRecorder` em tablet e desktop não foi
+  executado por ausência de sessão de usuário fornecida; permanece como validação
+  exploratória anterior a uma eventual promoção, sem afetar o canary de backend.
