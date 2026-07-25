@@ -2,7 +2,7 @@
 
 Data: 2026-07-25
 Responsável: Martiniano + Codex
-Status: duplicate_suggestion_fix_local_pass_stage_pending
+Status: duplicate_suggestion_fix_stage_pass
 
 ## Matriz
 
@@ -19,11 +19,11 @@ Status: duplicate_suggestion_fix_local_pass_stage_pending
 | CA-009 | testes de exclusão manual e `cleanup_expired_audio()` | local_pass |
 | CA-010 | testes da flag desativada e chave ausente | local_pass |
 | CA-011 | upgrade repetido, downgrade restrito e ciclo global de migrations | local_pass |
-| CA-012 | 432 testes, pip check, ESLint, TypeScript e build Next.js | local_pass_stage_revalidation_pending |
+| CA-012 | 432 testes, pip check, ESLint, TypeScript e build Next.js | stage_pass |
 | CA-013 | workflow `30178211835`: deploy, transcrição real, estruturação, AE/Ao, aplicação seletiva sem persistência, auditoria, exclusão e limpeza | stage_pass |
 | CA-014 | `origin/main=6a12cf9a815d6e2e14d58604e03242948f8e1093`; produção sem alteração | pass |
-| CA-015 | regressão reproduz o texto reportado, consolida sugestões duplicadas por maior confiança e registra alerta visível | local_pass |
-| CA-016 | `ValidationError` estruturado retorna `invalid_structured_output`, sem mensagem falsa de indisponibilidade | local_pass |
+| CA-015 | regressão reproduz o texto reportado, consolida sugestões duplicadas por maior confiança e registra alerta visível | stage_pass |
+| CA-016 | `ValidationError` estruturado retorna `invalid_structured_output`, sem mensagem falsa de indisponibilidade | stage_pass |
 
 ## Evidência local executada
 
@@ -99,5 +99,14 @@ escolhendo a maior confiança e adicionando `duplicate_field_suggestion`. Uma
 falha estrutural genuína passa a ser `invalid_structured_output`. A reprodução
 viva local com o mesmo texto retornou quatro sugestões e quatro campos únicos.
 O canary descartável de stage repetirá primeiro esse texto e exigirá chaves
-únicas antes de continuar com o cenário numérico AE/Ao. Publicação e repetição
-em stage pendentes.
+únicas antes de continuar com o cenário numérico AE/Ao.
+
+### Evidência da correção em stage
+
+- Commit implantado: `16227f6a8d159d26e47c0afe56145f4b28d3f120`.
+- Migration CI `30179454079`: sucesso.
+- Deploy Stage `30179454098`: quality gate, SDD, VPS e canary aprovados.
+- Canary: transcrição real, texto da regressão com campos únicos, estruturação
+  numérica, aplicação seletiva sem persistência, auditoria e exclusão do áudio.
+- Runtime: ready, zero 5xx, cleanup worker vivo e restore drill aprovado.
+- `origin/main` permaneceu em `6a12cf9a815d6e2e14d58604e03242948f8e1093`.
