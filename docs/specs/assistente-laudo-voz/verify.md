@@ -20,7 +20,7 @@ Status: local_pass_stage_pending
 | CA-010 | testes da flag desativada e chave ausente | local_pass |
 | CA-011 | upgrade repetido, downgrade restrito e ciclo global de migrations | local_pass |
 | CA-012 | 427 testes, pip check, ESLint, TypeScript e build Next.js | local_pass |
-| CA-013 | deploy `30177544271` aprovado até o VPS; canary detectou falha interna na transcrição e motivou instrumentação segura por subetapa | in_progress |
+| CA-013 | deploys `30177544271` e `30177966805` aprovados até o VPS; telemetria isolou incompatibilidade naive/aware na expiração, corrigida e coberta nos dois formatos | in_progress |
 | CA-014 | `origin/main` e produção sem alteração | pendente |
 
 ## Evidência local executada
@@ -61,5 +61,8 @@ O deploy `30177544271` concluiu no VPS com `HEAD=5acfee7`, migrations, readiness
 zero 5xx, worker de limpeza, canary autenticado geral e restore drill aprovados.
 O canary específico descartável falhou antes de registrar a transcrição com
 `processing_failed`; os registros e o áudio artificiais foram removidos pelo
-`finally`. A repetição inclui telemetria de subetapa sem conteúdo clínico. Usar
-somente caso artificial, sem nome, telefone, endereço, documento ou dado oficial.
+`finally`. A repetição `30177966805`, em `HEAD=cce3584`, isolou
+`processing_failed_transcription_audio_validation`: o timestamp retornado em stage
+era timezone-aware e o relógio legado era naive. A correção compara corretamente
+timestamps de SQLite e PostgreSQL. Usar somente caso artificial, sem nome,
+telefone, endereço, documento ou dado oficial.

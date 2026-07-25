@@ -35,6 +35,8 @@ O módulo é aditivo e isolado:
    excluído manualmente.
 6. A aplicação cria trilha e snapshot, mas devolve apenas um patch. O `Laudo` não é
    modificado pelo endpoint de IA.
+7. A expiração aceita timestamps sem timezone do SQLite e timezone-aware do
+   PostgreSQL, normalizando a comparação no worker.
 
 ## 3. Requisitos funcionais
 

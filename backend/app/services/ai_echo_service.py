@@ -7,7 +7,7 @@ import re
 import tempfile
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Event, Lock, Thread
 from typing import Any, Iterable
@@ -95,6 +95,13 @@ def _json_load(value: str | None, fallback: Any) -> Any:
 
 def _utcnow() -> datetime:
     return datetime.utcnow()
+
+
+def _is_expired(value: datetime) -> bool:
+    """Compare timestamps returned by SQLite (naive) or PostgreSQL (aware)."""
+    if value.tzinfo is None:
+        return value < _utcnow()
+    return value < datetime.now(timezone.utc)
 
 
 def _sanitize_error_message(message: str) -> str:
@@ -480,7 +487,7 @@ def _process_transcription(session_id: str) -> None:
             return
         processing_step = "transcription_audio_validation"
         asset = _active_audio(db, session.id)
-        if not asset or asset.expires_at < _utcnow() or not os.path.isfile(asset.storage_path):
+        if not asset or _is_expired(asset.expires_at) or not os.path.isfile(asset.storage_path):
             raise AIEchoProviderError(
                 "O áudio expirou ou foi excluído. Grave ou envie um novo arquivo.",
                 code="audio_expired",

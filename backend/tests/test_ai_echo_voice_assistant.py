@@ -2,7 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -378,6 +378,18 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
                 "detalhe interno",
                 str(session.last_error_message or ""),
             )
+
+    def test_audio_expiry_supports_naive_and_timezone_aware_datetimes(self) -> None:
+        self.assertTrue(
+            ai_echo_service._is_expired(
+                datetime.utcnow() - timedelta(seconds=1)
+            )
+        )
+        self.assertFalse(
+            ai_echo_service._is_expired(
+                datetime.now(timezone.utc) + timedelta(minutes=1)
+            )
+        )
 
     def test_audio_is_temporary_and_can_be_deleted(self) -> None:
         with self.session_factory() as db:
