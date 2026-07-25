@@ -61,6 +61,13 @@ Os logs podem conter IDs, etapa, duração, status, código de erro, provedor, m
 versão de prompt. Não devem conter áudio, transcrição, texto integral do laudo,
 nomes, contatos ou chave.
 
+Se a transcrição terminar e a estruturação falhar, consulte `last_error.code`.
+`invalid_structured_output` significa que a resposta não obedeceu ao contrato e
+não deve ser descrita como indisponibilidade da API. Sugestões repetidas para a
+mesma `field_key` são consolidadas: permanece a de maior confiança e a revisão
+mostra `duplicate_field_suggestion`. `provider_unavailable` fica reservado a
+falhas efetivas não classificadas do provedor.
+
 ## Retenção
 
 O arquivo temporário usa `UPLOAD_DIR/ai_echo_audio` ou fallback local. O worker

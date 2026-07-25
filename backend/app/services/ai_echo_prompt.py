@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-PROMPT_VERSION = "echo-clinical-ptbr-v1"
+PROMPT_VERSION = "echo-clinical-ptbr-v2"
 VOCABULARY_PATH = Path(__file__).resolve().parents[2] / "data" / "ai_echo_vocabulary_pt_br.json"
 
 
@@ -89,6 +89,8 @@ Regras clínicas obrigatórias:
 - Conflitos, percentuais acima de 100, unidades duvidosas e incompatibilidades entre velocidade
   e gradiente devem ser warnings; não altere os valores fornecidos.
 - Use apenas as chaves reais do formulário disponibilizadas pelo esquema.
+- Retorne no máximo uma field_suggestion para cada field_key. Quando mais de uma frase da
+  transcrição tratar do mesmo campo, consolide os fatos compatíveis em uma única sugestão.
 
 Preferências já aprovadas pelo usuário, a reutilizar quando compatíveis com os fatos:
 {preferences_json}

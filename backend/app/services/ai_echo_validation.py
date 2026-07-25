@@ -8,6 +8,7 @@ from typing import Optional
 
 from app.schemas.ai_echo import (
     EchoClinicalStructureOutput,
+    EchoFieldSuggestionOutput,
     EchoClinicalWarningOutput,
     EchoMeasurementOutput,
 )
@@ -303,13 +304,52 @@ def _warning_key(warning: EchoClinicalWarningOutput) -> tuple[str, str]:
     return warning.warning_type, warning.message
 
 
+def _consolidate_field_suggestions(
+    suggestions: list[EchoFieldSuggestionOutput],
+) -> tuple[list[EchoFieldSuggestionOutput], list[EchoClinicalWarningOutput]]:
+    """Keep one reviewable suggestion per form field without hiding duplication."""
+    consolidated: list[EchoFieldSuggestionOutput] = []
+    index_by_field: dict[str, int] = {}
+    duplicated_fields: set[str] = set()
+
+    for suggestion in suggestions:
+        field_key = str(suggestion.field_key)
+        existing_index = index_by_field.get(field_key)
+        if existing_index is None:
+            index_by_field[field_key] = len(consolidated)
+            consolidated.append(suggestion)
+            continue
+
+        duplicated_fields.add(field_key)
+        existing = consolidated[existing_index]
+        if suggestion.confidence > existing.confidence:
+            consolidated[existing_index] = suggestion
+
+    warnings = [
+        EchoClinicalWarningOutput(
+            warning_type="duplicate_field_suggestion",
+            severity="warning",
+            message=(
+                f"A IA retornou mais de uma sugestão para o campo {field_key}; "
+                "foi mantida somente a de maior confiança para revisão."
+            ),
+            related_fields=[field_key],
+        )
+        for field_key in sorted(duplicated_fields)
+    ]
+    return consolidated, warnings
+
+
 def validate_and_enrich_clinical_output(
     output: EchoClinicalStructureOutput,
     transcript: str,
 ) -> EchoClinicalStructureOutput:
     deterministic, numeric_warnings = extract_measurements_from_transcript(transcript)
+    field_suggestions, duplicate_warnings = _consolidate_field_suggestions(
+        list(output.field_suggestions)
+    )
     measurements = list(output.measurements)
-    warnings = list(output.warnings)
+    warnings = [*output.warnings, *duplicate_warnings]
     existing_by_name: dict[str, list[EchoMeasurementOutput]] = {}
     for measurement in measurements:
         existing_by_name.setdefault(measurement.canonical_name, []).append(measurement)
@@ -465,7 +505,6 @@ def validate_and_enrich_clinical_output(
         existing_warning_keys.add(key)
         deduped_warnings.append(warning)
 
-    field_suggestions = list(output.field_suggestions)
     if output.conclusion_suggestion and not any(
         suggestion.field_key == "conclusao" for suggestion in field_suggestions
     ):

@@ -78,6 +78,12 @@ O módulo é aditivo e isolado:
 - RF-024: frases preferidas entram no prompt e seu uso aceito incrementa contagem.
 - RF-025: falhas do provedor preservam áudio/transcrição enquanto válidos e nunca
   afetam o rascunho manual.
+- RF-026: o prompt solicita no máximo uma sugestão por campo. Se o modelo ainda
+  retornar duplicidades, o backend mantém deterministicamente a sugestão de maior
+  confiança e apresenta `duplicate_field_suggestion` para revisão, sem interromper
+  a sessão.
+- RF-027: falhas de validação Pydantic da resposta estruturada são classificadas
+  como `invalid_structured_output`, nunca como indisponibilidade do provedor.
 
 ## 4. Estados
 

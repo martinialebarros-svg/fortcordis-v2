@@ -193,6 +193,41 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
         self.assertIn("mitral_regurgitation_contradiction", warning_types)
         self.assertIn("velocity_gradient_mismatch", warning_types)
 
+    def test_duplicate_field_suggestions_are_consolidated_with_visible_warning(self) -> None:
+        output = empty_output(
+            field_suggestions=[
+                {
+                    "field_key": "valva_mitral",
+                    "text": "Folhetos espessados.",
+                    "confidence": 0.72,
+                    "source_spans": ["Espessamento de folhetos."],
+                    "evidence_type": "fact",
+                },
+                {
+                    "field_key": "valva_mitral",
+                    "text": "Folhetos espessados com refluxo moderado.",
+                    "confidence": 0.94,
+                    "source_spans": [
+                        "Espessamento de folhetos de válvula mitral com refluxo moderado."
+                    ],
+                    "evidence_type": "fact",
+                },
+            ]
+        )
+        enriched = validate_and_enrich_clinical_output(
+            output,
+            "Espessamento de folhetos de válvula mitral com refluxo moderado.",
+        )
+        self.assertEqual(len(enriched.field_suggestions), 1)
+        self.assertEqual(
+            enriched.field_suggestions[0].text,
+            "Folhetos espessados com refluxo moderado.",
+        )
+        self.assertIn(
+            "duplicate_field_suggestion",
+            {warning.warning_type for warning in enriched.warnings},
+        )
+
     def test_schema_rejects_unknown_field_and_text_outside_contract(self) -> None:
         with self.assertRaises(ValidationError):
             EchoClinicalStructureOutput.model_validate(
@@ -494,6 +529,31 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
                     safety_user_id=7,
                 )
         self.assertEqual(invalid.exception.code, "invalid_structured_output")
+
+    def test_structured_validation_error_is_not_reported_as_provider_outage(self) -> None:
+        with self.assertRaises(ValidationError) as validation:
+            EchoClinicalStructureOutput.model_validate(
+                {"field_suggestions": "formato inválido"}
+            )
+        fake_client = SimpleNamespace(
+            responses=SimpleNamespace(
+                parse=Mock(side_effect=validation.exception)
+            )
+        )
+        with (
+            patch.object(ai_echo_providers.settings, "AI_STRUCTURING_MODEL", "model-test"),
+            patch.object(ai_echo_providers.settings, "OPENAI_API_KEY", "test-key"),
+            patch.object(ai_echo_providers, "OpenAI", return_value=fake_client),
+        ):
+            provider = ai_echo_providers.OpenAIClinicalStructuringProvider()
+            with self.assertRaises(AIEchoProviderError) as invalid:
+                provider.structure(
+                    transcript="Átrio esquerdo normal.",
+                    phrase_preferences=[],
+                    safety_user_id=7,
+                )
+        self.assertEqual(invalid.exception.code, "invalid_structured_output")
+        self.assertNotIn("indisponível", str(invalid.exception))
 
     def test_phrase_preferences_are_retrieved_during_structuring(self) -> None:
         with self.session_factory() as db:

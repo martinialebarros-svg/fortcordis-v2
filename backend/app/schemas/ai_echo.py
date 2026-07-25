@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 EchoFieldKey = Literal[
@@ -108,13 +108,6 @@ class EchoClinicalStructureOutput(StrictSchema):
     conclusion_suggestion: list[str]
     warnings: list[EchoClinicalWarningOutput]
     missing_information: list[str]
-
-    @model_validator(mode="after")
-    def validate_unique_field_suggestions(self) -> "EchoClinicalStructureOutput":
-        keys = [item.field_key for item in self.field_suggestions]
-        if len(keys) != len(set(keys)):
-            raise ValueError("A resposta contém mais de uma sugestão para o mesmo campo.")
-        return self
 
 
 class EchoSessionCreateRequest(StrictSchema):

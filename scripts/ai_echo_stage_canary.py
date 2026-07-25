@@ -21,6 +21,13 @@ ARTIFICIAL_TRANSCRIPT = (
     "setenta e quatro. Sem efusão pericárdica."
 )
 
+DUPLICATE_REGRESSION_TRANSCRIPT = (
+    "Espessamento de folhetos de válvula mitral com refluxo moderado, "
+    "dilatação moderada de átrio esquerdo, dilatação moderada de ventrículo "
+    "esquerdo, compatível com endocardiose mitral grau B2, demais parâmetros "
+    "ecocardiográficos dentro da normalidade."
+)
+
 
 def _request_json(
     *,
@@ -244,6 +251,31 @@ def run_canary(args: argparse.Namespace) -> None:
         ).strip():
             raise RuntimeError("Transcrição real veio vazia.")
         print("[ai-echo-canary] transcription: passed")
+
+        _request_json(
+            base_url=args.base_url,
+            path=f"/api/v1/ai/echo-sessions/{session_id}/structure",
+            token=token,
+            method="POST",
+            body=_json_body(
+                {"edited_transcript": DUPLICATE_REGRESSION_TRANSCRIPT}
+            ),
+            content_type="application/json",
+        )
+        duplicate_regression = _wait_for_review(
+            base_url=args.base_url,
+            token=token,
+            session_id=session_id,
+            needs_suggestions=True,
+            timeout_seconds=args.timeout_seconds,
+        )
+        regression_keys = [
+            item.get("field_key")
+            for item in (duplicate_regression.get("field_suggestions") or [])
+        ]
+        if len(regression_keys) != len(set(regression_keys)):
+            raise RuntimeError("Sugestões duplicadas chegaram à revisão.")
+        print("[ai-echo-canary] duplicate suggestion regression: passed")
 
         _request_json(
             base_url=args.base_url,

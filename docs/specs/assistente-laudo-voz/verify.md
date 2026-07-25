@@ -2,7 +2,7 @@
 
 Data: 2026-07-25
 Responsável: Martiniano + Codex
-Status: stage_pass
+Status: duplicate_suggestion_fix_local_pass_stage_pending
 
 ## Matriz
 
@@ -19,9 +19,11 @@ Status: stage_pass
 | CA-009 | testes de exclusão manual e `cleanup_expired_audio()` | local_pass |
 | CA-010 | testes da flag desativada e chave ausente | local_pass |
 | CA-011 | upgrade repetido, downgrade restrito e ciclo global de migrations | local_pass |
-| CA-012 | 429 testes, pip check, ESLint, TypeScript e build Next.js | stage_pass |
+| CA-012 | 432 testes, pip check, ESLint, TypeScript e build Next.js | local_pass_stage_revalidation_pending |
 | CA-013 | workflow `30178211835`: deploy, transcrição real, estruturação, AE/Ao, aplicação seletiva sem persistência, auditoria, exclusão e limpeza | stage_pass |
 | CA-014 | `origin/main=6a12cf9a815d6e2e14d58604e03242948f8e1093`; produção sem alteração | pass |
+| CA-015 | regressão reproduz o texto reportado, consolida sugestões duplicadas por maior confiança e registra alerta visível | local_pass |
+| CA-016 | `ValidationError` estruturado retorna `invalid_structured_output`, sem mensagem falsa de indisponibilidade | local_pass |
 
 ## Evidência local executada
 
@@ -30,9 +32,9 @@ cd backend
 ./venv/bin/python -m unittest \
   tests/test_ai_echo_voice_assistant.py \
   tests/test_ai_echo_migration.py
-# 24 testes, OK
+# 31 testes focados, OK
 ./venv/bin/python -m unittest discover -s tests -p "test_*.py"
-# 429 testes, OK
+# 432 testes, OK
 ./venv/bin/python -m pip check
 # No broken requirements found.
 ./venv/bin/python -m unittest tests/test_migration_ci_cycle.py
@@ -83,3 +85,19 @@ telefone, endereço, documento ou dado oficial.
 - O teste manual autenticado de `MediaRecorder` em tablet e desktop não foi
   executado por ausência de sessão de usuário fornecida; permanece como validação
   exploratória anterior a uma eventual promoção, sem afetar o canary de backend.
+
+### Correção de sugestões duplicadas
+
+A transcrição reportada pelo usuário em 2026-07-25 foi reproduzida sem dados
+pessoais. Antes da correção, `responses.parse()` recebia uma saída com
+`field_key` repetida, o validador Pydantic lançava erro na raiz e o adaptador
+convertia incorretamente a falha em `provider_unavailable`.
+
+A correção usa o prompt `echo-clinical-ptbr-v2`, aceita a resposta ainda não
+consolidada para validação defensiva e mantém uma única sugestão por campo,
+escolhendo a maior confiança e adicionando `duplicate_field_suggestion`. Uma
+falha estrutural genuína passa a ser `invalid_structured_output`. A reprodução
+viva local com o mesmo texto retornou quatro sugestões e quatro campos únicos.
+O canary descartável de stage repetirá primeiro esse texto e exigirá chaves
+únicas antes de continuar com o cenário numérico AE/Ao. Publicação e repetição
+em stage pendentes.

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from openai import OpenAI
+from pydantic import ValidationError
 
 from app.core.config import settings
 from app.schemas.ai_echo import EchoClinicalStructureOutput
@@ -162,6 +163,12 @@ class OpenAIClinicalStructuringProvider:
                 safety_identifier=safety_identifier,
                 store=False,
             )
+        except ValidationError as exc:
+            raise AIEchoProviderError(
+                "A resposta clínica veio fora do formato seguro esperado. "
+                "Tente gerar as sugestões novamente.",
+                code="invalid_structured_output",
+            ) from exc
         except Exception as exc:
             raise _safe_provider_error(exc) from exc
 
