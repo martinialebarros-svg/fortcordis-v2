@@ -64,6 +64,11 @@ Rollback: não publicar enquanto qualquer gate falhar.
 6. Fazer smoke anônimo/autenticado com caso clínico artificial.
 7. Excluir o áudio de teste e confirmar que produção não mudou.
 
+O smoke autenticado específico do módulo usa `scripts/ai_echo_stage_canary.py`
+somente quando a mensagem do commit contém `[ai-echo-canary]`. Ele executa
+transcrição e estruturação reais com áudio sintético, aplica um patch seletivo sem
+persistir o laudo, consulta a auditoria e remove áudio e registros artificiais.
+
 Rollback: `AI_ECHO_ASSISTANT_ENABLED=false` em stage; se necessário, reverter o
 commit em `stage`. A migration é aditiva e pode permanecer inerte; `downgrade()` é
 reservado a ambiente vazio ou backup confirmado.

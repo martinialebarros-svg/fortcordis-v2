@@ -19,8 +19,8 @@ Status: local_pass_stage_pending
 | CA-009 | testes de exclusão manual e `cleanup_expired_audio()` | local_pass |
 | CA-010 | testes da flag desativada e chave ausente | local_pass |
 | CA-011 | upgrade repetido, downgrade restrito e ciclo global de migrations | local_pass |
-| CA-012 | 425 testes, pip check, ESLint, TypeScript e build Next.js | local_pass |
-| CA-013 | workflow e smoke de homologação | pendente |
+| CA-012 | 427 testes, pip check, ESLint, TypeScript e build Next.js | local_pass |
+| CA-013 | deploy aprovado; canary específico de áudio/IA preparado para execução única | in_progress |
 | CA-014 | `origin/main` e produção sem alteração | pendente |
 
 ## Evidência local executada
@@ -32,7 +32,7 @@ cd backend
   tests/test_ai_echo_migration.py
 # 24 testes, OK
 ./venv/bin/python -m unittest discover -s tests -p "test_*.py"
-# 425 testes, OK
+# 427 testes, OK
 ./venv/bin/python -m pip check
 # No broken requirements found.
 ./venv/bin/python -m unittest tests/test_migration_ci_cycle.py

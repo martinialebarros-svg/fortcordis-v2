@@ -50,6 +50,11 @@ Os testes automatizados usam mocks e nunca precisam de uma chamada real.
 - confirme que o fluxo manual funciona com a flag desligada;
 - não copie valores de segredo em logs, terminal ou relatório.
 
+O canary vivo e descartável pode ser disparado por um commit de `stage` cuja
+mensagem contenha `[ai-echo-canary]`. Ele usa áudio sintético versionado, não
+imprime transcrição ou conteúdo clínico, não persiste o `Laudo` e remove a sessão
+artificial ao final.
+
 ## Observabilidade segura
 
 Os logs podem conter IDs, etapa, duração, status, código de erro, provedor, modelo e

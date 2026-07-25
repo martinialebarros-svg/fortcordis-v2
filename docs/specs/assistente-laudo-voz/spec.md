@@ -159,3 +159,9 @@ milhão estiverem em zero.
 - CA-012: testes, lint, TypeScript e build aprovam.
 - CA-013: homologação executa migration, deploy e smoke sem dados reais.
 - CA-014: nenhuma alteração é promovida a produção.
+
+O smoke vivo de CA-013 deve ser descartável e executado apenas sob marcação
+explícita `[ai-echo-canary]`: áudio sintético sem dados pessoais, provedor real,
+aplicação seletiva com `report_persisted=false`, consulta da auditoria, exclusão do
+áudio e remoção dos registros artificiais. O deploy normal não deve pagar esse
+custo.
