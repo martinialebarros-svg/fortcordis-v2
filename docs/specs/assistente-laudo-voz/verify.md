@@ -156,6 +156,21 @@ O canary descartável de stage usa o segundo texto e exige as 15 chaves, frases
 distintas de mitral e aórtica provenientes do preset, o texto diastólico canônico
 e a conclusão restrita antes de seguir para o cenário AE/Ao.
 
+### Evidência do preset normal rico em stage
+
+- Commit implantado: `467ca0f2c7d31deeca199bd271c409eee4b9e489`.
+- Validação local: 437 testes e 2 subtestes, `pip check`, lint, TypeScript,
+  build e guardrail SDD aprovados.
+- Migration CI `30182446724`: sucesso.
+- Deploy Stage `30182446758`: guardrail SDD, quality gate, VPS e canary
+  aprovados.
+- Canary: transcrição real; expansão das 15 chaves; frases específicas e
+  distintas do preset para mitral e aórtica; preservação da disfunção diastólica
+  grau I; conclusão restrita; aplicação seletiva; auditoria; exclusão do áudio.
+- Smoke público: aplicação e `/laudos/novo` responderam `200`; configuração
+  protegida respondeu `401` sem credenciais, conforme esperado.
+- `origin/main` permaneceu em `6a12cf9a815d6e2e14d58604e03242948f8e1093`.
+
 ### Evidência da expansão em stage
 
 - Commit implantado: `1e87dc8c6036c239ff74e8067b238f41228b36f3`.
