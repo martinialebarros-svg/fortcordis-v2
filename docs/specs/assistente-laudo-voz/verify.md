@@ -143,16 +143,18 @@ O fluxo automatizado cobre o contrato de criação contínua:
 Os testes automatizados cobrem duas expressões clínicas:
 
 - "Exame normal, sem alterações ecocardiográficas" produz os 14 aspectos
-  qualitativos normais e a conclusão, sem medidas;
+  qualitativos e a conclusão com as frases ricas e distintas do preset normal
+  da espécie, substituindo respostas genéricas do modelo e sem criar medidas;
 - "Disfunção diastólica grau 1, padrão senil e demais parâmetros
   ecocardiográficos dentro da normalidade" preserva a alteração no campo
-  diastólico, completa os outros 13 aspectos normais e conclui somente a
-  disfunção diastólica grau I.
+  diastólico, completa os outros 13 aspectos com o preset normal e conclui
+  somente a disfunção diastólica grau I.
 
 A regra é determinística no backend, usa o prompt
 `echo-clinical-ptbr-v3`, não persiste o laudo e mantém revisão/aceite explícitos.
-O canary descartável de stage usa o segundo texto e exige as 15 chaves, o texto
-diastólico canônico e a conclusão restrita antes de seguir para o cenário AE/Ao.
+O canary descartável de stage usa o segundo texto e exige as 15 chaves, frases
+distintas de mitral e aórtica provenientes do preset, o texto diastólico canônico
+e a conclusão restrita antes de seguir para o cenário AE/Ao.
 
 ### Evidência da expansão em stage
 

@@ -31,6 +31,7 @@ from app.models.ai_echo import (
     AIEchoVocabulary,
 )
 from app.models.laudo import Laudo
+from app.models.paciente import Paciente
 from app.models.user import User
 from app.schemas.ai_echo import (
     EchoApplyRequest,
@@ -635,7 +636,17 @@ def _process_structure(session_id: str) -> None:
             safety_user_id=session.user_id,
         )
         processing_step = "structuring_validation"
-        output = validate_and_enrich_clinical_output(result.output, transcript.edited_text)
+        report = db.query(Laudo).filter(Laudo.id == session.laudo_id).first()
+        patient = (
+            db.query(Paciente).filter(Paciente.id == report.paciente_id).first()
+            if report
+            else None
+        )
+        output = validate_and_enrich_clinical_output(
+            result.output,
+            transcript.edited_text,
+            species=patient.especie if patient else None,
+        )
 
         processing_step = "structuring_persistence"
         db.query(AIEchoFieldSuggestion).filter(

@@ -107,6 +107,13 @@ O módulo é aditivo e isolado:
 - RF-035: a aplicação das sugestões altera somente o estado local do formulário.
   O rascunho permanece `Rascunho` até o usuário clicar em salvar, quando o mesmo
   registro é atualizado com os dados completos e finalizado.
+- RF-036: ao reconhecer uma afirmação global de normalidade, o backend substitui
+  respostas genéricas do modelo pelas frases específicas de cada aspecto no
+  preset estruturado `Exame normal`, usando a variante canina ou felina conforme
+  a espécie do paciente.
+- RF-037: na expressão "demais parâmetros ... dentro da normalidade", sugestões
+  genéricas fundamentadas somente nessa afirmação global são substituídas pelo
+  preset; alterações explicitamente ditadas continuam prevalecendo.
 
 ## 4. Estados
 

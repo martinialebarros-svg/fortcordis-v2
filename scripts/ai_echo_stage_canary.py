@@ -284,6 +284,12 @@ def run_canary(args: argparse.Namespace) -> None:
             raise RuntimeError("A alteração diastólica não foi preservada.")
         if regression_suggestions.get("conclusao") != expected_diagnosis:
             raise RuntimeError("A conclusão não ficou restrita à alteração ditada.")
+        mitral_text = str(regression_suggestions.get("valva_mitral") or "")
+        aortic_text = str(regression_suggestions.get("valva_aortica") or "")
+        if "folhetos" not in mitral_text.lower() or "cúspides" not in aortic_text.lower():
+            raise RuntimeError("Os campos normais não usaram as frases ricas do preset.")
+        if mitral_text == aortic_text:
+            raise RuntimeError("O preset normal repetiu o mesmo texto entre estruturas.")
         print("[ai-echo-canary] remaining normality regression: passed")
 
         _request_json(

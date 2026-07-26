@@ -36,6 +36,7 @@ from app.api.v1.endpoints import ai_echo
 from app.core.security import get_current_user
 from app.db.database import get_db
 from app.models.laudo import Laudo
+from app.models.paciente import Paciente
 from app.schemas.ai_echo import (
     EchoApplyRequest,
     EchoClinicalStructureOutput,
@@ -85,10 +86,19 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
         self.engine = create_engine(f"sqlite:///{db_path}")
         self.session_factory = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)
         Laudo.__table__.create(self.engine, checkfirst=True)
+        Paciente.__table__.create(self.engine, checkfirst=True)
         for model in AI_TABLES:
             model.__table__.create(self.engine, checkfirst=True)
         self.user = SimpleNamespace(id=7, nome="Dra. Teste", email="vet@example.test")
         with self.session_factory() as db:
+            db.add(
+                Paciente(
+                    id=99,
+                    nome="Paciente teste",
+                    especie="Canina",
+                    ativo=1,
+                )
+            )
             db.add(
                 Laudo(
                     id=44,
@@ -234,6 +244,15 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
             empty_output(
                 field_suggestions=[
                     {
+                        "field_key": "valva_mitral",
+                        "text": "Valva mitral sem alterações ecocardiográficas.",
+                        "confidence": 0.98,
+                        "source_spans": [
+                            "Exame normal, sem alterações ecocardiográficas."
+                        ],
+                        "evidence_type": "fact",
+                    },
+                    {
                         "field_key": "conclusao",
                         "text": "Exame sem alterações ecocardiográficas.",
                         "confidence": 1,
@@ -243,14 +262,29 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
                 ]
             ),
             "Exame normal, sem alterações ecocardiográficas.",
+            species="Canina",
         )
         suggestions = {item.field_key: item.text for item in enriched.field_suggestions}
         self.assertEqual(set(suggestions), {*_NORMAL_FIELD_SUGGESTIONS, "conclusao"})
+        self.assertIn("folhetos delgados", suggestions["valva_mitral"])
+        self.assertIn("cúspides delgadas", suggestions["valva_aortica"])
+        self.assertNotEqual(suggestions["valva_mitral"], suggestions["valva_aortica"])
+        self.assertIn("espécie canina", suggestions["conclusao"])
         self.assertEqual(enriched.measurements, [])
         self.assertIn(
             "global_normality_expanded",
             {warning.warning_type for warning in enriched.warnings},
         )
+
+    def test_global_normal_statement_uses_feline_normal_preset(self) -> None:
+        enriched = validate_and_enrich_clinical_output(
+            empty_output(),
+            "O exame está normal.",
+            species="Felina",
+        )
+        suggestions = {item.field_key: item.text for item in enriched.field_suggestions}
+        self.assertIn("espécie felina", suggestions["conclusao"])
+        self.assertIn("folhetos delgados", suggestions["valva_mitral"])
 
     def test_remaining_normal_preserves_grade_one_diastolic_dysfunction(self) -> None:
         transcript = (

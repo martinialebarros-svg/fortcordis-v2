@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import math
 import re
 import unicodedata
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 from app.schemas.ai_echo import (
@@ -200,6 +202,62 @@ _REMAINING_NORMAL_PATTERNS = (
 _DIASTOLIC_GRADE_ONE_PATTERN = re.compile(
     r"\bdisfuncao\s+diastolica\s+(?:de\s+)?grau\s+(?:1|i|um)\b",
 )
+_STRUCTURED_PHRASES_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "data"
+    / "frases_ecocardiograma_estruturado_teste.json"
+)
+
+
+def _normal_preset_suggestions(species: str | None) -> dict[str, str]:
+    normalized_species = _strip_accents(str(species or ""))
+    preset_key = "normal_gato" if any(
+        token in normalized_species for token in ("felina", "felino", "gato")
+    ) else "normal_cao"
+    try:
+        payload = json.loads(_STRUCTURED_PHRASES_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return dict(_NORMAL_FIELD_SUGGESTIONS)
+
+    aspects = {
+        str(item.get("key") or ""): item
+        for item in payload.get("aspectos", [])
+        if isinstance(item, dict)
+    }
+    preset = next(
+        (
+            item
+            for item in payload.get("presets", [])
+            if isinstance(item, dict)
+            and str(item.get("key") or "") == preset_key
+            and item.get("ativo", 1)
+        ),
+        None,
+    )
+    if not preset:
+        return dict(_NORMAL_FIELD_SUGGESTIONS)
+
+    resolved: dict[str, str] = {}
+    for selection in preset.get("selecoes", []):
+        if not isinstance(selection, dict):
+            continue
+        field_key = str(selection.get("aspecto") or "")
+        title = str(selection.get("frase_titulo") or "")
+        aspect = aspects.get(field_key) or {}
+        phrase = next(
+            (
+                item
+                for item in aspect.get("frases", [])
+                if isinstance(item, dict)
+                and str(item.get("titulo") or "") == title
+                and item.get("ativo", 1)
+            ),
+            None,
+        )
+        text = str((phrase or {}).get("texto") or "").strip()
+        if field_key and text:
+            resolved[field_key] = text
+    return resolved or dict(_NORMAL_FIELD_SUGGESTIONS)
 
 
 def _normalize_unit(value: str | None) -> str:
@@ -377,6 +435,7 @@ def _expand_asserted_normality(
     *,
     transcript: str,
     suggestions: list[EchoFieldSuggestionOutput],
+    species: str | None,
 ) -> tuple[list[EchoFieldSuggestionOutput], list[EchoClinicalWarningOutput]]:
     normalized = _strip_accents(transcript)
     if not any(re.search(pattern, normalized) for pattern in _GLOBAL_NORMAL_PATTERNS):
@@ -390,7 +449,22 @@ def _expand_asserted_normality(
         if remaining_only
         else "exame normal, sem alterações ecocardiográficas"
     )
-    expanded = list(suggestions)
+    preset_suggestions = _normal_preset_suggestions(species)
+    if remaining_only:
+        expanded = [
+            item
+            for item in suggestions
+            if not item.source_spans
+            or not all(
+                any(
+                    re.search(pattern, _strip_accents(span))
+                    for pattern in _GLOBAL_NORMAL_PATTERNS
+                )
+                for span in item.source_spans
+            )
+        ]
+    else:
+        expanded = []
     existing_fields = {str(item.field_key) for item in expanded}
 
     diastolic_grade_one = bool(_DIASTOLIC_GRADE_ONE_PATTERN.search(normalized))
@@ -412,7 +486,7 @@ def _expand_asserted_normality(
         )
         existing_fields.add("funcao_diastolica")
 
-    for field_key, text in _NORMAL_FIELD_SUGGESTIONS.items():
+    for field_key, text in preset_suggestions.items():
         if field_key in existing_fields:
             continue
         expanded.append(
@@ -455,7 +529,7 @@ def _expand_asserted_normality(
                 "A afirmação global de normalidade foi expandida para os campos sem "
                 "alteração específica. Revise as sugestões antes de aplicá-las."
             ),
-            related_fields=sorted(_NORMAL_FIELD_SUGGESTIONS),
+            related_fields=sorted(preset_suggestions),
         )
     ]
 
@@ -463,6 +537,8 @@ def _expand_asserted_normality(
 def validate_and_enrich_clinical_output(
     output: EchoClinicalStructureOutput,
     transcript: str,
+    *,
+    species: str | None = None,
 ) -> EchoClinicalStructureOutput:
     deterministic, numeric_warnings = extract_measurements_from_transcript(transcript)
     field_suggestions, duplicate_warnings = _consolidate_field_suggestions(
@@ -471,6 +547,7 @@ def validate_and_enrich_clinical_output(
     field_suggestions, normality_warnings = _expand_asserted_normality(
         transcript=transcript,
         suggestions=field_suggestions,
+        species=species or output.exam_context.species,
     )
     measurements = list(output.measurements)
     warnings = [*output.warnings, *duplicate_warnings, *normality_warnings]
