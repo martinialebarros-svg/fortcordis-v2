@@ -182,6 +182,8 @@ O validador remove deterministicamente da conclusão as expressões conflitantes
 `sem remodelamento cardíaco significativo` e `Estágio B1 (ACVIM)`.
 O teste unitário usa uma conclusão contendo ambas as expressões e confirma sua
 remoção, sem perder a endocardiose mitral.
+O cenário misto também confirma que a conclusão específica substitui a conclusão
+genérica de normalidade eventualmente carregada pelo preset.
 
 ### Evidência da regravação em stage
 

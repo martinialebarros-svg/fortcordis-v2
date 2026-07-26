@@ -541,6 +541,9 @@ def _expand_asserted_normality(
         existing_fields.add(field_key)
 
     if mitral_b1 and diastolic_grade_one:
+        expanded = [
+            item for item in expanded if str(item.field_key) != "conclusao"
+        ]
         expanded.append(
             EchoFieldSuggestionOutput(
                 field_key="conclusao",

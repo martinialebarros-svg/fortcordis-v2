@@ -138,6 +138,8 @@ O módulo é aditivo e isolado:
 - RF-045: se AE/Ao indicar remodelamento atrial e a transcrição afirmar B1 sem
   remodelamento, a sugestão preserva a doença mitral e o refluxo, remove a
   classificação conflitante e não infere outro estágio com AE/Ao isoladamente.
+- RF-046: a conclusão clínica determinística dos achados alterados substitui a
+  conclusão genérica do preset normal quando ambas forem geradas.
 
 ## 4. Estados
 

@@ -363,6 +363,10 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
             "Disfunção diastólica grau I (padrão senil)",
             suggestions["conclusao"],
         )
+        self.assertNotIn(
+            "Ecocardiograma dentro dos limites da normalidade",
+            suggestions["conclusao"],
+        )
 
     def test_without_global_normality_does_not_fill_unmentioned_fields(self) -> None:
         enriched = validate_and_enrich_clinical_output(
