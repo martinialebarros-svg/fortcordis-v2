@@ -135,6 +135,9 @@ O módulo é aditivo e isolado:
 - RF-044: toda interpretação derivada de medida identifica o valor de origem,
   emite alerta clínico e pode substituir uma frase global de normalidade
   conflitante antes do aceite explícito.
+- RF-045: se AE/Ao indicar remodelamento atrial e a transcrição afirmar B1 sem
+  remodelamento, a sugestão preserva a doença mitral e o refluxo, remove a
+  classificação conflitante e não infere outro estágio com AE/Ao isoladamente.
 
 ## 4. Estados
 

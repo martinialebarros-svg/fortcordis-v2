@@ -180,6 +180,8 @@ que a endocardiose e o refluxo sejam preservados, mas que o estágio B1 não sej
 mantido. A regra não atribui um novo estágio ACVIM com AE/Ao isoladamente.
 O validador remove deterministicamente da conclusão as expressões conflitantes
 `sem remodelamento cardíaco significativo` e `Estágio B1 (ACVIM)`.
+O teste unitário usa uma conclusão contendo ambas as expressões e confirma sua
+remoção, sem perder a endocardiose mitral.
 
 ### Evidência da regravação em stage
 
