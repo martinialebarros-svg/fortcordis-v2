@@ -203,6 +203,9 @@ O módulo é aditivo e isolado:
 - RF-064: a tabela formal de medidas inclui as ondas e' e a' do Doppler
   tecidual, ambas identificadas em `cm/s`; a relação E/E' permanece
   adimensional.
+- RF-065: o deploy de produção configura explicitamente o assistente de ditado
+  com a flag habilitada, provedor OpenAI e modelos aprovados, sem registrar ou
+  expor a chave da API.
 
 ## 4. Estados
 

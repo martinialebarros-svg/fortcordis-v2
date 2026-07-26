@@ -2,7 +2,7 @@
 
 Data: 2026-07-25
 Responsável: Martiniano + Codex
-Status: stage_validated
+Status: production_enabled
 
 ## Objetivo
 
@@ -22,7 +22,8 @@ médico-veterinário ou o fluxo manual.
 - áudio temporário, exclusão manual e limpeza automática;
 - isolamento das sessões pelo usuário proprietário e clínica do laudo;
 - vocabulário e frases preferidas configuráveis pelo usuário;
-- feature flag desativada por padrão e ativada somente em homologação neste ciclo.
+- feature flag desativada por padrão e habilitada por configuração explícita em
+  homologação e produção.
 
 ## Não objetivos do MVP
 
@@ -32,7 +33,6 @@ médico-veterinário ou o fluxo manual.
 - streaming de transcrição em tempo real;
 - substituir o modelo atual de laudo ou o editor manual;
 - criar Redis, Celery ou novo serviço de fila;
-- promover a funcionalidade para produção.
 
 ## Riscos principais
 
