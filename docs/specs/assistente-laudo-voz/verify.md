@@ -162,6 +162,21 @@ refluxo leve, estágio B1 sem remodelamento e disfunção diastólica grau I. El
 exige descrição mitral detalhada, preset rico nos demais aspectos e conclusão
 contendo somente os achados ditados.
 
+### Evidência do cenário misto B1 + DDG1 em stage
+
+- Commit implantado: `c06fb512db76a4336ec4339d8bc6e01ee9510063`.
+- Validação local: 438 testes e 2 subtestes, `pip check`, verificação de diff e
+  guardrail SDD aprovados.
+- Migration CI `30183939045`: sucesso.
+- Deploy Stage `30183939021`: quality gate, guardrail SDD, VPS e canary
+  aprovados.
+- Canary real: transcrição; reconhecimento de B1, refluxo leve e DDG1; preset
+  rico nos demais campos; conclusão restrita aos achados; aplicação seletiva;
+  auditoria e exclusão do áudio.
+- Smoke público: aplicação e `/laudos/novo` responderam `200`; configuração
+  protegida respondeu `401` sem credenciais, conforme esperado.
+- `origin/main` permaneceu em `6a12cf9a815d6e2e14d58604e03242948f8e1093`.
+
 ### Evidência do preset normal rico em stage
 
 - Commit implantado: `467ca0f2c7d31deeca199bd271c409eee4b9e489`.
