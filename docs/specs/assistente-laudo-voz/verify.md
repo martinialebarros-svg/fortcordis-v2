@@ -126,3 +126,15 @@ A regra é determinística no backend, usa o prompt
 `echo-clinical-ptbr-v3`, não persiste o laudo e mantém revisão/aceite explícitos.
 O canary descartável de stage usa o segundo texto e exige as 15 chaves, o texto
 diastólico canônico e a conclusão restrita antes de seguir para o cenário AE/Ao.
+
+### Evidência da expansão em stage
+
+- Commit implantado: `1e87dc8c6036c239ff74e8067b238f41228b36f3`.
+- Migration CI `30181145386`: sucesso.
+- Deploy Stage `30181145397`: guardrail SDD, quality gate, VPS e canary aprovados.
+- Canary: transcrição real; expansão dos demais campos; preservação da disfunção
+  diastólica grau I; conclusão restrita; estruturação numérica; aplicação seletiva
+  sem persistência; auditoria; exclusão do áudio.
+- Smoke público: aplicação `200` e configuração protegida `401` sem credenciais,
+  conforme esperado.
+- `origin/main` permaneceu em `6a12cf9a815d6e2e14d58604e03242948f8e1093`.
