@@ -31,6 +31,7 @@ Status: deterministic_structuring_stage_followup_pending
 | CA-021 | exclusão após transcrição ou falha rejeita a sessão, remove o áudio e limpa transcrição/sugestões locais antes de retornar à gravação no mesmo rascunho | local_pass |
 | CA-022 | ditado exato de mitral leve/B1 + demais parâmetros normais gera 15 sugestões ricas sem chamar o provedor externo; achado não reconhecido continua no fluxo estrito da IA | local_pass |
 | CA-023 | `insufficient_quota` é distinguido de rate limit temporário e retorna mensagem explícita de cota esgotada | local_pass |
+| CA-024 | tabela formal de medidas apresenta e' e a' do Doppler tecidual em `cm/s`; o mapeamento de referência usa a mesma unidade | local_pass |
 
 ## Evidência local executada
 
@@ -336,6 +337,22 @@ razões são explicitamente adimensionais.
   e repercussão hemodinâmica significativa; achados mitral e diastólico
   preservados; conclusão normal e B1 conflitantes removidos; aplicação seletiva,
   auditoria e exclusão do áudio aprovadas.
+- Smoke público: aplicação e `/laudos/novo` responderam `200`; configuração
+  protegida respondeu `401` sem credenciais.
+- `origin/main` permaneceu em `6a12cf9a815d6e2e14d58604e03242948f8e1093`.
+
+### Evidência da correlação multimodal C em stage
+
+- Commit implantado: `bfcaa3f91305538f4d46dc295ead6b50b32538c7`
+  (inclui a implementação `42df756bc015c2538c2b0103a58b9b6632d61184`).
+- Validação local: 40 testes focados e 443 testes completos aprovados; lint,
+  TypeScript, build, diff check e guardrail SDD aprovados.
+- Migration CI `30206311386`: sucesso.
+- Deploy Stage `30206311321`: quality gate, guardrail SDD, VPS, readiness,
+  canary autenticado e restore drill aprovados.
+- Canary clínico real: transcrição; regressão B1 + DDG1; correlação avançada de
+  estágio C com sete medidas; integridade numérica AE/Ao; aplicação seletiva sem
+  persistência do laudo; auditoria; exclusão do áudio e limpeza aprovadas.
 - Smoke público: aplicação e `/laudos/novo` responderam `200`; configuração
   protegida respondeu `401` sem credenciais.
 - `origin/main` permaneceu em `6a12cf9a815d6e2e14d58604e03242948f8e1093`.
