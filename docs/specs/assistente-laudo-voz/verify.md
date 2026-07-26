@@ -1,8 +1,8 @@
 # Verify - assistente-laudo-voz
 
-Data: 2026-07-25
+Data: 2026-07-26
 Responsável: Martiniano + Codex
-Status: reference_context_stage_pass
+Status: structured_recovery_local_pass
 
 ## Matriz
 
@@ -29,6 +29,7 @@ Status: reference_context_stage_pass
 | CA-019 | medidas possuem unidades canônicas no payload e em todos os rótulos das telas novo/editar | stage_pass |
 | CA-020 | padrão avançado derivado das medidas gera frases interpretativas sem números e estágio C apenas condicional sem evidência de ICC | stage_pass |
 | CA-021 | exclusão após transcrição ou falha rejeita a sessão, remove o áudio e limpa transcrição/sugestões locais antes de retornar à gravação no mesmo rascunho | local_pass |
+| CA-022 | ditado exato de mitral leve/B1 + demais parâmetros normais gera 15 sugestões ricas; resposta estruturada inválida é recuperada apenas nesse conjunto conhecido e achado não reconhecido continua bloqueado | local_pass |
 
 ## Evidência local executada
 
@@ -80,6 +81,34 @@ outro laudo.
 
 O `check_sdd_guardrail.py` depende de um `HEAD` commitado e será executado antes
 do push de `stage`.
+
+### Regressão da resposta clínica fora do formato
+
+O teste reproduz integralmente o ditado da captura:
+`Espessamento de valva mitral com regurgitação leve. O espessamento de mitral
+é leve. Demais parâmetros ecocardiográficos dentro da normalidade. Animal
+classificado como B1 para endocardiose de mitral.`
+
+A chamada estruturada passa a usar raciocínio `low`, orçamento de 8.000 tokens e
+prompt `echo-clinical-ptbr-v6`, que orienta o modelo a não repetir frases normais
+genéricas. Se a resposta ainda falhar no esquema, a recuperação determinística
+é permitida somente quando todas as orações estiverem cobertas pelas regras
+conhecidas. O teste de integração exige sessão em `awaiting_review`, os 14
+campos qualitativos mais a conclusão, preset rico por estrutura, alteração
+mitral leve e conclusão B1. Um caso com massa atrial confirma que achados não
+reconhecidos permanecem em `failed` com `invalid_structured_output`.
+
+```bash
+cd backend
+./venv/bin/python -m unittest \
+  tests.test_ai_echo_voice_assistant \
+  tests.test_ai_echo_stage_canary
+# 47 testes, OK
+./venv/bin/python -m pytest -q
+# 450 testes e 2 subtestes, OK
+./venv/bin/python -m pip check
+# No broken requirements found.
+```
 
 ### Correlação multimodal em doença mitral avançada
 

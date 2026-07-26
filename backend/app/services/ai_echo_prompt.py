@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-PROMPT_VERSION = "echo-clinical-ptbr-v5"
+PROMPT_VERSION = "echo-clinical-ptbr-v6"
 VOCABULARY_PATH = Path(__file__).resolve().parents[2] / "data" / "ai_echo_vocabulary_pt_br.json"
 
 
@@ -111,9 +111,13 @@ Regras clínicas obrigatórias:
   transcrição tratar do mesmo campo, consolide os fatos compatíveis em uma única sugestão.
 - "Exame normal", "sem alterações ecocardiográficas" e equivalentes afirmam normalidade
   global dos aspectos qualitativos avaliados, mas não autorizam inventar medidas numéricas.
+  Não repita uma frase genérica em cada campo: retorne somente alterações explícitas,
+  quando existirem, pois o backend aplicará o preset normal específico de cada estrutura.
 - "Demais parâmetros ecocardiográficos dentro da normalidade" afirma normalidade dos campos
   qualitativos não contraditos pelos achados específicos ditados. Preserve cada alteração
-  explícita no campo correspondente e não a neutralize com uma frase normal.
+  explícita no campo correspondente e não a neutralize com uma frase normal. Retorne
+  sugestões somente para as alterações explícitas; o backend completará os demais campos
+  com o preset normal correspondente à espécie.
 - A conclusão deve conter somente as alterações explícitas relevantes. Se não houver
   alteração, conclua que o ecocardiograma está dentro dos limites da normalidade.
 

@@ -25,11 +25,12 @@ class AIEchoStageCanaryTest(unittest.TestCase):
         self.assertIn(b'ai-echo-canary.m4a', body)
         self.assertTrue(content_type.startswith("multipart/form-data; boundary="))
 
-    def test_remaining_normal_regression_transcript_has_no_personal_identifiers(self) -> None:
+    def test_remaining_normal_regression_has_no_personal_identifiers(self) -> None:
         transcript = ai_echo_stage_canary.REMAINING_NORMAL_REGRESSION_TRANSCRIPT
-        self.assertIn("Disfunção diastólica grau 1", transcript)
-        self.assertIn("O resto dos parâmetros", transcript)
-        self.assertIn("Classificação B1", transcript)
+        self.assertIn("regurgitação leve", transcript)
+        self.assertIn("Demais parâmetros", transcript)
+        self.assertIn("classificado como B1", transcript)
+        self.assertNotIn("Disfunção diastólica", transcript)
         self.assertNotIn("@", transcript)
         self.assertNotRegex(transcript, r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b")
         self.assertNotRegex(transcript, r"\b\d{4,5}-?\d{4}\b")

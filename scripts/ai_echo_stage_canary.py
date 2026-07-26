@@ -17,10 +17,9 @@ from deploy_authenticated_canary import _token_from_internal_backend
 
 
 REMAINING_NORMAL_REGRESSION_TRANSCRIPT = (
-    "Valva mitral com folhetos espessados, espessamento leve, com refluxo leve, "
-    "sem remodelamento de câmaras cardíacas. Classificação B1 para endocardiose "
-    "de mitral. Disfunção diastólica grau 1 padrão senil. O resto "
-    "dos parâmetros ecocardiográficos avaliados dentro da normalidade."
+    "Espessamento de valva mitral com regurgitação leve. O espessamento de "
+    "mitral é leve. Demais parâmetros ecocardiográficos dentro da normalidade. "
+    "Animal classificado como B1 para endocardiose de mitral."
 )
 
 ADVANCED_MITRAL_STAGE_C_TRANSCRIPT = (
@@ -262,7 +261,7 @@ def run_canary(args: argparse.Namespace) -> None:
             body=_json_body(
                 {
                     "edited_transcript": REMAINING_NORMAL_REGRESSION_TRANSCRIPT,
-                    "current_measurements": {"AE_Ao": "2,4"},
+                    "current_measurements": {},
                 }
             ),
             content_type="application/json",
@@ -286,9 +285,6 @@ def run_canary(args: argparse.Namespace) -> None:
         }
         if set(regression_suggestions) != expected_fields:
             raise RuntimeError("A normalidade dos demais campos não foi expandida.")
-        expected_diastolic = "Disfunção diastólica grau I (padrão senil)."
-        if regression_suggestions.get("funcao_diastolica") != expected_diastolic:
-            raise RuntimeError("A alteração diastólica não foi preservada.")
         conclusion_text = str(regression_suggestions.get("conclusao") or "")
         normalized_conclusion = conclusion_text.lower()
         if not any(
@@ -296,21 +292,20 @@ def run_canary(args: argparse.Namespace) -> None:
             for term in ("endocardiose mitral", "degeneração mixomatosa")
         ):
             raise RuntimeError("A conclusão não preservou a endocardiose mitral.")
-        if "Estágio B1 (ACVIM)" in conclusion_text:
-            raise RuntimeError(
-                "A conclusão manteve B1 apesar do AE/Ao 2.4 conflitante."
-            )
+        if "Estágio B1 (ACVIM)" not in conclusion_text:
+            raise RuntimeError("A conclusão não preservou a classificação B1.")
         if "refluxo de grau leve" not in conclusion_text:
             raise RuntimeError("A conclusão não descreveu o refluxo mitral leve.")
-        if expected_diastolic.rstrip(".") not in conclusion_text:
-            raise RuntimeError("A conclusão não descreveu a disfunção diastólica.")
-        if "2.4" in conclusion_text or "2,4" in conclusion_text:
-            raise RuntimeError("A conclusão repetiu a medida AE/Ao do formulário.")
-        if "repercussão hemodinâmica significativa" not in conclusion_text:
-            raise RuntimeError("A repercussão hemodinâmica do AE/Ao não foi sugerida.")
+        if "Disfunção diastólica" in conclusion_text:
+            raise RuntimeError("A conclusão inventou disfunção diastólica não ditada.")
+        if "Ecocardiograma dentro dos limites da normalidade" in conclusion_text:
+            raise RuntimeError("A conclusão normal apagou a alteração mitral.")
         mitral_text = str(regression_suggestions.get("valva_mitral") or "")
         aortic_text = str(regression_suggestions.get("valva_aortica") or "")
-        if "folheto septal" not in mitral_text.lower() or "cúspides" not in aortic_text.lower():
+        if (
+            "folheto septal" not in mitral_text.lower()
+            or "cúspides" not in aortic_text.lower()
+        ):
             raise RuntimeError("Os campos normais não usaram as frases ricas do preset.")
         if mitral_text == aortic_text:
             raise RuntimeError("O preset normal repetiu o mesmo texto entre estruturas.")

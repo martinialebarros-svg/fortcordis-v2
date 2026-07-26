@@ -48,6 +48,7 @@ from app.services import ai_echo_providers, ai_echo_service
 from app.services.ai_echo_providers import AIEchoProviderError, StructuringResult
 from app.services.ai_echo_validation import (
     _NORMAL_FIELD_SUGGESTIONS,
+    can_recover_normality_deterministically,
     extract_measurements_from_transcript,
     parse_spoken_number,
     validate_and_enrich_clinical_output,
@@ -389,6 +390,55 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
         self.assertNotIn(
             "Ecocardiograma dentro dos limites da normalidade",
             suggestions["conclusao"],
+        )
+
+    def test_exact_mild_mitral_b1_dictation_uses_rich_normal_preset(self) -> None:
+        transcript = (
+            "Espessamento de valva mitral com regurgitação leve. "
+            "O espessamento de mitral é leve. Demais parâmetros "
+            "ecocardiográficos dentro da normalidade. Animal classificado "
+            "como B1 para endocardiose de mitral."
+        )
+        self.assertTrue(can_recover_normality_deterministically(transcript))
+
+        enriched = validate_and_enrich_clinical_output(
+            empty_output(),
+            transcript,
+            species="Canina",
+        )
+        suggestions = {item.field_key: item.text for item in enriched.field_suggestions}
+        self.assertEqual(set(suggestions), {*_NORMAL_FIELD_SUGGESTIONS, "conclusao"})
+        self.assertIn("espessamento leve", suggestions["valva_mitral"])
+        self.assertIn("refluxo mitral de grau leve", suggestions["valva_mitral"].lower())
+        self.assertIn("cúspides delgadas", suggestions["valva_aortica"])
+        self.assertNotEqual(suggestions["valva_mitral"], suggestions["valva_aortica"])
+        self.assertIn("Estágio B1 (ACVIM)", suggestions["conclusao"])
+        self.assertIn("refluxo de grau leve", suggestions["conclusao"])
+        self.assertNotIn("Disfunção diastólica", suggestions["conclusao"])
+        self.assertNotIn(
+            "Ecocardiograma dentro dos limites da normalidade",
+            suggestions["conclusao"],
+        )
+
+    def test_deterministic_recovery_rejects_unrecognized_or_advanced_finding(
+        self,
+    ) -> None:
+        self.assertFalse(
+            can_recover_normality_deterministically(
+                "Massa em átrio direito. Demais parâmetros ecocardiográficos "
+                "dentro da normalidade."
+            )
+        )
+        self.assertFalse(
+            can_recover_normality_deterministically(
+                "Regurgitação mitral importante. Demais parâmetros "
+                "ecocardiográficos dentro da normalidade."
+            )
+        )
+        self.assertFalse(
+            can_recover_normality_deterministically(
+                "Demais parâmetros ecocardiográficos dentro da normalidade."
+            )
         )
 
     def test_without_global_normality_does_not_fill_unmentioned_fields(self) -> None:
@@ -1007,6 +1057,14 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
             provider_input["reference_context"]["source"],
             "tabela_de_referencia_carregada",
         )
+        self.assertEqual(
+            fake_client.responses.parse.call_args.kwargs["reasoning"],
+            {"effort": "low"},
+        )
+        self.assertEqual(
+            fake_client.responses.parse.call_args.kwargs["max_output_tokens"],
+            8000,
+        )
 
     def test_structured_validation_error_is_not_reported_as_provider_outage(self) -> None:
         with self.assertRaises(ValidationError) as validation:
@@ -1196,6 +1254,127 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
             refreshed = db.query(AIEchoSession).filter(AIEchoSession.id == session_id).one()
             self.assertEqual(refreshed.status, "awaiting_review")
             self.assertEqual(refreshed.provider_response_id, "resp-test")
+
+    def test_invalid_provider_output_recovers_exact_mild_mitral_b1_case(self) -> None:
+        transcript_text = (
+            "Espessamento de valva mitral com regurgitação leve. "
+            "O espessamento de mitral é leve. Demais parâmetros "
+            "ecocardiográficos dentro da normalidade. Animal classificado "
+            "como B1 para endocardiose de mitral."
+        )
+        with self.session_factory() as db:
+            session = self.create_session(db)
+            session_id = session.id
+            db.add(
+                AIEchoTranscript(
+                    id="t-recovery",
+                    session_id=session_id,
+                    raw_text=transcript_text,
+                    edited_text=transcript_text,
+                    language="pt-BR",
+                )
+            )
+            db.commit()
+
+        fake_provider = SimpleNamespace(
+            structure=Mock(
+                side_effect=AIEchoProviderError(
+                    "Resposta inválida.",
+                    code="invalid_structured_output",
+                )
+            )
+        )
+        with (
+            patch.object(ai_echo_service, "SessionLocal", self.session_factory),
+            patch.object(
+                ai_echo_service,
+                "get_clinical_structuring_provider",
+                return_value=fake_provider,
+            ),
+        ):
+            ai_echo_service._process_structure(session_id)
+
+        with self.session_factory() as db:
+            refreshed = (
+                db.query(AIEchoSession)
+                .filter(AIEchoSession.id == session_id)
+                .one()
+            )
+            suggestions = {
+                item.field_key: item.suggested_value
+                for item in db.query(AIEchoFieldSuggestion)
+                .filter(AIEchoFieldSuggestion.session_id == session_id)
+                .all()
+            }
+            warning_types = {
+                item.warning_type
+                for item in db.query(AIEchoClinicalWarning)
+                .filter(AIEchoClinicalWarning.session_id == session_id)
+                .all()
+            }
+            self.assertEqual(refreshed.status, "awaiting_review")
+            self.assertIsNone(refreshed.last_error_code)
+            self.assertEqual(
+                set(suggestions),
+                {*_NORMAL_FIELD_SUGGESTIONS, "conclusao"},
+            )
+            self.assertIn("Estágio B1 (ACVIM)", suggestions["conclusao"])
+            self.assertIn(
+                "structured_output_recovered_deterministically",
+                warning_types,
+            )
+
+    def test_invalid_provider_output_stays_blocked_for_unknown_finding(self) -> None:
+        transcript_text = (
+            "Massa em átrio direito. Demais parâmetros ecocardiográficos "
+            "dentro da normalidade."
+        )
+        with self.session_factory() as db:
+            session = self.create_session(db)
+            session_id = session.id
+            db.add(
+                AIEchoTranscript(
+                    id="t-no-recovery",
+                    session_id=session_id,
+                    raw_text=transcript_text,
+                    edited_text=transcript_text,
+                    language="pt-BR",
+                )
+            )
+            db.commit()
+
+        fake_provider = SimpleNamespace(
+            structure=Mock(
+                side_effect=AIEchoProviderError(
+                    "Resposta inválida.",
+                    code="invalid_structured_output",
+                )
+            )
+        )
+        with (
+            patch.object(ai_echo_service, "SessionLocal", self.session_factory),
+            patch.object(
+                ai_echo_service,
+                "get_clinical_structuring_provider",
+                return_value=fake_provider,
+            ),
+        ):
+            ai_echo_service._process_structure(session_id)
+
+        with self.session_factory() as db:
+            refreshed = (
+                db.query(AIEchoSession)
+                .filter(AIEchoSession.id == session_id)
+                .one()
+            )
+            self.assertEqual(refreshed.status, "failed")
+            self.assertEqual(refreshed.last_error_code, "invalid_structured_output")
+            self.assertEqual(
+                db.query(AIEchoFieldSuggestion)
+                .filter(AIEchoFieldSuggestion.session_id == session_id)
+                .count(),
+                0,
+            )
 
 
 if __name__ == "__main__":

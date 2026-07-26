@@ -1,8 +1,8 @@
 # Spec - assistente-laudo-voz
 
-Data: 2026-07-25
+Data: 2026-07-26
 Responsável: Martiniano + Codex
-Status: stage_validated
+Status: stage_pending
 
 ## 1. Arquitetura encontrada
 
@@ -183,6 +183,21 @@ O módulo é aditivo e isolado:
   temporário é excluído e todo o estado local da sessão (transcrição, sugestões,
   medidas e seleções) é limpo. A interface retorna imediatamente à etapa
   `Gravar ou enviar áudio`, preservando o mesmo rascunho do laudo.
+- RF-060: a estruturação com `gpt-5.6-sol` usa esforço de raciocínio explícito
+  `low` e orçamento máximo de 8.000 tokens de saída. O orçamento compreende
+  raciocínio e JSON estruturado e deve reservar espaço suficiente para a
+  resposta clínica validada pelo esquema Pydantic.
+- RF-061: se o provedor ainda devolver `invalid_structured_output`, o backend
+  somente pode reconstruir deterministicamente casos em que todas as orações
+  estejam cobertas pelas regras existentes de normalidade global/restante,
+  alteração mitral leve com B1 e/ou disfunção diastólica grau I. Qualquer achado
+  não reconhecido, avançado ou conflitante continua bloqueado; o esquema
+  estruturado não é afrouxado.
+- RF-062: no ditado de espessamento mitral leve, regurgitação mitral leve,
+  classificação B1 e demais parâmetros normais, o assistente usa a descrição
+  mitral detalhada, completa os outros campos com o preset normal específico e
+  conclui degeneração mixomatosa mitral B1 (ACVIM), sem acrescentar alteração
+  não ditada.
 
 ## 4. Estados
 

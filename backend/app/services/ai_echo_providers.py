@@ -152,6 +152,19 @@ class OpenAIClinicalStructuringProvider:
         safety_identifier = hashlib.sha256(
             f"fortcordis-echo:{safety_user_id}".encode("utf-8")
         ).hexdigest()[:64]
+        reasoning_effort = str(
+            settings.AI_ECHO_REASONING_EFFORT or "low"
+        ).strip().lower()
+        allowed_reasoning_efforts = {
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+        }
+        if reasoning_effort not in allowed_reasoning_efforts:
+            reasoning_effort = "low"
         try:
             response = self.client.responses.parse(
                 model=self.model,
@@ -172,6 +185,7 @@ class OpenAIClinicalStructuringProvider:
                     ensure_ascii=False,
                 ),
                 text_format=EchoClinicalStructureOutput,
+                reasoning={"effort": reasoning_effort},
                 max_output_tokens=int(settings.AI_ECHO_MAX_OUTPUT_TOKENS),
                 safety_identifier=safety_identifier,
                 store=False,
