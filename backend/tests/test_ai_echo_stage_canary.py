@@ -37,6 +37,7 @@ class AIEchoStageCanaryTest(unittest.TestCase):
     def test_advanced_stage_c_transcript_has_no_personal_identifiers(self) -> None:
         transcript = ai_echo_stage_canary.ADVANCED_MITRAL_STAGE_C_TRANSCRIPT
         self.assertIn("Endocardiose mitral estágio C", transcript)
+        self.assertIn("dois vírgula cinco", transcript)
         self.assertIn("congestão venosa pulmonar", transcript)
         self.assertNotIn("@", transcript)
         self.assertNotRegex(transcript, r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b")

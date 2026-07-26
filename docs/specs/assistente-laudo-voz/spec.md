@@ -162,6 +162,9 @@ O módulo é aditivo e isolado:
 - RF-053: a correlação avançada não substitui a conclusão mitral leve quando
   somente AE/Ao está elevado; nesse cenário permanece a regra específica que
   preserva refluxo e disfunção diastólica já ditados.
+- RF-054: o canary vivo exerce no máximo duas estruturações por sessão, igual ao
+  limite operacional; a segunda cobre simultaneamente correlação C e integridade
+  numérica da AE/Ao ditada.
 
 ## 4. Estados
 

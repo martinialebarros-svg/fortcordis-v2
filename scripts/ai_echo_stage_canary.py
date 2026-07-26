@@ -16,11 +16,6 @@ from typing import Any
 from deploy_authenticated_canary import _token_from_internal_backend
 
 
-ARTIFICIAL_TRANSCRIPT = (
-    "Átrio esquerdo aumentado. Relação átrio esquerdo aorta de um vírgula "
-    "setenta e quatro. Sem efusão pericárdica."
-)
-
 REMAINING_NORMAL_REGRESSION_TRANSCRIPT = (
     "Valva mitral com folhetos espessados, espessamento leve, com refluxo leve, "
     "sem remodelamento de câmaras cardíacas. Classificação B1 para endocardiose "
@@ -31,7 +26,8 @@ REMAINING_NORMAL_REGRESSION_TRANSCRIPT = (
 ADVANCED_MITRAL_STAGE_C_TRANSCRIPT = (
     "Endocardiose mitral estágio C. Folhetos mitrais espessados com "
     "regurgitação mitral importante. Regurgitação tricúspide com repercussão "
-    "em câmaras direitas. Sinais de congestão venosa pulmonar."
+    "em câmaras direitas. Relação átrio esquerdo-aorta de dois vírgula cinco. "
+    "Sinais de congestão venosa pulmonar."
 )
 
 
@@ -379,21 +375,7 @@ def run_canary(args: argparse.Namespace) -> None:
                 )
         print("[ai-echo-canary] advanced stage C multimodal correlation: passed")
 
-        _request_json(
-            base_url=args.base_url,
-            path=f"/api/v1/ai/echo-sessions/{session_id}/structure",
-            token=token,
-            method="POST",
-            body=_json_body({"edited_transcript": ARTIFICIAL_TRANSCRIPT}),
-            content_type="application/json",
-        )
-        structured = _wait_for_review(
-            base_url=args.base_url,
-            token=token,
-            session_id=session_id,
-            needs_suggestions=True,
-            timeout_seconds=args.timeout_seconds,
-        )
+        structured = stage_c_result
         la_ao = next(
             (
                 item
@@ -402,7 +384,7 @@ def run_canary(args: argparse.Namespace) -> None:
             ),
             None,
         )
-        if not la_ao or abs(float(la_ao.get("numeric_value")) - 1.74) > 0.000001:
+        if not la_ao or abs(float(la_ao.get("numeric_value")) - 2.5) > 0.000001:
             raise RuntimeError("Integridade numérica AE/Ao não foi confirmada.")
 
         suggestions = [

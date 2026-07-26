@@ -74,6 +74,9 @@ ICC atual/prévia. Um teste separado confirma que as medidas e espécie/peso
 chegam juntas ao provedor de estruturação.
 O canary mantém ainda o cenário anterior B1 + refluxo leve + DDG1 + AE/Ao 2,4
 para assegurar que a correlação avançada não apague achados leves já ditados.
+O AE/Ao 2,5 também é pronunciado no segundo ditado artificial, permitindo usar
+a mesma tentativa para validar extração numérica, aplicação seletiva e auditoria,
+sem ultrapassar as duas estruturações permitidas por sessão.
 
 ## Homologação
 
