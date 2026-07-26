@@ -198,6 +198,23 @@ genérica de normalidade eventualmente carregada pelo preset.
   `Gravar novo áudio`.
 - `origin/main` permaneceu em `6a12cf9a815d6e2e14d58604e03242948f8e1093`.
 
+### Evidência da interpretação de medidas em stage
+
+- Commit implantado: `49ab0f71bf4ffa5fc36bdc2ec8e723fae5f54e41`.
+- Validação local: 36 testes focados aprovados; suíte completa anterior com 439
+  testes e 2 subtestes, lint, TypeScript, build, diff check e guardrail SDD
+  aprovados.
+- Migration CI `30204439549`: sucesso.
+- Deploy Stage `30204439552`: quality gate, guardrail SDD, VPS e canary clínico
+  aprovados.
+- Canary real: AE/Ao 2,4 interpretado como dilatação atrial esquerda importante
+  e repercussão hemodinâmica significativa; achados mitral e diastólico
+  preservados; conclusão normal e B1 conflitantes removidos; aplicação seletiva,
+  auditoria e exclusão do áudio aprovadas.
+- Smoke público: aplicação e `/laudos/novo` responderam `200`; configuração
+  protegida respondeu `401` sem credenciais.
+- `origin/main` permaneceu em `6a12cf9a815d6e2e14d58604e03242948f8e1093`.
+
 ### Evidência do cenário misto B1 + DDG1 em stage
 
 - Commit implantado: `c06fb512db76a4336ec4339d8bc6e01ee9510063`.
