@@ -51,7 +51,7 @@ from app.services.ai_echo_providers import (
     get_speech_to_text_provider,
 )
 from app.services.ai_echo_validation import (
-    build_deterministic_recovery_output,
+    build_deterministic_known_case_output,
     can_recover_normality_deterministically,
     validate_and_enrich_clinical_output,
 )
@@ -661,8 +661,24 @@ def _process_structure(
             "weight_kg": patient.peso_kg if patient else None,
         }
         processing_step = "structuring_provider"
-        provider = get_clinical_structuring_provider()
-        try:
+        if can_recover_normality_deterministically(transcript.edited_text):
+            logger.info(
+                "ai_echo_known_case_structured session_id=%s clinic_id=%s "
+                "user_id=%s prompt_version=%s",
+                session.id,
+                session.clinic_id,
+                session.user_id,
+                PROMPT_VERSION,
+            )
+            result = StructuringResult(
+                output=build_deterministic_known_case_output(exam_context),
+                model="fortcordis-deterministic-clinical-rules",
+                provider_response_id=None,
+                input_tokens=None,
+                output_tokens=None,
+            )
+        else:
+            provider = get_clinical_structuring_provider()
             result = provider.structure(
                 transcript=minimized_transcript,
                 phrase_preferences=phrase_preferences,
@@ -670,30 +686,6 @@ def _process_structure(
                 current_measurements=current_measurements,
                 exam_context=exam_context,
                 reference_context=reference_context,
-            )
-        except AIEchoProviderError as provider_error:
-            if (
-                provider_error.code != "invalid_structured_output"
-                or not can_recover_normality_deterministically(
-                    transcript.edited_text
-                )
-            ):
-                raise
-            logger.warning(
-                "ai_echo_structured_output_recovered session_id=%s clinic_id=%s "
-                "user_id=%s model=%s prompt_version=%s",
-                session.id,
-                session.clinic_id,
-                session.user_id,
-                str(settings.AI_STRUCTURING_MODEL or "").strip(),
-                PROMPT_VERSION,
-            )
-            result = StructuringResult(
-                output=build_deterministic_recovery_output(exam_context),
-                model=str(settings.AI_STRUCTURING_MODEL or "").strip(),
-                provider_response_id=None,
-                input_tokens=None,
-                output_tokens=None,
             )
         processing_step = "structuring_validation"
         output = validate_and_enrich_clinical_output(
