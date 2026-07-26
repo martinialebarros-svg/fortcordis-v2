@@ -77,6 +77,17 @@ def _safe_provider_error(exc: Exception) -> AIEchoProviderError:
             "O serviço de inteligência artificial não está configurado para este ambiente.",
             code="provider_not_configured",
         )
+    if (
+        "insufficient_quota" in message
+        or "current quota" in message
+        or "run out of credits" in message
+        or "no balance left" in message
+    ):
+        return AIEchoProviderError(
+            "A cota do serviço de inteligência artificial foi esgotada. "
+            "O laudo manual continua disponível.",
+            code="provider_quota_exhausted",
+        )
     if "rate" in name or "429" in message:
         return AIEchoProviderError(
             "O limite temporário do serviço de inteligência artificial foi atingido. Tente mais tarde.",

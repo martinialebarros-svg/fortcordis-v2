@@ -2,7 +2,7 @@
 
 Data: 2026-07-26
 Responsável: Martiniano + Codex
-Status: structured_recovery_local_pass
+Status: deterministic_structuring_stage_followup_pending
 
 ## Matriz
 
@@ -29,7 +29,8 @@ Status: structured_recovery_local_pass
 | CA-019 | medidas possuem unidades canônicas no payload e em todos os rótulos das telas novo/editar | stage_pass |
 | CA-020 | padrão avançado derivado das medidas gera frases interpretativas sem números e estágio C apenas condicional sem evidência de ICC | stage_pass |
 | CA-021 | exclusão após transcrição ou falha rejeita a sessão, remove o áudio e limpa transcrição/sugestões locais antes de retornar à gravação no mesmo rascunho | local_pass |
-| CA-022 | ditado exato de mitral leve/B1 + demais parâmetros normais gera 15 sugestões ricas; resposta estruturada inválida é recuperada apenas nesse conjunto conhecido e achado não reconhecido continua bloqueado | local_pass |
+| CA-022 | ditado exato de mitral leve/B1 + demais parâmetros normais gera 15 sugestões ricas sem chamar o provedor externo; achado não reconhecido continua no fluxo estrito da IA | local_pass |
+| CA-023 | `insufficient_quota` é distinguido de rate limit temporário e retorna mensagem explícita de cota esgotada | local_pass |
 
 ## Evidência local executada
 
@@ -89,26 +90,37 @@ O teste reproduz integralmente o ditado da captura:
 é leve. Demais parâmetros ecocardiográficos dentro da normalidade. Animal
 classificado como B1 para endocardiose de mitral.`
 
-A chamada estruturada passa a usar raciocínio `low`, orçamento de 8.000 tokens e
-prompt `echo-clinical-ptbr-v6`, que orienta o modelo a não repetir frases normais
-genéricas. Se a resposta ainda falhar no esquema, a recuperação determinística
-é permitida somente quando todas as orações estiverem cobertas pelas regras
-conhecidas. O teste de integração exige sessão em `awaiting_review`, os 14
-campos qualitativos mais a conclusão, preset rico por estrutura, alteração
-mitral leve e conclusão B1. Um caso com massa atrial confirma que achados não
-reconhecidos permanecem em `failed` com `invalid_structured_output`.
+A chamada dos casos complexos passa a usar raciocínio `low`, orçamento de 8.000
+tokens e prompt `echo-clinical-ptbr-v6`, que orienta o modelo a não repetir
+frases normais genéricas. Casos simples integralmente cobertos pelas regras
+conhecidas são estruturados localmente, sem consumir cota da API. O teste de
+integração exige sessão em `awaiting_review`, os 14 campos qualitativos mais a
+conclusão, preset rico por estrutura, alteração mitral leve, conclusão B1 e
+confirma que o provedor externo não foi chamado. Um caso com massa atrial
+confirma que achados não reconhecidos continuam no fluxo estrito e permanecem
+em `failed` quando o provedor retorna `invalid_structured_output`.
 
 ```bash
 cd backend
 ./venv/bin/python -m unittest \
   tests.test_ai_echo_voice_assistant \
   tests.test_ai_echo_stage_canary
-# 47 testes, OK
+# 48 testes, OK
 ./venv/bin/python -m pytest -q
-# 450 testes e 2 subtestes, OK
+# 451 testes e 2 subtestes, OK
 ./venv/bin/python -m pip check
 # No broken requirements found.
 ```
+
+O primeiro deploy da correção (`30212298835`, commit `e800e7d`) concluiu
+guardrail, quality gate e implantação no VPS. O canário vivo foi bloqueado antes
+da estruturação, durante a transcrição artificial, com
+`provider_rate_limited`. Uma requisição mínima e sem conteúdo clínico feita com
+a configuração local da API confirmou `429 insufficient_quota`, sem
+`retry-after`. Como não se trata de falha do esquema clínico, o seguimento torna
+os casos conhecidos independentes da API na etapa de estruturação e preserva o
+canário vivo como verificação separada, a ser repetida depois da regularização
+da cota.
 
 ### Correlação multimodal em doença mitral avançada
 

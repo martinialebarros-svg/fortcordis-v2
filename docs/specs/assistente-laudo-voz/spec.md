@@ -2,7 +2,7 @@
 
 Data: 2026-07-26
 Responsável: Martiniano + Codex
-Status: stage_pending
+Status: stage_followup_pending_provider_quota
 
 ## 1. Arquitetura encontrada
 
@@ -187,17 +187,19 @@ O módulo é aditivo e isolado:
   `low` e orçamento máximo de 8.000 tokens de saída. O orçamento compreende
   raciocínio e JSON estruturado e deve reservar espaço suficiente para a
   resposta clínica validada pelo esquema Pydantic.
-- RF-061: se o provedor ainda devolver `invalid_structured_output`, o backend
-  somente pode reconstruir deterministicamente casos em que todas as orações
-  estejam cobertas pelas regras existentes de normalidade global/restante,
-  alteração mitral leve com B1 e/ou disfunção diastólica grau I. Qualquer achado
-  não reconhecido, avançado ou conflitante continua bloqueado; o esquema
-  estruturado não é afrouxado.
+- RF-061: o backend estrutura sem chamar o provedor externo somente os casos em
+  que todas as orações estejam cobertas pelas regras existentes de normalidade
+  global/restante, alteração mitral leve com B1 e/ou disfunção diastólica grau I.
+  Qualquer achado não reconhecido, avançado ou conflitante continua no fluxo da
+  IA com validação Pydantic estrita; o esquema estruturado não é afrouxado.
 - RF-062: no ditado de espessamento mitral leve, regurgitação mitral leve,
   classificação B1 e demais parâmetros normais, o assistente usa a descrição
   mitral detalhada, completa os outros campos com o preset normal específico e
   conclui degeneração mixomatosa mitral B1 (ACVIM), sem acrescentar alteração
   não ditada.
+- RF-063: respostas `429 insufficient_quota` são apresentadas como cota da API
+  esgotada, distintas de um limite temporário de requisições. O laudo manual e
+  os casos determinísticos conhecidos permanecem disponíveis.
 
 ## 4. Estados
 

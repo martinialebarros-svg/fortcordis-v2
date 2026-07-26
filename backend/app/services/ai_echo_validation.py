@@ -371,7 +371,7 @@ def can_recover_normality_deterministically(transcript: str) -> bool:
     return True
 
 
-def build_deterministic_recovery_output(
+def build_deterministic_known_case_output(
     exam_context: dict | None,
 ) -> EchoClinicalStructureOutput:
     context = exam_context if isinstance(exam_context, dict) else {}
@@ -395,12 +395,11 @@ def build_deterministic_recovery_output(
             "conclusion_suggestion": [],
             "warnings": [
                 {
-                    "warning_type": "structured_output_recovered_deterministically",
+                    "warning_type": "known_case_structured_deterministically",
                     "severity": "info",
                     "message": (
-                        "A resposta estruturada do serviço foi descartada e este "
-                        "caso conhecido foi reconstruído pelas regras clínicas e "
-                        "pelo preset do sistema. Revise as sugestões antes de aplicar."
+                        "Este caso conhecido foi estruturado pelas regras clínicas "
+                        "e pelo preset do sistema. Revise as sugestões antes de aplicar."
                     ),
                     "related_fields": ["conclusao"],
                 }

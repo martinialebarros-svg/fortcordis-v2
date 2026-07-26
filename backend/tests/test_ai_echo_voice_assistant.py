@@ -962,6 +962,14 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
         self.assertEqual(error.code, "provider_timeout")
         self.assertNotIn("request timeout", str(error))
 
+    def test_insufficient_quota_is_not_reported_as_temporary_rate_limit(self) -> None:
+        error = ai_echo_providers._safe_provider_error(
+            RuntimeError("Error code: 429 - insufficient_quota")
+        )
+        self.assertEqual(error.code, "provider_quota_exhausted")
+        self.assertIn("cota", str(error).lower())
+        self.assertNotIn("temporário", str(error).lower())
+
     def test_incomplete_provider_response_is_rejected(self) -> None:
         fake_client = SimpleNamespace(
             responses=SimpleNamespace(
@@ -1255,7 +1263,7 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
             self.assertEqual(refreshed.status, "awaiting_review")
             self.assertEqual(refreshed.provider_response_id, "resp-test")
 
-    def test_invalid_provider_output_recovers_exact_mild_mitral_b1_case(self) -> None:
+    def test_exact_mild_mitral_b1_case_does_not_call_external_provider(self) -> None:
         transcript_text = (
             "Espessamento de valva mitral com regurgitação leve. "
             "O espessamento de mitral é leve. Demais parâmetros "
@@ -1278,10 +1286,7 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
 
         fake_provider = SimpleNamespace(
             structure=Mock(
-                side_effect=AIEchoProviderError(
-                    "Resposta inválida.",
-                    code="invalid_structured_output",
-                )
+                side_effect=AssertionError("O provedor externo não deve ser chamado.")
             )
         )
         with (
@@ -1320,9 +1325,14 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
             )
             self.assertIn("Estágio B1 (ACVIM)", suggestions["conclusao"])
             self.assertIn(
-                "structured_output_recovered_deterministically",
+                "known_case_structured_deterministically",
                 warning_types,
             )
+            self.assertEqual(
+                refreshed.structuring_model,
+                "fortcordis-deterministic-clinical-rules",
+            )
+            fake_provider.structure.assert_not_called()
 
     def test_invalid_provider_output_stays_blocked_for_unknown_finding(self) -> None:
         transcript_text = (
