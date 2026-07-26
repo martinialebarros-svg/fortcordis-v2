@@ -235,6 +235,10 @@ O módulo é aditivo e isolado:
 - RF-073: as duas séries importadas permanecem revisáveis no formulário; a chave
   `VE_tecnica_relatorio` controla o bloco quantitativo emitido no PDF, sem
   substituir silenciosamente uma técnica pela outra.
+- RF-074: o canário vivo avançado valida a mesma regra clínica da aplicação:
+  IT Vmax elevada acompanhada de repercussão anatômica direita deve produzir
+  probabilidade ecocardiográfica de hipertensão pulmonar e não deve manter o
+  alerta reservado à velocidade tricúspide isolada.
 
 ## 4. Estados
 

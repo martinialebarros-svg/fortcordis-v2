@@ -360,14 +360,17 @@ def run_canary(args: argparse.Namespace) -> None:
             raise RuntimeError("A classificação C informada no ditado não foi preservada.")
         if "congestão venosa pulmonar" not in stage_c_conclusion:
             raise RuntimeError("A congestão informada no ditado não foi preservada.")
+        if "alta probabilidade ecocardiográfica" not in stage_c_conclusion:
+            raise RuntimeError(
+                "A probabilidade de hipertensão pulmonar não foi correlacionada."
+            )
         warning_types = {
             item.get("warning_type") for item in (stage_c_result.get("warnings") or [])
         }
-        for expected_warning in ("tr_velocity_requires_ph_context",):
-            if expected_warning not in warning_types:
-                raise RuntimeError(
-                    f"A salvaguarda multimodal {expected_warning} não foi emitida."
-                )
+        if "tr_velocity_requires_ph_context" in warning_types:
+            raise RuntimeError(
+                "A salvaguarda de IT Vmax isolada foi mantida apesar do contexto direito."
+            )
         for obsolete_warning in (
             "multimodal_correlation_applied",
             "mitral_velocity_not_regurgitation_grade",

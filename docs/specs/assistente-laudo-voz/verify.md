@@ -24,7 +24,7 @@ Status: local_pass
 | CA-014 | `origin/main=6a12cf9a815d6e2e14d58604e03242948f8e1093`; produção sem alteração | pass |
 | CA-015 | regressão reproduz o texto reportado, consolida sugestões duplicadas por maior confiança e registra alerta visível | stage_pass |
 | CA-016 | `ValidationError` estruturado retorna `invalid_structured_output`, sem mensagem falsa de indisponibilidade | stage_pass |
-| CA-017 | correlação multimodal de áudio + sete medidas em endocardiose mitral C, com salvaguardas de ICC, IM Vmax e IT Vmax | local_pass |
+| CA-017 | correlação multimodal de áudio + sete medidas em endocardiose mitral C, com salvaguardas de ICC/IM Vmax e classificação de hipertensão pulmonar somente quando IT Vmax possui contexto anatômico direito | local_pass |
 | CA-018 | contexto do paciente contém espécie, raça, idade e peso; referência mais próxima carregada chega ao provedor e ao validador | stage_pass |
 | CA-019 | medidas possuem unidades canônicas no payload e em todos os rótulos das telas novo/editar | stage_pass |
 | CA-020 | padrão avançado derivado das medidas gera frases interpretativas sem números e estágio C apenas condicional sem evidência de ICC | stage_pass |
@@ -39,6 +39,7 @@ Status: local_pass
 | CA-029 | PDF com `MM/LVIDd` e `2D/LVIDd` conserva as duas séries, informa as duas técnicas e bloqueia aplicação até escolha do bloco do laudo | local_pass |
 | CA-030 | PDF final usa `VE_tecnica_relatorio` para emitir exclusivamente o bloco Modo M ou Modo 2D selecionado | local_pass |
 | CA-031 | suíte oficial com 471 testes, 70 testes focados e 13 subtestes, `pip check`, ESLint, TypeScript, build Next.js e `git diff --check` | local_pass |
+| CA-032 | canário vivo avançado exige alta probabilidade ecocardiográfica quando IT Vmax 3,6 m/s está associada a repercussão em câmaras direitas e rejeita o alerta legado de velocidade isolada | stage_pending |
 
 ## Evidência local executada
 
@@ -174,10 +175,13 @@ congestão venosa pulmonar junto com `AE_Ao=2,5`,
 
 As asserções exigem frases específicas para mitral, átrio esquerdo, ventrículo
 esquerdo, função diastólica, tricúspide, câmaras direitas e conclusão C, sem
-repetir os números nas frases. Também exigem o alerta que impede classificar
-hipertensão pulmonar por IT Vmax isolada ou aceitar estágio C sem confirmação de
-ICC atual/prévia. Um teste separado confirma que as medidas com unidades, os
-intervalos de referência e espécie/raça/idade/peso chegam juntos ao provedor.
+repetir os números nas frases. Como a IT Vmax elevada está acompanhada de
+repercussão em câmaras direitas, o canário exige alta probabilidade
+ecocardiográfica de hipertensão pulmonar e a ausência do alerta reservado à
+velocidade tricúspide isolada. A salvaguarda de ICC continua exigindo evidência
+clínica/congestiva para o estágio C. Um teste separado confirma que as medidas
+com unidades, os intervalos de referência e espécie/raça/idade/peso chegam
+juntos ao provedor.
 O canary mantém ainda o cenário anterior B1 + refluxo leve + DDG1 + AE/Ao 2,4
 para assegurar que a correlação avançada não apague achados leves já ditados.
 O AE/Ao 2,5 também é pronunciado no segundo ditado artificial, permitindo usar
