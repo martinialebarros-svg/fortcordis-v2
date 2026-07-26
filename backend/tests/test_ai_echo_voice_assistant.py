@@ -48,6 +48,7 @@ from app.services import ai_echo_providers, ai_echo_service
 from app.services.ai_echo_providers import AIEchoProviderError, StructuringResult
 from app.services.ai_echo_validation import (
     _NORMAL_FIELD_SUGGESTIONS,
+    _canine_ph_probability,
     can_recover_normality_deterministically,
     extract_measurements_from_transcript,
     parse_spoken_number,
@@ -521,10 +522,11 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
         self.assertIn("repercussão hemodinâmica", suggestions["atrio_direito"])
         self.assertIn("estágio C (ACVIM)", suggestions["conclusao"])
         self.assertIn("congestão venosa pulmonar", suggestions["conclusao"])
+        self.assertIn("alta probabilidade ecocardiográfica", suggestions["conclusao"])
         warning_types = {warning.warning_type for warning in enriched.warnings}
         self.assertNotIn("multimodal_correlation_applied", warning_types)
         self.assertNotIn("mitral_velocity_not_regurgitation_grade", warning_types)
-        self.assertIn("tr_velocity_requires_ph_context", warning_types)
+        self.assertNotIn("tr_velocity_requires_ph_context", warning_types)
         self.assertNotIn("stage_c_requires_chf_evidence", warning_types)
 
     def test_measurements_and_loaded_reference_suggest_advanced_mitral_pattern(self) -> None:
@@ -582,6 +584,128 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
             if item.field_key == "conclusao"
         )
         self.assertNotIn("congestão venosa pulmonar", conclusion)
+
+    def test_explicit_clinical_signs_are_not_reported_as_absent(self) -> None:
+        output = empty_output(
+            warnings=[
+                {
+                    "warning_type": "provider_missing_clinical_signs",
+                    "severity": "warning",
+                    "message": "Sinais clínicos não foram descritos.",
+                    "related_fields": ["conclusao"],
+                }
+            ]
+        )
+        enriched = validate_and_enrich_clinical_output(
+            output,
+            (
+                "Endocardiose mitral classe C, pois o animal tem sinais clínicos. "
+                "Regurgitação tricúspide com remodelamento moderado de câmaras direitas."
+            ),
+            species="Canina",
+            current_measurements={"IT_Vmax": "3,6"},
+        )
+        warning_types = {item.warning_type for item in enriched.warnings}
+        messages = " ".join(item.message.lower() for item in enriched.warnings)
+        self.assertNotIn("provider_missing_clinical_signs", warning_types)
+        self.assertNotIn("sinais clínicos não foram descritos", messages)
+        self.assertIn(
+            "stage_c_clinical_signs_need_chf_correlation",
+            warning_types,
+        )
+
+    def test_calculates_psap_and_high_canine_ph_probability_from_multimodal_findings(
+        self,
+    ) -> None:
+        enriched = validate_and_enrich_clinical_output(
+            empty_output(),
+            (
+                "Regurgitação tricúspide com remodelamento moderado de câmaras "
+                "direitas e sinais clínicos."
+            ),
+            species="Canina",
+            current_measurements={"IT_Vmax": "3,6"},
+        )
+        by_target = {
+            str(item.target_field_key): item
+            for item in enriched.measurements
+            if item.target_field_key
+        }
+        self.assertEqual(by_target["Remodelamento_AD"].raw_value, "moderado")
+        self.assertAlmostEqual(by_target["IT_Grad"].value, 51.84)
+        self.assertEqual(by_target["PAD_estimada"].value, 10)
+        self.assertAlmostEqual(by_target["PSAP"].value, 61.84)
+        conclusion = next(
+            item.text
+            for item in enriched.field_suggestions
+            if item.field_key == "conclusao"
+        )
+        self.assertIn("alta probabilidade ecocardiográfica", conclusion)
+        self.assertIn(
+            "psap_is_estimate",
+            {warning.warning_type for warning in enriched.warnings},
+        )
+
+    def test_canine_ph_probability_matrix_matches_acvim_categories(self) -> None:
+        cases = (
+            (3.0, 0, "baixa"),
+            (3.0, 1, "baixa"),
+            (3.0, 2, "intermediaria"),
+            (3.2, 0, "baixa"),
+            (3.2, 1, "intermediaria"),
+            (3.2, 2, "alta"),
+            (3.5, 0, "intermediaria"),
+            (3.5, 1, "alta"),
+        )
+        for velocity, sites, expected in cases:
+            with self.subTest(velocity=velocity, sites=sites):
+                self.assertEqual(
+                    _canine_ph_probability(velocity, sites),
+                    expected,
+                )
+
+    def test_psap_uses_reviewable_right_atrial_pressure_by_remodeling(self) -> None:
+        cases = (
+            ("leve", 5.0, 41.0),
+            ("moderado", 10.0, 46.0),
+            ("importante", 15.0, 51.0),
+        )
+        for remodeling, expected_rap, expected_psap in cases:
+            with self.subTest(remodeling=remodeling):
+                enriched = validate_and_enrich_clinical_output(
+                    empty_output(),
+                    (
+                        "Regurgitação tricúspide com remodelamento "
+                        f"{remodeling} do átrio direito."
+                    ),
+                    species="Canina",
+                    current_measurements={"IT_Vmax": "3,0"},
+                )
+                by_target = {
+                    str(item.target_field_key): item
+                    for item in enriched.measurements
+                    if item.target_field_key
+                }
+                self.assertEqual(by_target["PAD_estimada"].value, expected_rap)
+                self.assertEqual(by_target["PSAP"].value, expected_psap)
+
+    def test_feline_ph_uses_orientative_suspicion_not_canine_matrix(self) -> None:
+        enriched = validate_and_enrich_clinical_output(
+            empty_output(),
+            "Regurgitação tricúspide e dilatação importante do átrio direito.",
+            species="Felina",
+            current_measurements={"IT_Vmax": "3,0"},
+        )
+        conclusion = next(
+            item.text
+            for item in enriched.field_suggestions
+            if item.field_key == "conclusao"
+        )
+        self.assertIn("suspeita ecocardiográfica", conclusion)
+        self.assertIn(
+            "feline_ph_framework_limited",
+            {warning.warning_type for warning in enriched.warnings},
+        )
 
     def test_contextual_warnings_are_filtered_and_clinical_duplicates_consolidated(
         self,

@@ -15,7 +15,7 @@ from app.services.image_header_import_service import _extract_text_with_tesserac
 
 MAX_ECO_STUDY_IMPORT_SIZE = 30 * 1024 * 1024
 MAX_ECO_STUDY_PDF_PAGES = 20
-ECO_STUDY_EXTRACTOR_VERSION = "2"
+ECO_STUDY_EXTRACTOR_VERSION = "3"
 GE_LOGIQ_E_PROFILE = "ge_logiq_e"
 GE_VIVID_IQ_PROFILE = "ge_vivid_iq"
 ALLOWED_ECO_STUDY_EXTENSIONS = {
@@ -30,7 +30,7 @@ ALLOWED_ECO_STUDY_EXTENSIONS = {
 }
 
 _NUMBER_PATTERN = r"-?\d{1,5}(?:[.,]\d{1,4})?"
-_UNIT_PATTERN = r"(?:mmHg|mm|cm|cms|m/s|mis|cm/s|ms|msec|s|%|mlg|ml|mL)?"
+_UNIT_PATTERN = r"(?:mmHg|cm/s|m/s|msec|cms|mis|mm|cm|ms|s|%|mlg|mL|ml)?"
 _DATE_VALUE_PATTERN = r"(?:\d{4}[./-]\d{1,2}[./-]\d{1,2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4})"
 _BIRTHDATE_LABEL_PATTERN = r"(?:birth\s*date|date\s+of\s+birth|dob|data\s+de\s+nascimento|nascimento)"
 _EXAM_DATE_LABEL_PATTERN = r"(?:study\s+date|exam(?:ination)?\s+date|date\s+of\s+exam|data\s+do\s+exame|data\s+exame)"
@@ -85,6 +85,28 @@ MEASUREMENT_DEFINITIONS: tuple[MeasurementDefinition, ...] = (
     MeasurementDefinition("Vmax_pulmonar", "Vmax pulmonar", (r"Vmax\s*VSVD", r"(?:PV|Pulm(?:onar)?)\s*Vmax", r"Vmax\s*Pulm(?:onar)?"), "velocity"),
     MeasurementDefinition("Grad_pulmonar", "Gradiente pulmonar", (r"Grad\.?\s*max\s*VSVD", r"max\s*PG\s*VSVD", r"(?:PV|Pulm(?:onar)?)\s*(?:PG|Grad(?:iente)?)", r"Grad(?:iente)?\s*Pulm(?:onar)?"), "pressure"),
 )
+
+_LV_STRUCTURAL_FIELDS = {
+    "DIVEd",
+    "DIVEd_normalizado",
+    "DIVES",
+    "SIVd",
+    "SIVs",
+    "PLVEd",
+    "PLVES",
+}
+
+
+def _detect_lv_measurement_technique(text: str) -> str | None:
+    normalized = _remove_diacritics(text or "").lower()
+    if re.search(r"(?:^|[^a-z0-9])(?:2d\s*/|modo\s*2d\b|2d\s+)", normalized):
+        return "2d"
+    if re.search(
+        r"(?:^|[^a-z0-9])(?:mm\s*/|m-?mode\b|modo\s*m\b|mm\s+)",
+        normalized,
+    ):
+        return "modo_m"
+    return None
 
 
 def normalize_eco_study_filename(filename: str | None) -> str:
@@ -493,10 +515,28 @@ def extract_measurements_from_text(
                     original_unit,
                     definition.unit_kind,
                 )
+                technique = (
+                    _detect_lv_measurement_technique(raw_line)
+                    if definition.campo in _LV_STRUCTURAL_FIELDS
+                    else None
+                )
+                target_field = (
+                    f"{definition.campo}_2D"
+                    if technique == "2d"
+                    else definition.campo
+                )
                 candidates.append(
                     {
-                        "campo": definition.campo,
-                        "rotulo": definition.rotulo,
+                        "campo": target_field,
+                        "rotulo": (
+                            f"{definition.rotulo} (2D)"
+                            if technique == "2d"
+                            else (
+                                f"{definition.rotulo} (Modo M)"
+                                if technique == "modo_m"
+                                else definition.rotulo
+                            )
+                        ),
                         "valor": _round_measurement(normalized_value),
                         "unidade": normalized_unit,
                         "valor_original": _round_measurement(original_value),
@@ -505,6 +545,7 @@ def extract_measurements_from_text(
                         "pagina": page,
                         "texto_origem": raw_line,
                         "origem": source,
+                        "tecnica": technique,
                         "status": "candidata",
                     }
                 )
@@ -954,6 +995,13 @@ def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict
             "medidas_sugeridas": len(measurements),
             "candidatos": len(consolidated),
             "conflitos": conflicts,
+            "tecnicas_ve_detectadas": sorted(
+                {
+                    str(item.get("tecnica"))
+                    for item in consolidated
+                    if item.get("tecnica") in {"modo_m", "2d"}
+                }
+            ),
             "variantes_ocr": ocr_variants,
             "perfil": (header_payload or {}).get("perfil", "generico"),
             "fabricante": (header_payload or {}).get("fabricante", ""),

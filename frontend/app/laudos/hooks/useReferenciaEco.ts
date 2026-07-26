@@ -17,6 +17,12 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
   DIVES: { campo: "lvid_s", nome: "DIVÉs (Diâmetro interno VE sístole)", categoria: "estrutural" },
   SIVs: { campo: "ivs_s", nome: "SIVs (Septo interventricular sístole)", categoria: "estrutural" },
   PLVES: { campo: "lvpw_s", nome: "PLVÉs (Parede livre VE sístole)", categoria: "estrutural" },
+  DIVEd_2D: { campo: "lvid_d", nome: "DIVEd 2D (Diâmetro interno VE diástole)", categoria: "estrutural" },
+  SIVd_2D: { campo: "ivs_d", nome: "SIVd 2D (Septo interventricular diástole)", categoria: "estrutural" },
+  PLVEd_2D: { campo: "lvpw_d", nome: "PLVEd 2D (Parede livre VE diástole)", categoria: "estrutural" },
+  DIVES_2D: { campo: "lvid_s", nome: "DIVEs 2D (Diâmetro interno VE sístole)", categoria: "estrutural" },
+  SIVs_2D: { campo: "ivs_s", nome: "SIVs 2D (Septo interventricular sístole)", categoria: "estrutural" },
+  PLVES_2D: { campo: "lvpw_s", nome: "PLVEs 2D (Parede livre VE sístole)", categoria: "estrutural" },
   
   // === VOLUMES E FUNÇÃO ===
   VDF: { campo: "edv", nome: "VDF (Volume diastólico final)", categoria: "funcao" },
@@ -41,8 +47,8 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
   E_A: { campo: "mv_ea", nome: "E/A", categoria: "doppler" },
   TD: { campo: "mv_dt", nome: "TD (Tempo desaceleração)", categoria: "doppler" },
   TRIV: { campo: "ivrt", nome: "TRIV", categoria: "doppler" },
-  e_doppler: { campo: "tdi_e", nome: "e' (Doppler tecidual, cm/s)", categoria: "doppler" },
-  a_doppler: { campo: "tdi_a", nome: "a' (Doppler tecidual, cm/s)", categoria: "doppler" },
+  e_doppler: { campo: "tdi_e", nome: "e' (Doppler tecidual, m/s)", categoria: "doppler" },
+  a_doppler: { campo: "tdi_a", nome: "a' (Doppler tecidual, m/s)", categoria: "doppler" },
   E_E_linha: { campo: "e_e_linha", nome: "E/E'", categoria: "doppler" },
   
   // === DOPPLER - SAÍDAS ===
@@ -143,15 +149,18 @@ export function useReferenciaEco() {
 
       const refMinRaw = referencia[minKey] as number | null | undefined;
       const refMaxRaw = referencia[maxKey] as number | null | undefined;
-      const refMin = typeof refMinRaw === "number" ? refMinRaw : null;
-      const refMax = typeof refMaxRaw === "number" ? refMaxRaw : null;
+      let refMin = typeof refMinRaw === "number" ? refMinRaw : null;
+      let refMax = typeof refMaxRaw === "number" ? refMaxRaw : null;
+      if (key === "e_doppler" || key === "a_doppler") {
+        refMin = refMin === null ? null : refMin / 100;
+        refMax = refMax === null ? null : refMax / 100;
+      }
 
-      const semReferenciaDefinida =
+      if (
         refMin === null ||
         refMax === null ||
-        (refMin === 0 && refMax === 0);
-
-      if (semReferenciaDefinida) {
+        (refMin === 0 && refMax === 0)
+      ) {
         comparacoes[key] = {
           nome: mapeamento.nome,
           valor_medido: valor,

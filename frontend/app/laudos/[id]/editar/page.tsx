@@ -35,6 +35,12 @@ import {
 } from "@/lib/ecocardiograma-estruturado";
 import { listarTodasClinicas } from "@/lib/clinicas";
 import { extrairIdadePaciente, normalizarSexoPaciente, parsePesoKg } from "@/lib/paciente";
+import {
+  deriveAutomaticEchoMeasurements,
+  hasAnyMeasurement,
+  LV_2D_KEYS,
+  LV_M_MODE_KEYS,
+} from "@/lib/echo-derived-measurements";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -239,7 +245,7 @@ interface DadosExame {
     telefone: string;
     data_exame: string;
   };
-  medidas: Record<string, number>;
+  medidas: Record<string, number | string>;
   clinica: string | { id: number; nome: string };
   veterinario_solicitante: string;
   fc: string;
@@ -430,6 +436,10 @@ export default function EditarLaudoPage() {
     if (divedNormalizadoCalculado !== null && medidas["DIVEd_normalizado"] !== divedNormalizadoCalculado) {
       atualizacoes.DIVEd_normalizado = divedNormalizadoCalculado;
     }
+    const automaticas = deriveAutomaticEchoMeasurements(medidas, pacienteForm.peso);
+    Object.entries(automaticas).forEach(([key, value]) => {
+      if (medidas[key] !== value) atualizacoes[key] = value;
+    });
 
     if (Object.keys(atualizacoes).length > 0) {
       setMedidas((prev) => ({
@@ -445,6 +455,12 @@ export default function EditarLaudoPage() {
     medidas["e_doppler"],
     medidas["a_doppler"],
     medidas["DIVEd"],
+    medidas["DIVEd_2D"],
+    medidas["IM_Vmax"],
+    medidas["IT_Vmax"],
+    medidas["IA_Vmax"],
+    medidas["IP_Vmax"],
+    medidas["Remodelamento_AD"],
     pacienteForm.peso,
   ]);
 
@@ -501,7 +517,7 @@ export default function EditarLaudoPage() {
   };
 
   // Mapeamento de campos antigos para novos (compatibilidade com XMLs)
-  const mapearCamposMedidas = (medidasOriginais: Record<string, number>): Record<string, string> => {
+  const mapearCamposMedidas = (medidasOriginais: Record<string, number | string>): Record<string, string> => {
     const mapeamento: Record<string, string> = {
       // Campos em inglês (XML cru) -> nomes em português
       "LVIDd": "DIVEd",
@@ -586,8 +602,13 @@ export default function EditarLaudoPage() {
     const medidasFormatadas: Record<string, string> = {};
 
     Object.entries(medidasOriginais).forEach(([key, value]) => {
-      if (value !== null && value !== undefined && !isNaN(value)) {
-        const novoNome = mapeamento[key] || key;
+      if (value === null || value === undefined || String(value).trim() === "") return;
+      const novoNome = mapeamento[key] || key;
+      if (
+        novoNome === "VE_tecnica_relatorio" ||
+        novoNome === "Remodelamento_AD" ||
+        Number.isFinite(Number(String(value).replace(",", ".")))
+      ) {
         medidasFormatadas[novoNome] = value.toString();
       }
     });
@@ -834,6 +855,15 @@ export default function EditarLaudoPage() {
   const handleSalvar = async () => {
     setSalvando(true);
     try {
+      if (
+        hasAnyMeasurement(medidas, LV_M_MODE_KEYS) &&
+        hasAnyMeasurement(medidas, LV_2D_KEYS) &&
+        !medidas["VE_tecnica_relatorio"]
+      ) {
+        alert("Escolha se o PDF deve usar as medidas do VE em Modo M ou Modo 2D.");
+        setAba("medidas");
+        return;
+      }
       // 1. Salvar dados do paciente primeiro
       if (paciente?.id) {
         // Montar observações com idade
@@ -1500,6 +1530,26 @@ export default function EditarLaudoPage() {
 
                 {aba === "medidas" && (
                   <div className="space-y-6">
+                    <div className="rounded-lg border border-teal-200 bg-teal-50 p-4">
+                      <label className="block text-sm font-semibold text-gray-900">
+                        Técnica do estudo do ventrículo esquerdo exibida no PDF
+                      </label>
+                      <select
+                        value={medidas["VE_tecnica_relatorio"] || ""}
+                        onChange={(event) =>
+                          handleMedidaChange("VE_tecnica_relatorio", event.target.value)
+                        }
+                        className="mt-2 w-full rounded-lg border border-teal-300 bg-white px-3 py-2 text-sm text-gray-800 focus:ring-2 focus:ring-teal-500"
+                      >
+                        <option value="">Selecione quando houver medidas em M e 2D</option>
+                        <option value="modo_m">Modo M</option>
+                        <option value="2d">Modo 2D</option>
+                      </select>
+                      <p className="mt-2 text-xs text-teal-800">
+                        Quando o estudo importado trouxer as duas técnicas, a escolha define qual bloco será levado ao PDF.
+                      </p>
+                    </div>
+
                     {/* Grid principal com 3 colunas */}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                       {/* Coluna 1: VE - Modo M */}
@@ -1648,12 +1698,12 @@ export default function EditarLaudoPage() {
                           onChange={(v) => handleMedidaChange("MR_dp_dt", v)}
                         />
                         <MedidaInput
-                          label="e' (Doppler tecidual, cm/s)"
+                          label="e' (Doppler tecidual, m/s)"
                           value={medidas["e_doppler"] || ""}
                           onChange={(v) => handleMedidaChange("e_doppler", v)}
                         />
                         <MedidaInput
-                          label="a' (Doppler tecidual, cm/s)"
+                          label="a' (Doppler tecidual, m/s)"
                           value={medidas["a_doppler"] || ""}
                           onChange={(v) => handleMedidaChange("a_doppler", v)}
                         />
@@ -1700,9 +1750,21 @@ export default function EditarLaudoPage() {
                           onChange={(v) => handleMedidaChange("IM_Vmax", v)}
                         />
                         <MedidaInput
+                          label="Gradiente da insuficiência mitral (mmHg, 4 × V²)"
+                          value={medidas["IM_Grad"] || ""}
+                          onChange={(v) => handleMedidaChange("IM_Grad", v)}
+                          readOnly
+                        />
+                        <MedidaInput
                           label="IT (insuficiência tricúspide) Vmax (m/s)"
                           value={medidas["IT_Vmax"] || ""}
                           onChange={(v) => handleMedidaChange("IT_Vmax", v)}
+                        />
+                        <MedidaInput
+                          label="Gradiente da insuficiência tricúspide (mmHg, 4 × V²)"
+                          value={medidas["IT_Grad"] || ""}
+                          onChange={(v) => handleMedidaChange("IT_Grad", v)}
+                          readOnly
                         />
                         <MedidaInput
                           label="IA (insuficiência aórtica) Vmax (m/s)"
@@ -1710,9 +1772,95 @@ export default function EditarLaudoPage() {
                           onChange={(v) => handleMedidaChange("IA_Vmax", v)}
                         />
                         <MedidaInput
+                          label="Gradiente da insuficiência aórtica (mmHg, 4 × V²)"
+                          value={medidas["IA_Grad"] || ""}
+                          onChange={(v) => handleMedidaChange("IA_Grad", v)}
+                          readOnly
+                        />
+                        <MedidaInput
                           label="IP (insuficiência pulmonar) Vmax (m/s)"
                           value={medidas["IP_Vmax"] || ""}
                           onChange={(v) => handleMedidaChange("IP_Vmax", v)}
+                        />
+                        <MedidaInput
+                          label="Gradiente da insuficiência pulmonar (mmHg, 4 × V²)"
+                          value={medidas["IP_Grad"] || ""}
+                          onChange={(v) => handleMedidaChange("IP_Grad", v)}
+                          readOnly
+                        />
+                        <div className="space-y-1">
+                          <label className="block text-xs leading-tight text-gray-600">
+                            Remodelamento do átrio direito
+                          </label>
+                          <select
+                            value={medidas["Remodelamento_AD"] || ""}
+                            onChange={(event) =>
+                              handleMedidaChange("Remodelamento_AD", event.target.value)
+                            }
+                            className="w-full rounded bg-blue-50 px-2 py-1.5 text-sm text-gray-700 focus:ring-1 focus:ring-teal-500"
+                          >
+                            <option value="">Selecione ou aplique a sugestão do ditado</option>
+                            <option value="ausente">Ausente</option>
+                            <option value="leve">Leve</option>
+                            <option value="moderado">Moderado</option>
+                            <option value="importante">Importante</option>
+                          </select>
+                        </div>
+                        <MedidaInput
+                          label="Pressão atrial direita estimada (mmHg)"
+                          value={medidas["PAD_estimada"] || ""}
+                          onChange={(v) => handleMedidaChange("PAD_estimada", v)}
+                          readOnly
+                        />
+                        <MedidaInput
+                          label="PSAP estimada (mmHg = gradiente IT + PAD estimada)"
+                          value={medidas["PSAP"] || ""}
+                          onChange={(v) => handleMedidaChange("PSAP", v)}
+                          readOnly
+                          reference="Estimativa ecocardiográfica; confirmar ausência de obstrução da via de saída do VD."
+                        />
+                      </div>
+                    </div>
+
+                    <div className="border-t pt-6">
+                      <h4 className="mb-4 text-sm font-semibold text-gray-900">VE - Modo 2D</h4>
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                        <MedidaInput
+                          label="DIVEd 2D (mm - Diâmetro interno do VE em diástole)"
+                          value={medidas["DIVEd_2D"] || ""}
+                          onChange={(v) => handleMedidaChange("DIVEd_2D", v)}
+                        />
+                        <MedidaInput
+                          label="DIVEd normalizado 2D (DIVEd [cm] / peso^0,294)"
+                          value={medidas["DIVEd_normalizado_2D"] || ""}
+                          onChange={(v) => handleMedidaChange("DIVEd_normalizado_2D", v)}
+                          readOnly
+                          reference="Ref.: 1.27-1.73"
+                        />
+                        <MedidaInput
+                          label="SIVd 2D (mm)"
+                          value={medidas["SIVd_2D"] || ""}
+                          onChange={(v) => handleMedidaChange("SIVd_2D", v)}
+                        />
+                        <MedidaInput
+                          label="PLVEd 2D (mm)"
+                          value={medidas["PLVEd_2D"] || ""}
+                          onChange={(v) => handleMedidaChange("PLVEd_2D", v)}
+                        />
+                        <MedidaInput
+                          label="DIVEs 2D (mm)"
+                          value={medidas["DIVES_2D"] || ""}
+                          onChange={(v) => handleMedidaChange("DIVES_2D", v)}
+                        />
+                        <MedidaInput
+                          label="SIVs 2D (mm)"
+                          value={medidas["SIVs_2D"] || ""}
+                          onChange={(v) => handleMedidaChange("SIVs_2D", v)}
+                        />
+                        <MedidaInput
+                          label="PLVEs 2D (mm)"
+                          value={medidas["PLVES_2D"] || ""}
+                          onChange={(v) => handleMedidaChange("PLVES_2D", v)}
                         />
                       </div>
                     </div>

@@ -2,7 +2,7 @@
 
 Data: 2026-07-26
 Responsável: Martiniano + Codex
-Status: stage_followup_pending_provider_quota
+Status: local_pass
 
 ## 1. Arquitetura encontrada
 
@@ -14,7 +14,8 @@ Status: stage_followup_pending_provider_quota
   módulo;
 - `Laudo` genérico armazena medidas/blocos em `descricao`, conclusão em `diagnostico`
   e o editor estruturado em `anexos.ecocardiograma_estruturado`;
-- o editor real possui 15 chaves qualitativas e 39 chaves de medidas;
+- o editor real possui 15 chaves qualitativas, medidas numéricas e seletores
+  clínicos/técnicos estritamente permitidos pelo esquema;
 - uploads temporários usam `UPLOAD_DIR` com fallback local;
 - chamadas OpenAI existentes ocorrem somente no backend;
 - não existe ainda entidade de organização; `clinic_id` é o limite organizacional
@@ -60,8 +61,9 @@ O módulo é aditivo e isolado:
   `raw_value` e comparados com a saída do modelo.
 - RF-012: valores negativos inválidos, percentuais acima de 100 e divergências de
   número/unidade geram alerta e nunca correção silenciosa.
-- RF-013: velocidade/gradiente tricúspide usa apenas o alerta
-  `ΔP = 4 × V²`, sem substituir valores.
+- RF-013: os gradientes das regurgitações mitral, tricúspide, aórtica e pulmonar
+  são calculados automaticamente pela equação simplificada de Bernoulli
+  `ΔP = 4 × V²`; o valor derivado permanece identificado como cálculo.
 - RF-014: contradições textuais conhecidas geram alerta clínico.
 - RF-015: cada sugestão mostra campo, origem, confiança, texto atual e texto sugerido.
 - RF-016: o usuário pode selecionar, editar ou rejeitar campos individualmente, ou
@@ -152,8 +154,9 @@ O módulo é aditivo e isolado:
   a espécie e o peso. Os limiares consensuais caninos de AE/Ao e DIVEd
   normalizado permanecem como salvaguarda quando aplicáveis.
 - RF-050: IM Vmax é descrita, mas não gradua isoladamente a regurgitação mitral.
-  IT Vmax igual ou superior a 3,0 m/s gera alerta para correlação com sinais
-  anatômicos adicionais antes de classificar hipertensão pulmonar.
+  IT Vmax elevada aciona a matriz de probabilidade com os sinais anatômicos;
+  quando esses sinais não estão disponíveis, permanece alerta para correlação
+  antes de classificar hipertensão pulmonar.
 - RF-051: regurgitação tricúspide isolada não autoriza inferir dilatação das
   câmaras direitas; essa repercussão só preenche AD/VD quando estiver no ditado.
 - RF-052: estágio C é afirmado somente quando sustentado por história atual ou
@@ -201,11 +204,37 @@ O módulo é aditivo e isolado:
   esgotada, distintas de um limite temporário de requisições. O laudo manual e
   os casos determinísticos conhecidos permanecem disponíveis.
 - RF-064: a tabela formal de medidas inclui as ondas e' e a' do Doppler
-  tecidual, ambas identificadas em `cm/s`; a relação E/E' permanece
+  tecidual, ambas identificadas em `m/s`; referências históricas armazenadas em
+  `cm/s` são convertidas para comparação sem alterar o dado fonte; a relação E/E' permanece
   adimensional.
 - RF-065: o deploy de produção configura explicitamente o assistente de ditado
   com a flag habilitada, provedor OpenAI e modelos aprovados, sem registrar ou
   expor a chave da API.
+- RF-066: o formulário apresenta pressão atrial direita estimada e PSAP. A PSAP
+  é calculada por `4 × IT_Vmax² + PAD estimada`, somente quando existe velocidade
+  tricúspide e classificação revisável do remodelamento atrial direito.
+- RF-067: a PAD usada no cálculo é explicitamente presumida pelo remodelamento:
+  ausente/leve `5 mmHg`, moderado `10 mmHg` e importante `15 mmHg`. O sistema
+  alerta que se trata de estimativa e exige exclusão de obstrução da via de saída
+  do ventrículo direito.
+- RF-068: a expressão explícita "animal tem/apresenta sinais clínicos" impede
+  qualquer alerta que afirme ausência de sinais. Sem evidência de congestão ou
+  histórico de insuficiência cardíaca, o sistema mantém apenas a correlação
+  necessária para confirmar estágio C.
+- RF-069: em cães, a probabilidade ecocardiográfica de hipertensão pulmonar segue
+  a matriz ACVIM que combina IT Vmax com o número de locais anatômicos alterados:
+  ventrículos/septo, artéria pulmonar e átrio direito/veia cava caudal.
+- RF-070: em gatos, o sistema usa linguagem de suspeita ecocardiográfica
+  orientativa, não transfere a matriz canina como critério validado e apresenta
+  alerta sobre a limitação da evidência felina.
+- RF-071: o formulário mantém séries independentes das medidas do ventrículo
+  esquerdo em Modo M e Modo 2D, inclusive DIVEd normalizado para cada técnica.
+- RF-072: o importador de PDF/XML preserva o prefixo técnico `MM` ou `2D`. Se as
+  duas séries existirem no mesmo estudo, a interface exige que o usuário escolha
+  qual técnica constará no PDF antes de aplicar os dados.
+- RF-073: as duas séries importadas permanecem revisáveis no formulário; a chave
+  `VE_tecnica_relatorio` controla o bloco quantitativo emitido no PDF, sem
+  substituir silenciosamente uma técnica pela outra.
 
 ## 4. Estados
 

@@ -33,6 +33,9 @@ export default function EcoStudyImportUploader({
   const [result, setResult] = useState<DadosExameImportados | null>(null);
   const [filename, setFilename] = useState("");
   const [applied, setApplied] = useState(false);
+  const [selectedLvTechnique, setSelectedLvTechnique] = useState<
+    "" | "modo_m" | "2d"
+  >("");
 
   const extracted = result?.medidas_extraidas || [];
   const suggestions = useMemo(
@@ -44,6 +47,9 @@ export default function EcoStudyImportUploader({
     [extracted]
   );
   const patientFields = [result?.paciente?.idade, result?.paciente?.peso].filter(Boolean).length;
+  const detectedLvTechniques = result?.meta_importacao_estudo?.tecnicas_ve_detectadas || [];
+  const requiresLvTechniqueChoice =
+    detectedLvTechniques.includes("modo_m") && detectedLvTechniques.includes("2d");
 
   const processFile = async (file: File) => {
     if (!hasAllowedExtension(file.name)) {
@@ -59,6 +65,7 @@ export default function EcoStudyImportUploader({
     setError("");
     setResult(null);
     setApplied(false);
+    setSelectedLvTechnique("");
     setIsLoading(true);
     try {
       setResult(await importarEstudoEco(file));
@@ -81,11 +88,20 @@ export default function EcoStudyImportUploader({
     setError("");
     setResult(null);
     setApplied(false);
+    setSelectedLvTechnique("");
   };
 
   const applySuggestions = () => {
     if (!result || !Object.keys(result.medidas || {}).length) return;
-    onDadosImportados(result);
+    onDadosImportados({
+      ...result,
+      medidas: {
+        ...result.medidas,
+        ...(requiresLvTechniqueChoice && selectedLvTechnique
+          ? { VE_tecnica_relatorio: selectedLvTechnique }
+          : {}),
+      },
+    });
     setApplied(true);
   };
 
@@ -172,6 +188,31 @@ export default function EcoStudyImportUploader({
             </div>
           )}
 
+          {requiresLvTechniqueChoice && (
+            <div className="rounded-md border border-teal-200 bg-teal-50 p-3 text-xs text-teal-950">
+              <label className="font-semibold" htmlFor="eco-lv-technique">
+                O estudo contém medidas do VE em Modo M e em Modo 2D. Qual técnica deve constar no laudo?
+              </label>
+              <select
+                id="eco-lv-technique"
+                value={selectedLvTechnique}
+                onChange={(event) =>
+                  setSelectedLvTechnique(
+                    event.target.value as "" | "modo_m" | "2d"
+                  )
+                }
+                className="mt-2 w-full rounded-md border border-teal-300 bg-white px-2 py-2 text-sm"
+              >
+                <option value="">Escolha antes de aplicar</option>
+                <option value="modo_m">Modo M</option>
+                <option value="2d">Modo 2D</option>
+              </select>
+              <p className="mt-2 text-teal-800">
+                As duas séries permanecerão disponíveis no formulário; somente a técnica escolhida será exibida no PDF.
+              </p>
+            </div>
+          )}
+
           <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
             {extracted.map((item, index) => (
               <div
@@ -201,13 +242,19 @@ export default function EcoStudyImportUploader({
           <button
             type="button"
             onClick={applySuggestions}
-            disabled={applied || suggestions.length === 0}
+            disabled={
+              applied ||
+              suggestions.length === 0 ||
+              (requiresLvTechniqueChoice && !selectedLvTechnique)
+            }
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {applied ? <CheckCircle2 className="h-4 w-4" /> : null}
             {applied
               ? "Sugestoes aplicadas"
-              : patientFields > 0
+              : requiresLvTechniqueChoice && !selectedLvTechnique
+                ? "Escolha a técnica do VE"
+                : patientFields > 0
                 ? `Aplicar dados e ${suggestions.length} medida(s)`
                 : `Aplicar ${suggestions.length} medida(s)`}
           </button>

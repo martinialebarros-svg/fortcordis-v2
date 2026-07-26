@@ -438,29 +438,25 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     # --- Medidas M-Mode (MM) e 2D ---
     # Nota: Alguns aparelhos usam prefixo "MM/", outros usam "2D/"
     
-    # IVSd -> SIVd
-    val = buscar_parametro_por_name(soup, ["2D/IVSd", "MM/IVSd", "IVSd", "SIVd"])
-    if val: medidas["SIVd"] = val
-
-    # LVIDd -> DIVEd
-    val = buscar_parametro_por_name(soup, ["2D/LVIDd", "MM/LVIDd", "LVIDd", "DIVEd"])
-    if val: medidas["DIVEd"] = val
-
-    # LVPWd -> PLVEd
-    val = buscar_parametro_por_name(soup, ["2D/LVPWd", "MM/LVPWd", "LVPWd", "PPVEd", "PLVEd"])
-    if val: medidas["PLVEd"] = val
-
-    # IVSs -> SIVs
-    val = buscar_parametro_por_name(soup, ["2D/IVSs", "MM/IVSs", "IVSs", "SIVs"])
-    if val: medidas["SIVs"] = val
-
-    # LVIDs -> DIVÉs
-    val = buscar_parametro_por_name(soup, ["2D/LVIDs", "MM/LVIDs", "LVIDs", "DIVEs", "DIVÉs"])
-    if val: medidas["DIVES"] = val
-
-    # LVPWs -> PLVÉs
-    val = buscar_parametro_por_name(soup, ["2D/LVPWs", "MM/LVPWs", "LVPWs", "PPVEs", "PLVÉs"])
-    if val: medidas["PLVES"] = val
+    lv_fields = (
+        ("SIVd", "SIVd_2D", ["MM/IVSd"], ["2D/IVSd"], ["IVSd", "SIVd"]),
+        ("DIVEd", "DIVEd_2D", ["MM/LVIDd"], ["2D/LVIDd"], ["LVIDd", "DIVEd"]),
+        ("PLVEd", "PLVEd_2D", ["MM/LVPWd"], ["2D/LVPWd"], ["LVPWd", "PPVEd", "PLVEd"]),
+        ("SIVs", "SIVs_2D", ["MM/IVSs"], ["2D/IVSs"], ["IVSs", "SIVs"]),
+        ("DIVES", "DIVES_2D", ["MM/LVIDs"], ["2D/LVIDs"], ["LVIDs", "DIVEs", "DIVÉs"]),
+        ("PLVES", "PLVES_2D", ["MM/LVPWs"], ["2D/LVPWs"], ["LVPWs", "PPVEs", "PLVÉs"]),
+    )
+    for m_key, two_d_key, m_names, two_d_names, generic_names in lv_fields:
+        m_value = buscar_parametro_por_name(soup, m_names)
+        two_d_value = buscar_parametro_por_name(soup, two_d_names)
+        if m_value is not None:
+            medidas[m_key] = m_value
+        if two_d_value is not None:
+            medidas[two_d_key] = two_d_value
+        if m_value is None and two_d_value is None:
+            generic_value = buscar_parametro_por_name(soup, generic_names)
+            if generic_value is not None:
+                medidas[m_key] = generic_value
     
     # Volumes -> VDF (Teicholz)
     val = buscar_parametro_por_name(soup, ["2D/EDV(Teich)", "MM/EDV(Teich)", "EDV(Teich)", "VDF(Teich)", "EDV", "VDF"])
@@ -485,7 +481,9 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
     if val: medidas["RWT"] = val
     
     # DIVdN (normalizado) -> DIVEd normalizado
-    val = buscar_parametro_por_name(soup, ["2D/LVIDdN", "DIVdN", "LVIDdN", "DIVEdN"])
+    val = buscar_parametro_por_name(soup, ["2D/LVIDdN"])
+    if val: medidas["DIVEd_normalizado_2D"] = val
+    val = buscar_parametro_por_name(soup, ["DIVdN", "LVIDdN", "DIVEdN"])
     if val: medidas["DIVEd_normalizado"] = val
     
     # TAPSE
@@ -567,6 +565,7 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
         mr_vmax = _vmax_from_maxpg(mr_maxpg)
     if mr_vmax is not None:
         medidas["IM_Vmax"] = mr_vmax
+        medidas["IM_Grad"] = round(4 * (mr_vmax ** 2), 2)
     
     # TR (Tricuspid Regurgitation) -> IT (insuficiencia tricuspide) Vmax
     tr_vmax = buscar_parametro_por_name(
@@ -581,6 +580,7 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
         tr_vmax = _vmax_from_maxpg(tr_maxpg)
     if tr_vmax is not None:
         medidas["IT_Vmax"] = tr_vmax
+        medidas["IT_Grad"] = round(4 * (tr_vmax ** 2), 2)
     
     # AR (Aortic Regurgitation) -> IA (insuficiencia aortica) Vmax
     ar_vmax = buscar_parametro_por_name(
@@ -595,6 +595,7 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
         ar_vmax = _vmax_from_maxpg(ar_maxpg)
     if ar_vmax is not None:
         medidas["IA_Vmax"] = ar_vmax
+        medidas["IA_Grad"] = round(4 * (ar_vmax ** 2), 2)
     
     # PR (Pulmonic Regurgitation) -> IP (insuficiencia pulmonar) Vmax
     pr_vmax = buscar_parametro_por_name(
@@ -609,6 +610,7 @@ def parse_xml_eco(xml_content: bytes) -> Dict[str, Any]:
         pr_vmax = _vmax_from_maxpg(pr_maxpg)
     if pr_vmax is not None:
         medidas["IP_Vmax"] = pr_vmax
+        medidas["IP_Grad"] = round(4 * (pr_vmax ** 2), 2)
     
     # TDI_e_a ratio -> Doppler tecidual (Relação e'/a')
     if "e_doppler" in medidas and "a_doppler" in medidas and medidas["a_doppler"] > 0:
