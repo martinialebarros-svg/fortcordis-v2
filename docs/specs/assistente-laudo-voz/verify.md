@@ -2,7 +2,7 @@
 
 Data: 2026-07-25
 Responsável: Martiniano + Codex
-Status: duplicate_suggestion_fix_stage_pass
+Status: reference_context_local_pass
 
 ## Matriz
 
@@ -19,12 +19,15 @@ Status: duplicate_suggestion_fix_stage_pass
 | CA-009 | testes de exclusão manual e `cleanup_expired_audio()` | local_pass |
 | CA-010 | testes da flag desativada e chave ausente | local_pass |
 | CA-011 | upgrade repetido, downgrade restrito e ciclo global de migrations | local_pass |
-| CA-012 | 432 testes, pip check, ESLint, TypeScript e build Next.js | stage_pass |
+| CA-012 | 445 testes e 2 subtestes, pip check, ESLint, TypeScript e build Next.js | local_pass |
 | CA-013 | workflow `30178211835`: deploy, transcrição real, estruturação, AE/Ao, aplicação seletiva sem persistência, auditoria, exclusão e limpeza | stage_pass |
 | CA-014 | `origin/main=6a12cf9a815d6e2e14d58604e03242948f8e1093`; produção sem alteração | pass |
 | CA-015 | regressão reproduz o texto reportado, consolida sugestões duplicadas por maior confiança e registra alerta visível | stage_pass |
 | CA-016 | `ValidationError` estruturado retorna `invalid_structured_output`, sem mensagem falsa de indisponibilidade | stage_pass |
 | CA-017 | correlação multimodal de áudio + sete medidas em endocardiose mitral C, com salvaguardas de ICC, IM Vmax e IT Vmax | local_pass |
+| CA-018 | contexto do paciente contém espécie, raça, idade e peso; referência mais próxima carregada chega ao provedor e ao validador | local_pass |
+| CA-019 | medidas possuem unidades canônicas no payload e em todos os rótulos das telas novo/editar | local_pass |
+| CA-020 | padrão avançado derivado das medidas gera frases interpretativas sem números e estágio C apenas condicional sem evidência de ICC | local_pass |
 
 ## Evidência local executada
 
@@ -55,6 +58,16 @@ git diff --check
 ruby -e 'require "yaml"; YAML.load_file(".github/workflows/deploy-stage.yml")'
 ```
 
+### Evidência local de unidades e referência clínica
+
+- `venv/bin/python -m pytest -q`: 445 testes e 2 subtestes aprovados;
+- foco de IA, canary e defaults de referência: 46 testes aprovados;
+- `venv/bin/python -m pip check`: nenhuma dependência quebrada;
+- ESLint dirigido, TypeScript e build Next.js com 36 páginas: aprovados;
+- `git diff --check`: aprovado;
+- nenhuma migration nova: a implementação consulta a tabela
+  `referencias_eco` já existente.
+
 O `check_sdd_guardrail.py` depende de um `HEAD` commitado e será executado antes
 do push de `stage`.
 
@@ -67,11 +80,11 @@ congestão venosa pulmonar junto com `AE_Ao=2,5`,
 `IM_Vmax=5,5` e `IT_Vmax=3,6`.
 
 As asserções exigem frases específicas para mitral, átrio esquerdo, ventrículo
-esquerdo, função diastólica, tricúspide, câmaras direitas e conclusão C. Também
-exigem os alertas que impedem graduar refluxo mitral pela velocidade, classificar
+esquerdo, função diastólica, tricúspide, câmaras direitas e conclusão C, sem
+repetir os números nas frases. Também exigem o alerta que impede classificar
 hipertensão pulmonar por IT Vmax isolada ou aceitar estágio C sem confirmação de
-ICC atual/prévia. Um teste separado confirma que as medidas e espécie/peso
-chegam juntas ao provedor de estruturação.
+ICC atual/prévia. Um teste separado confirma que as medidas com unidades, os
+intervalos de referência e espécie/raça/idade/peso chegam juntos ao provedor.
 O canary mantém ainda o cenário anterior B1 + refluxo leve + DDG1 + AE/Ao 2,4
 para assegurar que a correlação avançada não apague achados leves já ditados.
 O AE/Ao 2,5 também é pronunciado no segundo ditado artificial, permitindo usar
@@ -194,8 +207,9 @@ inalterados; a gravação seguinte cria outra sessão vinculada ao mesmo laudo.
 
 A estruturação recebe as medidas atuais além da transcrição. O teste de regressão
 usa `AE_Ao=2,4` sem ditar o valor e exige sugestão de dilatação atrial esquerda
-importante, repercussão hemodinâmica significativa, preservação do achado mitral
-na conclusão e o alerta `report_measurement_interpreted`. Como essa medida
+importante, repercussão hemodinâmica significativa e preservação do achado mitral
+na conclusão. O valor fica apenas na origem auditável, sem alerta redundante e
+sem aparecer no texto sugerido. Como essa medida
 conflita com a afirmação ditada de ausência de remodelamento/B1, o canary exige
 que a endocardiose e o refluxo sejam preservados, mas que o estágio B1 não seja
 mantido. A regra não atribui um novo estágio ACVIM com AE/Ao isoladamente.
@@ -205,6 +219,28 @@ O teste unitário usa uma conclusão contendo ambas as expressões e confirma su
 remoção, sem perder a endocardiose mitral.
 O cenário misto também confirma que a conclusão específica substitui a conclusão
 genérica de normalidade eventualmente carregada pelo preset.
+
+### Unidades, paciente e tabela de referência
+
+O backend resolve a linha de referência mais próxima da tabela carregada usando
+espécie e peso do cabeçalho. O payload clínico do prompt
+`echo-clinical-ptbr-v5` contém:
+
+- espécie, raça, idade calculada e peso, sem nome do paciente ou tutor;
+- somente medidas numéricas válidas, cada uma com unidade canônica e método;
+- os limites mínimo/máximo da tabela para cada medida disponível;
+- identificação da referência e do peso de referência mais próximo.
+
+O teste determinístico usa onda E discretamente acima do máximo da tabela, mas
+abaixo do fallback genérico, junto com AE/Ao, DIVEd normalizado e IM Vmax. Isso
+prova que a referência carregada participa da interpretação. O resultado exige
+descrições de valva mitral, átrio esquerdo, ventrículo esquerdo e pressão de
+enchimento, além de conclusão de doença valvar mixomatosa avançada com estágio C
+condicional. Nenhuma frase sugerida pode repetir os valores de origem.
+
+Nas telas `Novo laudo` e `Editar laudo`, volumes exibem mL; frações, %; velocidades,
+m/s ou cm/s conforme a técnica; tempos, ms; gradientes, mmHg; dp/dt, mmHg/s; e
+razões são explicitamente adimensionais.
 
 ### Evidência da regravação em stage
 

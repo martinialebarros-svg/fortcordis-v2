@@ -14,6 +14,7 @@ from app.schemas.ai_echo import (
     EchoClinicalWarningOutput,
     EchoMeasurementOutput,
 )
+from app.services.ai_echo_context import ECHO_MEASUREMENT_UNITS
 
 
 @dataclass(frozen=True)
@@ -433,6 +434,74 @@ def _warning_key(warning: EchoClinicalWarningOutput) -> tuple[str, str]:
     return warning.warning_type, warning.message
 
 
+def _warning_concept(warning: EchoClinicalWarningOutput) -> str:
+    normalized = _strip_accents(
+        f"{warning.warning_type} {warning.message}"
+    )
+    if "estagio c" in normalized or "stage_c" in normalized:
+        return "stage_c_requires_chf_evidence"
+    if "regurgitacao tricuspide" in normalized or "tr_velocity" in normalized:
+        return "tr_velocity_requires_ph_context"
+    if "unidade" in normalized:
+        return "measurement_units"
+    if "referencia" in normalized:
+        return "reference_context"
+    if any(
+        token in normalized
+        for token in ("raca", "idade", "especie", "peso")
+    ) and any(token in normalized for token in ("ausente", "sem ", "nao ")):
+        return "patient_context"
+    return f"{warning.warning_type}:{warning.message}"
+
+
+def _filter_contextual_provider_warnings(
+    warnings: list[EchoClinicalWarningOutput],
+    *,
+    current_measurements: dict[str, str] | None,
+    exam_context: dict | None,
+    reference_context: dict | None,
+) -> list[EchoClinicalWarningOutput]:
+    known_measurement_units = any(
+        key in ECHO_MEASUREMENT_UNITS
+        and bool(str(value or "").strip())
+        for key, value in (current_measurements or {}).items()
+    )
+    context = exam_context or {}
+    has_patient_context = all(
+        context.get(key) not in (None, "")
+        for key in ("species", "breed", "age", "weight_kg")
+    )
+    has_reference = bool(
+        isinstance(reference_context, dict)
+        and reference_context.get("ranges")
+    )
+    filtered: list[EchoClinicalWarningOutput] = []
+    for warning in warnings:
+        normalized = _strip_accents(
+            f"{warning.warning_type} {warning.message}"
+        )
+        if known_measurement_units and "unidade" in normalized and any(
+            token in normalized
+            for token in ("ausente", "sem unidade", "nao informad", "missing")
+        ):
+            continue
+        if has_reference and "referencia" in normalized and any(
+            token in normalized
+            for token in ("ausente", "sem referencia", "nao e possivel", "missing")
+        ):
+            continue
+        if has_patient_context and any(
+            token in normalized
+            for token in ("raca", "idade", "especie", "peso")
+        ) and any(
+            token in normalized
+            for token in ("ausente", "nao informad", "sem ", "missing")
+        ):
+            continue
+        filtered.append(warning)
+    return filtered
+
+
 def _consolidate_field_suggestions(
     suggestions: list[EchoFieldSuggestionOutput],
 ) -> tuple[list[EchoFieldSuggestionOutput], list[EchoClinicalWarningOutput]]:
@@ -642,19 +711,15 @@ def _enrich_from_current_measurements(
 
     important = la_ao > 2.3
     atrial_text = (
-        f"Átrio esquerdo com dilatação importante (relação AE/Ao {la_ao:g}), "
-        "compatível com repercussão hemodinâmica significativa."
+        "Átrio esquerdo com aumento importante de suas dimensões. "
+        "Relação AE/Ao com aumento importante."
         if important
-        else (
-            f"Átrio esquerdo aumentado (relação AE/Ao {la_ao:g}), "
-            "compatível com remodelamento atrial esquerdo."
-        )
+        else "Átrio esquerdo com aumento de suas dimensões. Relação AE/Ao aumentada."
     )
     conclusion_part = (
-        f"Dilatação atrial esquerda importante (AE/Ao {la_ao:g}), com "
-        "repercussão hemodinâmica significativa."
+        "Dilatação atrial esquerda importante, com repercussão hemodinâmica significativa."
         if important
-        else f"Aumento atrial esquerdo (AE/Ao {la_ao:g})."
+        else "Dilatação atrial esquerda."
     )
     enriched = [
         item
@@ -683,7 +748,7 @@ def _enrich_from_current_measurements(
             text=atrial_text,
             confidence=1.0,
             source_spans=[f"Medida do formulário: AE/Ao {raw_la_ao}"],
-            evidence_type="fact",
+            evidence_type="inference",
         )
     )
     enriched.append(
@@ -695,19 +760,7 @@ def _enrich_from_current_measurements(
             evidence_type="diagnostic_suggestion",
         )
     )
-    return enriched, [
-        *warnings,
-        EchoClinicalWarningOutput(
-            warning_type="report_measurement_interpreted",
-            severity="warning",
-            message=(
-                "A relação AE/Ao preenchida no formulário foi interpretada. "
-                "Confirme espécie, técnica de medida e os demais critérios de "
-                "remodelamento antes de definir estágio clínico."
-            ),
-            related_fields=["AE_Ao", "atrio_esquerdo", "conclusao"],
-        ),
-    ]
+    return enriched, warnings
 
 
 def _measurement_float(
@@ -722,6 +775,42 @@ def _measurement_float(
         return float(match.group(0).replace(",", "."))
     except ValueError:
         return None
+
+
+def _reference_bounds(
+    reference_context: dict | None,
+    field_key: str,
+) -> tuple[float | None, float | None]:
+    ranges = (
+        reference_context.get("ranges", {})
+        if isinstance(reference_context, dict)
+        else {}
+    )
+    item = ranges.get(field_key)
+    if not isinstance(item, dict):
+        return None, None
+
+    def parsed(value: object) -> float | None:
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    return parsed(item.get("min")), parsed(item.get("max"))
+
+
+def _above_reference(
+    value: float | None,
+    reference_context: dict | None,
+    field_key: str,
+    *,
+    fallback_max: float | None = None,
+) -> bool:
+    if value is None:
+        return False
+    _, maximum = _reference_bounds(reference_context, field_key)
+    effective_maximum = maximum if maximum is not None else fallback_max
+    return effective_maximum is not None and value > effective_maximum
 
 
 def _replace_field_suggestion(
@@ -753,23 +842,27 @@ def _enrich_advanced_mitral_multimodal(
     transcript: str,
     current_measurements: dict[str, str] | None,
     species: str | None,
+    reference_context: dict | None,
 ) -> tuple[list[EchoFieldSuggestionOutput], list[EchoClinicalWarningOutput]]:
     normalized_species = _strip_accents(str(species or ""))
     normalized = _strip_accents(transcript)
     if any(token in normalized_species for token in ("felina", "felino", "gato")):
         return suggestions, warnings
-    if not _MITRAL_DISEASE_PATTERN.search(normalized):
-        return suggestions, warnings
-
+    mitral_disease_in_audio = bool(_MITRAL_DISEASE_PATTERN.search(normalized))
     stage_c = bool(_MITRAL_STAGE_C_PATTERN.search(normalized))
-    important_mr = bool(_MITRAL_IMPORTANT_REGURGITATION_PATTERN.search(normalized))
-    tricuspid_regurgitation = bool(_TRICUSPID_REGURGITATION_PATTERN.search(normalized))
+    important_mr_in_audio = bool(
+        _MITRAL_IMPORTANT_REGURGITATION_PATTERN.search(normalized)
+    )
+    tricuspid_regurgitation_in_audio = bool(
+        _TRICUSPID_REGURGITATION_PATTERN.search(normalized)
+    )
     right_chamber_repercussion = bool(
         _RIGHT_CHAMBER_REPERCUSSION_PATTERN.search(normalized)
     )
     pulmonary_congestion = bool(_PULMONARY_CONGESTION_PATTERN.search(normalized))
 
     la_ao = _measurement_float(current_measurements, "AE_Ao")
+    lvidd = _measurement_float(current_measurements, "DIVEd")
     lviddn = _measurement_float(current_measurements, "DIVEd_normalizado")
     e_wave = _measurement_float(current_measurements, "Onda_E")
     e_a = _measurement_float(current_measurements, "E_A")
@@ -777,72 +870,134 @@ def _enrich_advanced_mitral_multimodal(
     mr_vmax = _measurement_float(current_measurements, "IM_Vmax")
     tr_vmax = _measurement_float(current_measurements, "IT_Vmax")
 
-    filling_pressure_support = bool(
-        (e_wave is not None and e_wave > 1.2)
-        or (e_a is not None and e_a >= 2.0)
-    )
-    if not any(
-        (
-            stage_c,
-            important_mr,
-            tricuspid_regurgitation,
-            filling_pressure_support,
+    la_enlarged = bool(
+        (la_ao is not None and la_ao >= 1.6)
+        or _above_reference(
+            la_ao,
+            reference_context,
+            "AE_Ao",
+            fallback_max=1.6,
         )
-    ):
+    )
+    la_important = bool(la_ao is not None and la_ao > 2.3)
+    lv_dilated = bool(
+        (lviddn is not None and lviddn >= 1.7)
+        or _above_reference(lvidd, reference_context, "DIVEd")
+    )
+    filling_pressure_support = bool(
+        _above_reference(
+            e_wave,
+            reference_context,
+            "Onda_E",
+            fallback_max=1.2,
+        )
+        or _above_reference(
+            e_a,
+            reference_context,
+            "E_A",
+            fallback_max=2.0,
+        )
+        or _above_reference(
+            e_e_prime,
+            reference_context,
+            "E_E_linha",
+            fallback_max=12.0,
+        )
+    )
+    advanced_measurement_pattern = bool(
+        la_enlarged
+        and lv_dilated
+        and filling_pressure_support
+        and mr_vmax is not None
+    )
+    partial_measurement_pattern = sum(
+        (la_enlarged, lv_dilated, filling_pressure_support, mr_vmax is not None)
+    ) >= 2
+    advanced_mitral_pattern = advanced_measurement_pattern or bool(
+        mitral_disease_in_audio
+        and (
+            stage_c
+            or important_mr_in_audio
+            or partial_measurement_pattern
+        )
+    )
+    if not advanced_mitral_pattern and not tricuspid_regurgitation_in_audio:
         return suggestions, warnings
 
+    important_mr = important_mr_in_audio or advanced_measurement_pattern
+    tricuspid_regurgitation = (
+        tricuspid_regurgitation_in_audio or tr_vmax is not None
+    )
     enriched = list(suggestions)
-    evidence_sources = ["Ditado: doença mixomatosa/endocardiose mitral"]
-
-    if stage_c or important_mr:
-        mitral_parts = [
-            "Valva mitral com espessamento e aspecto mixomatoso dos folhetos"
-        ]
-        mitral_parts.append(
-            "regurgitação mitral importante ao Doppler colorido"
-            if important_mr
-            else "regurgitação mitral associada"
+    evidence_sources: list[str] = []
+    if mitral_disease_in_audio:
+        evidence_sources.append("Ditado: doença mixomatosa/endocardiose mitral")
+    if advanced_measurement_pattern:
+        evidence_sources.append(
+            "Correlação: regurgitação mitral, aumento atrial esquerdo, "
+            "dilatação ventricular esquerda e pressão de enchimento elevada"
         )
-        if mr_vmax is not None:
-            mitral_parts.append(f"Vmax do jato regurgitante de {mr_vmax:g} m/s")
+
+    if advanced_mitral_pattern:
+        mitral_text = (
+            "Valva mitral com espessamento e aspecto mixomatoso dos folhetos, "
+            "associada a regurgitação mitral importante e repercussão hemodinâmica."
+            if important_mr
+            else (
+                "Valva mitral com espessamento e aspecto mixomatoso dos folhetos, "
+                "associada a regurgitação mitral."
+            )
+        )
         enriched = _replace_field_suggestion(
             enriched,
             field_key="valva_mitral",
-            text="; ".join(mitral_parts) + ".",
+            text=mitral_text,
             source_spans=[
                 *evidence_sources,
                 *(
-                    [f"Medida do formulário: IM Vmax {mr_vmax:g}"]
+                    [f"Medida do formulário: IM Vmax {mr_vmax:g} m/s"]
                     if mr_vmax is not None
                     else []
                 ),
             ],
-            evidence_type="fact",
+            evidence_type=(
+                "fact" if important_mr_in_audio else "diagnostic_suggestion"
+            ),
+            confidence=0.96 if important_mr_in_audio else 0.88,
         )
 
-    if la_ao is not None and la_ao >= 1.6:
-        atrial_severity = "importante" if la_ao > 2.3 else "presente"
+    if la_enlarged:
         enriched = _replace_field_suggestion(
             enriched,
             field_key="atrio_esquerdo",
             text=(
-                f"Átrio esquerdo com dilatação {atrial_severity} "
-                f"(relação AE/Ao {la_ao:g}), compatível com remodelamento por "
-                "sobrecarga volumétrica."
+                "Átrio esquerdo com aumento importante de suas dimensões. "
+                "Relação AE/Ao com aumento importante."
+                if la_important
+                else "Átrio esquerdo com aumento de suas dimensões. Relação AE/Ao aumentada."
             ),
-            source_spans=[f"Medida do formulário: AE/Ao {la_ao:g}"],
+            source_spans=[
+                f"Medida do formulário: AE/Ao {la_ao:g}"
+                if la_ao is not None
+                else "Medida do formulário: relação AE/Ao acima da referência"
+            ],
             evidence_type="inference",
         )
 
-    if lviddn is not None and lviddn >= 1.7:
+    if lv_dilated:
+        lv_sources: list[str] = []
+        if lviddn is not None:
+            lv_sources.append(f"Medida do formulário: DIVEd normalizado {lviddn:g}")
+        if lvidd is not None:
+            lv_sources.append(f"Medida do formulário: DIVEd {lvidd:g} mm")
         enriched = _replace_field_suggestion(
             enriched,
             field_key="ventriculo_esquerdo",
             text=(
-                "Ventrículo esquerdo dilatado, com remodelamento excêntrico por "
-                f"sobrecarga volumétrica (DIVEd normalizado {lviddn:g})."
+                "Diâmetro interno do ventrículo esquerdo com aumento importante, "
+                "compatível com sobrecarga volumétrica crônica."
             ),
-            source_spans=[f"Medida do formulário: DIVEd normalizado {lviddn:g}"],
+            source_spans=lv_sources,
             evidence_type="inference",
         )
 
@@ -858,9 +1013,8 @@ def _enrich_advanced_mitral_multimodal(
             enriched,
             field_key="funcao_diastolica",
             text=(
-                f"Fluxo transmitral com {', '.join(doppler_values)}, conjunto "
-                "compatível com elevação das pressões de enchimento do ventrículo "
-                "esquerdo no contexto da doença mitral."
+                "Fluxo transmitral compatível com elevação das pressões de "
+                "enchimento do ventrículo esquerdo."
             ),
             source_spans=[
                 f"Medidas do formulário: {', '.join(doppler_values)}",
@@ -869,22 +1023,30 @@ def _enrich_advanced_mitral_multimodal(
         )
 
     if tricuspid_regurgitation:
-        tricuspid_text = "Regurgitação tricúspide identificada ao Doppler colorido"
-        if tr_vmax is not None:
-            tricuspid_text += f", com Vmax de {tr_vmax:g} m/s"
         enriched = _replace_field_suggestion(
             enriched,
             field_key="valva_tricuspide",
-            text=tricuspid_text + ".",
+            text=(
+                "Regurgitação tricúspide com velocidade elevada, achado que requer "
+                "correlação com sinais anatômicos e o contexto clínico."
+                if tr_vmax is not None and tr_vmax >= 3.0
+                else "Regurgitação tricúspide identificada ao Doppler colorido."
+            ),
             source_spans=[
-                "Ditado: regurgitação tricúspide",
                 *(
-                    [f"Medida do formulário: IT Vmax {tr_vmax:g}"]
+                    ["Ditado: regurgitação tricúspide"]
+                    if tricuspid_regurgitation_in_audio
+                    else []
+                ),
+                *(
+                    [f"Medida do formulário: IT Vmax {tr_vmax:g} m/s"]
                     if tr_vmax is not None
                     else []
                 ),
             ],
-            evidence_type="fact",
+            evidence_type=(
+                "fact" if tricuspid_regurgitation_in_audio else "inference"
+            ),
         )
 
     if right_chamber_repercussion:
@@ -903,79 +1065,67 @@ def _enrich_advanced_mitral_multimodal(
             evidence_type="fact",
         )
 
-    conclusion_parts = [
-        "Achados compatíveis com endocardiose mitral (degeneração mixomatosa) avançada"
-    ]
-    if important_mr:
-        conclusion_parts.append("regurgitação mitral importante")
-    if la_ao is not None and la_ao >= 1.6:
+    if advanced_mitral_pattern:
+        conclusion_parts: list[str] = []
         conclusion_parts.append(
-            (
-                "dilatação atrial esquerda com repercussão hemodinâmica "
-                f"significativa (AE/Ao {la_ao:g})"
-                if la_ao > 2.3
-                else f"dilatação atrial esquerda (AE/Ao {la_ao:g})"
-            )
+            "Espessamento da valva mitral com regurgitação importante"
+            if important_mr
+            else "Espessamento da valva mitral com regurgitação"
         )
-    if lviddn is not None and lviddn >= 1.7:
-        conclusion_parts.append(f"dilatação ventricular esquerda (DIVEdn {lviddn:g})")
-    if filling_pressure_support:
-        conclusion_parts.append("indicadores Doppler de elevadas pressões de enchimento")
-    if tricuspid_regurgitation:
-        conclusion_parts.append("regurgitação tricúspide associada")
-    conclusion = ", com ".join(
-        (conclusion_parts[0], ", ".join(conclusion_parts[1:]))
-    ) if len(conclusion_parts) > 1 else conclusion_parts[0]
-    conclusion += "."
-    if stage_c:
-        conclusion += " Estágio C (ACVIM), conforme classificação informada no ditado."
-    if pulmonary_congestion:
-        conclusion += " Sinais de congestão venosa pulmonar informados no ditado."
-    enriched = _replace_field_suggestion(
-        enriched,
-        field_key="conclusao",
-        text=conclusion,
-        source_spans=[
-            *evidence_sources,
-            *(
-                ["Ditado: estágio C (ACVIM)"]
-                if stage_c
-                else []
-            ),
-            *(
-                ["Ditado: congestão venosa pulmonar/ICC"]
-                if pulmonary_congestion
-                else []
-            ),
-        ],
-        evidence_type="diagnostic_suggestion",
-        confidence=0.9,
-    )
-
-    enriched_warnings = [
-        *warnings,
-        EchoClinicalWarningOutput(
-            warning_type="multimodal_correlation_applied",
-            severity="info",
-            message=(
-                "O áudio foi correlacionado às medidas do formulário. Revise a "
-                "técnica, as unidades e a coerência clínica antes de aplicar."
-            ),
-            related_fields=[
-                key
-                for key in (
-                    "AE_Ao",
-                    "DIVEd_normalizado",
-                    "Onda_E",
-                    "E_A",
-                    "E_E_linha",
-                    "IM_Vmax",
-                    "IT_Vmax",
-                )
-                if str((current_measurements or {}).get(key) or "").strip()
+        if la_enlarged and lv_dilated:
+            conclusion_parts.append(
+                "dilatação importante do átrio e do ventrículo esquerdos"
+                if la_important
+                else "dilatação do átrio e do ventrículo esquerdos"
+            )
+        elif la_enlarged:
+            conclusion_parts.append("dilatação do átrio esquerdo")
+        elif lv_dilated:
+            conclusion_parts.append("dilatação do ventrículo esquerdo")
+        if filling_pressure_support:
+            conclusion_parts.append(
+                "elevadas pressões de enchimento do ventrículo esquerdo"
+            )
+        conclusion = ", ".join(conclusion_parts) + ". "
+        if pulmonary_congestion:
+            conclusion += (
+                "Achados compatíveis com endocardiose da valva mitral em estágio C "
+                "(ACVIM), com sinais de congestão venosa pulmonar."
+            )
+        elif stage_c:
+            conclusion += (
+                "Padrão ecocardiográfico compatível com doença valvar mixomatosa "
+                "mitral avançada; o estágio C (ACVIM) informado requer confirmação "
+                "de insuficiência cardíaca congestiva atual ou prévia."
+            )
+        else:
+            conclusion += (
+                "Achados ecocardiográficos compatíveis com doença valvar mixomatosa "
+                "mitral avançada, podendo corresponder ao estágio C (ACVIM) caso "
+                "existam sinais atuais ou prévios de insuficiência cardíaca congestiva."
+            )
+        enriched = _replace_field_suggestion(
+            enriched,
+            field_key="conclusao",
+            text=conclusion,
+            source_spans=[
+                *evidence_sources,
+                *(
+                    ["Ditado: estágio C (ACVIM)"]
+                    if stage_c
+                    else []
+                ),
+                *(
+                    ["Ditado: congestão venosa pulmonar/ICC"]
+                    if pulmonary_congestion
+                    else []
+                ),
             ],
-        ),
-    ]
+            evidence_type="diagnostic_suggestion",
+            confidence=0.94 if mitral_disease_in_audio else 0.86,
+        )
+
+    enriched_warnings = list(warnings)
     if stage_c and not pulmonary_congestion:
         enriched_warnings.append(
             EchoClinicalWarningOutput(
@@ -987,18 +1137,6 @@ def _enrich_advanced_mitral_multimodal(
                     "Confirme sinais clínicos e/ou evidência radiográfica."
                 ),
                 related_fields=["conclusao"],
-            )
-        )
-    if mr_vmax is not None:
-        enriched_warnings.append(
-            EchoClinicalWarningOutput(
-                warning_type="mitral_velocity_not_regurgitation_grade",
-                severity="info",
-                message=(
-                    "A velocidade do jato mitral foi incorporada como medida, mas "
-                    "não foi usada isoladamente para graduar a regurgitação."
-                ),
-                related_fields=["IM_Vmax", "valva_mitral"],
             )
         )
     if tr_vmax is not None and tr_vmax >= 3.0:
@@ -1023,6 +1161,8 @@ def validate_and_enrich_clinical_output(
     *,
     species: str | None = None,
     current_measurements: dict[str, str] | None = None,
+    exam_context: dict | None = None,
+    reference_context: dict | None = None,
 ) -> EchoClinicalStructureOutput:
     deterministic, numeric_warnings = extract_measurements_from_transcript(transcript)
     field_suggestions, duplicate_warnings = _consolidate_field_suggestions(
@@ -1045,9 +1185,16 @@ def validate_and_enrich_clinical_output(
         transcript=transcript,
         current_measurements=current_measurements,
         species=species or output.exam_context.species,
+        reference_context=reference_context,
     )
     measurements = list(output.measurements)
-    warnings = [*output.warnings, *measurement_warnings]
+    provider_warnings = _filter_contextual_provider_warnings(
+        list(output.warnings),
+        current_measurements=current_measurements,
+        exam_context=exam_context,
+        reference_context=reference_context,
+    )
+    warnings = [*measurement_warnings, *provider_warnings]
     existing_by_name: dict[str, list[EchoMeasurementOutput]] = {}
     for measurement in measurements:
         existing_by_name.setdefault(measurement.canonical_name, []).append(measurement)
@@ -1195,12 +1342,15 @@ def validate_and_enrich_clinical_output(
             )
 
     existing_warning_keys = set()
+    existing_warning_concepts = set()
     deduped_warnings: list[EchoClinicalWarningOutput] = []
     for warning in [*warnings, *numeric_warnings]:
         key = _warning_key(warning)
-        if key in existing_warning_keys:
+        concept = _warning_concept(warning)
+        if key in existing_warning_keys or concept in existing_warning_concepts:
             continue
         existing_warning_keys.add(key)
+        existing_warning_concepts.add(concept)
         deduped_warnings.append(warning)
 
     if output.conclusion_suggestion and not any(
