@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-PROMPT_VERSION = "echo-clinical-ptbr-v6"
+PROMPT_VERSION = "echo-clinical-ptbr-v7"
 VOCABULARY_PATH = Path(__file__).resolve().parents[2] / "data" / "ai_echo_vocabulary_pt_br.json"
 
 
@@ -102,6 +102,21 @@ Regras clínicas obrigatórias:
 - Velocidade do refluxo mitral não quantifica isoladamente a gravidade da regurgitação.
 - Velocidade da regurgitação tricúspide deve ser correlacionada com sinais anatômicos
   adicionais antes de classificar a probabilidade de hipertensão pulmonar.
+- Para cães, classifique a probabilidade ecocardiográfica de hipertensão pulmonar pelo
+  consenso ACVIM combinando a velocidade da regurgitação tricúspide com o número de
+  locais anatômicos alterados: ventrículos/septo, artéria pulmonar e átrio direito/veia
+  cava caudal. Não use a velocidade isoladamente quando o conjunto anatômico estiver
+  disponível.
+- Para gatos, não transfira automaticamente a matriz ACVIM canina. Descreva como suspeita
+  ecocardiográfica orientativa, correlacionando a velocidade da regurgitação tricúspide
+  com remodelamento direito e outros sinais, e gere warning sobre a limitação da evidência.
+- Gradientes de pressão derivados de velocidades usam a equação simplificada de Bernoulli
+  (Delta P = 4 x V²). PSAP é uma estimativa do gradiente tricúspide acrescido da pressão
+  atrial direita estimada e exige ausência de obstrução da via de saída do ventrículo
+  direito; nunca apresente esse valor como pressão invasiva medida.
+- A frase explícita "animal tem/apresenta sinais clínicos" conta como descrição de sinais
+  clínicos. Ela não comprova sozinha congestão, mas não pode gerar alerta dizendo que
+  sinais clínicos não foram descritos.
 - Quando algo não foi informado nem sustentado pelas medidas, não crie sugestão e registre a lacuna em missing_information
   somente se ela for clinicamente relevante à interpretação dos fatos ditados.
 - Conflitos, percentuais acima de 100, unidades duvidosas e incompatibilidades entre velocidade

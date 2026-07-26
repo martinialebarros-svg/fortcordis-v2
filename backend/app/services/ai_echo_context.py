@@ -21,6 +21,13 @@ ECHO_MEASUREMENT_UNITS: dict[str, str] = {
     "DIVES": "mm",
     "SIVs": "mm",
     "PLVES": "mm",
+    "DIVEd_2D": "mm",
+    "DIVEd_normalizado_2D": "cm/kg^0,294",
+    "SIVd_2D": "mm",
+    "PLVEd_2D": "mm",
+    "DIVES_2D": "mm",
+    "SIVs_2D": "mm",
+    "PLVES_2D": "mm",
     "VDF": "mL",
     "VSF": "mL",
     "FE_Teicholz": "%",
@@ -38,17 +45,25 @@ ECHO_MEASUREMENT_UNITS: dict[str, str] = {
     "TD": "ms",
     "TRIV": "ms",
     "MR_dp_dt": "mmHg/s",
-    "e_doppler": "cm/s",
-    "a_doppler": "cm/s",
+    "e_doppler": "m/s",
+    "a_doppler": "m/s",
     "doppler_tecidual_relacao": "adimensional",
     "E_E_linha": "adimensional",
     "AP": "mm",
     "Ao_nivel_AP": "mm",
     "AP_Ao": "adimensional",
     "IM_Vmax": "m/s",
+    "IM_Grad": "mmHg",
     "IT_Vmax": "m/s",
+    "IT_Grad": "mmHg",
     "IA_Vmax": "m/s",
+    "IA_Grad": "mmHg",
     "IP_Vmax": "m/s",
+    "IP_Grad": "mmHg",
+    "Remodelamento_AD": "qualitativo",
+    "PAD_estimada": "mmHg",
+    "PSAP": "mmHg",
+    "VE_tecnica_relatorio": "qualitativo",
     "Vmax_aorta": "m/s",
     "Grad_aorta": "mmHg",
     "Vmax_pulmonar": "m/s",
@@ -72,6 +87,18 @@ ECHO_MEASUREMENT_METHODS: dict[str, str] = {
             "DeltaD_FS",
         )
     },
+    **{
+        key: "modo bidimensional"
+        for key in (
+            "DIVEd_2D",
+            "DIVEd_normalizado_2D",
+            "SIVd_2D",
+            "PLVEd_2D",
+            "DIVES_2D",
+            "SIVs_2D",
+            "PLVES_2D",
+        )
+    },
     "TAPSE": "excursão sistólica anular",
     "MAPSE": "excursão sistólica anular",
     "Aorta": "modo bidimensional",
@@ -93,9 +120,17 @@ ECHO_MEASUREMENT_METHODS: dict[str, str] = {
     "Ao_nivel_AP": "modo bidimensional",
     "AP_Ao": "modo bidimensional",
     "IM_Vmax": "Doppler contínuo",
+    "IM_Grad": "Bernoulli simplificada",
     "IT_Vmax": "Doppler contínuo",
+    "IT_Grad": "Bernoulli simplificada",
     "IA_Vmax": "Doppler contínuo",
+    "IA_Grad": "Bernoulli simplificada",
     "IP_Vmax": "Doppler contínuo",
+    "IP_Grad": "Bernoulli simplificada",
+    "Remodelamento_AD": "avaliação morfológica",
+    "PAD_estimada": "estimativa ecocardiográfica",
+    "PSAP": "estimativa ecocardiográfica",
+    "VE_tecnica_relatorio": "seleção do operador",
     "Vmax_aorta": "Doppler contínuo",
     "Grad_aorta": "Doppler contínuo",
     "Vmax_pulmonar": "Doppler contínuo",
@@ -110,6 +145,12 @@ REFERENCE_FIELD_MAP: dict[str, tuple[str, str, str]] = {
     "SIVs": ("ivs_s_min", "ivs_s_max", "mm"),
     "PLVEd": ("lvpw_d_min", "lvpw_d_max", "mm"),
     "PLVES": ("lvpw_s_min", "lvpw_s_max", "mm"),
+    "DIVEd_2D": ("lvid_d_min", "lvid_d_max", "mm"),
+    "DIVES_2D": ("lvid_s_min", "lvid_s_max", "mm"),
+    "SIVd_2D": ("ivs_d_min", "ivs_d_max", "mm"),
+    "SIVs_2D": ("ivs_s_min", "ivs_s_max", "mm"),
+    "PLVEd_2D": ("lvpw_d_min", "lvpw_d_max", "mm"),
+    "PLVES_2D": ("lvpw_s_min", "lvpw_s_max", "mm"),
     "VDF": ("edv_min", "edv_max", "mL"),
     "VSF": ("esv_min", "esv_max", "mL"),
     "FE_Teicholz": ("ef_min", "ef_max", "%"),
@@ -126,8 +167,8 @@ REFERENCE_FIELD_MAP: dict[str, tuple[str, str, str]] = {
     "E_A": ("mv_ea_min", "mv_ea_max", "adimensional"),
     "TD": ("mv_dt_min", "mv_dt_max", "ms"),
     "TRIV": ("ivrt_min", "ivrt_max", "ms"),
-    "e_doppler": ("tdi_e_min", "tdi_e_max", "cm/s"),
-    "a_doppler": ("tdi_a_min", "tdi_a_max", "cm/s"),
+    "e_doppler": ("tdi_e_min", "tdi_e_max", "m/s"),
+    "a_doppler": ("tdi_a_min", "tdi_a_max", "m/s"),
     "E_E_linha": ("e_e_linha_min", "e_e_linha_max", "adimensional"),
     "Vmax_aorta": ("vmax_ao_min", "vmax_ao_max", "m/s"),
     "Vmax_pulmonar": ("vmax_pulm_min", "vmax_pulm_max", "m/s"),
@@ -186,6 +227,9 @@ def load_echo_reference_context(
     for measurement_key, (minimum_key, maximum_key, unit) in REFERENCE_FIELD_MAP.items():
         minimum = resolved_reference.get(minimum_key)
         maximum = resolved_reference.get(maximum_key)
+        if measurement_key in {"e_doppler", "a_doppler"}:
+            minimum = float(minimum) / 100 if minimum is not None else None
+            maximum = float(maximum) / 100 if maximum is not None else None
         if minimum is None and maximum is None:
             continue
         ranges[measurement_key] = {
@@ -218,6 +262,22 @@ def safe_measurement_context(
     for key, value in (current_measurements or {}).items():
         normalized = str(value or "").strip()
         if key not in ECHO_MEASUREMENT_UNITS:
+            continue
+        if key == "Remodelamento_AD":
+            if normalized.lower() in {"ausente", "leve", "moderado", "importante"}:
+                safe[key] = {
+                    "value": normalized.lower(),
+                    "unit": ECHO_MEASUREMENT_UNITS[key],
+                    "method": ECHO_MEASUREMENT_METHODS[key],
+                }
+            continue
+        if key == "VE_tecnica_relatorio":
+            if normalized.lower() in {"modo_m", "2d"}:
+                safe[key] = {
+                    "value": normalized.lower(),
+                    "unit": ECHO_MEASUREMENT_UNITS[key],
+                    "method": ECHO_MEASUREMENT_METHODS[key],
+                }
             continue
         if not re.fullmatch(r"[-+]?\d+(?:[.,]\d+)?", normalized):
             continue

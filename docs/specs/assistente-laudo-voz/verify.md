@@ -2,7 +2,7 @@
 
 Data: 2026-07-26
 Responsável: Martiniano + Codex
-Status: deterministic_structuring_stage_followup_pending
+Status: local_pass
 
 ## Matriz
 
@@ -24,17 +24,58 @@ Status: deterministic_structuring_stage_followup_pending
 | CA-014 | `origin/main=6a12cf9a815d6e2e14d58604e03242948f8e1093`; produção sem alteração | pass |
 | CA-015 | regressão reproduz o texto reportado, consolida sugestões duplicadas por maior confiança e registra alerta visível | stage_pass |
 | CA-016 | `ValidationError` estruturado retorna `invalid_structured_output`, sem mensagem falsa de indisponibilidade | stage_pass |
-| CA-017 | correlação multimodal de áudio + sete medidas em endocardiose mitral C, com salvaguardas de ICC, IM Vmax e IT Vmax | local_pass |
+| CA-017 | correlação multimodal de áudio + sete medidas em endocardiose mitral C, com salvaguardas de ICC/IM Vmax e classificação de hipertensão pulmonar somente quando IT Vmax possui contexto anatômico direito | local_pass |
 | CA-018 | contexto do paciente contém espécie, raça, idade e peso; referência mais próxima carregada chega ao provedor e ao validador | stage_pass |
 | CA-019 | medidas possuem unidades canônicas no payload e em todos os rótulos das telas novo/editar | stage_pass |
 | CA-020 | padrão avançado derivado das medidas gera frases interpretativas sem números e estágio C apenas condicional sem evidência de ICC | stage_pass |
 | CA-021 | exclusão após transcrição ou falha rejeita a sessão, remove o áudio e limpa transcrição/sugestões locais antes de retornar à gravação no mesmo rascunho | local_pass |
 | CA-022 | ditado exato de mitral leve/B1 + demais parâmetros normais gera 15 sugestões ricas sem chamar o provedor externo; achado não reconhecido continua no fluxo estrito da IA | local_pass |
 | CA-023 | `insufficient_quota` é distinguido de rate limit temporário e retorna mensagem explícita de cota esgotada | local_pass |
-| CA-024 | tabela formal de medidas apresenta e' e a' do Doppler tecidual em `cm/s`; o mapeamento de referência usa a mesma unidade | local_pass |
+| CA-024 | tabela formal de medidas apresenta e' e a' do Doppler tecidual em `m/s`; importação converte `cm/s` e referência histórica é ajustada para comparação | local_pass |
 | CA-025 | workflow de produção habilita a flag do ditado e configura os modelos antes de reiniciar os serviços, sem revelar credenciais | local_pass |
+| CA-026 | gradientes IM/IT/IA/IP usam `4 × V²`; remodelamento atrial direito moderado + IT Vmax 3,6 gera gradiente 51,84, PAD 10 e PSAP 61,84 mmHg | local_pass |
+| CA-027 | ditado com sinais clínicos explícitos não gera alerta de ausência; estágio C sem congestão mantém correlação clínica específica | local_pass |
+| CA-028 | matriz canina classifica alta probabilidade com IT elevada e dois locais direitos; regra felina retorna suspeita orientativa com alerta próprio | local_pass |
+| CA-029 | PDF com `MM/LVIDd` e `2D/LVIDd` conserva as duas séries, informa as duas técnicas e bloqueia aplicação até escolha do bloco do laudo | local_pass |
+| CA-030 | PDF final usa `VE_tecnica_relatorio` para emitir exclusivamente o bloco Modo M ou Modo 2D selecionado | local_pass |
+| CA-031 | suíte oficial com 471 testes, 70 testes focados e 13 subtestes, `pip check`, ESLint, TypeScript, build Next.js e `git diff --check` | local_pass |
+| CA-032 | canário vivo avançado exige alta probabilidade ecocardiográfica quando IT Vmax 3,6 m/s está associada a repercussão em câmaras direitas e rejeita o alerta legado de velocidade isolada | stage_pending |
 
 ## Evidência local executada
+
+### Rodada atual: PSAP, hipertensão pulmonar e técnicas do VE
+
+```bash
+cd backend
+./venv/bin/python -m pytest -q \
+  tests/test_ai_echo_voice_assistant.py \
+  tests/test_eco_study_extraction_service.py \
+  tests/test_pdf_laudo_echo_measurements.py
+# 70 testes e 13 subtestes, OK
+
+./venv/bin/python -m unittest discover -s tests -p "test_*.py"
+# 471 testes, OK
+
+./venv/bin/python -m pip check
+# No broken requirements found.
+
+cd ../frontend
+npm run lint
+./node_modules/.bin/tsc --noEmit
+NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS='--max-old-space-size=1536' \
+  ./node_modules/.bin/next build --no-lint
+# build otimizado, tipos, 36 páginas e traces, OK
+
+cd ..
+git diff --check
+# OK
+```
+
+A tentativa de executar `pytest` indiscriminadamente desde a raiz do backend
+também coletou quatro scripts legados na raiz, fora de `backend/tests`, que
+pressupõem um banco SQLite previamente criado. Eles falharam na coleta por
+ausência da tabela `usuarios`; a suíte oficial e os testes focados acima
+executam no ambiente isolado e passaram integralmente.
 
 ```bash
 cd backend
@@ -93,7 +134,7 @@ O teste reproduz integralmente o ditado da captura:
 classificado como B1 para endocardiose de mitral.`
 
 A chamada dos casos complexos passa a usar raciocínio `low`, orçamento de 8.000
-tokens e prompt `echo-clinical-ptbr-v6`, que orienta o modelo a não repetir
+tokens e prompt `echo-clinical-ptbr-v7`, que orienta o modelo a não repetir
 frases normais genéricas. Casos simples integralmente cobertos pelas regras
 conhecidas são estruturados localmente, sem consumir cota da API. O teste de
 integração exige sessão em `awaiting_review`, os 14 campos qualitativos mais a
@@ -134,10 +175,13 @@ congestão venosa pulmonar junto com `AE_Ao=2,5`,
 
 As asserções exigem frases específicas para mitral, átrio esquerdo, ventrículo
 esquerdo, função diastólica, tricúspide, câmaras direitas e conclusão C, sem
-repetir os números nas frases. Também exigem o alerta que impede classificar
-hipertensão pulmonar por IT Vmax isolada ou aceitar estágio C sem confirmação de
-ICC atual/prévia. Um teste separado confirma que as medidas com unidades, os
-intervalos de referência e espécie/raça/idade/peso chegam juntos ao provedor.
+repetir os números nas frases. Como a IT Vmax elevada está acompanhada de
+repercussão em câmaras direitas, o canário exige alta probabilidade
+ecocardiográfica de hipertensão pulmonar e a ausência do alerta reservado à
+velocidade tricúspide isolada. A salvaguarda de ICC continua exigindo evidência
+clínica/congestiva para o estágio C. Um teste separado confirma que as medidas
+com unidades, os intervalos de referência e espécie/raça/idade/peso chegam
+juntos ao provedor.
 O canary mantém ainda o cenário anterior B1 + refluxo leve + DDG1 + AE/Ao 2,4
 para assegurar que a correlação avançada não apague achados leves já ditados.
 O AE/Ao 2,5 também é pronunciado no segundo ditado artificial, permitindo usar
@@ -277,7 +321,7 @@ genérica de normalidade eventualmente carregada pelo preset.
 
 O backend resolve a linha de referência mais próxima da tabela carregada usando
 espécie e peso do cabeçalho. O payload clínico do prompt
-`echo-clinical-ptbr-v5` contém:
+`echo-clinical-ptbr-v7` contém:
 
 - espécie, raça, idade calculada e peso, sem nome do paciente ou tutor;
 - somente medidas numéricas válidas, cada uma com unidade canônica e método;
@@ -292,7 +336,7 @@ enchimento, além de conclusão de doença valvar mixomatosa avançada com está
 condicional. Nenhuma frase sugerida pode repetir os valores de origem.
 
 Nas telas `Novo laudo` e `Editar laudo`, volumes exibem mL; frações, %; velocidades,
-m/s ou cm/s conforme a técnica; tempos, ms; gradientes, mmHg; dp/dt, mmHg/s; e
+m/s; tempos, ms; gradientes, mmHg; dp/dt, mmHg/s; e
 razões são explicitamente adimensionais.
 
 ### Evidência de unidades e referência clínica em stage

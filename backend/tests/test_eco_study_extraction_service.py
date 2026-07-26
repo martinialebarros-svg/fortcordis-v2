@@ -95,6 +95,25 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
         self.assertEqual(conflicts, 1)
         self.assertEqual({item["status"] for item in consolidated}, {"conflito"})
 
+    def test_keeps_m_mode_and_2d_lv_measurements_as_distinct_series(self) -> None:
+        candidates = extract_measurements_from_text(
+            "MM/LVIDd 30 mm\n2D/LVIDd 32 mm\ne' 8 cm/s",
+            source="pdf:text",
+            confidence=0.99,
+        )
+        measurements, consolidated, conflicts = consolidate_measurement_candidates(candidates)
+
+        self.assertEqual(measurements["DIVEd"], 30)
+        self.assertEqual(measurements["DIVEd_2D"], 32)
+        self.assertEqual(measurements["e_doppler"], 0.08)
+        self.assertEqual(conflicts, 0)
+        techniques = {
+            item.get("tecnica")
+            for item in consolidated
+            if item["campo"] in {"DIVEd", "DIVEd_2D"}
+        }
+        self.assertEqual(techniques, {"modo_m", "2d"})
+
     def test_does_not_read_e_over_triv_ratio_as_second_triv_measurement(self) -> None:
         candidates = extract_measurements_from_text(
             "TRIV 40.00 ms\nE/triv 14.92",
@@ -285,6 +304,18 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
         self.assertEqual(payload["meta_importacao_estudo"]["paginas"], 1)
         self.assertTrue(
             all(item["origem"] == "pdf:text" for item in payload["medidas_extraidas"])
+        )
+
+    def test_pdf_reports_both_lv_techniques_for_explicit_user_choice(self) -> None:
+        content = _pdf_bytes(["MM/LVIDd 30 mm", "2D/LVIDd 32 mm"])
+
+        payload = parse_eco_study_import_content("duas-tecnicas.pdf", content)
+
+        self.assertEqual(payload["medidas"]["DIVEd"], 30)
+        self.assertEqual(payload["medidas"]["DIVEd_2D"], 32)
+        self.assertEqual(
+            payload["meta_importacao_estudo"]["tecnicas_ve_detectadas"],
+            ["2d", "modo_m"],
         )
 
     def test_identifies_ge_vivid_iq_pdf_text_report(self) -> None:

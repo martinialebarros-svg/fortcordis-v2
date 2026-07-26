@@ -241,6 +241,39 @@ _PULMONARY_CONGESTION_PATTERN = re.compile(
     r"\b(?:congestao\s+venosa\s+pulmonar|edema\s+pulmonar(?:\s+cardiogenico)?|"
     r"insuficiencia\s+cardiaca\s+congestiva|icc)\b"
 )
+_CLINICAL_SIGNS_PATTERN = re.compile(
+    r"\b(?:animal\s+)?(?:tem|apresenta|apresentando|apresentou)\s+"
+    r"sinais?\s+clinicos?\b"
+    r"|\b(?:dispneia|taquipneia|intolerancia\s+ao\s+exercicio|sincope|"
+    r"dificuldade\s+respiratoria)\b"
+)
+_RIGHT_ATRIAL_REMODELING_SEVERITY_PATTERNS = (
+    re.compile(
+        r"\b(?:remodelamento|dilatacao|aumento)\s+"
+        r"(?P<severity>leve|discret[oa]|moderad[oa]|important[ea]|"
+        r"acentuad[oa]|grave|sever[oa])\s+(?:do|de|das?)\s+"
+        r"(?:atrio\s+direito|camaras?\s+direitas?)\b"
+    ),
+    re.compile(
+        r"\b(?:atrio\s+direito|camaras?\s+direitas?)\b.{0,45}\b"
+        r"(?P<severity>leve|discret[oa]|moderad[oa]|important[ea]|"
+        r"acentuad[oa]|grave|sever[oa])\b"
+    ),
+)
+_RIGHT_VENTRICULAR_PH_PATTERN = re.compile(
+    r"\b(?:ventriculo\s+direito|vd)\b.*\b"
+    r"(?:dilatacao|aumento|remodelamento|hipertrofia|sobrecarga)\b"
+    r"|\b(?:achatamento|movimento\s+paradoxal)\b.*\bsepto\b"
+)
+_PULMONARY_ARTERY_PH_PATTERN = re.compile(
+    r"\b(?:arteria\s+pulmonar|ap)\b.*\b(?:dilatad|aument|remodel)\w*\b"
+    r"|\b(?:tempo\s+de\s+aceleracao|paat|at\s*/\s*et|notching)\b"
+    r"|\bregurgitacao\s+pulmonar\b"
+)
+_RIGHT_ATRIUM_CAVA_PH_PATTERN = re.compile(
+    r"\b(?:atrio\s+direito|veia\s+cava|cava\s+caudal)\b.*\b"
+    r"(?:dilatad|aument|remodel|distendid)\w*\b"
+)
 _STRUCTURED_PHRASES_PATH = (
     Path(__file__).resolve().parents[2]
     / "data"
@@ -539,6 +572,7 @@ def _warning_concept(warning: EchoClinicalWarningOutput) -> str:
 def _filter_contextual_provider_warnings(
     warnings: list[EchoClinicalWarningOutput],
     *,
+    transcript: str,
     current_measurements: dict[str, str] | None,
     exam_context: dict | None,
     reference_context: dict | None,
@@ -558,6 +592,9 @@ def _filter_contextual_provider_warnings(
         and reference_context.get("ranges")
     )
     filtered: list[EchoClinicalWarningOutput] = []
+    clinical_signs_described = bool(
+        _CLINICAL_SIGNS_PATTERN.search(_strip_accents(transcript))
+    )
     for warning in warnings:
         normalized = _strip_accents(
             f"{warning.warning_type} {warning.message}"
@@ -578,6 +615,15 @@ def _filter_contextual_provider_warnings(
         ) and any(
             token in normalized
             for token in ("ausente", "nao informad", "sem ", "missing")
+        ):
+            continue
+        if clinical_signs_described and any(
+            token in normalized
+            for token in (
+                "sinais clinicos nao foram descritos",
+                "sem sinais clinicos",
+                "nao descreve sinais clinicos",
+            )
         ):
             continue
         filtered.append(warning)
@@ -949,6 +995,7 @@ def _enrich_advanced_mitral_multimodal(
         _RIGHT_CHAMBER_REPERCUSSION_PATTERN.search(normalized)
     )
     pulmonary_congestion = bool(_PULMONARY_CONGESTION_PATTERN.search(normalized))
+    clinical_signs_described = bool(_CLINICAL_SIGNS_PATTERN.search(normalized))
 
     la_ao = _measurement_float(current_measurements, "AE_Ao")
     lvidd = _measurement_float(current_measurements, "DIVEd")
@@ -1181,6 +1228,13 @@ def _enrich_advanced_mitral_multimodal(
                 "Achados compatíveis com endocardiose da valva mitral em estágio C "
                 "(ACVIM), com sinais de congestão venosa pulmonar."
             )
+        elif stage_c and clinical_signs_described:
+            conclusion += (
+                "Padrão ecocardiográfico compatível com doença valvar mixomatosa "
+                "mitral avançada. O estágio C (ACVIM) foi informado em conjunto "
+                "com sinais clínicos e deve ser correlacionado com evidência atual "
+                "ou histórica de insuficiência cardíaca congestiva."
+            )
         elif stage_c:
             conclusion += (
                 "Padrão ecocardiográfico compatível com doença valvar mixomatosa "
@@ -1215,7 +1269,7 @@ def _enrich_advanced_mitral_multimodal(
         )
 
     enriched_warnings = list(warnings)
-    if stage_c and not pulmonary_congestion:
+    if stage_c and not pulmonary_congestion and not clinical_signs_described:
         enriched_warnings.append(
             EchoClinicalWarningOutput(
                 warning_type="stage_c_requires_chf_evidence",
@@ -1224,6 +1278,19 @@ def _enrich_advanced_mitral_multimodal(
                     "O estágio C foi informado no ditado, mas congestão atual ou "
                     "histórico prévio de insuficiência cardíaca não foram descritos. "
                     "Confirme sinais clínicos e/ou evidência radiográfica."
+                ),
+                related_fields=["conclusao"],
+            )
+        )
+    elif stage_c and clinical_signs_described and not pulmonary_congestion:
+        enriched_warnings.append(
+            EchoClinicalWarningOutput(
+                warning_type="stage_c_clinical_signs_need_chf_correlation",
+                severity="info",
+                message=(
+                    "O ditado descreve sinais clínicos e informa estágio C. "
+                    "Correlacione os sinais com evidência atual ou histórica de "
+                    "insuficiência cardíaca congestiva antes de confirmar o estágio."
                 ),
                 related_fields=["conclusao"],
             )
@@ -1242,6 +1309,247 @@ def _enrich_advanced_mitral_multimodal(
             )
         )
     return enriched, enriched_warnings
+
+
+def _right_atrial_remodeling_from_transcript(transcript: str) -> str | None:
+    normalized = _strip_accents(transcript)
+    for pattern in _RIGHT_ATRIAL_REMODELING_SEVERITY_PATTERNS:
+        match = pattern.search(normalized)
+        if not match:
+            continue
+        severity = match.group("severity")
+        if severity.startswith(("moderad",)):
+            return "moderado"
+        if severity.startswith(("important", "acentuad", "grave", "sever")):
+            return "importante"
+        return "leve"
+    return None
+
+
+def _tricuspid_velocity_from_transcript(transcript: str) -> float | None:
+    extracted, _ = extract_measurements_from_transcript(transcript)
+    return next(
+        (
+            item.value
+            for item in extracted
+            if item.canonical_name == "tricuspid_regurgitation_velocity"
+            and item.value is not None
+        ),
+        None,
+    )
+
+
+def _pulmonary_hypertension_anatomic_sites(transcript: str) -> list[str]:
+    normalized = _strip_accents(transcript)
+    sites: set[str] = set()
+    if _RIGHT_VENTRICULAR_PH_PATTERN.search(normalized):
+        sites.add("ventriculo_direito")
+    if _PULMONARY_ARTERY_PH_PATTERN.search(normalized):
+        sites.add("arteria_pulmonar")
+    if _RIGHT_ATRIUM_CAVA_PH_PATTERN.search(normalized):
+        sites.add("atrio_direito_veia_cava")
+    if _RIGHT_CHAMBER_REPERCUSSION_PATTERN.search(normalized):
+        sites.update({"ventriculo_direito", "atrio_direito_veia_cava"})
+    return sorted(sites)
+
+
+def _canine_ph_probability(tr_velocity: float, anatomic_sites: int) -> str:
+    if tr_velocity <= 3.0:
+        return "intermediaria" if anatomic_sites >= 2 else "baixa"
+    if tr_velocity <= 3.4:
+        if anatomic_sites == 0:
+            return "baixa"
+        return "alta" if anatomic_sites >= 2 else "intermediaria"
+    return "alta" if anatomic_sites >= 1 else "intermediaria"
+
+
+def _feline_ph_probability(tr_velocity: float, anatomic_sites: int) -> str:
+    if tr_velocity <= 2.7:
+        return "intermediaria" if anatomic_sites >= 2 else "baixa"
+    return "alta" if anatomic_sites >= 1 else "intermediaria"
+
+
+def _enrich_pulmonary_hypertension_probability(
+    suggestions: list[EchoFieldSuggestionOutput],
+    warnings: list[EchoClinicalWarningOutput],
+    *,
+    transcript: str,
+    current_measurements: dict[str, str] | None,
+    species: str | None,
+) -> tuple[list[EchoFieldSuggestionOutput], list[EchoClinicalWarningOutput]]:
+    tr_velocity = _measurement_float(current_measurements, "IT_Vmax")
+    if tr_velocity is None:
+        tr_velocity = _tricuspid_velocity_from_transcript(transcript)
+    if tr_velocity is None or tr_velocity <= 0:
+        return suggestions, warnings
+
+    sites = _pulmonary_hypertension_anatomic_sites(transcript)
+    normalized_species = _strip_accents(str(species or ""))
+    feline = any(
+        token in normalized_species for token in ("felina", "felino", "gato")
+    )
+    probability = (
+        _feline_ph_probability(tr_velocity, len(sites))
+        if feline
+        else _canine_ph_probability(tr_velocity, len(sites))
+    )
+    labels = {
+        "baixa": "baixa",
+        "intermediaria": "intermediária",
+        "alta": "alta",
+    }
+    probability_label = labels[probability]
+    evidence = [
+        f"Velocidade da regurgitação tricúspide: {tr_velocity:g} m/s",
+        *(
+            [f"Locais anatômicos de suporte: {', '.join(sites)}"]
+            if sites
+            else ["Sem local anatômico adicional descrito"]
+        ),
+    ]
+
+    enriched = _replace_field_suggestion(
+        suggestions,
+        field_key="valva_tricuspide",
+        text=(
+            "Regurgitação tricúspide com velocidade elevada. O conjunto dos "
+            f"achados sustenta {probability_label} probabilidade ecocardiográfica "
+            "de hipertensão pulmonar."
+        ),
+        source_spans=evidence,
+        evidence_type="inference",
+        confidence=0.93 if probability == "alta" else 0.86,
+    )
+    previous_conclusion = next(
+        (
+            item.text.strip()
+            for item in enriched
+            if str(item.field_key) == "conclusao" and item.text.strip()
+        ),
+        "",
+    )
+    previous_conclusion = re.sub(
+        r"\s*(?:Conjunto|Achados)\s+compat[ií]ve(?:l|is)\s+com\s+"
+        r"(?:baixa|intermedi[aá]ria|alta)\s+(?:probabilidade|suspeita)"
+        r".*?hipertens[aã]o\s+pulmonar\.\s*",
+        " ",
+        previous_conclusion,
+        flags=re.IGNORECASE,
+    ).strip()
+    ph_term = "suspeita ecocardiográfica" if feline else "probabilidade ecocardiográfica"
+    ph_conclusion = (
+        f"Conjunto compatível com {probability_label} {ph_term} de "
+        "hipertensão pulmonar."
+    )
+    enriched = _replace_field_suggestion(
+        enriched,
+        field_key="conclusao",
+        text=" ".join(part for part in (previous_conclusion, ph_conclusion) if part),
+        source_spans=evidence,
+        evidence_type="diagnostic_suggestion",
+        confidence=0.93 if probability == "alta" else 0.84,
+    )
+
+    enriched_warnings = [
+        warning
+        for warning in warnings
+        if not (
+            warning.warning_type == "tr_velocity_requires_ph_context"
+            and len(sites) >= 1
+        )
+    ]
+    if feline:
+        enriched_warnings.append(
+            EchoClinicalWarningOutput(
+                warning_type="feline_ph_framework_limited",
+                severity="info",
+                message=(
+                    "Em gatos, a classificação foi apresentada como suspeita "
+                    "ecocardiográfica orientativa; os critérios de probabilidade "
+                    "caninos não devem ser transferidos diretamente."
+                ),
+                related_fields=["IT_Vmax", "conclusao"],
+            )
+        )
+    return enriched, enriched_warnings
+
+
+def _derived_right_heart_measurements(
+    transcript: str,
+    current_measurements: dict[str, str] | None,
+) -> list[EchoMeasurementOutput]:
+    remodeling = (
+        _right_atrial_remodeling_from_transcript(transcript)
+        or str((current_measurements or {}).get("Remodelamento_AD") or "").strip().lower()
+        or None
+    )
+    if remodeling not in {"ausente", "leve", "moderado", "importante"}:
+        return []
+
+    rap_by_remodeling = {
+        "ausente": 5.0,
+        "leve": 5.0,
+        "moderado": 10.0,
+        "importante": 15.0,
+    }
+    source = f"Remodelamento do átrio direito: {remodeling}"
+    outputs = [
+        EchoMeasurementOutput(
+            canonical_name="right_atrial_remodeling",
+            display_name="Remodelamento do átrio direito",
+            value=None,
+            raw_value=remodeling,
+            unit=None,
+            target_field_key="Remodelamento_AD",
+            source_text=source,
+            confidence=0.97,
+        )
+    ]
+    tr_velocity = _measurement_float(current_measurements, "IT_Vmax")
+    if tr_velocity is None:
+        tr_velocity = _tricuspid_velocity_from_transcript(transcript)
+    if tr_velocity is None or tr_velocity <= 0:
+        return outputs
+
+    gradient = 4 * tr_velocity**2
+    rap = rap_by_remodeling[remodeling]
+    psap = gradient + rap
+    for canonical_name, display_name, value, target_field_key, source_text in (
+        (
+            "tricuspid_gradient_calculated",
+            "Gradiente tricúspide calculado",
+            gradient,
+            "IT_Grad",
+            f"Bernoulli simplificada: 4 × ({tr_velocity:g} m/s)²",
+        ),
+        (
+            "right_atrial_pressure_estimated",
+            "Pressão atrial direita estimada",
+            rap,
+            "PAD_estimada",
+            source,
+        ),
+        (
+            "psap_estimated",
+            "PSAP estimada",
+            psap,
+            "PSAP",
+            "Gradiente tricúspide calculado + pressão atrial direita estimada",
+        ),
+    ):
+        outputs.append(
+            EchoMeasurementOutput(
+                canonical_name=canonical_name,
+                display_name=display_name,
+                value=round(value, 2),
+                raw_value=f"{value:.2f}",
+                unit="mmHg",
+                target_field_key=target_field_key,
+                source_text=source_text,
+                confidence=0.9,
+            )
+        )
+    return outputs
 
 
 def validate_and_enrich_clinical_output(
@@ -1276,13 +1584,60 @@ def validate_and_enrich_clinical_output(
         species=species or output.exam_context.species,
         reference_context=reference_context,
     )
+    field_suggestions, measurement_warnings = _enrich_pulmonary_hypertension_probability(
+        field_suggestions,
+        measurement_warnings,
+        transcript=transcript,
+        current_measurements=current_measurements,
+        species=species or output.exam_context.species,
+    )
     measurements = list(output.measurements)
+    derived_right_heart = _derived_right_heart_measurements(
+        transcript,
+        current_measurements,
+    )
+    derived_targets = {
+        str(item.target_field_key)
+        for item in derived_right_heart
+        if item.target_field_key
+    }
+    if derived_targets:
+        measurements = [
+            item
+            for item in measurements
+            if str(item.target_field_key or "") not in derived_targets
+        ]
+    for measurement in derived_right_heart:
+        measurements.append(measurement)
     provider_warnings = _filter_contextual_provider_warnings(
         list(output.warnings),
+        transcript=transcript,
         current_measurements=current_measurements,
         exam_context=exam_context,
         reference_context=reference_context,
     )
+    if any(item.canonical_name == "psap_estimated" for item in derived_right_heart):
+        provider_warnings = [
+            warning
+            for warning in provider_warnings
+            if not (
+                "pressao sistolica" in _strip_accents(warning.message)
+                and "nao foi fornecido" in _strip_accents(warning.message)
+            )
+        ]
+        measurement_warnings.append(
+            EchoClinicalWarningOutput(
+                warning_type="psap_is_estimate",
+                severity="info",
+                message=(
+                    "A PSAP foi estimada pelo gradiente da regurgitação tricúspide "
+                    "somado à pressão atrial direita presumida pelo remodelamento. "
+                    "Confirme a estimativa e exclua obstrução da via de saída do "
+                    "ventrículo direito antes de interpretar."
+                ),
+                related_fields=["IT_Vmax", "IT_Grad", "PAD_estimada", "PSAP"],
+            )
+        )
     warnings = [*measurement_warnings, *provider_warnings]
     existing_by_name: dict[str, list[EchoMeasurementOutput]] = {}
     for measurement in measurements:
