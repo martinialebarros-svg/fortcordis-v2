@@ -384,7 +384,11 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
                     },
                     {
                         "field_key": "conclusao",
-                        "text": "Endocardiose mitral.",
+                        "text": (
+                            "Endocardiose mitral com refluxo leve e sem "
+                            "remodelamento cardíaco significativo. "
+                            "Estágio B1 (ACVIM)."
+                        ),
                         "confidence": 0.9,
                         "source_spans": ["endocardiose mitral"],
                         "evidence_type": "diagnostic_suggestion",
@@ -400,6 +404,8 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
         self.assertIn("AE/Ao 2.4", suggestions["conclusao"])
         self.assertIn("repercussão hemodinâmica significativa", suggestions["conclusao"])
         self.assertIn("Endocardiose mitral", suggestions["conclusao"])
+        self.assertNotIn("sem remodelamento", suggestions["conclusao"])
+        self.assertNotIn("Estágio B1", suggestions["conclusao"])
         self.assertIn(
             "report_measurement_interpreted",
             {warning.warning_type for warning in enriched.warnings},

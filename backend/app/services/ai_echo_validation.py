@@ -640,6 +640,14 @@ def _enrich_from_current_measurements(
         ),
         "",
     )
+    previous_conclusion = re.sub(
+        r"\s*(?:e\s+)?sem remodelamento card[ií]aco significativo\.\s*"
+        r"Est[aá]gio B1 \(ACVIM\)\.",
+        ".",
+        previous_conclusion,
+        flags=re.IGNORECASE,
+    )
+    previous_conclusion = re.sub(r"\.{2,}", ".", previous_conclusion).strip()
     enriched.append(
         EchoFieldSuggestionOutput(
             field_key="atrio_esquerdo",

@@ -178,6 +178,8 @@ na conclusão e o alerta `report_measurement_interpreted`. Como essa medida
 conflita com a afirmação ditada de ausência de remodelamento/B1, o canary exige
 que a endocardiose e o refluxo sejam preservados, mas que o estágio B1 não seja
 mantido. A regra não atribui um novo estágio ACVIM com AE/Ao isoladamente.
+O validador remove deterministicamente da conclusão as expressões conflitantes
+`sem remodelamento cardíaco significativo` e `Estágio B1 (ACVIM)`.
 
 ### Evidência da regravação em stage
 
