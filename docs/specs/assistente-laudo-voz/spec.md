@@ -114,6 +114,13 @@ O módulo é aditivo e isolado:
 - RF-037: na expressão "demais parâmetros ... dentro da normalidade", sugestões
   genéricas fundamentadas somente nessa afirmação global são substituídas pelo
   preset; alterações explicitamente ditadas continuam prevalecendo.
+- RF-038: expressões equivalentes, incluindo "o resto dos parâmetros
+  ecocardiográficos avaliados dentro da normalidade", acionam a mesma expansão
+  determinística pelo preset normal.
+- RF-039: quando o ditado informa espessamento mitral com refluxo leve,
+  classificação B1 sem remodelamento e disfunção diastólica grau I, o campo
+  mitral recebe descrição clínica detalhada e a conclusão reúne somente esses
+  achados, incluindo o estágio B1 (ACVIM).
 
 ## 4. Estados
 

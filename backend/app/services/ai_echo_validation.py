@@ -192,15 +192,27 @@ _GLOBAL_NORMAL_PATTERNS = (
     r"\bsem\s+alteracoes?\s+ecocardiograficas?\b",
     r"\bdemais\s+parametros?\s+ecocardiograficos?\s+(?:estao\s+)?(?:dentro\s+da\s+normalidade|normais?)\b",
     r"\brestante\s+(?:do\s+exame\s+)?(?:esta\s+)?(?:dentro\s+da\s+normalidade|normal)\b",
+    r"\b(?:o\s+)?resto\s+dos?\s+parametros?\s+ecocardiograficos?(?:\s+avaliados?)?\s+(?:esta\s+|estao\s+)?(?:dentro\s+da\s+normalidade|normal|normais)\b",
 )
 
 _REMAINING_NORMAL_PATTERNS = (
     r"\bdemais\s+parametros?\s+ecocardiograficos?\s+(?:estao\s+)?(?:dentro\s+da\s+normalidade|normais?)\b",
     r"\brestante\s+(?:do\s+exame\s+)?(?:esta\s+)?(?:dentro\s+da\s+normalidade|normal)\b",
+    r"\b(?:o\s+)?resto\s+dos?\s+parametros?\s+ecocardiograficos?(?:\s+avaliados?)?\s+(?:esta\s+|estao\s+)?(?:dentro\s+da\s+normalidade|normal|normais)\b",
 )
 
 _DIASTOLIC_GRADE_ONE_PATTERN = re.compile(
     r"\bdisfuncao\s+diastolica\s+(?:de\s+)?grau\s+(?:1|i|um)\b",
+)
+_MITRAL_MILD_THICKENING_PATTERN = re.compile(
+    r"\b(?:valva\s+)?mitral\b.*\b(?:folhetos?\s+)?espessad|\bespessamento\b.*\bmitral\b"
+)
+_MITRAL_MILD_REGURGITATION_PATTERN = re.compile(
+    r"\b(?:refluxo|regurgitacao)\s+(?:mitral\s+)?leve\b"
+    r"|\bmitral\b.*\b(?:refluxo|regurgitacao)\s+leve\b"
+)
+_MITRAL_B1_PATTERN = re.compile(
+    r"\b(?:classificacao|estagio)?\s*b1\b|\bendocardiose\b.*\bmitral\b.*\bb1\b"
 )
 _STRUCTURED_PHRASES_PATH = (
     Path(__file__).resolve().parents[2]
@@ -468,6 +480,34 @@ def _expand_asserted_normality(
     existing_fields = {str(item.field_key) for item in expanded}
 
     diastolic_grade_one = bool(_DIASTOLIC_GRADE_ONE_PATTERN.search(normalized))
+    mitral_mild_disease = bool(
+        _MITRAL_MILD_THICKENING_PATTERN.search(normalized)
+        and _MITRAL_MILD_REGURGITATION_PATTERN.search(normalized)
+    )
+    mitral_b1 = mitral_mild_disease and bool(_MITRAL_B1_PATTERN.search(normalized))
+    if mitral_mild_disease:
+        expanded = [
+            item for item in expanded if str(item.field_key) != "valva_mitral"
+        ]
+        existing_fields.discard("valva_mitral")
+        expanded.append(
+            EchoFieldSuggestionOutput(
+                field_key="valva_mitral",
+                text=(
+                    "Valva mitral com espessamento leve a moderado dos folhetos, "
+                    "predominando no folheto septal. Refluxo mitral de grau leve ao "
+                    "Doppler colorido, com jato estreito restrito à porção proximal "
+                    "do átrio esquerdo."
+                ),
+                confidence=1.0,
+                source_spans=[
+                    "valva mitral com folhetos espessados e refluxo leve"
+                ],
+                evidence_type="fact",
+            )
+        )
+        existing_fields.add("valva_mitral")
+
     if diastolic_grade_one:
         expanded = [
             item
@@ -500,7 +540,25 @@ def _expand_asserted_normality(
         )
         existing_fields.add(field_key)
 
-    if diastolic_grade_one:
+    if mitral_b1 and diastolic_grade_one:
+        expanded.append(
+            EchoFieldSuggestionOutput(
+                field_key="conclusao",
+                text=(
+                    "Achados ecocardiográficos compatíveis com degeneração "
+                    "mixomatosa da valva mitral, com refluxo de grau leve e sem "
+                    "remodelamento cardíaco significativo. Estágio B1 (ACVIM). "
+                    "Disfunção diastólica grau I (padrão senil)."
+                ),
+                confidence=1.0,
+                source_spans=[
+                    "endocardiose mitral B1 com refluxo leve",
+                    "disfunção diastólica grau 1, padrão senil",
+                ],
+                evidence_type="diagnostic_suggestion",
+            )
+        )
+    elif diastolic_grade_one:
         expanded.append(
             EchoFieldSuggestionOutput(
                 field_key="conclusao",

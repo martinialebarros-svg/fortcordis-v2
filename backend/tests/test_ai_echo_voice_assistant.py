@@ -305,6 +305,65 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
         self.assertNotIn("preservada", suggestions["funcao_diastolica"].lower())
         self.assertEqual(enriched.measurements, [])
 
+    def test_remaining_normal_uses_preset_and_concludes_mitral_b1_plus_grade_one(
+        self,
+    ) -> None:
+        transcript = (
+            "Valva mitral com folhetos espessados, espessamento leve, com refluxo "
+            "leve, sem remodelamento de câmaras cardíacas. Classificação B1 para "
+            "endocardiose de mitral. Temos também disfunção diastólica grau 1 "
+            "padrão senil. O resto dos parâmetros ecocardiográficos avaliados "
+            "dentro da normalidade."
+        )
+        generic_source = (
+            "O resto dos parâmetros ecocardiográficos avaliados dentro da normalidade."
+        )
+        enriched = validate_and_enrich_clinical_output(
+            empty_output(
+                field_suggestions=[
+                    {
+                        "field_key": "valva_mitral",
+                        "text": "Folhetos com espessamento leve e refluxo leve.",
+                        "confidence": 1,
+                        "source_spans": [
+                            "Valva mitral com folhetos espessados e refluxo leve."
+                        ],
+                        "evidence_type": "fact",
+                    },
+                    {
+                        "field_key": "valva_aortica",
+                        "text": "Parâmetros avaliados dentro da normalidade.",
+                        "confidence": 0.95,
+                        "source_spans": [generic_source],
+                        "evidence_type": "fact",
+                    },
+                    {
+                        "field_key": "conclusao",
+                        "text": "Alterações descritas acima.",
+                        "confidence": 0.9,
+                        "source_spans": [transcript],
+                        "evidence_type": "diagnostic_suggestion",
+                    },
+                ]
+            ),
+            transcript,
+            species="Canina",
+        )
+        suggestions = {item.field_key: item.text for item in enriched.field_suggestions}
+        self.assertEqual(set(suggestions), {*_NORMAL_FIELD_SUGGESTIONS, "conclusao"})
+        self.assertIn("folheto septal", suggestions["valva_mitral"])
+        self.assertIn("cúspides delgadas", suggestions["valva_aortica"])
+        self.assertNotIn(
+            "parâmetros avaliados dentro da normalidade",
+            suggestions["valva_aortica"].lower(),
+        )
+        self.assertIn("Estágio B1 (ACVIM)", suggestions["conclusao"])
+        self.assertIn("refluxo de grau leve", suggestions["conclusao"])
+        self.assertIn(
+            "Disfunção diastólica grau I (padrão senil)",
+            suggestions["conclusao"],
+        )
+
     def test_without_global_normality_does_not_fill_unmentioned_fields(self) -> None:
         enriched = validate_and_enrich_clinical_output(
             empty_output(),

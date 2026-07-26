@@ -22,8 +22,10 @@ ARTIFICIAL_TRANSCRIPT = (
 )
 
 REMAINING_NORMAL_REGRESSION_TRANSCRIPT = (
-    "Disfunção diastólica grau 1, padrão senil e demais parâmetros "
-    "ecocardiográficos dentro da normalidade."
+    "Valva mitral com folhetos espessados, espessamento leve, com refluxo leve, "
+    "sem remodelamento de câmaras cardíacas. Classificação B1 para endocardiose "
+    "de mitral. Disfunção diastólica grau 1 padrão senil. O resto "
+    "dos parâmetros ecocardiográficos avaliados dentro da normalidade."
 )
 
 
@@ -279,14 +281,19 @@ def run_canary(args: argparse.Namespace) -> None:
         }
         if set(regression_suggestions) != expected_fields:
             raise RuntimeError("A normalidade dos demais campos não foi expandida.")
-        expected_diagnosis = "Disfunção diastólica grau I (padrão senil)."
-        if regression_suggestions.get("funcao_diastolica") != expected_diagnosis:
+        expected_diastolic = "Disfunção diastólica grau I (padrão senil)."
+        if regression_suggestions.get("funcao_diastolica") != expected_diastolic:
             raise RuntimeError("A alteração diastólica não foi preservada.")
-        if regression_suggestions.get("conclusao") != expected_diagnosis:
-            raise RuntimeError("A conclusão não ficou restrita à alteração ditada.")
+        conclusion_text = str(regression_suggestions.get("conclusao") or "")
+        if "Estágio B1 (ACVIM)" not in conclusion_text:
+            raise RuntimeError("A conclusão não descreveu a endocardiose mitral B1.")
+        if "refluxo de grau leve" not in conclusion_text:
+            raise RuntimeError("A conclusão não descreveu o refluxo mitral leve.")
+        if expected_diastolic.rstrip(".") not in conclusion_text:
+            raise RuntimeError("A conclusão não descreveu a disfunção diastólica.")
         mitral_text = str(regression_suggestions.get("valva_mitral") or "")
         aortic_text = str(regression_suggestions.get("valva_aortica") or "")
-        if "folhetos" not in mitral_text.lower() or "cúspides" not in aortic_text.lower():
+        if "folheto septal" not in mitral_text.lower() or "cúspides" not in aortic_text.lower():
             raise RuntimeError("Os campos normais não usaram as frases ricas do preset.")
         if mitral_text == aortic_text:
             raise RuntimeError("O preset normal repetiu o mesmo texto entre estruturas.")

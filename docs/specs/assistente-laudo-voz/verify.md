@@ -156,6 +156,12 @@ O canary descartável de stage usa o segundo texto e exige as 15 chaves, frases
 distintas de mitral e aórtica provenientes do preset, o texto diastólico canônico
 e a conclusão restrita antes de seguir para o cenário AE/Ao.
 
+O cenário de regressão também cobre a formulação "o resto dos parâmetros
+ecocardiográficos avaliados dentro da normalidade" junto com espessamento mitral,
+refluxo leve, estágio B1 sem remodelamento e disfunção diastólica grau I. Ele
+exige descrição mitral detalhada, preset rico nos demais aspectos e conclusão
+contendo somente os achados ditados.
+
 ### Evidência do preset normal rico em stage
 
 - Commit implantado: `467ca0f2c7d31deeca199bd271c409eee4b9e489`.

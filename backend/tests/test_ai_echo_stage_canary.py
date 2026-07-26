@@ -28,7 +28,8 @@ class AIEchoStageCanaryTest(unittest.TestCase):
     def test_remaining_normal_regression_transcript_has_no_personal_identifiers(self) -> None:
         transcript = ai_echo_stage_canary.REMAINING_NORMAL_REGRESSION_TRANSCRIPT
         self.assertIn("Disfunção diastólica grau 1", transcript)
-        self.assertIn("demais parâmetros", transcript)
+        self.assertIn("O resto dos parâmetros", transcript)
+        self.assertIn("Classificação B1", transcript)
         self.assertNotIn("@", transcript)
         self.assertNotRegex(transcript, r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b")
         self.assertNotRegex(transcript, r"\b\d{4,5}-?\d{4}\b")
