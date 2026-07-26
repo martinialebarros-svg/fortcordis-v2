@@ -288,8 +288,12 @@ def run_canary(args: argparse.Namespace) -> None:
         if regression_suggestions.get("funcao_diastolica") != expected_diastolic:
             raise RuntimeError("A alteração diastólica não foi preservada.")
         conclusion_text = str(regression_suggestions.get("conclusao") or "")
-        if "Estágio B1 (ACVIM)" not in conclusion_text:
-            raise RuntimeError("A conclusão não descreveu a endocardiose mitral B1.")
+        if "endocardiose mitral" not in conclusion_text.lower():
+            raise RuntimeError("A conclusão não preservou a endocardiose mitral.")
+        if "Estágio B1 (ACVIM)" in conclusion_text:
+            raise RuntimeError(
+                "A conclusão manteve B1 apesar do AE/Ao 2.4 conflitante."
+            )
         if "refluxo de grau leve" not in conclusion_text:
             raise RuntimeError("A conclusão não descreveu o refluxo mitral leve.")
         if expected_diastolic.rstrip(".") not in conclusion_text:
