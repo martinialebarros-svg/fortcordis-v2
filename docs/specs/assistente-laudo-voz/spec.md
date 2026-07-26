@@ -178,6 +178,11 @@ O módulo é aditivo e isolado:
 - RF-058: alertas de unidade, referência ou contexto ausente retornados pelo
   modelo são descartados quando o backend já forneceu esses dados; alertas
   clínicos equivalentes são consolidados por conceito.
+- RF-059: ao excluir o áudio depois da transcrição, inclusive quando a geração de
+  sugestões falhar, a tentativa atual é rejeitada para auditoria, o áudio
+  temporário é excluído e todo o estado local da sessão (transcrição, sugestões,
+  medidas e seleções) é limpo. A interface retorna imediatamente à etapa
+  `Gravar ou enviar áudio`, preservando o mesmo rascunho do laudo.
 
 ## 4. Estados
 

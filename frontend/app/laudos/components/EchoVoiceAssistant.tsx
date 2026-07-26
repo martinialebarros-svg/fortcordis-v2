@@ -290,6 +290,15 @@ export default function EchoVoiceAssistant({
     setRecorderState("idle");
   };
 
+  const resetDictationState = () => {
+    clearRecording();
+    setSession(null);
+    setEditedTranscript("");
+    setEditedSuggestionTexts({});
+    setSelectedSuggestions(new Set());
+    setSelectedMeasurements(new Set());
+  };
+
   const stopTracks = () => {
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     mediaStreamRef.current = null;
@@ -607,22 +616,13 @@ export default function EchoVoiceAssistant({
     }
   };
 
-  const removeAudio = async () => {
-    if (session?.audio) {
-      try {
-        await api.delete(`/ai/echo-sessions/${session.id}/audio`);
-        setSession((previous) => (previous ? { ...previous, audio: null } : previous));
-      } catch (deleteError) {
-        setError(errorMessage(deleteError, "Não foi possível excluir o áudio temporário."));
-        return;
-      }
+  const discardCurrentDictation = async (successNotice: string) => {
+    if (!session) {
+      resetDictationState();
+      setNotice(successNotice);
+      return;
     }
-    clearRecording();
-    setNotice("Áudio excluído.");
-  };
-
-  const startNewDictation = async () => {
-    if (!session || processing) return;
+    if (processing) return;
     setBusy(true);
     setError("");
     setNotice("");
@@ -633,25 +633,32 @@ export default function EchoVoiceAssistant({
       if (session.audio) {
         await api.delete(`/ai/echo-sessions/${session.id}/audio`);
       }
-      clearRecording();
-      setSession(null);
-      setEditedTranscript("");
-      setEditedSuggestionTexts({});
-      setSelectedSuggestions(new Set());
-      setSelectedMeasurements(new Set());
-      setNotice(
-        "Sugestões anteriores descartadas. Grave um novo áudio para gerar outras sugestões."
-      );
+      resetDictationState();
+      setNotice(successNotice);
     } catch (restartError) {
       setError(
         errorMessage(
           restartError,
-          "Não foi possível iniciar um novo ditado. Tente novamente."
+          "Não foi possível descartar o ditado atual. Tente novamente."
         )
       );
     } finally {
       setBusy(false);
     }
+  };
+
+  const removeAudio = async () => {
+    await discardCurrentDictation(
+      session
+        ? "Áudio e tentativa anteriores descartados. Grave um novo áudio."
+        : "Áudio excluído. Grave um novo áudio."
+    );
+  };
+
+  const startNewDictation = async () => {
+    await discardCurrentDictation(
+      "Sugestões anteriores descartadas. Grave um novo áudio para gerar outras sugestões."
+    );
   };
 
   const loadPreferences = async () => {
@@ -929,8 +936,8 @@ export default function EchoVoiceAssistant({
                         disabled={processing}
                         className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm text-red-700"
                       >
-                        <Trash2 className="h-4 w-4" />
-                        Excluir áudio
+                        <RotateCcw className="h-4 w-4" />
+                        Excluir e gravar novamente
                       </button>
                       <button
                         type="button"

@@ -817,6 +817,41 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
             db.refresh(asset)
             self.assertIsNotNone(asset.deleted_at)
 
+    def test_failed_session_can_be_rejected_and_have_audio_deleted_for_retry(self) -> None:
+        with self.session_factory() as db:
+            session = self.create_session(db)
+            with (
+                patch.object(ai_echo_service.settings, "AI_ECHO_ASSISTANT_ENABLED", True),
+                patch.object(ai_echo_service.settings, "OPENAI_API_KEY", "test-key"),
+                patch.object(ai_echo_service.settings, "AI_TRANSCRIPTION_MODEL", "transcribe-test"),
+                patch.object(ai_echo_service.settings, "AI_STRUCTURING_MODEL", "structure-test"),
+                patch.object(ai_echo_service.settings, "UPLOAD_DIR", self.tmpdir.name),
+            ):
+                asset = ai_echo_service.store_audio(
+                    db,
+                    session=session,
+                    file_name="retry.webm",
+                    content_type="audio/webm",
+                    content=b"failed-audio-test",
+                    duration_seconds=4,
+                )
+            session.status = "failed"
+            db.commit()
+
+            ai_echo_service.add_feedback(
+                db,
+                session=session,
+                current_user=self.user,
+                request=EchoFeedbackRequest(feedback_type="reject_session"),
+            )
+            self.assertTrue(ai_echo_service.delete_audio(db, session=session))
+
+            db.refresh(session)
+            db.refresh(asset)
+            self.assertEqual(session.status, "rejected")
+            self.assertIsNotNone(asset.deleted_at)
+            self.assertFalse(Path(asset.storage_path).exists())
+
     def test_expired_audio_is_removed_by_cleanup_worker_function(self) -> None:
         with self.session_factory() as db:
             session = self.create_session(db)
