@@ -21,10 +21,8 @@ ARTIFICIAL_TRANSCRIPT = (
     "setenta e quatro. Sem efusão pericárdica."
 )
 
-DUPLICATE_REGRESSION_TRANSCRIPT = (
-    "Espessamento de folhetos de válvula mitral com refluxo moderado, "
-    "dilatação moderada de átrio esquerdo, dilatação moderada de ventrículo "
-    "esquerdo, compatível com endocardiose mitral grau B2, demais parâmetros "
+REMAINING_NORMAL_REGRESSION_TRANSCRIPT = (
+    "Disfunção diastólica grau 1, padrão senil e demais parâmetros "
     "ecocardiográficos dentro da normalidade."
 )
 
@@ -258,24 +256,35 @@ def run_canary(args: argparse.Namespace) -> None:
             token=token,
             method="POST",
             body=_json_body(
-                {"edited_transcript": DUPLICATE_REGRESSION_TRANSCRIPT}
+                {"edited_transcript": REMAINING_NORMAL_REGRESSION_TRANSCRIPT}
             ),
             content_type="application/json",
         )
-        duplicate_regression = _wait_for_review(
+        normality_regression = _wait_for_review(
             base_url=args.base_url,
             token=token,
             session_id=session_id,
             needs_suggestions=True,
             timeout_seconds=args.timeout_seconds,
         )
-        regression_keys = [
-            item.get("field_key")
-            for item in (duplicate_regression.get("field_suggestions") or [])
-        ]
-        if len(regression_keys) != len(set(regression_keys)):
-            raise RuntimeError("Sugestões duplicadas chegaram à revisão.")
-        print("[ai-echo-canary] duplicate suggestion regression: passed")
+        regression_suggestions = {
+            item.get("field_key"): item.get("suggested_value")
+            for item in (normality_regression.get("field_suggestions") or [])
+        }
+        expected_fields = {
+            "valva_mitral", "valva_aortica", "valva_tricuspide", "valva_pulmonar",
+            "atrio_esquerdo", "ventriculo_esquerdo", "funcao_sistolica_ve",
+            "funcao_diastolica", "atrio_direito", "ventriculo_direito", "septos",
+            "aorta", "arteria_pulmonar", "pericardio", "conclusao",
+        }
+        if set(regression_suggestions) != expected_fields:
+            raise RuntimeError("A normalidade dos demais campos não foi expandida.")
+        expected_diagnosis = "Disfunção diastólica grau I (padrão senil)."
+        if regression_suggestions.get("funcao_diastolica") != expected_diagnosis:
+            raise RuntimeError("A alteração diastólica não foi preservada.")
+        if regression_suggestions.get("conclusao") != expected_diagnosis:
+            raise RuntimeError("A conclusão não ficou restrita à alteração ditada.")
+        print("[ai-echo-canary] remaining normality regression: passed")
 
         _request_json(
             base_url=args.base_url,

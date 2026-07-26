@@ -44,6 +44,7 @@ from app.schemas.ai_echo import (
 from app.services import ai_echo_providers, ai_echo_service
 from app.services.ai_echo_providers import AIEchoProviderError, StructuringResult
 from app.services.ai_echo_validation import (
+    _NORMAL_FIELD_SUGGESTIONS,
     extract_measurements_from_transcript,
     parse_spoken_number,
     validate_and_enrich_clinical_output,
@@ -227,6 +228,55 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
             "duplicate_field_suggestion",
             {warning.warning_type for warning in enriched.warnings},
         )
+
+    def test_global_normal_statement_expands_all_qualitative_fields(self) -> None:
+        enriched = validate_and_enrich_clinical_output(
+            empty_output(
+                field_suggestions=[
+                    {
+                        "field_key": "conclusao",
+                        "text": "Exame sem alterações ecocardiográficas.",
+                        "confidence": 1,
+                        "source_spans": ["Exame normal, sem alterações ecocardiográficas."],
+                        "evidence_type": "diagnostic_suggestion",
+                    }
+                ]
+            ),
+            "Exame normal, sem alterações ecocardiográficas.",
+        )
+        suggestions = {item.field_key: item.text for item in enriched.field_suggestions}
+        self.assertEqual(set(suggestions), {*_NORMAL_FIELD_SUGGESTIONS, "conclusao"})
+        self.assertEqual(enriched.measurements, [])
+        self.assertIn(
+            "global_normality_expanded",
+            {warning.warning_type for warning in enriched.warnings},
+        )
+
+    def test_remaining_normal_preserves_grade_one_diastolic_dysfunction(self) -> None:
+        transcript = (
+            "Disfunção diastólica grau 1, padrão senil e demais parâmetros "
+            "ecocardiográficos dentro da normalidade."
+        )
+        enriched = validate_and_enrich_clinical_output(empty_output(), transcript)
+        suggestions = {item.field_key: item.text for item in enriched.field_suggestions}
+        self.assertEqual(set(suggestions), {*_NORMAL_FIELD_SUGGESTIONS, "conclusao"})
+        self.assertEqual(
+            suggestions["funcao_diastolica"],
+            "Disfunção diastólica grau I (padrão senil).",
+        )
+        self.assertEqual(
+            suggestions["conclusao"],
+            "Disfunção diastólica grau I (padrão senil).",
+        )
+        self.assertNotIn("preservada", suggestions["funcao_diastolica"].lower())
+        self.assertEqual(enriched.measurements, [])
+
+    def test_without_global_normality_does_not_fill_unmentioned_fields(self) -> None:
+        enriched = validate_and_enrich_clinical_output(
+            empty_output(),
+            "Disfunção diastólica grau 1, padrão senil.",
+        )
+        self.assertEqual(enriched.field_suggestions, [])
 
     def test_schema_rejects_unknown_field_and_text_outside_contract(self) -> None:
         with self.assertRaises(ValidationError):

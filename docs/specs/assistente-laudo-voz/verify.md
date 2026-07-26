@@ -110,3 +110,19 @@ O canary descartável de stage repetirá primeiro esse texto e exigirá chaves
   numérica, aplicação seletiva sem persistência, auditoria e exclusão do áudio.
 - Runtime: ready, zero 5xx, cleanup worker vivo e restore drill aprovado.
 - `origin/main` permaneceu em `6a12cf9a815d6e2e14d58604e03242948f8e1093`.
+
+### Expansão controlada de normalidade
+
+Os testes automatizados cobrem duas expressões clínicas:
+
+- "Exame normal, sem alterações ecocardiográficas" produz os 14 aspectos
+  qualitativos normais e a conclusão, sem medidas;
+- "Disfunção diastólica grau 1, padrão senil e demais parâmetros
+  ecocardiográficos dentro da normalidade" preserva a alteração no campo
+  diastólico, completa os outros 13 aspectos normais e conclui somente a
+  disfunção diastólica grau I.
+
+A regra é determinística no backend, usa o prompt
+`echo-clinical-ptbr-v3`, não persiste o laudo e mantém revisão/aceite explícitos.
+O canary descartável de stage usa o segundo texto e exige as 15 chaves, o texto
+diastólico canônico e a conclusão restrita antes de seguir para o cenário AE/Ao.

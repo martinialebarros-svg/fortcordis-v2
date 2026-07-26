@@ -84,6 +84,18 @@ O módulo é aditivo e isolado:
   a sessão.
 - RF-027: falhas de validação Pydantic da resposta estruturada são classificadas
   como `invalid_structured_output`, nunca como indisponibilidade do provedor.
+- RF-028: uma afirmação explícita de exame normal ou sem alterações
+  ecocardiográficas gera sugestões normais para todos os 14 aspectos qualitativos
+  e para a conclusão, sem criar medidas numéricas.
+- RF-029: a expressão "demais parâmetros ecocardiográficos dentro da normalidade"
+  completa somente os aspectos sem alteração específica. Achados ditados são
+  preservados e prevalecem sobre a frase normal do mesmo campo.
+- RF-030: no caso explícito de disfunção diastólica grau I, padrão senil, com os
+  demais parâmetros normais, `funcao_diastolica` recebe a alteração, os outros
+  aspectos recebem frases normais e a conclusão contém somente
+  "Disfunção diastólica grau I (padrão senil).".
+- RF-031: a expansão de normalidade é sempre uma sugestão revisável, identificada
+  por `global_normality_expanded`, e continua sujeita ao aceite explícito.
 
 ## 4. Estados
 

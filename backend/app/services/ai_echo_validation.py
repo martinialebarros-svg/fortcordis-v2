@@ -168,6 +168,39 @@ _EXPECTED_UNITS = {
     "ductus_diameter": "mm",
 }
 
+_NORMAL_FIELD_SUGGESTIONS = {
+    "valva_mitral": "Valva mitral com morfologia e mobilidade preservadas, sem evidências de refluxo ou estenose significativa.",
+    "valva_aortica": "Valva aórtica com morfologia e mobilidade preservadas, sem evidências de refluxo ou estenose significativa.",
+    "valva_tricuspide": "Valva tricúspide com morfologia e mobilidade preservadas, sem evidências de refluxo ou estenose significativa.",
+    "valva_pulmonar": "Valva pulmonar com morfologia e mobilidade preservadas, sem evidências de refluxo ou estenose significativa.",
+    "atrio_esquerdo": "Átrio esquerdo com dimensões preservadas, sem evidências de aumento atrial.",
+    "ventriculo_esquerdo": "Ventrículo esquerdo com dimensões e espessuras preservadas, sem sinais de remodelamento.",
+    "funcao_sistolica_ve": "Função sistólica global do ventrículo esquerdo preservada.",
+    "funcao_diastolica": "Função diastólica preservada, com padrão de enchimento ventricular dentro da normalidade.",
+    "atrio_direito": "Átrio direito com dimensões preservadas, sem alterações ecocardiográficas relevantes.",
+    "ventriculo_direito": "Ventrículo direito com dimensões e função preservadas, sem sinais de sobrecarga.",
+    "septos": "Septos interatrial e interventricular íntegros, sem alterações ecocardiográficas relevantes.",
+    "aorta": "Aorta com dimensões preservadas, sem alterações ecocardiográficas relevantes.",
+    "arteria_pulmonar": "Artéria pulmonar com calibre preservado, sem alterações ecocardiográficas relevantes.",
+    "pericardio": "Pericárdio sem alterações ecocardiográficas relevantes e sem derrame pericárdico.",
+}
+
+_GLOBAL_NORMAL_PATTERNS = (
+    r"\bexame\s+(?:esta\s+)?normal\b",
+    r"\bsem\s+alteracoes?\s+ecocardiograficas?\b",
+    r"\bdemais\s+parametros?\s+ecocardiograficos?\s+(?:estao\s+)?(?:dentro\s+da\s+normalidade|normais?)\b",
+    r"\brestante\s+(?:do\s+exame\s+)?(?:esta\s+)?(?:dentro\s+da\s+normalidade|normal)\b",
+)
+
+_REMAINING_NORMAL_PATTERNS = (
+    r"\bdemais\s+parametros?\s+ecocardiograficos?\s+(?:estao\s+)?(?:dentro\s+da\s+normalidade|normais?)\b",
+    r"\brestante\s+(?:do\s+exame\s+)?(?:esta\s+)?(?:dentro\s+da\s+normalidade|normal)\b",
+)
+
+_DIASTOLIC_GRADE_ONE_PATTERN = re.compile(
+    r"\bdisfuncao\s+diastolica\s+(?:de\s+)?grau\s+(?:1|i|um)\b",
+)
+
 
 def _normalize_unit(value: str | None) -> str:
     normalized = _strip_accents(str(value or "")).replace(" ", "").lower()
@@ -340,6 +373,93 @@ def _consolidate_field_suggestions(
     return consolidated, warnings
 
 
+def _expand_asserted_normality(
+    *,
+    transcript: str,
+    suggestions: list[EchoFieldSuggestionOutput],
+) -> tuple[list[EchoFieldSuggestionOutput], list[EchoClinicalWarningOutput]]:
+    normalized = _strip_accents(transcript)
+    if not any(re.search(pattern, normalized) for pattern in _GLOBAL_NORMAL_PATTERNS):
+        return suggestions, []
+
+    remaining_only = any(
+        re.search(pattern, normalized) for pattern in _REMAINING_NORMAL_PATTERNS
+    )
+    source = (
+        "demais parâmetros ecocardiográficos dentro da normalidade"
+        if remaining_only
+        else "exame normal, sem alterações ecocardiográficas"
+    )
+    expanded = list(suggestions)
+    existing_fields = {str(item.field_key) for item in expanded}
+
+    diastolic_grade_one = bool(_DIASTOLIC_GRADE_ONE_PATTERN.search(normalized))
+    if diastolic_grade_one:
+        expanded = [
+            item
+            for item in expanded
+            if str(item.field_key) not in {"funcao_diastolica", "conclusao"}
+        ]
+        existing_fields.difference_update({"funcao_diastolica", "conclusao"})
+        expanded.append(
+            EchoFieldSuggestionOutput(
+                field_key="funcao_diastolica",
+                text="Disfunção diastólica grau I (padrão senil).",
+                confidence=1.0,
+                source_spans=["disfunção diastólica grau 1, padrão senil"],
+                evidence_type="fact",
+            )
+        )
+        existing_fields.add("funcao_diastolica")
+
+    for field_key, text in _NORMAL_FIELD_SUGGESTIONS.items():
+        if field_key in existing_fields:
+            continue
+        expanded.append(
+            EchoFieldSuggestionOutput(
+                field_key=field_key,
+                text=text,
+                confidence=0.95,
+                source_spans=[source],
+                evidence_type="fact",
+            )
+        )
+        existing_fields.add(field_key)
+
+    if diastolic_grade_one:
+        expanded.append(
+            EchoFieldSuggestionOutput(
+                field_key="conclusao",
+                text="Disfunção diastólica grau I (padrão senil).",
+                confidence=1.0,
+                source_spans=["disfunção diastólica grau 1, padrão senil"],
+                evidence_type="diagnostic_suggestion",
+            )
+        )
+    elif "conclusao" not in existing_fields:
+        expanded.append(
+            EchoFieldSuggestionOutput(
+                field_key="conclusao",
+                text="Ecocardiograma dentro dos limites da normalidade.",
+                confidence=0.95,
+                source_spans=[source],
+                evidence_type="diagnostic_suggestion",
+            )
+        )
+
+    return expanded, [
+        EchoClinicalWarningOutput(
+            warning_type="global_normality_expanded",
+            severity="info",
+            message=(
+                "A afirmação global de normalidade foi expandida para os campos sem "
+                "alteração específica. Revise as sugestões antes de aplicá-las."
+            ),
+            related_fields=sorted(_NORMAL_FIELD_SUGGESTIONS),
+        )
+    ]
+
+
 def validate_and_enrich_clinical_output(
     output: EchoClinicalStructureOutput,
     transcript: str,
@@ -348,8 +468,12 @@ def validate_and_enrich_clinical_output(
     field_suggestions, duplicate_warnings = _consolidate_field_suggestions(
         list(output.field_suggestions)
     )
+    field_suggestions, normality_warnings = _expand_asserted_normality(
+        transcript=transcript,
+        suggestions=field_suggestions,
+    )
     measurements = list(output.measurements)
-    warnings = [*output.warnings, *duplicate_warnings]
+    warnings = [*output.warnings, *duplicate_warnings, *normality_warnings]
     existing_by_name: dict[str, list[EchoMeasurementOutput]] = {}
     for measurement in measurements:
         existing_by_name.setdefault(measurement.canonical_name, []).append(measurement)

@@ -68,6 +68,13 @@ mesma `field_key` são consolidadas: permanece a de maior confiança e a revisã
 mostra `duplicate_field_suggestion`. `provider_unavailable` fica reservado a
 falhas efetivas não classificadas do provedor.
 
+Afirmações explícitas de exame normal expandem frases normais para os aspectos
+qualitativos, sem gerar medidas. A expressão "demais parâmetros ecocardiográficos
+dentro da normalidade" completa apenas campos não contraditos por achados ditados.
+No cenário "disfunção diastólica grau 1, padrão senil", o backend preserva essa
+alteração no campo diastólico e na conclusão, completa os demais campos e registra
+`global_normality_expanded` para revisão obrigatória.
+
 ## Retenção
 
 O arquivo temporário usa `UPLOAD_DIR/ai_echo_audio` ou fallback local. O worker
