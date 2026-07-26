@@ -620,6 +620,39 @@ export default function EchoVoiceAssistant({
     setNotice("Áudio excluído.");
   };
 
+  const startNewDictation = async () => {
+    if (!session || processing) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await api.post(`/ai/echo-sessions/${session.id}/feedback`, {
+        feedback_type: "reject_session",
+      });
+      if (session.audio) {
+        await api.delete(`/ai/echo-sessions/${session.id}/audio`);
+      }
+      clearRecording();
+      setSession(null);
+      setEditedTranscript("");
+      setEditedSuggestionTexts({});
+      setSelectedSuggestions(new Set());
+      setSelectedMeasurements(new Set());
+      setNotice(
+        "Sugestões anteriores descartadas. Grave um novo áudio para gerar outras sugestões."
+      );
+    } catch (restartError) {
+      setError(
+        errorMessage(
+          restartError,
+          "Não foi possível iniciar um novo ditado. Tente novamente."
+        )
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const loadPreferences = async () => {
     setPreferencesLoading(true);
     setError("");
@@ -938,13 +971,25 @@ export default function EchoVoiceAssistant({
                         Selecione somente o que deseja levar ao formulário.
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={selectAll}
-                      className="rounded-lg border border-teal-300 bg-teal-50 px-3 py-2 text-sm font-medium text-teal-800"
-                    >
-                      Aceitar todas
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void startNewDictation()}
+                        disabled={processing}
+                        className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 disabled:opacity-50"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                        Gravar novo áudio
+                      </button>
+                      <button
+                        type="button"
+                        onClick={selectAll}
+                        disabled={processing}
+                        className="rounded-lg border border-teal-300 bg-teal-50 px-3 py-2 text-sm font-medium text-teal-800 disabled:opacity-50"
+                      >
+                        Aceitar todas
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-3">

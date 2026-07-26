@@ -121,6 +121,11 @@ O módulo é aditivo e isolado:
   classificação B1 sem remodelamento e disfunção diastólica grau I, o campo
   mitral recebe descrição clínica detalhada e a conclusão reúne somente esses
   achados, incluindo o estágio B1 (ACVIM).
+- RF-040: depois de gerar sugestões, o usuário pode escolher `Gravar novo áudio`.
+  A sessão anterior é rejeitada para auditoria, seu áudio temporário é excluído
+  e a interface retorna à gravação sem aplicar sugestões nem criar outro laudo.
+- RF-041: o novo áudio cria uma nova sessão de IA vinculada ao mesmo rascunho,
+  permitindo gerar e revisar um novo conjunto de sugestões.
 
 ## 4. Estados
 

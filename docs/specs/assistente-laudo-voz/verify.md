@@ -162,6 +162,13 @@ refluxo leve, estágio B1 sem remodelamento e disfunção diastólica grau I. El
 exige descrição mitral detalhada, preset rico nos demais aspectos e conclusão
 contendo somente os achados ditados.
 
+### Regravação após sugestões
+
+A interface apresenta `Gravar novo áudio` na revisão das sugestões. A ação
+registra a rejeição da sessão anterior, exclui seu áudio temporário, limpa apenas
+o estado do assistente e retorna à etapa 1. O rascunho e seus campos permanecem
+inalterados; a gravação seguinte cria outra sessão vinculada ao mesmo laudo.
+
 ### Evidência do cenário misto B1 + DDG1 em stage
 
 - Commit implantado: `c06fb512db76a4336ec4339d8bc6e01ee9510063`.
