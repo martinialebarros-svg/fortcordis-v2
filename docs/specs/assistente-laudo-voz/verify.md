@@ -126,6 +126,18 @@ O fluxo automatizado cobre o contrato de criação contínua:
 - o teste de regressão confirma que nenhum segundo `Laudo` é inserido durante a
   finalização do rascunho.
 
+### Evidência do fluxo contínuo em stage
+
+- Commit implantado: `e556c8a8af34e7e8cc0fe4ae8d25abb44cbb5fb7`.
+- Migration CI `30181850541`: sucesso.
+- Deploy Stage `30181850536`: guardrail SDD, quality gate, VPS, restore drill e
+  canary de IA aprovados.
+- Validação local: 436 testes e 2 subtestes, lint, TypeScript, build e
+  `pip check` aprovados.
+- Smoke público: aplicação e `/laudos/novo` responderam `200`; configuração
+  protegida respondeu `401` sem credenciais, conforme esperado.
+- `origin/main` permaneceu em `6a12cf9a815d6e2e14d58604e03242948f8e1093`.
+
 ### Expansão controlada de normalidade
 
 Os testes automatizados cobrem duas expressões clínicas:
