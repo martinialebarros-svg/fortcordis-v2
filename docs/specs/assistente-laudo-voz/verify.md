@@ -2,7 +2,7 @@
 
 Data: 2026-07-25
 Responsável: Martiniano + Codex
-Status: reference_context_local_pass
+Status: reference_context_stage_pass
 
 ## Matriz
 
@@ -19,15 +19,15 @@ Status: reference_context_local_pass
 | CA-009 | testes de exclusão manual e `cleanup_expired_audio()` | local_pass |
 | CA-010 | testes da flag desativada e chave ausente | local_pass |
 | CA-011 | upgrade repetido, downgrade restrito e ciclo global de migrations | local_pass |
-| CA-012 | 445 testes e 2 subtestes, pip check, ESLint, TypeScript e build Next.js | local_pass |
+| CA-012 | 445 testes e 2 subtestes, pip check, ESLint, TypeScript e build Next.js | stage_pass |
 | CA-013 | workflow `30178211835`: deploy, transcrição real, estruturação, AE/Ao, aplicação seletiva sem persistência, auditoria, exclusão e limpeza | stage_pass |
 | CA-014 | `origin/main=6a12cf9a815d6e2e14d58604e03242948f8e1093`; produção sem alteração | pass |
 | CA-015 | regressão reproduz o texto reportado, consolida sugestões duplicadas por maior confiança e registra alerta visível | stage_pass |
 | CA-016 | `ValidationError` estruturado retorna `invalid_structured_output`, sem mensagem falsa de indisponibilidade | stage_pass |
 | CA-017 | correlação multimodal de áudio + sete medidas em endocardiose mitral C, com salvaguardas de ICC, IM Vmax e IT Vmax | local_pass |
-| CA-018 | contexto do paciente contém espécie, raça, idade e peso; referência mais próxima carregada chega ao provedor e ao validador | local_pass |
-| CA-019 | medidas possuem unidades canônicas no payload e em todos os rótulos das telas novo/editar | local_pass |
-| CA-020 | padrão avançado derivado das medidas gera frases interpretativas sem números e estágio C apenas condicional sem evidência de ICC | local_pass |
+| CA-018 | contexto do paciente contém espécie, raça, idade e peso; referência mais próxima carregada chega ao provedor e ao validador | stage_pass |
+| CA-019 | medidas possuem unidades canônicas no payload e em todos os rótulos das telas novo/editar | stage_pass |
+| CA-020 | padrão avançado derivado das medidas gera frases interpretativas sem números e estágio C apenas condicional sem evidência de ICC | stage_pass |
 
 ## Evidência local executada
 
@@ -241,6 +241,23 @@ condicional. Nenhuma frase sugerida pode repetir os valores de origem.
 Nas telas `Novo laudo` e `Editar laudo`, volumes exibem mL; frações, %; velocidades,
 m/s ou cm/s conforme a técnica; tempos, ms; gradientes, mmHg; dp/dt, mmHg/s; e
 razões são explicitamente adimensionais.
+
+### Evidência de unidades e referência clínica em stage
+
+- Implementação validada: `c3de7773713f7df8f94cf1c22f2b647bde627498`
+  (origem funcional `1cc370ff8ed1636c326d389c2eecdb1f90e3454e`).
+- Migration CI `30208626034`: sucesso.
+- Deploy Stage `30208626047`: SDD guardrail, 445 testes e 2 subtestes, lint,
+  build, VPS, migrations, readiness e quality gate aprovados.
+- Runtime: `HEAD=c3de777`, readiness pronta, zero 5xx, canário autenticado geral
+  e restore drill aprovados.
+- Canário clínico real: transcrição, regressão B1 + DDG1, correlação multimodal
+  avançada, frases sem repetição dos valores das medidas, integridade numérica
+  no campo de origem, alerta de IT Vmax, aplicação seletiva sem persistir o
+  laudo, auditoria, exclusão do áudio e limpeza aprovadas.
+- Smoke público: raiz `200`; rota autenticada de novo laudo redireciona anonimamente;
+  configuração protegida do assistente retorna `401` sem credenciais.
+- `origin/main` permaneceu em `6a12cf9a815d6e2e14d58604e03242948f8e1093`.
 
 ### Evidência da regravação em stage
 
