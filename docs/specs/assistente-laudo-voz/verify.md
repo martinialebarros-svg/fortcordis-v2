@@ -19,7 +19,7 @@ Status: reference_context_stage_pass
 | CA-009 | testes de exclusão manual e `cleanup_expired_audio()` | local_pass |
 | CA-010 | testes da flag desativada e chave ausente | local_pass |
 | CA-011 | upgrade repetido, downgrade restrito e ciclo global de migrations | local_pass |
-| CA-012 | 445 testes e 2 subtestes, pip check, ESLint, TypeScript e build Next.js | stage_pass |
+| CA-012 | 446 testes e 2 subtestes, pip check, ESLint, TypeScript e build Next.js | stage_pass |
 | CA-013 | workflow `30178211835`: deploy, transcrição real, estruturação, AE/Ao, aplicação seletiva sem persistência, auditoria, exclusão e limpeza | stage_pass |
 | CA-014 | `origin/main=6a12cf9a815d6e2e14d58604e03242948f8e1093`; produção sem alteração | pass |
 | CA-015 | regressão reproduz o texto reportado, consolida sugestões duplicadas por maior confiança e registra alerta visível | stage_pass |
@@ -28,6 +28,7 @@ Status: reference_context_stage_pass
 | CA-018 | contexto do paciente contém espécie, raça, idade e peso; referência mais próxima carregada chega ao provedor e ao validador | stage_pass |
 | CA-019 | medidas possuem unidades canônicas no payload e em todos os rótulos das telas novo/editar | stage_pass |
 | CA-020 | padrão avançado derivado das medidas gera frases interpretativas sem números e estágio C apenas condicional sem evidência de ICC | stage_pass |
+| CA-021 | exclusão após transcrição ou falha rejeita a sessão, remove o áudio e limpa transcrição/sugestões locais antes de retornar à gravação no mesmo rascunho | local_pass |
 
 ## Evidência local executada
 
@@ -60,13 +61,22 @@ ruby -e 'require "yaml"; YAML.load_file(".github/workflows/deploy-stage.yml")'
 
 ### Evidência local de unidades e referência clínica
 
-- `venv/bin/python -m pytest -q`: 445 testes e 2 subtestes aprovados;
+- `venv/bin/python -m pytest -q`: 446 testes e 2 subtestes aprovados;
 - foco de IA, canary e defaults de referência: 46 testes aprovados;
 - `venv/bin/python -m pip check`: nenhuma dependência quebrada;
 - ESLint dirigido, TypeScript e build Next.js com 36 páginas: aprovados;
 - `git diff --check`: aprovado;
 - nenhuma migration nova: a implementação consulta a tabela
   `referencias_eco` já existente.
+
+### Recuperação após falha e exclusão do áudio
+
+O teste focado cobre uma sessão em estado `failed` com áudio temporário:
+`reject_session` registra o descarte, muda a sessão para `rejected` e a exclusão
+remove o arquivo e marca o ativo como apagado. No frontend, `Excluir e gravar
+novamente` usa o mesmo descarte completo de `Gravar novo áudio`, limpa sessão,
+transcrição, sugestões, medidas e seleções locais e volta à etapa 1 sem criar
+outro laudo.
 
 O `check_sdd_guardrail.py` depende de um `HEAD` commitado e será executado antes
 do push de `stage`.
