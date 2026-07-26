@@ -43,12 +43,14 @@ from app.schemas.ai_echo import (
     EchoPreferencesUpdateRequest,
 )
 from app.services.ai_echo_prompt import PROMPT_VERSION
+from app.services.ai_echo_context import load_echo_reference_context
 from app.services.ai_echo_providers import (
     AIEchoProviderError,
     get_clinical_structuring_provider,
     get_speech_to_text_provider,
 )
 from app.services.ai_echo_validation import validate_and_enrich_clinical_output
+from app.utils.paciente_helpers import extrair_idade_paciente
 
 logger = logging.getLogger(__name__)
 
@@ -637,6 +639,22 @@ def _process_structure(
             if report
             else None
         )
+        reference_context = load_echo_reference_context(
+            db,
+            species=patient.especie if patient else None,
+            weight_kg=patient.peso_kg if patient else None,
+        )
+        exam_context = {
+            "species": patient.especie if patient else None,
+            "breed": patient.raca if patient else None,
+            "age": (
+                extrair_idade_paciente(patient.nascimento, patient.observacoes)
+                if patient
+                else None
+            )
+            or None,
+            "weight_kg": patient.peso_kg if patient else None,
+        }
         processing_step = "structuring_provider"
         provider = get_clinical_structuring_provider()
         result = provider.structure(
@@ -644,10 +662,8 @@ def _process_structure(
             phrase_preferences=phrase_preferences,
             safety_user_id=session.user_id,
             current_measurements=current_measurements,
-            exam_context={
-                "species": patient.especie if patient else None,
-                "weight_kg": patient.peso_kg if patient else None,
-            },
+            exam_context=exam_context,
+            reference_context=reference_context,
         )
         processing_step = "structuring_validation"
         output = validate_and_enrich_clinical_output(
@@ -655,6 +671,8 @@ def _process_structure(
             transcript.edited_text,
             species=patient.especie if patient else None,
             current_measurements=current_measurements,
+            exam_context=exam_context,
+            reference_context=reference_context,
         )
 
         processing_step = "structuring_persistence"

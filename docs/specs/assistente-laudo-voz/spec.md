@@ -132,39 +132,52 @@ O módulo é aditivo e isolado:
   aumento atrial; AE/Ao superior a 2,3 gera sugestão de dilatação atrial
   importante e repercussão hemodinâmica significativa, sem definir isoladamente
   estágio ACVIM ou etiologia.
-- RF-044: toda interpretação derivada de medida identifica o valor de origem,
-  emite alerta clínico e pode substituir uma frase global de normalidade
-  conflitante antes do aceite explícito.
+- RF-044: toda interpretação derivada de medida identifica o valor no
+  `source_span` de origem e pode substituir uma frase global de normalidade
+  conflitante antes do aceite explícito; a frase clínica sugerida não repete
+  esse valor.
 - RF-045: se AE/Ao indicar remodelamento atrial e a transcrição afirmar B1 sem
   remodelamento, a sugestão preserva a doença mitral e o refluxo, remove a
   classificação conflitante e não infere outro estágio com AE/Ao isoladamente.
 - RF-046: a conclusão clínica determinística dos achados alterados substitui a
   conclusão genérica do preset normal quando ambas forem geradas.
 - RF-047: o provedor de estruturação recebe, no mesmo input, a transcrição
-  anonimizada, as medidas atuais não vazias e o contexto de espécie/peso.
+  anonimizada, as medidas atuais não vazias com unidades canônicas e método e o contexto
+  de espécie, raça, idade e peso, sem nome do paciente ou tutor.
 - RF-048: no contexto canino de endocardiose/doença valvar mixomatosa, o
   assistente correlaciona AE/Ao, DIVEd normalizado, onda E, E/A, E/E', IM Vmax
   e IT Vmax com os achados explicitamente ditados, mantendo o valor de origem.
-- RF-049: AE/Ao superior a 2,3 e DIVEd normalizado igual ou superior a 1,7
-  sustentam descrição de remodelamento esquerdo importante; onda E superior a
-  1,2 m/s ou E/A igual ou superior a 2 sustentam sugestão revisável de elevadas
-  pressões de enchimento no contexto de doença mitral.
+- RF-049: a comparação de DIVEd, AE/Ao, onda E, E/A e demais medidas usa
+  prioritariamente a linha mais próxima da tabela de referência carregada para
+  a espécie e o peso. Os limiares consensuais caninos de AE/Ao e DIVEd
+  normalizado permanecem como salvaguarda quando aplicáveis.
 - RF-050: IM Vmax é descrita, mas não gradua isoladamente a regurgitação mitral.
   IT Vmax igual ou superior a 3,0 m/s gera alerta para correlação com sinais
   anatômicos adicionais antes de classificar hipertensão pulmonar.
 - RF-051: regurgitação tricúspide isolada não autoriza inferir dilatação das
   câmaras direitas; essa repercussão só preenche AD/VD quando estiver no ditado.
-- RF-052: estágio C só aparece quando informado no áudio ou sustentado por
-  história atual/prévia de insuficiência cardíaca ditada. Congestão venosa
-  pulmonar só é afirmada quando explicitamente informada; na ausência dessa
-  evidência, a classificação ditada gera alerta de confirmação clínica ou
-  radiográfica.
+- RF-052: estágio C é afirmado somente quando sustentado por história atual ou
+  prévia de insuficiência cardíaca no ditado/contexto. Um padrão ecocardiográfico
+  avançado pode sugerir condicionalmente que o caso corresponda ao estágio C,
+  mas congestão venosa pulmonar só é afirmada quando explicitamente informada.
 - RF-053: a correlação avançada não substitui a conclusão mitral leve quando
   somente AE/Ao está elevado; nesse cenário permanece a regra específica que
   preserva refluxo e disfunção diastólica já ditados.
 - RF-054: o canary vivo exerce no máximo duas estruturações por sessão, igual ao
   limite operacional; a segunda cobre simultaneamente correlação C e integridade
   numérica da AE/Ao ditada.
+- RF-055: todos os campos de medidas exibem unidade no rótulo; relações
+  matemáticas são identificadas como adimensionais.
+- RF-056: a linha de referência mais próxima é resolvida no backend pela espécie
+  e peso do cabeçalho, incluindo os defaults publicados já adotados pelo sistema,
+  e é entregue tanto ao modelo quanto ao validador determinístico.
+- RF-057: o conjunto simultâneo de regurgitação mitral mensurada, aumento atrial
+  esquerdo, dilatação ventricular esquerda e pressão de enchimento elevada pode
+  gerar sugestão revisável de doença valvar mixomatosa mitral avançada mesmo que
+  o áudio não repita todos esses achados.
+- RF-058: alertas de unidade, referência ou contexto ausente retornados pelo
+  modelo são descartados quando o backend já forneceu esses dados; alertas
+  clínicos equivalentes são consolidados por conceito.
 
 ## 4. Estados
 
@@ -213,7 +226,9 @@ para essas tabelas.
   áudio, transcrição ou conteúdo clínico;
 - e-mail, telefone, documento e rótulos de pessoa são removidos antes da
   estruturação;
-- somente transcrição e preferências clínicas mínimas são enviadas ao provedor;
+- somente transcrição anonimizada, preferências clínicas, espécie, raça, idade,
+  peso, medidas com unidades e intervalos de referência são enviados ao
+  provedor; nomes, tutor e contatos permanecem fora do payload;
 - o hash do usuário enviado como `safety_identifier` não permite recuperar e-mail;
 - o áudio não é anexado ao laudo;
 - o acesso cruzado retorna 404;

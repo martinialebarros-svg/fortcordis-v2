@@ -304,8 +304,8 @@ def run_canary(args: argparse.Namespace) -> None:
             raise RuntimeError("A conclusão não descreveu o refluxo mitral leve.")
         if expected_diastolic.rstrip(".") not in conclusion_text:
             raise RuntimeError("A conclusão não descreveu a disfunção diastólica.")
-        if "AE/Ao 2.4" not in conclusion_text:
-            raise RuntimeError("A conclusão não interpretou a medida AE/Ao do formulário.")
+        if "2.4" in conclusion_text or "2,4" in conclusion_text:
+            raise RuntimeError("A conclusão repetiu a medida AE/Ao do formulário.")
         if "repercussão hemodinâmica significativa" not in conclusion_text:
             raise RuntimeError("A repercussão hemodinâmica do AE/Ao não foi sugerida.")
         mitral_text = str(regression_suggestions.get("valva_mitral") or "")
@@ -350,28 +350,37 @@ def run_canary(args: argparse.Namespace) -> None:
         }
         if "aspecto mixomatoso" not in stage_c_suggestions.get("valva_mitral", ""):
             raise RuntimeError("A valva mitral não recebeu descrição avançada.")
-        if "AE/Ao 2.5" not in stage_c_suggestions.get("atrio_esquerdo", ""):
+        if "aumento importante" not in stage_c_suggestions.get("atrio_esquerdo", ""):
             raise RuntimeError("O remodelamento atrial esquerdo não foi correlacionado.")
-        if "DIVEd normalizado 2" not in stage_c_suggestions.get("ventriculo_esquerdo", ""):
+        if "sobrecarga volumétrica crônica" not in stage_c_suggestions.get("ventriculo_esquerdo", ""):
             raise RuntimeError("A dilatação ventricular esquerda não foi correlacionada.")
-        if "onda E 1.35 m/s" not in stage_c_suggestions.get("funcao_diastolica", ""):
+        if "pressões de enchimento" not in stage_c_suggestions.get("funcao_diastolica", ""):
             raise RuntimeError("As pressões de enchimento não foram correlacionadas.")
+        suggested_text = " ".join(stage_c_suggestions.values())
+        for forbidden_value in ("2.5", "2,5", "2.0", "2,0", "1.35", "1,35", "5.5", "5,5", "3.6", "3,6"):
+            if forbidden_value in suggested_text:
+                raise RuntimeError("Uma frase sugerida repetiu valor numérico de medida.")
         stage_c_conclusion = stage_c_suggestions.get("conclusao", "")
-        if "Estágio C (ACVIM)" not in stage_c_conclusion:
+        if "estágio C (ACVIM)" not in stage_c_conclusion:
             raise RuntimeError("A classificação C informada no ditado não foi preservada.")
         if "congestão venosa pulmonar" not in stage_c_conclusion:
             raise RuntimeError("A congestão informada no ditado não foi preservada.")
         warning_types = {
             item.get("warning_type") for item in (stage_c_result.get("warnings") or [])
         }
-        for expected_warning in (
-            "multimodal_correlation_applied",
-            "mitral_velocity_not_regurgitation_grade",
-            "tr_velocity_requires_ph_context",
-        ):
+        for expected_warning in ("tr_velocity_requires_ph_context",):
             if expected_warning not in warning_types:
                 raise RuntimeError(
                     f"A salvaguarda multimodal {expected_warning} não foi emitida."
+                )
+        for obsolete_warning in (
+            "multimodal_correlation_applied",
+            "mitral_velocity_not_regurgitation_grade",
+            "report_measurement_interpreted",
+        ):
+            if obsolete_warning in warning_types:
+                raise RuntimeError(
+                    f"O alerta redundante {obsolete_warning} ainda foi emitido."
                 )
         print("[ai-echo-canary] advanced stage C multimodal correlation: passed")
 

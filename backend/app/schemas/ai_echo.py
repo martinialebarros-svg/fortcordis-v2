@@ -72,6 +72,8 @@ class StrictSchema(BaseModel):
 
 class EchoExamContext(StrictSchema):
     species: Optional[str]
+    breed: Optional[str] = None
+    age: Optional[str] = None
     weight_kg: Optional[float] = Field(default=None, gt=0)
 
 
