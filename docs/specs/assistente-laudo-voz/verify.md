@@ -236,6 +236,22 @@ genérica de normalidade eventualmente carregada pelo preset.
   protegida respondeu `401` sem credenciais.
 - `origin/main` permaneceu em `6a12cf9a815d6e2e14d58604e03242948f8e1093`.
 
+### Evidência da correlação multimodal C em stage
+
+- Commit implantado: `bfcaa3f91305538f4d46dc295ead6b50b32538c7`
+  (inclui a implementação `42df756bc015c2538c2b0103a58b9b6632d61184`).
+- Validação local: 40 testes focados e 443 testes completos aprovados; lint,
+  TypeScript, build, diff check e guardrail SDD aprovados.
+- Migration CI `30206311386`: sucesso.
+- Deploy Stage `30206311321`: quality gate, guardrail SDD, VPS, readiness,
+  canary autenticado e restore drill aprovados.
+- Canary clínico real: transcrição; regressão B1 + DDG1; correlação avançada de
+  estágio C com sete medidas; integridade numérica AE/Ao; aplicação seletiva sem
+  persistência do laudo; auditoria; exclusão do áudio e limpeza aprovadas.
+- Smoke público: aplicação e `/laudos/novo` responderam `200`; configuração
+  protegida respondeu `401` sem credenciais.
+- `origin/main` permaneceu em `6a12cf9a815d6e2e14d58604e03242948f8e1093`.
+
 ### Evidência do cenário misto B1 + DDG1 em stage
 
 - Commit implantado: `c06fb512db76a4336ec4339d8bc6e01ee9510063`.
