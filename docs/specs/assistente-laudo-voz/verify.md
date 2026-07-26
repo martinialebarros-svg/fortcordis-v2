@@ -169,6 +169,19 @@ registra a rejeição da sessão anterior, exclui seu áudio temporário, limpa 
 o estado do assistente e retorna à etapa 1. O rascunho e seus campos permanecem
 inalterados; a gravação seguinte cria outra sessão vinculada ao mesmo laudo.
 
+### Evidência da regravação em stage
+
+- Commit implantado: `0c69d8a15e18dbe27ebcdbb35a46841118b8d8cb`.
+- Validação local: lint, TypeScript, build, verificação de diff e guardrail SDD
+  aprovados.
+- Migration CI `30202477845`: sucesso.
+- Deploy Stage `30202477840`: quality gate, guardrail SDD e VPS aprovados; o
+  canary clínico foi dispensado por se tratar de alteração exclusiva de frontend.
+- Smoke público: aplicação e `/laudos/novo` responderam `200`; configuração
+  protegida respondeu `401` sem credenciais. O chunk servido da rota contém
+  `Gravar novo áudio`.
+- `origin/main` permaneceu em `6a12cf9a815d6e2e14d58604e03242948f8e1093`.
+
 ### Evidência do cenário misto B1 + DDG1 em stage
 
 - Commit implantado: `c06fb512db76a4336ec4339d8bc6e01ee9510063`.
