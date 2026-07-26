@@ -31,6 +31,7 @@ Status: deterministic_structuring_stage_followup_pending
 | CA-021 | exclusão após transcrição ou falha rejeita a sessão, remove o áudio e limpa transcrição/sugestões locais antes de retornar à gravação no mesmo rascunho | local_pass |
 | CA-022 | ditado exato de mitral leve/B1 + demais parâmetros normais gera 15 sugestões ricas sem chamar o provedor externo; achado não reconhecido continua no fluxo estrito da IA | local_pass |
 | CA-023 | `insufficient_quota` é distinguido de rate limit temporário e retorna mensagem explícita de cota esgotada | local_pass |
+| CA-024 | tabela formal de medidas apresenta e' e a' do Doppler tecidual em `cm/s`; o mapeamento de referência usa a mesma unidade | local_pass |
 
 ## Evidência local executada
 

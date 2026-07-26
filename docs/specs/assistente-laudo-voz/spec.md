@@ -200,6 +200,9 @@ O módulo é aditivo e isolado:
 - RF-063: respostas `429 insufficient_quota` são apresentadas como cota da API
   esgotada, distintas de um limite temporário de requisições. O laudo manual e
   os casos determinísticos conhecidos permanecem disponíveis.
+- RF-064: a tabela formal de medidas inclui as ondas e' e a' do Doppler
+  tecidual, ambas identificadas em `cm/s`; a relação E/E' permanece
+  adimensional.
 
 ## 4. Estados
 

@@ -41,8 +41,8 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
   E_A: { campo: "mv_ea", nome: "E/A", categoria: "doppler" },
   TD: { campo: "mv_dt", nome: "TD (Tempo desaceleração)", categoria: "doppler" },
   TRIV: { campo: "ivrt", nome: "TRIV", categoria: "doppler" },
-  e_doppler: { campo: "tdi_e", nome: "e' (Doppler tecidual)", categoria: "doppler" },
-  a_doppler: { campo: "tdi_a", nome: "a' (Doppler tecidual)", categoria: "doppler" },
+  e_doppler: { campo: "tdi_e", nome: "e' (Doppler tecidual, cm/s)", categoria: "doppler" },
+  a_doppler: { campo: "tdi_a", nome: "a' (Doppler tecidual, cm/s)", categoria: "doppler" },
   E_E_linha: { campo: "e_e_linha", nome: "E/E'", categoria: "doppler" },
   
   // === DOPPLER - SAÍDAS ===
