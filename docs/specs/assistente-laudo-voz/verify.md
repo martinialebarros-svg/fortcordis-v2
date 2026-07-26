@@ -24,6 +24,7 @@ Status: duplicate_suggestion_fix_stage_pass
 | CA-014 | `origin/main=6a12cf9a815d6e2e14d58604e03242948f8e1093`; produção sem alteração | pass |
 | CA-015 | regressão reproduz o texto reportado, consolida sugestões duplicadas por maior confiança e registra alerta visível | stage_pass |
 | CA-016 | `ValidationError` estruturado retorna `invalid_structured_output`, sem mensagem falsa de indisponibilidade | stage_pass |
+| CA-017 | correlação multimodal de áudio + sete medidas em endocardiose mitral C, com salvaguardas de ICC, IM Vmax e IT Vmax | local_pass |
 
 ## Evidência local executada
 
@@ -56,6 +57,21 @@ ruby -e 'require "yaml"; YAML.load_file(".github/workflows/deploy-stage.yml")'
 
 O `check_sdd_guardrail.py` depende de um `HEAD` commitado e será executado antes
 do push de `stage`.
+
+### Correlação multimodal em doença mitral avançada
+
+O teste determinístico usa o ditado artificial "endocardiose mitral estágio C",
+regurgitação mitral importante, regurgitação tricúspide, repercussão direita e
+congestão venosa pulmonar junto com `AE_Ao=2,5`,
+`DIVEd_normalizado=2,0`, `Onda_E=1,35`, `E_A=2,2`, `E_E_linha=14`,
+`IM_Vmax=5,5` e `IT_Vmax=3,6`.
+
+As asserções exigem frases específicas para mitral, átrio esquerdo, ventrículo
+esquerdo, função diastólica, tricúspide, câmaras direitas e conclusão C. Também
+exigem os alertas que impedem graduar refluxo mitral pela velocidade, classificar
+hipertensão pulmonar por IT Vmax isolada ou aceitar estágio C sem confirmação de
+ICC atual/prévia. Um teste separado confirma que as medidas e espécie/peso
+chegam juntas ao provedor de estruturação.
 
 ## Homologação
 

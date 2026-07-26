@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -14,6 +15,21 @@ from app.services.ai_echo_prompt import (
     build_clinical_structuring_instructions,
     build_transcription_prompt,
 )
+
+
+def _safe_current_measurements(
+    current_measurements: dict[str, str] | None,
+) -> dict[str, str]:
+    safe: dict[str, str] = {}
+    for key, value in (current_measurements or {}).items():
+        normalized = str(value or "").strip()
+        if re.fullmatch(
+            r"[-+]?\d+(?:[.,]\d+)?(?:\s*(?:m/s|mmHg|%|mm|ms))?",
+            normalized,
+            flags=re.IGNORECASE,
+        ):
+            safe[key] = normalized
+    return safe
 
 
 class AIEchoProviderError(RuntimeError):
@@ -57,6 +73,8 @@ class ClinicalStructuringProvider(Protocol):
         transcript: str,
         phrase_preferences: list[dict[str, Any]],
         safety_user_id: int,
+        current_measurements: dict[str, str] | None = None,
+        exam_context: dict[str, Any] | None = None,
     ) -> StructuringResult: ...
 
 
@@ -141,6 +159,8 @@ class OpenAIClinicalStructuringProvider:
         transcript: str,
         phrase_preferences: list[dict[str, Any]],
         safety_user_id: int,
+        current_measurements: dict[str, str] | None = None,
+        exam_context: dict[str, Any] | None = None,
     ) -> StructuringResult:
         safety_identifier = hashlib.sha256(
             f"fortcordis-echo:{safety_user_id}".encode("utf-8")
@@ -155,6 +175,10 @@ class OpenAIClinicalStructuringProvider:
                     {
                         "language": "pt-BR",
                         "transcript": transcript,
+                        "exam_context": exam_context or {},
+                        "current_measurements": _safe_current_measurements(
+                            current_measurements
+                        ),
                     },
                     ensure_ascii=False,
                 ),

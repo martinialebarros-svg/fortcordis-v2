@@ -631,20 +631,25 @@ def _process_structure(
         minimized_transcript = redact_personal_data(transcript.edited_text)
         processing_step = "structuring_preferences"
         phrase_preferences = _phrase_preferences(db, session.user_id)
-        processing_step = "structuring_provider"
-        provider = get_clinical_structuring_provider()
-        result = provider.structure(
-            transcript=minimized_transcript,
-            phrase_preferences=phrase_preferences,
-            safety_user_id=session.user_id,
-        )
-        processing_step = "structuring_validation"
         report = db.query(Laudo).filter(Laudo.id == session.laudo_id).first()
         patient = (
             db.query(Paciente).filter(Paciente.id == report.paciente_id).first()
             if report
             else None
         )
+        processing_step = "structuring_provider"
+        provider = get_clinical_structuring_provider()
+        result = provider.structure(
+            transcript=minimized_transcript,
+            phrase_preferences=phrase_preferences,
+            safety_user_id=session.user_id,
+            current_measurements=current_measurements,
+            exam_context={
+                "species": patient.especie if patient else None,
+                "weight_kg": patient.peso_kg if patient else None,
+            },
+        )
+        processing_step = "structuring_validation"
         output = validate_and_enrich_clinical_output(
             result.output,
             transcript.edited_text,

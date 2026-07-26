@@ -28,6 +28,12 @@ REMAINING_NORMAL_REGRESSION_TRANSCRIPT = (
     "dos parâmetros ecocardiográficos avaliados dentro da normalidade."
 )
 
+ADVANCED_MITRAL_STAGE_C_TRANSCRIPT = (
+    "Endocardiose mitral estágio C. Folhetos mitrais espessados com "
+    "regurgitação mitral importante. Regurgitação tricúspide com repercussão "
+    "em câmaras direitas. Sinais de congestão venosa pulmonar."
+)
+
 
 def _request_json(
     *,
@@ -313,6 +319,65 @@ def run_canary(args: argparse.Namespace) -> None:
         if mitral_text == aortic_text:
             raise RuntimeError("O preset normal repetiu o mesmo texto entre estruturas.")
         print("[ai-echo-canary] remaining normality regression: passed")
+
+        _request_json(
+            base_url=args.base_url,
+            path=f"/api/v1/ai/echo-sessions/{session_id}/structure",
+            token=token,
+            method="POST",
+            body=_json_body(
+                {
+                    "edited_transcript": ADVANCED_MITRAL_STAGE_C_TRANSCRIPT,
+                    "current_measurements": {
+                        "AE_Ao": "2,5",
+                        "DIVEd_normalizado": "2,0",
+                        "Onda_E": "1,35",
+                        "E_A": "2,2",
+                        "E_E_linha": "14",
+                        "IM_Vmax": "5,5",
+                        "IT_Vmax": "3,6",
+                    },
+                }
+            ),
+            content_type="application/json",
+        )
+        stage_c_result = _wait_for_review(
+            base_url=args.base_url,
+            token=token,
+            session_id=session_id,
+            needs_suggestions=True,
+            timeout_seconds=args.timeout_seconds,
+        )
+        stage_c_suggestions = {
+            item.get("field_key"): str(item.get("suggested_value") or "")
+            for item in (stage_c_result.get("field_suggestions") or [])
+        }
+        if "aspecto mixomatoso" not in stage_c_suggestions.get("valva_mitral", ""):
+            raise RuntimeError("A valva mitral não recebeu descrição avançada.")
+        if "AE/Ao 2.5" not in stage_c_suggestions.get("atrio_esquerdo", ""):
+            raise RuntimeError("O remodelamento atrial esquerdo não foi correlacionado.")
+        if "DIVEd normalizado 2" not in stage_c_suggestions.get("ventriculo_esquerdo", ""):
+            raise RuntimeError("A dilatação ventricular esquerda não foi correlacionada.")
+        if "onda E 1.35 m/s" not in stage_c_suggestions.get("funcao_diastolica", ""):
+            raise RuntimeError("As pressões de enchimento não foram correlacionadas.")
+        stage_c_conclusion = stage_c_suggestions.get("conclusao", "")
+        if "Estágio C (ACVIM)" not in stage_c_conclusion:
+            raise RuntimeError("A classificação C informada no ditado não foi preservada.")
+        if "congestão venosa pulmonar" not in stage_c_conclusion:
+            raise RuntimeError("A congestão informada no ditado não foi preservada.")
+        warning_types = {
+            item.get("warning_type") for item in (stage_c_result.get("warnings") or [])
+        }
+        for expected_warning in (
+            "multimodal_correlation_applied",
+            "mitral_velocity_not_regurgitation_grade",
+            "tr_velocity_requires_ph_context",
+        ):
+            if expected_warning not in warning_types:
+                raise RuntimeError(
+                    f"A salvaguarda multimodal {expected_warning} não foi emitida."
+                )
+        print("[ai-echo-canary] advanced stage C multimodal correlation: passed")
 
         _request_json(
             base_url=args.base_url,

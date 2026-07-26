@@ -140,6 +140,25 @@ O módulo é aditivo e isolado:
   classificação conflitante e não infere outro estágio com AE/Ao isoladamente.
 - RF-046: a conclusão clínica determinística dos achados alterados substitui a
   conclusão genérica do preset normal quando ambas forem geradas.
+- RF-047: o provedor de estruturação recebe, no mesmo input, a transcrição
+  anonimizada, as medidas atuais não vazias e o contexto de espécie/peso.
+- RF-048: no contexto canino de endocardiose/doença valvar mixomatosa, o
+  assistente correlaciona AE/Ao, DIVEd normalizado, onda E, E/A, E/E', IM Vmax
+  e IT Vmax com os achados explicitamente ditados, mantendo o valor de origem.
+- RF-049: AE/Ao superior a 2,3 e DIVEd normalizado igual ou superior a 1,7
+  sustentam descrição de remodelamento esquerdo importante; onda E superior a
+  1,2 m/s ou E/A igual ou superior a 2 sustentam sugestão revisável de elevadas
+  pressões de enchimento no contexto de doença mitral.
+- RF-050: IM Vmax é descrita, mas não gradua isoladamente a regurgitação mitral.
+  IT Vmax igual ou superior a 3,0 m/s gera alerta para correlação com sinais
+  anatômicos adicionais antes de classificar hipertensão pulmonar.
+- RF-051: regurgitação tricúspide isolada não autoriza inferir dilatação das
+  câmaras direitas; essa repercussão só preenche AD/VD quando estiver no ditado.
+- RF-052: estágio C só aparece quando informado no áudio ou sustentado por
+  história atual/prévia de insuficiência cardíaca ditada. Congestão venosa
+  pulmonar só é afirmada quando explicitamente informada; na ausência dessa
+  evidência, a classificação ditada gera alerta de confirmação clínica ou
+  radiográfica.
 
 ## 4. Estados
 

@@ -34,6 +34,13 @@ class AIEchoStageCanaryTest(unittest.TestCase):
         self.assertNotRegex(transcript, r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b")
         self.assertNotRegex(transcript, r"\b\d{4,5}-?\d{4}\b")
 
+    def test_advanced_stage_c_transcript_has_no_personal_identifiers(self) -> None:
+        transcript = ai_echo_stage_canary.ADVANCED_MITRAL_STAGE_C_TRANSCRIPT
+        self.assertIn("Endocardiose mitral estágio C", transcript)
+        self.assertIn("congestão venosa pulmonar", transcript)
+        self.assertNotIn("@", transcript)
+        self.assertNotRegex(transcript, r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b")
+
 
 if __name__ == "__main__":
     unittest.main()

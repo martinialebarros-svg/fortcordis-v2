@@ -125,7 +125,11 @@ class EchoStructureRequest(StrictSchema):
         unknown = sorted(set(value).difference(allowed))
         if unknown:
             raise ValueError(f"Campos de medida desconhecidos: {', '.join(unknown)}")
-        return {key: str(text or "") for key, text in value.items()}
+        normalized = {key: str(text or "").strip() for key, text in value.items()}
+        oversized = sorted(key for key, text in normalized.items() if len(text) > 80)
+        if oversized:
+            raise ValueError(f"Valores de medida muito longos: {', '.join(oversized)}")
+        return normalized
 
 
 class EchoApplyRequest(StrictSchema):
