@@ -327,6 +327,89 @@ def _strip_accents(value: str) -> str:
     )
 
 
+def can_recover_normality_deterministically(transcript: str) -> bool:
+    """Allow a safe fallback only when every dictated clause is already covered."""
+    normalized = _strip_accents(str(transcript or ""))
+    if not any(re.search(pattern, normalized) for pattern in _GLOBAL_NORMAL_PATTERNS):
+        return False
+    remaining_only = any(
+        re.search(pattern, normalized) for pattern in _REMAINING_NORMAL_PATTERNS
+    )
+
+    remaining = normalized
+    for pattern in _GLOBAL_NORMAL_PATTERNS:
+        remaining = re.sub(pattern, " ", remaining)
+
+    clauses = [
+        re.sub(r"^(?:e|tambem|animal)\s+", "", clause).strip(" ,:-")
+        for clause in re.split(r"[.;\n]+", remaining)
+    ]
+    clauses = [clause for clause in clauses if clause]
+    if remaining_only and not clauses:
+        return False
+    for clause in clauses:
+        if _DIASTOLIC_GRADE_ONE_PATTERN.search(clause):
+            continue
+        if "mitral" not in clause:
+            return False
+        if re.search(
+            r"\b(?:moderad[ao]s?|important[ea]s?|acentuad[ao]s?|graves?|"
+            r"sever[ao]s?|massa|trombo|ruptura|prolapso|dilatacao)\b"
+            r"|\b(?:estagio|classe)\s+(?:b2|c|d)\b",
+            clause,
+        ):
+            return False
+        mild_thickening = "espessamento" in clause and "leve" in clause
+        mild_regurgitation = bool(
+            re.search(r"\b(?:refluxo|regurgitacao)\s+leve\b", clause)
+        )
+        mitral_b1 = "b1" in clause and bool(
+            re.search(r"\b(?:endocardiose|mixomatosa|classificad[ao])\b", clause)
+        )
+        if not any((mild_thickening, mild_regurgitation, mitral_b1)):
+            return False
+    return True
+
+
+def build_deterministic_recovery_output(
+    exam_context: dict | None,
+) -> EchoClinicalStructureOutput:
+    context = exam_context if isinstance(exam_context, dict) else {}
+    raw_weight = context.get("weight_kg")
+    try:
+        weight_kg = float(raw_weight) if raw_weight not in (None, "") else None
+    except (TypeError, ValueError):
+        weight_kg = None
+    if weight_kg is not None and weight_kg <= 0:
+        weight_kg = None
+    return EchoClinicalStructureOutput.model_validate(
+        {
+            "exam_context": {
+                "species": str(context.get("species") or "").strip() or None,
+                "breed": str(context.get("breed") or "").strip() or None,
+                "age": str(context.get("age") or "").strip() or None,
+                "weight_kg": weight_kg,
+            },
+            "measurements": [],
+            "field_suggestions": [],
+            "conclusion_suggestion": [],
+            "warnings": [
+                {
+                    "warning_type": "structured_output_recovered_deterministically",
+                    "severity": "info",
+                    "message": (
+                        "A resposta estruturada do serviço foi descartada e este "
+                        "caso conhecido foi reconstruído pelas regras clínicas e "
+                        "pelo preset do sistema. Revise as sugestões antes de aplicar."
+                    ),
+                    "related_fields": ["conclusao"],
+                }
+            ],
+            "missing_information": [],
+        }
+    )
+
+
 def _parse_integer_words(value: str) -> Optional[int]:
     words = [word for word in _strip_accents(value).replace("-", " ").split() if word != "e"]
     if not words or any(word not in _NUMBER_WORDS for word in words):
@@ -589,7 +672,7 @@ def _expand_asserted_normality(
             EchoFieldSuggestionOutput(
                 field_key="valva_mitral",
                 text=(
-                    "Valva mitral com espessamento leve a moderado dos folhetos, "
+                    "Valva mitral com espessamento leve dos folhetos, "
                     "predominando no folheto septal. Refluxo mitral de grau leve ao "
                     "Doppler colorido, com jato estreito restrito à porção proximal "
                     "do átrio esquerdo."
@@ -635,24 +718,31 @@ def _expand_asserted_normality(
         )
         existing_fields.add(field_key)
 
-    if mitral_b1 and diastolic_grade_one:
+    if mitral_b1:
         expanded = [
             item for item in expanded if str(item.field_key) != "conclusao"
         ]
+        conclusion_parts = [
+            (
+                "Achados ecocardiográficos compatíveis com degeneração "
+                "mixomatosa da valva mitral, com refluxo de grau leve e sem "
+                "remodelamento cardíaco significativo. Estágio B1 (ACVIM)."
+            )
+        ]
+        source_spans = ["endocardiose mitral B1 com refluxo leve"]
+        if diastolic_grade_one:
+            conclusion_parts.append(
+                "Disfunção diastólica grau I (padrão senil)."
+            )
+            source_spans.append(
+                "disfunção diastólica grau 1, padrão senil"
+            )
         expanded.append(
             EchoFieldSuggestionOutput(
                 field_key="conclusao",
-                text=(
-                    "Achados ecocardiográficos compatíveis com degeneração "
-                    "mixomatosa da valva mitral, com refluxo de grau leve e sem "
-                    "remodelamento cardíaco significativo. Estágio B1 (ACVIM). "
-                    "Disfunção diastólica grau I (padrão senil)."
-                ),
+                text=" ".join(conclusion_parts),
                 confidence=1.0,
-                source_spans=[
-                    "endocardiose mitral B1 com refluxo leve",
-                    "disfunção diastólica grau 1, padrão senil",
-                ],
+                source_spans=source_spans,
                 evidence_type="diagnostic_suggestion",
             )
         )
