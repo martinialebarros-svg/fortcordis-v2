@@ -126,6 +126,15 @@ O módulo é aditivo e isolado:
   e a interface retorna à gravação sem aplicar sugestões nem criar outro laudo.
 - RF-041: o novo áudio cria uma nova sessão de IA vinculada ao mesmo rascunho,
   permitindo gerar e revisar um novo conjunto de sugestões.
+- RF-042: a estruturação recebe também as medidas já preenchidas no formulário,
+  mesmo quando elas não foram mencionadas no áudio.
+- RF-043: em cães, AE/Ao igual ou superior a 1,6 gera sugestão revisável de
+  aumento atrial; AE/Ao superior a 2,3 gera sugestão de dilatação atrial
+  importante e repercussão hemodinâmica significativa, sem definir isoladamente
+  estágio ACVIM ou etiologia.
+- RF-044: toda interpretação derivada de medida identifica o valor de origem,
+  emite alerta clínico e pode substituir uma frase global de normalidade
+  conflitante antes do aceite explícito.
 
 ## 4. Estados
 

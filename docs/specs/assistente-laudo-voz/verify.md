@@ -169,6 +169,14 @@ registra a rejeição da sessão anterior, exclui seu áudio temporário, limpa 
 o estado do assistente e retorna à etapa 1. O rascunho e seus campos permanecem
 inalterados; a gravação seguinte cria outra sessão vinculada ao mesmo laudo.
 
+### Interpretação das medidas do formulário
+
+A estruturação recebe as medidas atuais além da transcrição. O teste de regressão
+usa `AE_Ao=2,4` sem ditar o valor e exige sugestão de dilatação atrial esquerda
+importante, repercussão hemodinâmica significativa, preservação do achado mitral
+na conclusão e o alerta `report_measurement_interpreted`. A regra não classifica
+o estágio ACVIM com AE/Ao isoladamente.
+
 ### Evidência da regravação em stage
 
 - Commit implantado: `0c69d8a15e18dbe27ebcdbb35a46841118b8d8cb`.

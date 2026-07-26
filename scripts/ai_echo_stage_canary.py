@@ -258,7 +258,10 @@ def run_canary(args: argparse.Namespace) -> None:
             token=token,
             method="POST",
             body=_json_body(
-                {"edited_transcript": REMAINING_NORMAL_REGRESSION_TRANSCRIPT}
+                {
+                    "edited_transcript": REMAINING_NORMAL_REGRESSION_TRANSCRIPT,
+                    "current_measurements": {"AE_Ao": "2,4"},
+                }
             ),
             content_type="application/json",
         )
@@ -291,6 +294,10 @@ def run_canary(args: argparse.Namespace) -> None:
             raise RuntimeError("A conclusão não descreveu o refluxo mitral leve.")
         if expected_diastolic.rstrip(".") not in conclusion_text:
             raise RuntimeError("A conclusão não descreveu a disfunção diastólica.")
+        if "AE/Ao 2.4" not in conclusion_text:
+            raise RuntimeError("A conclusão não interpretou a medida AE/Ao do formulário.")
+        if "repercussão hemodinâmica significativa" not in conclusion_text:
+            raise RuntimeError("A repercussão hemodinâmica do AE/Ao não foi sugerida.")
         mitral_text = str(regression_suggestions.get("valva_mitral") or "")
         aortic_text = str(regression_suggestions.get("valva_aortica") or "")
         if "folheto septal" not in mitral_text.lower() or "cúspides" not in aortic_text.lower():

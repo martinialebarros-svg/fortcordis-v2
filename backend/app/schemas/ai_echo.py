@@ -116,6 +116,16 @@ class EchoSessionCreateRequest(StrictSchema):
 
 class EchoStructureRequest(StrictSchema):
     edited_transcript: str = Field(min_length=1, max_length=30000)
+    current_measurements: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("current_measurements")
+    @classmethod
+    def validate_measurement_keys(cls, value: dict[str, str]) -> dict[str, str]:
+        allowed = set(EchoMeasurementFieldKey.__args__)
+        unknown = sorted(set(value).difference(allowed))
+        if unknown:
+            raise ValueError(f"Campos de medida desconhecidos: {', '.join(unknown)}")
+        return {key: str(text or "") for key, text in value.items()}
 
 
 class EchoApplyRequest(StrictSchema):

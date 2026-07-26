@@ -462,6 +462,7 @@ export default function EchoVoiceAssistant({
     try {
       await api.post(`/ai/echo-sessions/${session.id}/structure`, {
         edited_transcript: editedTranscript,
+        current_measurements: currentMeasurements,
       });
       const next = await pollSession(
         session.id,

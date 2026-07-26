@@ -371,6 +371,40 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
         )
         self.assertEqual(enriched.field_suggestions, [])
 
+    def test_interprets_la_ao_already_filled_in_report(self) -> None:
+        enriched = validate_and_enrich_clinical_output(
+            empty_output(
+                field_suggestions=[
+                    {
+                        "field_key": "valva_mitral",
+                        "text": "Valva mitral com espessamento e refluxo.",
+                        "confidence": 0.95,
+                        "source_spans": ["refluxo mitral"],
+                        "evidence_type": "fact",
+                    },
+                    {
+                        "field_key": "conclusao",
+                        "text": "Endocardiose mitral.",
+                        "confidence": 0.9,
+                        "source_spans": ["endocardiose mitral"],
+                        "evidence_type": "diagnostic_suggestion",
+                    },
+                ]
+            ),
+            "Endocardiose mitral com refluxo.",
+            species="Canina",
+            current_measurements={"AE_Ao": "2,4"},
+        )
+        suggestions = {item.field_key: item.text for item in enriched.field_suggestions}
+        self.assertIn("dilatação importante", suggestions["atrio_esquerdo"])
+        self.assertIn("AE/Ao 2.4", suggestions["conclusao"])
+        self.assertIn("repercussão hemodinâmica significativa", suggestions["conclusao"])
+        self.assertIn("Endocardiose mitral", suggestions["conclusao"])
+        self.assertIn(
+            "report_measurement_interpreted",
+            {warning.warning_type for warning in enriched.warnings},
+        )
+
     def test_schema_rejects_unknown_field_and_text_outside_contract(self) -> None:
         with self.assertRaises(ValidationError):
             EchoClinicalStructureOutput.model_validate(

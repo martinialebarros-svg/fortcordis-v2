@@ -594,7 +594,10 @@ def _estimated_cost(input_tokens: int | None, output_tokens: int | None) -> floa
     return ((input_tokens or 0) * input_rate + (output_tokens or 0) * output_rate) / 1_000_000
 
 
-def _process_structure(session_id: str) -> None:
+def _process_structure(
+    session_id: str,
+    current_measurements: dict[str, str] | None = None,
+) -> None:
     db = SessionLocal()
     started = _utcnow()
     processing_step = "structuring_load"
@@ -646,6 +649,7 @@ def _process_structure(session_id: str) -> None:
             result.output,
             transcript.edited_text,
             species=patient.especie if patient else None,
+            current_measurements=current_measurements,
         )
 
         processing_step = "structuring_persistence"
@@ -753,13 +757,16 @@ def _process_structure(session_id: str) -> None:
             _SUBMITTED.discard(("structure", session_id))
 
 
-def submit_structure(session_id: str) -> None:
+def submit_structure(
+    session_id: str,
+    current_measurements: dict[str, str] | None = None,
+) -> None:
     with _SUBMIT_LOCK:
         key = ("structure", session_id)
         if key in _SUBMITTED:
             return
         _SUBMITTED.add(key)
-    _EXECUTOR.submit(_process_structure, session_id)
+    _EXECUTOR.submit(_process_structure, session_id, current_measurements)
 
 
 def prepare_structure(
@@ -767,6 +774,7 @@ def prepare_structure(
     *,
     session: AIEchoSession,
     edited_transcript: str,
+    current_measurements: dict[str, str] | None = None,
 ) -> None:
     require_feature_available()
     if session.status in ACTIVE_PROCESSING_STATES:
@@ -784,7 +792,7 @@ def prepare_structure(
     session.last_error_code = None
     session.last_error_message = None
     db.commit()
-    submit_structure(session.id)
+    submit_structure(session.id, current_measurements)
 
 
 def _serialize_timestamp(value: datetime | None) -> str | None:

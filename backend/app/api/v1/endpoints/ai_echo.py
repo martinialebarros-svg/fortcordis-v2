@@ -223,6 +223,7 @@ def structure_ai_echo_transcript(
         db,
         session=session,
         edited_transcript=payload.edited_transcript,
+        current_measurements=payload.current_measurements,
     )
     return {
         "session_id": session.id,

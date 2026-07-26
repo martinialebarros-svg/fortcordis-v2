@@ -592,11 +592,93 @@ def _expand_asserted_normality(
     ]
 
 
+def _enrich_from_current_measurements(
+    suggestions: list[EchoFieldSuggestionOutput],
+    warnings: list[EchoClinicalWarningOutput],
+    current_measurements: dict[str, str] | None,
+    species: str | None,
+) -> tuple[list[EchoFieldSuggestionOutput], list[EchoClinicalWarningOutput]]:
+    normalized_species = _strip_accents(str(species or ""))
+    if any(token in normalized_species for token in ("felina", "felino", "gato")):
+        return suggestions, warnings
+    raw_la_ao = str((current_measurements or {}).get("AE_Ao") or "").strip()
+    if not raw_la_ao:
+        return suggestions, warnings
+    try:
+        la_ao = float(raw_la_ao.replace(",", "."))
+    except ValueError:
+        return suggestions, warnings
+    if la_ao < 1.6:
+        return suggestions, warnings
+
+    important = la_ao > 2.3
+    atrial_text = (
+        f"Átrio esquerdo com dilatação importante (relação AE/Ao {la_ao:g}), "
+        "compatível com repercussão hemodinâmica significativa."
+        if important
+        else (
+            f"Átrio esquerdo aumentado (relação AE/Ao {la_ao:g}), "
+            "compatível com remodelamento atrial esquerdo."
+        )
+    )
+    conclusion_part = (
+        f"Dilatação atrial esquerda importante (AE/Ao {la_ao:g}), com "
+        "repercussão hemodinâmica significativa."
+        if important
+        else f"Aumento atrial esquerdo (AE/Ao {la_ao:g})."
+    )
+    enriched = [
+        item
+        for item in suggestions
+        if str(item.field_key) not in {"atrio_esquerdo", "conclusao"}
+    ]
+    previous_conclusion = next(
+        (
+            item.text.strip()
+            for item in suggestions
+            if str(item.field_key) == "conclusao" and item.text.strip()
+        ),
+        "",
+    )
+    enriched.append(
+        EchoFieldSuggestionOutput(
+            field_key="atrio_esquerdo",
+            text=atrial_text,
+            confidence=1.0,
+            source_spans=[f"Medida do formulário: AE/Ao {raw_la_ao}"],
+            evidence_type="fact",
+        )
+    )
+    enriched.append(
+        EchoFieldSuggestionOutput(
+            field_key="conclusao",
+            text=" ".join(part for part in (previous_conclusion, conclusion_part) if part),
+            confidence=0.95,
+            source_spans=[f"Medida do formulário: AE/Ao {raw_la_ao}"],
+            evidence_type="diagnostic_suggestion",
+        )
+    )
+    return enriched, [
+        *warnings,
+        EchoClinicalWarningOutput(
+            warning_type="report_measurement_interpreted",
+            severity="warning",
+            message=(
+                "A relação AE/Ao preenchida no formulário foi interpretada. "
+                "Confirme espécie, técnica de medida e os demais critérios de "
+                "remodelamento antes de definir estágio clínico."
+            ),
+            related_fields=["AE_Ao", "atrio_esquerdo", "conclusao"],
+        ),
+    ]
+
+
 def validate_and_enrich_clinical_output(
     output: EchoClinicalStructureOutput,
     transcript: str,
     *,
     species: str | None = None,
+    current_measurements: dict[str, str] | None = None,
 ) -> EchoClinicalStructureOutput:
     deterministic, numeric_warnings = extract_measurements_from_transcript(transcript)
     field_suggestions, duplicate_warnings = _consolidate_field_suggestions(
@@ -607,8 +689,14 @@ def validate_and_enrich_clinical_output(
         suggestions=field_suggestions,
         species=species or output.exam_context.species,
     )
+    field_suggestions, measurement_warnings = _enrich_from_current_measurements(
+        field_suggestions,
+        [*duplicate_warnings, *normality_warnings],
+        current_measurements,
+        species or output.exam_context.species,
+    )
     measurements = list(output.measurements)
-    warnings = [*output.warnings, *duplicate_warnings, *normality_warnings]
+    warnings = [*output.warnings, *measurement_warnings]
     existing_by_name: dict[str, list[EchoMeasurementOutput]] = {}
     for measurement in measurements:
         existing_by_name.setdefault(measurement.canonical_name, []).append(measurement)
