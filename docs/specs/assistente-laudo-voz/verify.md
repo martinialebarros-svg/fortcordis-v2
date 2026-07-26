@@ -174,8 +174,10 @@ inalterados; a gravação seguinte cria outra sessão vinculada ao mesmo laudo.
 A estruturação recebe as medidas atuais além da transcrição. O teste de regressão
 usa `AE_Ao=2,4` sem ditar o valor e exige sugestão de dilatação atrial esquerda
 importante, repercussão hemodinâmica significativa, preservação do achado mitral
-na conclusão e o alerta `report_measurement_interpreted`. A regra não classifica
-o estágio ACVIM com AE/Ao isoladamente.
+na conclusão e o alerta `report_measurement_interpreted`. Como essa medida
+conflita com a afirmação ditada de ausência de remodelamento/B1, o canary exige
+que a endocardiose e o refluxo sejam preservados, mas que o estágio B1 não seja
+mantido. A regra não atribui um novo estágio ACVIM com AE/Ao isoladamente.
 
 ### Evidência da regravação em stage
 
