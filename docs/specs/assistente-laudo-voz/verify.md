@@ -111,6 +111,21 @@ O canary descartável de stage repetirá primeiro esse texto e exigirá chaves
 - Runtime: ready, zero 5xx, cleanup worker vivo e restore drill aprovado.
 - `origin/main` permaneceu em `6a12cf9a815d6e2e14d58604e03242948f8e1093`.
 
+### Ditado durante a criação do laudo
+
+O fluxo automatizado cobre o contrato de criação contínua:
+
+- o assistente aceita resolver o `laudo_id` sob demanda;
+- a tela `Novo laudo` exige paciente antes do ditado;
+- chamadas concorrentes reutilizam a mesma promessa de criação;
+- o backend cria o rascunho com status `Rascunho`;
+- a URL passa para `/laudos/{id}/editar` sem desmontar a tela atual;
+- as sugestões são aplicadas ao formulário local;
+- salvar reutiliza `PUT /laudos/{id}` e atualiza o mesmo registro, incluindo
+  paciente, campos estruturados e conclusão;
+- o teste de regressão confirma que nenhum segundo `Laudo` é inserido durante a
+  finalização do rascunho.
+
 ### Expansão controlada de normalidade
 
 Os testes automatizados cobrem duas expressões clínicas:

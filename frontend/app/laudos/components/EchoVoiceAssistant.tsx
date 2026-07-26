@@ -118,7 +118,8 @@ interface EchoPatch {
 }
 
 interface EchoVoiceAssistantProps {
-  laudoId: number;
+  laudoId?: number;
+  resolveLaudoId?: () => Promise<number>;
   currentFields: Record<string, string>;
   currentMeasurements: Record<string, string>;
   onApply: (patch: EchoPatch) => void;
@@ -178,6 +179,7 @@ function extensionForMimeType(mimeType: string): string {
 
 export default function EchoVoiceAssistant({
   laudoId,
+  resolveLaudoId,
   currentFields,
   currentMeasurements,
   onApply,
@@ -202,11 +204,18 @@ export default function EchoVoiceAssistant({
   const [vocabularyText, setVocabularyText] = useState("");
   const [phrasesText, setPhrasesText] = useState("");
   const [preferencesLoading, setPreferencesLoading] = useState(false);
+  const [resolvedLaudoId, setResolvedLaudoId] = useState<number | null>(
+    laudoId ?? null
+  );
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (laudoId) setResolvedLaudoId(laudoId);
+  }, [laudoId]);
 
   useEffect(() => {
     let mounted = true;
@@ -222,6 +231,33 @@ export default function EchoVoiceAssistant({
       mounted = false;
     };
   }, []);
+
+  const openAssistant = async () => {
+    setError("");
+    if (resolvedLaudoId) {
+      setOpen(true);
+      return;
+    }
+    if (!resolveLaudoId) {
+      setError("Não foi possível preparar o rascunho para o ditado.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const nextLaudoId = await resolveLaudoId();
+      setResolvedLaudoId(nextLaudoId);
+      setOpen(true);
+    } catch (draftError) {
+      setError(
+        errorMessage(
+          draftError,
+          "Preencha os dados mínimos do paciente para iniciar o ditado."
+        )
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -388,8 +424,11 @@ export default function EchoVoiceAssistant({
     setError("");
     setNotice("Enviando áudio com proteção temporária...");
     try {
+      if (!resolvedLaudoId) {
+        throw new Error("O rascunho do laudo ainda não foi preparado.");
+      }
       const created = await api.post<EchoSession>("/ai/echo-sessions", {
-        laudo_id: laudoId,
+        laudo_id: resolvedLaudoId,
       });
       const sessionId = created.data.id;
       setSession(created.data);
@@ -666,12 +705,18 @@ export default function EchoVoiceAssistant({
         </p>
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={openAssistant}
+          disabled={busy}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 px-4 py-3 font-semibold text-white hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2"
         >
           <Mic className="h-5 w-5" />
-          Ditado assistido por IA
+          {busy ? "Preparando rascunho..." : "Ditado assistido por IA"}
         </button>
+        {error && !open ? (
+          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            {error}
+          </div>
+        ) : null}
         <div className="mt-3 flex items-start gap-2 text-xs text-gray-500">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-teal-600" />
           Nunca assina, finaliza ou publica o laudo.

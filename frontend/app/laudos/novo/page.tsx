@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
@@ -16,6 +16,7 @@ import ImageUploader from "../components/ImageUploader";
 import EcoStudyImportUploader from "../components/EcoStudyImportUploader";
 import EcocardiogramaEstruturadoEditor from "../components/EcocardiogramaEstruturadoEditor";
 import EcocardiogramaEstruturadoBiblioteca from "../components/EcocardiogramaEstruturadoBiblioteca";
+import EchoVoiceAssistant from "../components/EchoVoiceAssistant";
 import { Save, ArrowLeft, Heart, User, Activity, BookOpen, Settings, Image as ImageIcon, Minus, Plus, FolderOpen } from "lucide-react";
 import { ReferenciaComparison } from "../components/ReferenciaComparison";
 import {
@@ -349,6 +350,8 @@ export default function NovoLaudoPage() {
   // Imagens do laudo
   const [imagens, setImagens] = useState<any[]>([]);
   const [sessionId, setSessionId] = useState<string>("");
+  const [draftLaudoId, setDraftLaudoId] = useState<number | null>(null);
+  const draftPromiseRef = useRef<Promise<number> | null>(null);
   const opcoesRitmoPaciente = incluirOpcaoAtual(OPCOES_RITMO, ecocardiogramaCabecalho.ritmo);
   const opcoesEstadoPaciente = incluirOpcaoAtual(
     OPCOES_ESTADO_PACIENTE,
@@ -827,6 +830,96 @@ export default function NovoLaudoPage() {
     };
   };
 
+  const montarPayloadEcocardiograma = (status = "Finalizado") => {
+    const clinicaPayload = clinicaId
+      ? { id: parseInt(clinicaId), nome: clinicaNome }
+      : clinicaNome;
+    const ecoEstruturadoPayload =
+      serializarEcocardiogramaEstruturado(ecocardiogramaEstruturado);
+    const legadoEco = ecoEstruturadoPayload
+      ? derivarLegadoDeEcocardiogramaEstruturado(ecoEstruturadoPayload)
+      : null;
+    const qualitativaPayload = legadoEco?.qualitativa || qualitativa;
+    const conteudoPayload =
+      ecoEstruturadoPayload?.usar_no_laudo && legadoEco
+        ? {
+            ...conteudo,
+            conclusao: legadoEco.conclusao || conteudo.conclusao,
+          }
+        : conteudo;
+
+    return {
+      paciente,
+      medidas,
+      qualitativa: qualitativaPayload,
+      conteudo: conteudoPayload,
+      agendamento_id: agendamentoVinculadoId,
+      clinica: clinicaPayload,
+      veterinario: { nome: veterinario },
+      data_exame: paciente.data_exame,
+      tipo_laudo: "ecocardiograma",
+      status,
+      pressao_arterial: montarPayloadPressao(),
+      ecocardiograma_cabecalho: ecocardiogramaCabecalho,
+      ecocardiograma_estruturado: ecoEstruturadoPayload,
+    };
+  };
+
+  const garantirRascunhoParaDitado = async (): Promise<number> => {
+    if (draftLaudoId) return draftLaudoId;
+    if (!(paciente.nome || "").trim()) {
+      throw new Error("Informe ou selecione o paciente antes de iniciar o ditado.");
+    }
+    if (draftPromiseRef.current) return draftPromiseRef.current;
+
+    const promise = api
+      .post("/laudos", montarPayloadEcocardiograma("Rascunho"))
+      .then((response) => {
+        const id = Number(response.data?.id);
+        if (!Number.isFinite(id) || id <= 0) {
+          throw new Error("O rascunho do laudo não foi criado.");
+        }
+        setDraftLaudoId(id);
+        window.history.replaceState(null, "", `/laudos/${id}/editar`);
+        setMensagemSucesso(
+          "Rascunho preparado. Faça o ditado e revise as sugestões antes de salvar."
+        );
+        return id;
+      })
+      .finally(() => {
+        draftPromiseRef.current = null;
+      });
+    draftPromiseRef.current = promise;
+    return promise;
+  };
+
+  const handleEchoAssistantApply = (patch: {
+    fields: Record<string, string>;
+    measurements: Record<string, string>;
+    skipped: string[];
+  }) => {
+    if (Object.keys(patch.measurements).length) {
+      setMedidas((previous) => ({ ...previous, ...patch.measurements }));
+    }
+    if (Object.keys(patch.fields).length) {
+      setEcocardiogramaEstruturado((previous) => ({
+        ...previous,
+        usar_no_laudo: true,
+        textos: {
+          ...previous.textos,
+          ...patch.fields,
+        },
+        updated_at: new Date().toISOString(),
+      }));
+    }
+    setAba(Object.keys(patch.fields).length ? "qualitativa" : "medidas");
+    setMensagemSucesso(
+      patch.skipped.length
+        ? `Sugestões aplicadas ao rascunho. ${patch.skipped.length} item(ns) permaneceram para revisão manual.`
+        : "Sugestões aplicadas ao rascunho. Revise antes de salvar."
+    );
+  };
+
   const handleSalvar = async () => {
     setLoading(true);
     try {
@@ -836,51 +929,41 @@ export default function NovoLaudoPage() {
         return;
       }
 
-      // Enviar clínica como objeto com id ou nome
-      const clinicaPayload = clinicaId 
-        ? { id: parseInt(clinicaId), nome: clinicaNome }
-        : clinicaNome;
-
       const pressaoPayload = montarPayloadPressao();
-      const tipoLaudo = pressaoArterial.salvar_como_laudo_pressao ? "pressao_arterial" : "ecocardiograma";
+      const tipoLaudo = draftLaudoId
+        ? "ecocardiograma"
+        : pressaoArterial.salvar_como_laudo_pressao
+          ? "pressao_arterial"
+          : "ecocardiograma";
       if (tipoLaudo === "pressao_arterial" && !pressaoPayload) {
         alert("Preencha pelo menos uma afericao de pressao para salvar como laudo de pressao arterial.");
         return;
       }
 
-      const ecoEstruturadoPayload =
+      const payload =
         tipoLaudo === "ecocardiograma"
-          ? serializarEcocardiogramaEstruturado(ecocardiogramaEstruturado)
-          : null;
-      const legadoEco = ecoEstruturadoPayload
-        ? derivarLegadoDeEcocardiogramaEstruturado(ecoEstruturadoPayload)
-        : null;
-      const qualitativaPayload = legadoEco?.qualitativa || qualitativa;
-      const conteudoPayload =
-        ecoEstruturadoPayload?.usar_no_laudo && legadoEco
-        ? {
-            ...conteudo,
-            conclusao: legadoEco.conclusao || conteudo.conclusao,
-          }
-        : conteudo;
-      
-      const payload = {
-        paciente,
-        medidas,
-        qualitativa: qualitativaPayload,
-        conteudo: conteudoPayload,
-        agendamento_id: agendamentoVinculadoId,
-        clinica: clinicaPayload,
-        veterinario: { nome: veterinario },
-        data_exame: paciente.data_exame,
-        tipo_laudo: tipoLaudo,
-        pressao_arterial: pressaoPayload,
-        ecocardiograma_cabecalho:
-          tipoLaudo === "ecocardiograma" ? ecocardiogramaCabecalho : null,
-        ecocardiograma_estruturado: ecoEstruturadoPayload,
-      };
-      
-      const response = await api.post("/laudos", payload);
+          ? montarPayloadEcocardiograma("Finalizado")
+          : {
+              paciente,
+              medidas,
+              qualitativa,
+              conteudo,
+              agendamento_id: agendamentoVinculadoId,
+              clinica: clinicaId
+                ? { id: parseInt(clinicaId), nome: clinicaNome }
+                : clinicaNome,
+              veterinario: { nome: veterinario },
+              data_exame: paciente.data_exame,
+              tipo_laudo: tipoLaudo,
+              pressao_arterial: pressaoPayload,
+              ecocardiograma_cabecalho: null,
+              ecocardiograma_estruturado: null,
+            };
+
+      const response =
+        tipoLaudo === "ecocardiograma" && draftLaudoId
+          ? await api.put(`/laudos/${draftLaudoId}`, payload)
+          : await api.post("/laudos", payload);
       const laudoId = response.data.id;
       
       // Associar imagens ao laudo se houver imagens enviadas
@@ -990,6 +1073,19 @@ export default function NovoLaudoPage() {
               </div>
             ) : (
               <>
+                <EchoVoiceAssistant
+                  laudoId={draftLaudoId ?? undefined}
+                  resolveLaudoId={garantirRascunhoParaDitado}
+                  currentFields={{
+                    ...ecocardiogramaEstruturado.textos,
+                    conclusao:
+                      ecocardiogramaEstruturado.textos.conclusao ||
+                      conteudo.conclusao,
+                  }}
+                  currentMeasurements={medidas}
+                  onApply={handleEchoAssistantApply}
+                />
+
                 <div className="fc-report-editor-side-card">
                   <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                     <ImageIcon className="w-5 h-5 text-teal-600" />

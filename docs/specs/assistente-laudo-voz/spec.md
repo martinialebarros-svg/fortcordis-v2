@@ -96,6 +96,17 @@ O módulo é aditivo e isolado:
   "Disfunção diastólica grau I (padrão senil).".
 - RF-031: a expansão de normalidade é sempre uma sugestão revisável, identificada
   por `global_normality_expanded`, e continua sujeita ao aceite explícito.
+- RF-032: o assistente fica disponível também em `Novo laudo`. Ao abri-lo, depois
+  de identificado o paciente, o frontend cria uma única vez um laudo técnico em
+  status `Rascunho` e permanece na mesma experiência de edição.
+- RF-033: o identificador do rascunho é reutilizado na sessão de IA e no
+  salvamento final; o fluxo nunca cria um segundo laudo para concluir o mesmo
+  ditado.
+- RF-034: depois da criação técnica, a URL passa a apontar para a edição do
+  rascunho, permitindo recarregar ou retomar o trabalho sem duplicação.
+- RF-035: a aplicação das sugestões altera somente o estado local do formulário.
+  O rascunho permanece `Rascunho` até o usuário clicar em salvar, quando o mesmo
+  registro é atualizado com os dados completos e finalizado.
 
 ## 4. Estados
 

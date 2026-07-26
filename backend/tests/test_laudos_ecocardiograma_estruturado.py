@@ -2,6 +2,8 @@ import os
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 os.chdir(BACKEND_DIR)
@@ -98,6 +100,75 @@ class LaudosEcocardiogramaEstruturadoTest(unittest.TestCase):
         )
 
         self.assertIn("- valvas:\n  - Valva mitral: Texto 1\n  - Valva aortica: Texto 2", descricao)
+
+    def test_atualiza_o_mesmo_rascunho_criado_para_o_ditado(self) -> None:
+        laudo = SimpleNamespace(
+            id=91,
+            paciente_id=1,
+            agendamento_id=None,
+            tipo="ecocardiograma",
+            titulo="Rascunho",
+            descricao="",
+            diagnostico="",
+            observacoes="",
+            status="Rascunho",
+            clinic_id=None,
+            data_exame=None,
+            medico_solicitante=None,
+            anexos=None,
+            updated_at=None,
+        )
+        db = Mock()
+        db.query.return_value.filter.return_value.first.return_value = laudo
+        payload = {
+            "paciente": {
+                "nome": "Paciente teste",
+                "especie": "Canina",
+                "data_exame": "2026-07-25",
+            },
+            "medidas": {},
+            "qualitativa": {},
+            "conteudo": {},
+            "agendamento_id": "",
+            "clinica": "",
+            "veterinario": {"nome": "Solicitante"},
+            "tipo_laudo": "ecocardiograma",
+            "status": "Finalizado",
+            "ecocardiograma_estruturado": {
+                "usar_no_laudo": True,
+                "textos": {
+                    "funcao_diastolica": "Disfunção diastólica grau I (padrão senil).",
+                    "conclusao": "Disfunção diastólica grau I (padrão senil).",
+                },
+            },
+        }
+
+        with (
+            patch.object(laudos, "_resolver_ou_criar_paciente", return_value=42),
+            patch.object(
+                laudos,
+                "_sincronizar_publicacao_laudo_no_portal",
+                return_value=(None, None, None, None),
+            ),
+        ):
+            result = laudos.atualizar_laudo(
+                91,
+                payload,
+                db=db,
+                current_user=SimpleNamespace(id=7, nome="Usuário teste"),
+            )
+
+        self.assertIs(result, laudo)
+        self.assertEqual(laudo.id, 91)
+        self.assertEqual(laudo.paciente_id, 42)
+        self.assertEqual(laudo.status, "Finalizado")
+        self.assertEqual(
+            laudo.diagnostico,
+            "Disfunção diastólica grau I (padrão senil).",
+        )
+        self.assertIsNone(laudo.agendamento_id)
+        db.add.assert_not_called()
+        db.commit.assert_called_once()
 
 
 if __name__ == "__main__":
