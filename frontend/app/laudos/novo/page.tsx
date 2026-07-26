@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
@@ -16,6 +16,7 @@ import ImageUploader from "../components/ImageUploader";
 import EcoStudyImportUploader from "../components/EcoStudyImportUploader";
 import EcocardiogramaEstruturadoEditor from "../components/EcocardiogramaEstruturadoEditor";
 import EcocardiogramaEstruturadoBiblioteca from "../components/EcocardiogramaEstruturadoBiblioteca";
+import EchoVoiceAssistant from "../components/EchoVoiceAssistant";
 import { Save, ArrowLeft, Heart, User, Activity, BookOpen, Settings, Image as ImageIcon, Minus, Plus, FolderOpen } from "lucide-react";
 import { ReferenciaComparison } from "../components/ReferenciaComparison";
 import {
@@ -349,6 +350,8 @@ export default function NovoLaudoPage() {
   // Imagens do laudo
   const [imagens, setImagens] = useState<any[]>([]);
   const [sessionId, setSessionId] = useState<string>("");
+  const [draftLaudoId, setDraftLaudoId] = useState<number | null>(null);
+  const draftPromiseRef = useRef<Promise<number> | null>(null);
   const opcoesRitmoPaciente = incluirOpcaoAtual(OPCOES_RITMO, ecocardiogramaCabecalho.ritmo);
   const opcoesEstadoPaciente = incluirOpcaoAtual(
     OPCOES_ESTADO_PACIENTE,
@@ -827,6 +830,96 @@ export default function NovoLaudoPage() {
     };
   };
 
+  const montarPayloadEcocardiograma = (status = "Finalizado") => {
+    const clinicaPayload = clinicaId
+      ? { id: parseInt(clinicaId), nome: clinicaNome }
+      : clinicaNome;
+    const ecoEstruturadoPayload =
+      serializarEcocardiogramaEstruturado(ecocardiogramaEstruturado);
+    const legadoEco = ecoEstruturadoPayload
+      ? derivarLegadoDeEcocardiogramaEstruturado(ecoEstruturadoPayload)
+      : null;
+    const qualitativaPayload = legadoEco?.qualitativa || qualitativa;
+    const conteudoPayload =
+      ecoEstruturadoPayload?.usar_no_laudo && legadoEco
+        ? {
+            ...conteudo,
+            conclusao: legadoEco.conclusao || conteudo.conclusao,
+          }
+        : conteudo;
+
+    return {
+      paciente,
+      medidas,
+      qualitativa: qualitativaPayload,
+      conteudo: conteudoPayload,
+      agendamento_id: agendamentoVinculadoId,
+      clinica: clinicaPayload,
+      veterinario: { nome: veterinario },
+      data_exame: paciente.data_exame,
+      tipo_laudo: "ecocardiograma",
+      status,
+      pressao_arterial: montarPayloadPressao(),
+      ecocardiograma_cabecalho: ecocardiogramaCabecalho,
+      ecocardiograma_estruturado: ecoEstruturadoPayload,
+    };
+  };
+
+  const garantirRascunhoParaDitado = async (): Promise<number> => {
+    if (draftLaudoId) return draftLaudoId;
+    if (!(paciente.nome || "").trim()) {
+      throw new Error("Informe ou selecione o paciente antes de iniciar o ditado.");
+    }
+    if (draftPromiseRef.current) return draftPromiseRef.current;
+
+    const promise = api
+      .post("/laudos", montarPayloadEcocardiograma("Rascunho"))
+      .then((response) => {
+        const id = Number(response.data?.id);
+        if (!Number.isFinite(id) || id <= 0) {
+          throw new Error("O rascunho do laudo não foi criado.");
+        }
+        setDraftLaudoId(id);
+        window.history.replaceState(null, "", `/laudos/${id}/editar`);
+        setMensagemSucesso(
+          "Rascunho preparado. Faça o ditado e revise as sugestões antes de salvar."
+        );
+        return id;
+      })
+      .finally(() => {
+        draftPromiseRef.current = null;
+      });
+    draftPromiseRef.current = promise;
+    return promise;
+  };
+
+  const handleEchoAssistantApply = (patch: {
+    fields: Record<string, string>;
+    measurements: Record<string, string>;
+    skipped: string[];
+  }) => {
+    if (Object.keys(patch.measurements).length) {
+      setMedidas((previous) => ({ ...previous, ...patch.measurements }));
+    }
+    if (Object.keys(patch.fields).length) {
+      setEcocardiogramaEstruturado((previous) => ({
+        ...previous,
+        usar_no_laudo: true,
+        textos: {
+          ...previous.textos,
+          ...patch.fields,
+        },
+        updated_at: new Date().toISOString(),
+      }));
+    }
+    setAba(Object.keys(patch.fields).length ? "qualitativa" : "medidas");
+    setMensagemSucesso(
+      patch.skipped.length
+        ? `Sugestões aplicadas ao rascunho. ${patch.skipped.length} item(ns) permaneceram para revisão manual.`
+        : "Sugestões aplicadas ao rascunho. Revise antes de salvar."
+    );
+  };
+
   const handleSalvar = async () => {
     setLoading(true);
     try {
@@ -836,51 +929,41 @@ export default function NovoLaudoPage() {
         return;
       }
 
-      // Enviar clínica como objeto com id ou nome
-      const clinicaPayload = clinicaId 
-        ? { id: parseInt(clinicaId), nome: clinicaNome }
-        : clinicaNome;
-
       const pressaoPayload = montarPayloadPressao();
-      const tipoLaudo = pressaoArterial.salvar_como_laudo_pressao ? "pressao_arterial" : "ecocardiograma";
+      const tipoLaudo = draftLaudoId
+        ? "ecocardiograma"
+        : pressaoArterial.salvar_como_laudo_pressao
+          ? "pressao_arterial"
+          : "ecocardiograma";
       if (tipoLaudo === "pressao_arterial" && !pressaoPayload) {
         alert("Preencha pelo menos uma afericao de pressao para salvar como laudo de pressao arterial.");
         return;
       }
 
-      const ecoEstruturadoPayload =
+      const payload =
         tipoLaudo === "ecocardiograma"
-          ? serializarEcocardiogramaEstruturado(ecocardiogramaEstruturado)
-          : null;
-      const legadoEco = ecoEstruturadoPayload
-        ? derivarLegadoDeEcocardiogramaEstruturado(ecoEstruturadoPayload)
-        : null;
-      const qualitativaPayload = legadoEco?.qualitativa || qualitativa;
-      const conteudoPayload =
-        ecoEstruturadoPayload?.usar_no_laudo && legadoEco
-        ? {
-            ...conteudo,
-            conclusao: legadoEco.conclusao || conteudo.conclusao,
-          }
-        : conteudo;
-      
-      const payload = {
-        paciente,
-        medidas,
-        qualitativa: qualitativaPayload,
-        conteudo: conteudoPayload,
-        agendamento_id: agendamentoVinculadoId,
-        clinica: clinicaPayload,
-        veterinario: { nome: veterinario },
-        data_exame: paciente.data_exame,
-        tipo_laudo: tipoLaudo,
-        pressao_arterial: pressaoPayload,
-        ecocardiograma_cabecalho:
-          tipoLaudo === "ecocardiograma" ? ecocardiogramaCabecalho : null,
-        ecocardiograma_estruturado: ecoEstruturadoPayload,
-      };
-      
-      const response = await api.post("/laudos", payload);
+          ? montarPayloadEcocardiograma("Finalizado")
+          : {
+              paciente,
+              medidas,
+              qualitativa,
+              conteudo,
+              agendamento_id: agendamentoVinculadoId,
+              clinica: clinicaId
+                ? { id: parseInt(clinicaId), nome: clinicaNome }
+                : clinicaNome,
+              veterinario: { nome: veterinario },
+              data_exame: paciente.data_exame,
+              tipo_laudo: tipoLaudo,
+              pressao_arterial: pressaoPayload,
+              ecocardiograma_cabecalho: null,
+              ecocardiograma_estruturado: null,
+            };
+
+      const response =
+        tipoLaudo === "ecocardiograma" && draftLaudoId
+          ? await api.put(`/laudos/${draftLaudoId}`, payload)
+          : await api.post("/laudos", payload);
       const laudoId = response.data.id;
       
       // Associar imagens ao laudo se houver imagens enviadas
@@ -990,6 +1073,19 @@ export default function NovoLaudoPage() {
               </div>
             ) : (
               <>
+                <EchoVoiceAssistant
+                  laudoId={draftLaudoId ?? undefined}
+                  resolveLaudoId={garantirRascunhoParaDitado}
+                  currentFields={{
+                    ...ecocardiogramaEstruturado.textos,
+                    conclusao:
+                      ecocardiogramaEstruturado.textos.conclusao ||
+                      conteudo.conclusao,
+                  }}
+                  currentMeasurements={medidas}
+                  onApply={handleEchoAssistantApply}
+                />
+
                 <div className="fc-report-editor-side-card">
                   <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                     <ImageIcon className="w-5 h-5 text-teal-600" />
@@ -1404,22 +1500,22 @@ export default function NovoLaudoPage() {
                           onChange={(v) => handleMedidaChange("PLVES", v)}
                         />
                         <MedidaInput 
-                          label="VDF (Teicholz)"
+                          label="VDF (Teicholz, mL)"
                           value={medidas["VDF"] || ""}
                           onChange={(v) => handleMedidaChange("VDF", v)}
                         />
                         <MedidaInput 
-                          label="VSF (Teicholz)"
+                          label="VSF (Teicholz, mL)"
                           value={medidas["VSF"] || ""}
                           onChange={(v) => handleMedidaChange("VSF", v)}
                         />
                         <MedidaInput 
-                          label="FE (Teicholz)"
+                          label="FE (Teicholz, %)"
                           value={medidas["FE_Teicholz"] || ""}
                           onChange={(v) => handleMedidaChange("FE_Teicholz", v)}
                         />
                         <MedidaInput 
-                          label="Delta D / %FS"
+                          label="Delta D / FS (%)"
                           value={medidas["DeltaD_FS"] || ""}
                           onChange={(v) => handleMedidaChange("DeltaD_FS", v)}
                         />
@@ -1450,7 +1546,7 @@ export default function NovoLaudoPage() {
                           onChange={(v) => handleMedidaChange("Atrio_esquerdo", v)}
                         />
                         <MedidaInput 
-                          label="AE/Ao (Átrio esquerdo/Aorta)"
+                          label="AE/Ao (Átrio esquerdo/Aorta, adimensional)"
                           value={medidas["AE_Ao"] || ""}
                           onChange={(v) => handleMedidaChange("AE_Ao", v)}
                           readOnly
@@ -1459,13 +1555,13 @@ export default function NovoLaudoPage() {
                         {paciente.especie === "Felina" && (
                           <>
                             <MedidaInput
-                              label="Fração de encurtamento do AE (átrio esquerdo)"
+                              label="Fração de encurtamento do AE (%)"
                               value={medidas["Fracao_encurtamento_AE"] ?? ""}
                               onChange={(v) => handleMedidaChange("Fracao_encurtamento_AE", v)}
                               reference="Ref.: 21 - 25%"
                             />
                             <MedidaInput
-                              label="Fluxo auricular"
+                              label="Fluxo auricular (m/s)"
                               value={medidas["Fluxo_auricular"] ?? ""}
                               onChange={(v) => handleMedidaChange("Fluxo_auricular", v)}
                               reference="Ref.: >0,25 m/s"
@@ -1478,52 +1574,52 @@ export default function NovoLaudoPage() {
                         <h4 className="font-semibold text-gray-900 text-sm">Diastólica</h4>
                         
                         <MedidaInput 
-                          label="Onda E"
+                          label="Onda E (m/s)"
                           value={medidas["Onda_E"] || ""}
                           onChange={(v) => handleMedidaChange("Onda_E", v)}
                         />
                         <MedidaInput 
-                          label="Onda A"
+                          label="Onda A (m/s)"
                           value={medidas["Onda_A"] || ""}
                           onChange={(v) => handleMedidaChange("Onda_A", v)}
                         />
                         <MedidaInput 
-                          label="E/A (relação E/A)"
+                          label="E/A (relação adimensional)"
                           value={medidas["E_A"] || ""}
                           onChange={(v) => handleMedidaChange("E_A", v)}
                         />
                         <MedidaInput 
-                          label="TD (tempo desaceleração)"
+                          label="TD (tempo de desaceleração, ms)"
                           value={medidas["TD"] || ""}
                           onChange={(v) => handleMedidaChange("TD", v)}
                         />
                         <MedidaInput 
-                          label="TRIV (tempo relaxamento isovolumétrico)"
+                          label="TRIV (tempo de relaxamento isovolumétrico, ms)"
                           value={medidas["TRIV"] || ""}
                           onChange={(v) => handleMedidaChange("TRIV", v)}
                         />
                         <MedidaInput 
-                          label="MR dp/dt"
+                          label="MR dp/dt (mmHg/s)"
                           value={medidas["MR_dp_dt"] || ""}
                           onChange={(v) => handleMedidaChange("MR_dp_dt", v)}
                         />
                         <MedidaInput 
-                          label="e' (Doppler tecidual)"
+                          label="e' (Doppler tecidual, cm/s)"
                           value={medidas["e_doppler"] || ""}
                           onChange={(v) => handleMedidaChange("e_doppler", v)}
                         />
                         <MedidaInput 
-                          label="a' (Doppler tecidual)"
+                          label="a' (Doppler tecidual, cm/s)"
                           value={medidas["a_doppler"] || ""}
                           onChange={(v) => handleMedidaChange("a_doppler", v)}
                         />
                         <MedidaInput 
-                          label="Doppler tecidual (Relação e'/a')"
+                          label="Doppler tecidual (relação e'/a', adimensional)"
                           value={medidas["doppler_tecidual_relacao"] || ""}
                           onChange={(v) => handleMedidaChange("doppler_tecidual_relacao", v)}
                         />
                         <MedidaInput 
-                          label="E/E'"
+                          label="E/E' (adimensional)"
                           value={medidas["E_E_linha"] || ""}
                           onChange={(v) => handleMedidaChange("E_E_linha", v)}
                           reference="Ref.: <12"
@@ -1545,7 +1641,7 @@ export default function NovoLaudoPage() {
                           onChange={(v) => handleMedidaChange("Ao_nivel_AP", v)}
                         />
                         <MedidaInput 
-                          label="AP/Ao (Artéria pulmonar/Aorta)"
+                          label="AP/Ao (Artéria pulmonar/Aorta, adimensional)"
                           value={medidas["AP_Ao"] || ""}
                           onChange={(v) => handleMedidaChange("AP_Ao", v)}
                         />
@@ -1555,22 +1651,22 @@ export default function NovoLaudoPage() {
                         <h4 className="font-semibold text-gray-900 text-sm">Regurgitações</h4>
                         
                         <MedidaInput 
-                          label="IM (insuficiência mitral) Vmax"
+                          label="IM (insuficiência mitral) Vmax (m/s)"
                           value={medidas["IM_Vmax"] || ""}
                           onChange={(v) => handleMedidaChange("IM_Vmax", v)}
                         />
                         <MedidaInput 
-                          label="IT (insuficiência tricúspide) Vmax"
+                          label="IT (insuficiência tricúspide) Vmax (m/s)"
                           value={medidas["IT_Vmax"] || ""}
                           onChange={(v) => handleMedidaChange("IT_Vmax", v)}
                         />
                         <MedidaInput 
-                          label="IA (insuficiência aórtica) Vmax"
+                          label="IA (insuficiência aórtica) Vmax (m/s)"
                           value={medidas["IA_Vmax"] || ""}
                           onChange={(v) => handleMedidaChange("IA_Vmax", v)}
                         />
                         <MedidaInput 
-                          label="IP (insuficiência pulmonar) Vmax"
+                          label="IP (insuficiência pulmonar) Vmax (m/s)"
                           value={medidas["IP_Vmax"] || ""}
                           onChange={(v) => handleMedidaChange("IP_Vmax", v)}
                         />
@@ -1582,22 +1678,22 @@ export default function NovoLaudoPage() {
                       <h4 className="font-semibold text-gray-900 text-sm mb-4">Doppler - Saídas</h4>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <MedidaInput 
-                          label="Vmax aorta"
+                          label="Vmax aorta (m/s)"
                           value={medidas["Vmax_aorta"] || ""}
                           onChange={(v) => handleMedidaChange("Vmax_aorta", v)}
                         />
                         <MedidaInput 
-                          label="Gradiente aorta"
+                          label="Gradiente aorta (mmHg)"
                           value={medidas["Grad_aorta"] || ""}
                           onChange={(v) => handleMedidaChange("Grad_aorta", v)}
                         />
                         <MedidaInput 
-                          label="Vmax pulmonar"
+                          label="Vmax pulmonar (m/s)"
                           value={medidas["Vmax_pulmonar"] || ""}
                           onChange={(v) => handleMedidaChange("Vmax_pulmonar", v)}
                         />
                         <MedidaInput 
-                          label="Gradiente pulmonar"
+                          label="Gradiente pulmonar (mmHg)"
                           value={medidas["Grad_pulmonar"] || ""}
                           onChange={(v) => handleMedidaChange("Grad_pulmonar", v)}
                         />

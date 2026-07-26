@@ -18,6 +18,7 @@ _MODULE_BY_PATH_PREFIX = [
     ("/api/v1/admin/dashboard", "dashboard"),
     ("/api/v1/admin", "usuarios_permissoes"),
     ("/api/v1/assistente-ia", "usuarios_permissoes"),
+    ("/api/v1/ai/echo-sessions", "laudos"),
     ("/api/v1/agenda", "agenda"),
     ("/api/v1/pacientes", "pacientes"),
     ("/api/v1/tutores", "pacientes"),

@@ -74,3 +74,15 @@ from app.models.assistente_ia import (
     AssistenteIARascunhoClinico,
 )
 from app.models.agenda_bloqueio import AgendaBloqueio
+from app.models.ai_echo import (
+    AIEchoApplication,
+    AIEchoAudioAsset,
+    AIEchoClinicalWarning,
+    AIEchoFeedback,
+    AIEchoFieldSuggestion,
+    AIEchoMeasurement,
+    AIEchoPhrasePreference,
+    AIEchoSession,
+    AIEchoTranscript,
+    AIEchoVocabulary,
+)

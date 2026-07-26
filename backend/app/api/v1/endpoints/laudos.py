@@ -2074,6 +2074,62 @@ def atualizar_laudo(
     if "paciente" in laudo_data and isinstance(laudo_data["paciente"], dict):
         if tipo_estruturado == "ultrassonografia_abdominal":
             return atualizar_laudo_ultrassonografia_abdominal(laudo, laudo_data, db, current_user)
+        if tipo_estruturado == "ecocardiograma":
+            paciente = laudo_data.get("paciente", {}) or {}
+            medidas = laudo_data.get("medidas", {}) or {}
+            qualitativa = laudo_data.get("qualitativa", {}) or {}
+            conteudo = laudo_data.get("conteudo", {}) or {}
+            veterinario = laudo_data.get("veterinario", {}) or {}
+            ecocardiograma_estruturado = _normalizar_ecocardiograma_estruturado(
+                laudo_data.get("ecocardiograma_estruturado")
+            )
+            if (
+                ecocardiograma_estruturado
+                and ecocardiograma_estruturado.get("usar_no_laudo")
+            ):
+                legado = _derivar_legado_de_ecocardiograma_estruturado(
+                    ecocardiograma_estruturado
+                )
+                qualitativa = legado["qualitativa"]
+                conteudo = dict(conteudo)
+                if legado["conclusao"]:
+                    conteudo["conclusao"] = legado["conclusao"]
+
+            agendamento_id = laudo_data.get("agendamento_id")
+            if agendamento_id in ("", 0):
+                agendamento_id = None
+            elif agendamento_id is not None:
+                try:
+                    agendamento_id = int(agendamento_id)
+                except (TypeError, ValueError):
+                    agendamento_id = None
+
+            laudo_data = {
+                "paciente_id": _resolver_ou_criar_paciente(paciente, db),
+                "agendamento_id": agendamento_id,
+                "tipo": "ecocardiograma",
+                "titulo": f"Laudo de Ecocardiograma - {paciente.get('nome', 'Paciente')}",
+                "descricao": _montar_descricao_ecocardiograma(medidas, qualitativa),
+                "diagnostico": conteudo.get("conclusao", ""),
+                "observacoes": conteudo.get("observacoes", ""),
+                "status": laudo_data.get("status", laudo.status),
+                "clinic_id": _extrair_clinic_id(laudo_data.get("clinica")),
+                "data_exame": (
+                    paciente.get("data_exame")
+                    or paciente.get("data")
+                    or laudo_data.get("data_exame")
+                ),
+                "medico_solicitante": (
+                    veterinario.get("nome")
+                    if isinstance(veterinario, dict)
+                    else None
+                ),
+                "pressao_arterial": laudo_data.get("pressao_arterial"),
+                "ecocardiograma_cabecalho": laudo_data.get(
+                    "ecocardiograma_cabecalho"
+                ),
+                "ecocardiograma_estruturado": ecocardiograma_estruturado,
+            }
 
     if "data_exame" in laudo_data:
         parsed = _parse_data_exame(laudo_data.get("data_exame"))
