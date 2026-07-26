@@ -159,6 +159,9 @@ O módulo é aditivo e isolado:
   pulmonar só é afirmada quando explicitamente informada; na ausência dessa
   evidência, a classificação ditada gera alerta de confirmação clínica ou
   radiográfica.
+- RF-053: a correlação avançada não substitui a conclusão mitral leve quando
+  somente AE/Ao está elevado; nesse cenário permanece a regra específica que
+  preserva refluxo e disfunção diastólica já ditados.
 
 ## 4. Estados
 

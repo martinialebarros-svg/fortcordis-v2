@@ -777,10 +777,6 @@ def _enrich_advanced_mitral_multimodal(
     mr_vmax = _measurement_float(current_measurements, "IM_Vmax")
     tr_vmax = _measurement_float(current_measurements, "IT_Vmax")
 
-    advanced_left_remodeling = bool(
-        (la_ao is not None and la_ao > 2.3)
-        or (lviddn is not None and lviddn >= 1.7)
-    )
     filling_pressure_support = bool(
         (e_wave is not None and e_wave > 1.2)
         or (e_a is not None and e_a >= 2.0)
@@ -790,7 +786,6 @@ def _enrich_advanced_mitral_multimodal(
             stage_c,
             important_mr,
             tricuspid_regurgitation,
-            advanced_left_remodeling,
             filling_pressure_support,
         )
     ):
