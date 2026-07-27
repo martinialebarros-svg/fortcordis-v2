@@ -4299,12 +4299,188 @@ body {
   }
 
   .fc-patient-form-delete,
+  .fc-patient-form-start-care,
   .fc-patient-form-delete-confirm {
     @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold outline-none transition focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
+  .fc-patient-form-start-care {
+    @apply border-vital-200/40 bg-vital-600 text-white shadow-fort-soft hover:bg-vital-700 focus-visible:ring-vital-200;
+  }
+
   .fc-patient-form-delete {
     @apply border-red-300/30 bg-red-500/15 text-red-100 hover:bg-red-500/25 focus-visible:ring-red-200;
+  }
+
+  .fc-patient-summary-panel {
+    @apply min-w-0 rounded-lg border border-ink-100 bg-white p-4 shadow-fort-card sm:p-6;
+    box-shadow: inset 4px 0 0 #be123c, 0 1px 2px rgba(23, 32, 29, 0.06), 0 18px 34px rgba(23, 32, 29, 0.08);
+  }
+
+  .fc-patient-summary-header {
+    @apply flex flex-col gap-4 border-b border-ink-100 pb-5 sm:flex-row sm:items-center sm:justify-between;
+  }
+
+  .fc-patient-summary-heading {
+    @apply flex min-w-0 items-start gap-3;
+  }
+
+  .fc-patient-summary-heading > svg {
+    @apply h-10 w-10 shrink-0 rounded-lg border border-cordis-100 bg-cordis-50 p-2 text-cordis-700;
+  }
+
+  .fc-patient-summary-heading span,
+  .fc-patient-summary-card-header span,
+  .fc-patient-summary-metric span {
+    @apply block text-[9px] font-black uppercase tracking-[0.16em] text-ink-400;
+  }
+
+  .fc-patient-summary-heading h2 {
+    @apply mt-0.5 text-xl font-black text-ink-900;
+  }
+
+  .fc-patient-summary-heading p {
+    @apply mt-1 text-sm leading-5 text-ink-500;
+  }
+
+  .fc-patient-summary-refresh {
+    @apply inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-ink-100 bg-ink-50 px-3 py-2 text-xs font-bold text-ink-600 outline-none transition hover:bg-ink-100 focus-visible:ring-2 focus-visible:ring-ink-100 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .fc-patient-summary-loading {
+    @apply flex min-h-48 flex-col items-center justify-center text-center text-sm font-bold text-ink-500;
+  }
+
+  .fc-patient-summary-loading span {
+    @apply mb-3 h-8 w-8 animate-spin rounded-full border-2 border-ink-100 border-t-cordis-600;
+  }
+
+  .fc-patient-summary-error {
+    @apply mt-5 flex flex-col items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 sm:flex-row sm:items-center;
+  }
+
+  .fc-patient-summary-error > svg {
+    @apply shrink-0 text-amber-700;
+  }
+
+  .fc-patient-summary-error > div {
+    @apply min-w-0 flex-1;
+  }
+
+  .fc-patient-summary-error strong {
+    @apply font-black;
+  }
+
+  .fc-patient-summary-error p {
+    @apply mt-0.5 text-amber-800;
+  }
+
+  .fc-patient-summary-error button {
+    @apply shrink-0 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-900 outline-none transition hover:bg-amber-100 focus-visible:ring-2 focus-visible:ring-amber-200;
+  }
+
+  .fc-patient-summary-metrics {
+    @apply mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3;
+  }
+
+  .fc-patient-summary-metric {
+    @apply flex min-w-0 items-center gap-3 rounded-lg border p-4;
+  }
+
+  .fc-patient-summary-metric > svg {
+    @apply h-10 w-10 shrink-0 rounded-lg border border-ink-100 bg-white/70 p-2;
+  }
+
+  .fc-patient-summary-metric strong {
+    @apply mt-0.5 block text-2xl font-black;
+  }
+
+  .fc-patient-summary-metric small {
+    @apply block text-xs font-medium opacity-75;
+  }
+
+  .fc-patient-summary-metric-care {
+    @apply border-vital-100 bg-vital-50 text-vital-900;
+  }
+
+  .fc-patient-summary-metric-report {
+    @apply border-sky-100 bg-sky-50 text-sky-800;
+  }
+
+  .fc-patient-summary-metric-alert {
+    @apply border-amber-100 bg-amber-50 text-amber-900;
+  }
+
+  .fc-patient-summary-content {
+    @apply mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2;
+  }
+
+  .fc-patient-summary-card {
+    @apply min-w-0 overflow-hidden rounded-lg border border-ink-100 bg-ink-50/60;
+  }
+
+  .fc-patient-summary-card-header {
+    @apply flex items-center justify-between gap-3 border-b border-ink-100 bg-white px-4 py-3;
+  }
+
+  .fc-patient-summary-card-header h3 {
+    @apply mt-0.5 font-black text-ink-900;
+  }
+
+  .fc-patient-summary-card-header > svg {
+    @apply shrink-0 text-vital-600;
+  }
+
+  .fc-patient-summary-list {
+    @apply divide-y divide-ink-100;
+  }
+
+  .fc-patient-summary-item {
+    @apply flex w-full items-center justify-between gap-3 px-4 py-3 text-left outline-none transition hover:bg-white focus-visible:bg-white focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-vital-100;
+  }
+
+  .fc-patient-summary-item > div {
+    @apply min-w-0 flex-1;
+  }
+
+  .fc-patient-summary-item > svg {
+    @apply shrink-0 text-ink-400 transition;
+  }
+
+  .fc-patient-summary-item-title {
+    @apply flex min-w-0 items-start justify-between gap-3;
+  }
+
+  .fc-patient-summary-item-title strong {
+    @apply min-w-0 text-sm font-bold text-ink-900;
+  }
+
+  .fc-patient-summary-item-title span {
+    @apply shrink-0 rounded-md border border-ink-100 bg-white px-2 py-0.5 text-[10px] font-black text-ink-500;
+  }
+
+  .fc-patient-summary-item p {
+    @apply mt-1 text-xs leading-5 text-ink-500;
+  }
+
+  .fc-patient-summary-empty {
+    @apply flex min-h-32 flex-col items-center justify-center gap-2 p-5 text-center text-sm font-medium text-ink-400;
+  }
+
+  .fc-patient-summary-alerts {
+    @apply mt-4 flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 lg:flex-row lg:items-start;
+  }
+
+  .fc-patient-summary-alerts > div:first-child {
+    @apply flex shrink-0 items-center gap-2 text-sm text-amber-900;
+  }
+
+  .fc-patient-summary-alert-list {
+    @apply flex flex-wrap gap-2;
+  }
+
+  .fc-patient-summary-alert-list span {
+    @apply rounded-md border border-amber-200 bg-white px-2.5 py-1 text-xs font-bold text-amber-900;
   }
 
   .fc-patient-form-panel {
@@ -4446,7 +4622,8 @@ body {
 
   @media (max-width: 639px) {
     .fc-patient-form-context,
-    .fc-patient-form-header-actions {
+    .fc-patient-form-header-actions,
+    .fc-patient-summary-refresh {
       @apply w-full;
     }
 
@@ -4468,6 +4645,14 @@ body {
 
     .fc-patient-form-actions > button {
       @apply w-full;
+    }
+
+    .fc-patient-summary-item-title {
+      @apply flex-col gap-1;
+    }
+
+    .fc-patient-summary-item-title span {
+      @apply self-start;
     }
   }
 
