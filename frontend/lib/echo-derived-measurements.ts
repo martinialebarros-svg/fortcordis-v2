@@ -20,6 +20,10 @@ export const LV_M_MODE_KEYS = [
   "DIVES",
   "SIVs",
   "PLVES",
+  "VDF",
+  "VSF",
+  "FE_Teicholz",
+  "DeltaD_FS",
 ] as const;
 
 export const LV_2D_KEYS = [
@@ -30,6 +34,10 @@ export const LV_2D_KEYS = [
   "DIVES_2D",
   "SIVs_2D",
   "PLVES_2D",
+  "VDF_2D",
+  "VSF_2D",
+  "FE_Teicholz_2D",
+  "DeltaD_FS_2D",
 ] as const;
 
 function parsePositiveNumber(value: unknown): number | null {

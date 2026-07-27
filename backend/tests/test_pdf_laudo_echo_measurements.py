@@ -28,6 +28,14 @@ def _base_report(selected_technique: str) -> dict:
         "medidas": {
             "DIVEd": "30",
             "DIVEd_2D": "32",
+            "VDF": "99",
+            "VDF_2D": "96",
+            "VSF": "34",
+            "VSF_2D": "41",
+            "FE_Teicholz": "66",
+            "FE_Teicholz_2D": "57",
+            "DeltaD_FS": "36",
+            "DeltaD_FS_2D": "30",
             "VE_tecnica_relatorio": selected_technique,
             "IT_Vmax": "3.6",
             "IT_Grad": "51.84",
@@ -56,6 +64,12 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertNotIn("VE - Modo 2D", mode_m_text)
         self.assertIn("VE - Modo 2D", mode_2d_text)
         self.assertNotIn("VE - Modo M", mode_2d_text)
+        self.assertIn("99.00 ml", mode_m_text)
+        self.assertNotIn("96.00 ml", mode_m_text)
+        self.assertIn("96.00 ml", mode_2d_text)
+        self.assertNotIn("99.00 ml", mode_2d_text)
+        self.assertIn("57.00 %", mode_2d_text)
+        self.assertNotIn("66.00 %", mode_2d_text)
         self.assertIn("PSAP estimada", mode_2d_text)
         self.assertIn("61.84 mmHg", mode_2d_text)
         self.assertIn("0.08 m/s", mode_2d_text)

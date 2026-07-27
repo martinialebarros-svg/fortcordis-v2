@@ -33,6 +33,15 @@ Primeira entrega vertical publicada em stage; perfis GE LOGIQ e e GE Vivid IQ ca
 - Regressao do alias de refluxo tricuspide: `Vmax RT 3.53 m/s` e normalizado para `IT_Vmax = 3.53` tanto na extracao textual quanto no caminho de PDF.
 - Smoke com PDF clinico externo `mee180726_20260718_120334.pdf`: perfil `ge_vivid_iq`, linha `Vmax RT 3.53 m/s` reconhecida como `IT_Vmax = 3.53`; o arquivo e os dados identificaveis permaneceram fora do repositorio.
 - Regressao de cache: jobs concluidos sem `meta_importacao_estudo.versao_extrator` ou com versao anterior nao sao reutilizados; resultados da versao atual continuam elegiveis para deduplicacao pelo mesmo usuario e hash.
+- Regressao Modo M/2D: relatorio com cabecalhos de secao independentes conserva
+  o contexto tecnico para DIVEd, DIVEs, SIVd, SIVs, PLVEd, PLVEs, VDF, VSF, FE
+  e Delta D/FS, sem exigir prefixo em cada linha.
+- Smoke com PDF clinico externo de duas paginas: antes da correcao havia 10
+  conflitos e nenhuma tecnica detectada; com o extrator versao 4, o mesmo
+  arquivo retornou 38 medidas sugeridas, zero conflitos e as tecnicas `2d` e
+  `modo_m`. O arquivo e os dados identificaveis permaneceram fora do repositorio.
+- Regressao do PDF final: a escolha revisavel de Modo M ou Modo 2D controla
+  tambem VDF, VSF, FE de Teicholz e Delta D/FS no bloco emitido.
 
 ## Validacao manual pendente
 

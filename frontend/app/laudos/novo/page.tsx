@@ -1816,6 +1816,26 @@ export default function NovoLaudoPage() {
                           value={medidas["PLVES_2D"] || ""}
                           onChange={(v) => handleMedidaChange("PLVES_2D", v)}
                         />
+                        <MedidaInput
+                          label="VDF 2D (Teicholz, mL)"
+                          value={medidas["VDF_2D"] || ""}
+                          onChange={(v) => handleMedidaChange("VDF_2D", v)}
+                        />
+                        <MedidaInput
+                          label="VSF 2D (Teicholz, mL)"
+                          value={medidas["VSF_2D"] || ""}
+                          onChange={(v) => handleMedidaChange("VSF_2D", v)}
+                        />
+                        <MedidaInput
+                          label="FE 2D (Teicholz, %)"
+                          value={medidas["FE_Teicholz_2D"] || ""}
+                          onChange={(v) => handleMedidaChange("FE_Teicholz_2D", v)}
+                        />
+                        <MedidaInput
+                          label="Delta D / FS 2D (%)"
+                          value={medidas["DeltaD_FS_2D"] || ""}
+                          onChange={(v) => handleMedidaChange("DeltaD_FS_2D", v)}
+                        />
                       </div>
                     </div>
 

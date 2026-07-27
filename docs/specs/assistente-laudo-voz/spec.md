@@ -239,6 +239,14 @@ O módulo é aditivo e isolado:
   IT Vmax elevada acompanhada de repercussão anatômica direita deve produzir
   probabilidade ecocardiográfica de hipertensão pulmonar e não deve manter o
   alerta reservado à velocidade tricúspide isolada.
+- RF-075: a separação de técnicas do VE inclui, em ambas as séries, DIVEd,
+  DIVEs, SIVd, SIVs, PLVEd, PLVEs, VDF, VSF, FE de Teicholz e Delta D/FS.
+- RF-076: cabeçalhos independentes `2D` e `M-Mode` no relatório do equipamento
+  definem o contexto das medidas subsequentes; não é obrigatório que cada linha
+  repita o prefixo técnico.
+- RF-077: se as duas técnicas coexistirem, elas não são tratadas como conflito.
+  O usuário escolhe o bloco do PDF, enquanto todos os valores permanecem
+  disponíveis e revisáveis no formulário e no contexto do assistente.
 
 ## 4. Estados
 

@@ -15,7 +15,7 @@ from app.services.image_header_import_service import _extract_text_with_tesserac
 
 MAX_ECO_STUDY_IMPORT_SIZE = 30 * 1024 * 1024
 MAX_ECO_STUDY_PDF_PAGES = 20
-ECO_STUDY_EXTRACTOR_VERSION = "3"
+ECO_STUDY_EXTRACTOR_VERSION = "4"
 GE_LOGIQ_E_PROFILE = "ge_logiq_e"
 GE_VIVID_IQ_PROFILE = "ge_vivid_iq"
 ALLOWED_ECO_STUDY_EXTENSIONS = {
@@ -86,7 +86,7 @@ MEASUREMENT_DEFINITIONS: tuple[MeasurementDefinition, ...] = (
     MeasurementDefinition("Grad_pulmonar", "Gradiente pulmonar", (r"Grad\.?\s*max\s*VSVD", r"max\s*PG\s*VSVD", r"(?:PV|Pulm(?:onar)?)\s*(?:PG|Grad(?:iente)?)", r"Grad(?:iente)?\s*Pulm(?:onar)?"), "pressure"),
 )
 
-_LV_STRUCTURAL_FIELDS = {
+_LV_TECHNIQUE_FIELDS = {
     "DIVEd",
     "DIVEd_normalizado",
     "DIVES",
@@ -94,19 +94,45 @@ _LV_STRUCTURAL_FIELDS = {
     "SIVs",
     "PLVEd",
     "PLVES",
+    "VDF",
+    "VSF",
+    "FE_Teicholz",
+    "DeltaD_FS",
 }
 
 
 def _detect_lv_measurement_technique(text: str) -> str | None:
-    normalized = _remove_diacritics(text or "").lower()
-    if re.search(r"(?:^|[^a-z0-9])(?:2d\s*/|modo\s*2d\b|2d\s+)", normalized):
+    normalized = re.sub(
+        r"\s+",
+        " ",
+        _remove_diacritics(text or "").lower(),
+    ).strip()
+    if re.fullmatch(r"(?:modo\s*)?2d", normalized) or re.search(
+        r"(?:^|[^a-z0-9])(?:2d\s*/|modo\s*2d\b|2d\s+)",
+        normalized,
+    ):
         return "2d"
-    if re.search(
+    if re.fullmatch(r"(?:m-?mode|modo\s*m|mm)", normalized) or re.search(
         r"(?:^|[^a-z0-9])(?:mm\s*/|m-?mode\b|modo\s*m\b|mm\s+)",
         normalized,
     ):
         return "modo_m"
     return None
+
+
+def _ends_lv_measurement_section(text: str) -> bool:
+    normalized = re.sub(
+        r"\s+",
+        " ",
+        _remove_diacritics(text or "").lower(),
+    ).strip(" :-")
+    return bool(
+        re.fullmatch(
+            r"(?:doppler|funcao\s+diastolica|diastolica|regurgitacoes?|"
+            r"valvas?|achados?|conclusoes?)",
+            normalized,
+        )
+    )
 
 
 def normalize_eco_study_filename(filename: str | None) -> str:
@@ -490,9 +516,15 @@ def extract_measurements_from_text(
     if source.startswith("ocr"):
         lines = _augment_ocr_lines([line for line in lines if line])
 
+    active_lv_technique: str | None = None
     for raw_line in lines:
         if not raw_line:
             continue
+        line_technique = _detect_lv_measurement_technique(raw_line)
+        if line_technique is not None:
+            active_lv_technique = line_technique
+        elif _ends_lv_measurement_section(raw_line):
+            active_lv_technique = None
         line = _remove_diacritics(raw_line)
         for definition in MEASUREMENT_DEFINITIONS:
             matched = False
@@ -516,8 +548,8 @@ def extract_measurements_from_text(
                     definition.unit_kind,
                 )
                 technique = (
-                    _detect_lv_measurement_technique(raw_line)
-                    if definition.campo in _LV_STRUCTURAL_FIELDS
+                    line_technique or active_lv_technique
+                    if definition.campo in _LV_TECHNIQUE_FIELDS
                     else None
                 )
                 target_field = (

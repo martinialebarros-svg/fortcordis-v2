@@ -97,20 +97,53 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
 
     def test_keeps_m_mode_and_2d_lv_measurements_as_distinct_series(self) -> None:
         candidates = extract_measurements_from_text(
-            "MM/LVIDd 30 mm\n2D/LVIDd 32 mm\ne' 8 cm/s",
+            """
+            2D
+            SIVd 12.59 mm
+            DIVEd 45.82 mm
+            PPVEd 11.04 mm
+            SIVs 13.67 mm
+            DIVEs 32.10 mm
+            PPVEs 10.82 mm
+            VDF(Teich) 96 ml
+            VSF(Teich) 41 ml
+            FE(Teich) 57 %
+            Delta D 30 %
+            M-Mode
+            SIVd 10.56 mm
+            DIVEd 46.39 mm
+            PPVEd 9.44 mm
+            SIVs 12.22 mm
+            DIVEs 29.72 mm
+            PPVEs 14.44 mm
+            VDF(Teich) 99 ml
+            VSF(Teich) 34 ml
+            FE(Teich) 66 %
+            Delta D 36 %
+            Doppler
+            e' 8 cm/s
+            """,
             source="pdf:text",
             confidence=0.99,
         )
         measurements, consolidated, conflicts = consolidate_measurement_candidates(candidates)
 
-        self.assertEqual(measurements["DIVEd"], 30)
-        self.assertEqual(measurements["DIVEd_2D"], 32)
+        self.assertEqual(measurements["DIVEd"], 46.39)
+        self.assertEqual(measurements["DIVEd_2D"], 45.82)
+        self.assertEqual(measurements["VDF"], 99)
+        self.assertEqual(measurements["VDF_2D"], 96)
+        self.assertEqual(measurements["VSF"], 34)
+        self.assertEqual(measurements["VSF_2D"], 41)
+        self.assertEqual(measurements["FE_Teicholz"], 66)
+        self.assertEqual(measurements["FE_Teicholz_2D"], 57)
+        self.assertEqual(measurements["DeltaD_FS"], 36)
+        self.assertEqual(measurements["DeltaD_FS_2D"], 30)
         self.assertEqual(measurements["e_doppler"], 0.08)
         self.assertEqual(conflicts, 0)
         techniques = {
             item.get("tecnica")
             for item in consolidated
-            if item["campo"] in {"DIVEd", "DIVEd_2D"}
+            if item["campo"] in {"DIVEd", "DIVEd_2D", "VDF", "VDF_2D"}
         }
         self.assertEqual(techniques, {"modo_m", "2d"})
 
@@ -307,12 +340,28 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
         )
 
     def test_pdf_reports_both_lv_techniques_for_explicit_user_choice(self) -> None:
-        content = _pdf_bytes(["MM/LVIDd 30 mm", "2D/LVIDd 32 mm"])
+        content = _pdf_bytes(
+            [
+                "2D",
+                "LVIDd 32 mm",
+                "VDF(Teich) 96 ml",
+                "FE(Teich) 57 %",
+                "M-Mode",
+                "LVIDd 30 mm",
+                "VDF(Teich) 99 ml",
+                "FE(Teich) 66 %",
+            ]
+        )
 
         payload = parse_eco_study_import_content("duas-tecnicas.pdf", content)
 
         self.assertEqual(payload["medidas"]["DIVEd"], 30)
         self.assertEqual(payload["medidas"]["DIVEd_2D"], 32)
+        self.assertEqual(payload["medidas"]["VDF"], 99)
+        self.assertEqual(payload["medidas"]["VDF_2D"], 96)
+        self.assertEqual(payload["medidas"]["FE_Teicholz"], 66)
+        self.assertEqual(payload["medidas"]["FE_Teicholz_2D"], 57)
+        self.assertEqual(payload["meta_importacao_estudo"]["conflitos"], 0)
         self.assertEqual(
             payload["meta_importacao_estudo"]["tecnicas_ve_detectadas"],
             ["2d", "modo_m"],

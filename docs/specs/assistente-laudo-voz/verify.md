@@ -40,8 +40,23 @@ Status: local_pass
 | CA-030 | PDF final usa `VE_tecnica_relatorio` para emitir exclusivamente o bloco Modo M ou Modo 2D selecionado | local_pass |
 | CA-031 | suíte oficial com 471 testes, 70 testes focados e 13 subtestes, `pip check`, ESLint, TypeScript, build Next.js e `git diff --check` | local_pass |
 | CA-032 | canário vivo avançado exige alta probabilidade ecocardiográfica quando IT Vmax 3,6 m/s está associada a repercussão em câmaras direitas e rejeita o alerta legado de velocidade isolada | stage_pending |
+| CA-033 | PDF real com seções independentes 2D e M-Mode separa os dez pares de medidas do VE, detecta ambas as técnicas e reduz os conflitos de 10 para 0 | local_pass |
+| CA-034 | novo/editar oferecem VDF, VSF, FE de Teicholz e Delta D/FS no bloco 2D; a escolha de técnica controla também esses campos no PDF | local_pass |
 
 ## Evidência local executada
+
+### Rodada atual: separação integral entre Modo M e Modo 2D
+
+- O PDF clínico externo de duas páginas foi processado sem persistir dados
+  identificáveis no repositório.
+- Antes da correção, os dez pares DIVEd, DIVEs, SIVd, SIVs, PLVEd, PLVEs, VDF,
+  VSF, FE e Delta D/FS resultavam em dez conflitos e nenhuma técnica detectada.
+- Com o extrator versão 4, o mesmo estudo retornou 38 medidas sugeridas, zero
+  conflitos e `tecnicas_ve_detectadas = ["2d", "modo_m"]`.
+- A regressão automatizada confirma que cabeçalhos de seção mantêm o contexto
+  técnico até o início de outra seção e que o Doppler não herda Modo M/2D.
+- O teste do PDF confirma que a escolha Modo M ou Modo 2D seleciona também
+  volumes, fração de ejeção e encurtamento fracional da série correspondente.
 
 ### Rodada atual: PSAP, hipertensão pulmonar e técnicas do VE
 

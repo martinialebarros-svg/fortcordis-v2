@@ -204,9 +204,13 @@ MAPEAMENTO_REFERENCIA_ECO = {
     "PLVEd_2D": "lvpw_d",
     "PLVES_2D": "lvpw_s",
     "VDF": "edv",
+    "VDF_2D": "edv",
     "VSF": "esv",
+    "VSF_2D": "esv",
     "FE_Teicholz": "ef",
+    "FE_Teicholz_2D": "ef",
     "DeltaD_FS": "fs",
+    "DeltaD_FS_2D": "fs",
     "TAPSE": "tapse",
     "MAPSE": "mapse",
     "Aorta": "ao",
@@ -1387,6 +1391,10 @@ def gerar_pdf_laudo_eco(
             {'chave': 'DIVES_2D', 'label': 'DIVEs 2D (Diâmetro interno do VE em sístole)', 'unidade': 'mm', 'ref_min': 9.0, 'ref_max': 16.0},
             {'chave': 'SIVs_2D', 'label': 'SIVs 2D (Septo interventricular em sístole)', 'unidade': 'mm', 'ref_min': 4.5, 'ref_max': 7.5},
             {'chave': 'PLVES_2D', 'label': 'PLVEs 2D (Parede livre do VE em sístole)', 'unidade': 'mm', 'ref_min': 5.0, 'ref_max': 8.0},
+            {'chave': 'VDF_2D', 'label': 'VDF 2D (Teicholz)', 'unidade': 'ml', 'ref_min': 0, 'ref_max': 0},
+            {'chave': 'VSF_2D', 'label': 'VSF 2D (Teicholz)', 'unidade': 'ml', 'ref_min': 0, 'ref_max': 0},
+            {'chave': 'FE_Teicholz_2D', 'label': 'FE 2D (Teicholz)', 'unidade': '%', 'ref_min': 55, 'ref_max': 80},
+            {'chave': 'DeltaD_FS_2D', 'label': 'Delta D / %FS 2D', 'unidade': '%', 'ref_min': 28, 'ref_max': 42},
         ]
         
         # Grupo: Átrio Esquerdo / Aorta - SEM Interpretação
@@ -1462,7 +1470,7 @@ def gerar_pdf_laudo_eco(
         
         medidas_pdf = dados_pdf.get("medidas") or {}
         tecnica_ve = str(medidas_pdf.get("VE_tecnica_relatorio") or "").lower()
-        tem_modo_m = any(_to_float(medidas_pdf.get(item["chave"])) for item in params_ve_modo_m[:7])
+        tem_modo_m = any(_to_float(medidas_pdf.get(item["chave"])) for item in params_ve_modo_m)
         tem_modo_2d = any(_to_float(medidas_pdf.get(item["chave"])) for item in params_ve_modo_2d)
         if tecnica_ve == "2d" or (tem_modo_2d and not tem_modo_m):
             titulo_ve = "VE - Modo 2D"
@@ -1877,6 +1885,7 @@ def gerar_pdf_laudo_pressao(
                 print(f"Erro ao remover arquivo temporario {temp_file}: {e}")
 
 
+
 # Mantém compatibilidade com código anterior
 gerar_pdf_laudo = gerar_pdf_laudo_eco
 
@@ -2126,4 +2135,3 @@ def gerar_pdf_laudo_ultrassom_abdominal(
                     os.unlink(temp_file)
             except Exception as e:
                 print(f"Erro ao remover arquivo temporario {temp_file}: {e}")
-

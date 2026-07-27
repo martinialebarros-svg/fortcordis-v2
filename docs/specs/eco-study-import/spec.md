@@ -19,6 +19,18 @@
 - RF-015: quando o PDF rasterizado nao disponibilizar idade ou peso na camada textual, realizar uma tentativa adicional de OCR para esses campos sem inferir valores clinicos sem rotulo.
 - RF-016: normalizar o peso importado com virgula, ponto e sufixo `kg` antes de consultar a tabela de referencia; na edicao, dados demograficos ausentes no arquivo nao podem apagar os dados existentes do paciente.
 - RF-017: identificar a versao do extrator no resultado do job e reutilizar um job concluido pelo hash do arquivo somente quando ele tiver sido produzido pela versao atual; resultados antigos devem causar novo processamento do mesmo arquivo.
+- RF-018: interpretar cabecalhos de secao `M-Mode`/`Modo M` e `2D`/`Modo 2D`
+  como contexto para todas as medidas subsequentes do ventriculo esquerdo, mesmo
+  quando o equipamento nao repete o prefixo tecnico em cada linha.
+- RF-019: manter chaves independentes para Modo M e Modo 2D em diametros,
+  espessuras, volumes de Teicholz, fracao de ejecao e encurtamento fracional;
+  valores obtidos por tecnicas diferentes nao sao conflitos.
+- RF-020: quando as duas series forem importadas, conservar ambas no formulario e
+  exigir a escolha revisavel de qual tecnica compora o bloco quantitativo do PDF
+  do laudo.
+- RF-021: o formulario de Modo 2D deve oferecer, alem dos diametros e espessuras,
+  VDF, VSF, FE de Teicholz e Delta D/FS, com as mesmas unidades apresentadas no
+  bloco equivalente de Modo M.
 
 ## Requisitos nao funcionais
 
@@ -56,10 +68,12 @@
     }
   ],
   "meta_importacao_estudo": {
+    "versao_extrator": "4",
     "formato": "pdf",
     "paginas": 1,
     "medidas_sugeridas": 1,
     "conflitos": 0,
+    "tecnicas_ve_detectadas": ["2d", "modo_m"],
     "perfil": "generico"
   }
 }
@@ -84,3 +98,13 @@
 - CA-015: aplicar medidas com peso importado em formato `7,35 kg` dispara novamente a busca por referencia e recalcula as comparacoes; importacao parcial no laudo existente preserva especie, peso e identificacao anteriores quando ausentes no arquivo.
 - CA-016: relatorio GE Vivid IQ com `Vmax RT 3.53 m/s` retorna `IT_Vmax = 3.53`, preservando a linha original como evidencia.
 - CA-017: reenviar um PDF processado antes da versao atual do extrator cria um novo processamento em vez de devolver o JSON concluido antigo; repeticoes dentro da versao atual continuam deduplicadas.
+- CA-018: um PDF com cabecalhos independentes `2D` e `M-Mode`, seguidos pelas
+  mesmas abreviacoes sem prefixo em cada linha, produz duas series distintas e
+  informa `tecnicas_ve_detectadas = ["2d", "modo_m"]`.
+- CA-019: os pares DIVEd, DIVEs, SIVd, SIVs, PLVEd, PLVEs, VDF, VSF, FE e
+  Delta D/FS podem coexistir nas duas tecnicas sem entrar em conflito.
+- CA-020: com ambas as series presentes, a interface nao aplica as sugestoes sem
+  escolha explicita entre Modo M e Modo 2D; o PDF final exibe apenas o bloco
+  escolhido.
+- CA-021: VDF, VSF, FE de Teicholz e Delta D/FS possuem campos editaveis no
+  bloco Modo 2D das telas de novo laudo e edicao.
