@@ -18,7 +18,66 @@ import {
   loadRacasCustomPorEspecie,
   saveRacasCustomPorEspecie,
 } from "@/lib/racas";
-import { Save, ArrowLeft, Trash2, AlertTriangle, UserRound, PawPrint } from "lucide-react";
+import { getLaudoViewPath, getTipoLaudoLabel } from "@/lib/laudos";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowLeft,
+  ChevronRight,
+  FileCheck2,
+  History,
+  PawPrint,
+  RefreshCw,
+  Save,
+  ShieldAlert,
+  Stethoscope,
+  Trash2,
+  UserRound,
+} from "lucide-react";
+
+type AtendimentoResumoClinico = {
+  id: number;
+  data_atendimento?: string | null;
+  status: string;
+  queixa_principal: string;
+  diagnostico_principal: string;
+  veterinario: string;
+};
+
+type LaudoResumoClinico = {
+  id: number;
+  tipo: string;
+  titulo: string;
+  status: string;
+  data_exame?: string | null;
+  data_laudo?: string | null;
+};
+
+type AlertaResumoClinico = {
+  id: number;
+  titulo: string;
+  descricao: string;
+  gravidade: string;
+};
+
+type ResumoClinicoPaciente = {
+  paciente_id: number;
+  totais: {
+    atendimentos: number;
+    laudos_concluidos: number;
+    alertas_ativos: number;
+  };
+  atendimentos_recentes: AtendimentoResumoClinico[];
+  laudos_recentes: LaudoResumoClinico[];
+  alertas_ativos: AlertaResumoClinico[];
+};
+
+const formatarDataClinica = (value?: string | null) => {
+  if (!value) return "Data não informada";
+  const data = new Date(value);
+  if (Number.isNaN(data.getTime())) return "Data não informada";
+  return data.toLocaleDateString("pt-BR", { timeZone: "America/Fortaleza" });
+};
 
 export default function EditarPacientePage() {
   const router = useRouter();
@@ -28,6 +87,9 @@ export default function EditarPacientePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [resumoClinico, setResumoClinico] = useState<ResumoClinicoPaciente | null>(null);
+  const [resumoClinicoLoading, setResumoClinicoLoading] = useState(true);
+  const [resumoClinicoError, setResumoClinicoError] = useState("");
   const [paciente, setPaciente] = useState({
     tutor_id: "",
     nome: "",
@@ -89,6 +151,7 @@ export default function EditarPacientePage() {
       return;
     }
     carregarPaciente();
+    carregarResumoClinico();
   }, [router, pacienteId]);
 
   const carregarPaciente = async () => {
@@ -124,6 +187,21 @@ export default function EditarPacientePage() {
       router.push("/pacientes");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const carregarResumoClinico = async () => {
+    setResumoClinicoLoading(true);
+    setResumoClinicoError("");
+    try {
+      const response = await api.get(`/pacientes/${pacienteId}/resumo-clinico?limite=4`);
+      setResumoClinico(response.data);
+    } catch (error) {
+      console.error("Erro ao carregar resumo clínico do paciente:", error);
+      setResumoClinico(null);
+      setResumoClinicoError("Não foi possível carregar o histórico resumido agora.");
+    } finally {
+      setResumoClinicoLoading(false);
     }
   };
 
@@ -204,6 +282,14 @@ export default function EditarPacientePage() {
             </div>
             <button
               type="button"
+              onClick={() => router.push(`/atendimento?paciente_id=${encodeURIComponent(pacienteId)}`)}
+              className="fc-patient-form-start-care"
+            >
+              <Stethoscope className="h-4 w-4" />
+              Iniciar atendimento
+            </button>
+            <button
+              type="button"
               onClick={() => setShowDeleteModal(true)}
               className="fc-patient-form-delete"
             >
@@ -212,6 +298,178 @@ export default function EditarPacientePage() {
             </button>
           </div>
         </header>
+
+        <section className="fc-patient-summary-panel" aria-labelledby="patient-summary-title">
+          <div className="fc-patient-summary-header">
+            <div className="fc-patient-summary-heading">
+              <Activity className="h-5 w-5" />
+              <div>
+                <span>Prontuário longitudinal</span>
+                <h2 id="patient-summary-title">
+                  Histórico resumido de {paciente.nome || "este paciente"}
+                </h2>
+                <p>Consulte rapidamente os registros relevantes antes de editar ou atender.</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void carregarResumoClinico()}
+              disabled={resumoClinicoLoading}
+              className="fc-patient-summary-refresh"
+            >
+              <RefreshCw className={`h-4 w-4 ${resumoClinicoLoading ? "animate-spin" : ""}`} />
+              Atualizar
+            </button>
+          </div>
+
+          {resumoClinicoLoading ? (
+            <div className="fc-patient-summary-loading" role="status">
+              <span aria-hidden="true" />
+              Carregando histórico clínico...
+            </div>
+          ) : resumoClinicoError ? (
+            <div className="fc-patient-summary-error" role="alert">
+              <AlertTriangle className="h-5 w-5" />
+              <div>
+                <strong>Histórico indisponível</strong>
+                <p>{resumoClinicoError}</p>
+              </div>
+              <button type="button" onClick={() => void carregarResumoClinico()}>
+                Tentar novamente
+              </button>
+            </div>
+          ) : resumoClinico ? (
+            <>
+              <div className="fc-patient-summary-metrics">
+                <article className="fc-patient-summary-metric fc-patient-summary-metric-care">
+                  <History className="h-5 w-5" />
+                  <div>
+                    <span>Atendimentos</span>
+                    <strong>{resumoClinico.totais.atendimentos}</strong>
+                    <small>Total registrado</small>
+                  </div>
+                </article>
+                <article className="fc-patient-summary-metric fc-patient-summary-metric-report">
+                  <FileCheck2 className="h-5 w-5" />
+                  <div>
+                    <span>Exames laudados</span>
+                    <strong>{resumoClinico.totais.laudos_concluidos}</strong>
+                    <small>Finalizados ou liberados</small>
+                  </div>
+                </article>
+                <article className="fc-patient-summary-metric fc-patient-summary-metric-alert">
+                  <ShieldAlert className="h-5 w-5" />
+                  <div>
+                    <span>Alertas clínicos</span>
+                    <strong>{resumoClinico.totais.alertas_ativos}</strong>
+                    <small>Ativos no prontuário</small>
+                  </div>
+                </article>
+              </div>
+
+              <div className="fc-patient-summary-content">
+                <article className="fc-patient-summary-card">
+                  <div className="fc-patient-summary-card-header">
+                    <div>
+                      <span>Consulta clínica</span>
+                      <h3>Atendimentos anteriores</h3>
+                    </div>
+                    <History className="h-5 w-5" />
+                  </div>
+                  {resumoClinico.atendimentos_recentes.length > 0 ? (
+                    <div className="fc-patient-summary-list">
+                      {resumoClinico.atendimentos_recentes.map((atendimento) => (
+                        <button
+                          key={atendimento.id}
+                          type="button"
+                          onClick={() => router.push(`/atendimento?atendimento_id=${atendimento.id}`)}
+                          className="fc-patient-summary-item"
+                        >
+                          <div>
+                            <div className="fc-patient-summary-item-title">
+                              <strong>
+                                {atendimento.diagnostico_principal ||
+                                  atendimento.queixa_principal ||
+                                  "Atendimento clínico"}
+                              </strong>
+                              <span>{atendimento.status || "Sem status"}</span>
+                            </div>
+                            <p>
+                              {formatarDataClinica(atendimento.data_atendimento)}
+                              {atendimento.veterinario ? ` · ${atendimento.veterinario}` : ""}
+                            </p>
+                          </div>
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="fc-patient-summary-empty">
+                      <History className="h-5 w-5" />
+                      Nenhum atendimento anterior registrado.
+                    </div>
+                  )}
+                </article>
+
+                <article className="fc-patient-summary-card">
+                  <div className="fc-patient-summary-card-header">
+                    <div>
+                      <span>Documentos concluídos</span>
+                      <h3>Exames laudados</h3>
+                    </div>
+                    <FileCheck2 className="h-5 w-5" />
+                  </div>
+                  {resumoClinico.laudos_recentes.length > 0 ? (
+                    <div className="fc-patient-summary-list">
+                      {resumoClinico.laudos_recentes.map((laudo) => (
+                        <button
+                          key={laudo.id}
+                          type="button"
+                          onClick={() => router.push(getLaudoViewPath(laudo.id, laudo.tipo))}
+                          className="fc-patient-summary-item"
+                        >
+                          <div>
+                            <div className="fc-patient-summary-item-title">
+                              <strong>{laudo.titulo || getTipoLaudoLabel(laudo.tipo)}</strong>
+                              <span>{laudo.status}</span>
+                            </div>
+                            <p>
+                              {getTipoLaudoLabel(laudo.tipo)} ·{" "}
+                              {formatarDataClinica(laudo.data_exame || laudo.data_laudo)}
+                            </p>
+                          </div>
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="fc-patient-summary-empty">
+                      <FileCheck2 className="h-5 w-5" />
+                      Nenhum exame laudado registrado.
+                    </div>
+                  )}
+                </article>
+              </div>
+
+              {resumoClinico.alertas_ativos.length > 0 ? (
+                <div className="fc-patient-summary-alerts">
+                  <div>
+                    <ShieldAlert className="h-5 w-5" />
+                    <strong>Atenção clínica</strong>
+                  </div>
+                  <div className="fc-patient-summary-alert-list">
+                    {resumoClinico.alertas_ativos.map((alerta) => (
+                      <span key={alerta.id}>
+                        {alerta.titulo}
+                        {alerta.gravidade ? ` · ${alerta.gravidade}` : ""}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </section>
 
         <main className="fc-patient-form-panel">
           <div className="fc-patient-form-section-header fc-patient-form-section-tutor">

@@ -3,7 +3,7 @@ import re
 import unicodedata
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import String, cast, func, inspect, or_, text
 from sqlalchemy.exc import IntegrityError
@@ -11,12 +11,22 @@ from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
 from app.db.database import get_db
+from app.models.atendimento_clinico import AlertaClinico, AtendimentoClinico
+from app.models.laudo import Laudo
 from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.models.user import User
 from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_paciente
 
 router = APIRouter()
+
+LAUDO_STATUSES_CONCLUIDOS = (
+    "arquivado",
+    "concluido",
+    "concluído",
+    "finalizado",
+    "liberado no portal",
+)
 
 
 def _gerar_nome_key(nome: Optional[str]) -> str:
@@ -33,6 +43,14 @@ def _gerar_nome_key(nome: Optional[str]) -> str:
 
 def _legacy_now_dt() -> datetime:
     return datetime.utcnow()
+
+
+def _to_iso(value) -> Optional[str]:
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
 
 
 def _filtro_paciente_ativo():
@@ -512,6 +530,101 @@ def obter_paciente(
         "data_nascimento": p.nascimento,
         "microchip": p.microchip,
         "observacoes": p.observacoes,
+    }
+
+
+@router.get("/{paciente_id}/resumo-clinico")
+def obter_resumo_clinico_paciente(
+    paciente_id: int,
+    limite: int = Query(default=4, ge=1, le=10),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Retorna uma leitura curta do prontuario para a carteira do paciente."""
+    _ = current_user
+    paciente = db.query(Paciente).filter(Paciente.id == paciente_id).first()
+    if not paciente:
+        raise HTTPException(status_code=404, detail="Paciente nao encontrado")
+
+    atendimentos_query = db.query(AtendimentoClinico).filter(
+        AtendimentoClinico.paciente_id == paciente_id
+    )
+    total_atendimentos = atendimentos_query.count()
+    atendimentos_recentes = (
+        atendimentos_query.order_by(
+            AtendimentoClinico.data_atendimento.desc(),
+            AtendimentoClinico.id.desc(),
+        )
+        .limit(limite)
+        .all()
+    )
+
+    laudos_concluidos_query = db.query(Laudo).filter(
+        Laudo.paciente_id == paciente_id,
+        func.lower(func.trim(func.coalesce(Laudo.status, ""))).in_(LAUDO_STATUSES_CONCLUIDOS),
+    )
+    total_laudos_concluidos = laudos_concluidos_query.count()
+    laudos_recentes = (
+        laudos_concluidos_query.order_by(
+            func.coalesce(Laudo.data_exame, Laudo.data_laudo, Laudo.created_at).desc(),
+            Laudo.id.desc(),
+        )
+        .limit(limite)
+        .all()
+    )
+
+    alertas_query = db.query(AlertaClinico).filter(
+        AlertaClinico.paciente_id == paciente_id,
+        AlertaClinico.ativo == 1,
+    )
+    total_alertas_ativos = alertas_query.count()
+    alertas_ativos = (
+        alertas_query.order_by(
+            AlertaClinico.data_inicio.desc(),
+            AlertaClinico.id.desc(),
+        )
+        .limit(limite)
+        .all()
+    )
+
+    return {
+        "paciente_id": paciente.id,
+        "totais": {
+            "atendimentos": total_atendimentos,
+            "laudos_concluidos": total_laudos_concluidos,
+            "alertas_ativos": total_alertas_ativos,
+        },
+        "atendimentos_recentes": [
+            {
+                "id": atendimento.id,
+                "data_atendimento": _to_iso(atendimento.data_atendimento),
+                "status": atendimento.status or "",
+                "queixa_principal": atendimento.queixa_principal or "",
+                "diagnostico_principal": atendimento.diagnostico_principal or "",
+                "veterinario": atendimento.criado_por_nome or "",
+            }
+            for atendimento in atendimentos_recentes
+        ],
+        "laudos_recentes": [
+            {
+                "id": laudo.id,
+                "tipo": laudo.tipo or "",
+                "titulo": laudo.titulo or laudo.tipo or "Laudo",
+                "status": laudo.status or "",
+                "data_exame": _to_iso(laudo.data_exame),
+                "data_laudo": _to_iso(laudo.data_laudo or laudo.created_at),
+            }
+            for laudo in laudos_recentes
+        ],
+        "alertas_ativos": [
+            {
+                "id": alerta.id,
+                "titulo": alerta.titulo,
+                "descricao": alerta.descricao or "",
+                "gravidade": alerta.gravidade or "media",
+            }
+            for alerta in alertas_ativos
+        ],
     }
 
 
