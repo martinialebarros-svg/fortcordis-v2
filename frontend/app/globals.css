@@ -670,6 +670,42 @@ body {
     background: linear-gradient(135deg, #be123c, #9f1239);
   }
 
+  .fc-clinical-primary-menu {
+    @apply relative shrink-0;
+  }
+
+  .fc-clinical-primary-menu-panel {
+    @apply absolute right-0 z-30 mt-3 w-[22rem] overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-2xl;
+  }
+
+  .fc-clinical-primary-menu-header {
+    @apply border-b border-ink-100 bg-ink-50 px-4 py-3;
+  }
+
+  .fc-clinical-primary-menu-header strong {
+    @apply block text-sm font-black text-ink-900;
+  }
+
+  .fc-clinical-primary-menu-header span {
+    @apply mt-1 block text-xs font-medium text-ink-500;
+  }
+
+  .fc-clinical-primary-menu-list {
+    @apply p-2;
+  }
+
+  .fc-clinical-primary-menu-item {
+    @apply flex w-full flex-col items-start gap-1 rounded-xl px-3 py-3 text-left outline-none transition hover:bg-vital-50 focus-visible:bg-vital-50;
+  }
+
+  .fc-clinical-primary-menu-item span {
+    @apply text-sm font-black text-ink-900;
+  }
+
+  .fc-clinical-primary-menu-item small {
+    @apply text-xs font-medium text-ink-500;
+  }
+
   .fc-clinical-primary:hover,
   .fc-finance-primary:hover {
     background: linear-gradient(135deg, #e11d48, #be123c);
@@ -1239,6 +1275,14 @@ body {
     .fc-clinical-header .fc-clinical-primary,
     .fc-finance-header .fc-finance-primary {
       @apply w-full;
+    }
+
+    .fc-clinical-primary-menu {
+      @apply w-full;
+    }
+
+    .fc-clinical-primary-menu-panel {
+      @apply left-0 right-0 w-auto;
     }
 
     .fc-clinical-row-layout {

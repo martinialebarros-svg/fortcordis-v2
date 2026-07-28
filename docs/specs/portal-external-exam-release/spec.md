@@ -13,7 +13,7 @@ Permitir registrar em `Laudos` um eletrocardiograma cujo PDF final foi emitido f
 - RF-001: o backend deve expor upload administrativo de PDF para criar laudo do tipo `eletrocardiograma`.
 - RF-002: o upload deve aceitar contexto por `agendamento_id`, `atendimento_id`, `paciente_id` e `clinic_id`, preenchendo paciente e clinica quando possivel.
 - RF-003: o upload deve aceitar apenas PDF valido e persistir o arquivo original como anexo do laudo.
-- RF-004: o dropdown `Laudar` deve incluir a opcao `Eletrocardiograma` com destino para upload de PDF.
+- RF-004: os pontos de entrada administrativos para laudo devem incluir a opcao `Eletrocardiograma` com destino para upload de PDF, tanto no dropdown `Laudar` da agenda quanto no menu `Novo Laudo` da Central de laudos.
 - RF-005: o laudo criado deve aparecer em `Laudos` como `Eletrocardiograma` e status `Finalizado`.
 - RF-006: a liberacao pelo botao de `Laudos` deve publicar o exame como `Eletrocardiograma`.
 - RF-007: a liberacao de eletrocardiograma deve reutilizar o PDF original enviado, e nao gerar outro PDF interno.
@@ -110,7 +110,7 @@ Permitir registrar em `Laudos` um eletrocardiograma cujo PDF final foi emitido f
 
 ## 5) Criterios de aceitacao (CA)
 
-- CA-001: dropdown `Laudar` exibe `Eletrocardiograma` e leva ao upload de PDF.
+- CA-001: dropdown `Laudar` da agenda e menu `Novo Laudo` da Central de laudos exibem `Eletrocardiograma` e levam ao upload de PDF.
 - CA-002: upload de PDF cria laudo `eletrocardiograma` finalizado.
 - CA-003: `Laudos` baixa o PDF original do eletrocardiograma.
 - CA-004: liberacao pelo botao em `Laudos` publica exame `Eletrocardiograma` com o anexo original.

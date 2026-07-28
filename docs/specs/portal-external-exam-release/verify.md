@@ -8,7 +8,7 @@ Status: in-progress
 
 | ID | Tipo | Evidencia | Status |
 | --- | --- | --- | --- |
-| CA-001 | frontend | `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
+| CA-001 | frontend | `frontend/app/agenda/page.tsx`, `frontend/app/agenda/fullcalendar/page.tsx` e `frontend/app/laudos/page.tsx` | ok |
 | CA-002 | backend | `POST /api/v1/laudos/eletrocardiograma/upload-pdf` | ok |
 | CA-003 | frontend/backend | `baixarLaudoPdfOriginal` + `GET /api/v1/laudos/{laudo_id}/pdf-original` | ok |
 | CA-004 | aceitacao | `backend/tests/test_laudo_portal_release.py::test_liberar_eletrocardiograma_usa_pdf_externo_anexado` | ok |
@@ -69,6 +69,7 @@ Resultados executados:
 ## 3) Testes manuais sugeridos em stage
 
 - Cenario 1: abrir agenda, menu `Laudar`, selecionar `Eletrocardiograma`.
+- Cenario 1A: abrir `Laudos`, clicar em `Novo Laudo` e confirmar a opcao `Upload de eletrocardiograma`.
 - Cenario 2: enviar PDF e confirmar criacao do laudo em `Laudos`.
 - Cenario 3: baixar PDF em `Laudos` e confirmar que e o arquivo original enviado.
 - Cenario 4: clicar em `Liberar portal` no laudo de eletrocardiograma.

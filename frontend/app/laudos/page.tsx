@@ -13,6 +13,7 @@ import {
 import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
 import {
   Calendar,
+  ChevronDown,
   Clock,
   Download,
   Edit,
@@ -92,6 +93,8 @@ export default function LaudosPage() {
   const [loadingMoreLaudos, setLoadingMoreLaudos] = useState(false);
   const [liberandoLaudoId, setLiberandoLaudoId] = useState<number | null>(null);
   const laudosRequestIdRef = useRef(0);
+  const novoLaudoMenuRef = useRef<HTMLDivElement | null>(null);
+  const [novoLaudoMenuAberto, setNovoLaudoMenuAberto] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -101,6 +104,36 @@ export default function LaudosPage() {
 
     return () => window.clearTimeout(timeoutId);
   }, [busca]);
+
+  useEffect(() => {
+    if (!novoLaudoMenuAberto) {
+      return;
+    }
+
+    const handleClickFora = (event: MouseEvent) => {
+      if (!novoLaudoMenuRef.current) {
+        return;
+      }
+
+      if (!novoLaudoMenuRef.current.contains(event.target as Node)) {
+        setNovoLaudoMenuAberto(false);
+      }
+    };
+
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setNovoLaudoMenuAberto(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickFora);
+    document.addEventListener("keydown", handleEsc);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickFora);
+      document.removeEventListener("keydown", handleEsc);
+    };
+  }, [novoLaudoMenuAberto]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -346,6 +379,24 @@ export default function LaudosPage() {
     }
   };
 
+  const atalhosNovoLaudo = [
+    {
+      titulo: "Laudo estruturado",
+      descricao: "Ecocardiograma e pressao arterial",
+      href: "/laudos/novo",
+    },
+    {
+      titulo: "Upload de eletrocardiograma",
+      descricao: "PDF externo com fluxo de telemedicina",
+      href: "/laudos/eletrocardiograma/upload",
+    },
+  ];
+
+  const abrirNovoLaudo = (href: string) => {
+    setNovoLaudoMenuAberto(false);
+    router.push(href);
+  };
+
   return (
     <DashboardLayout>
       <div className="fc-clinical-page">
@@ -358,13 +409,43 @@ export default function LaudosPage() {
             <h1>Central de laudos</h1>
             <p>Exames, documentos e liberações para o portal organizados por paciente.</p>
           </div>
-          <button
-            onClick={() => router.push("/laudos/novo")}
-            className="fc-clinical-primary"
-          >
-            <Plus className="w-4 h-4" />
-            Novo Laudo
-          </button>
+          <div className="fc-clinical-primary-menu" ref={novoLaudoMenuRef}>
+            <button
+              type="button"
+              onClick={() => setNovoLaudoMenuAberto((aberto) => !aberto)}
+              className="fc-clinical-primary"
+              aria-haspopup="menu"
+              aria-expanded={novoLaudoMenuAberto}
+            >
+              <Plus className="w-4 h-4" />
+              Novo Laudo
+              <ChevronDown className={`h-4 w-4 transition ${novoLaudoMenuAberto ? "rotate-180" : ""}`} />
+            </button>
+
+            {novoLaudoMenuAberto && (
+              <div className="fc-clinical-primary-menu-panel" role="menu" aria-label="Escolher fluxo de laudo">
+                <div className="fc-clinical-primary-menu-header">
+                  <strong>Escolha o fluxo</strong>
+                  <span>Eletrocardiograma e telemedicina agora aparecem aqui.</span>
+                </div>
+
+                <div className="fc-clinical-primary-menu-list">
+                  {atalhosNovoLaudo.map((atalho) => (
+                    <button
+                      key={atalho.href}
+                      type="button"
+                      className="fc-clinical-primary-menu-item"
+                      role="menuitem"
+                      onClick={() => abrirNovoLaudo(atalho.href)}
+                    >
+                      <span>{atalho.titulo}</span>
+                      <small>{atalho.descricao}</small>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </header>
 
         <div className="fc-clinical-tabs" role="tablist" aria-label="Tipo de documento">
