@@ -387,6 +387,10 @@ def _detalhar_deslocamento_por_clinicas(
     total_min: Optional[int],
     ha_agendamento_anterior: bool,
     ha_agendamento_posterior: bool,
+    trecho_anterior_desconsiderado: bool = False,
+    trecho_posterior_desconsiderado: bool = False,
+    duracao_anterior_real_min: Optional[int] = None,
+    duracao_posterior_real_min: Optional[int] = None,
 ) -> str:
     destino_nome = _nome_clinica_legivel(clinica_destino)
     anterior_nome = _nome_clinica_legivel(clinica_anterior)
@@ -397,12 +401,28 @@ def _detalhar_deslocamento_por_clinicas(
 
     partes = []
     if ha_agendamento_anterior:
-        partes.append(_frase_deslocamento_entre_clinicas(anterior_nome, destino_nome, anterior_min))
+        if trecho_anterior_desconsiderado:
+            anterior_real = max(0, int(duracao_anterior_real_min or anterior_min))
+            partes.append(
+                f"Trecho anterior entre {anterior_nome} e {destino_nome} desconsiderado "
+                "pela regra de encaixe adjacente a agendamento ja registrado "
+                f"(deslocamento real: {anterior_real} min)."
+            )
+        else:
+            partes.append(_frase_deslocamento_entre_clinicas(anterior_nome, destino_nome, anterior_min))
     else:
         partes.append("Nao ha agendamentos anteriores ainda.")
 
     if ha_agendamento_posterior:
-        partes.append(_frase_deslocamento_entre_clinicas(destino_nome, posterior_nome, posterior_min))
+        if trecho_posterior_desconsiderado:
+            posterior_real = max(0, int(duracao_posterior_real_min or posterior_min))
+            partes.append(
+                f"Trecho posterior entre {destino_nome} e {posterior_nome} desconsiderado "
+                "pela regra de encaixe adjacente a agendamento ja registrado "
+                f"(deslocamento real: {posterior_real} min)."
+            )
+        else:
+            partes.append(_frase_deslocamento_entre_clinicas(destino_nome, posterior_nome, posterior_min))
     else:
         partes.append("Nao ha agendamentos posteriores ainda.")
 
@@ -1482,6 +1502,48 @@ def _obter_vizinhos_horario(
     return anterior, proximo
 
 
+def _folga_cobre_deslocamento(
+    folga_min: Optional[int],
+    duracao_min: int,
+    *,
+    margem_min: int = 0,
+) -> bool:
+    if folga_min is None:
+        return False
+    return int(folga_min) >= int(duracao_min) + max(0, int(margem_min))
+
+
+def _vizinho_e_ancora_adjacente(
+    vizinho: Optional[dict],
+    destino_vizinho: Optional[dict[str, Any]],
+    *,
+    duracao_deslocamento_min: int,
+    folga_min: Optional[int],
+    limite_ancora_min: int,
+    intervalo_minutos: int,
+    margem_segura_min: int,
+) -> bool:
+    if not isinstance(vizinho, dict) or not isinstance(destino_vizinho, dict):
+        return False
+    if not _status_conta_como_ancora(vizinho.get("status")):
+        return False
+    if not bool(destino_vizinho.get("localizacao_confiavel")):
+        return False
+
+    duracao = max(0, int(duracao_deslocamento_min or 0))
+    if limite_ancora_min > 0 and duracao > int(limite_ancora_min):
+        return False
+    if not _folga_cobre_deslocamento(folga_min, duracao):
+        return False
+
+    # A excecao vale para o slot operacional encostado na ancora, ou para o
+    # primeiro slot da grade que permite chegar/sair da ancora com deslocamento real.
+    janela_adjacencia = max(0, int(intervalo_minutos)) + max(0, int(margem_segura_min))
+    if janela_adjacencia > 0 and int(folga_min or 0) > janela_adjacencia:
+        return False
+    return True
+
+
 def _marcar_slots_adjacentes_ancora(
     sugestoes: list[dict[str, Any]],
     ancoras_mesma_clinica: list[dict[str, Any]],
@@ -1614,11 +1676,13 @@ def _validar_deslocamento_agendamento(
     regras_rota = _obter_regras_rota_agenda(db)
     thresholds = regras_rota.get("thresholds") if isinstance(regras_rota.get("thresholds"), dict) else {}
     route_policy = regras_rota.get("route_policy") if isinstance(regras_rota.get("route_policy"), dict) else {}
+    rendering_policy = regras_rota.get("rendering_policy") if isinstance(regras_rota.get("rendering_policy"), dict) else {}
     limite_desvio_insercao = int(thresholds.get("max_insertion_detour_min") or 25)
     margem_segura_min = int(thresholds.get("safe_margin_min") or MIN_MARGEM_SEGURA_DESLOCAMENTO_MIN)
     limite_trecho_vizinho_min = int(
         thresholds.get("max_neighbor_travel_min", MAX_DESLOCAMENTO_TRECHO_VIZINHO_MIN)
     )
+    intervalo_validacao_min = max(5, int(rendering_policy.get("slot_interval_min") or 30))
     bloquear_ineficiencia = bool(route_policy.get("reject_clear_inefficiency", True))
     cache_clinicas: dict[int, Optional[Clinica]] = {}
     cache_tutores: dict[int, Optional[Tutor]] = {}
@@ -1634,6 +1698,8 @@ def _validar_deslocamento_agendamento(
     folga_next = None
     fonte_next = "indefinido"
     destino_proximo_nome = None
+    destino_anterior = None
+    destino_proximo = None
 
     destino_atual = _resolver_destino_operacional_agendamento(
         db,
@@ -1661,57 +1727,6 @@ def _validar_deslocamento_agendamento(
             )
             folga_prev = _minutos_entre(anterior["fim"], inicio_dt)
             destino_anterior_nome = _rotulo_destino_operacional(destino_anterior)
-            if limite_trecho_vizinho_min > 0 and duracao_prev > limite_trecho_vizinho_min:
-                if confirmar_conflito_deslocamento:
-                    return
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "codigo": "CONFLITO_DESLOCAMENTO",
-                        "mensagem": (
-                            f"O tempo de deslocamento entre {destino_anterior_nome} e {destino_atual_nome} "
-                            f"e de aproximadamente {duracao_prev} minutos e excede o limite operacional "
-                            f"de {limite_trecho_vizinho_min} minutos para um trecho da rota. "
-                            "Ajuste o horario ou revise o destino do atendimento."
-                        ),
-                        "origem_clinica": destino_anterior_nome,
-                        "destino_clinica": destino_atual_nome,
-                        "origem_operacional": destino_anterior_nome,
-                        "destino_operacional": destino_atual_nome,
-                        "duracao_min": int(duracao_prev),
-                        "limite_trecho_vizinho_min": int(limite_trecho_vizinho_min),
-                        "fonte": fonte_prev,
-                        "confirmavel": False,
-                    },
-                )
-            folga_necessaria_prev = int(duracao_prev + margem_segura_min)
-            if duracao_prev > 0 and folga_prev < folga_necessaria_prev:
-                if confirmar_conflito_deslocamento:
-                    return
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "codigo": "CONFLITO_DESLOCAMENTO",
-                        "mensagem": (
-                            f"O tempo de deslocamento entre {destino_anterior_nome} e {destino_atual_nome} "
-                            f"e de aproximadamente {duracao_prev} minutos. "
-                            f"Disponivel: {max(0, folga_prev)} minutos. "
-                            f"Necessario com margem segura: {folga_necessaria_prev} minutos "
-                            f"({duracao_prev} min de deslocamento + {margem_segura_min} min de margem). "
-                            "Ajuste o horario ou revise o destino do atendimento."
-                        ),
-                        "origem_clinica": destino_anterior_nome,
-                        "destino_clinica": destino_atual_nome,
-                        "origem_operacional": destino_anterior_nome,
-                        "destino_operacional": destino_atual_nome,
-                        "duracao_min": int(duracao_prev),
-                        "folga_min": max(0, int(folga_prev)),
-                        "margem_segura_min": int(margem_segura_min),
-                        "folga_necessaria_min": int(folga_necessaria_prev),
-                        "fonte": fonte_prev,
-                        "confirmavel": False,
-                    },
-                )
 
     if proximo:
         destino_proximo = proximo.get("destino_operacional") if isinstance(proximo, dict) else None
@@ -1727,57 +1742,141 @@ def _validar_deslocamento_agendamento(
             )
             folga_next = _minutos_entre(fim_dt, proximo["inicio"])
             destino_proximo_nome = _rotulo_destino_operacional(destino_proximo)
-            if limite_trecho_vizinho_min > 0 and duracao_next > limite_trecho_vizinho_min:
-                if confirmar_conflito_deslocamento:
-                    return
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "codigo": "CONFLITO_DESLOCAMENTO",
-                        "mensagem": (
-                            f"O tempo de deslocamento entre {destino_atual_nome} e {destino_proximo_nome} "
-                            f"e de aproximadamente {duracao_next} minutos e excede o limite operacional "
-                            f"de {limite_trecho_vizinho_min} minutos para um trecho da rota. "
-                            "Ajuste o horario ou revise o destino do atendimento."
-                        ),
-                        "origem_clinica": destino_atual_nome,
-                        "destino_clinica": destino_proximo_nome,
-                        "origem_operacional": destino_atual_nome,
-                        "destino_operacional": destino_proximo_nome,
-                        "duracao_min": int(duracao_next),
-                        "limite_trecho_vizinho_min": int(limite_trecho_vizinho_min),
-                        "fonte": fonte_next,
-                        "confirmavel": False,
-                    },
-                )
-            folga_necessaria_next = int(duracao_next + margem_segura_min)
-            if duracao_next > 0 and folga_next < folga_necessaria_next:
-                if confirmar_conflito_deslocamento:
-                    return
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "codigo": "CONFLITO_DESLOCAMENTO",
-                        "mensagem": (
-                            f"O tempo de deslocamento entre {destino_atual_nome} e {destino_proximo_nome} "
-                            f"e de aproximadamente {duracao_next} minutos. "
-                            f"Disponivel: {max(0, folga_next)} minutos. "
-                            f"Necessario com margem segura: {folga_necessaria_next} minutos "
-                            f"({duracao_next} min de deslocamento + {margem_segura_min} min de margem). "
-                            "Ajuste o horario ou revise o destino do atendimento."
-                        ),
-                        "origem_clinica": destino_atual_nome,
-                        "destino_clinica": destino_proximo_nome,
-                        "origem_operacional": destino_atual_nome,
-                        "destino_operacional": destino_proximo_nome,
-                        "duracao_min": int(duracao_next),
-                        "folga_min": max(0, int(folga_next)),
-                        "margem_segura_min": int(margem_segura_min),
-                        "folga_necessaria_min": int(folga_necessaria_next),
-                        "fonte": fonte_next,
-                        "confirmavel": False,
-                    },
-                )
+
+    ancora_anterior_adjacente = _vizinho_e_ancora_adjacente(
+        anterior,
+        destino_anterior,
+        duracao_deslocamento_min=duracao_prev,
+        folga_min=folga_prev,
+        limite_ancora_min=int(thresholds.get("nearby_anchor_max_travel_min") or 20),
+        intervalo_minutos=intervalo_validacao_min,
+        margem_segura_min=margem_segura_min,
+    )
+    ancora_proxima_adjacente = _vizinho_e_ancora_adjacente(
+        proximo,
+        destino_proximo,
+        duracao_deslocamento_min=duracao_next,
+        folga_min=folga_next,
+        limite_ancora_min=int(thresholds.get("nearby_anchor_max_travel_min") or 20),
+        intervalo_minutos=intervalo_validacao_min,
+        margem_segura_min=margem_segura_min,
+    )
+    relaxar_limite_prev_por_ancora = (
+        limite_trecho_vizinho_min > 0
+        and duracao_prev > limite_trecho_vizinho_min
+        and ancora_proxima_adjacente
+        and _folga_cobre_deslocamento(folga_prev, duracao_prev, margem_min=margem_segura_min)
+    )
+    relaxar_limite_next_por_ancora = (
+        limite_trecho_vizinho_min > 0
+        and duracao_next > limite_trecho_vizinho_min
+        and ancora_anterior_adjacente
+        and _folga_cobre_deslocamento(folga_next, duracao_next, margem_min=margem_segura_min)
+    )
+
+    if limite_trecho_vizinho_min > 0 and duracao_prev > limite_trecho_vizinho_min and not relaxar_limite_prev_por_ancora:
+        if confirmar_conflito_deslocamento:
+            return
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "codigo": "CONFLITO_DESLOCAMENTO",
+                "mensagem": (
+                    f"O tempo de deslocamento entre {destino_anterior_nome} e {destino_atual_nome} "
+                    f"e de aproximadamente {duracao_prev} minutos e excede o limite operacional "
+                    f"de {limite_trecho_vizinho_min} minutos para um trecho da rota. "
+                    "Ajuste o horario ou revise o destino do atendimento."
+                ),
+                "origem_clinica": destino_anterior_nome,
+                "destino_clinica": destino_atual_nome,
+                "origem_operacional": destino_anterior_nome,
+                "destino_operacional": destino_atual_nome,
+                "duracao_min": int(duracao_prev),
+                "limite_trecho_vizinho_min": int(limite_trecho_vizinho_min),
+                "fonte": fonte_prev,
+                "confirmavel": False,
+            },
+        )
+    folga_necessaria_prev = int(duracao_prev + (0 if ancora_anterior_adjacente else margem_segura_min))
+    if duracao_prev > 0 and folga_prev < folga_necessaria_prev:
+        if confirmar_conflito_deslocamento:
+            return
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "codigo": "CONFLITO_DESLOCAMENTO",
+                "mensagem": (
+                    f"O tempo de deslocamento entre {destino_anterior_nome} e {destino_atual_nome} "
+                    f"e de aproximadamente {duracao_prev} minutos. "
+                    f"Disponivel: {max(0, folga_prev)} minutos. "
+                    f"Necessario com margem segura: {folga_necessaria_prev} minutos "
+                    f"({duracao_prev} min de deslocamento + {0 if ancora_anterior_adjacente else margem_segura_min} min de margem). "
+                    "Ajuste o horario ou revise o destino do atendimento."
+                ),
+                "origem_clinica": destino_anterior_nome,
+                "destino_clinica": destino_atual_nome,
+                "origem_operacional": destino_anterior_nome,
+                "destino_operacional": destino_atual_nome,
+                "duracao_min": int(duracao_prev),
+                "folga_min": max(0, int(folga_prev)),
+                "margem_segura_min": int(0 if ancora_anterior_adjacente else margem_segura_min),
+                "folga_necessaria_min": int(folga_necessaria_prev),
+                "fonte": fonte_prev,
+                "confirmavel": False,
+            },
+        )
+
+    if limite_trecho_vizinho_min > 0 and duracao_next > limite_trecho_vizinho_min and not relaxar_limite_next_por_ancora:
+        if confirmar_conflito_deslocamento:
+            return
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "codigo": "CONFLITO_DESLOCAMENTO",
+                "mensagem": (
+                    f"O tempo de deslocamento entre {destino_atual_nome} e {destino_proximo_nome} "
+                    f"e de aproximadamente {duracao_next} minutos e excede o limite operacional "
+                    f"de {limite_trecho_vizinho_min} minutos para um trecho da rota. "
+                    "Ajuste o horario ou revise o destino do atendimento."
+                ),
+                "origem_clinica": destino_atual_nome,
+                "destino_clinica": destino_proximo_nome,
+                "origem_operacional": destino_atual_nome,
+                "destino_operacional": destino_proximo_nome,
+                "duracao_min": int(duracao_next),
+                "limite_trecho_vizinho_min": int(limite_trecho_vizinho_min),
+                "fonte": fonte_next,
+                "confirmavel": False,
+            },
+        )
+    folga_necessaria_next = int(duracao_next + (0 if ancora_proxima_adjacente else margem_segura_min))
+    if duracao_next > 0 and folga_next < folga_necessaria_next:
+        if confirmar_conflito_deslocamento:
+            return
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "codigo": "CONFLITO_DESLOCAMENTO",
+                "mensagem": (
+                    f"O tempo de deslocamento entre {destino_atual_nome} e {destino_proximo_nome} "
+                    f"e de aproximadamente {duracao_next} minutos. "
+                    f"Disponivel: {max(0, folga_next)} minutos. "
+                    f"Necessario com margem segura: {folga_necessaria_next} minutos "
+                    f"({duracao_next} min de deslocamento + {0 if ancora_proxima_adjacente else margem_segura_min} min de margem). "
+                    "Ajuste o horario ou revise o destino do atendimento."
+                ),
+                "origem_clinica": destino_atual_nome,
+                "destino_clinica": destino_proximo_nome,
+                "origem_operacional": destino_atual_nome,
+                "destino_operacional": destino_proximo_nome,
+                "duracao_min": int(duracao_next),
+                "folga_min": max(0, int(folga_next)),
+                "margem_segura_min": int(0 if ancora_proxima_adjacente else margem_segura_min),
+                "folga_necessaria_min": int(folga_necessaria_next),
+                "fonte": fonte_next,
+                "confirmavel": False,
+            },
+        )
 
     if (
         bloquear_ineficiencia
@@ -1786,6 +1885,7 @@ def _validar_deslocamento_agendamento(
         and proximo
         and duracao_prev > 0
         and duracao_next > 0
+        and not (relaxar_limite_prev_por_ancora or relaxar_limite_next_por_ancora)
     ):
         destino_anterior = anterior.get("destino_operacional") if isinstance(anterior, dict) else None
         destino_proximo = proximo.get("destino_operacional") if isinstance(proximo, dict) else None
@@ -3697,6 +3797,10 @@ def sugerir_horarios_agenda(
         fonte_next = "indefinido"
         destino_anterior = anterior.get("destino_operacional") if isinstance(anterior, dict) else None
         destino_proximo = proximo.get("destino_operacional") if isinstance(proximo, dict) else None
+        relaxar_limite_prev_por_ancora = False
+        relaxar_limite_next_por_ancora = False
+        ancora_anterior_adjacente = False
+        ancora_proxima_adjacente = False
 
         if isinstance(destino_anterior, dict) and bool(destino_anterior.get("localizacao_confiavel")):
             tempo_prev, fonte_prev = _obter_duracao_deslocamento_operacional(
@@ -3709,12 +3813,6 @@ def sugerir_horarios_agenda(
                 cache_google=cache_google,
             )
             folga_prev = _minutos_entre(anterior["fim"], inicio_candidato)
-            if limite_trecho_vizinho_min > 0 and tempo_prev > limite_trecho_vizinho_min:
-                inicio_candidato += timedelta(minutes=intervalo_minutos)
-                continue
-            if tempo_prev > 0 and folga_prev < (tempo_prev + margem_segura_min):
-                inicio_candidato += timedelta(minutes=intervalo_minutos)
-                continue
 
         if isinstance(destino_proximo, dict) and bool(destino_proximo.get("localizacao_confiavel")):
             tempo_next, fonte_next = _obter_duracao_deslocamento_operacional(
@@ -3727,12 +3825,61 @@ def sugerir_horarios_agenda(
                 cache_google=cache_google,
             )
             folga_next = _minutos_entre(fim_candidato, proximo["inicio"])
-            if limite_trecho_vizinho_min > 0 and tempo_next > limite_trecho_vizinho_min:
-                inicio_candidato += timedelta(minutes=intervalo_minutos)
-                continue
-            if tempo_next > 0 and folga_next < (tempo_next + margem_segura_min):
-                inicio_candidato += timedelta(minutes=intervalo_minutos)
-                continue
+
+        ancora_anterior_adjacente = _vizinho_e_ancora_adjacente(
+            anterior,
+            destino_anterior,
+            duracao_deslocamento_min=tempo_prev,
+            folga_min=folga_prev,
+            limite_ancora_min=limite_proximo_base_min,
+            intervalo_minutos=intervalo_minutos,
+            margem_segura_min=margem_segura_min,
+        )
+        ancora_proxima_adjacente = _vizinho_e_ancora_adjacente(
+            proximo,
+            destino_proximo,
+            duracao_deslocamento_min=tempo_next,
+            folga_min=folga_next,
+            limite_ancora_min=limite_proximo_base_min,
+            intervalo_minutos=intervalo_minutos,
+            margem_segura_min=margem_segura_min,
+        )
+        relaxar_limite_prev_por_ancora = (
+            limite_trecho_vizinho_min > 0
+            and tempo_prev > limite_trecho_vizinho_min
+            and ancora_proxima_adjacente
+            and _folga_cobre_deslocamento(folga_prev, tempo_prev, margem_min=margem_segura_min)
+        )
+        relaxar_limite_next_por_ancora = (
+            limite_trecho_vizinho_min > 0
+            and tempo_next > limite_trecho_vizinho_min
+            and ancora_anterior_adjacente
+            and _folga_cobre_deslocamento(folga_next, tempo_next, margem_min=margem_segura_min)
+        )
+
+        if (
+            limite_trecho_vizinho_min > 0
+            and tempo_prev > limite_trecho_vizinho_min
+            and not relaxar_limite_prev_por_ancora
+        ):
+            inicio_candidato += timedelta(minutes=intervalo_minutos)
+            continue
+        folga_necessaria_prev = int(tempo_prev + (0 if ancora_anterior_adjacente else margem_segura_min))
+        if tempo_prev > 0 and folga_prev < folga_necessaria_prev:
+            inicio_candidato += timedelta(minutes=intervalo_minutos)
+            continue
+
+        if (
+            limite_trecho_vizinho_min > 0
+            and tempo_next > limite_trecho_vizinho_min
+            and not relaxar_limite_next_por_ancora
+        ):
+            inicio_candidato += timedelta(minutes=intervalo_minutos)
+            continue
+        folga_necessaria_next = int(tempo_next + (0 if ancora_proxima_adjacente else margem_segura_min))
+        if tempo_next > 0 and folga_next < folga_necessaria_next:
+            inicio_candidato += timedelta(minutes=intervalo_minutos)
+            continue
 
         if (
             bloquear_ineficiencia
@@ -3741,6 +3888,7 @@ def sugerir_horarios_agenda(
             and isinstance(destino_proximo, dict)
             and tempo_prev > 0
             and tempo_next > 0
+            and not (relaxar_limite_prev_por_ancora or relaxar_limite_next_por_ancora)
         ):
             duracao_direta, _fonte_direta = _obter_duracao_deslocamento_operacional(
                 db,
@@ -3757,9 +3905,17 @@ def sugerir_horarios_agenda(
                     inicio_candidato += timedelta(minutes=intervalo_minutos)
                     continue
 
+        tempo_prev_contabilizado = 0 if relaxar_limite_prev_por_ancora else tempo_prev
+        tempo_next_contabilizado = 0 if relaxar_limite_next_por_ancora else tempo_next
         margem_prev = (folga_prev - tempo_prev) if folga_prev is not None else None
         margem_next = (folga_next - tempo_next) if folga_next is not None else None
         ociosidade_min = max(0, margem_prev or 0) + max(0, margem_next or 0)
+        folgas_ancoras_adjacentes = []
+        if ancora_anterior_adjacente and folga_prev is not None:
+            folgas_ancoras_adjacentes.append(max(0, int(folga_prev)))
+        if ancora_proxima_adjacente and folga_next is not None:
+            folgas_ancoras_adjacentes.append(max(0, int(folga_next)))
+        folga_ancora_adjacente_min = min(folgas_ancoras_adjacentes) if folgas_ancoras_adjacentes else None
 
         preferencia_ancora_ordem = 1
         espera_ancora_min = 999999
@@ -3782,7 +3938,7 @@ def sugerir_horarios_agenda(
         if margem_next is not None and margem_next < margem_segura_min:
             risco += 1
 
-        tempo_deslocamento_total = tempo_prev + tempo_next
+        tempo_deslocamento_total = tempo_prev_contabilizado + tempo_next_contabilizado
         score = round((tempo_deslocamento_total * 1.0) + (ociosidade_min * 0.2) + (risco * 20.0), 2)
         horario_min = (inicio_candidato.hour * 60) + inicio_candidato.minute
         fim_rota = horario_min >= janela_fim_rota_min
@@ -3802,6 +3958,8 @@ def sugerir_horarios_agenda(
                 "risco": risco,
                 "preferencia_ancora_ordem": preferencia_ancora_ordem,
                 "espera_ancora_min": espera_ancora_min if preferencia_ancora_ordem == 0 else None,
+                "preferencia_ancora_adjacente_ordem": 0 if folga_ancora_adjacente_min is not None else 1,
+                "folga_ancora_adjacente_min": folga_ancora_adjacente_min,
                 "fim_rota": bool(fim_rota),
                 "tempo_ate_base_min": tempo_ate_base_min,
                 "ajuste_base_score": ajuste_base_score,
@@ -3818,9 +3976,13 @@ def sugerir_horarios_agenda(
                         "clinica": _rotulo_destino_operacional(destino_anterior),
                         "fim": anterior["fim"].strftime("%Y-%m-%d %H:%M"),
                         "duracao_deslocamento_min": tempo_prev,
+                        "duracao_deslocamento_contabilizada_min": tempo_prev_contabilizado,
                         "folga_min": folga_prev,
                         "margem_min": margem_prev,
                         "fonte": fonte_prev,
+                        "ancora_adjacente": bool(ancora_anterior_adjacente),
+                        "trecho_desconsiderado_ancora_adjacente": bool(relaxar_limite_prev_por_ancora),
+                        "margem_segura_relaxada_ancora_adjacente": bool(ancora_anterior_adjacente),
                     }
                     if anterior
                     else None
@@ -3834,9 +3996,13 @@ def sugerir_horarios_agenda(
                         "clinica": _rotulo_destino_operacional(destino_proximo),
                         "inicio": proximo["inicio"].strftime("%Y-%m-%d %H:%M"),
                         "duracao_deslocamento_min": tempo_next,
+                        "duracao_deslocamento_contabilizada_min": tempo_next_contabilizado,
                         "folga_min": folga_next,
                         "margem_min": margem_next,
                         "fonte": fonte_next,
+                        "ancora_adjacente": bool(ancora_proxima_adjacente),
+                        "trecho_desconsiderado_ancora_adjacente": bool(relaxar_limite_next_por_ancora),
+                        "margem_segura_relaxada_ancora_adjacente": bool(ancora_proxima_adjacente),
                     }
                     if proximo
                     else None
@@ -3852,6 +4018,12 @@ def sugerir_horarios_agenda(
             (
                 int(item.get("espera_ancora_min"))
                 if item.get("espera_ancora_min") is not None
+                else 999999
+            ),
+            int(item.get("preferencia_ancora_adjacente_ordem", 1)),
+            (
+                int(item.get("folga_ancora_adjacente_min"))
+                if item.get("folga_ancora_adjacente_min") is not None
                 else 999999
             ),
             item["score"],
@@ -4069,6 +4241,23 @@ def sugerir_agendamento_proximo(
         proximo_id = int((proximo or {}).get("agendamento_id") or 0)
         return anterior_id == agendamento_id_ancora or proximo_id == agendamento_id_ancora
 
+    def _slot_usa_encaixe_adjacente_excepcional(slot: dict[str, Any], agendamento_id_ancora: int) -> bool:
+        if agendamento_id_ancora <= 0 or not isinstance(slot, dict):
+            return False
+        anterior = slot.get("anterior") if isinstance(slot.get("anterior"), dict) else {}
+        proximo = slot.get("proximo") if isinstance(slot.get("proximo"), dict) else {}
+        anterior_id = int((anterior or {}).get("agendamento_id") or 0)
+        proximo_id = int((proximo or {}).get("agendamento_id") or 0)
+        if proximo_id == agendamento_id_ancora and bool(
+            (anterior or {}).get("trecho_desconsiderado_ancora_adjacente")
+        ):
+            return True
+        if anterior_id == agendamento_id_ancora and bool(
+            (proximo or {}).get("trecho_desconsiderado_ancora_adjacente")
+        ):
+            return True
+        return False
+
     for item in agendamentos_periodo:
         inicio_item = item.get("inicio")
         if inicio_item is None:
@@ -4084,7 +4273,7 @@ def sugerir_agendamento_proximo(
             continue
 
         data_item_iso = inicio_item.date().isoformat()
-        if exigir_data_preferencial and data_item_iso not in datas_preferenciais_set:
+        if exigir_data_preferencial and data_item_iso not in datas_preferenciais_set and data_item_iso != data_iso:
             continue
 
         slots_operacionais_data = _obter_slots_operacionais_data(data_item_iso)
@@ -4111,6 +4300,12 @@ def sugerir_agendamento_proximo(
             if agendamento_ancora_id > 0
             else list(slots_operacionais_data)
         )
+        if exigir_data_preferencial and data_item_iso not in datas_preferenciais_set:
+            slots_aderentes = [
+                slot
+                for slot in slots_aderentes
+                if _slot_usa_encaixe_adjacente_excepcional(slot, agendamento_ancora_id)
+            ]
         if not slots_aderentes:
             continue
 
@@ -4129,7 +4324,7 @@ def sugerir_agendamento_proximo(
                 continue
 
             data_slot_iso = inicio_slot.strftime("%Y-%m-%d")
-            if exigir_data_preferencial and data_slot_iso not in datas_preferenciais_set:
+            if exigir_data_preferencial and data_slot_iso not in datas_preferenciais_set and data_slot_iso != data_iso:
                 continue
             if inicio_slot < agora_local:
                 continue
@@ -4140,8 +4335,16 @@ def sugerir_agendamento_proximo(
             clinica_posterior_nome = str((proximo_slot or {}).get("clinica") or "").strip()
             ha_agendamento_anterior = bool((anterior_slot or {}).get("agendamento_id") or clinica_anterior_nome)
             ha_agendamento_posterior = bool((proximo_slot or {}).get("agendamento_id") or clinica_posterior_nome)
-            duracao_anterior = max(0, int((anterior_slot or {}).get("duracao_deslocamento_min") or 0))
-            duracao_proximo = max(0, int((proximo_slot or {}).get("duracao_deslocamento_min") or 0))
+            duracao_anterior_real = max(0, int((anterior_slot or {}).get("duracao_deslocamento_min") or 0))
+            duracao_proximo_real = max(0, int((proximo_slot or {}).get("duracao_deslocamento_min") or 0))
+            duracao_anterior = max(
+                0,
+                int((anterior_slot or {}).get("duracao_deslocamento_contabilizada_min", duracao_anterior_real) or 0),
+            )
+            duracao_proximo = max(
+                0,
+                int((proximo_slot or {}).get("duracao_deslocamento_contabilizada_min", duracao_proximo_real) or 0),
+            )
             duracao_total = duracao_anterior + duracao_proximo
 
             if duracao_total <= 0:
@@ -4176,8 +4379,16 @@ def sugerir_agendamento_proximo(
                 else:
                     fonte = "sem_vizinhos"
 
+            folgas_ancora = []
+            if int((anterior_slot or {}).get("agendamento_id") or 0) == agendamento_ancora_id:
+                folgas_ancora.append(max(0, int((anterior_slot or {}).get("folga_min") or 0)))
+            if int((proximo_slot or {}).get("agendamento_id") or 0) == agendamento_ancora_id:
+                folgas_ancora.append(max(0, int((proximo_slot or {}).get("folga_min") or 0)))
+            folga_ancora_min = min(folgas_ancora) if folgas_ancora else 999999
+
             rank = (
                 int(duracao_total),
+                int(folga_ancora_min),
                 abs((inicio_slot.date() - data_ref).days),
                 0 if data_slot_iso in datas_preferenciais_set else 1,
                 (
@@ -4203,6 +4414,14 @@ def sugerir_agendamento_proximo(
                     "tempo_deslocamento_total_min": duracao_total,
                     "duracao_deslocamento_anterior_min": duracao_anterior,
                     "duracao_deslocamento_proximo_min": duracao_proximo,
+                    "duracao_deslocamento_anterior_real_min": duracao_anterior_real,
+                    "duracao_deslocamento_proximo_real_min": duracao_proximo_real,
+                    "trecho_anterior_desconsiderado_ancora_adjacente": bool(
+                        (anterior_slot or {}).get("trecho_desconsiderado_ancora_adjacente")
+                    ),
+                    "trecho_proximo_desconsiderado_ancora_adjacente": bool(
+                        (proximo_slot or {}).get("trecho_desconsiderado_ancora_adjacente")
+                    ),
                     "clinica_destino": destino_operacional_nome,
                     "destino_operacional": destino_operacional_nome,
                     "destino_operacional_tipo": origem_atendimento,
@@ -4264,6 +4483,14 @@ def sugerir_agendamento_proximo(
             total_min=melhor_tempo,
             ha_agendamento_anterior=bool(melhor_item.get("ha_agendamento_anterior")),
             ha_agendamento_posterior=bool(melhor_item.get("ha_agendamento_posterior")),
+            trecho_anterior_desconsiderado=bool(
+                melhor_item.get("trecho_anterior_desconsiderado_ancora_adjacente")
+            ),
+            trecho_posterior_desconsiderado=bool(
+                melhor_item.get("trecho_proximo_desconsiderado_ancora_adjacente")
+            ),
+            duracao_anterior_real_min=melhor_item.get("duracao_deslocamento_anterior_real_min"),
+            duracao_posterior_real_min=melhor_item.get("duracao_deslocamento_proximo_real_min"),
         )
         mensagem_limite = (
             f"Opcao mais proxima encontrada na data {data_item_legivel} as {melhor_item.get('inicio')} "
@@ -4303,6 +4530,14 @@ def sugerir_agendamento_proximo(
         total_min=melhor_tempo,
         ha_agendamento_anterior=bool(melhor_item.get("ha_agendamento_anterior")),
         ha_agendamento_posterior=bool(melhor_item.get("ha_agendamento_posterior")),
+        trecho_anterior_desconsiderado=bool(
+            melhor_item.get("trecho_anterior_desconsiderado_ancora_adjacente")
+        ),
+        trecho_posterior_desconsiderado=bool(
+            melhor_item.get("trecho_proximo_desconsiderado_ancora_adjacente")
+        ),
+        duracao_anterior_real_min=melhor_item.get("duracao_deslocamento_anterior_real_min"),
+        duracao_posterior_real_min=melhor_item.get("duracao_deslocamento_proximo_real_min"),
     )
     if _nome_clinica_legivel(melhor_item.get("clinica")) == _nome_clinica_legivel(destino_operacional_nome):
         mensagem = (

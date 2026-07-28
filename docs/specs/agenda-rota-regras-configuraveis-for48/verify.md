@@ -21,6 +21,7 @@ Status: in-progress
 | CA-011 | aceitacao | mensagem de proximidade detalha deslocamento com nomes das clinicas (anterior/destino/posterior), dia da semana e indicacao de ausencia de vizinho quando aplicavel em `backend/app/api/v1/endpoints/agenda.py` e `frontend/app/agenda/NovoAgendamentoModal.tsx` | ok |
 | CA-012 | aceitacao | `test_sugestoes_horario_exigem_margem_segura_entre_vizinhos` e `test_validacao_agendamento_exige_margem_segura_de_deslocamento` cobrem folga menor que deslocamento + margem | ok |
 | CA-013 | aceitacao | `test_validacao_agendamento_bloqueia_trecho_vizinho_acima_do_limite_mesmo_com_folga` e `test_sugestoes_horario_bloqueiam_trecho_vizinho_acima_do_limite` cobrem trecho acima de `max_neighbor_travel_min` | ok |
+| CA-014 | aceitacao | `test_sugestao_permite_encaixe_adjacente_a_ancora_registrada`, `test_validacao_permite_encaixe_adjacente_a_ancora_registrada` e `test_proximidade_usa_trecho_aderente_em_encaixe_adjacente` cobrem encaixe livre adjacente a ancora ja registrada por excecao operacional | ok |
 | NFR-001 | nao funcional | cache de deslocamento por request mantido | ok |
 | NFR-002 | nao funcional | sem novos endpoints publicos; usa permissao de configuracoes existente | ok |
 | NFR-004 | nao funcional | perfis nao-admin sem acao de abertura rapida de excecao em slot fechado | ok |
@@ -50,6 +51,7 @@ cd backend && ./venv/bin/python -m pytest -q tests/test_agenda_sugestao_janela_o
 Resumo dos resultados:
 - Backend: ok (py_compile).
 - Backend agenda: ok (`28 passed` em `test_agenda_sugestao_janela_operacional.py`).
+- Atualizacao 2026-07-28: ok (`35 passed` em `test_agenda_sugestao_janela_operacional.py`) apos incluir regra de encaixe adjacente a ancora registrada por excecao operacional.
 - Frontend: ok (eslint + tsc + build), incluindo validacao das duas telas de agenda e helper de navegacao.
 - Atualizacao 2026-06-12: ok (`npx eslint app/configuracoes/page.tsx lib/agenda-route-rules.ts` e `npx tsc --noEmit`) apos expor `max_neighbor_travel_min` na UI.
 - Observacao: os avisos de deprecacao de Pydantic/SQLAlchemy ja existiam no projeto.
@@ -66,6 +68,7 @@ Resumo dos resultados:
 - Cenario 8: em Agenda Lista, clicar "Ver FullCalendar" e confirmar abertura com mesma data/filtro de status; em FullCalendar, clicar "Ver Agenda Lista" e confirmar retorno com mesma data no modo Lista.
 - Cenario 9: abrir sugestao de proximidade com vizinho anterior e/ou posterior e confirmar mensagem explicita com nomes das clinicas, total de deslocamento e aviso quando nao ha vizinho anterior/posterior.
 - Cenario 10: tentar salvar e sugerir horario com trecho vizinho acima de `max_neighbor_travel_min` e confirmar bloqueio mesmo com folga suficiente.
+- Cenario 11: manter dois agendamentos no mesmo dia por excecao operacional previa e validar que o slot livre adjacente ao agendamento ja registrado e proximo ao novo destino pode ser sugerido/salvo sem reprocessar a matriz logistica.
 
 ## 4) Regressao e riscos residuais
 

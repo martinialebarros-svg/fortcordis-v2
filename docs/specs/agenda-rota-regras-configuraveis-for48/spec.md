@@ -24,6 +24,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - RF-012: mensagens do assistente inteligente de proximidade devem detalhar a composicao do deslocamento usando nomes das clinicas envolvidas (anterior/destino/posterior), indicar quando nao ha agendamento vizinho e mostrar a data com dia da semana para evitar ambiguidade operacional.
 - RF-013: `safe_margin_min` deve ser aplicado como margem obrigatoria no salvamento e nas sugestoes de horario; slots com folga menor que `duracao_deslocamento + safe_margin_min` devem ser rejeitados.
 - RF-014: `max_neighbor_travel_min` deve bloquear salvamento e sugestoes quando o deslocamento entre a clinica candidata e o vizinho imediato anterior ou posterior exceder o limite configurado, mesmo que exista folga suficiente no relogio.
+- RF-015: quando um agendamento ja registrado foi mantido como ancora operacional por excecao previa, um slot livre adjacente a essa ancora pode ser sugerido e salvo se o deslocamento real ate a ancora couber na folga do slot e estiver dentro de `nearby_anchor_max_travel_min`; nesse caso, o trecho nao adjacente herdado da excecao pode ser desconsiderado apenas para ranking/limite de proximidade, sem liberar slots que nao encostem na ancora.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -76,6 +77,7 @@ Adicionar suporte completo a regras configuraveis de rota da agenda, incluindo p
 - CA-011: mensagem de proximidade exibe composicao do deslocamento com nomes das clinicas e total estimado, incluindo indicacao explicita de ausencia de agendamento anterior/posterior e data com dia da semana.
 - CA-012: com `safe_margin_min=5`, um slot com 40 minutos de folga para deslocamento de 39 minutos deve ser bloqueado no salvamento e nao deve aparecer nas sugestoes.
 - CA-013: com `max_neighbor_travel_min=45`, um trecho vizinho de 62 minutos deve ser bloqueado no salvamento e nao deve aparecer nas sugestoes, mesmo quando a folga de agenda for suficiente.
+- CA-014: com `max_neighbor_travel_min=30`, um slot livre imediatamente antes/depois de uma ancora ja registrada deve ser sugerido e validado quando o trecho ate a ancora for proximo (ex.: 5 min) e couber na folga, mesmo que o outro vizinho do dia tenha sido mantido por excecao e exceda o limite por trecho.
 
 ## 7) Casos de borda
 

@@ -754,6 +754,316 @@ class AgendaSugestaoJanelaOperacionalTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_sugestao_permite_encaixe_adjacente_a_ancora_registrada(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(
+                db,
+                excecoes=[],
+                regras_rota={
+                    "thresholds": {
+                        "max_neighbor_travel_min": 30,
+                        "nearby_anchor_max_travel_min": 20,
+                        "safe_margin_min": 5,
+                    }
+                },
+            )
+            clinica_destino, _ = self._seed_clinicas(db, clinica_base_coords=(-3.8904, -38.4392))
+            clinica_anterior = Clinica(
+                nome="PATAS E ASAS",
+                ativo=True,
+                latitude=-3.733,
+                longitude=-38.524,
+                cidade="Fortaleza",
+                estado="CE",
+            )
+            db.add(clinica_anterior)
+            db.commit()
+            db.refresh(clinica_anterior)
+            tutor = self._seed_tutor(db, latitude=-3.8973, longitude=-38.4417)
+            self._criar_agendamento(
+                db,
+                clinica_id=clinica_anterior.id,
+                data="2099-05-25",
+                hora="09:00",
+                status="Agendado",
+                duracao_minutos=25,
+                clinica_nome=clinica_anterior.nome,
+            )
+            agendamento_domiciliar = self._criar_agendamento(
+                db,
+                clinica_id=None,
+                tutor_id=tutor.id,
+                origem_atendimento="domiciliar",
+                data="2099-05-25",
+                hora="14:00",
+                status="Confirmado",
+                duracao_minutos=30,
+                clinica_nome="Atendimento domiciliar",
+            )
+
+            def _mock_deslocamento(db, *, origem, destino, perfil, **kwargs):
+                origem_chave = (str((origem or {}).get("tipo") or ""), int((origem or {}).get("entity_id") or 0))
+                destino_chave = (str((destino or {}).get("tipo") or ""), int((destino or {}).get("entity_id") or 0))
+                if origem_chave == ("clinica_parceira", clinica_anterior.id) and destino_chave == (
+                    "clinica_parceira",
+                    clinica_destino.id,
+                ):
+                    return (38, "mock_prev")
+                if origem_chave == ("clinica_parceira", clinica_destino.id) and destino_chave == (
+                    "clinica_parceira",
+                    clinica_anterior.id,
+                ):
+                    return (36, "mock_next_far")
+                if origem_chave == ("clinica_parceira", clinica_destino.id) and destino_chave == (
+                    "domiciliar",
+                    tutor.id,
+                ):
+                    return (5, "mock_next")
+                if origem_chave == ("domiciliar", tutor.id) and destino_chave == (
+                    "clinica_parceira",
+                    clinica_destino.id,
+                ):
+                    return (5, "mock_prev_anchor")
+                if origem_chave == ("clinica_parceira", clinica_anterior.id) and destino_chave == (
+                    "domiciliar",
+                    tutor.id,
+                ):
+                    return (36, "mock_direct")
+                return (0, "mock")
+
+            payload = agenda.SugestaoHorarioPayload(
+                data="2099-05-25",
+                clinica_id=clinica_destino.id,
+                duracao_minutos=25,
+                intervalo_minutos=30,
+                limite=50,
+                perfil_deslocamento="comercial",
+            )
+
+            with patch.object(agenda, "_obter_duracao_deslocamento_operacional", side_effect=_mock_deslocamento):
+                resposta = agenda.sugerir_horarios_agenda(
+                    payload=payload,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertTrue(resposta["ok"])
+            self.assertGreater(len(resposta["items"]), 0)
+            primeiro = resposta["items"][0]
+            self.assertEqual(str(primeiro.get("inicio") or ""), "2099-05-25 13:30")
+            self.assertEqual(int(primeiro.get("tempo_deslocamento_total_min") or 0), 5)
+            self.assertEqual(int((primeiro.get("proximo") or {}).get("agendamento_id") or 0), agendamento_domiciliar.id)
+            self.assertTrue(bool((primeiro.get("anterior") or {}).get("trecho_desconsiderado_ancora_adjacente")))
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_validacao_permite_encaixe_adjacente_a_ancora_registrada(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(
+                db,
+                excecoes=[],
+                regras_rota={
+                    "thresholds": {
+                        "max_neighbor_travel_min": 30,
+                        "nearby_anchor_max_travel_min": 20,
+                        "safe_margin_min": 5,
+                    }
+                },
+            )
+            clinica_destino, _ = self._seed_clinicas(db, clinica_base_coords=(-3.8904, -38.4392))
+            clinica_anterior = Clinica(
+                nome="PATAS E ASAS",
+                ativo=True,
+                latitude=-3.733,
+                longitude=-38.524,
+                cidade="Fortaleza",
+                estado="CE",
+            )
+            db.add(clinica_anterior)
+            db.commit()
+            db.refresh(clinica_anterior)
+            tutor = self._seed_tutor(db, latitude=-3.8973, longitude=-38.4417)
+            self._criar_agendamento(
+                db,
+                clinica_id=clinica_anterior.id,
+                data="2099-05-25",
+                hora="09:00",
+                status="Agendado",
+                duracao_minutos=25,
+                clinica_nome=clinica_anterior.nome,
+            )
+            self._criar_agendamento(
+                db,
+                clinica_id=None,
+                tutor_id=tutor.id,
+                origem_atendimento="domiciliar",
+                data="2099-05-25",
+                hora="14:00",
+                status="Confirmado",
+                duracao_minutos=30,
+                clinica_nome="Atendimento domiciliar",
+            )
+            inicio_novo = datetime.fromisoformat("2099-05-25T13:30:00")
+            novo = Agendamento(
+                clinica_id=clinica_destino.id,
+                inicio=inicio_novo,
+                fim=inicio_novo + timedelta(minutes=25),
+                data="2099-05-25",
+                hora="13:30",
+                status="Agendado",
+                clinica=clinica_destino.nome,
+            )
+
+            def _mock_deslocamento(db, *, origem, destino, perfil, **kwargs):
+                origem_chave = (str((origem or {}).get("tipo") or ""), int((origem or {}).get("entity_id") or 0))
+                destino_chave = (str((destino or {}).get("tipo") or ""), int((destino or {}).get("entity_id") or 0))
+                if origem_chave == ("clinica_parceira", clinica_anterior.id) and destino_chave == (
+                    "clinica_parceira",
+                    clinica_destino.id,
+                ):
+                    return (38, "mock_prev")
+                if origem_chave == ("clinica_parceira", clinica_destino.id) and destino_chave == (
+                    "clinica_parceira",
+                    clinica_anterior.id,
+                ):
+                    return (36, "mock_next_far")
+                if origem_chave == ("clinica_parceira", clinica_destino.id) and destino_chave == (
+                    "domiciliar",
+                    tutor.id,
+                ):
+                    return (5, "mock_next")
+                if origem_chave == ("domiciliar", tutor.id) and destino_chave == (
+                    "clinica_parceira",
+                    clinica_destino.id,
+                ):
+                    return (5, "mock_prev_anchor")
+                if origem_chave == ("clinica_parceira", clinica_anterior.id) and destino_chave == (
+                    "domiciliar",
+                    tutor.id,
+                ):
+                    return (36, "mock_direct")
+                return (0, "mock")
+
+            with patch.object(agenda, "_obter_duracao_deslocamento_operacional", side_effect=_mock_deslocamento):
+                agenda._validar_deslocamento_agendamento(db, novo)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_proximidade_usa_trecho_aderente_em_encaixe_adjacente(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_config(
+                db,
+                excecoes=[],
+                regras_rota={
+                    "thresholds": {
+                        "max_neighbor_travel_min": 30,
+                        "nearby_anchor_max_travel_min": 20,
+                        "safe_margin_min": 5,
+                    }
+                },
+            )
+            clinica_destino, _ = self._seed_clinicas(db, clinica_base_coords=(-3.8904, -38.4392))
+            clinica_anterior = Clinica(
+                nome="PATAS E ASAS",
+                ativo=True,
+                latitude=-3.733,
+                longitude=-38.524,
+                cidade="Fortaleza",
+                estado="CE",
+            )
+            db.add(clinica_anterior)
+            db.commit()
+            db.refresh(clinica_anterior)
+            tutor = self._seed_tutor(db, latitude=-3.8973, longitude=-38.4417)
+            agendamento_domiciliar = self._criar_agendamento(
+                db,
+                clinica_id=None,
+                tutor_id=tutor.id,
+                origem_atendimento="domiciliar",
+                data="2099-05-25",
+                hora="14:00",
+                status="Confirmado",
+                duracao_minutos=30,
+                clinica_nome="Atendimento domiciliar",
+            )
+            self._criar_agendamento(
+                db,
+                clinica_id=clinica_anterior.id,
+                data="2099-05-25",
+                hora="09:00",
+                status="Agendado",
+                duracao_minutos=25,
+                clinica_nome=clinica_anterior.nome,
+            )
+
+            def _mock_deslocamento(db, *, origem, destino, perfil, **kwargs):
+                origem_chave = (str((origem or {}).get("tipo") or ""), int((origem or {}).get("entity_id") or 0))
+                destino_chave = (str((destino or {}).get("tipo") or ""), int((destino or {}).get("entity_id") or 0))
+                if origem_chave == ("clinica_parceira", clinica_anterior.id) and destino_chave == (
+                    "clinica_parceira",
+                    clinica_destino.id,
+                ):
+                    return (38, "mock_prev")
+                if origem_chave == ("clinica_parceira", clinica_destino.id) and destino_chave == (
+                    "clinica_parceira",
+                    clinica_anterior.id,
+                ):
+                    return (36, "mock_next_far")
+                if origem_chave == ("clinica_parceira", clinica_destino.id) and destino_chave == (
+                    "domiciliar",
+                    tutor.id,
+                ):
+                    return (5, "mock_next")
+                if origem_chave == ("domiciliar", tutor.id) and destino_chave == (
+                    "clinica_parceira",
+                    clinica_destino.id,
+                ):
+                    return (5, "mock_prev_anchor")
+                if origem_chave == ("clinica_parceira", clinica_anterior.id) and destino_chave == (
+                    "domiciliar",
+                    tutor.id,
+                ):
+                    return (36, "mock_direct")
+                return (0, "mock")
+
+            payload = agenda.SugestaoProximidadePayload(
+                data="2099-05-25",
+                data_contato="2099-05-25",
+                clinica_id=clinica_destino.id,
+                duracao_minutos=25,
+                intervalo_minutos=30,
+                limite_sugestoes_operacionais=50,
+                perfil_deslocamento="comercial",
+                limite_minutos=20,
+                janela_dias_proximidade=0,
+            )
+
+            with patch.object(agenda, "_obter_duracao_deslocamento_operacional", side_effect=_mock_deslocamento):
+                resposta = agenda.sugerir_agendamento_proximo(
+                    payload=payload,
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertTrue(resposta["ok"])
+            self.assertTrue(resposta["sugerir"])
+            item = resposta["item"]
+            self.assertEqual(int(item.get("agendamento_id") or 0), agendamento_domiciliar.id)
+            self.assertEqual(item.get("inicio"), "13:30")
+            self.assertEqual(int(item.get("duracao_deslocamento_min") or 0), 5)
+            self.assertTrue(bool(item.get("trecho_anterior_desconsiderado_ancora_adjacente")))
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_sugestoes_horario_bloqueiam_data_passada(self) -> None:
         class DateTimeFixa(datetime):
             @classmethod
