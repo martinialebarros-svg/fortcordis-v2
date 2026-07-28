@@ -27,6 +27,7 @@ Permitir registrar em `Laudos` um eletrocardiograma cujo PDF final foi emitido f
 - RF-015: no modo de telemedicina, a tela deve oferecer cadastro rapido de tutor e pet no mesmo formulario quando o paciente ainda nao existir.
 - RF-016: ao concluir o cadastro rapido no mesmo fluxo, o upload deve continuar usando o `paciente_id` criado, sem exigir reabertura da tela.
 - RF-017: no modo sem agendamento, o frontend deve exigir clinica parceira e paciente selecionado ou cadastrado antes de aceitar o envio do PDF.
+- RF-018: o menu `Novo Laudo` da Central de laudos deve abrir inteiro sobre o restante da tela, sem clipping pelo cabeçalho decorativo.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -122,6 +123,7 @@ Permitir registrar em `Laudos` um eletrocardiograma cujo PDF final foi emitido f
 - CA-010: no fluxo sem agendamento, a busca de paciente encontra pets ja cadastrados por nome do pet ou do tutor.
 - CA-011: quando o paciente ainda nao existir, o operador consegue cadastrar tutor e pet no mesmo fluxo e seguir com o upload do PDF.
 - CA-012: o envio do PDF continua usando o paciente criado no mesmo fluxo, sem precisar sair para `Pacientes`.
+- CA-013: ao abrir `Novo Laudo` na Central de laudos, as opcoes do menu ficam totalmente visiveis e clicaveis.
 
 ## 6) Fora de escopo
 
