@@ -37,11 +37,14 @@ Primeira entrega vertical publicada em stage; perfis GE LOGIQ e e GE Vivid IQ ca
   o contexto tecnico para DIVEd, DIVEs, SIVd, SIVs, PLVEd, PLVEs, VDF, VSF, FE
   e Delta D/FS, sem exigir prefixo em cada linha.
 - Smoke com PDF clinico externo de duas paginas: antes da correcao havia 10
-  conflitos e nenhuma tecnica detectada; com o extrator versao 4, o mesmo
+  conflitos e nenhuma tecnica detectada; com o extrator versao 5, o mesmo
   arquivo retornou 38 medidas sugeridas, zero conflitos e as tecnicas `2d` e
   `modo_m`. O arquivo e os dados identificaveis permaneceram fora do repositorio.
 - Regressao do PDF final: a escolha revisavel de Modo M ou Modo 2D controla
   tambem VDF, VSF, FE de Teicholz e Delta D/FS no bloco emitido.
+- Regressao de tecnica unica: ao aplicar um estudo exclusivamente 2D, o
+  importador envia `VE_tecnica_relatorio = 2d` junto das medidas; a reabertura
+  usa o objeto estruturado devolvido pelo backend e preserva essa escolha.
 
 ## Validacao manual pendente
 

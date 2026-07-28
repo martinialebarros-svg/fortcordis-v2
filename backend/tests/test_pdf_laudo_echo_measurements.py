@@ -11,6 +11,9 @@ os.chdir(BACKEND_DIR)
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.utils.pdf_laudo import gerar_pdf_laudo_eco  # noqa: E402
+from app.utils.ecocardiograma_medidas import (  # noqa: E402
+    extrair_medidas_ecocardiograma_da_descricao,
+)
 
 
 def _base_report(selected_technique: str) -> dict:
@@ -73,6 +76,35 @@ class PdfLaudoEchoMeasurementsTest(unittest.TestCase):
         self.assertIn("PSAP estimada", mode_2d_text)
         self.assertIn("61.84 mmHg", mode_2d_text)
         self.assertIn("0.08 m/s", mode_2d_text)
+
+    def test_persisted_2d_measurements_generate_2d_block(self) -> None:
+        payload = _base_report("modo_m")
+        payload["medidas"] = extrair_medidas_ecocardiograma_da_descricao(
+            """
+## Medidas Ecocardiograficas
+- DIVEd_2D: 31.69
+- SIVd_2D: 5.96
+- PLVEd_2D: 5.06
+- DIVES_2D: 15.39
+- SIVs_2D: 8.65
+- PLVES_2D: 8.10
+- VDF_2D: 40
+- VSF_2D: 6
+- FE_Teicholz_2D: 85
+- DeltaD_FS_2D: 51
+- VE_tecnica_relatorio: 2d
+
+## Avaliacao Qualitativa
+"""
+        )
+
+        text = _pdf_text(payload)
+
+        self.assertIn("VE - Modo 2D", text)
+        self.assertNotIn("VE - Modo M", text)
+        self.assertIn("31.69 mm", text)
+        self.assertIn("40.00 ml", text)
+        self.assertIn("85.00 %", text)
 
 
 if __name__ == "__main__":

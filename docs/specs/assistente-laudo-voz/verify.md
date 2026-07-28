@@ -1,6 +1,6 @@
 # Verify - assistente-laudo-voz
 
-Data: 2026-07-26
+Data: 2026-07-27
 Responsável: Martiniano + Codex
 Status: local_pass
 
@@ -38,12 +38,27 @@ Status: local_pass
 | CA-028 | matriz canina classifica alta probabilidade com IT elevada e dois locais direitos; regra felina retorna suspeita orientativa com alerta próprio | local_pass |
 | CA-029 | PDF com `MM/LVIDd` e `2D/LVIDd` conserva as duas séries, informa as duas técnicas e bloqueia aplicação até escolha do bloco do laudo | local_pass |
 | CA-030 | PDF final usa `VE_tecnica_relatorio` para emitir exclusivamente o bloco Modo M ou Modo 2D selecionado | local_pass |
-| CA-031 | suíte oficial com 471 testes, 70 testes focados e 13 subtestes, `pip check`, ESLint, TypeScript, build Next.js e `git diff --check` | local_pass |
+| CA-031 | suíte oficial com 479 testes, testes focados, `pip check`, ESLint, TypeScript, build Next.js e `git diff --check` | local_pass |
 | CA-032 | canário vivo avançado exige alta probabilidade ecocardiográfica quando IT Vmax 3,6 m/s está associada a repercussão em câmaras direitas e rejeita o alerta legado de velocidade isolada | stage_pending |
 | CA-033 | PDF real com seções independentes 2D e M-Mode separa os dez pares de medidas do VE, detecta ambas as técnicas e reduz os conflitos de 10 para 0 | local_pass |
 | CA-034 | novo/editar oferecem VDF, VSF, FE de Teicholz e Delta D/FS no bloco 2D; a escolha de técnica controla também esses campos no PDF | local_pass |
+| CA-035 | persistência com medidas `*_2D` e `VE_tecnica_relatorio: 2d` é reconstruída pelo backend e pela reedição sem perder o seletor textual | local_pass |
+| CA-036 | laudo legado somente 2D infere o bloco correspondente e a versão do renderizador altera a chave de cache para impedir a reutilização do PDF vazio | local_pass |
 
 ## Evidência local executada
+
+### Rodada atual: persistência e PDF de estudo exclusivamente 2D
+
+- A regressão reproduziu a perda de `VE_tecnica_relatorio`, que era textual e
+  ficava fora dos leitores restritos a números.
+- A resposta de consulta do laudo agora inclui `medidas` reconstruídas; novo,
+  visualizar e editar preservam ou inferem a técnica quando existe somente uma
+  série do VE.
+- O PDF anonimizado gerado a partir da descrição persistida exibiu
+  `VE - Modo 2D`, os onze campos correspondentes e nenhum bloco `VE - Modo M`.
+- 33 testes focados e 2 subtestes, além da suíte completa com 479 testes,
+  passaram; `pip check`, compilação Python, TypeScript, ESLint e build Next.js
+  também passaram.
 
 ### Rodada atual: separação integral entre Modo M e Modo 2D
 
@@ -51,7 +66,7 @@ Status: local_pass
   identificáveis no repositório.
 - Antes da correção, os dez pares DIVEd, DIVEs, SIVd, SIVs, PLVEd, PLVEs, VDF,
   VSF, FE e Delta D/FS resultavam em dez conflitos e nenhuma técnica detectada.
-- Com o extrator versão 4, o mesmo estudo retornou 38 medidas sugeridas, zero
+- Com o extrator versão 5, o mesmo estudo retornou 38 medidas sugeridas, zero
   conflitos e `tecnicas_ve_detectadas = ["2d", "modo_m"]`.
 - A regressão automatizada confirma que cabeçalhos de seção mantêm o contexto
   técnico até o início de outra seção e que o Doppler não herda Modo M/2D.

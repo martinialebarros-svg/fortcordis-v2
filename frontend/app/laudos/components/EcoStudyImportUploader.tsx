@@ -50,6 +50,14 @@ export default function EcoStudyImportUploader({
   const detectedLvTechniques = result?.meta_importacao_estudo?.tecnicas_ve_detectadas || [];
   const requiresLvTechniqueChoice =
     detectedLvTechniques.includes("modo_m") && detectedLvTechniques.includes("2d");
+  const automaticLvTechnique =
+    detectedLvTechniques.length === 1 &&
+    (detectedLvTechniques[0] === "modo_m" || detectedLvTechniques[0] === "2d")
+      ? detectedLvTechniques[0]
+      : "";
+  const lvTechniqueForApplication = requiresLvTechniqueChoice
+    ? selectedLvTechnique
+    : automaticLvTechnique;
 
   const processFile = async (file: File) => {
     if (!hasAllowedExtension(file.name)) {
@@ -97,8 +105,8 @@ export default function EcoStudyImportUploader({
       ...result,
       medidas: {
         ...result.medidas,
-        ...(requiresLvTechniqueChoice && selectedLvTechnique
-          ? { VE_tecnica_relatorio: selectedLvTechnique }
+        ...(lvTechniqueForApplication
+          ? { VE_tecnica_relatorio: lvTechniqueForApplication }
           : {}),
       },
     });
