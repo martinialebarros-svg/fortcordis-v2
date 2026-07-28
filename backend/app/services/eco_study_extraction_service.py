@@ -15,7 +15,7 @@ from app.services.image_header_import_service import _extract_text_with_tesserac
 
 MAX_ECO_STUDY_IMPORT_SIZE = 30 * 1024 * 1024
 MAX_ECO_STUDY_PDF_PAGES = 20
-ECO_STUDY_EXTRACTOR_VERSION = "4"
+ECO_STUDY_EXTRACTOR_VERSION = "5"
 GE_LOGIQ_E_PROFILE = "ge_logiq_e"
 GE_VIVID_IQ_PROFILE = "ge_vivid_iq"
 ALLOWED_ECO_STUDY_EXTENSIONS = {
@@ -1011,10 +1011,21 @@ def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict
     if not consolidated:
         raise ValueError("Nenhuma medida ecocardiografica reconhecida no estudo.")
 
+    detected_lv_techniques = sorted(
+        {
+            str(item.get("tecnica"))
+            for item in consolidated
+            if item.get("tecnica") in {"modo_m", "2d"}
+        }
+    )
+    measurements_payload: dict[str, Any] = dict(measurements)
+    if len(detected_lv_techniques) == 1:
+        measurements_payload["VE_tecnica_relatorio"] = detected_lv_techniques[0]
+
     default_patient = _empty_patient_payload()
     return {
         "paciente": (header_payload or {}).get("paciente") or default_patient,
-        "medidas": measurements,
+        "medidas": measurements_payload,
         "medidas_extraidas": consolidated,
         "clinica": (header_payload or {}).get("clinica", ""),
         "veterinario_solicitante": (header_payload or {}).get("veterinario_solicitante", ""),
@@ -1027,13 +1038,7 @@ def parse_eco_study_import_content(filename: str | None, content: bytes) -> dict
             "medidas_sugeridas": len(measurements),
             "candidatos": len(consolidated),
             "conflitos": conflicts,
-            "tecnicas_ve_detectadas": sorted(
-                {
-                    str(item.get("tecnica"))
-                    for item in consolidated
-                    if item.get("tecnica") in {"modo_m", "2d"}
-                }
-            ),
+            "tecnicas_ve_detectadas": detected_lv_techniques,
             "variantes_ocr": ocr_variants,
             "perfil": (header_payload or {}).get("perfil", "generico"),
             "fabricante": (header_payload or {}).get("fabricante", ""),

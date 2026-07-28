@@ -40,6 +40,7 @@ import {
   hasAnyMeasurement,
   LV_2D_KEYS,
   LV_M_MODE_KEYS,
+  parseStoredEchoMeasurements,
 } from "@/lib/echo-derived-measurements";
 
 // Componente de input de medida com botões +/-
@@ -818,17 +819,16 @@ export default function EditarLaudoPage() {
         const descricao = laudoData.descricao;
 
         // Extrair medidas (formato: - DIVEd: 1.50 ou - Fracao_encurtamento_AE: 21,5)
-        const medidasExtraidas: Record<string, string> = {};
-        const regexMedidas = /-\s*([\w_]+):\s*([\d.,]+)/g;
-        let match;
-        while ((match = regexMedidas.exec(descricao)) !== null) {
-          medidasExtraidas[match[1]] = match[2].replace(",", ".");
-        }
+        const medidasExtraidas = parseStoredEchoMeasurements(
+          laudoData.medidas,
+          descricao
+        );
         setMedidas(medidasExtraidas);
 
         // Extrair qualitativa
         const regexQualitativa =
           /-\s*(valvas|camaras|funcao|pericardio|vasos|ad_vd):\s*([\s\S]*?)(?=\n-\s*(?:valvas|camaras|funcao|pericardio|vasos|ad_vd):|$)/gi;
+        let match;
         while ((match = regexQualitativa.exec(descricao)) !== null) {
           const campo = match[1].toLowerCase() as keyof typeof qualitativaExtraida;
           qualitativaExtraida[campo] = match[2].trim();
@@ -855,10 +855,14 @@ export default function EditarLaudoPage() {
   const handleSalvar = async () => {
     setSalvando(true);
     try {
+      const medidasPayload = {
+        ...medidas,
+        ...deriveAutomaticEchoMeasurements(medidas, pacienteForm.peso),
+      };
       if (
-        hasAnyMeasurement(medidas, LV_M_MODE_KEYS) &&
-        hasAnyMeasurement(medidas, LV_2D_KEYS) &&
-        !medidas["VE_tecnica_relatorio"]
+        hasAnyMeasurement(medidasPayload, LV_M_MODE_KEYS) &&
+        hasAnyMeasurement(medidasPayload, LV_2D_KEYS) &&
+        !medidasPayload["VE_tecnica_relatorio"]
       ) {
         alert("Escolha se o PDF deve usar as medidas do VE em Modo M ou Modo 2D.");
         setAba("medidas");
@@ -932,7 +936,10 @@ export default function EditarLaudoPage() {
         descricao += `- PAS media: ${pasMediaCalculada || 0} mmHg\n`;
         descricao += "- Metodo: Doppler\n";
       } else {
-        descricao = montarDescricaoEcocardiograma(medidas, qualitativaPayload);
+        descricao = montarDescricaoEcocardiograma(
+          medidasPayload,
+          qualitativaPayload
+        );
       }
 
       // 3. Salvar laudo

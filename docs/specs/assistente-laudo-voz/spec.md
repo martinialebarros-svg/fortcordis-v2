@@ -1,6 +1,6 @@
 # Spec - assistente-laudo-voz
 
-Data: 2026-07-26
+Data: 2026-07-27
 Responsável: Martiniano + Codex
 Status: local_pass
 
@@ -247,6 +247,13 @@ O módulo é aditivo e isolado:
 - RF-077: se as duas técnicas coexistirem, elas não são tratadas como conflito.
   O usuário escolhe o bloco do PDF, enquanto todos os valores permanecem
   disponíveis e revisáveis no formulário e no contexto do assistente.
+- RF-078: a reconstrução das medidas persistidas deve preservar os seletores
+  textuais permitidos, inclusive `VE_tecnica_relatorio`, e devolvê-los de forma
+  estruturada ao visualizar ou reeditar o laudo; laudos legados com apenas uma
+  série válida inferem a técnica correspondente.
+- RF-079: o cache do PDF inclui uma versão explícita do renderizador. Mudanças
+  na leitura ou apresentação das medidas invalidam PDFs concluídos por versões
+  anteriores, mesmo quando o laudo não foi editado depois da correção.
 
 ## 4. Estados
 

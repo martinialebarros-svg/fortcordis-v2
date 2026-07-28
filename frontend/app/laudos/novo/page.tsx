@@ -850,6 +850,10 @@ export default function NovoLaudoPage() {
   };
 
   const montarPayloadEcocardiograma = (status = "Finalizado") => {
+    const medidasPayload = {
+      ...medidas,
+      ...deriveAutomaticEchoMeasurements(medidas, paciente.peso),
+    };
     const clinicaPayload = clinicaId
       ? { id: parseInt(clinicaId), nome: clinicaNome }
       : clinicaNome;
@@ -869,7 +873,7 @@ export default function NovoLaudoPage() {
 
     return {
       paciente,
-      medidas,
+      medidas: medidasPayload,
       qualitativa: qualitativaPayload,
       conteudo: conteudoPayload,
       agendamento_id: agendamentoVinculadoId,

@@ -11,6 +11,7 @@ import {
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
 import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
+import { parseStoredEchoMeasurements } from "@/lib/echo-derived-measurements";
 import { ArrowLeft, CheckCircle, Download, FileText, Loader2, Printer, Send, Upload } from "lucide-react";
 
 const PORTAL_RELEASE_STATUS = "Liberado no portal";
@@ -38,6 +39,7 @@ interface Laudo {
   tipo: string;
   titulo: string;
   descricao: string;
+  medidas?: Record<string, string>;
   diagnostico: string;
   observacoes: string;
   status: string;
@@ -121,17 +123,16 @@ export default function VisualizarLaudoPage() {
 
         // Extrair medidas (formato: - DIVEd: 1.50)
         // Regex atualizada para capturar nomes com underscores
-        const medidasExtraidas: Record<string, string> = {};
-        const regexMedidas = /-\s*([\w_]+):\s*([\d.]+)/g;
-        let match;
-        while ((match = regexMedidas.exec(descricao)) !== null) {
-          medidasExtraidas[match[1]] = match[2];
-        }
+        const medidasExtraidas = parseStoredEchoMeasurements(
+          respLaudo.data.medidas,
+          descricao
+        );
         setMedidas(medidasExtraidas);
 
         // Extrair qualitativa
         const qualitativaExtraida: Record<string, string> = {};
         const regexQualitativa = /-\s*(valvas|camaras|funcao|pericardio|vasos|ad_vd):\s*(.+?)(?=\n-|$)/gi;
+        let match;
         while ((match = regexQualitativa.exec(descricao)) !== null) {
           qualitativaExtraida[match[1].toLowerCase()] = match[2].trim();
         }

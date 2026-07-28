@@ -31,6 +31,9 @@
 - RF-021: o formulario de Modo 2D deve oferecer, alem dos diametros e espessuras,
   VDF, VSF, FE de Teicholz e Delta D/FS, com as mesmas unidades apresentadas no
   bloco equivalente de Modo M.
+- RF-022: quando o importador detectar somente uma tecnica do VE, a aplicacao das
+  sugestoes deve registrar automaticamente `VE_tecnica_relatorio`; a escolha
+  manual continua obrigatoria apenas quando Modo M e Modo 2D coexistirem.
 
 ## Requisitos nao funcionais
 
@@ -68,7 +71,7 @@
     }
   ],
   "meta_importacao_estudo": {
-    "versao_extrator": "4",
+    "versao_extrator": "5",
     "formato": "pdf",
     "paginas": 1,
     "medidas_sugeridas": 1,
@@ -108,3 +111,6 @@
   escolhido.
 - CA-021: VDF, VSF, FE de Teicholz e Delta D/FS possuem campos editaveis no
   bloco Modo 2D das telas de novo laudo e edicao.
+- CA-022: importacao exclusivamente 2D aplica a serie e o seletor `2d` no mesmo
+  evento, sem depender de um efeito posterior do formulario; o mesmo vale para
+  uma serie exclusivamente Modo M.
