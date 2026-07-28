@@ -2,7 +2,7 @@
 
 Data: 2026-07-05
 Responsavel: Equipe FortCordis
-Status: ready-for-stage
+Status: in-progress
 
 ## 1) Escopo funcional
 
@@ -22,6 +22,11 @@ Permitir registrar em `Laudos` um eletrocardiograma cujo PDF final foi emitido f
 - RF-010: a tela do laudo de `Eletrocardiograma` deve permitir substituir o PDF anexado sem criar um novo laudo.
 - RF-011: quando o laudo de eletrocardiograma ja estiver liberado no portal, a substituicao deve atualizar o mesmo arquivo baixavel da clinica parceira.
 - RF-012: a substituicao do PDF deve registrar auditoria com metadados do arquivo anterior e do novo arquivo.
+- RF-013: quando o upload for aberto sem `agendamento_id` e sem `atendimento_id`, a tela deve operar em modo de telemedicina, permitindo escolher a clinica parceira manualmente.
+- RF-014: no modo de telemedicina, a tela deve permitir buscar paciente ja cadastrado por nome do pet ou do tutor sem sair do fluxo.
+- RF-015: no modo de telemedicina, a tela deve oferecer cadastro rapido de tutor e pet no mesmo formulario quando o paciente ainda nao existir.
+- RF-016: ao concluir o cadastro rapido no mesmo fluxo, o upload deve continuar usando o `paciente_id` criado, sem exigir reabertura da tela.
+- RF-017: no modo sem agendamento, o frontend deve exigir clinica parceira e paciente selecionado ou cadastrado antes de aceitar o envio do PDF.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -29,6 +34,7 @@ Permitir registrar em `Laudos` um eletrocardiograma cujo PDF final foi emitido f
 - NFR-002 (seguranca): o escopo por clinica/unidade permanece obrigatorio na listagem e no download do portal.
 - NFR-003 (compatibilidade): o fluxo atual de upload de anexos do atendimento nao deve ser alterado.
 - NFR-004 (clareza): o portal nao deve mencionar origem de software externo; o tipo exibido deve ser o nome clinico do exame.
+- NFR-005 (operacao): o cadastro rapido deve reaproveitar os endpoints existentes de pacientes/tutores, evitando uma segunda fonte de verdade para cadastro.
 
 ## 4) Contratos tecnicos
 
@@ -53,6 +59,24 @@ Permitir registrar em `Laudos` um eletrocardiograma cujo PDF final foi emitido f
     - `clinic_id`
     - `agendamento_id`
     - `anexo_id`
+
+- `POST /api/v1/pacientes`
+  - auth:
+    - token administrativo atual
+  - json:
+    - `nome`
+    - `tutor`
+    - `tutor_email`
+    - `tutor_telefone`
+    - `tutor_whatsapp`
+    - `especie`
+    - `raca`
+    - `sexo`
+    - `peso_kg`
+    - `data_nascimento`
+    - `microchip`
+  - comportamento:
+    - pode ser chamado pelo fluxo de upload de eletrocardiograma sem agendamento para criar tutor e pet antes do envio do PDF.
 
 - `GET /api/v1/laudos/{laudo_id}/pdf-original`
   - faz download do PDF externo anexado ao laudo.
@@ -94,6 +118,10 @@ Permitir registrar em `Laudos` um eletrocardiograma cujo PDF final foi emitido f
 - CA-006: a tela do laudo permite substituir o PDF do eletrocardiograma e manter o mesmo registro do laudo.
 - CA-007: se o laudo ja estiver no portal, a substituicao atualiza o arquivo baixavel da clinica sem criar outro laudo.
 - CA-008: build/lint frontend e testes backend passam.
+- CA-009: no fluxo sem agendamento, o operador consegue selecionar a clinica manualmente antes do upload.
+- CA-010: no fluxo sem agendamento, a busca de paciente encontra pets ja cadastrados por nome do pet ou do tutor.
+- CA-011: quando o paciente ainda nao existir, o operador consegue cadastrar tutor e pet no mesmo fluxo e seguir com o upload do PDF.
+- CA-012: o envio do PDF continua usando o paciente criado no mesmo fluxo, sem precisar sair para `Pacientes`.
 
 ## 6) Fora de escopo
 
