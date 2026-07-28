@@ -14,7 +14,13 @@ from sqlalchemy.orm import Session
 
 from app.models.laudo import Laudo
 from app.models.user import User
+from app.utils.ecocardiograma_medidas import (
+    extrair_medidas_ecocardiograma_da_descricao,
+)
 from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_paciente
+
+
+LAUDO_PDF_RENDERER_VERSION = "2026-07-27-ve-2d-v2"
 
 
 @dataclass(frozen=True)
@@ -100,7 +106,10 @@ def compute_laudo_pdf_cache_key(db: Session, laudo_id: int, user_id: int) -> str
     if not laudo:
         raise ValueError("Laudo nao encontrado")
 
-    payload = _carregar_stamp_cache(db, laudo, user_id)
+    payload = {
+        "pdf_renderer_version": LAUDO_PDF_RENDERER_VERSION,
+        **_carregar_stamp_cache(db, laudo, user_id),
+    }
     serialized = json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
     return hashlib.sha256(serialized).hexdigest()
 
@@ -283,16 +292,11 @@ def render_laudo_pdf(db: Session, laudo_id: int, current_user: User) -> Generate
             )
             filename = f"{filename_base}__US_abdominal.pdf"
         else:
-            medidas: dict[str, Any] = {}
+            medidas = extrair_medidas_ecocardiograma_da_descricao(laudo.descricao)
             qualitativa: dict[str, Any] = {}
             pressao_arterial = laudos_endpoint._extrair_pressao_arterial_de_anexos(laudo.anexos)
             if laudo.descricao:
                 descricao = laudo.descricao
-                for match in re.finditer(r"-\s*([\w_]+):\s*([\d.,]+)", descricao):
-                    chave = match.group(1)
-                    valor = match.group(2).replace(",", ".")
-                    medidas[chave] = valor
-
                 qualitativa_match = re.search(
                     r"Avalia(?:Ã§|c)Ã£o Qualitativa[\s\n]*(-.*?)(?=\n##|\Z)",
                     descricao,

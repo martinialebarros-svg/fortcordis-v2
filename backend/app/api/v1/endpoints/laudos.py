@@ -37,6 +37,9 @@ from app.services.laudo_pdf_jobs import (
 )
 from app.services.laudo_pdf_service import compute_laudo_pdf_cache_key, render_laudo_pdf
 from app.services.portal_clinic_notification_service import notify_clinic_report_released
+from app.utils.ecocardiograma_medidas import (
+    extrair_medidas_ecocardiograma_da_descricao,
+)
 from app.utils.paciente_helpers import (
     atualizar_observacoes_com_idade,
     extrair_idade_paciente,
@@ -1996,6 +1999,9 @@ def obter_laudo(
     ultrassonografia_abdominal = _extrair_ultrassonografia_abdominal_de_anexos(laudo.anexos)
     ecocardiograma_cabecalho = _extrair_ecocardiograma_cabecalho_de_anexos(laudo.anexos)
     ecocardiograma_estruturado = _extrair_ecocardiograma_estruturado_de_anexos(laudo.anexos)
+    medidas_ecocardiograma = extrair_medidas_ecocardiograma_da_descricao(
+        laudo.descricao
+    )
     if not ultrassonografia_abdominal and (laudo.tipo or "").lower() == "ultrassonografia_abdominal":
         ultrassonografia_abdominal = _extrair_ultrassonografia_abdominal_do_descricao(laudo.descricao)
     if ultrassonografia_abdominal and not ultrassonografia_abdominal.get("sexo_paciente") and paciente:
@@ -2022,6 +2028,7 @@ def obter_laudo(
         "tipo": laudo.tipo,
         "titulo": laudo.titulo,
         "descricao": laudo.descricao,
+        "medidas": medidas_ecocardiograma,
         "diagnostico": laudo.diagnostico,
         "observacoes": laudo.observacoes,
         "status": laudo.status,
@@ -2659,16 +2666,11 @@ def gerar_pdf_laudo(
             )
             filename = f"{filename_base}__US_abdominal.pdf"
         else:
-            medidas = {}
+            medidas = extrair_medidas_ecocardiograma_da_descricao(laudo.descricao)
             qualitativa = {}
             pressao_arterial = _extrair_pressao_arterial_de_anexos(laudo.anexos)
             if laudo.descricao:
                 descricao = laudo.descricao
-                for match in re.finditer(r"-\s*([\w_]+):\s*([\d.,]+)", descricao):
-                    chave = match.group(1)
-                    valor = match.group(2).replace(",", ".")
-                    medidas[chave] = valor
-
                 qualitativa_match = re.search(r"Avalia(?:ç|c)ão Qualitativa[\s\n]*(-.*?)(?=\n##|\Z)", descricao, re.DOTALL)
                 if not qualitativa_match:
                     qualitativa_match = re.search(r"Avaliacao Qualitativa[\s\n]*(-.*?)(?=\n##|\Z)", descricao, re.DOTALL)

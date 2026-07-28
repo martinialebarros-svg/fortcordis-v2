@@ -367,6 +367,29 @@ class EcoStudyExtractionServiceTest(unittest.TestCase):
             ["2d", "modo_m"],
         )
 
+    def test_pdf_with_only_2d_selects_2d_for_report(self) -> None:
+        content = _pdf_bytes(
+            [
+                "2D",
+                "LVIDd 32 mm",
+                "VDF(Teich) 96 ml",
+                "FE(Teich) 57 %",
+                "Doppler",
+                "e' 0.08 m/s",
+            ]
+        )
+
+        payload = parse_eco_study_import_content("somente-2d.pdf", content)
+
+        self.assertEqual(payload["medidas"]["DIVEd_2D"], 32)
+        self.assertEqual(payload["medidas"]["VDF_2D"], 96)
+        self.assertEqual(payload["medidas"]["FE_Teicholz_2D"], 57)
+        self.assertEqual(payload["medidas"]["VE_tecnica_relatorio"], "2d")
+        self.assertEqual(
+            payload["meta_importacao_estudo"]["tecnicas_ve_detectadas"],
+            ["2d"],
+        )
+
     def test_identifies_ge_vivid_iq_pdf_text_report(self) -> None:
         content = _pdf_bytes(
             [

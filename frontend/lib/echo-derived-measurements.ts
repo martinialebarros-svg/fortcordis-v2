@@ -72,6 +72,72 @@ export function hasAnyMeasurement(
   return keys.some((key) => Boolean(String(measurements[key] ?? "").trim()));
 }
 
+function normalizeStoredMeasurement(
+  key: string,
+  value: unknown
+): string | null {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+
+  if (key === "VE_tecnica_relatorio") {
+    const normalized = text.toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
+    return normalized === "modo_m" || normalized === "2d" ? normalized : null;
+  }
+  if (key === "Remodelamento_AD") {
+    const normalized = text.toLowerCase();
+    return ["ausente", "leve", "moderado", "importante"].includes(normalized)
+      ? normalized
+      : null;
+  }
+
+  const normalized = text.replace(",", ".");
+  return normalized !== "" && Number.isFinite(Number(normalized))
+    ? normalized
+    : null;
+}
+
+export function parseStoredEchoMeasurements(
+  rawMeasurements: unknown,
+  description = ""
+): Record<string, string> {
+  const parsed: Record<string, string> = {};
+
+  if (
+    rawMeasurements &&
+    typeof rawMeasurements === "object" &&
+    !Array.isArray(rawMeasurements)
+  ) {
+    Object.entries(rawMeasurements as Record<string, unknown>).forEach(
+      ([key, value]) => {
+        const normalized = normalizeStoredMeasurement(key, value);
+        if (normalized !== null) parsed[key] = normalized;
+      }
+    );
+  }
+
+  if (Object.keys(parsed).length === 0 && description) {
+    const section =
+      description.match(
+        /##\s*Medidas\s+Ecocardiogr(?:a|á)ficas\s*([\s\S]*?)(?=\n##\s*|$)/i
+      )?.[1] || "";
+    const linePattern = /^\s*-\s*([A-Za-z0-9_]+):\s*(.*?)\s*$/gm;
+    let match: RegExpExecArray | null;
+    while ((match = linePattern.exec(section)) !== null) {
+      const normalized = normalizeStoredMeasurement(match[1], match[2]);
+      if (normalized !== null) parsed[match[1]] = normalized;
+    }
+  }
+
+  if (!parsed.VE_tecnica_relatorio) {
+    const hasMMode = hasAnyMeasurement(parsed, LV_M_MODE_KEYS);
+    const has2D = hasAnyMeasurement(parsed, LV_2D_KEYS);
+    if (hasMMode && !has2D) parsed.VE_tecnica_relatorio = "modo_m";
+    if (has2D && !hasMMode) parsed.VE_tecnica_relatorio = "2d";
+  }
+
+  return parsed;
+}
+
 export function deriveAutomaticEchoMeasurements(
   measurements: Record<string, string>,
   weightKg: unknown
