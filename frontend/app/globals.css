@@ -614,6 +614,10 @@ body {
       linear-gradient(112deg, rgba(76, 5, 25, 0.98) 0%, rgba(23, 32, 29, 0.98) 54%, rgba(15, 118, 110, 0.94) 100%);
   }
 
+  .fc-clinical-header {
+    overflow: visible;
+  }
+
   .fc-finance-header {
     background:
       linear-gradient(112deg, rgba(23, 32, 29, 0.99) 0%, rgba(15, 78, 74, 0.98) 62%, rgba(180, 83, 9, 0.92) 145%);
@@ -624,6 +628,7 @@ body {
     content: "";
     position: absolute;
     inset: 0;
+    border-radius: inherit;
     opacity: 0.16;
     background:
       repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.14) 0 1px, transparent 1px 42px),
@@ -640,6 +645,8 @@ body {
     bottom: 0;
     left: 0;
     height: 4px;
+    border-bottom-left-radius: inherit;
+    border-bottom-right-radius: inherit;
     background: linear-gradient(90deg, #be123c, #14b8a6 72%, #f59e0b);
   }
 
