@@ -47,6 +47,9 @@ interface Laudo {
   data_exame?: string;
   clinica?: string;
   clinic_id?: number | null;
+  veterinario_parceiro_id?: number | null;
+  veterinario_parceiro_nome?: string | null;
+  veterinario_parceiro_crmv?: string | null;
   criado_por_nome: string;
   pdf_externo?: {
     anexo_id?: number;
@@ -443,6 +446,15 @@ export default function VisualizarLaudoPage() {
                 <div>
                   <span className="text-gray-500">Clínica:</span>
                   <p className="font-medium">{laudo.clinica}</p>
+                </div>
+              )}
+              {laudo.veterinario_parceiro_nome && (
+                <div>
+                  <span className="text-gray-500">Veterinário parceiro:</span>
+                  <p className="font-medium">
+                    {laudo.veterinario_parceiro_nome}
+                    {laudo.veterinario_parceiro_crmv ? ` • CRMV ${laudo.veterinario_parceiro_crmv}` : ""}
+                  </p>
                 </div>
               )}
             </div>

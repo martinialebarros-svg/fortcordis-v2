@@ -14,6 +14,7 @@ from app.db.database import get_db
 from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
 from app.models.laudo import Laudo, Exame
+from app.models.portal_partner import PORTAL_PARTNER_TYPE_VETERINARIO, PortalPartnerProfile
 from app.models.user import User
 from app.core.security import get_current_user
 from app.services.attachment_download_service import build_attachment_download_response
@@ -573,6 +574,23 @@ def _to_optional_int(value: Any) -> Optional[int]:
     return parsed if parsed > 0 else None
 
 
+def _load_veterinario_parceiro_or_422(
+    db: Session,
+    partner_id: Any,
+) -> tuple[Optional[int], Optional[PortalPartnerProfile]]:
+    resolved_partner_id = _to_optional_int(partner_id)
+    if resolved_partner_id is None:
+        return None, None
+
+    partner = db.query(PortalPartnerProfile).filter(PortalPartnerProfile.id == resolved_partner_id).first()
+    if partner is None or not bool(partner.ativo) or partner.tipo != PORTAL_PARTNER_TYPE_VETERINARIO:
+        raise HTTPException(
+            status_code=422,
+            detail="Selecione um veterinario parceiro ativo para vincular o encaminhamento.",
+        )
+    return resolved_partner_id, partner
+
+
 def _normalizar_ultrassonografia_abdominal(raw: Any) -> Optional[Dict[str, Any]]:
     if not isinstance(raw, dict):
         return None
@@ -1091,10 +1109,12 @@ def listar_laudos(
             Paciente.nome.label("paciente_nome"),
             Tutor.nome.label("tutor_nome"),
             Clinica.nome.label("clinica_nome"),
+            PortalPartnerProfile.nome_exibicao.label("veterinario_parceiro_nome"),
         )
         .outerjoin(Paciente, Laudo.paciente_id == Paciente.id)
         .outerjoin(Tutor, Paciente.tutor_id == Tutor.id)
         .outerjoin(Clinica, Laudo.clinic_id == Clinica.id)
+        .outerjoin(PortalPartnerProfile, Laudo.veterinario_parceiro_id == PortalPartnerProfile.id)
     )
     
     if paciente_id:
@@ -1136,6 +1156,7 @@ def listar_laudos(
                 func.coalesce(Paciente.nome, "").ilike(termo),
                 func.coalesce(Tutor.nome, "").ilike(termo),
                 func.coalesce(Clinica.nome, "").ilike(termo),
+                func.coalesce(PortalPartnerProfile.nome_exibicao, "").ilike(termo),
                 func.coalesce(Paciente.nome_key, "").ilike(termo_key),
                 func.coalesce(Tutor.nome_key, "").ilike(termo_key),
             )
@@ -1150,15 +1171,17 @@ def listar_laudos(
     ).offset(skip).limit(limit).all()
     
     resultado = []
-    for laudo, paciente_nome, tutor_nome, clinica_nome in rows:
+    for laudo, paciente_nome, tutor_nome, clinica_nome, veterinario_parceiro_nome in rows:
         resultado.append({
             "id": laudo.id,
             "paciente_id": laudo.paciente_id,
             "agendamento_id": laudo.agendamento_id,
             "paciente_nome": paciente_nome or "Desconhecido",
             "paciente_tutor": tutor_nome or "",
-            "clinica": clinica_nome or laudo.medico_solicitante or "",
+            "clinica": clinica_nome or "",
             "clinic_id": laudo.clinic_id,
+            "veterinario_parceiro_id": laudo.veterinario_parceiro_id,
+            "veterinario_parceiro_nome": veterinario_parceiro_nome or "",
             "tipo": laudo.tipo,
             "titulo": laudo.titulo,
             "status": laudo.status,
@@ -1178,6 +1201,7 @@ async def criar_laudo_eletrocardiograma_por_pdf(
     atendimento_id: Optional[int] = Form(None),
     paciente_id: Optional[int] = Form(None),
     clinic_id: Optional[int] = Form(None),
+    veterinario_parceiro_id: Optional[int] = Form(None),
     data_exame: Optional[str] = Form(None),
     observacoes: str = Form(""),
     db: Session = Depends(get_db),
@@ -1191,6 +1215,10 @@ async def criar_laudo_eletrocardiograma_por_pdf(
     atendimento_id = _to_optional_int(atendimento_id)
     paciente_id = _to_optional_int(paciente_id)
     clinic_id = _to_optional_int(clinic_id)
+    veterinario_parceiro_id, veterinario_parceiro = _load_veterinario_parceiro_or_422(
+        db,
+        veterinario_parceiro_id,
+    )
 
     atendimento = None
     if atendimento_id:
@@ -1225,6 +1253,11 @@ async def criar_laudo_eletrocardiograma_por_pdf(
 
     if not paciente_id:
         raise HTTPException(status_code=422, detail="Informe o paciente antes de enviar o eletrocardiograma.")
+    if not clinic_id and not veterinario_parceiro_id:
+        raise HTTPException(
+            status_code=422,
+            detail="Selecione a clinica parceira ou o veterinario parceiro antes de salvar o laudo.",
+        )
 
     paciente = db.query(Paciente).filter(Paciente.id == paciente_id).first()
     if not paciente:
@@ -1270,7 +1303,9 @@ async def criar_laudo_eletrocardiograma_por_pdf(
             observacoes=(observacoes or "").strip(),
             status="Finalizado",
             clinic_id=clinic_id,
+            veterinario_parceiro_id=veterinario_parceiro_id,
             data_exame=data_exame_final,
+            medico_solicitante=veterinario_parceiro.nome_exibicao if veterinario_parceiro else None,
             criado_por_id=current_user.id,
             criado_por_nome=current_user.nome,
         )
@@ -1320,6 +1355,8 @@ async def criar_laudo_eletrocardiograma_por_pdf(
         "status": laudo.status,
         "paciente_id": laudo.paciente_id,
         "clinic_id": laudo.clinic_id,
+        "veterinario_parceiro_id": laudo.veterinario_parceiro_id,
+        "veterinario_parceiro_nome": veterinario_parceiro.nome_exibicao if veterinario_parceiro else None,
         "agendamento_id": laudo.agendamento_id,
         "anexo_id": anexo.id,
         "message": "Laudo de eletrocardiograma criado com PDF anexado.",
@@ -1568,6 +1605,10 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
         diagnostico = conteudo.get("conclusao", "")
         observacoes = conteudo.get("observacoes", "")
         clinic_id = _extrair_clinic_id(clinica)
+        veterinario_parceiro_id, veterinario_parceiro = _load_veterinario_parceiro_or_422(
+            db,
+            laudo_data.get("veterinario_parceiro_id"),
+        )
         data_exame = _parse_data_exame(paciente.get("data_exame") or paciente.get("data"))
         anexos_json = _serializar_anexos(
             laudo_data.get("anexos"),
@@ -1597,8 +1638,12 @@ def criar_laudo_ecocardiograma(laudo_data: dict, db: Session, current_user: User
             anexos=anexos_json,
             status=laudo_data.get("status", "Finalizado"),
             clinic_id=clinic_id,
+            veterinario_parceiro_id=veterinario_parceiro_id,
             data_exame=data_exame,
-            medico_solicitante=veterinario.get("nome") if isinstance(veterinario, dict) else None,
+            medico_solicitante=(
+                (veterinario.get("nome") if isinstance(veterinario, dict) else None)
+                or (veterinario_parceiro.nome_exibicao if veterinario_parceiro else None)
+            ),
             criado_por_id=current_user.id,
             criado_por_nome=current_user.nome,
         )
@@ -1668,6 +1713,10 @@ def criar_laudo_pressao_arterial(laudo_data: dict, db: Session, current_user: Us
             observacoes = f"{observacoes}\n{obs_pressao}".strip()
 
         clinic_id = _extrair_clinic_id(clinica)
+        veterinario_parceiro_id, veterinario_parceiro = _load_veterinario_parceiro_or_422(
+            db,
+            laudo_data.get("veterinario_parceiro_id"),
+        )
         data_exame = _parse_data_exame(paciente.get("data_exame") or paciente.get("data"))
         anexos_json = _serializar_anexos(laudo_data.get("anexos"), pressao_arterial)
 
@@ -1692,8 +1741,12 @@ def criar_laudo_pressao_arterial(laudo_data: dict, db: Session, current_user: Us
             anexos=anexos_json,
             status=laudo_data.get("status", "Finalizado"),
             clinic_id=clinic_id,
+            veterinario_parceiro_id=veterinario_parceiro_id,
             data_exame=data_exame,
-            medico_solicitante=veterinario.get("nome") if isinstance(veterinario, dict) else None,
+            medico_solicitante=(
+                (veterinario.get("nome") if isinstance(veterinario, dict) else None)
+                or (veterinario_parceiro.nome_exibicao if veterinario_parceiro else None)
+            ),
             criado_por_id=current_user.id,
             criado_por_nome=current_user.nome,
         )
@@ -1764,6 +1817,10 @@ def criar_laudo_ultrassonografia_abdominal(laudo_data: dict, db: Session, curren
             or ""
         ).strip()
         clinic_id = _extrair_clinic_id(clinica)
+        veterinario_parceiro_id, veterinario_parceiro = _load_veterinario_parceiro_or_422(
+            db,
+            laudo_data.get("veterinario_parceiro_id"),
+        )
         data_exame = _parse_data_exame(
             paciente.get("data_exame") or paciente.get("data") or laudo_data.get("data_exame")
         )
@@ -1793,8 +1850,12 @@ def criar_laudo_ultrassonografia_abdominal(laudo_data: dict, db: Session, curren
             anexos=anexos_json,
             status=laudo_data.get("status", "Finalizado"),
             clinic_id=clinic_id,
+            veterinario_parceiro_id=veterinario_parceiro_id,
             data_exame=data_exame,
-            medico_solicitante=veterinario.get("nome") if isinstance(veterinario, dict) else None,
+            medico_solicitante=(
+                (veterinario.get("nome") if isinstance(veterinario, dict) else None)
+                or (veterinario_parceiro.nome_exibicao if veterinario_parceiro else None)
+            ),
             criado_por_id=current_user.id,
             criado_por_nome=current_user.nome,
         )
@@ -1879,6 +1940,13 @@ def atualizar_laudo_ultrassonografia_abdominal(
                 raise HTTPException(status_code=422, detail="clinic_id invalido.")
         else:
             clinic_id = None
+    veterinario_parceiro_id = laudo.veterinario_parceiro_id
+    veterinario_parceiro = None
+    if "veterinario_parceiro_id" in laudo_data:
+        veterinario_parceiro_id, veterinario_parceiro = _load_veterinario_parceiro_or_422(
+            db,
+            laudo_data.get("veterinario_parceiro_id"),
+        )
 
     data_exame = _parse_data_exame(
         paciente.get("data_exame") or paciente.get("data") or laudo_data.get("data_exame")
@@ -1898,10 +1966,14 @@ def atualizar_laudo_ultrassonografia_abdominal(
     laudo.status = laudo_data.get("status", laudo.status)
     if clinic_id is not None or "clinic_id" in laudo_data or isinstance(clinica, dict):
         laudo.clinic_id = clinic_id
+    if "veterinario_parceiro_id" in laudo_data:
+        laudo.veterinario_parceiro_id = veterinario_parceiro_id
     if data_exame is not None or "data_exame" in laudo_data or paciente.get("data_exame"):
         laudo.data_exame = data_exame
     if isinstance(veterinario, dict) and veterinario.get("nome"):
         laudo.medico_solicitante = veterinario.get("nome")
+    elif veterinario_parceiro is not None:
+        laudo.medico_solicitante = veterinario_parceiro.nome_exibicao
     elif "medico_solicitante" in laudo_data:
         laudo.medico_solicitante = laudo_data.get("medico_solicitante")
 
@@ -1976,6 +2048,13 @@ def obter_laudo(
         clinica = db.query(Clinica).filter(Clinica.id == laudo.clinic_id).first()
         if clinica:
             clinica_nome = clinica.nome
+    veterinario_parceiro = None
+    if laudo.veterinario_parceiro_id:
+        veterinario_parceiro = (
+            db.query(PortalPartnerProfile)
+            .filter(PortalPartnerProfile.id == laudo.veterinario_parceiro_id)
+            .first()
+        )
     
     # Buscar imagens do laudo
     from app.models.imagem_laudo import ImagemLaudo
@@ -2021,8 +2100,11 @@ def obter_laudo(
             "peso_kg": paciente.peso_kg if paciente else None,
             "idade": idade,
         },
-        "clinica": clinica_nome or laudo.medico_solicitante or "",
+        "clinica": clinica_nome or "",
         "clinic_id": laudo.clinic_id,
+        "veterinario_parceiro_id": laudo.veterinario_parceiro_id,
+        "veterinario_parceiro_nome": getattr(veterinario_parceiro, "nome_exibicao", None),
+        "veterinario_parceiro_crmv": getattr(veterinario_parceiro, "crmv", None),
         "medico_solicitante": laudo.medico_solicitante,
         "data_exame": laudo.data_exame.isoformat() if laudo.data_exame else None,
         "tipo": laudo.tipo,
@@ -2131,6 +2213,7 @@ def atualizar_laudo(
                     if isinstance(veterinario, dict)
                     else None
                 ),
+                "veterinario_parceiro_id": laudo_data.get("veterinario_parceiro_id"),
                 "pressao_arterial": laudo_data.get("pressao_arterial"),
                 "ecocardiograma_cabecalho": laudo_data.get(
                     "ecocardiograma_cabecalho"
@@ -2158,6 +2241,14 @@ def atualizar_laudo(
                 laudo_data["clinic_id"] = int(clinic_id)
             except (TypeError, ValueError):
                 raise HTTPException(status_code=422, detail="clinic_id invalido.")
+    if "veterinario_parceiro_id" in laudo_data:
+        veterinario_parceiro_id, veterinario_parceiro = _load_veterinario_parceiro_or_422(
+            db,
+            laudo_data.get("veterinario_parceiro_id"),
+        )
+        laudo_data["veterinario_parceiro_id"] = veterinario_parceiro_id
+        if veterinario_parceiro is not None and not laudo_data.get("medico_solicitante"):
+            laudo_data["medico_solicitante"] = veterinario_parceiro.nome_exibicao
 
     if "tipo_laudo" in laudo_data and "tipo" not in laudo_data:
         laudo_data["tipo"] = laudo_data.pop("tipo_laudo")

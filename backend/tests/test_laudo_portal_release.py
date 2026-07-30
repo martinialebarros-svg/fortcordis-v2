@@ -26,6 +26,7 @@ from app.models.clinica import Clinica
 from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
 from app.models.portal_clinic_auth import PortalClinicAccount, PortalClinicInvite
+from app.models.portal_partner import PORTAL_PARTNER_TYPE_VETERINARIO, PortalPartnerProfile
 from app.models.tutor import Tutor
 
 
@@ -73,6 +74,7 @@ class LaudoPortalReleaseTest(unittest.TestCase):
             AnexoAtendimento.__table__,
             PortalClinicInvite.__table__,
             PortalClinicAccount.__table__,
+            PortalPartnerProfile.__table__,
         ):
             table.create(engine, checkfirst=True)
         session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()
@@ -157,6 +159,58 @@ class LaudoPortalReleaseTest(unittest.TestCase):
             render_mock.assert_called_once()
             store_mock.assert_called_once()
             self.assertEqual(audit_mock.call_count, 2)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_upload_eletrocardiograma_pode_vincular_veterinario_parceiro_sem_clinica(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            paciente = Paciente(nome="Bolt", especie="Canina", ativo=1)
+            partner = PortalPartnerProfile(
+                tipo=PORTAL_PARTNER_TYPE_VETERINARIO,
+                nome_exibicao="Dra. Carla Soares",
+                email_login="carla.soares@example.com",
+                whatsapp="85999990002",
+                cidade_base="Fortaleza",
+                estado_base="CE",
+                ativo=True,
+            )
+            db.add_all([paciente, partner])
+            db.commit()
+            db.refresh(paciente)
+            db.refresh(partner)
+
+            current_user = SimpleNamespace(id=7, nome="Dr. Martiniano", email="vet@example.com")
+            upload = _make_upload_file("eletro-bolt.pdf", "application/pdf", b"%PDF-1.4\neletro\n")
+            with patch.object(
+                laudos,
+                "store_atendimento_attachment_file",
+                side_effect=self._fake_store(tmpdir),
+            ):
+                response = asyncio.run(
+                    laudos.criar_laudo_eletrocardiograma_por_pdf(
+                        arquivo=upload,
+                        agendamento_id=None,
+                        atendimento_id=None,
+                        paciente_id=paciente.id,
+                        clinic_id=None,
+                        veterinario_parceiro_id=partner.id,
+                        data_exame="2026-07-30",
+                        observacoes="Encaminhado para telemedicina.",
+                        db=db,
+                        current_user=current_user,
+                    )
+                )
+
+            laudo = db.query(Laudo).filter(Laudo.id == response["id"]).first()
+            self.assertIsNotNone(laudo)
+            self.assertEqual(laudo.veterinario_parceiro_id, partner.id)
+            self.assertIsNone(laudo.clinic_id)
+            self.assertEqual(laudo.medico_solicitante, "Dra. Carla Soares")
+            self.assertEqual(response["veterinario_parceiro_id"], partner.id)
+            self.assertEqual(response["veterinario_parceiro_nome"], "Dra. Carla Soares")
         finally:
             db.close()
             engine.dispose()

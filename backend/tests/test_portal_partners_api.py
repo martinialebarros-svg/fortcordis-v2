@@ -54,6 +54,11 @@ class PortalPartnersApiTest(unittest.TestCase):
             nome="Admin Teste",
             email="admin@example.com",
         )
+        self._app.dependency_overrides[portal_partners._require_portal_operational_user] = lambda: SimpleNamespace(
+            id=2,
+            nome="Operacao Teste",
+            email="operacao@example.com",
+        )
 
     def tearDown(self) -> None:
         self._app.dependency_overrides.clear()
@@ -201,6 +206,32 @@ class PortalPartnersApiTest(unittest.TestCase):
             )
             self.assertEqual(duplicate_email_response.status_code, 409)
             self.assertIn("email de login", duplicate_email_response.json()["detail"])
+
+    def test_operational_flow_can_list_and_quick_create_veterinary_partner(self) -> None:
+        with TestClient(self._app) as client:
+            create_response = client.post(
+                "/api/v1/portal/parceiros/veterinarios/cadastro-rapido",
+                json={
+                    "tipo": "clinica",
+                    "nome_exibicao": "Dra. Lia Ponte",
+                    "email_login": "lia.ponte@example.com",
+                    "whatsapp": "85999990008",
+                    "cidade_base": "Fortaleza",
+                    "estado_base": "CE",
+                    "area_atuacao": "Cardiologia domiciliar",
+                },
+            )
+            self.assertEqual(create_response.status_code, 201)
+            payload = create_response.json()
+            self.assertEqual(payload["tipo"], "veterinario")
+            self.assertEqual(payload["nome_exibicao"], "Dra. Lia Ponte")
+
+            list_response = client.get("/api/v1/portal/parceiros/veterinarios/opcoes?q=lia")
+            self.assertEqual(list_response.status_code, 200)
+            list_payload = list_response.json()
+            self.assertEqual(list_payload["total"], 1)
+            self.assertEqual(list_payload["items"][0]["id"], payload["id"])
+            self.assertEqual(list_payload["items"][0]["tipo"], "veterinario")
 
 
 if __name__ == "__main__":

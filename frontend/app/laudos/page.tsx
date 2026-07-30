@@ -34,6 +34,8 @@ interface Laudo {
   paciente_tutor?: string;
   clinica?: string;
   clinic_id?: number | null;
+  veterinario_parceiro_id?: number | null;
+  veterinario_parceiro_nome?: string;
   tipo: string;
   titulo: string;
   status: string;
@@ -477,7 +479,7 @@ export default function LaudosPage() {
                 type="text"
                 placeholder={
                   tab === "laudos"
-                    ? "Buscar por animal, tutor ou clinica"
+                    ? "Buscar por animal, tutor, clinica ou parceiro"
                     : "Buscar exames por tipo, status ou paciente"
                 }
                 value={busca}
@@ -557,6 +559,12 @@ export default function LaudosPage() {
                               <span className="flex items-center gap-1">
                                 <FileText className="w-3 h-3" />
                                 {laudo.clinica}
+                              </span>
+                            )}
+                            {laudo.veterinario_parceiro_nome && (
+                              <span className="flex items-center gap-1">
+                                <User className="w-3 h-3" />
+                                Vet parceiro: {laudo.veterinario_parceiro_nome}
                               </span>
                             )}
                             <span className="flex items-center gap-1">

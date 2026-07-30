@@ -32,7 +32,8 @@ class Laudo(Base):
     
     # Clínica
     clinic_id = Column(Integer, nullable=True)  # ID da clínica vinculada
-    
+    veterinario_parceiro_id = Column(Integer, nullable=True, index=True)  # Parceiro externo que encaminhou o caso
+
     # Dados adicionais
     data_exame = Column(DateTime(timezone=True))  # Data do exame
     medico_solicitante = Column(String)  # Médico solicitante

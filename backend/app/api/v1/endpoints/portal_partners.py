@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from app.core.security import require_papel
+from app.core.security import get_current_user, require_papel
 from app.db.database import get_db
 from app.models.clinica import Clinica
 from app.models.portal_partner import (
@@ -24,6 +24,10 @@ router = APIRouter()
 
 
 def _require_portal_admin(current_user: User = Depends(require_papel("admin"))) -> User:
+    return current_user
+
+
+def _require_portal_operational_user(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
@@ -336,6 +340,66 @@ def listar_parceiros_externos(
         total=len(partners),
         items=[_serialize_partner(partner, clinicas_by_id=clinicas_by_id) for partner in partners],
     )
+
+
+@router.get("/parceiros/veterinarios/opcoes", response_model=PortalPartnerProfileListResponse)
+def listar_veterinarios_parceiros_para_fluxo(
+    q: str | None = Query(default=None, max_length=120),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_portal_operational_user),
+):
+    del current_user
+    query = db.query(PortalPartnerProfile).filter(
+        PortalPartnerProfile.tipo == PORTAL_PARTNER_TYPE_VETERINARIO,
+        PortalPartnerProfile.ativo.is_(True),
+    )
+    if q:
+        search = f"%{q.strip().lower()}%"
+        query = query.filter(
+            or_(
+                func.lower(func.coalesce(PortalPartnerProfile.nome_exibicao, "")).like(search),
+                func.lower(func.coalesce(PortalPartnerProfile.email_login, "")).like(search),
+                func.lower(func.coalesce(PortalPartnerProfile.whatsapp, "")).like(search),
+                func.lower(func.coalesce(PortalPartnerProfile.telefone, "")).like(search),
+                func.lower(func.coalesce(PortalPartnerProfile.cidade_base, "")).like(search),
+                func.lower(func.coalesce(PortalPartnerProfile.area_atuacao, "")).like(search),
+            )
+        )
+
+    partners = (
+        query.order_by(
+            func.lower(PortalPartnerProfile.nome_exibicao).asc(),
+            PortalPartnerProfile.id.asc(),
+        )
+        .limit(limit)
+        .all()
+    )
+    return PortalPartnerProfileListResponse(
+        total=len(partners),
+        items=[_serialize_partner(partner, clinicas_by_id={}) for partner in partners],
+    )
+
+
+@router.post(
+    "/parceiros/veterinarios/cadastro-rapido",
+    response_model=PortalPartnerProfileResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def criar_veterinario_parceiro_no_fluxo(
+    payload: PortalPartnerProfileCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_portal_operational_user),
+):
+    del current_user
+    payload_data = payload.model_dump()
+    payload_data["tipo"] = PORTAL_PARTNER_TYPE_VETERINARIO
+    resolved = _resolve_create_payload(db, PortalPartnerProfileCreateRequest(**payload_data))
+    partner = PortalPartnerProfile(**resolved)
+    db.add(partner)
+    db.commit()
+    db.refresh(partner)
+    return _serialize_partner(partner, clinicas_by_id={})
 
 
 @router.post("/parceiros", response_model=PortalPartnerProfileResponse, status_code=status.HTTP_201_CREATED)

@@ -173,6 +173,11 @@ Esta entrega generaliza o portal externo da Fort Cordis para operar como portal 
   - filtros por pet, tutor, especie, tipo de exame e periodo
   - ordenacao por realizacao, pet, tutor ou tipo
   - download protegido dos anexos liberados
+- o fluxo interno de upload de eletrocardiograma/telemedicina agora permite:
+  - selecionar clinica parceira e/ou veterinario parceiro no mesmo caso
+  - cadastrar um novo veterinario parceiro sem sair da tela de upload
+  - salvar laudo domiciliar sem clinica fixa quando houver apenas encaminhamento do veterinario parceiro
+  - persistir `veterinario_parceiro_id` no laudo para auditoria, exibicao e proximas etapas de liberacao
 
 ### Banco/migracoes
 
@@ -197,6 +202,7 @@ Esta entrega generaliza o portal externo da Fort Cordis para operar como portal 
   - generalizacao das estruturas de autenticacao/convite/sessao do portal para referenciar `portal_partner_profiles.id` em vez de fluxo exclusivo de clinica
   - nova tabela `portal_partner_release_targets` para mapear laudos/exames liberados por destinatario externo
   - campos opcionais de vinculacao a parceiro externo no fluxo de origem do exame/laudo, incluindo cenarios com e sem agendamento
+  - nova coluna `laudos.veterinario_parceiro_id` para registrar o parceiro veterinario que encaminhou o caso
 - Indices/constraints:
   - indice por `tipo`, `ativo`, `email_login`
   - unique parcial para `email_login` ativo por parceiro externo na fase 1
@@ -223,6 +229,7 @@ Esta entrega generaliza o portal externo da Fort Cordis para operar como portal 
   - tela autenticada do parceiro externo
   - fluxo de liberacao de laudos
   - fluxo de upload/telemedicina sem agendamento
+  - visualizacao e listagem interna de laudos com identificacao do veterinario parceiro vinculado
 - Estados de UI:
   - alternancia por tipo `clinica` / `veterinario`
   - parceiro sem convite
@@ -235,7 +242,6 @@ Esta entrega generaliza o portal externo da Fort Cordis para operar como portal 
   - formularios de parceiro veterinario nao devem exigir endereco fixo completo
   - formularios de parceiro clinica podem reaproveitar o vinculo com `clinica_id`
   - a UI deve mostrar claramente o tipo do parceiro em listas, filtros e cabecalho do portal
-  - a copy do portal do parceiro deve usar linguagem humana e direta, evitando termos internos ou tecnicos como `escopo profissional`
   - quando o email ja estiver em uso por outro parceiro externo ativo, a UI deve orientar ajuste do cadastro, sem ambiguidade
 
 ## 5) Compatibilidade e rollout

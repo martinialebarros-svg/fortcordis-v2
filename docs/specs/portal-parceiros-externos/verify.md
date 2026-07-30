@@ -12,14 +12,16 @@ Status: in_progress
 | CA-002 | aceitacao | Smoke de clinica parceira migrada acessando portal sem novo cadastro | pendente |
 | CA-003 | aceitacao | Login de veterinario parceiro com escopo restrito aos laudos liberados | parcial |
 | CA-004 | aceitacao | Fluxo de liberacao com combinacao clinica/veterinario/tutor | pendente |
-| CA-005 | aceitacao | Fluxo de telemedicina/upload com selecao ou cadastro rapido do parceiro | pendente |
+| CA-005 | aceitacao | Fluxo de telemedicina/upload com selecao ou cadastro rapido do parceiro | concluido |
 | CA-006 | aceitacao | Painel administrativo com filtros por tipo, ultimo acesso e ultimo download | parcial |
 | CA-007 | aceitacao | Timeline auditavel com convite, ativacao, login, revogacao e download | pendente |
 | API-F2-001 | tecnico | CRUD administrativo inicial de parceiros externos (`GET/POST/PATCH /api/v1/portal/parceiros`) | concluido |
+| API-F5-001 | tecnico | Endpoints operacionais para listar/cadastrar veterinario parceiro no fluxo de telemedicina | concluido |
 | UI-F3-001 | tecnico | Tela administrativa `/clinicas/portal/parceiros` integrada aos endpoints de parceiros externos | concluido |
 | API-F4-001 | tecnico | Fluxo de convite/autenticacao do veterinario parceiro (`/api/v1/portal/parceiros/...`) | concluido |
 | UI-F4-001 | tecnico | Portal publico `/veterinario-parceiro` com ativacao, login, reset e listagem escopada | concluido |
-| UI-F4-002 | tecnico | Copy do portal do parceiro ajustada para linguagem mais natural, sem `escopo profissional` | concluido |
+| UI-F5-001 | tecnico | Tela de upload de eletrocardiograma com clinica ou veterinario parceiro + cadastro rapido no fluxo | concluido |
+| DB-F5-001 | tecnico | Persistencia de `laudos.veterinario_parceiro_id` para vinculo do encaminhamento | concluido |
 | NFR-002 | nao funcional | Logs e consultas mostrando escopo por `partner_id` sem vazamento entre parceiros | pendente |
 | NFR-004 | nao funcional | Migracao/compatibilidade preservando espelho das clinicas ja ativas e dos exames legados liberados | parcial |
 
@@ -32,38 +34,45 @@ backend/venv/bin/python -m unittest backend.tests.test_portal_partner_profiles_m
 backend/venv/bin/python -m unittest backend.tests.test_migration_ci_cycle
 backend/venv/bin/python -m unittest backend.tests.test_portal_partners_api
 backend/venv/bin/python -m unittest backend.tests.test_portal_partner_auth
+backend/venv/bin/python -m unittest backend.tests.test_laudo_portal_release
+backend/venv/bin/python -m unittest backend.tests.test_laudos_referring_partner_migration
 backend/venv/bin/python -m py_compile \
+  backend/app/api/v1/endpoints/laudos.py \
   backend/app/api/v1/endpoints/portal_partners.py \
   backend/app/api/v1/endpoints/portal_partner_auth.py \
+  backend/app/models/laudo.py \
   backend/app/models/portal_partner.py \
   backend/app/models/portal_partner_auth.py \
   backend/app/services/portal_partner_auth_service.py \
   backend/migrations/versions/20260729_57_portal_partner_profiles.py \
   backend/migrations/versions/20260730_58_portal_partner_auth.py \
+  backend/migrations/versions/20260730_60_laudos_referring_partner.py \
   backend/app/main.py \
   backend/app/schemas/portal.py \
   backend/app/api/v1/endpoints/portal.py \
   backend/setup_database.py \
+  backend/tests/test_laudo_portal_release.py \
+  backend/tests/test_laudos_referring_partner_migration.py \
   backend/tests/test_portal_partner_auth.py \
   backend/tests/test_portal_partner_profiles_migration.py \
   backend/tests/test_portal_partners_api.py
-npx eslint lib/portal-api.ts lib/portal-clinic-admin.ts components/portal/PortalPartnerWorkspace.tsx components/portal/PortalPartnerPageShell.tsx components/portal/PortalPartnerActivationWorkspace.tsx components/portal/PortalPartnerResetPasswordWorkspace.tsx app/veterinario-parceiro/page.tsx app/veterinario-parceiro/ativar/[token]/page.tsx app/veterinario-parceiro/redefinir-senha/page.tsx app/clinicas/portal/parceiros/page.tsx
+npx eslint lib/portal-api.ts lib/portal-clinic-admin.ts components/portal/PortalPartnerWorkspace.tsx components/portal/PortalPartnerPageShell.tsx components/portal/PortalPartnerActivationWorkspace.tsx components/portal/PortalPartnerResetPasswordWorkspace.tsx app/veterinario-parceiro/page.tsx app/veterinario-parceiro/ativar/[token]/page.tsx app/veterinario-parceiro/redefinir-senha/page.tsx app/clinicas/portal/parceiros/page.tsx app/laudos/eletrocardiograma/upload/page.tsx app/laudos/page.tsx app/laudos/[id]/page.tsx
 npx tsc --noEmit
 npm run build
-npx eslint components/portal/PortalPartnerWorkspace.tsx lib/portal-clinic-admin.ts
 ```
 
 Resumo dos resultados:
 - Backend:
   - `test_portal_partner_profiles_migration`: passou (`1 test`, cobrindo criacao das tabelas novas, backfill de clinicas legadas, prioridade de email e espelho de liberacoes antigas)
-  - `test_portal_partners_api`: passou (`2 tests`, cobrindo listagem, criacao e edicao de veterinario parceiro, heranca de defaults da clinica e bloqueios de duplicidade)
+  - `test_portal_partners_api`: passou (`3 tests`, cobrindo listagem, criacao e edicao de veterinario parceiro, heranca de defaults da clinica, bloqueios de duplicidade e cadastro rapido operacional)
   - `test_portal_partner_auth`: passou (`2 tests`, cobrindo emissao de convite, ativacao do parceiro, login com senha e listagem escopada por `partner_id`)
+  - `test_laudo_portal_release`: passou (`9 tests`, incluindo upload de eletrocardiograma com vinculo de veterinario parceiro sem clinica fixa)
+  - `test_laudos_referring_partner_migration`: passou (`1 test`, cobrindo inclusao da coluna `veterinario_parceiro_id` e indice em `laudos`)
   - `py_compile`: passou nos arquivos tocados do backend
 - Frontend:
   - `npx eslint` nos arquivos alterados: passou
   - `npx tsc --noEmit`: passou
-  - `npm run build`: passou, incluindo a rota `/clinicas/portal/parceiros`
-  - `npx eslint components/portal/PortalPartnerWorkspace.tsx lib/portal-clinic-admin.ts`: passou, cobrindo o ajuste de copy do portal do parceiro
+  - `npm run build`: pendente nesta rodada
 
 Observacao:
 - A fase atual conclui a base administrativa, o fluxo autenticado do veterinario parceiro e a primeira experiencia publica do parceiro. Timeline dedicada, liberacao multi-destinatario e fluxo completo de telemedicina ainda seguem pendentes.
@@ -93,6 +102,7 @@ Observacao:
   - iniciar um fluxo de telemedicina/upload sem agendamento
   - buscar parceiro existente
   - testar o caminho alternativo de cadastrar novo veterinario parceiro
+  - salvar o laudo apenas com veterinario parceiro quando nao houver clinica fixa
 
 ## 4) Regressao e riscos residuais
 
@@ -104,6 +114,8 @@ Observacao:
   - a fase atual cria o fluxo autenticado do veterinario parceiro, mas ainda nao conclui timeline administrativa e liberacao multi-destinatario no mesmo pacote
 - Risco residual 4:
   - o painel administrativo ja emite convite do veterinario parceiro, mas ainda nao mostra historico persistente de convites/login/download por parceiro
+- Risco residual 5:
+  - a liberacao direta do laudo para o portal do veterinario parceiro ainda depende da proxima etapa; nesta rodada o vinculo do encaminhamento fica salvo, visivel e pesquisavel, mas a publicacao continua clinic-centric
 
 ## 5) Itens fora de escopo entregues
 
