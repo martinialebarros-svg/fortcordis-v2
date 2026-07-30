@@ -112,6 +112,8 @@ class AtendimentoCreatePayload(BaseModel):
     data_atendimento: Optional[str] = None
     status: str = Field(default="Triagem", max_length=50)
     triagem: Optional[TriagemPayload] = None
+    triagem_concluida: Optional[int] = 0
+    consulta_concluida: Optional[int] = 0
     queixa_principal: Optional[str] = ""
     anamnese: Optional[str] = ""
     exame_fisico: Optional[str] = ""
@@ -130,7 +132,7 @@ class AtendimentoUpdatePayload(BaseModel):
     clinica_id: Optional[int] = None
     agendamento_id: Optional[int] = None
     data_atendimento: Optional[str] = None
-    status: Optional[str] = None
+    status: Optional[str] = Field(default=None, max_length=50)
     triagem: Optional[TriagemPayload] = None
     triagem_concluida: Optional[int] = None
     consulta_concluida: Optional[int] = None
@@ -145,6 +147,10 @@ class AtendimentoUpdatePayload(BaseModel):
     observacoes: Optional[str] = None
     exames: Optional[List[ExameSolicitacaoPayload]] = None
     prescricao: Optional[PrescricaoPayload] = None
+
+
+class AtendimentoFinalizarPayload(BaseModel):
+    tipo_horario: str = Field(default="comercial", max_length=20)
 
 
 class MedicamentoPayload(BaseModel):

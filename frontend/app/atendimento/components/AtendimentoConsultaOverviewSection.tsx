@@ -42,42 +42,48 @@ export default function AtendimentoConsultaOverviewSection(props: AtendimentoCon
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div className="relative md:col-span-2">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                value={pacienteBusca}
-                onChange={(e) => {
-                  setPacienteBusca(e.target.value);
-                  const nextValue = e.target.value;
-                  setMostrarPacientes(nextValue.trim().length >= 2);
-                  if (!nextValue.trim()) {
-                    setField("paciente_id", "");
-                    setMostrarPacientes(false);
-                  }
-                }}
-                onFocus={() => {
-                  if (pacienteDropdownBlurTimeoutRef.current) {
-                    window.clearTimeout(pacienteDropdownBlurTimeoutRef.current);
-                  }
-                  if (pacienteBusca.trim().length >= 2) {
-                    setMostrarPacientes(true);
-                  }
-                }}
-                onBlur={() => {
-                  if (pacienteDropdownBlurTimeoutRef.current) {
-                    window.clearTimeout(pacienteDropdownBlurTimeoutRef.current);
-                  }
-                  pacienteDropdownBlurTimeoutRef.current = window.setTimeout(() => {
-                    setMostrarPacientes(false);
-                  }, 120);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setMostrarPacientes(false);
-                  }
-                }}
-                placeholder="Buscar paciente ou tutor..."
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-3 text-sm text-slate-900"
-              />
+              <label htmlFor="atendimento-paciente-busca" className="mb-1.5 block text-xs font-medium text-slate-600">
+                Paciente ou tutor
+              </label>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  id="atendimento-paciente-busca"
+                  value={pacienteBusca}
+                  onChange={(e) => {
+                    setPacienteBusca(e.target.value);
+                    const nextValue = e.target.value;
+                    setMostrarPacientes(nextValue.trim().length >= 2);
+                    if (!nextValue.trim()) {
+                      setField("paciente_id", "");
+                      setMostrarPacientes(false);
+                    }
+                  }}
+                  onFocus={() => {
+                    if (pacienteDropdownBlurTimeoutRef.current) {
+                      window.clearTimeout(pacienteDropdownBlurTimeoutRef.current);
+                    }
+                    if (pacienteBusca.trim().length >= 2) {
+                      setMostrarPacientes(true);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (pacienteDropdownBlurTimeoutRef.current) {
+                      window.clearTimeout(pacienteDropdownBlurTimeoutRef.current);
+                    }
+                    pacienteDropdownBlurTimeoutRef.current = window.setTimeout(() => {
+                      setMostrarPacientes(false);
+                    }, 120);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      setMostrarPacientes(false);
+                    }
+                  }}
+                  placeholder="Buscar paciente ou tutor..."
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-3 text-sm text-slate-900"
+                />
+              </div>
               {pacienteDropdownAberto ? (
                 <div className="absolute left-0 top-full z-20 mt-2 max-h-64 w-full overflow-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
                   {pacientesFiltrados.map((paciente: any) => (
@@ -97,41 +103,67 @@ export default function AtendimentoConsultaOverviewSection(props: AtendimentoCon
               ) : null}
               <p className="mt-2 text-xs text-slate-500">Digite pelo menos 2 letras para buscar pacientes e tutores.</p>
             </div>
-            <select
-              value={form.clinica_id}
-              onChange={(e) => setField("clinica_id", e.target.value)}
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900"
-            >
-              <option value="">Clinica</option>
-              {clinicas.map((c: any) => (
-                <option key={c.id} value={c.id}>
-                  {c.nome}
-                </option>
-              ))}
-            </select>
-            <input
-              type="datetime-local"
-              value={form.data_atendimento}
-              onChange={(e) => setField("data_atendimento", e.target.value)}
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900"
-            />
-            <input
-              value={form.agendamento_id}
-              onChange={(e) => setField("agendamento_id", e.target.value)}
-              placeholder="Agendamento ID"
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400"
-            />
-            <select
-              value={form.status}
-              onChange={(e) => setField("status", e.target.value)}
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900"
-            >
-              {STATUS_ATENDIMENTO.map((status: string) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
+            <label className="block text-xs font-medium text-slate-600">
+              Clínica
+              <select
+                value={form.clinica_id}
+                onChange={(e) => setField("clinica_id", e.target.value)}
+                className="mt-1.5 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900"
+              >
+                <option value="">Selecione a clínica</option>
+                {clinicas.map((c: any) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nome}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs font-medium text-slate-600">
+              Data e hora do atendimento
+              <input
+                type="datetime-local"
+                value={form.data_atendimento}
+                onChange={(e) => setField("data_atendimento", e.target.value)}
+                className="mt-1.5 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900"
+              />
+            </label>
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-slate-600">Agendamento vinculado</p>
+              <div
+                aria-label={
+                  form.agendamento_id
+                    ? `Agendamento vinculado numero ${form.agendamento_id}`
+                    : "Atendimento sem agendamento vinculado"
+                }
+                className="rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-700"
+              >
+                {form.agendamento_id ? `Agenda #${form.agendamento_id}` : "Sem agendamento"}
+              </div>
+            </div>
+            <label className="block text-xs font-medium text-slate-600">
+              Estado do atendimento
+              <select
+                value={form.status}
+                onChange={(e) => setField("status", e.target.value)}
+                disabled={form.status === "Concluido" && Boolean(form.agendamento_id)}
+                className="mt-1.5 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900"
+              >
+                {STATUS_ATENDIMENTO.map((status: string) => (
+                  <option
+                    key={status}
+                    value={status}
+                    disabled={status === "Concluido" && form.status !== "Concluido"}
+                  >
+                    {status}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1.5 block text-[11px] font-normal text-slate-500">
+                {form.status === "Concluido" && form.agendamento_id
+                  ? "Reabertura vinculada bloqueada para proteger Agenda e OS."
+                  : "Para concluir, use a acao Finalizar atendimento."}
+              </span>
+            </label>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

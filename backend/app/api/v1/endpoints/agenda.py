@@ -5557,6 +5557,34 @@ def atualizar_status(
         raise HTTPException(status_code=404, detail="Agendamento nao encontrado")
 
     status_normalizado = _normalizar_status_agendamento(status)
+    transicao_clinica_protegida = status_normalizado == "Realizado" or (
+        db_agendamento.status == "Realizado" and status_normalizado == "Em atendimento"
+    )
+    if (
+        transicao_clinica_protegida
+        and "atendimentos_clinicos" in inspect(db.get_bind()).get_table_names()
+    ):
+        from app.models.atendimento_clinico import AtendimentoClinico
+
+        atendimento_vinculado = (
+            db.query(AtendimentoClinico)
+            .filter(AtendimentoClinico.agendamento_id == agendamento_id)
+            .order_by(AtendimentoClinico.id.asc())
+            .first()
+        )
+        if atendimento_vinculado:
+            orientacao = (
+                "Finalize pelo modulo Atendimento"
+                if status_normalizado == "Realizado"
+                else "A reabertura vinculada esta bloqueada nesta etapa"
+            )
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"O agendamento possui o Atendimento #{atendimento_vinculado.id}. "
+                    f"{orientacao} para manter prontuario, Agenda e OS consistentes."
+                ),
+            )
     if db_agendamento.status == "Expirado" and status_normalizado in AGENDA_STATUS_BLOQUEIAM_SLOT:
         raise HTTPException(
             status_code=409,

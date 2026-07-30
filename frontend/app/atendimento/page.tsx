@@ -28,6 +28,7 @@ import {
   formatDate,
   isoToLocalInput,
   isoToOptionalLocalInput,
+  localInputToOperationalIso,
   normalizePeso,
   nowLocalInput,
   parseDecimalInput,
@@ -1149,7 +1150,7 @@ const buildAtendimentoPayload = (form: AtendimentoForm) => {
     paciente_id: Number(form.paciente_id),
     clinica_id: form.clinica_id ? Number(form.clinica_id) : null,
     agendamento_id: form.agendamento_id ? Number(form.agendamento_id) : null,
-    data_atendimento: form.data_atendimento ? new Date(form.data_atendimento).toISOString() : null,
+    data_atendimento: localInputToOperationalIso(form.data_atendimento),
     status: form.status,
     triagem: form.triagem,
     triagem_concluida: form.triagem_concluida,
@@ -1183,7 +1184,7 @@ const buildAtendimentoPayload = (form: AtendimentoForm) => {
           observacoes: item.observacoes || "",
           valor: Number(item.valor || 0),
           laudo_id: item.laudo_id || null,
-          data_resultado: item.data_resultado ? new Date(item.data_resultado).toISOString() : null,
+          data_resultado: localInputToOperationalIso(item.data_resultado),
         };
       }),
     prescricao: {
@@ -1302,6 +1303,8 @@ export default function AtendimentoPage() {
   const [sucesso, setSucesso] = useState("");
   const [sucessoPopup, setSucessoPopup] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
+  const [finalizando, setFinalizando] = useState(false);
+  const [tipoHorarioFinalizacao, setTipoHorarioFinalizacao] = useState<"comercial" | "plantao">("comercial");
   const [workspacePainel, setWorkspacePainel] = useState<WorkspacePainel>("consulta");
   const [consultaEditorEtapa, setConsultaEditorEtapa] = useState<ConsultaEditorEtapa>("anamnese");
   const [consultaCampoAtivo, setConsultaCampoAtivo] = useState<ClinicalFieldKey>("queixa_principal");
@@ -1855,6 +1858,7 @@ export default function AtendimentoPage() {
           especie: contexto.especie || prev.especie,
           clinica_id: contexto.clinica_id ? String(contexto.clinica_id) : prev.clinica_id,
           agendamento_id: String(agendamentoId),
+          data_atendimento: contexto.inicio ? isoToLocalInput(contexto.inicio) : prev.data_atendimento,
         }));
         aplicarCadastroComplementar(contexto.paciente, contexto.tutor);
         setContextoAplicado(true);
@@ -3690,6 +3694,7 @@ export default function AtendimentoPage() {
     } catch (e: any) {
       if (mode === "autosave") {
         setAutosaveState("error");
+        setErro(extractApiErrorMessageSync(e, "Nao foi possivel sincronizar o atendimento."));
       } else {
         setErro(extractApiErrorMessageSync(e, "Erro ao salvar atendimento."));
       }
@@ -3698,6 +3703,51 @@ export default function AtendimentoPage() {
       if (mode === "manual") {
         setSalvando(false);
       }
+    }
+  };
+
+  const finalizarAtendimento = async () => {
+    setFinalizando(true);
+    try {
+      const atendimentoId = await saveAtendimento("manual");
+      if (!atendimentoId) return;
+
+      const response = await api.post(`/atendimentos/${atendimentoId}/finalizar`, {
+        tipo_horario: tipoHorarioFinalizacao,
+      });
+      const detalhe = response.data?.atendimento || {};
+      const hydrated = hydrateFormFromDetail(detalhe);
+
+      hydratingFormRef.current = true;
+      setSelecionado(Number(atendimentoId));
+      setForm(hydrated);
+      formRef.current = hydrated;
+      lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(hydrated);
+      clearDraftStorage();
+      draftRestoreRef.current = true;
+      setAutosaveState("saved");
+      setAutosaveAt(detalhe.updated_at || detalhe.created_at || new Date().toISOString());
+      if (typeof window !== "undefined") {
+        window.requestAnimationFrame(() => {
+          hydratingFormRef.current = false;
+        });
+      }
+
+      await carregarLista(paginaLista);
+      if (hydrated.paciente_id) {
+        await carregarHistoricoPaciente(hydrated.paciente_id);
+      }
+      setErro("");
+      setSucesso(response.data?.mensagem || "Atendimento finalizado com sucesso.");
+    } catch (e: any) {
+      setErro(
+        extractApiErrorMessageSync(
+          e,
+          "Nao foi possivel finalizar. O atendimento, a Agenda e a OS foram preservados."
+        )
+      );
+    } finally {
+      setFinalizando(false);
     }
   };
 
@@ -5642,11 +5692,49 @@ export default function AtendimentoPage() {
                 </button>
                 <button
                   onClick={() => void saveAtendimento()}
-                  disabled={salvando}
+                  disabled={salvando || finalizando}
                   className="fc-care-button-primary"
                 >
                   <span className="inline-flex items-center gap-2"><Save className="h-4 w-4" />{salvando ? "Salvando..." : "Salvar atendimento"}</span>
                 </button>
+                <div className="flex items-stretch overflow-hidden rounded-2xl border border-emerald-300 bg-emerald-50">
+                  {form.agendamento_id ? (
+                    <label className="flex flex-col justify-center border-r border-emerald-200 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-800">
+                      Horario da OS
+                      <select
+                        aria-label="Tipo de horario para a ordem de servico"
+                        value={tipoHorarioFinalizacao}
+                        onChange={(event) =>
+                          setTipoHorarioFinalizacao(event.target.value as "comercial" | "plantao")
+                        }
+                        disabled={salvando || finalizando}
+                        className="mt-0.5 bg-transparent text-xs font-medium normal-case tracking-normal text-emerald-950 outline-none"
+                      >
+                        <option value="comercial">Comercial</option>
+                        <option value="plantao">Plantao</option>
+                      </select>
+                    </label>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void finalizarAtendimento()}
+                    disabled={salvando || finalizando || !form.paciente_id}
+                    className="px-4 py-2 text-sm font-semibold text-emerald-900 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      {finalizando ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4" />
+                      )}
+                      {finalizando
+                        ? "Finalizando..."
+                        : form.status === "Concluido"
+                          ? "Confirmar sincronizacao"
+                          : "Finalizar atendimento"}
+                    </span>
+                  </button>
+                </div>
               </div>
             </div>
 

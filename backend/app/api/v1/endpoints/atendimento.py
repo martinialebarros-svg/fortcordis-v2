@@ -1,5 +1,6 @@
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from io import BytesIO
 import json
 import logging
@@ -17,6 +18,7 @@ from app.schemas.atendimento import (
     AnexoPayload,
     AlertaPayload,
     AtendimentoCreatePayload,
+    AtendimentoFinalizarPayload,
     AtendimentoUpdatePayload,
     ClinicalPhrasePayload,
     DiagnosticoPayload,
@@ -38,10 +40,11 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from sqlalchemy import func, or_, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.agenda_realtime import agenda_realtime_manager
 from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.core.security import _authorize_request_by_matrix, get_current_user, get_request_token
 from app.db.database import get_db
@@ -63,6 +66,7 @@ from app.models.catalogo_exame import CatalogoExame, PainelExame
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao, ConfiguracaoUsuario
 from app.models.laudo import Exame, Laudo
+from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.models.user import User
@@ -120,6 +124,12 @@ from app.services.upload_dedupe_cleanup_service import (
     UPLOAD_DEDUPE_CLEANUP_EXECUTOR_MANUAL,
 )
 from app.services.medication_automation import analyze_prescription_items, medication_to_dict
+from app.services.auditoria_service import registrar_auditoria
+from app.services.precos_service import calcular_preco_servico
+from app.services.push_notifications import (
+    send_agenda_push_notification,
+    send_financeiro_push_notification,
+)
 from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_paciente
 from app.utils.pdf_laudo import (
     create_pdf_styles,
@@ -131,6 +141,20 @@ from app.utils.pdf_laudo import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+ATENDIMENTO_LOCAL_TZ = timezone(timedelta(hours=-3), name="America/Fortaleza")
+ATENDIMENTO_STATUS_CANONICOS = {
+    "triagem": "Triagem",
+    "em atendimento": "Em atendimento",
+    "aguardando exames": "Aguardando exames",
+    "retorno agendado": "Retorno agendado",
+    "concluido": "Concluido",
+}
+ATENDIMENTO_TIPOS_HORARIO = {"comercial", "plantao"}
+ATENDIMENTO_AGENDA_STATUS_TERMINAIS = {"Cancelado", "Faltou", "Expirado"}
+ATENDIMENTO_FINALIZATION_LOCK_KEY = 24052302
+ORIGEM_ATENDIMENTO_DOMICILIAR = "domiciliar"
+ORIGEM_ATENDIMENTO_PADRAO = "clinica_parceira"
 
 PORTAL_EXAME_RELEASE_MESSAGE = "Exame liberado no portal da clinica parceira."
 
@@ -245,6 +269,270 @@ def _normalizar_diagnostico(diagnostico: Optional[Union[DiagnosticoPayload, str]
     }
 
 
+def _normalizar_token_status_atendimento(value: Any) -> str:
+    raw = unicodedata.normalize("NFKD", str(value or "").strip())
+    sem_acentos = "".join(ch for ch in raw if not unicodedata.combining(ch))
+    return re.sub(r"\s+", " ", sem_acentos).strip().lower()
+
+
+def _normalizar_status_atendimento(value: Any) -> str:
+    token = _normalizar_token_status_atendimento(value)
+    status_canonico = ATENDIMENTO_STATUS_CANONICOS.get(token)
+    if status_canonico:
+        return status_canonico
+    permitidos = ", ".join(ATENDIMENTO_STATUS_CANONICOS.values())
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=f"Status de atendimento invalido. Use um destes estados: {permitidos}.",
+    )
+
+
+def _status_atendimento_concluido(value: Any) -> bool:
+    return _normalizar_token_status_atendimento(value) == "concluido"
+
+
+def _tem_texto_clinico(value: Any) -> bool:
+    return bool(str(value or "").strip())
+
+
+def _validar_primeira_conclusao_atendimento(
+    *,
+    status_atual: Any,
+    status_destino: Any,
+    queixa_principal: Any,
+    anamnese: Any,
+    exame_fisico: Any,
+    dados_clinicos: Any,
+    diagnostico_principal: Any,
+    diagnostico_secundario: Any,
+    diagnostico_diferencial: Any,
+    plano_terapeutico: Any,
+) -> None:
+    if not _status_atendimento_concluido(status_destino) or _status_atendimento_concluido(status_atual):
+        return
+
+    pendencias: List[str] = []
+    if not _tem_texto_clinico(queixa_principal):
+        pendencias.append("queixa principal")
+    if not any(_tem_texto_clinico(item) for item in (anamnese, exame_fisico, dados_clinicos)):
+        pendencias.append("anamnese, exame fisico ou dados clinicos")
+    if not any(
+        _tem_texto_clinico(item)
+        for item in (
+            diagnostico_principal,
+            diagnostico_secundario,
+            diagnostico_diferencial,
+            plano_terapeutico,
+        )
+    ):
+        pendencias.append("diagnostico ou plano terapeutico")
+
+    if pendencias:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Nao foi possivel concluir o atendimento. Preencha: "
+                + "; ".join(pendencias)
+                + ". Voce pode manter o atendimento em andamento e continuar depois."
+            ),
+        )
+
+
+def _normalizar_tipo_horario_atendimento(value: Any) -> str:
+    tipo_horario = str(value or "").strip().lower()
+    if tipo_horario not in ATENDIMENTO_TIPOS_HORARIO:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Tipo de horario invalido. Use comercial ou plantao.",
+        )
+    return tipo_horario
+
+
+def _normalizar_origem_atendimento(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    aliases = {
+        "": ORIGEM_ATENDIMENTO_PADRAO,
+        "clinica": ORIGEM_ATENDIMENTO_PADRAO,
+        "clinica_parceira": ORIGEM_ATENDIMENTO_PADRAO,
+        "parceira": ORIGEM_ATENDIMENTO_PADRAO,
+        "domiciliar": ORIGEM_ATENDIMENTO_DOMICILIAR,
+    }
+    origem = aliases.get(raw, raw)
+    if origem not in {ORIGEM_ATENDIMENTO_PADRAO, ORIGEM_ATENDIMENTO_DOMICILIAR}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Origem do agendamento invalida para finalizar o atendimento.",
+        )
+    return origem
+
+
+def _adquirir_lock_finalizacao(db: Session) -> None:
+    if db.info.get("_atendimento_finalization_lock"):
+        return
+
+    dialect_name = str(getattr(getattr(db.get_bind(), "dialect", None), "name", "")).lower()
+    if dialect_name == "sqlite":
+        if not db.in_transaction():
+            db.execute(text("BEGIN IMMEDIATE"))
+    elif dialect_name in {"postgres", "postgresql"}:
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_key)"),
+            {"lock_key": ATENDIMENTO_FINALIZATION_LOCK_KEY},
+        )
+    else:
+        (
+            db.query(Configuracao)
+            .order_by(Configuracao.id.asc())
+            .with_for_update()
+            .first()
+        )
+    db.info["_atendimento_finalization_lock"] = True
+
+
+def _buscar_os_ativa(db: Session, agendamento_id: int) -> Optional[OrdemServico]:
+    return (
+        db.query(OrdemServico)
+        .filter(
+            OrdemServico.agendamento_id == agendamento_id,
+            or_(OrdemServico.status.is_(None), OrdemServico.status != "Cancelado"),
+        )
+        .order_by(OrdemServico.id.desc())
+        .first()
+    )
+
+
+def _gerar_numero_os_finalizacao(db: Session) -> str:
+    mes_ano = datetime.now(ATENDIMENTO_LOCAL_TZ).strftime("%Y%m")
+    ultima_os = (
+        db.query(OrdemServico)
+        .filter(OrdemServico.numero_os.like(f"OS{mes_ano}%"))
+        .order_by(OrdemServico.id.desc())
+        .first()
+    )
+
+    sequencia = 1
+    if ultima_os and ultima_os.numero_os:
+        sufixo = "".join(ch for ch in str(ultima_os.numero_os)[-4:] if ch.isdigit())
+        if len(sufixo) == 4:
+            sequencia = int(sufixo) + 1
+
+    while (
+        db.query(OrdemServico)
+        .filter(OrdemServico.numero_os == f"OS{mes_ano}{sequencia:04d}")
+        .first()
+    ):
+        sequencia += 1
+    return f"OS{mes_ano}{sequencia:04d}"
+
+
+def _carregar_e_validar_agendamento_atendimento(
+    db: Session,
+    *,
+    agendamento_id: int,
+    paciente_id: int,
+    clinica_id: Optional[int],
+    atendimento_id_excluir: Optional[int] = None,
+    lock: bool = False,
+) -> Agendamento:
+    duplicado_query = db.query(AtendimentoClinico).filter(
+        AtendimentoClinico.agendamento_id == agendamento_id
+    )
+    if atendimento_id_excluir is not None:
+        duplicado_query = duplicado_query.filter(AtendimentoClinico.id != atendimento_id_excluir)
+    duplicado = duplicado_query.order_by(AtendimentoClinico.id.asc()).first()
+    if duplicado:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"O agendamento #{agendamento_id} ja possui o atendimento "
+                f"#{duplicado.id}. Abra o registro existente."
+            ),
+        )
+
+    agendamento_query = db.query(Agendamento).filter(Agendamento.id == agendamento_id)
+    if lock:
+        agendamento_query = agendamento_query.with_for_update()
+    agendamento = agendamento_query.first()
+    if not agendamento:
+        raise HTTPException(status_code=404, detail="Agendamento vinculado nao encontrado.")
+
+    if not agendamento.paciente_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="O agendamento precisa ter um paciente antes de iniciar o atendimento.",
+        )
+    if int(agendamento.paciente_id) != int(paciente_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="O paciente do atendimento e diferente do paciente da Agenda.",
+        )
+
+    origem = _normalizar_origem_atendimento(getattr(agendamento, "origem_atendimento", None))
+    if origem != ORIGEM_ATENDIMENTO_DOMICILIAR and not agendamento.clinica_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="O agendamento precisa ter uma clinica antes de iniciar o atendimento.",
+        )
+    if (
+        clinica_id is not None
+        and agendamento.clinica_id is not None
+        and int(agendamento.clinica_id) != int(clinica_id)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A clinica do atendimento e diferente da base operacional da Agenda.",
+        )
+    return agendamento
+
+
+def _raise_atendimento_integrity_conflict(
+    db: Session,
+    *,
+    agendamento_id: Optional[int],
+    exc: IntegrityError,
+    atendimento_id_excluir: Optional[int] = None,
+) -> None:
+    db.rollback()
+    if agendamento_id:
+        existente_query = db.query(AtendimentoClinico).filter(
+            AtendimentoClinico.agendamento_id == agendamento_id
+        )
+        if atendimento_id_excluir is not None:
+            existente_query = existente_query.filter(
+                AtendimentoClinico.id != atendimento_id_excluir
+            )
+        existente = existente_query.order_by(AtendimentoClinico.id.asc()).first()
+        if existente:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"O agendamento #{agendamento_id} ja possui o atendimento "
+                    f"#{existente.id}. Abra o registro existente."
+                ),
+            ) from exc
+    raise HTTPException(
+        status_code=409,
+        detail="O atendimento entrou em conflito com outro registro salvo simultaneamente.",
+    ) from exc
+
+
+def _commit_atendimento_com_guard(
+    db: Session,
+    *,
+    agendamento_id: Optional[int],
+    atendimento_id_excluir: Optional[int] = None,
+) -> None:
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        _raise_atendimento_integrity_conflict(
+            db,
+            agendamento_id=agendamento_id,
+            exc=exc,
+            atendimento_id_excluir=atendimento_id_excluir,
+        )
+
+
 def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
     if value is None:
         return None
@@ -272,6 +560,18 @@ def _to_iso(value: Any) -> Optional[str]:
         except Exception:
             return str(value)
     return str(value)
+
+
+def _to_operational_iso(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, datetime):
+        return _to_iso(value)
+    if value.tzinfo is None:
+        local_value = value.replace(tzinfo=ATENDIMENTO_LOCAL_TZ)
+    else:
+        local_value = value.astimezone(ATENDIMENTO_LOCAL_TZ)
+    return local_value.isoformat()
 
 
 def _formatar_data_hora(value: Any) -> str:
@@ -1108,7 +1408,7 @@ def _map_exame(exame: Exame) -> dict:
         "valor": exame.valor or 0,
         "laudo_id": exame.laudo_id,
         "data_solicitacao": _to_iso(exame.data_solicitacao),
-        "data_resultado": _to_iso(exame.data_resultado),
+        "data_resultado": _to_operational_iso(exame.data_resultado),
     }
 
 
@@ -1529,7 +1829,7 @@ def _montar_detalhe_atendimento(
         "agendamento_id": atendimento.agendamento_id,
         "veterinario_id": atendimento.veterinario_id,
         "especie": atendimento.especie or "",
-        "data_atendimento": _to_iso(atendimento.data_atendimento),
+        "data_atendimento": _to_operational_iso(atendimento.data_atendimento),
         "status": atendimento.status,
         # Triagem
         "triagem": {
@@ -1702,7 +2002,7 @@ def listar_atendimentos(
                 "especie": atendimento.especie or "",
                 "clinica_id": atendimento.clinica_id,
                 "agendamento_id": atendimento.agendamento_id,
-                "data_atendimento": _to_iso(atendimento.data_atendimento),
+                "data_atendimento": _to_operational_iso(atendimento.data_atendimento),
                 "status": atendimento.status,
                 "queixa_principal": atendimento.queixa_principal or "",
                 "diagnostico": atendimento.diagnostico_principal or "",
@@ -2061,7 +2361,7 @@ def obter_contexto_agendamento(
         "tutor_nome": tutor.nome if tutor else (agendamento.tutor or ""),
         "clinica_id": agendamento.clinica_id,
         "clinica_nome": clinica.nome if clinica else (agendamento.clinica or ""),
-        "inicio": _to_iso(agendamento.inicio),
+        "inicio": _to_operational_iso(agendamento.inicio),
         "status": agendamento.status,
     }
 
@@ -2366,23 +2666,60 @@ def criar_atendimento(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    data_atendimento = _parse_datetime(payload.data_atendimento) or datetime.now()
-    tutor_id = _resolver_tutor_paciente(db, payload.paciente_id)
-    especie = _resolver_especie_paciente(db, payload.paciente_id)
-
-    # Extrair dados de triagem
+    status_atendimento = _normalizar_status_atendimento(payload.status or "Triagem")
     triagem = payload.triagem
     diagnostico = _normalizar_diagnostico(payload.diagnostico)
+    _validar_primeira_conclusao_atendimento(
+        status_atual=None,
+        status_destino=status_atendimento,
+        queixa_principal=payload.queixa_principal,
+        anamnese=payload.anamnese,
+        exame_fisico=payload.exame_fisico,
+        dados_clinicos=payload.dados_clinicos,
+        diagnostico_principal=diagnostico["diagnostico_principal"],
+        diagnostico_secundario=diagnostico["diagnostico_secundario"],
+        diagnostico_diferencial=diagnostico["diagnostico_diferencial"],
+        plano_terapeutico=payload.plano_terapeutico,
+    )
+
+    agendamento = None
+    if payload.agendamento_id:
+        agendamento = _carregar_e_validar_agendamento_atendimento(
+            db,
+            agendamento_id=payload.agendamento_id,
+            paciente_id=payload.paciente_id,
+            clinica_id=payload.clinica_id,
+        )
+        if status_atendimento == "Concluido":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Atendimentos vinculados devem ser criados em andamento e concluidos "
+                    "pela acao Finalizar atendimento."
+                ),
+            )
+    clinica_id = (
+        payload.clinica_id
+        if payload.clinica_id is not None
+        else (agendamento.clinica_id if agendamento else None)
+    )
+    data_atendimento = (
+        _parse_datetime(payload.data_atendimento)
+        or (agendamento.inicio if agendamento else None)
+        or datetime.now(ATENDIMENTO_LOCAL_TZ)
+    )
+    tutor_id = _resolver_tutor_paciente(db, payload.paciente_id)
+    especie = _resolver_especie_paciente(db, payload.paciente_id)
 
     atendimento = AtendimentoClinico(
         paciente_id=payload.paciente_id,
         tutor_id=tutor_id,
-        clinica_id=payload.clinica_id,
+        clinica_id=clinica_id,
         agendamento_id=payload.agendamento_id,
         veterinario_id=current_user.id,
         especie=especie,
         data_atendimento=data_atendimento,
-        status=payload.status or "Triagem",
+        status=status_atendimento,
         # Triagem
         peso=triagem.peso if triagem else None,
         temperatura=triagem.temperatura if triagem else None,
@@ -2394,7 +2731,7 @@ def criar_atendimento(
         mucosas=triagem.mucosas if triagem else None,
         hidratacao=triagem.hidratacao if triagem else None,
         triagem_observacoes=triagem.triagem_observacoes if triagem else None,
-        triagem_concluida=1 if triagem else 0,
+        triagem_concluida=1 if payload.triagem_concluida else 0,
         # Consulta
         queixa_principal=payload.queixa_principal or "",
         anamnese=payload.anamnese or "",
@@ -2411,18 +2748,27 @@ def criar_atendimento(
         retorno_recomendado=payload.retorno_recomendado or "",
         motivo_retorno=payload.motivo_retorno or "",
         observacoes=payload.observacoes or "",
+        consulta_concluida=(
+            1 if status_atendimento == "Concluido" else (1 if payload.consulta_concluida else 0)
+        ),
         created_at=datetime.now(),
         updated_at=datetime.now(),
         criado_por_id=current_user.id,
         criado_por_nome=current_user.nome,
     )
     db.add(atendimento)
-    db.flush()
+    try:
+        db.flush()
+        _sync_exames(db, atendimento, payload.exames, current_user)
+        _sync_prescricao(db, atendimento, payload.prescricao, current_user)
+    except IntegrityError as exc:
+        _raise_atendimento_integrity_conflict(
+            db,
+            agendamento_id=payload.agendamento_id,
+            exc=exc,
+        )
 
-    _sync_exames(db, atendimento, payload.exames, current_user)
-    _sync_prescricao(db, atendimento, payload.prescricao, current_user)
-
-    db.commit()
+    _commit_atendimento_com_guard(db, agendamento_id=payload.agendamento_id)
     db.refresh(atendimento)
     return _montar_detalhe_atendimento(db, atendimento)
 
@@ -2440,17 +2786,91 @@ def atualizar_atendimento(
 
     data = payload.model_dump(exclude_unset=True, exclude={"triagem", "diagnostico"})
 
+    paciente_destino = (
+        data["paciente_id"]
+        if data.get("paciente_id") is not None
+        else atendimento.paciente_id
+    )
+    clinica_destino = data.get("clinica_id", atendimento.clinica_id)
+    agendamento_destino = data.get("agendamento_id", atendimento.agendamento_id)
+    agendamento_validado = None
+    if agendamento_destino:
+        agendamento_validado = _carregar_e_validar_agendamento_atendimento(
+            db,
+            agendamento_id=int(agendamento_destino),
+            paciente_id=int(paciente_destino),
+            clinica_id=clinica_destino,
+            atendimento_id_excluir=atendimento.id,
+        )
+        if clinica_destino is None:
+            clinica_destino = agendamento_validado.clinica_id
+
+    status_atual = atendimento.status
+    status_destino = atendimento.status
+    if "status" in data and data["status"] is not None:
+        status_destino = _normalizar_status_atendimento(data["status"])
+
+    diagnostico_destino = (
+        _normalizar_diagnostico(payload.diagnostico)
+        if payload.diagnostico is not None
+        else {
+            "diagnostico_principal": atendimento.diagnostico_principal or "",
+            "diagnostico_secundario": atendimento.diagnostico_secundario or "",
+            "diagnostico_diferencial": atendimento.diagnostico_diferencial or "",
+            "prognostico": atendimento.prognostico,
+        }
+    )
+    _validar_primeira_conclusao_atendimento(
+        status_atual=status_atual,
+        status_destino=status_destino,
+        queixa_principal=data.get("queixa_principal", atendimento.queixa_principal),
+        anamnese=data.get("anamnese", atendimento.anamnese),
+        exame_fisico=data.get("exame_fisico", atendimento.exame_fisico),
+        dados_clinicos=data.get("dados_clinicos", atendimento.dados_clinicos),
+        diagnostico_principal=diagnostico_destino["diagnostico_principal"],
+        diagnostico_secundario=diagnostico_destino["diagnostico_secundario"],
+        diagnostico_diferencial=diagnostico_destino["diagnostico_diferencial"],
+        plano_terapeutico=data.get("plano_terapeutico", atendimento.plano_terapeutico),
+    )
+    if (
+        agendamento_destino
+        and status_destino == "Concluido"
+        and not _status_atendimento_concluido(status_atual)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Use a acao Finalizar atendimento para concluir o prontuario, "
+                "a Agenda e a OS em uma unica operacao."
+            ),
+        )
+    if (
+        agendamento_destino
+        and _status_atendimento_concluido(status_atual)
+        and not _status_atendimento_concluido(status_destino)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Um atendimento vinculado e concluido nao pode ser reaberto isoladamente. "
+                "A reabertura fica bloqueada ate poder desfazer prontuario, Agenda e OS "
+                "em uma unica operacao."
+            ),
+        )
+
     if "paciente_id" in data and data["paciente_id"] is not None:
         atendimento.paciente_id = data["paciente_id"]
         atendimento.tutor_id = _resolver_tutor_paciente(db, atendimento.paciente_id)
         atendimento.especie = _resolver_especie_paciente(db, atendimento.paciente_id)
 
     if "clinica_id" in data:
-        atendimento.clinica_id = data["clinica_id"]
+        atendimento.clinica_id = clinica_destino
+    elif agendamento_validado and atendimento.clinica_id is None:
+        atendimento.clinica_id = clinica_destino
     if "agendamento_id" in data:
         atendimento.agendamento_id = data["agendamento_id"]
     if "status" in data and data["status"] is not None:
-        atendimento.status = data["status"]
+        atendimento.status = status_destino
 
     if "data_atendimento" in data:
         atendimento.data_atendimento = _parse_datetime(data["data_atendimento"]) or atendimento.data_atendimento
@@ -2473,10 +2893,12 @@ def atualizar_atendimento(
         atendimento.triagem_concluida = data["triagem_concluida"]
     if "consulta_concluida" in data:
         atendimento.consulta_concluida = data["consulta_concluida"]
+    if status_destino == "Concluido" and not _status_atendimento_concluido(status_atual):
+        atendimento.consulta_concluida = 1
 
     # DiagnÃ³sticos
     if payload.diagnostico is not None:
-        diag = _normalizar_diagnostico(payload.diagnostico)
+        diag = diagnostico_destino
         atendimento.diagnostico_principal = diag["diagnostico_principal"] or ""
         atendimento.diagnostico_secundario = diag["diagnostico_secundario"] or ""
         atendimento.diagnostico_diferencial = diag["diagnostico_diferencial"] or ""
@@ -2500,14 +2922,351 @@ def atualizar_atendimento(
 
     atendimento.updated_at = datetime.now()
 
-    if payload.exames is not None:
-        _sync_exames(db, atendimento, payload.exames, current_user)
-    if "prescricao" in data:
-        _sync_prescricao(db, atendimento, payload.prescricao, current_user)
+    try:
+        if payload.exames is not None:
+            _sync_exames(db, atendimento, payload.exames, current_user)
+        if "prescricao" in data:
+            _sync_prescricao(db, atendimento, payload.prescricao, current_user)
+    except IntegrityError as exc:
+        _raise_atendimento_integrity_conflict(
+            db,
+            agendamento_id=atendimento.agendamento_id,
+            exc=exc,
+            atendimento_id_excluir=atendimento.id,
+        )
 
-    db.commit()
+    _commit_atendimento_com_guard(
+        db,
+        agendamento_id=atendimento.agendamento_id,
+        atendimento_id_excluir=atendimento.id,
+    )
     db.refresh(atendimento)
     return _montar_detalhe_atendimento(db, atendimento)
+
+
+def _emitir_efeitos_finalizacao(
+    *,
+    db: Session,
+    request: Request,
+    current_user: User,
+    atendimento: AtendimentoClinico,
+    agendamento: Optional[Agendamento],
+    ordem_servico: Optional[OrdemServico],
+    atendimento_status_anterior: str,
+    agenda_status_anterior: Optional[str],
+    os_reutilizada: bool,
+    tipo_horario: str,
+) -> None:
+    detalhes = {
+        "atendimento_id": atendimento.id,
+        "agendamento_id": agendamento.id if agendamento else None,
+        "atendimento_status_anterior": atendimento_status_anterior,
+        "atendimento_status_novo": atendimento.status,
+        "agenda_status_anterior": agenda_status_anterior,
+        "agenda_status_novo": agendamento.status if agendamento else None,
+        "ordem_servico_id": ordem_servico.id if ordem_servico else None,
+        "os_reutilizada": os_reutilizada,
+        "tipo_horario": tipo_horario,
+    }
+    finalizacao_repetida = (
+        _status_atendimento_concluido(atendimento_status_anterior)
+        and (
+            agendamento is None
+            or (
+                agenda_status_anterior == agendamento.status
+                and os_reutilizada
+            )
+        )
+    )
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="atendimento",
+        entidade="atendimento_clinico",
+        entidade_id=atendimento.id,
+        acao=(
+            "ATENDIMENTO_FINALIZACAO_REPETIDA"
+            if finalizacao_repetida
+            else "ATENDIMENTO_FINALIZADO"
+        ),
+        descricao=(
+            f"Finalizacao do Atendimento #{atendimento.id} "
+            + ("reconfirmada" if finalizacao_repetida else "concluida")
+            + (f" com Agenda #{agendamento.id}" if agendamento else " sem Agenda vinculada")
+        ),
+        detalhes=detalhes,
+        request=request,
+    )
+
+    if not agendamento:
+        return
+
+    if agenda_status_anterior != agendamento.status:
+        registrar_auditoria(
+            current_user=current_user,
+            modulo="agenda",
+            entidade="agendamento",
+            entidade_id=agendamento.id,
+            acao="AGENDAMENTO_REALIZADO_POR_ATENDIMENTO",
+            descricao=(
+                f"Agenda #{agendamento.id} realizada pela finalizacao transacional "
+                f"do Atendimento #{atendimento.id}"
+            ),
+            detalhes=detalhes,
+            request=request,
+        )
+        payload_agenda = {
+            "status_anterior": agenda_status_anterior,
+            "status_novo": agendamento.status,
+            "atendimento_id": atendimento.id,
+            "os_id": ordem_servico.id if ordem_servico else None,
+        }
+        try:
+            agenda_realtime_manager.publish(
+                action="status_changed",
+                agendamento_id=agendamento.id,
+                data=payload_agenda,
+            )
+        except Exception as exc:
+            logger.warning("Falha ao publicar finalizacao na Agenda em tempo real: %s", exc)
+        try:
+            send_agenda_push_notification(
+                db,
+                action="status_changed",
+                agendamento_id=agendamento.id,
+                data=payload_agenda,
+                actor_user_id=current_user.id,
+            )
+        except Exception as exc:
+            logger.warning("Falha ao notificar finalizacao na Agenda: %s", exc)
+
+    if ordem_servico and not os_reutilizada:
+        try:
+            send_financeiro_push_notification(
+                db,
+                action="os_generated",
+                os_id=ordem_servico.id,
+                data={
+                    "numero_os": ordem_servico.numero_os,
+                    "valor_final": f"{float(ordem_servico.valor_final or 0):.2f}",
+                    "agendamento_id": agendamento.id,
+                    "atendimento_id": atendimento.id,
+                },
+                actor_user_id=current_user.id,
+            )
+        except Exception as exc:
+            logger.warning("Falha ao notificar a OS gerada na finalizacao: %s", exc)
+
+
+@router.post("/{atendimento_id}/finalizar")
+def finalizar_atendimento(
+    atendimento_id: int,
+    payload: AtendimentoFinalizarPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    tipo_horario = _normalizar_tipo_horario_atendimento(payload.tipo_horario)
+    atendimento = None
+    agendamento = None
+    ordem_servico = None
+    os_reutilizada = False
+    atendimento_status_anterior = ""
+    agenda_status_anterior = None
+
+    try:
+        _adquirir_lock_finalizacao(db)
+        atendimento = (
+            db.query(AtendimentoClinico)
+            .filter(AtendimentoClinico.id == atendimento_id)
+            .with_for_update()
+            .first()
+        )
+        if not atendimento:
+            raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+
+        atendimento_status_anterior = atendimento.status
+        _validar_primeira_conclusao_atendimento(
+            status_atual=atendimento.status,
+            status_destino="Concluido",
+            queixa_principal=atendimento.queixa_principal,
+            anamnese=atendimento.anamnese,
+            exame_fisico=atendimento.exame_fisico,
+            dados_clinicos=atendimento.dados_clinicos,
+            diagnostico_principal=atendimento.diagnostico_principal,
+            diagnostico_secundario=atendimento.diagnostico_secundario,
+            diagnostico_diferencial=atendimento.diagnostico_diferencial,
+            plano_terapeutico=atendimento.plano_terapeutico,
+        )
+
+        if atendimento.agendamento_id:
+            agendamento = _carregar_e_validar_agendamento_atendimento(
+                db,
+                agendamento_id=int(atendimento.agendamento_id),
+                paciente_id=int(atendimento.paciente_id),
+                clinica_id=atendimento.clinica_id,
+                atendimento_id_excluir=atendimento.id,
+                lock=True,
+            )
+            agenda_status_anterior = agendamento.status
+            if agendamento.status in ATENDIMENTO_AGENDA_STATUS_TERMINAIS:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"A Agenda #{agendamento.id} esta como {agendamento.status}. "
+                        "Reabra ou corrija o agendamento antes de finalizar."
+                    ),
+                )
+
+            origem_atendimento = _normalizar_origem_atendimento(
+                getattr(agendamento, "origem_atendimento", None)
+            )
+            if not agendamento.servico_id:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Informe o servico na Agenda antes de finalizar o atendimento.",
+                )
+            if (
+                origem_atendimento != ORIGEM_ATENDIMENTO_DOMICILIAR
+                and not agendamento.clinica_id
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Informe a clinica na Agenda antes de finalizar o atendimento.",
+                )
+
+            ordem_servico = _buscar_os_ativa(db, agendamento.id)
+            os_reutilizada = ordem_servico is not None
+            if ordem_servico is None:
+                try:
+                    valor_servico = calcular_preco_servico(
+                        db=db,
+                        clinica_id=agendamento.clinica_id,
+                        servico_id=int(agendamento.servico_id),
+                        tipo_horario=tipo_horario,
+                        usar_preco_clinica=True,
+                        origem_atendimento=origem_atendimento,
+                    )
+                except HTTPException as exc:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=f"Nao foi possivel gerar a OS: {exc.detail}.",
+                    ) from exc
+
+                valor_servico = Decimal(valor_servico)
+                if valor_servico <= Decimal("0.00"):
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=(
+                            "Nao foi possivel gerar a OS: configure um preco maior que zero "
+                            "para o servico e o tipo de horario selecionado."
+                        ),
+                    )
+
+                ordem_servico = OrdemServico(
+                    numero_os=_gerar_numero_os_finalizacao(db),
+                    agendamento_id=agendamento.id,
+                    paciente_id=int(agendamento.paciente_id),
+                    clinica_id=agendamento.clinica_id,
+                    servico_id=int(agendamento.servico_id),
+                    origem_atendimento=origem_atendimento,
+                    data_atendimento=agendamento.inicio,
+                    tipo_horario=tipo_horario,
+                    valor_servico=valor_servico,
+                    desconto=Decimal("0.00"),
+                    valor_final=valor_servico,
+                    status="Pendente",
+                    observacoes=(
+                        f"OS gerada pela finalizacao do atendimento {atendimento.id} "
+                        f"vinculado ao agendamento {agendamento.id}"
+                    ),
+                    criado_por_id=current_user.id,
+                    criado_por_nome=current_user.nome,
+                )
+                db.add(ordem_servico)
+                db.flush()
+
+            agendamento.status = "Realizado"
+            agendamento.atualizado_em = datetime.now()
+            agendamento.updated_at = datetime.now()
+
+        atendimento.status = "Concluido"
+        atendimento.consulta_concluida = 1
+        atendimento.updated_at = datetime.now()
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "A finalizacao entrou em conflito com outra requisicao. "
+                "Recarregue o atendimento; a repeticao e segura."
+            ),
+        ) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Falha transacional ao finalizar Atendimento #%s", atendimento_id)
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Nao foi possivel finalizar o atendimento. "
+                "Nenhuma mudanca parcial foi mantida."
+            ),
+        ) from exc
+
+    db.refresh(atendimento)
+    if agendamento:
+        db.refresh(agendamento)
+    if ordem_servico:
+        db.refresh(ordem_servico)
+
+    _emitir_efeitos_finalizacao(
+        db=db,
+        request=request,
+        current_user=current_user,
+        atendimento=atendimento,
+        agendamento=agendamento,
+        ordem_servico=ordem_servico,
+        atendimento_status_anterior=atendimento_status_anterior,
+        agenda_status_anterior=agenda_status_anterior,
+        os_reutilizada=os_reutilizada,
+        tipo_horario=tipo_horario,
+    )
+
+    if agendamento and ordem_servico:
+        acao_os = "reutilizada" if os_reutilizada else "gerada"
+        mensagem = (
+            f"Atendimento finalizado. Agenda #{agendamento.id} realizada e "
+            f"OS {ordem_servico.numero_os} {acao_os}."
+        )
+    else:
+        mensagem = "Atendimento finalizado sem Agenda vinculada."
+
+    return {
+        "atendimento": _montar_detalhe_atendimento(db, atendimento),
+        "agenda": (
+            {
+                "id": agendamento.id,
+                "status": agendamento.status,
+                "status_anterior": agenda_status_anterior,
+            }
+            if agendamento
+            else None
+        ),
+        "ordem_servico": (
+            {
+                "id": ordem_servico.id,
+                "numero_os": ordem_servico.numero_os,
+                "valor_final": float(ordem_servico.valor_final or 0),
+                "reutilizada": os_reutilizada,
+            }
+            if ordem_servico
+            else None
+        ),
+        "mensagem": mensagem,
+    }
 
 
 @router.delete("/{atendimento_id}")
@@ -2922,7 +3681,7 @@ def liberar_exame_no_portal(
         "atendimento_id": exame.atendimento_id,
         "clinic_id": atendimento.clinica_id,
         "status": exame.status,
-        "released_at": _to_iso(exame.data_resultado),
+        "released_at": _to_operational_iso(exame.data_resultado),
         "exame": exame_payload,
     }
 
@@ -3551,7 +4310,7 @@ def historico_paciente(
         "atendimentos": [
             {
                 "id": a.id,
-                "data_atendimento": _to_iso(a.data_atendimento),
+                "data_atendimento": _to_operational_iso(a.data_atendimento),
                 "status": a.status,
                 "queixa_principal": a.queixa_principal or "",
                 "diagnostico_principal": a.diagnostico_principal or "",
@@ -3565,7 +4324,7 @@ def historico_paciente(
         "pesos": [
             {
                 "atendimento_id": a.id,
-                "data_atendimento": _to_iso(a.data_atendimento),
+                "data_atendimento": _to_operational_iso(a.data_atendimento),
                 "peso": a.peso,
             }
             for a in atendimentos

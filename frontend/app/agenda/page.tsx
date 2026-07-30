@@ -2354,6 +2354,8 @@ export default function AgendaPage() {
                             'Reservado': 'bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200',
                           };
                           const actionLabel = desfazerRealizado ? "Desfazer realizado" : novoStatus;
+                          const actionLabelClinico =
+                            novoStatus === "Realizado" ? "Abrir para finalizar" : actionLabel;
                           const actionColor = desfazerRealizado
                             ? 'bg-sky-50 text-sky-700 hover:bg-sky-100 border-sky-200'
                             : colors[novoStatus];
@@ -2361,7 +2363,11 @@ export default function AgendaPage() {
                           return (
                             <button
                               key={novoStatus}
-                              onClick={() => atualizarStatus(ag.id, novoStatus)}
+                              onClick={() =>
+                                novoStatus === "Realizado"
+                                  ? abrirFluxoAtendimento(ag)
+                                  : atualizarStatus(ag.id, novoStatus)
+                              }
                               disabled={atualizandoStatus === ag.id}
                               className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors flex items-center gap-1.5 ${actionColor}`}
                             >
@@ -2370,7 +2376,7 @@ export default function AgendaPage() {
                               ) : (
                                 <Icon className="w-3.5 h-3.5" />
                               )}
-                              {actionLabel}
+                              {actionLabelClinico}
                             </button>
                           );
                         })}
