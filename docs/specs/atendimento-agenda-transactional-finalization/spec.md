@@ -39,6 +39,12 @@ mantendo Atendimento, Agenda e Ordem de Servico consistentes e idempotentes.
   reutilizada.
 - RF-012: `Concluido` deve permanecer disponivel como filtro e exibicao, mas nao
   como transicao manual no seletor comum.
+- RF-013: o botao de status `Realizado` da Agenda deve executar primeiro a
+  transicao operacional normal; somente a resposta `409` que confirme
+  Atendimento clinico vinculado deve abrir o fluxo de finalizacao clinica.
+- RF-014: agendamentos sem Atendimento clinico vinculado, incluindo exames,
+  devem permanecer no fluxo de status da Agenda e gerar a OS pela rotina
+  operacional existente.
 
 ## 3) Requisitos nao funcionais
 
@@ -111,3 +117,7 @@ Atendimentos sem Agenda concluem apenas o registro clinico e devolvem
 - CA-010: a tentativa legada de realizar uma Agenda com Atendimento aberto e
   bloqueada em favor da acao transacional; a reabertura isolada tambem e
   bloqueada.
+- CA-011: um exame sem Atendimento clinico vinculado exibe `Realizado`, conclui
+  pela Agenda e nao abre prontuario.
+- CA-012: quando o backend informa Atendimento clinico vinculado, o mesmo clique
+  abre o prontuario correspondente para a finalizacao transacional.

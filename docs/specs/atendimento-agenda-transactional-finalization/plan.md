@@ -9,6 +9,8 @@
 - [x] Implementar a finalizacao transacional no backend.
 - [x] Proteger a finalizacao legada quando houver Atendimento vinculado.
 - [x] Adicionar a acao explicita e o tipo de horario na interface.
+- [x] Corrigir o status `Realizado` para consultar o backend antes de abrir o
+  Atendimento, preservando o fluxo operacional de exames.
 - [x] Criar regressao de atomicidade, idempotencia, vinculo e migracao.
 - [x] Executar testes direcionados e suite completa do pacote.
 - [x] Executar ESLint, TypeScript e build.

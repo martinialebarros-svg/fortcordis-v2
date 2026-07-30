@@ -22,6 +22,8 @@ agendamento ou mais de uma OS ativa.
 - Um agendamento pode possuir no maximo um Atendimento e uma OS nao cancelada.
 - A interface direciona a conclusao para a acao explicita e informa com clareza
   o resultado.
+- A interface tenta primeiro a conclusao operacional da Agenda; somente um
+  Atendimento clinico realmente vinculado redireciona para o prontuario.
 
 ## Fora de escopo
 
@@ -35,6 +37,8 @@ agendamento ou mais de uma OS ativa.
 ## Restricoes
 
 - Abrir um agendamento continua sem criar prontuario involuntariamente.
+- Agendamentos de exames e outros servicos nao clinicos continuam podendo
+  avancar de status e gerar OS diretamente pela Agenda.
 - A integridade precisa ser garantida no backend e no banco.
 - Duplicidades historicas devem interromper a migracao com diagnostico; nenhum
   prontuario ou registro financeiro pode ser descartado automaticamente.

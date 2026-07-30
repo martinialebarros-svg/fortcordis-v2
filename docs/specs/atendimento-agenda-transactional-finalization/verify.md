@@ -16,6 +16,7 @@ Status: done
 | CA-008 | finalizacao sem Agenda conclui apenas o prontuario | ok |
 | CA-009 | ESLint, TypeScript, build e smoke autenticado | ok |
 | CA-010 | realizacao e reabertura isoladas ficam bloqueadas | ok |
+| CA-011/CA-012 | status operacional primeiro; redirecionamento clinico apenas apos `409` do backend | ok |
 
 ## Validacoes planejadas
 
@@ -55,6 +56,9 @@ git diff --check
 - TypeScript: aprovado.
 - Build Next.js: aprovado, 39 paginas geradas; `/atendimento` com 179 kB e
   `/agenda` com 184 kB no relatorio.
+- Regressao da Agenda: o botao voltou a exibir `Realizado`, chama a transicao
+  operacional e so redireciona para `/atendimento` quando a API confirma um
+  prontuario vinculado.
 - `git diff --check`: aprovado.
 - Smoke autenticado em copia isolada:
   - o contexto da Agenda #7 abriu com paciente, clinica, horario e vinculo;

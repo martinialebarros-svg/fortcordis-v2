@@ -1428,7 +1428,16 @@ export default function AgendaPage() {
         typeof detail === "string"
           ? detail
           : (typeof detail?.mensagem === "string" ? detail.mensagem : error.message);
-      setErro("Erro ao atualizar status: " + detailTexto);
+      const mensagemErro = String(detailTexto || "Falha inesperada.");
+      const exigeFinalizacaoClinica =
+        novoStatus === "Realizado" &&
+        error?.response?.status === 409 &&
+        mensagemErro.includes("Finalize pelo modulo Atendimento");
+      if (exigeFinalizacaoClinica) {
+        router.push(`/atendimento?agendamento_id=${id}`);
+        return;
+      }
+      setErro("Erro ao atualizar status: " + mensagemErro);
     } finally {
       setAtualizandoStatus(null);
     }
@@ -2354,8 +2363,6 @@ export default function AgendaPage() {
                             'Reservado': 'bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200',
                           };
                           const actionLabel = desfazerRealizado ? "Desfazer realizado" : novoStatus;
-                          const actionLabelClinico =
-                            novoStatus === "Realizado" ? "Abrir para finalizar" : actionLabel;
                           const actionColor = desfazerRealizado
                             ? 'bg-sky-50 text-sky-700 hover:bg-sky-100 border-sky-200'
                             : colors[novoStatus];
@@ -2363,11 +2370,7 @@ export default function AgendaPage() {
                           return (
                             <button
                               key={novoStatus}
-                              onClick={() =>
-                                novoStatus === "Realizado"
-                                  ? abrirFluxoAtendimento(ag)
-                                  : atualizarStatus(ag.id, novoStatus)
-                              }
+                              onClick={() => atualizarStatus(ag.id, novoStatus)}
                               disabled={atualizandoStatus === ag.id}
                               className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors flex items-center gap-1.5 ${actionColor}`}
                             >
@@ -2376,7 +2379,7 @@ export default function AgendaPage() {
                               ) : (
                                 <Icon className="w-3.5 h-3.5" />
                               )}
-                              {actionLabelClinico}
+                              {actionLabel}
                             </button>
                           );
                         })}
