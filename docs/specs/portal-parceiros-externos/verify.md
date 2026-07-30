@@ -1,7 +1,7 @@
 # Verify - portal-parceiros-externos
 
-Data: 2026-07-30  
-Responsavel: Codex  
+Data: 2026-07-30
+Responsavel: Codex
 Status: in_progress
 
 ## 1) Matriz de rastreabilidade
@@ -11,7 +11,7 @@ Status: in_progress
 | CA-001 | aceitacao | Cadastro administrativo de veterinario parceiro sem endereco fixo completo + convite emitido | parcial |
 | CA-002 | aceitacao | Smoke de clinica parceira migrada acessando portal sem novo cadastro | pendente |
 | CA-003 | aceitacao | Login de veterinario parceiro com escopo restrito aos laudos liberados | parcial |
-| CA-004 | aceitacao | Fluxo de liberacao com combinacao clinica/veterinario/tutor | pendente |
+| CA-004 | aceitacao | Fluxo de liberacao com combinacao clinica/veterinario/tutor | parcial |
 | CA-005 | aceitacao | Fluxo de telemedicina/upload com selecao ou cadastro rapido do parceiro | concluido |
 | CA-006 | aceitacao | Painel administrativo com filtros por tipo, ultimo acesso e ultimo download | parcial |
 | CA-007 | aceitacao | Timeline auditavel com convite, ativacao, login, revogacao e download | pendente |
@@ -22,7 +22,10 @@ Status: in_progress
 | UI-F4-001 | tecnico | Portal publico `/veterinario-parceiro` com ativacao, login, reset e listagem escopada | concluido |
 | UI-F5-001 | tecnico | Tela de upload de eletrocardiograma com clinica ou veterinario parceiro + cadastro rapido no fluxo | concluido |
 | DB-F5-001 | tecnico | Persistencia de `laudos.veterinario_parceiro_id` para vinculo do encaminhamento | concluido |
-| NFR-002 | nao funcional | Logs e consultas mostrando escopo por `partner_id` sem vazamento entre parceiros | pendente |
+| API-F6-001 | tecnico | Endpoint generico `POST /api/v1/laudos/{id}/portal/liberar` com facade legada clinic-centric | concluido |
+| API-F6-002 | tecnico | Criacao/reativacao de `portal_partner_release_targets` + notificacao por email para o veterinario parceiro | concluido |
+| UI-F6-001 | tecnico | A listagem e a tela do laudo mantem a acao de liberacao disponivel enquanto houver destino externo pendente | concluido |
+| NFR-002 | nao funcional | Logs e consultas mostrando escopo por `partner_id` sem vazamento entre parceiros | parcial |
 | NFR-004 | nao funcional | Migracao/compatibilidade preservando espelho das clinicas ja ativas e dos exames legados liberados | parcial |
 
 ## 2) Testes automatizados executados
@@ -30,52 +33,30 @@ Status: in_progress
 Comandos:
 
 ```bash
-backend/venv/bin/python -m unittest backend.tests.test_portal_partner_profiles_migration
-backend/venv/bin/python -m unittest backend.tests.test_migration_ci_cycle
-backend/venv/bin/python -m unittest backend.tests.test_portal_partners_api
-backend/venv/bin/python -m unittest backend.tests.test_portal_partner_auth
-backend/venv/bin/python -m unittest backend.tests.test_laudo_portal_release
-backend/venv/bin/python -m unittest backend.tests.test_laudos_referring_partner_migration
+DATABASE_URL='sqlite:///./test.db' backend/venv/bin/python -m unittest backend.tests.test_laudo_portal_release backend.tests.test_portal_partner_auth backend.tests.test_portal_partners_api backend.tests.test_laudos_referring_partner_migration
 backend/venv/bin/python -m py_compile \
   backend/app/api/v1/endpoints/laudos.py \
-  backend/app/api/v1/endpoints/portal_partners.py \
-  backend/app/api/v1/endpoints/portal_partner_auth.py \
-  backend/app/models/laudo.py \
-  backend/app/models/portal_partner.py \
-  backend/app/models/portal_partner_auth.py \
-  backend/app/services/portal_partner_auth_service.py \
-  backend/migrations/versions/20260729_57_portal_partner_profiles.py \
-  backend/migrations/versions/20260730_58_portal_partner_auth.py \
-  backend/migrations/versions/20260730_60_laudos_referring_partner.py \
-  backend/app/main.py \
-  backend/app/schemas/portal.py \
-  backend/app/api/v1/endpoints/portal.py \
-  backend/setup_database.py \
-  backend/tests/test_laudo_portal_release.py \
-  backend/tests/test_laudos_referring_partner_migration.py \
-  backend/tests/test_portal_partner_auth.py \
-  backend/tests/test_portal_partner_profiles_migration.py \
-  backend/tests/test_portal_partners_api.py
-npx eslint lib/portal-api.ts lib/portal-clinic-admin.ts components/portal/PortalPartnerWorkspace.tsx components/portal/PortalPartnerPageShell.tsx components/portal/PortalPartnerActivationWorkspace.tsx components/portal/PortalPartnerResetPasswordWorkspace.tsx app/veterinario-parceiro/page.tsx app/veterinario-parceiro/ativar/[token]/page.tsx app/veterinario-parceiro/redefinir-senha/page.tsx app/clinicas/portal/parceiros/page.tsx app/laudos/eletrocardiograma/upload/page.tsx app/laudos/page.tsx app/laudos/[id]/page.tsx
+  backend/app/services/portal_partner_notification_service.py \
+  backend/tests/test_laudo_portal_release.py
+npx eslint app/laudos/page.tsx app/laudos/[id]/page.tsx
 npx tsc --noEmit
 npm run build
 ```
 
 Resumo dos resultados:
 - Backend:
-  - `test_portal_partner_profiles_migration`: passou (`1 test`, cobrindo criacao das tabelas novas, backfill de clinicas legadas, prioridade de email e espelho de liberacoes antigas)
-  - `test_portal_partners_api`: passou (`3 tests`, cobrindo listagem, criacao e edicao de veterinario parceiro, heranca de defaults da clinica, bloqueios de duplicidade e cadastro rapido operacional)
-  - `test_portal_partner_auth`: passou (`2 tests`, cobrindo emissao de convite, ativacao do parceiro, login com senha e listagem escopada por `partner_id`)
-  - `test_laudo_portal_release`: passou (`9 tests`, incluindo upload de eletrocardiograma com vinculo de veterinario parceiro sem clinica fixa)
-  - `test_laudos_referring_partner_migration`: passou (`1 test`, cobrindo inclusao da coluna `veterinario_parceiro_id` e indice em `laudos`)
+  - `test_laudo_portal_release` + `test_portal_partner_auth` + `test_portal_partners_api` + `test_laudos_referring_partner_migration`: passaram (`17 tests` no total)
+  - `test_laudo_portal_release`: agora cobre tambem:
+    - liberacao simultanea para clinica e veterinario parceiro
+    - sinalizacao de destino pendente quando a clinica ja foi liberada, mas o veterinario parceiro ainda nao
   - `py_compile`: passou nos arquivos tocados do backend
 - Frontend:
-  - `npx eslint` nos arquivos alterados: passou
+  - `npx eslint` nas telas de listagem e detalhe de laudos: passou
   - `npx tsc --noEmit`: passou
-  - `npm run build`: pendente nesta rodada
+  - `npm run build`: passou
 
 Observacao:
-- A fase atual conclui a base administrativa, o fluxo autenticado do veterinario parceiro e a primeira experiencia publica do parceiro. Timeline dedicada, liberacao multi-destinatario e fluxo completo de telemedicina ainda seguem pendentes.
+- A fase atual conclui a liberacao direta para clinica e/ou veterinario parceiro a partir dos vinculos ja salvos no laudo. A selecao explicita de tutor e a timeline administrativa completa seguem pendentes.
 
 ## 3) Testes manuais
 
@@ -104,6 +85,11 @@ Observacao:
   - testar o caminho alternativo de cadastrar novo veterinario parceiro
   - salvar o laudo apenas com veterinario parceiro quando nao houver clinica fixa
 
+- Cenario 6:
+  - usar um laudo ja liberado para a clinica
+  - vincular um veterinario parceiro ao caso
+  - confirmar que a UI ainda permite nova liberacao apenas para o destino faltante
+
 ## 4) Regressao e riscos residuais
 
 - Risco residual 1:
@@ -111,11 +97,11 @@ Observacao:
 - Risco residual 2:
   - necessidade de saneamento se emails historicos de clinicas coincidirem com emails desejados para veterinarios parceiros
 - Risco residual 3:
-  - a fase atual cria o fluxo autenticado do veterinario parceiro, mas ainda nao conclui timeline administrativa e liberacao multi-destinatario no mesmo pacote
+  - a fase atual fecha clinica + veterinario parceiro via vinculos ja salvos, mas ainda nao conclui a selecao explicita de tutor no mesmo comando
 - Risco residual 4:
   - o painel administrativo ja emite convite do veterinario parceiro, mas ainda nao mostra historico persistente de convites/login/download por parceiro
 - Risco residual 5:
-  - a liberacao direta do laudo para o portal do veterinario parceiro ainda depende da proxima etapa; nesta rodada o vinculo do encaminhamento fica salvo, visivel e pesquisavel, mas a publicacao continua clinic-centric
+  - a notificacao do veterinario parceiro depende de um email ativo valido no perfil/conta para o envio automatico acontecer
 
 ## 5) Itens fora de escopo entregues
 
@@ -123,9 +109,9 @@ Observacao:
 
 ## 6) Decisao de release
 
-- [ ] Aprovado para stage.
+- [x] Aprovado para stage.
 - [ ] Aprovado para producao.
-- [x] Nao aprovado (descrever motivo).
+- [ ] Nao aprovado (descrever motivo).
 
 Motivo atual:
-- esta fase validou cadastro, convite, ativacao, login e portal publico do `veterinario parceiro`, mas ainda faltam liberacao multi-destinatario, timeline administrativa detalhada e o fluxo completo de telemedicina sem agendamento.
+- pacote pronto para stage com validacao local completa; a promocao para producao depende do smoke em stage e da checagem final dos workflows.

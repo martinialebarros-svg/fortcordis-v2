@@ -50,6 +50,12 @@ interface Laudo {
   veterinario_parceiro_id?: number | null;
   veterinario_parceiro_nome?: string | null;
   veterinario_parceiro_crmv?: string | null;
+  portal_clinica_disponivel?: boolean;
+  portal_clinica_liberado?: boolean;
+  portal_veterinario_disponivel?: boolean;
+  portal_veterinario_liberado?: boolean;
+  portal_destinos_pendentes?: string[];
+  portal_pode_liberar?: boolean;
   criado_por_nome: string;
   pdf_externo?: {
     anexo_id?: number;
@@ -66,6 +72,53 @@ interface Laudo {
     decubito?: string | null;
     obs_extra?: string | null;
   } | null;
+}
+
+function getPortalPendingDestinations(laudo: Laudo | null) {
+  if (!laudo) {
+    return [] as string[];
+  }
+  if (Array.isArray(laudo.portal_destinos_pendentes)) {
+    return laudo.portal_destinos_pendentes;
+  }
+
+  const pending: string[] = [];
+  if (laudo.clinic_id && !isPortalReleased(laudo.status)) {
+    pending.push("clinica");
+  }
+  if (laudo.veterinario_parceiro_id && !laudo.portal_veterinario_liberado) {
+    pending.push("veterinario_parceiro");
+  }
+  return pending;
+}
+
+function canReleasePortal(laudo: Laudo | null) {
+  return getPortalPendingDestinations(laudo).length > 0;
+}
+
+function getPortalConfirmMessage(laudo: Laudo | null) {
+  const pending = getPortalPendingDestinations(laudo);
+  if (pending.includes("clinica") && pending.includes("veterinario_parceiro")) {
+    return "Liberar este laudo no portal da clinica parceira e do veterinario parceiro?";
+  }
+  if (pending.includes("clinica")) {
+    return "Liberar este laudo para o portal da clinica parceira?";
+  }
+  return "Liberar este laudo para o portal do veterinario parceiro?";
+}
+
+function getPortalButtonTitle(laudo: Laudo | null) {
+  const pending = getPortalPendingDestinations(laudo);
+  if (!pending.length) {
+    return "Laudo ja liberado para todos os destinos vinculados";
+  }
+  if (pending.includes("clinica") && pending.includes("veterinario_parceiro")) {
+    return "Liberar no portal da clinica e do veterinario parceiro";
+  }
+  if (pending.includes("clinica")) {
+    return "Liberar no portal da clinica";
+  }
+  return "Liberar no portal do veterinario parceiro";
 }
 
 export default function VisualizarLaudoPage() {
@@ -197,29 +250,33 @@ export default function VisualizarLaudoPage() {
   };
 
   const liberarNoPortalClinica = async () => {
-    if (!laudo || !laudoId || isPortalReleased(laudo.status)) {
+    if (!laudo || !laudoId || !canReleasePortal(laudo)) {
       return;
     }
-    if (!laudo.clinic_id) {
-      alert("Vincule uma clinica ao laudo antes de liberar no portal.");
+    if (!laudo.clinic_id && !laudo.veterinario_parceiro_id) {
+      alert("Vincule uma clinica ou um veterinario parceiro ao laudo antes de liberar no portal.");
       return;
     }
-    if (!confirm("Liberar este laudo para o portal da clinica parceira?")) {
+    if (!confirm(getPortalConfirmMessage(laudo))) {
       return;
     }
 
     setLiberandoPortal(true);
     try {
-      const response = await api.post(`/laudos/${laudoId}/portal/liberar-clinica`);
-      const notification = response.data?.notificacao_clinica;
+      const response = await api.post(`/laudos/${laudoId}/portal/liberar`);
       setLaudo((current) =>
-        current ? { ...current, status: response.data?.status || PORTAL_RELEASE_STATUS } : current
+        current
+          ? {
+              ...current,
+              status: response.data?.status || PORTAL_RELEASE_STATUS,
+              portal_clinica_liberado: response.data?.portal_clinica_liberado,
+              portal_veterinario_liberado: response.data?.portal_veterinario_liberado,
+              portal_destinos_pendentes: response.data?.portal_destinos_pendentes || [],
+              portal_pode_liberar: response.data?.portal_pode_liberar,
+            }
+          : current
       );
-      const successMessage =
-        notification?.status === "sent" && notification?.destination_masked
-          ? `Laudo liberado no portal da clinica parceira. Email enviado para ${notification.destination_masked}.`
-          : "Laudo liberado no portal da clinica parceira.";
-      alert(successMessage);
+      alert(response.data?.message || "Laudo liberado no portal.");
     } catch (error) {
       const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
       alert(detail || "Erro ao liberar laudo no portal. Tente novamente.");
@@ -255,7 +312,7 @@ export default function VisualizarLaudoPage() {
     }
 
     const confirmMessage = isPortalReleased(laudo?.status)
-      ? "Este laudo ja foi liberado no portal. Deseja trocar o PDF e atualizar imediatamente o arquivo baixavel da clinica parceira?"
+      ? "Este laudo ja foi liberado no portal. Deseja trocar o PDF e atualizar imediatamente o arquivo baixavel dos destinatarios autorizados?"
       : "Deseja substituir o PDF anexado a este laudo de eletrocardiograma?";
     if (!confirm(confirmMessage)) {
       return;
@@ -340,20 +397,16 @@ export default function VisualizarLaudoPage() {
             <button
               type="button"
               onClick={liberarNoPortalClinica}
-              disabled={liberandoPortal || isPortalReleased(laudo.status)}
-              className={`fc-report-view-portal ${isPortalReleased(laudo.status) ? "fc-report-view-portal-released" : ""}`}
-              title={
-                isPortalReleased(laudo.status)
-                  ? "Laudo ja liberado no portal"
-                  : "Liberar no portal da clinica"
-              }
+              disabled={liberandoPortal || !canReleasePortal(laudo)}
+              className={`fc-report-view-portal ${!canReleasePortal(laudo) ? "fc-report-view-portal-released" : ""}`}
+              title={getPortalButtonTitle(laudo)}
             >
-              {isPortalReleased(laudo.status) ? (
+              {!canReleasePortal(laudo) ? (
                 <CheckCircle className="w-4 h-4" />
               ) : (
                 <Send className="w-4 h-4" />
               )}
-              {isPortalReleased(laudo.status)
+              {!canReleasePortal(laudo)
                 ? "No portal"
                 : liberandoPortal
                   ? "Liberando..."

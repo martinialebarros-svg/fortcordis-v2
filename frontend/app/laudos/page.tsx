@@ -42,6 +42,12 @@ interface Laudo {
   data_laudo: string;
   data_exame?: string;
   tem_pdf_externo?: boolean;
+  portal_clinica_disponivel?: boolean;
+  portal_clinica_liberado?: boolean;
+  portal_veterinario_disponivel?: boolean;
+  portal_veterinario_liberado?: boolean;
+  portal_destinos_pendentes?: string[];
+  portal_pode_liberar?: boolean;
 }
 
 interface Exame {
@@ -62,6 +68,50 @@ function isPortalReleased(status?: string) {
 
 function isLaudoPdfExterno(laudo: Laudo) {
   return laudo.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA || Boolean(laudo.tem_pdf_externo);
+}
+
+function getPortalPendingDestinations(laudo: Laudo) {
+  if (Array.isArray(laudo.portal_destinos_pendentes)) {
+    return laudo.portal_destinos_pendentes;
+  }
+
+  const pending: string[] = [];
+  if (laudo.clinic_id && !isPortalReleased(laudo.status)) {
+    pending.push("clinica");
+  }
+  if (laudo.veterinario_parceiro_id && !laudo.portal_veterinario_liberado) {
+    pending.push("veterinario_parceiro");
+  }
+  return pending;
+}
+
+function canReleasePortal(laudo: Laudo) {
+  return getPortalPendingDestinations(laudo).length > 0;
+}
+
+function getPortalConfirmMessage(laudo: Laudo) {
+  const pending = getPortalPendingDestinations(laudo);
+  if (pending.includes("clinica") && pending.includes("veterinario_parceiro")) {
+    return "Liberar este laudo no portal da clinica parceira e do veterinario parceiro?";
+  }
+  if (pending.includes("clinica")) {
+    return "Liberar este laudo para o portal da clinica parceira?";
+  }
+  return "Liberar este laudo para o portal do veterinario parceiro?";
+}
+
+function getPortalButtonTitle(laudo: Laudo) {
+  const pending = getPortalPendingDestinations(laudo);
+  if (!pending.length) {
+    return "Laudo ja liberado para todos os destinos vinculados";
+  }
+  if (pending.includes("clinica") && pending.includes("veterinario_parceiro")) {
+    return "Liberar no portal da clinica e do veterinario parceiro";
+  }
+  if (pending.includes("clinica")) {
+    return "Liberar no portal da clinica";
+  }
+  return "Liberar no portal do veterinario parceiro";
 }
 
 function getResponseTotal(payload: { total?: number } | undefined, fallback: number) {
@@ -271,30 +321,36 @@ export default function LaudosPage() {
   };
 
   const liberarNoPortalClinica = async (laudo: Laudo) => {
-    if (isPortalReleased(laudo.status)) {
+    if (!canReleasePortal(laudo)) {
       return;
     }
-    if (!laudo.clinic_id) {
-      alert("Vincule uma clinica ao laudo antes de liberar no portal.");
+    if (!laudo.clinic_id && !laudo.veterinario_parceiro_id) {
+      alert("Vincule uma clinica ou um veterinario parceiro ao laudo antes de liberar no portal.");
       return;
     }
-    if (!confirm("Liberar este laudo para o portal da clinica parceira?")) {
+    if (!confirm(getPortalConfirmMessage(laudo))) {
       return;
     }
 
     setLiberandoLaudoId(laudo.id);
     try {
-      const response = await api.post(`/laudos/${laudo.id}/portal/liberar-clinica`);
+      const response = await api.post(`/laudos/${laudo.id}/portal/liberar`);
       const novoStatus = response.data?.status || PORTAL_RELEASE_STATUS;
-      const notification = response.data?.notificacao_clinica;
       setLaudos((prev) =>
-        prev.map((item) => (item.id === laudo.id ? { ...item, status: novoStatus } : item))
+        prev.map((item) =>
+          item.id === laudo.id
+            ? {
+                ...item,
+                status: novoStatus,
+                portal_clinica_liberado: response.data?.portal_clinica_liberado,
+                portal_veterinario_liberado: response.data?.portal_veterinario_liberado,
+                portal_destinos_pendentes: response.data?.portal_destinos_pendentes || [],
+                portal_pode_liberar: response.data?.portal_pode_liberar,
+              }
+            : item
+        )
       );
-      const successMessage =
-        notification?.status === "sent" && notification?.destination_masked
-          ? `Laudo liberado no portal da clinica parceira. Email enviado para ${notification.destination_masked}.`
-          : "Laudo liberado no portal da clinica parceira.";
-      alert(successMessage);
+      alert(response.data?.message || "Laudo liberado no portal.");
     } catch (error) {
       const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
       alert(detail || "Erro ao liberar laudo no portal. Tente novamente.");
@@ -580,12 +636,12 @@ export default function LaudosPage() {
                           <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(laudo.status)}`}>
                             {laudo.status}
                           </span>
-                          {!isPortalReleased(laudo.status) && (
+                          {canReleasePortal(laudo) && (
                             <button
                               onClick={() => liberarNoPortalClinica(laudo)}
                               disabled={liberandoLaudoId === laudo.id}
                               className="fc-clinical-action"
-                              title="Liberar no portal da clinica"
+                              title={getPortalButtonTitle(laudo)}
                               aria-label={`Liberar laudo de ${laudo.paciente_nome || `paciente ${laudo.paciente_id}`} no portal`}
                             >
                               <Send className="w-4 h-4" />

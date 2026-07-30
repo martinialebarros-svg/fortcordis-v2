@@ -11,10 +11,14 @@ import re
 import unicodedata
 
 from app.db.database import get_db
-from app.core.portal_release import PORTAL_RELEASED_STATUS
+from app.core.portal_release import PORTAL_RELEASED_STATUS, is_portal_released_status
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
 from app.models.laudo import Laudo, Exame
-from app.models.portal_partner import PORTAL_PARTNER_TYPE_VETERINARIO, PortalPartnerProfile
+from app.models.portal_partner import (
+    PORTAL_PARTNER_TYPE_VETERINARIO,
+    PortalPartnerProfile,
+    PortalPartnerReleaseTarget,
+)
 from app.models.user import User
 from app.core.security import get_current_user
 from app.services.attachment_download_service import build_attachment_download_response
@@ -38,6 +42,7 @@ from app.services.laudo_pdf_jobs import (
 )
 from app.services.laudo_pdf_service import compute_laudo_pdf_cache_key, render_laudo_pdf
 from app.services.portal_clinic_notification_service import notify_clinic_report_released
+from app.services.portal_partner_notification_service import notify_partner_report_released
 from app.utils.ecocardiograma_medidas import (
     extrair_medidas_ecocardiograma_da_descricao,
 )
@@ -52,8 +57,8 @@ router = APIRouter()
 
 _ANEXOS_UNSET = object()
 
-PORTAL_LAUDO_RELEASE_MESSAGE = "Laudo liberado no portal da clinica parceira."
-PORTAL_LAUDO_ATTACHMENT_DESCRIPTION = "PDF do laudo liberado no portal da clinica parceira."
+PORTAL_LAUDO_RELEASE_MESSAGE = "Laudo liberado no portal para destinatarios autorizados."
+PORTAL_LAUDO_ATTACHMENT_DESCRIPTION = "PDF do laudo liberado no portal para destinatarios autorizados."
 PORTAL_LAUDO_ATTACHMENT_ORIGIN = "portal_laudo"
 TIPO_LAUDO_ELETROCARDIOGRAMA = "eletrocardiograma"
 ELETROCARDIOGRAMA_EXTERNAL_PDF_KEY = "eletrocardiograma_pdf"
@@ -589,6 +594,164 @@ def _load_veterinario_parceiro_or_422(
             detail="Selecione um veterinario parceiro ativo para vincular o encaminhamento.",
         )
     return resolved_partner_id, partner
+
+
+def _portal_veterinario_liberado(
+    db: Session,
+    *,
+    laudo_id: int,
+    veterinario_parceiro_id: Any,
+    exame_id_by_laudo_id: dict[int, int] | None = None,
+) -> bool:
+    resolved_partner_id = _to_optional_int(veterinario_parceiro_id)
+    if resolved_partner_id is None:
+        return False
+
+    exame_id = None
+    if exame_id_by_laudo_id is not None:
+        exame_id = exame_id_by_laudo_id.get(int(laudo_id))
+    if exame_id is None:
+        exame = (
+            db.query(Exame)
+            .filter(Exame.laudo_id == laudo_id)
+            .order_by(Exame.id.desc())
+            .first()
+        )
+        exame_id = getattr(exame, "id", None)
+    if exame_id is None:
+        return False
+
+    target = (
+        db.query(PortalPartnerReleaseTarget.id)
+        .filter(
+            PortalPartnerReleaseTarget.partner_id == resolved_partner_id,
+            PortalPartnerReleaseTarget.exame_id == exame_id,
+            PortalPartnerReleaseTarget.revoked_at.is_(None),
+        )
+        .first()
+    )
+    return target is not None
+
+
+def _load_exam_id_by_laudo_id_map(db: Session, laudo_ids: list[int]) -> dict[int, int]:
+    unique_ids = sorted({int(item) for item in laudo_ids if item})
+    if not unique_ids:
+        return {}
+
+    exams = (
+        db.query(Exame.laudo_id, Exame.id)
+        .filter(Exame.laudo_id.in_(unique_ids))
+        .order_by(Exame.id.desc())
+        .all()
+    )
+    exam_id_by_laudo_id: dict[int, int] = {}
+    for laudo_id, exam_id in exams:
+        if laudo_id is None or exam_id is None:
+            continue
+        exam_id_by_laudo_id.setdefault(int(laudo_id), int(exam_id))
+    return exam_id_by_laudo_id
+
+
+def _serialize_portal_release_state(
+    db: Session,
+    *,
+    laudo: Laudo,
+    portal_veterinario_liberado: bool | None = None,
+    exame_id_by_laudo_id: dict[int, int] | None = None,
+) -> dict[str, Any]:
+    clinic_available = _to_optional_int(laudo.clinic_id) is not None
+    vet_available = _to_optional_int(laudo.veterinario_parceiro_id) is not None
+    clinic_released = clinic_available and is_portal_released_status(laudo.status, kind="laudo")
+    if portal_veterinario_liberado is None:
+        portal_veterinario_liberado = _portal_veterinario_liberado(
+            db,
+            laudo_id=laudo.id,
+            veterinario_parceiro_id=laudo.veterinario_parceiro_id,
+            exame_id_by_laudo_id=exame_id_by_laudo_id,
+        )
+    pending_destinations: list[str] = []
+    if clinic_available and not clinic_released:
+        pending_destinations.append("clinica")
+    if vet_available and not portal_veterinario_liberado:
+        pending_destinations.append("veterinario_parceiro")
+    return {
+        "portal_clinica_disponivel": clinic_available,
+        "portal_clinica_liberado": clinic_released,
+        "portal_veterinario_disponivel": vet_available,
+        "portal_veterinario_liberado": bool(portal_veterinario_liberado),
+        "portal_destinos_pendentes": pending_destinations,
+        "portal_pode_liberar": bool(pending_destinations),
+    }
+
+
+def _upsert_portal_partner_release_target(
+    db: Session,
+    *,
+    partner_id: int,
+    exame_id: int,
+    laudo_id: int,
+    created_by_user_id: int | None,
+    released_at: datetime,
+    contexto: dict[str, Any],
+) -> tuple[PortalPartnerReleaseTarget, bool]:
+    target = (
+        db.query(PortalPartnerReleaseTarget)
+        .filter(
+            PortalPartnerReleaseTarget.partner_id == partner_id,
+            PortalPartnerReleaseTarget.exame_id == exame_id,
+        )
+        .first()
+    )
+    contexto_json = json.dumps(contexto or {}, ensure_ascii=False, default=str)
+    if target is None:
+        target = PortalPartnerReleaseTarget(
+            partner_id=partner_id,
+            exame_id=exame_id,
+            laudo_id=laudo_id,
+            permitir_download=True,
+            released_at=released_at,
+            created_by_user_id=created_by_user_id,
+            contexto_json=contexto_json,
+        )
+        db.add(target)
+        db.flush()
+        return target, True
+
+    was_inactive = target.revoked_at is not None
+    target.laudo_id = laudo_id
+    target.permitir_download = True
+    target.contexto_json = contexto_json
+    if target.created_by_user_id is None:
+        target.created_by_user_id = created_by_user_id
+    if was_inactive:
+        target.revoked_at = None
+        target.released_at = released_at
+    return target, was_inactive
+
+
+def _build_portal_release_success_message(
+    *,
+    clinic_released_now: bool,
+    partner_released_now: bool,
+    clinic_notification_destination: str | None,
+    partner_notification_destination: str | None,
+) -> str:
+    if clinic_released_now and partner_released_now:
+        if clinic_notification_destination and partner_notification_destination:
+            return (
+                "Laudo liberado no portal da clinica parceira e do veterinario parceiro. "
+                f"Emails enviados para {clinic_notification_destination} e {partner_notification_destination}."
+            )
+        return "Laudo liberado no portal da clinica parceira e do veterinario parceiro."
+    if clinic_released_now:
+        if clinic_notification_destination:
+            return f"Laudo liberado no portal da clinica parceira. Email enviado para {clinic_notification_destination}."
+        return "Laudo liberado no portal da clinica parceira."
+    if partner_released_now:
+        if partner_notification_destination:
+            return f"Laudo liberado no portal do veterinario parceiro. Email enviado para {partner_notification_destination}."
+        return "Laudo liberado no portal do veterinario parceiro."
+    return "Portal atualizado para os destinatarios ja vinculados."
 
 
 def _normalizar_ultrassonografia_abdominal(raw: Any) -> Optional[Dict[str, Any]]:
@@ -1169,6 +1332,11 @@ def listar_laudos(
         Laudo.data_laudo.desc(),
         Laudo.id.desc(),
     ).offset(skip).limit(limit).all()
+    laudos_rows = [laudo for laudo, *_rest in rows]
+    exame_id_by_laudo_id = _load_exam_id_by_laudo_id_map(
+        db,
+        [laudo.id for laudo in laudos_rows],
+    )
     
     resultado = []
     for laudo, paciente_nome, tutor_nome, clinica_nome, veterinario_parceiro_nome in rows:
@@ -1189,6 +1357,11 @@ def listar_laudos(
             "data_laudo": _iso_or_str(laudo.data_laudo),
             "created_at": _iso_or_str(laudo.created_at),
             "tem_pdf_externo": bool(_extrair_pdf_externo_laudo(laudo.anexos)),
+            **_serialize_portal_release_state(
+                db,
+                laudo=laudo,
+                exame_id_by_laudo_id=exame_id_by_laudo_id,
+            ),
         })
     
     return {"total": total, "items": resultado}
@@ -2123,6 +2296,7 @@ def obter_laudo(
         "ecocardiograma_estruturado": ecocardiograma_estruturado,
         "pdf_externo": _extrair_pdf_externo_laudo(laudo.anexos),
         "imagens": imagens_list,
+        **_serialize_portal_release_state(db, laudo=laudo),
     }
 
 
@@ -2356,29 +2530,43 @@ def deletar_laudo(
     return {"message": "Laudo e imagens removidos com sucesso"}
 
 
-@router.post("/laudos/{laudo_id}/portal/liberar-clinica")
-def liberar_laudo_para_portal_clinica(
+def _liberar_laudo_para_portal(
     laudo_id: int,
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Libera explicitamente um laudo para o portal da clinica parceira."""
+    """Libera explicitamente um laudo no portal para os destinatarios externos vinculados."""
     laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
     if not laudo:
         raise HTTPException(status_code=404, detail="Laudo nao encontrado")
-    if not laudo.clinic_id:
-        raise HTTPException(
-            status_code=422,
-            detail="Vincule uma clinica ao laudo antes de liberar no portal.",
-        )
     if not laudo.paciente_id:
         raise HTTPException(
             status_code=422,
             detail="Vincule um paciente ao laudo antes de liberar no portal.",
         )
 
+    clinic_available = _to_optional_int(laudo.clinic_id) is not None
+    veterinario_parceiro = None
+    if _to_optional_int(laudo.veterinario_parceiro_id) is not None:
+        veterinario_parceiro = (
+            db.query(PortalPartnerProfile)
+            .filter(
+                PortalPartnerProfile.id == laudo.veterinario_parceiro_id,
+                PortalPartnerProfile.tipo == PORTAL_PARTNER_TYPE_VETERINARIO,
+                PortalPartnerProfile.ativo.is_(True),
+            )
+            .first()
+        )
+
+    if not clinic_available and veterinario_parceiro is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Vincule uma clinica ou um veterinario parceiro ao laudo antes de liberar no portal.",
+        )
+
     released_at = datetime.utcnow()
+    clinic_release_now = clinic_available and not is_portal_released_status(laudo.status, kind="laudo")
     laudo.status = PORTAL_RELEASED_STATUS
     laudo.updated_at = released_at
     exame = _sincronizar_exame_liberado_para_portal(db, laudo, current_user, released_at)
@@ -2388,12 +2576,30 @@ def liberar_laudo_para_portal_clinica(
         exame=exame,
         current_user=current_user,
     )
+    partner_target = None
+    partner_release_now = False
+    if veterinario_parceiro is not None:
+        partner_target, partner_release_now = _upsert_portal_partner_release_target(
+            db,
+            partner_id=veterinario_parceiro.id,
+            exame_id=exame.id,
+            laudo_id=laudo.id,
+            created_by_user_id=getattr(current_user, "id", None),
+            released_at=released_at,
+            contexto={
+                "source": "laudo_portal_release",
+                "partner_tipo": veterinario_parceiro.tipo,
+                "partner_nome": veterinario_parceiro.nome_exibicao,
+            },
+        )
 
     try:
         db.commit()
         db.refresh(laudo)
         db.refresh(exame)
         db.refresh(anexo)
+        if partner_target is not None:
+            db.refresh(partner_target)
     except Exception:
         db.rollback()
         remove_atendimento_attachment_file(new_portal_path)
@@ -2405,7 +2611,7 @@ def liberar_laudo_para_portal_clinica(
     from app.models.paciente import Paciente
     from app.models.tutor import Tutor
 
-    clinica = db.query(Clinica).filter(Clinica.id == laudo.clinic_id).first()
+    clinica = db.query(Clinica).filter(Clinica.id == laudo.clinic_id).first() if clinic_available else None
     paciente = db.query(Paciente).filter(Paciente.id == laudo.paciente_id).first()
     tutor = db.query(Tutor).filter(Tutor.id == paciente.tutor_id).first() if paciente and paciente.tutor_id else None
 
@@ -2413,8 +2619,8 @@ def liberar_laudo_para_portal_clinica(
         current_user=current_user,
         modulo="laudos",
         entidade="laudo",
-        acao="LAUDO_LIBERADO_PORTAL_CLINICA",
-        descricao="Laudo liberado para o portal da clinica parceira.",
+        acao="LAUDO_LIBERADO_PORTAL_EXTERNO",
+        descricao="Laudo liberado no portal para destinatarios autorizados.",
         entidade_id=laudo.id,
         detalhes={
             "laudo_id": laudo.id,
@@ -2422,59 +2628,160 @@ def liberar_laudo_para_portal_clinica(
             "anexo_id": anexo.id,
             "paciente_id": laudo.paciente_id,
             "clinic_id": laudo.clinic_id,
+            "veterinario_parceiro_id": laudo.veterinario_parceiro_id,
             "status": laudo.status,
             "pdf_nome": anexo.nome_original,
             "pdf_tamanho": anexo.tamanho,
+            "destinos_liberados_agora": {
+                "clinica": clinic_release_now,
+                "veterinario_parceiro": partner_release_now,
+            },
         },
         request=request,
     )
 
-    notification_result = notify_clinic_report_released(
-        db=db,
-        request=request,
-        clinica_id=int(laudo.clinic_id),
-        clinica_nome=getattr(clinica, "nome", None),
-        tipo_exame=exame.tipo_exame or _label_tipo_exame_portal(laudo),
-        paciente_nome=getattr(paciente, "nome", None),
-        tutor_nome=getattr(tutor, "nome", None),
-        released_at=released_at,
+    clinic_notification_result = None
+    if clinic_release_now and clinic_available:
+        clinic_notification_result = notify_clinic_report_released(
+            db=db,
+            request=request,
+            clinica_id=int(laudo.clinic_id),
+            clinica_nome=getattr(clinica, "nome", None),
+            tipo_exame=exame.tipo_exame or _label_tipo_exame_portal(laudo),
+            paciente_nome=getattr(paciente, "nome", None),
+            tutor_nome=getattr(tutor, "nome", None),
+            released_at=released_at,
+        )
+        registrar_auditoria(
+            current_user=current_user,
+            modulo="laudos",
+            entidade="laudo",
+            acao=f"LAUDO_PORTAL_CLINICA_NOTIFICATION_{clinic_notification_result.status.upper()}",
+            descricao="Resultado do envio de notificacao da clinica apos liberacao do laudo no portal.",
+            entidade_id=laudo.id,
+            detalhes={
+                "laudo_id": laudo.id,
+                "clinic_id": laudo.clinic_id,
+                "notification_status": clinic_notification_result.status,
+                "destination_masked": clinic_notification_result.destination_masked,
+                "provider": clinic_notification_result.provider,
+                "reason": clinic_notification_result.reason,
+            },
+            request=request,
+        )
+
+    partner_notification_result = None
+    if partner_release_now and veterinario_parceiro is not None:
+        partner_notification_result = notify_partner_report_released(
+            db=db,
+            request=request,
+            partner_id=veterinario_parceiro.id,
+            partner_nome=veterinario_parceiro.nome_exibicao,
+            tipo_exame=exame.tipo_exame or _label_tipo_exame_portal(laudo),
+            paciente_nome=getattr(paciente, "nome", None),
+            tutor_nome=getattr(tutor, "nome", None),
+            released_at=released_at,
+        )
+        registrar_auditoria(
+            current_user=current_user,
+            modulo="laudos",
+            entidade="laudo",
+            acao=f"LAUDO_PORTAL_PARTNER_NOTIFICATION_{partner_notification_result.status.upper()}",
+            descricao="Resultado do envio de notificacao do veterinario parceiro apos liberacao do laudo no portal.",
+            entidade_id=laudo.id,
+            detalhes={
+                "laudo_id": laudo.id,
+                "partner_id": veterinario_parceiro.id,
+                "partner_tipo": veterinario_parceiro.tipo,
+                "notification_status": partner_notification_result.status,
+                "destination_masked": partner_notification_result.destination_masked,
+                "provider": partner_notification_result.provider,
+                "reason": partner_notification_result.reason,
+            },
+            request=request,
+        )
+
+    portal_release_state = _serialize_portal_release_state(
+        db,
+        laudo=laudo,
+        portal_veterinario_liberado=veterinario_parceiro is not None,
+        exame_id_by_laudo_id={laudo.id: exame.id},
     )
-    registrar_auditoria(
-        current_user=current_user,
-        modulo="laudos",
-        entidade="laudo",
-        acao=f"LAUDO_PORTAL_RELEASE_NOTIFICATION_{notification_result.status.upper()}",
-        descricao="Resultado do envio de notificacao da clinica apos liberacao do laudo no portal.",
-        entidade_id=laudo.id,
-        detalhes={
-            "laudo_id": laudo.id,
-            "clinic_id": laudo.clinic_id,
-            "notification_status": notification_result.status,
-            "destination_masked": notification_result.destination_masked,
-            "provider": notification_result.provider,
-            "reason": notification_result.reason,
-        },
-        request=request,
+    success_message = _build_portal_release_success_message(
+        clinic_released_now=clinic_release_now,
+        partner_released_now=partner_release_now,
+        clinic_notification_destination=getattr(clinic_notification_result, "destination_masked", None),
+        partner_notification_destination=getattr(partner_notification_result, "destination_masked", None),
     )
 
     return {
-        "message": "Laudo liberado no portal da clinica parceira com PDF disponivel para download.",
+        "message": success_message,
         "laudo_id": laudo.id,
         "exame_id": exame.id,
         "anexo_id": anexo.id,
         "paciente_id": laudo.paciente_id,
         "clinic_id": laudo.clinic_id,
+        "veterinario_parceiro_id": laudo.veterinario_parceiro_id,
         "status": laudo.status,
         "pdf_nome": anexo.nome_original,
         "pdf_tamanho": anexo.tamanho,
         "released_at": released_at.isoformat(),
-        "notificacao_clinica": {
-            "status": notification_result.status,
-            "destination_masked": notification_result.destination_masked,
-            "provider": notification_result.provider,
-            "reason": notification_result.reason,
+        "destinos_liberados_agora": {
+            "clinica": clinic_release_now,
+            "veterinario_parceiro": partner_release_now,
         },
+        "notificacao_clinica": (
+            {
+                "status": clinic_notification_result.status,
+                "destination_masked": clinic_notification_result.destination_masked,
+                "provider": clinic_notification_result.provider,
+                "reason": clinic_notification_result.reason,
+            }
+            if clinic_notification_result is not None
+            else None
+        ),
+        "notificacao_parceiro": (
+            {
+                "status": partner_notification_result.status,
+                "destination_masked": partner_notification_result.destination_masked,
+                "provider": partner_notification_result.provider,
+                "reason": partner_notification_result.reason,
+            }
+            if partner_notification_result is not None
+            else None
+        ),
+        **portal_release_state,
     }
+
+
+@router.post("/laudos/{laudo_id}/portal/liberar")
+def liberar_laudo_para_portal(
+    laudo_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return _liberar_laudo_para_portal(
+        laudo_id=laudo_id,
+        request=request,
+        db=db,
+        current_user=current_user,
+    )
+
+
+@router.post("/laudos/{laudo_id}/portal/liberar-clinica")
+def liberar_laudo_para_portal_clinica(
+    laudo_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return _liberar_laudo_para_portal(
+        laudo_id=laudo_id,
+        request=request,
+        db=db,
+        current_user=current_user,
+    )
 
 
 @router.post("/laudos/{laudo_id}/pdf-jobs", response_model=dict)

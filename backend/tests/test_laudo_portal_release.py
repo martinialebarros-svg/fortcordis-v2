@@ -23,10 +23,16 @@ from app.api.v1.endpoints import laudos
 from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
 from app.models.clinica import Clinica
+from app.models.imagem_laudo import ImagemLaudo
 from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
 from app.models.portal_clinic_auth import PortalClinicAccount, PortalClinicInvite
-from app.models.portal_partner import PORTAL_PARTNER_TYPE_VETERINARIO, PortalPartnerProfile
+from app.models.portal_partner import (
+    PORTAL_PARTNER_TYPE_VETERINARIO,
+    PortalPartnerProfile,
+    PortalPartnerReleaseTarget,
+)
+from app.models.portal_partner_auth import PortalPartnerAccount
 from app.models.tutor import Tutor
 
 
@@ -71,10 +77,13 @@ class LaudoPortalReleaseTest(unittest.TestCase):
             AtendimentoClinico.__table__,
             Laudo.__table__,
             Exame.__table__,
+            ImagemLaudo.__table__,
             AnexoAtendimento.__table__,
             PortalClinicInvite.__table__,
             PortalClinicAccount.__table__,
             PortalPartnerProfile.__table__,
+            PortalPartnerReleaseTarget.__table__,
+            PortalPartnerAccount.__table__,
         ):
             table.create(engine, checkfirst=True)
         session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()
@@ -211,6 +220,132 @@ class LaudoPortalReleaseTest(unittest.TestCase):
             self.assertEqual(laudo.medico_solicitante, "Dra. Carla Soares")
             self.assertEqual(response["veterinario_parceiro_id"], partner.id)
             self.assertEqual(response["veterinario_parceiro_nome"], "Dra. Carla Soares")
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_liberar_laudo_publica_tambem_para_veterinario_parceiro(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            tutor = Tutor(nome="Monica", email="monica@example.com", ativo=1)
+            db.add(tutor)
+            db.flush()
+            paciente = Paciente(nome="Luna", especie="Canina", tutor_id=tutor.id, ativo=1)
+            clinica = Clinica(id=8, nome="Clinica Parceira", email="contato@clinica.com", ativo=True)
+            partner = PortalPartnerProfile(
+                tipo=PORTAL_PARTNER_TYPE_VETERINARIO,
+                nome_exibicao="Dra. Carla Soares",
+                email_login="carla.soares@example.com",
+                whatsapp="85999990002",
+                cidade_base="Fortaleza",
+                estado_base="CE",
+                ativo=True,
+            )
+            db.add_all([paciente, clinica, partner])
+            db.flush()
+            laudo = Laudo(
+                paciente_id=paciente.id,
+                veterinario_id=7,
+                tipo="ecocardiograma",
+                titulo="Laudo ecocardiografico - Luna",
+                status="Finalizado",
+                clinic_id=clinica.id,
+                veterinario_parceiro_id=partner.id,
+                data_exame=datetime(2026, 7, 30, 15, 30),
+                criado_por_id=7,
+                criado_por_nome="Dr. Martiniano",
+            )
+            db.add(laudo)
+            db.commit()
+            db.refresh(laudo)
+
+            current_user = SimpleNamespace(id=7, nome="Dr. Martiniano", email="vet@example.com")
+            with (
+                patch.object(laudos, "render_laudo_pdf", return_value=self._fake_pdf()),
+                patch.object(laudos, "store_atendimento_attachment_file", side_effect=self._fake_store(tmpdir)),
+                patch.object(laudos, "registrar_auditoria", return_value=None),
+                patch("app.services.portal_clinic_notification_service.send_portal_email_message") as clinic_email_mock,
+                patch("app.services.portal_partner_notification_service.send_portal_email_message") as partner_email_mock,
+            ):
+                clinic_email_mock.return_value = SimpleNamespace(provider="smtp", channel="email")
+                partner_email_mock.return_value = SimpleNamespace(provider="smtp", channel="email")
+                response = laudos.liberar_laudo_para_portal(
+                    laudo.id,
+                    request=_make_request(),
+                    db=db,
+                    current_user=current_user,
+                )
+
+            exame = db.query(Exame).filter(Exame.laudo_id == laudo.id).first()
+            self.assertIsNotNone(exame)
+            target = (
+                db.query(PortalPartnerReleaseTarget)
+                .filter(
+                    PortalPartnerReleaseTarget.partner_id == partner.id,
+                    PortalPartnerReleaseTarget.exame_id == exame.id,
+                    PortalPartnerReleaseTarget.revoked_at.is_(None),
+                )
+                .first()
+            )
+            self.assertIsNotNone(target)
+            self.assertEqual(response["destinos_liberados_agora"]["clinica"], True)
+            self.assertEqual(response["destinos_liberados_agora"]["veterinario_parceiro"], True)
+            self.assertEqual(response["portal_veterinario_liberado"], True)
+            self.assertEqual(response["portal_destinos_pendentes"], [])
+            self.assertEqual(response["notificacao_parceiro"]["status"], "sent")
+            self.assertEqual(response["notificacao_parceiro"]["destination_masked"], "ca***@example.com")
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_obter_laudo_indica_pendencia_de_veterinario_parceiro(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            paciente = Paciente(nome="Luna", especie="Canina", ativo=1)
+            clinica = Clinica(id=8, nome="Clinica Parceira", email="contato@clinica.com", ativo=True)
+            partner = PortalPartnerProfile(
+                tipo=PORTAL_PARTNER_TYPE_VETERINARIO,
+                nome_exibicao="Dra. Carla Soares",
+                email_login="carla.soares@example.com",
+                ativo=True,
+            )
+            db.add_all([paciente, clinica, partner])
+            db.flush()
+            laudo = Laudo(
+                paciente_id=paciente.id,
+                veterinario_id=7,
+                tipo="ecocardiograma",
+                titulo="Laudo ecocardiografico - Luna",
+                status=PORTAL_RELEASED_STATUS,
+                clinic_id=clinica.id,
+                veterinario_parceiro_id=partner.id,
+                data_exame=datetime(2026, 7, 30, 15, 30),
+                criado_por_id=7,
+                criado_por_nome="Dr. Martiniano",
+            )
+            db.add(laudo)
+            db.flush()
+            db.add(
+                Exame(
+                    laudo_id=laudo.id,
+                    paciente_id=paciente.id,
+                    tipo_exame="Ecocardiograma",
+                    categoria_exame="Laudo",
+                    status=PORTAL_RELEASED_STATUS,
+                )
+            )
+            db.commit()
+            payload = laudos.obter_laudo(
+                laudo.id,
+                db=db,
+                current_user=SimpleNamespace(id=7, nome="Dr. Martiniano"),
+            )
+            self.assertEqual(payload["portal_clinica_liberado"], True)
+            self.assertEqual(payload["portal_veterinario_liberado"], False)
+            self.assertEqual(payload["portal_destinos_pendentes"], ["veterinario_parceiro"])
+            self.assertEqual(payload["portal_pode_liberar"], True)
         finally:
             db.close()
             engine.dispose()

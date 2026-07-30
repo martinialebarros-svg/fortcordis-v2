@@ -111,14 +111,19 @@ Esta entrega generaliza o portal externo da Fort Cordis para operar como portal 
   - Payload: sem corpo
   - Resposta: linha do tempo com convites, ativacoes, resets, revogacoes, acessos e downloads
 
-- Endpoint: `POST /api/v1/laudos/{id}/portal-destinatarios`
+- Endpoint: `POST /api/v1/laudos/{id}/portal/liberar`
   - Metodo: `POST`
-  - Payload:
-    - `destinatarios`: lista com itens do tipo `parceiro` ou `tutor`
-    - `partner_id` quando `tipo=parceiro`
-    - `permitir_download`
-    - `notificar_por_email`
-  - Resposta: destinatarios liberados/revogados para o laudo
+  - Payload: sem corpo; o backend usa os vinculos ja existentes do laudo (`clinic_id` e/ou `veterinario_parceiro_id`)
+  - Resposta:
+    - status final do laudo
+    - destinos liberados nesta chamada
+    - destinos ainda pendentes
+    - resultado das notificacoes por email disparadas para clinica e/ou veterinario parceiro
+
+- Endpoint: `POST /api/v1/laudos/{id}/portal/liberar-clinica`
+  - Metodo: `POST`
+  - Payload: sem corpo
+  - Resposta: facade legada para compatibilidade, encaminhando para a mesma regra de `POST /api/v1/laudos/{id}/portal/liberar`
 
 - Endpoint: `GET /api/v1/portal/parceiros/exames`
   - Metodo: `GET`
@@ -131,12 +136,19 @@ Esta entrega generaliza o portal externo da Fort Cordis para operar como portal 
   - `GET /api/v1/portal/parceiros`
   - `POST /api/v1/portal/parceiros`
   - `PATCH /api/v1/portal/parceiros/{id}`
+- foi implementada a liberacao generica de laudo pelo endpoint:
+  - `POST /api/v1/laudos/{id}/portal/liberar`
+- a liberacao generica:
+  - reutiliza o PDF final do laudo no mesmo fluxo ja usado pela clinica parceira
+  - cria ou reativa `portal_partner_release_targets` para o veterinario parceiro vinculado
+  - devolve o estado de liberacao por destino (`clinica` e `veterinario_parceiro`)
+  - preserva `POST /api/v1/laudos/{id}/portal/liberar-clinica` como facade compativel
 - o cadastro do tipo `veterinario` valida email de login, cidade/estado base e ao menos um contato profissional
 - o cadastro do tipo `clinica` reaproveita automaticamente os dados da clinica operacional vinculada quando o payload nao informar nome, contato ou localizacao
 - a API ja protege dois conflitos importantes:
   - mesma clinica sendo vinculada duas vezes
   - mesmo email de login ativo sendo reutilizado por outro parceiro externo
-- convites, timeline, autenticacao generica e liberacao multi-destinatario continuam nas proximas fases
+- a selecao explicita de tutor e uma matriz completa de destinatarios continuam nas proximas fases
 
 ### Entrega atual da fase 3
 
@@ -177,7 +189,7 @@ Esta entrega generaliza o portal externo da Fort Cordis para operar como portal 
   - selecionar clinica parceira e/ou veterinario parceiro no mesmo caso
   - cadastrar um novo veterinario parceiro sem sair da tela de upload
   - salvar laudo domiciliar sem clinica fixa quando houver apenas encaminhamento do veterinario parceiro
-  - persistir `veterinario_parceiro_id` no laudo para auditoria, exibicao e proximas etapas de liberacao
+  - persistir `veterinario_parceiro_id` no laudo para auditoria, exibicao e liberacao direta no portal do parceiro
 
 ### Banco/migracoes
 
@@ -243,6 +255,7 @@ Esta entrega generaliza o portal externo da Fort Cordis para operar como portal 
   - formularios de parceiro clinica podem reaproveitar o vinculo com `clinica_id`
   - a UI deve mostrar claramente o tipo do parceiro em listas, filtros e cabecalho do portal
   - quando o email ja estiver em uso por outro parceiro externo ativo, a UI deve orientar ajuste do cadastro, sem ambiguidade
+  - a acao `Liberar no portal` deve permanecer disponivel enquanto ainda existir algum destino externo vinculado que nao recebeu a liberacao
 
 ## 5) Compatibilidade e rollout
 
@@ -250,7 +263,7 @@ Esta entrega generaliza o portal externo da Fort Cordis para operar como portal 
   - perfis atuais de clinicas parceiras devem ser migrados/espelhados para `portal_partner_profiles` sem exigir nova ativacao
   - endpoints legados de clinica parceira podem ser mantidos temporariamente como facade para a nova camada generica
 - Entrega atual:
-  - nesta fase nao houve troca do contrato de autenticacao do portal em producao; a entrega ficou restrita a estrutura de dados e migracao de base
+  - esta fase consolida o cadastro, convite, autenticacao, portal autenticado do veterinario parceiro, o vinculo do encaminhamento no laudo e a liberacao direta para clinica e/ou veterinario parceiro a partir dos vinculos ja salvos
 - Feature flag (se houver):
   - opcional `ENABLE_PORTAL_PARTNER_TYPES`, inicialmente ativa em stage
 - Estrategia de rollback:
@@ -273,7 +286,8 @@ Esta entrega generaliza o portal externo da Fort Cordis para operar como portal 
 - CB-002: um veterinario parceiro sem CRMV informado pode ser salvo apenas se a Fort Cordis optar por tratar o campo como opcional nesta fase; caso contrario, a validacao deve ser consistente na UI e na API.
 - CB-003: revogar um destinatario externo apos download nao apaga o historico auditavel do acesso ja realizado.
 - CB-004: um laudo pode ser liberado para mais de um destinatario externo sem que um herde o escopo do outro.
-- CB-005: parceiros do tipo clinica migrados do modelo anterior nao devem perder senha, convite aceito ou historico de download.
+- CB-005: se o laudo ja estiver liberado para a clinica, mas ainda pendente para o veterinario parceiro, a UI deve continuar permitindo nova liberacao apenas para o destino faltante.
+- CB-006: parceiros do tipo clinica migrados do modelo anterior nao devem perder senha, convite aceito ou historico de download.
 
 ## 8) Fora de escopo
 
