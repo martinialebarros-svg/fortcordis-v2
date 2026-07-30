@@ -22,6 +22,7 @@ Esta entrega generaliza o portal externo da Fort Cordis para operar como portal 
 - RF-010: a administracao deve permitir reenviar convite, revogar acesso, redefinir senha e acompanhar historico por parceiro externo.
 - RF-011: o fluxo de vinculacao de exames/laudos deve permitir apontar a origem externa do caso para um parceiro externo quando o encaminhamento vier de clinica ou veterinario.
 - RF-012: o fluxo sem agendamento previo, como telemedicina ou upload de eletrocardiograma, deve aceitar selecao de parceiro externo existente ou cadastro rapido de novo parceiro antes da liberacao do laudo.
+- RF-013: laudos ja existentes devem permitir inclusao, troca ou remocao posterior do veterinario parceiro vinculado, sem exigir recriacao do documento.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -190,6 +191,10 @@ Esta entrega generaliza o portal externo da Fort Cordis para operar como portal 
   - cadastrar um novo veterinario parceiro sem sair da tela de upload
   - salvar laudo domiciliar sem clinica fixa quando houver apenas encaminhamento do veterinario parceiro
   - persistir `veterinario_parceiro_id` no laudo para auditoria, exibicao e liberacao direta no portal do parceiro
+- a edicao de laudos internos ja existentes agora permite:
+  - vincular um veterinario parceiro depois que o laudo estiver pronto
+  - trocar o parceiro vinculado sem recriar o laudo
+  - limpar o parceiro quando o encaminhamento nao se aplicar mais ao caso
 
 ### Banco/migracoes
 

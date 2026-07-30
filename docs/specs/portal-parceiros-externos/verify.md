@@ -13,6 +13,7 @@ Status: in_progress
 | CA-003 | aceitacao | Login de veterinario parceiro com escopo restrito aos laudos liberados | parcial |
 | CA-004 | aceitacao | Fluxo de liberacao com combinacao clinica/veterinario/tutor | parcial |
 | CA-005 | aceitacao | Fluxo de telemedicina/upload com selecao ou cadastro rapido do parceiro | concluido |
+| CA-008 | aceitacao | Edicao de laudo pronto permitindo vincular ou trocar veterinario parceiro sem recriacao | concluido |
 | CA-006 | aceitacao | Painel administrativo com filtros por tipo, ultimo acesso e ultimo download | parcial |
 | CA-007 | aceitacao | Timeline auditavel com convite, ativacao, login, revogacao e download | pendente |
 | API-F2-001 | tecnico | CRUD administrativo inicial de parceiros externos (`GET/POST/PATCH /api/v1/portal/parceiros`) | concluido |
@@ -21,6 +22,7 @@ Status: in_progress
 | API-F4-001 | tecnico | Fluxo de convite/autenticacao do veterinario parceiro (`/api/v1/portal/parceiros/...`) | concluido |
 | UI-F4-001 | tecnico | Portal publico `/veterinario-parceiro` com ativacao, login, reset e listagem escopada | concluido |
 | UI-F5-001 | tecnico | Tela de upload de eletrocardiograma com clinica ou veterinario parceiro + cadastro rapido no fluxo | concluido |
+| UI-F5-002 | tecnico | Tela de edicao do laudo com seletor de veterinario parceiro para laudos prontos | concluido |
 | DB-F5-001 | tecnico | Persistencia de `laudos.veterinario_parceiro_id` para vinculo do encaminhamento | concluido |
 | API-F6-001 | tecnico | Endpoint generico `POST /api/v1/laudos/{id}/portal/liberar` com facade legada clinic-centric | concluido |
 | API-F6-002 | tecnico | Criacao/reativacao de `portal_partner_release_targets` + notificacao por email para o veterinario parceiro | concluido |
@@ -39,6 +41,7 @@ backend/venv/bin/python -m py_compile \
   backend/app/services/portal_partner_notification_service.py \
   backend/tests/test_laudo_portal_release.py
 npx eslint app/laudos/page.tsx app/laudos/[id]/page.tsx
+npx eslint app/laudos/[id]/editar/page.tsx
 npx tsc --noEmit
 npm run build
 ```
@@ -52,6 +55,7 @@ Resumo dos resultados:
   - `py_compile`: passou nos arquivos tocados do backend
 - Frontend:
   - `npx eslint` nas telas de listagem e detalhe de laudos: passou
+  - `npx eslint` na tela de edicao de laudo: passou
   - `npx tsc --noEmit`: passou
   - `npm run build`: passou
 
@@ -89,6 +93,12 @@ Observacao:
   - usar um laudo ja liberado para a clinica
   - vincular um veterinario parceiro ao caso
   - confirmar que a UI ainda permite nova liberacao apenas para o destino faltante
+
+- Cenario 7:
+  - abrir um laudo pronto em edicao
+  - selecionar, trocar ou limpar `Veterinario parceiro`
+  - salvar o laudo
+  - confirmar no detalhe do laudo e no fluxo de liberacao do portal que o vinculo atualizado foi preservado
 
 ## 4) Regressao e riscos residuais
 
