@@ -4,7 +4,7 @@ import { getPortalAdminAuthHeaders } from "@/lib/portal-clinic-admin";
 import { portalDateTimeMillis } from "@/lib/portal-datetime";
 import { portalErrorMessageFromBody } from "@/lib/portal-errors";
 
-export type PortalActorType = "tutor" | "clinica";
+export type PortalActorType = "tutor" | "clinica" | "parceiro";
 
 export type PortalChallengeResponse = {
   accepted: boolean;
@@ -22,6 +22,10 @@ export type PortalSessionResponse = {
   actor_id: number;
   paciente_id?: number | null;
   clinica_id?: number | null;
+  partner_id?: number | null;
+  partner_nome?: string | null;
+  partner_tipo?: PortalPartnerType | null;
+  partner_tipo_label?: string | null;
   account_id?: number | null;
   auth_method?: string | null;
   trusted_session_expires_at?: string | null;
@@ -30,6 +34,14 @@ export type PortalSessionResponse = {
 };
 
 export type PortalClinicAuthResponse = Partial<PortalSessionResponse> & {
+  token_type?: string;
+  scope?: string[];
+  mfa_required?: boolean;
+  challenge_id?: string | null;
+  message?: string | null;
+};
+
+export type PortalPartnerAuthResponse = Partial<PortalSessionResponse> & {
   token_type?: string;
   scope?: string[];
   mfa_required?: boolean;
@@ -54,6 +66,36 @@ export type PortalClinicActivationResponse = {
   expires_at?: string | null;
   actor_type?: PortalActorType | null;
   actor_id?: number | null;
+  clinica_id?: number | null;
+  account_id?: number | null;
+  auth_method?: string | null;
+  trusted_session_expires_at?: string | null;
+  scope?: string[];
+  message: string;
+};
+
+export type PortalPartnerInviteStatusResponse = {
+  status: "pending" | "used" | "expired" | "revoked";
+  partner_id: number;
+  partner_nome: string;
+  partner_tipo: PortalPartnerType;
+  partner_tipo_label: string;
+  expires_at: string;
+  can_activate: boolean;
+  email_hint?: string | null;
+};
+
+export type PortalPartnerActivationResponse = {
+  activation_id: number;
+  access_token?: string | null;
+  token_type?: string;
+  expires_at?: string | null;
+  actor_type?: PortalActorType | null;
+  actor_id?: number | null;
+  partner_id?: number | null;
+  partner_nome?: string | null;
+  partner_tipo?: PortalPartnerType | null;
+  partner_tipo_label?: string | null;
   clinica_id?: number | null;
   account_id?: number | null;
   auth_method?: string | null;
@@ -188,6 +230,64 @@ export type PortalAdminClinicAccessOverviewResponse = {
   recent_downloads: PortalAdminClinicDownloadEvent[];
 };
 
+export type PortalPartnerType = "clinica" | "veterinario";
+
+export type PortalPartnerProfile = {
+  id: number;
+  tipo: PortalPartnerType;
+  tipo_label: string;
+  clinica_id?: number | null;
+  clinica_nome?: string | null;
+  nome_exibicao: string;
+  email_login?: string | null;
+  telefone?: string | null;
+  whatsapp?: string | null;
+  cidade_base?: string | null;
+  estado_base?: string | null;
+  crmv?: string | null;
+  cpf_documento?: string | null;
+  area_atuacao?: string | null;
+  observacoes?: string | null;
+  ativo: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type PortalPartnerProfileListResponse = {
+  total: number;
+  items: PortalPartnerProfile[];
+};
+
+export type PortalPartnerProfileCreatePayload = {
+  tipo: PortalPartnerType;
+  clinica_id?: number;
+  nome_exibicao?: string;
+  email_login?: string;
+  telefone?: string;
+  whatsapp?: string;
+  cidade_base?: string;
+  estado_base?: string;
+  crmv?: string;
+  cpf_documento?: string;
+  area_atuacao?: string;
+  observacoes?: string;
+  ativo?: boolean;
+};
+
+export type PortalPartnerProfileUpdatePayload = {
+  nome_exibicao?: string;
+  email_login?: string;
+  telefone?: string;
+  whatsapp?: string;
+  cidade_base?: string;
+  estado_base?: string;
+  crmv?: string;
+  cpf_documento?: string;
+  area_atuacao?: string;
+  observacoes?: string;
+  ativo?: boolean;
+};
+
 export type PortalExamAttachment = {
   anexo_id: number;
   nome_original: string;
@@ -243,6 +343,10 @@ export type PortalExamListResponse = {
   total: number;
   clinica_id?: number | null;
   clinica_nome?: string | null;
+  partner_id?: number | null;
+  partner_nome?: string | null;
+  partner_tipo?: PortalPartnerType | null;
+  partner_tipo_label?: string | null;
   operational_summary?: PortalClinicOperationalSummary | null;
   operational_items?: PortalClinicOperationalItem[];
   items: PortalExamItem[];
@@ -333,8 +437,8 @@ function removePortalSessionEverywhere(actorType: PortalActorType): void {
   window.localStorage.removeItem(key);
 }
 
-function shouldPersistClinicSession(session: PortalSessionResponse): boolean {
-  if (session.actor_type !== "clinica") {
+function shouldPersistPortalSession(session: PortalSessionResponse): boolean {
+  if (session.actor_type !== "clinica" && session.actor_type !== "parceiro") {
     return false;
   }
   if (!session.trusted_session_expires_at) {
@@ -405,6 +509,30 @@ export async function activateClinicInvite(payload: {
   );
 }
 
+export async function getPartnerInviteStatus(inviteToken: string): Promise<PortalPartnerInviteStatusResponse> {
+  return portalFetchJson<PortalPartnerInviteStatusResponse>(
+    `/api/v1/portal/parceiros/convites/${encodeURIComponent(inviteToken)}`,
+    {},
+    "Nao foi possivel consultar o convite do parceiro.",
+  );
+}
+
+export async function activatePartnerInvite(payload: {
+  invite_token: string;
+  responsavel_nome: string;
+  password: string;
+  password_confirmation: string;
+}): Promise<PortalPartnerActivationResponse> {
+  return portalFetchJson<PortalPartnerActivationResponse>(
+    "/api/v1/portal/parceiros/ativacao",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    "Nao foi possivel iniciar a ativacao do parceiro.",
+  );
+}
+
 export async function verifyClinicEmailCode(payload: {
   challenge_id: string;
   codigo: string;
@@ -460,6 +588,47 @@ export async function refreshClinicPortalSession(): Promise<PortalClinicAuthResp
   );
 }
 
+export async function loginPartnerPortal(payload: {
+  email: string;
+  password: string;
+  remember_device_until_shift_end: boolean;
+}): Promise<PortalPartnerAuthResponse> {
+  return portalFetchJson<PortalPartnerAuthResponse>(
+    "/api/v1/portal/parceiros/auth/login",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    "Nao foi possivel iniciar a sessao do parceiro.",
+  );
+}
+
+export async function verifyPartnerPortalMfa(payload: {
+  challenge_id: string;
+  codigo: string;
+  remember_device_until_shift_end: boolean;
+}): Promise<PortalPartnerAuthResponse> {
+  return portalFetchJson<PortalPartnerAuthResponse>(
+    "/api/v1/portal/parceiros/auth/mfa/verificar",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    "Nao foi possivel confirmar o acesso do parceiro.",
+  );
+}
+
+export async function refreshPartnerPortalSession(): Promise<PortalPartnerAuthResponse> {
+  return portalFetchJson<PortalPartnerAuthResponse>(
+    "/api/v1/portal/parceiros/auth/refresh",
+    {
+      method: "POST",
+      body: JSON.stringify({}),
+    },
+    "Nao foi possivel renovar a sessao do parceiro.",
+  );
+}
+
 export async function logoutClinicPortal(token?: string | null): Promise<PortalSimpleAcceptedResponse> {
   return portalFetchJson<PortalSimpleAcceptedResponse>(
     "/api/v1/portal/auth/logout",
@@ -473,6 +642,22 @@ export async function logoutClinicPortal(token?: string | null): Promise<PortalS
       body: JSON.stringify({}),
     },
     "Nao foi possivel encerrar a sessao da clinica.",
+  );
+}
+
+export async function logoutPartnerPortal(token?: string | null): Promise<PortalSimpleAcceptedResponse> {
+  return portalFetchJson<PortalSimpleAcceptedResponse>(
+    "/api/v1/portal/parceiros/auth/logout",
+    {
+      method: "POST",
+      headers: token
+        ? {
+            Authorization: `Bearer ${token}`,
+          }
+        : undefined,
+      body: JSON.stringify({}),
+    },
+    "Nao foi possivel encerrar a sessao do parceiro.",
   );
 }
 
@@ -501,6 +686,54 @@ export async function resetClinicPassword(payload: {
       body: JSON.stringify(payload),
     },
     "Nao foi possivel redefinir a senha da clinica.",
+  );
+}
+
+export async function requestPartnerPasswordReset(payload: {
+  email: string;
+}): Promise<PortalSimpleAcceptedResponse> {
+  return portalFetchJson<PortalSimpleAcceptedResponse>(
+    "/api/v1/portal/parceiros/auth/esqueci-senha",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    "Nao foi possivel processar a redefinicao de senha do parceiro.",
+  );
+}
+
+export async function resetPartnerPassword(payload: {
+  reset_token: string;
+  password: string;
+  password_confirmation: string;
+}): Promise<PortalSimpleAcceptedResponse> {
+  return portalFetchJson<PortalSimpleAcceptedResponse>(
+    "/api/v1/portal/parceiros/auth/redefinir-senha",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    "Nao foi possivel redefinir a senha do parceiro.",
+  );
+}
+
+export async function createPortalPartnerInvite(
+  partnerId: number,
+  payload: {
+    delivery_channel: "whatsapp";
+    delivery_target: string;
+    expires_in_hours: number;
+    allow_manual_copy: boolean;
+  },
+): Promise<PortalAdminClinicInviteResponse> {
+  return portalFetchJson<PortalAdminClinicInviteResponse>(
+    `/api/v1/portal/parceiros/${partnerId}/convites`,
+    {
+      method: "POST",
+      headers: getPortalAdminAuthHeaders(),
+      body: JSON.stringify(payload),
+    },
+    "Nao foi possivel gerar o convite do parceiro.",
   );
 }
 
@@ -629,6 +862,30 @@ export async function listPortalClinicExams(
   );
 }
 
+export async function listPortalPartnerExams(
+  filters: PortalClinicExamFilters,
+  token: string,
+): Promise<PortalExamListResponse> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+    params.set(key, String(value));
+  });
+
+  const query = params.toString();
+  return portalFetchJson<PortalExamListResponse>(
+    `/api/v1/portal/parceiros/exames${query ? `?${query}` : ""}`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+    "Nao foi possivel carregar os exames do parceiro.",
+  );
+}
+
 export async function listPortalAdminClinicMirrorExams(
   clinicaId: number,
   filters: PortalClinicExamFilters,
@@ -711,7 +968,7 @@ export function savePortalSession(session: PortalSessionResponse): void {
   }
   const key = getPortalSessionStorageKey(session.actor_type);
   const serialized = JSON.stringify(session);
-  if (shouldPersistClinicSession(session)) {
+  if (shouldPersistPortalSession(session)) {
     window.localStorage.setItem(key, serialized);
     window.sessionStorage.removeItem(key);
     return;

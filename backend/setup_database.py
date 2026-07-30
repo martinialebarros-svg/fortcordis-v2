@@ -17,7 +17,7 @@ from app.models import (
     laudo, financeiro, frase, imagem_laudo, tabela_preco, 
     ordem_servico, referencia_eco, configuracao, auditoria_evento,
     clinica_deslocamento, cep_bairro_override, push_subscription, push_scheduled_notification,
-    google_maps_usage_metrica, portal_access
+    google_maps_usage_metrica, portal_access, portal_partner, portal_partner_auth
 )
 from app.utils.frases_seed import seed_frases
 from migrations.runner import run_migrations
@@ -53,6 +53,13 @@ MODELS = [
     cep_bairro_override.CepBairroOverride,
     google_maps_usage_metrica.GoogleMapsUsageMetrica,
     portal_access.PortalAccessChallenge,
+    portal_partner.PortalPartnerProfile,
+    portal_partner.PortalPartnerReleaseTarget,
+    portal_partner_auth.PortalPartnerInvite,
+    portal_partner_auth.PortalPartnerAccount,
+    portal_partner_auth.PortalPartnerSession,
+    portal_partner_auth.PortalPartnerPasswordResetToken,
+    portal_partner_auth.PortalPartnerAuthChallenge,
 ]
 
 def criar_tabelas():
@@ -138,7 +145,9 @@ def verificar_tabelas():
         "referencias_eco", "configuracoes", "configuracoes_usuario"
         , "auditoria_eventos", "clinica_deslocamentos", "cep_bairro_overrides",
         "push_subscriptions", "push_scheduled_notifications", "google_maps_usage_metricas"
-        , "portal_access_challenges"
+        , "portal_access_challenges", "portal_partner_profiles", "portal_partner_release_targets"
+        , "portal_partner_invites", "portal_partner_accounts", "portal_partner_sessions"
+        , "portal_partner_password_reset_tokens", "portal_partner_auth_challenges"
     ]
     
     todas_ok = True

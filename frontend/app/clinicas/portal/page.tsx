@@ -748,6 +748,13 @@ export default function PortalClinicManagementPage() {
 
           <div className="flex flex-wrap items-center gap-3">
             <Link
+              href="/clinicas/portal/parceiros"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
+            >
+              <UsersRound className="h-4 w-4" />
+              Parceiros externos
+            </Link>
+            <Link
               href={selectedClinicId ? `/clinicas/portal/espelho?clinica=${selectedClinicId}` : "/clinicas/portal/espelho"}
               className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
             >
