@@ -87,7 +87,7 @@ export function buildPartnerInviteMessage({
       "",
       emailLine,
       "Se a senha nao estiver mais com voce, use a opcao 'Esqueci minha senha' na tela de entrada para redefinir o acesso.",
-      "Este ambiente mostra apenas os casos liberados para o seu escopo profissional no portal.",
+      "Este ambiente mostra apenas os casos liberados para você no portal.",
     ].join("\n");
   }
 

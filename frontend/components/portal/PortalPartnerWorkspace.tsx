@@ -454,9 +454,9 @@ export default function PortalPartnerWorkspace({
                 <HeartPulse className="h-4 w-4" />
                 Portal do parceiro
               </p>
-              <h2 className="mt-6 text-4xl font-black tracking-tight">Exames liberados para o seu escopo profissional.</h2>
+              <h2 className="mt-6 text-4xl font-black tracking-tight">Exames liberados para você no portal.</h2>
               <p className="mt-4 max-w-2xl text-base leading-7 text-white/82">
-                Consulte os casos vinculados ao seu acesso, filtre por pet ou tutor e baixe rapidamente os arquivos liberados pela Fort Cordis.
+                Consulte os casos liberados para você, filtre por pet ou tutor e baixe rapidamente os arquivos disponibilizados pela Fort Cordis.
               </p>
             </div>
 
@@ -483,7 +483,7 @@ export default function PortalPartnerWorkspace({
               {
                 label: "Pets no resultado",
                 value: dashboardStats.pets,
-                detail: "dentro do seu escopo",
+                detail: "liberados para você",
                 icon: PawPrint,
               },
               {
@@ -659,7 +659,7 @@ export default function PortalPartnerWorkspace({
                   <SlidersHorizontal className="h-4 w-4" />
                   Exames liberados
                 </p>
-                <p className="mt-1 text-sm text-slate-500">{totalAvailable} resultado(s) no seu escopo profissional.</p>
+                <p className="mt-1 text-sm text-slate-500">{totalAvailable} resultado(s) liberado(s) para você.</p>
               </div>
             </div>
 

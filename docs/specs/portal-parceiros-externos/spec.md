@@ -235,6 +235,7 @@ Esta entrega generaliza o portal externo da Fort Cordis para operar como portal 
   - formularios de parceiro veterinario nao devem exigir endereco fixo completo
   - formularios de parceiro clinica podem reaproveitar o vinculo com `clinica_id`
   - a UI deve mostrar claramente o tipo do parceiro em listas, filtros e cabecalho do portal
+  - a copy do portal do parceiro deve usar linguagem humana e direta, evitando termos internos ou tecnicos como `escopo profissional`
   - quando o email ja estiver em uso por outro parceiro externo ativo, a UI deve orientar ajuste do cadastro, sem ambiguidade
 
 ## 5) Compatibilidade e rollout

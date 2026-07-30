@@ -19,6 +19,7 @@ Status: in_progress
 | UI-F3-001 | tecnico | Tela administrativa `/clinicas/portal/parceiros` integrada aos endpoints de parceiros externos | concluido |
 | API-F4-001 | tecnico | Fluxo de convite/autenticacao do veterinario parceiro (`/api/v1/portal/parceiros/...`) | concluido |
 | UI-F4-001 | tecnico | Portal publico `/veterinario-parceiro` com ativacao, login, reset e listagem escopada | concluido |
+| UI-F4-002 | tecnico | Copy do portal do parceiro ajustada para linguagem mais natural, sem `escopo profissional` | concluido |
 | NFR-002 | nao funcional | Logs e consultas mostrando escopo por `partner_id` sem vazamento entre parceiros | pendente |
 | NFR-004 | nao funcional | Migracao/compatibilidade preservando espelho das clinicas ja ativas e dos exames legados liberados | parcial |
 
@@ -49,6 +50,7 @@ backend/venv/bin/python -m py_compile \
 npx eslint lib/portal-api.ts lib/portal-clinic-admin.ts components/portal/PortalPartnerWorkspace.tsx components/portal/PortalPartnerPageShell.tsx components/portal/PortalPartnerActivationWorkspace.tsx components/portal/PortalPartnerResetPasswordWorkspace.tsx app/veterinario-parceiro/page.tsx app/veterinario-parceiro/ativar/[token]/page.tsx app/veterinario-parceiro/redefinir-senha/page.tsx app/clinicas/portal/parceiros/page.tsx
 npx tsc --noEmit
 npm run build
+npx eslint components/portal/PortalPartnerWorkspace.tsx lib/portal-clinic-admin.ts
 ```
 
 Resumo dos resultados:
@@ -61,6 +63,7 @@ Resumo dos resultados:
   - `npx eslint` nos arquivos alterados: passou
   - `npx tsc --noEmit`: passou
   - `npm run build`: passou, incluindo a rota `/clinicas/portal/parceiros`
+  - `npx eslint components/portal/PortalPartnerWorkspace.tsx lib/portal-clinic-admin.ts`: passou, cobrindo o ajuste de copy do portal do parceiro
 
 Observacao:
 - A fase atual conclui a base administrativa, o fluxo autenticado do veterinario parceiro e a primeira experiencia publica do parceiro. Timeline dedicada, liberacao multi-destinatario e fluxo completo de telemedicina ainda seguem pendentes.
