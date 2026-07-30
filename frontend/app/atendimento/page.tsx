@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import { extractApiErrorMessage, extractApiErrorMessageSync } from "@/lib/api-error";
-import { extrairIdadePaciente } from "@/lib/paciente";
+import { extrairIdadePaciente, normalizarSexoPaciente } from "@/lib/paciente";
 import {
   ATENDIMENTOS_LIST_LIMIT,
   PRESCRICAO_PRESETS_STORAGE_KEY,
@@ -2104,6 +2104,7 @@ export default function AtendimentoPage() {
 
   const pacienteNomeExibicao = cadastroComplementar.paciente.nome || pacienteSelecionado?.nome || "";
   const tutorNomeExibicao = cadastroComplementar.tutor.nome || pacienteSelecionado?.tutor || "";
+  const sexoPacienteExibicao = normalizarSexoPaciente(cadastroComplementar.paciente.sexo || "");
   const especieRacaExibicao = [
     cadastroComplementar.paciente.especie || especieExibicao || "",
     cadastroComplementar.paciente.raca || pacienteSelecionado?.raca || "",
@@ -2128,6 +2129,7 @@ export default function AtendimentoPage() {
     const pendencias: string[] = [];
     if (!cadastroComplementar.paciente.especie) pendencias.push("especie");
     if (!cadastroComplementar.paciente.raca) pendencias.push("raca");
+    if (!cadastroComplementar.paciente.sexo) pendencias.push("sexo");
     if (!cadastroComplementar.paciente.data_nascimento) pendencias.push("data de nascimento");
     if (cadastroComplementar.paciente.peso_kg == null) pendencias.push("peso cadastral");
     if (!cadastroComplementar.tutor.whatsapp) pendencias.push("whatsapp");
@@ -2804,48 +2806,33 @@ export default function AtendimentoPage() {
       const pacienteId = Number(form.paciente_id);
       const pacientePayload = {
         nome: cadastroComplementar.paciente.nome.trim(),
+        tutor_id: cadastroComplementar.tutor.id || cadastroComplementar.paciente.tutor_id || undefined,
         tutor: cadastroComplementar.tutor.nome.trim() || undefined,
+        tutor_telefone: normalizarTelefone(cadastroComplementar.tutor.telefone || ""),
+        tutor_whatsapp: normalizarTelefone(cadastroComplementar.tutor.whatsapp || ""),
+        tutor_email: cadastroComplementar.tutor.email || "",
+        tutor_cpf: normalizarCpf(cadastroComplementar.tutor.cpf || ""),
+        tutor_cep: normalizarCep(cadastroComplementar.tutor.cep || ""),
+        tutor_endereco: cadastroComplementar.tutor.endereco || "",
+        tutor_numero: cadastroComplementar.tutor.numero || "",
+        tutor_complemento: cadastroComplementar.tutor.complemento || "",
+        tutor_bairro: cadastroComplementar.tutor.bairro || "",
+        tutor_cidade: cadastroComplementar.tutor.cidade || "",
+        tutor_estado: cadastroComplementar.tutor.estado || "",
         especie: cadastroComplementar.paciente.especie || null,
         raca: cadastroComplementar.paciente.raca || null,
+        sexo: normalizarSexoPaciente(cadastroComplementar.paciente.sexo || "") || null,
         data_nascimento: cadastroComplementar.paciente.data_nascimento || null,
         peso_kg:
           cadastroComplementar.paciente.peso_kg == null || Number.isNaN(Number(cadastroComplementar.paciente.peso_kg))
             ? null
             : Number(cadastroComplementar.paciente.peso_kg),
+        microchip: cadastroComplementar.paciente.microchip || "",
+        observacoes: cadastroComplementar.paciente.observacoes || "",
       };
 
-      await api.put(`/pacientes/${pacienteId}`, pacientePayload);
-      const pacienteAtualizado = await api.get(`/pacientes/${pacienteId}`);
-      let tutorId = Number(pacienteAtualizado.data?.tutor_id || cadastroComplementar.tutor.id || 0);
-      if (!Number.isFinite(tutorId) || tutorId <= 0) {
-        try {
-          const tutorAtual = await api.get(`/pacientes/${pacienteId}/tutor`);
-          tutorId = Number(tutorAtual.data?.id || 0);
-        } catch {
-          tutorId = 0;
-        }
-      }
-
-      if (Number.isFinite(tutorId) && tutorId > 0) {
-        try {
-          await api.put(`/tutores/${tutorId}`, {
-            nome: cadastroComplementar.tutor.nome.trim() || undefined,
-            telefone: normalizarTelefone(cadastroComplementar.tutor.telefone || ""),
-            whatsapp: normalizarTelefone(cadastroComplementar.tutor.whatsapp || ""),
-            email: cadastroComplementar.tutor.email || "",
-            cpf: normalizarCpf(cadastroComplementar.tutor.cpf || ""),
-            cep: normalizarCep(cadastroComplementar.tutor.cep || ""),
-            endereco: cadastroComplementar.tutor.endereco || "",
-            numero: cadastroComplementar.tutor.numero || "",
-            complemento: cadastroComplementar.tutor.complemento || "",
-            bairro: cadastroComplementar.tutor.bairro || "",
-            cidade: cadastroComplementar.tutor.cidade || "",
-            estado: cadastroComplementar.tutor.estado || "",
-          });
-        } catch (tutorError) {
-          console.error("Falha ao atualizar tutor no cadastro complementar", tutorError);
-        }
-      }
+      const pacienteAtualizado = await api.put(`/pacientes/${pacienteId}`, pacientePayload);
+      const tutorId = Number(pacienteAtualizado.data?.tutor_id || cadastroComplementar.tutor.id || 0);
 
       await carregarCadastroComplementar(pacienteId);
       setField("especie", pacientePayload.especie || "");
@@ -2864,13 +2851,23 @@ export default function AtendimentoPage() {
             : item
         )
       );
-      setSucesso("Cadastro complementar salvo com sucesso.");
+      setSucesso("Cadastro atualizado. Receitas e solicitacoes de exame usarao estes dados nas proximas impressoes.");
       setErro("");
     } catch (e: any) {
       setErro(extractApiErrorMessageSync(e, "Erro ao salvar cadastro complementar."));
     } finally {
       setSalvandoCadastroComplementar(false);
     }
+  };
+
+  const abrirCadastroComplementar = () => {
+    setCadastroComplementarExpandido(true);
+    window.requestAnimationFrame(() => {
+      document.getElementById("atendimento-cadastro-complementar")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
   };
 
   const updatePrescricaoItem = (index: number, updates: Partial<PrescricaoItem>) => {
@@ -4345,7 +4342,10 @@ export default function AtendimentoPage() {
       setGerandoDocumentoPdfId(documentoParaPdf.id);
       const response = await api.get(
         `/atendimentos/${documentoParaPdf.atendimento_id}/documentos/${documentoParaPdf.id}/pdf`,
-        { responseType: "blob" }
+        {
+          responseType: "blob",
+          params: { impressao: Date.now() },
+        }
       );
       const filename = parseDownloadFilename(
         response.headers?.["content-disposition"],
@@ -4816,6 +4816,7 @@ export default function AtendimentoPage() {
 
       const response = await api.get(`/atendimentos/${atendimentoId}/${tipo}/pdf`, {
         responseType: "blob",
+        params: { impressao: Date.now() },
       });
 
       const fallbackFilename =
@@ -6104,6 +6105,7 @@ export default function AtendimentoPage() {
               <div className="space-y-6">
                 {isConsultaWorkspace ? (
                   <AtendimentoConsultaOverviewSection
+                    abrirCadastroComplementar={abrirCadastroComplementar}
                     clinicas={clinicas}
                     fluxoClinico={fluxoClinico}
                     form={form}
@@ -6120,6 +6122,7 @@ export default function AtendimentoPage() {
                     setWorkspacePainel={setWorkspacePainel}
                     STATUS_ATENDIMENTO={STATUS_ATENDIMENTO}
                     especieRacaExibicao={especieRacaExibicao}
+                    sexoPacienteExibicao={sexoPacienteExibicao}
                     tutorNomeExibicao={tutorNomeExibicao}
                   />
                 ) : null}

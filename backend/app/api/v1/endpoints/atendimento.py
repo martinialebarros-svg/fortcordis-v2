@@ -593,6 +593,15 @@ def _nome_arquivo_limpo(raw: str, fallback: str) -> str:
     return cleaned or fallback
 
 
+def _headers_download_pdf(filename: str) -> Dict[str, str]:
+    return {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+
+
 def _formatar_data_curta(value: Any) -> str:
     if not value:
         return ""
@@ -2390,9 +2399,7 @@ def gerar_pdf_prescricao(
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
 
-    paciente = db.query(Paciente).filter(Paciente.id == atendimento.paciente_id).first()
-    tutor = db.query(Tutor).filter(Tutor.id == atendimento.tutor_id).first() if atendimento.tutor_id else None
-    clinica = db.query(Clinica).filter(Clinica.id == atendimento.clinica_id).first() if atendimento.clinica_id else None
+    paciente, tutor, clinica = carregar_contexto_entidades_documento_service(db, atendimento)
     prescricao = (
         db.query(PrescricaoClinica)
         .filter(PrescricaoClinica.atendimento_id == atendimento.id)
@@ -2429,7 +2436,7 @@ def gerar_pdf_prescricao(
     return StreamingResponse(
         BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=_headers_download_pdf(filename),
     )
 
 
@@ -2578,9 +2585,7 @@ def gerar_pdf_solicitacao_exames(
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
 
-    paciente = db.query(Paciente).filter(Paciente.id == atendimento.paciente_id).first()
-    tutor = db.query(Tutor).filter(Tutor.id == atendimento.tutor_id).first() if atendimento.tutor_id else None
-    clinica = db.query(Clinica).filter(Clinica.id == atendimento.clinica_id).first() if atendimento.clinica_id else None
+    paciente, tutor, clinica = carregar_contexto_entidades_documento_service(db, atendimento)
     exames = (
         db.query(Exame)
         .filter(Exame.atendimento_id == atendimento.id)
@@ -2608,7 +2613,7 @@ def gerar_pdf_solicitacao_exames(
     return StreamingResponse(
         BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=_headers_download_pdf(filename),
     )
 
 
@@ -2656,7 +2661,7 @@ def gerar_pdf_documento_atendimento(
     return StreamingResponse(
         BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=_headers_download_pdf(filename),
     )
 
 
