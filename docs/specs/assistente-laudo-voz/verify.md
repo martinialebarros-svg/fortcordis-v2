@@ -1,6 +1,6 @@
 # Verify - assistente-laudo-voz
 
-Data: 2026-07-27
+Data: 2026-07-29
 Responsável: Martiniano + Codex
 Status: local_pass
 
@@ -44,8 +44,23 @@ Status: local_pass
 | CA-034 | novo/editar oferecem VDF, VSF, FE de Teicholz e Delta D/FS no bloco 2D; a escolha de técnica controla também esses campos no PDF | local_pass |
 | CA-035 | persistência com medidas `*_2D` e `VE_tecnica_relatorio: 2d` é reconstruída pelo backend e pela reedição sem perder o seletor textual | local_pass |
 | CA-036 | laudo legado somente 2D infere o bloco correspondente e a versão do renderizador altera a chave de cache para impedir a reutilização do PDF vazio | local_pass |
+| CA-037 | ditado com refluxo pulmonar leve sem repercussão e demais parâmetros normais preserva o achado no campo pulmonar e na conclusão; a conclusão normal conflitante do provedor é descartada | local_pass |
 
 ## Evidência local executada
+
+### Rodada atual: refluxo pulmonar leve na conclusão
+
+- A regressão reproduz o ditado da captura e também uma resposta do provedor
+  que preenche corretamente a valva pulmonar, mas conclui o exame como normal.
+- O validador reconhece deterministicamente a regurgitação pulmonar leve,
+  mantém o preset rico somente nos demais campos e substitui a conclusão
+  conflitante por `Regurgitação pulmonar de grau leve, sem repercussão
+  hemodinâmica.`.
+- O prompt `echo-clinical-ptbr-v8` explicita que alterações leves devem constar
+  na conclusão mesmo quando não produzem repercussão hemodinâmica.
+- Os 51 testes do assistente, os 55 testes combinados com o canário de stage e
+  a suíte completa de 512 testes passaram; `pip check`, compilação Python e
+  `git diff --check` também foram aprovados.
 
 ### Rodada atual: persistência e PDF de estudo exclusivamente 2D
 

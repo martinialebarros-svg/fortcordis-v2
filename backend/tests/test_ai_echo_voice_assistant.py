@@ -330,6 +330,67 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
         self.assertNotIn("preservada", suggestions["funcao_diastolica"].lower())
         self.assertEqual(enriched.measurements, [])
 
+    def test_remaining_normal_preserves_mild_pulmonary_regurgitation_in_conclusion(
+        self,
+    ) -> None:
+        transcript = (
+            "Ecocardiograma evidencia um refluxo em valva pulmonar leve, sem "
+            "repercussão hemodinâmica. Valva pulmonar morfologicamente normal. "
+            "Demais parâmetros ecocardiográficos dentro da normalidade."
+        )
+        self.assertTrue(can_recover_normality_deterministically(transcript))
+
+        enriched = validate_and_enrich_clinical_output(
+            empty_output(
+                field_suggestions=[
+                    {
+                        "field_key": "valva_pulmonar",
+                        "text": (
+                            "Valva pulmonar morfologicamente normal, com "
+                            "regurgitação leve e sem repercussão hemodinâmica."
+                        ),
+                        "confidence": 1,
+                        "source_spans": [transcript],
+                        "evidence_type": "fact",
+                    },
+                    {
+                        "field_key": "conclusao",
+                        "text": (
+                            "Ecocardiograma dentro dos limites da normalidade "
+                            "para a espécie."
+                        ),
+                        "confidence": 0.95,
+                        "source_spans": [transcript],
+                        "evidence_type": "diagnostic_suggestion",
+                    },
+                ]
+            ),
+            transcript,
+            species="Canina",
+        )
+
+        suggestions = {item.field_key: item.text for item in enriched.field_suggestions}
+        self.assertEqual(set(suggestions), {*_NORMAL_FIELD_SUGGESTIONS, "conclusao"})
+        self.assertEqual(
+            suggestions["valva_pulmonar"],
+            (
+                "Valva pulmonar com morfologia preservada, apresentando "
+                "regurgitação de grau leve, sem repercussão hemodinâmica."
+            ),
+        )
+        self.assertEqual(
+            suggestions["conclusao"],
+            (
+                "Regurgitação pulmonar de grau leve, sem repercussão "
+                "hemodinâmica."
+            ),
+        )
+        self.assertNotIn(
+            "dentro dos limites da normalidade",
+            suggestions["conclusao"].lower(),
+        )
+        self.assertIn("folhetos delgados", suggestions["valva_mitral"])
+
     def test_remaining_normal_uses_preset_and_concludes_mitral_b1_plus_grade_one(
         self,
     ) -> None:
@@ -1452,6 +1513,70 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
                 "known_case_structured_deterministically",
                 warning_types,
             )
+            self.assertEqual(
+                refreshed.structuring_model,
+                "fortcordis-deterministic-clinical-rules",
+            )
+            fake_provider.structure.assert_not_called()
+
+    def test_mild_pulmonary_regurgitation_case_does_not_call_external_provider(
+        self,
+    ) -> None:
+        transcript_text = (
+            "Ecocardiograma evidencia um refluxo em válvula pulmonar leve, sem "
+            "repercussão hemodinâmica. Válvula pulmonar morfologicamente normal. "
+            "Demais parâmetros ecocardiográficos dentro da normalidade."
+        )
+        with self.session_factory() as db:
+            session = self.create_session(db)
+            session_id = session.id
+            db.add(
+                AIEchoTranscript(
+                    id="t-pulmonary-recovery",
+                    session_id=session_id,
+                    raw_text=transcript_text,
+                    edited_text=transcript_text,
+                    language="pt-BR",
+                )
+            )
+            db.commit()
+
+        fake_provider = SimpleNamespace(
+            structure=Mock(
+                side_effect=AssertionError("O provedor externo não deve ser chamado.")
+            )
+        )
+        with (
+            patch.object(ai_echo_service, "SessionLocal", self.session_factory),
+            patch.object(
+                ai_echo_service,
+                "get_clinical_structuring_provider",
+                return_value=fake_provider,
+            ),
+        ):
+            ai_echo_service._process_structure(session_id)
+
+        with self.session_factory() as db:
+            refreshed = (
+                db.query(AIEchoSession)
+                .filter(AIEchoSession.id == session_id)
+                .one()
+            )
+            suggestions = {
+                item.field_key: item.suggested_value
+                for item in db.query(AIEchoFieldSuggestion)
+                .filter(AIEchoFieldSuggestion.session_id == session_id)
+                .all()
+            }
+            self.assertEqual(refreshed.status, "awaiting_review")
+            self.assertEqual(
+                suggestions["conclusao"],
+                (
+                    "Regurgitação pulmonar de grau leve, sem repercussão "
+                    "hemodinâmica."
+                ),
+            )
+            self.assertIn("regurgitação de grau leve", suggestions["valva_pulmonar"])
             self.assertEqual(
                 refreshed.structuring_model,
                 "fortcordis-deterministic-clinical-rules",

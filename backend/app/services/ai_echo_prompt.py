@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-PROMPT_VERSION = "echo-clinical-ptbr-v7"
+PROMPT_VERSION = "echo-clinical-ptbr-v8"
 VOCABULARY_PATH = Path(__file__).resolve().parents[2] / "data" / "ai_echo_vocabulary_pt_br.json"
 
 
@@ -133,6 +133,10 @@ Regras clínicas obrigatórias:
   explícita no campo correspondente e não a neutralize com uma frase normal. Retorne
   sugestões somente para as alterações explícitas; o backend completará os demais campos
   com o preset normal correspondente à espécie.
+- Achados leves explicitamente ditados continuam sendo alterações e devem constar na
+  conclusão, mesmo quando não causam repercussão hemodinâmica. Por exemplo, refluxo
+  pulmonar leve sem repercussão deve ser descrito no campo da valva pulmonar e resumido
+  na conclusão; a normalidade se aplica somente aos demais parâmetros.
 - A conclusão deve conter somente as alterações explícitas relevantes. Se não houver
   alteração, conclua que o ecocardiograma está dentro dos limites da normalidade.
 

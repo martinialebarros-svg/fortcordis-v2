@@ -215,6 +215,26 @@ _MITRAL_MILD_REGURGITATION_PATTERN = re.compile(
 _MITRAL_B1_PATTERN = re.compile(
     r"\b(?:classificacao|estagio)?\s*b1\b|\bendocardiose\b.*\bmitral\b.*\bb1\b"
 )
+_PULMONARY_MILD_REGURGITATION_PATTERN = re.compile(
+    r"\b(?:refluxo|regurgitacao|insuficiencia)\b[^.;\n]{0,50}"
+    r"\b(?:(?:valva|valvula)\s+)?pulmonar\b[^.;\n]{0,30}"
+    r"\b(?:leve|discret[ao])\b"
+    r"|\b(?:refluxo|regurgitacao|insuficiencia)\b[^.;\n]{0,25}"
+    r"\b(?:leve|discret[ao])\b[^.;\n]{0,35}"
+    r"\b(?:(?:valva|valvula)\s+)?pulmonar\b"
+    r"|\b(?:(?:valva|valvula)\s+)?pulmonar\b[^.;\n]{0,50}"
+    r"\b(?:refluxo|regurgitacao|insuficiencia)\b[^.;\n]{0,30}"
+    r"\b(?:leve|discret[ao])\b"
+)
+_PULMONARY_NORMAL_MORPHOLOGY_PATTERN = re.compile(
+    r"\b(?:(?:valva|valvula)\s+)?pulmonar\b[^.;\n]{0,60}\b(?:"
+    r"morfologicamente\s+normal|morfologia\s+(?:normal|preservada)|"
+    r"morfologia\s+e\s+mobilidade\s+preservadas?)\b"
+)
+_NO_HEMODYNAMIC_REPERCUSSION_PATTERN = re.compile(
+    r"\bsem\s+repercuss(?:ao|oes)\s+hemodinamicas?"
+    r"(?:\s+significativas?)?\b"
+)
 _MITRAL_DISEASE_PATTERN = re.compile(
     r"\b(?:endocardiose|degeneracao\s+mixomatosa|doenca\s+valvar\s+mixomatosa)"
     r"\b.*\bmitral\b|\bmitral\b.*\b(?:endocardiose|mixomatosa)\b"
@@ -368,6 +388,9 @@ def can_recover_normality_deterministically(transcript: str) -> bool:
     remaining_only = any(
         re.search(pattern, normalized) for pattern in _REMAINING_NORMAL_PATTERNS
     )
+    pulmonary_mild_regurgitation = bool(
+        _PULMONARY_MILD_REGURGITATION_PATTERN.search(normalized)
+    )
 
     remaining = normalized
     for pattern in _GLOBAL_NORMAL_PATTERNS:
@@ -382,6 +405,15 @@ def can_recover_normality_deterministically(transcript: str) -> bool:
         return False
     for clause in clauses:
         if _DIASTOLIC_GRADE_ONE_PATTERN.search(clause):
+            continue
+        if pulmonary_mild_regurgitation and any(
+            pattern.search(clause)
+            for pattern in (
+                _PULMONARY_MILD_REGURGITATION_PATTERN,
+                _PULMONARY_NORMAL_MORPHOLOGY_PATTERN,
+                _NO_HEMODYNAMIC_REPERCUSSION_PATTERN,
+            )
+        ):
             continue
         if "mitral" not in clause:
             return False
@@ -708,6 +740,12 @@ def _expand_asserted_normality(
         and _MITRAL_MILD_REGURGITATION_PATTERN.search(normalized)
     )
     mitral_b1 = mitral_mild_disease and bool(_MITRAL_B1_PATTERN.search(normalized))
+    pulmonary_mild_regurgitation = bool(
+        _PULMONARY_MILD_REGURGITATION_PATTERN.search(normalized)
+    )
+    pulmonary_without_repercussion = bool(
+        _NO_HEMODYNAMIC_REPERCUSSION_PATTERN.search(normalized)
+    )
     if mitral_mild_disease:
         expanded = [
             item for item in expanded if str(item.field_key) != "valva_mitral"
@@ -749,6 +787,41 @@ def _expand_asserted_normality(
         )
         existing_fields.add("funcao_diastolica")
 
+    pulmonary_field_text = ""
+    pulmonary_conclusion_text = ""
+    if pulmonary_mild_regurgitation:
+        pulmonary_field_text = (
+            "Valva pulmonar com morfologia preservada, apresentando regurgitação "
+            "de grau leve"
+        )
+        pulmonary_conclusion_text = "Regurgitação pulmonar de grau leve"
+        if pulmonary_without_repercussion:
+            pulmonary_field_text += ", sem repercussão hemodinâmica"
+            pulmonary_conclusion_text += ", sem repercussão hemodinâmica"
+        pulmonary_field_text += "."
+        pulmonary_conclusion_text += "."
+        expanded = [
+            item for item in expanded if str(item.field_key) != "valva_pulmonar"
+        ]
+        existing_fields.discard("valva_pulmonar")
+        expanded.append(
+            EchoFieldSuggestionOutput(
+                field_key="valva_pulmonar",
+                text=pulmonary_field_text,
+                confidence=1.0,
+                source_spans=[
+                    (
+                        "refluxo em valva pulmonar leve, sem repercussão "
+                        "hemodinâmica"
+                        if pulmonary_without_repercussion
+                        else "refluxo em valva pulmonar leve"
+                    )
+                ],
+                evidence_type="fact",
+            )
+        )
+        existing_fields.add("valva_pulmonar")
+
     for field_key, text in preset_suggestions.items():
         if field_key in existing_fields:
             continue
@@ -782,6 +855,9 @@ def _expand_asserted_normality(
             source_spans.append(
                 "disfunção diastólica grau 1, padrão senil"
             )
+        if pulmonary_conclusion_text:
+            conclusion_parts.append(pulmonary_conclusion_text)
+            source_spans.append("refluxo em valva pulmonar leve")
         expanded.append(
             EchoFieldSuggestionOutput(
                 field_key="conclusao",
@@ -792,12 +868,30 @@ def _expand_asserted_normality(
             )
         )
     elif diastolic_grade_one:
+        conclusion_parts = ["Disfunção diastólica grau I (padrão senil)."]
+        source_spans = ["disfunção diastólica grau 1, padrão senil"]
+        if pulmonary_conclusion_text:
+            conclusion_parts.append(pulmonary_conclusion_text)
+            source_spans.append("refluxo em valva pulmonar leve")
         expanded.append(
             EchoFieldSuggestionOutput(
                 field_key="conclusao",
-                text="Disfunção diastólica grau I (padrão senil).",
+                text=" ".join(conclusion_parts),
                 confidence=1.0,
-                source_spans=["disfunção diastólica grau 1, padrão senil"],
+                source_spans=source_spans,
+                evidence_type="diagnostic_suggestion",
+            )
+        )
+    elif pulmonary_conclusion_text:
+        expanded = [
+            item for item in expanded if str(item.field_key) != "conclusao"
+        ]
+        expanded.append(
+            EchoFieldSuggestionOutput(
+                field_key="conclusao",
+                text=pulmonary_conclusion_text,
+                confidence=1.0,
+                source_spans=["refluxo em valva pulmonar leve"],
                 evidence_type="diagnostic_suggestion",
             )
         )

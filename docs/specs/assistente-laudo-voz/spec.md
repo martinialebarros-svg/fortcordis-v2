@@ -254,6 +254,11 @@ O módulo é aditivo e isolado:
 - RF-079: o cache do PDF inclui uma versão explícita do renderizador. Mudanças
   na leitura ou apresentação das medidas invalidam PDFs concluídos por versões
   anteriores, mesmo quando o laudo não foi editado depois da correção.
+- RF-080: uma alteração leve explicitamente ditada não pode ser neutralizada
+  pela afirmação de que os demais parâmetros estão normais. Refluxo pulmonar
+  leve deve permanecer no campo da valva pulmonar e na conclusão, inclusive
+  quando descrito sem repercussão hemodinâmica; o preset normal completa apenas
+  os aspectos não contraditos.
 
 ## 4. Estados
 
@@ -341,6 +346,9 @@ milhão estiverem em zero.
 - CA-012: testes, lint, TypeScript e build aprovam.
 - CA-013: homologação executa migration, deploy e smoke sem dados reais.
 - CA-014: nenhuma alteração é promovida a produção.
+- CA-015: refluxo pulmonar leve sem repercussão, seguido de normalidade dos
+  demais parâmetros, gera preset rico para os campos normais e conclusão
+  restrita ao refluxo pulmonar, sem classificar o exame inteiro como normal.
 
 O smoke vivo de CA-013 deve ser descartável e executado apenas sob marcação
 explícita `[ai-echo-canary]`: áudio sintético sem dados pessoais, provedor real,
