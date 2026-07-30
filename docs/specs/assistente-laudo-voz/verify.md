@@ -1,6 +1,6 @@
 # Verify - assistente-laudo-voz
 
-Data: 2026-07-29
+Data: 2026-08-19
 Responsável: Martiniano + Codex
 Status: local_pass
 
@@ -46,6 +46,7 @@ Status: local_pass
 | CA-036 | laudo legado somente 2D infere o bloco correspondente e a versão do renderizador altera a chave de cache para impedir a reutilização do PDF vazio | local_pass |
 | CA-037 | ditado com refluxo pulmonar leve sem repercussão e demais parâmetros normais preserva o achado no campo pulmonar e na conclusão; a conclusão normal conflitante do provedor é descartada | local_pass |
 | CA-038 | `E_TRIV` é aceito no contexto estrito do assistente e o ditado `E/TRIV` não cria uma segunda medida de TRIV nem uma conclusão automática | local_pass |
+| CA-039 | FE 79% e FS 46% com referências 50–85% e 25–45% geram função sistólica dentro dos intervalos normais; FS 55% continua acima da referência, sem o termo interno "carregado" | local_pass |
 
 ### Rodada atual: contexto E/TRIV
 
@@ -57,6 +58,21 @@ Status: local_pass
   dentro da rodada focada de 76 testes, junto do importador e do PDF.
 
 ## Evidência local executada
+
+### Rodada atual: linguagem clínica dos intervalos sistólicos
+
+- A regressão reproduz a frase da captura com FE normal e FS somente 1 ponto
+  percentual acima do limite da tabela.
+- O validador mantém os valores originais na origem e padroniza o texto para
+  `Função sistólica global preservada, com fração de encurtamento e fração de
+  ejeção dentro dos intervalos de referência normais.`.
+- Um cenário separado com FS 55% confirma que desvios maiores continuam
+  descritos como acima da referência; somente o termo interno `carregado` é
+  removido.
+- O prompt `echo-clinical-ptbr-v9` aplica a mesma política ao provedor.
+- As suítes do assistente e canário passaram com 60 testes; a suíte completa do
+  backend atual passou com 819 testes, e `pip check` não encontrou dependências
+  quebradas.
 
 ### Rodada atual: refluxo pulmonar leve na conclusão
 

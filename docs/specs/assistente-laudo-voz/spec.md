@@ -263,6 +263,11 @@ O módulo é aditivo e isolado:
   leve deve permanecer no campo da valva pulmonar e na conclusão, inclusive
   quando descrito sem repercussão hemodinâmica; o preset normal completa apenas
   os aspectos não contraditos.
+- RF-081: frases clínicas não expõem termos internos como "intervalo de
+  referência carregado". Para função sistólica preservada, fração de ejeção
+  normal e fração de encurtamento até 1 ponto percentual acima do limite são
+  descritas como dentro dos intervalos de referência normais; os valores
+  originais permanecem inalterados nos campos e nas evidências.
 
 ## 4. Estados
 
@@ -353,6 +358,9 @@ milhão estiverem em zero.
 - CA-015: refluxo pulmonar leve sem repercussão, seguido de normalidade dos
   demais parâmetros, gera preset rico para os campos normais e conclusão
   restrita ao refluxo pulmonar, sem classificar o exame inteiro como normal.
+- CA-016: FE normal e FS até 1 ponto percentual acima do limite geram a frase
+  clínica padronizada de função sistólica dentro dos intervalos de referência
+  normais; desvios maiores não são ocultados e nenhuma frase exibe "carregado".
 
 O smoke vivo de CA-013 deve ser descartável e executado apenas sob marcação
 explícita `[ai-echo-canary]`: áudio sintético sem dados pessoais, provedor real,

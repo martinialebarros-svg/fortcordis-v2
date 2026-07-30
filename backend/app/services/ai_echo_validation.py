@@ -1049,6 +1049,90 @@ def _above_reference(
     return effective_maximum is not None and value > effective_maximum
 
 
+def _systolic_indices_support_normal_language(
+    current_measurements: dict[str, str] | None,
+    reference_context: dict | None,
+) -> bool:
+    measurements = current_measurements or {}
+    selected_technique = str(
+        measurements.get("VE_tecnica_relatorio") or ""
+    ).strip().lower()
+    if selected_technique == "2d":
+        field_pairs = (("FE_Teicholz_2D", "DeltaD_FS_2D"),)
+    elif selected_technique == "modo_m":
+        field_pairs = (("FE_Teicholz", "DeltaD_FS"),)
+    else:
+        field_pairs = (
+            ("FE_Teicholz", "DeltaD_FS"),
+            ("FE_Teicholz_2D", "DeltaD_FS_2D"),
+        )
+
+    evaluated_pairs: list[bool] = []
+    for field_pair in field_pairs:
+        pair_results: list[bool] = []
+        for field_key in field_pair:
+            value = _measurement_float(measurements, field_key)
+            minimum, maximum = _reference_bounds(reference_context, field_key)
+            if value is None or (minimum is None and maximum is None):
+                pair_results = []
+                break
+            rounding_margin = 1.0 if field_key.startswith("DeltaD_FS") else 0.0
+            pair_results.append(
+                (minimum is None or value >= minimum)
+                and (maximum is None or value <= maximum + rounding_margin)
+            )
+        if pair_results:
+            evaluated_pairs.append(all(pair_results))
+    return bool(evaluated_pairs) and all(evaluated_pairs)
+
+
+def _remove_internal_reference_wording(text: str) -> str:
+    sanitized = re.sub(
+        r"\b(intervalos?\s+de\s+refer[eê]ncia)\s+carregados?\b",
+        r"\1",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(
+        r"\b((?:tabela|faixa)\s+de\s+refer[eê]ncia)\s+carregada\b",
+        r"\1",
+        sanitized,
+        flags=re.IGNORECASE,
+    )
+
+
+def _normalize_clinical_reference_language(
+    suggestions: list[EchoFieldSuggestionOutput],
+    *,
+    current_measurements: dict[str, str] | None,
+    reference_context: dict | None,
+) -> list[EchoFieldSuggestionOutput]:
+    normal_systolic_language = _systolic_indices_support_normal_language(
+        current_measurements,
+        reference_context,
+    )
+    normalized_suggestions: list[EchoFieldSuggestionOutput] = []
+    for item in suggestions:
+        original_text = str(item.text or "")
+        normalized_text = _strip_accents(original_text)
+        if (
+            str(item.field_key) == "funcao_sistolica_ve"
+            and normal_systolic_language
+            and "funcao sistolica global preservada" in normalized_text
+            and "fracao de encurtamento" in normalized_text
+        ):
+            text = (
+                "Função sistólica global preservada, com fração de encurtamento "
+                "e fração de ejeção dentro dos intervalos de referência normais."
+            )
+        else:
+            text = _remove_internal_reference_wording(original_text)
+        normalized_suggestions.append(
+            item if text == original_text else item.model_copy(update={"text": text})
+        )
+    return normalized_suggestions
+
+
 def _replace_field_suggestion(
     suggestions: list[EchoFieldSuggestionOutput],
     *,
@@ -1691,6 +1775,11 @@ def validate_and_enrich_clinical_output(
         transcript=transcript,
         current_measurements=current_measurements,
         species=species or output.exam_context.species,
+    )
+    field_suggestions = _normalize_clinical_reference_language(
+        field_suggestions,
+        current_measurements=current_measurements,
+        reference_context=reference_context,
     )
     measurements = list(output.measurements)
     derived_right_heart = _derived_right_heart_measurements(

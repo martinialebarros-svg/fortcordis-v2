@@ -639,6 +639,128 @@ class AIEchoVoiceAssistantTest(unittest.TestCase):
             r"\b(?:2[,.]4|1[,.]9|1[,.]12|5[,.]5)\b",
         )
 
+    def test_systolic_reference_language_treats_one_point_fs_margin_as_normal(
+        self,
+    ) -> None:
+        provider_text = (
+            "Função sistólica global preservada, com fração de encurtamento "
+            "discretamente acima do intervalo de referência carregado."
+        )
+        enriched = validate_and_enrich_clinical_output(
+            empty_output(
+                field_suggestions=[
+                    {
+                        "field_key": "funcao_sistolica_ve",
+                        "text": provider_text,
+                        "confidence": 0.97,
+                        "source_spans": [
+                            "FE Teicholz: 79%; referência: 50–85%. "
+                            "DeltaD FS: 46%; referência: 25–45%."
+                        ],
+                        "evidence_type": "inference",
+                    }
+                ]
+            ),
+            "Demais parâmetros ecocardiográficos dentro da normalidade.",
+            species="Canina",
+            current_measurements={
+                "FE_Teicholz": "79",
+                "DeltaD_FS": "46",
+                "VE_tecnica_relatorio": "modo_m",
+            },
+            reference_context={
+                "source": "tabela_de_referencia_carregada",
+                "ranges": {
+                    "FE_Teicholz": {"min": 50, "max": 85, "unit": "%"},
+                    "DeltaD_FS": {"min": 25, "max": 45, "unit": "%"},
+                },
+            },
+        )
+        suggestion = next(
+            item
+            for item in enriched.field_suggestions
+            if item.field_key == "funcao_sistolica_ve"
+        )
+        self.assertEqual(
+            suggestion.text,
+            (
+                "Função sistólica global preservada, com fração de encurtamento "
+                "e fração de ejeção dentro dos intervalos de referência normais."
+            ),
+        )
+        self.assertNotIn("carregado", suggestion.text.lower())
+        self.assertIn("DeltaD FS: 46%", suggestion.source_spans[0])
+
+    def test_systolic_reference_language_does_not_hide_larger_deviation(
+        self,
+    ) -> None:
+        provider_text = (
+            "Função sistólica global preservada, com fração de encurtamento "
+            "acima do intervalo de referência carregado."
+        )
+        enriched = validate_and_enrich_clinical_output(
+            empty_output(
+                field_suggestions=[
+                    {
+                        "field_key": "funcao_sistolica_ve",
+                        "text": provider_text,
+                        "confidence": 0.9,
+                        "source_spans": ["DeltaD FS: 55%; referência: 25–45%."],
+                        "evidence_type": "inference",
+                    }
+                ]
+            ),
+            "Função sistólica preservada.",
+            current_measurements={"DeltaD_FS": "55"},
+            reference_context={
+                "ranges": {
+                    "DeltaD_FS": {"min": 25, "max": 45, "unit": "%"},
+                }
+            },
+        )
+        suggestion = enriched.field_suggestions[0]
+        self.assertEqual(
+            suggestion.text,
+            (
+                "Função sistólica global preservada, com fração de encurtamento "
+                "acima do intervalo de referência."
+            ),
+        )
+        self.assertNotIn("dentro dos intervalos", suggestion.text.lower())
+        self.assertNotIn("carregado", suggestion.text.lower())
+
+    def test_systolic_reference_language_requires_complete_index_pair(
+        self,
+    ) -> None:
+        enriched = validate_and_enrich_clinical_output(
+            empty_output(
+                field_suggestions=[
+                    {
+                        "field_key": "funcao_sistolica_ve",
+                        "text": (
+                            "Função sistólica global preservada, com fração de "
+                            "encurtamento discretamente acima do intervalo de "
+                            "referência carregado."
+                        ),
+                        "confidence": 0.9,
+                        "source_spans": ["DeltaD FS: 46%; referência: 25–45%."],
+                        "evidence_type": "inference",
+                    }
+                ]
+            ),
+            "Função sistólica preservada.",
+            current_measurements={"DeltaD_FS": "46"},
+            reference_context={
+                "ranges": {
+                    "DeltaD_FS": {"min": 25, "max": 45, "unit": "%"},
+                }
+            },
+        )
+        suggestion = enriched.field_suggestions[0]
+        self.assertIn("acima do intervalo de referência", suggestion.text.lower())
+        self.assertNotIn("dentro dos intervalos", suggestion.text.lower())
+        self.assertNotIn("carregado", suggestion.text.lower())
+
     def test_stage_c_from_audio_requires_confirmation_of_chf_history(self) -> None:
         enriched = validate_and_enrich_clinical_output(
             empty_output(),

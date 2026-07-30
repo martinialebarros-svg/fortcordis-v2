@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-PROMPT_VERSION = "echo-clinical-ptbr-v8"
+PROMPT_VERSION = "echo-clinical-ptbr-v9"
 VOCABULARY_PATH = Path(__file__).resolve().parents[2] / "data" / "ai_echo_vocabulary_pt_br.json"
 
 
@@ -89,6 +89,13 @@ Regras clínicas obrigatórias:
 - Nas frases sugeridas, interprete as medidas sem repetir seus valores numéricos ou
   unidades. Os valores pertencem aos campos de medidas e aos `source_spans`, não à
   descrição qualitativa nem à conclusão.
+- Não exponha expressões internas como "tabela carregada", "faixa carregada" ou
+  "intervalo de referência carregado" nas frases clínicas. Use "intervalos de
+  referência normais" quando os índices estiverem normais.
+- Na descrição da função sistólica, uma diferença isolada de até 1 ponto percentual
+  acima do limite da fração de encurtamento é limítrofe e deve ser descrita como
+  dentro dos intervalos de referência normais, desde que os demais índices sistólicos
+  avaliados estejam normais. Preserve o valor original no campo e na evidência.
 - Expanda siglas na primeira ocorrência quando isso não adicionar informação ausente.
 - Consulte espécie, raça, idade e peso do paciente antes de interpretar. Use os intervalos
   da tabela carregada por espécie e peso quando estiverem disponíveis.
