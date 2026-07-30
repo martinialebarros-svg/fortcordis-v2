@@ -2681,7 +2681,38 @@ export default function NovoAgendamentoModal({
           !isEditando && decisaoAssistente === "sem_opcao" && isAdmin && excecaoConcedida
             ? String(motivoSemOpcao || "").trim()
             : null,
+        confirmar_alteracao_servico_hoje: false,
       };
+
+      const servicoOriginalId = String(agendamento?.servico_id ?? "");
+      const dataOriginalAgendamento = String(
+        agendamento?.data || String(agendamento?.inicio || "").slice(0, 10)
+      );
+      const alterandoServicoDeHoje =
+        isEditando &&
+        servicoOriginalId !== String(formData.servico_id || "") &&
+        dataOriginalAgendamento === hojeLocalIso();
+
+      if (alterandoServicoDeHoje) {
+        if (!isAdmin) {
+          throw new Error(
+            "Somente administradores podem alterar o servico de um agendamento de hoje."
+          );
+        }
+        const confirmouAlteracao = await fortinho.confirm({
+          title: "Confirmar alteração do serviço",
+          message:
+            "Este agendamento é de hoje. Deseja confirmar a troca administrativa do serviço? Se o atendimento já tiver iniciado, o horário original será preservado.",
+          mood: "alert",
+          gesture: "open-arms",
+          confirmLabel: "Confirmar alteração",
+          cancelLabel: "Voltar",
+        });
+        if (!confirmouAlteracao) {
+          return;
+        }
+        payloadBase.confirmar_alteracao_servico_hoje = true;
+      }
 
       const enviarAgendamento = async (confirmarConflitoDeslocamento = false) => {
         const payload = {
