@@ -45,6 +45,7 @@ Status: done
 | CA-028 | frontend | `PortalClinicaPageShell` reutiliza a sessao ja hidratada em `standalone` e `PortalClinicaWorkspace` so notifica o shell pai apos concluir o bootstrap local, evitando piscar entre landing e dashboard | ok |
 | CA-029 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx` + `frontend/app/globals.css` mantem o card `Sessao ativa` legivel dentro do hero autenticado da clinica | ok |
 | CA-030 | aceitacao | `frontend/app/clinicas/portal/espelho/page.tsx` + `frontend/components/portal/PortalClinicaWorkspace.tsx` em `mode="admin_preview"` + `backend/tests/test_portal_access_foundation.py::test_admin_mirror_reuses_clinic_portal_scope_and_downloads` | ok |
+| CA-031 | frontend | `frontend/app/clinicas/portal/page.tsx` formata o WhatsApp como `(00) 00000-0000` ao carregar, digitar ou colar e limita a entrada visual a 15 caracteres | ok |
 | NFR-008 | nao funcional | auditoria de download enriquecida com `actor_type`, `clinica_id` e `account_id` em `backend/app/api/v1/endpoints/portal.py` | ok |
 | NFR-009 | nao funcional | confirmacoes explicitas antes de revogacoes no cockpit administrativo | ok |
 | NFR-010 | nao funcional | painel calcula metricas somente a partir dos dados de acesso ja autorizados no backend | ok |
@@ -55,6 +56,7 @@ Status: done
 | NFR-016 | nao funcional | bootstrap da sessao autenticada nao propaga `null` transitorio para o roteamento da pagina | ok |
 | NFR-017 | nao funcional | hero autenticado restringe contraste invertido ao bloco institucional e preserva cards de apoio com fundo claro e texto escuro | ok |
 | NFR-018 | nao funcional | rotas administrativas de espelho reutilizam `listar_exames_clinica_portal` e `gerar_download_url_exame_portal`, evitando duplicacao do motor de escopo da clinica | ok |
+| NFR-019 | nao funcional | `normalizarWhatsappsParaApi` remove a mascara antes de montar `delivery_target` no convite administrativo | ok |
 
 ## 2) Testes automatizados executados
 
@@ -167,6 +169,14 @@ Resumo dos resultados:
   - `POST /api/v1/portal/admin/clinicas/{clinica_id}/exames/{exame_id}/download-url`
 - As rotas administrativas de espelho reaproveitam o mesmo motor de escopo e download do portal autenticado da clinica, reduzindo risco de divergencia entre visao interna e visao da unidade.
 - `frontend/app/clinicas/portal/page.tsx` ganhou atalhos para abrir o espelho diretamente do painel e da lista de clinicas.
+
+### Mascara do WhatsApp no convite administrativo de 2026-07-30
+
+- O contato cadastrado, a digitacao e a colagem passaram a usar a mascara visual `(00) 00000-0000`.
+- Entradas `85997060034`, `+55 (85) 99706-0034` e `85 99706-0034` foram validadas com a mesma exibicao `(85) 99706-0034` e payload `85997060034`.
+- `npx eslint app/clinicas/portal/page.tsx --max-warnings=0`: ok.
+- `npx tsc --noEmit --pretty false`: ok.
+- `git diff --check`: ok.
 
 ### Regressao de timezone de 2026-07-22
 

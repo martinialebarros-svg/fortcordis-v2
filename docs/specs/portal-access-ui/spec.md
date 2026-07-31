@@ -36,6 +36,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - RF-024: o portal autenticado da clinica parceira deve exibir uma fila operacional recente com status do exame, data de realizacao e previsao ou data de liberacao.
 - RF-025: a rota `/clinica-parceira` deve operar com um shell exclusivo por estado, exibindo a landing publica apenas quando nao houver sessao valida e substituindo-a integralmente pelo ambiente autenticado da unidade quando a clinica estiver logada.
 - RF-026: o app administrativo deve oferecer uma tela de espelho em `/clinicas/portal/espelho` para abrir a mesma visao da clinica parceira, no escopo de uma unidade selecionada.
+- RF-027: o campo `WhatsApp da clinica` do compositor administrativo de convites deve aplicar mascara brasileira durante digitacao, colagem e carregamento do contato cadastrado.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -57,6 +58,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - NFR-016 (UX/sessao): durante o bootstrap da sessao da clinica, a shell autenticada nao deve propagar estado `null` transitorio para o roteamento da pagina, evitando alternancia visual entre landing publica e dashboard autenticado.
 - NFR-017 (UX/legibilidade): o hero autenticado da clinica deve restringir o contraste invertido ao bloco institucional, preservando cards de apoio com superficie clara e texto escuro legivel.
 - NFR-018 (consistencia operacional): a visao espelhada administrativa deve reutilizar o mesmo contrato de exames, fila operacional e downloads do portal autenticado da clinica, sem manter uma segunda implementacao paralela dos dados.
+- NFR-019 (integridade): a mascara de WhatsApp deve ser apenas visual; o `delivery_target` enviado ao backend deve conter somente digitos.
 
 ## 4) Contratos tecnicos
 

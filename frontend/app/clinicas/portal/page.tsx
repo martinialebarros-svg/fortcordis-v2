@@ -28,6 +28,10 @@ import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import { extractApiErrorMessageSync } from "@/lib/api-error";
 import {
+  formatarWhatsAppVisual,
+  normalizarWhatsappsParaApi,
+} from "@/lib/clinica-whatsapp";
+import {
   buildClinicInviteMessage,
   buildClinicWhatsappLink,
   getPortalAdminAuthHeaders,
@@ -411,7 +415,7 @@ export default function PortalClinicManagementPage() {
 
   function focusInviteComposer(item: PortalAdminClinicAccessOverviewItem) {
     setSelectedClinicId(String(item.clinica_id));
-    setDeliveryTarget(item.contato_whatsapp || "");
+    setDeliveryTarget(formatarWhatsAppVisual(item.contato_whatsapp));
     setInviteEmail(item.login_email || item.contato_email || "");
     setMessage("");
     setError("");
@@ -426,7 +430,7 @@ export default function PortalClinicManagementPage() {
     if (!selectedClinic) {
       return;
     }
-    setDeliveryTarget(selectedClinic.contato_whatsapp || "");
+    setDeliveryTarget(formatarWhatsAppVisual(selectedClinic.contato_whatsapp));
     setInviteEmail(selectedClinic.login_email || selectedClinic.contato_email || "");
   }, [selectedClinic]);
 
@@ -439,6 +443,7 @@ export default function PortalClinicManagementPage() {
       setError("Informe o WhatsApp da clinica para envio do convite.");
       return;
     }
+    const normalizedDeliveryTarget = normalizarWhatsappsParaApi([deliveryTarget])[0] || "";
     if (!inviteEmail.trim()) {
       setError("Informe o email institucional que sera usado pela clinica no login.");
       return;
@@ -452,7 +457,7 @@ export default function PortalClinicManagementPage() {
         `/portal/admin/clinicas/${selectedClinic.clinica_id}/convites`,
         {
           delivery_channel: "whatsapp",
-          delivery_target: deliveryTarget.trim(),
+          delivery_target: normalizedDeliveryTarget,
           account_email: inviteEmail.trim(),
           expires_in_hours: Number.parseInt(expiresInHours, 10) || 72,
           allow_manual_copy: true,
@@ -898,10 +903,13 @@ export default function PortalClinicManagementPage() {
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 WhatsApp da clinica
                 <input
-                  type="text"
+                  type="tel"
                   value={deliveryTarget}
-                  onChange={(event) => setDeliveryTarget(event.target.value)}
-                  placeholder="85999990000"
+                  onChange={(event) => setDeliveryTarget(formatarWhatsAppVisual(event.target.value))}
+                  placeholder="(00) 00000-0000"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  maxLength={15}
                   className="h-12 rounded-2xl border border-slate-200 px-4 text-sm text-slate-900 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                 />
               </label>
