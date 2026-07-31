@@ -6,6 +6,7 @@ import DashboardLayout from "../../../layout-dashboard";
 import api from "@/lib/axios";
 import {
   getLaudoEditPath,
+  TIPO_LAUDO_ECOCARDIOGRAMA,
   TIPO_LAUDO_PRESSAO_ARTERIAL,
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
@@ -42,6 +43,7 @@ import {
   LV_M_MODE_KEYS,
   parseStoredEchoMeasurements,
 } from "@/lib/echo-derived-measurements";
+import { criarMensagemAlertaSalvamentoEcocardiograma } from "@/lib/ecocardiograma-save-alert";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -897,6 +899,22 @@ export default function EditarLaudoPage() {
         setAba("medidas");
         return;
       }
+      const laudoEhEcocardiograma =
+        (laudo?.tipo || "").toLowerCase() === TIPO_LAUDO_ECOCARDIOGRAMA;
+      if (laudoEhEcocardiograma) {
+        const mensagemAlerta = criarMensagemAlertaSalvamentoEcocardiograma({
+          analiseQualitativaAplicada: ecocardiogramaEstruturado.usar_no_laudo,
+          imagensCarregadas:
+            imagens.length > 0 || imagensTemp.some((imagem) => imagem.uploaded),
+        });
+        if (mensagemAlerta && !window.confirm(mensagemAlerta)) {
+          setAba(
+            ecocardiogramaEstruturado.usar_no_laudo ? "imagens" : "qualitativa"
+          );
+          return;
+        }
+      }
+
       // 1. Salvar dados do paciente primeiro
       if (paciente?.id) {
         // Montar observações com idade

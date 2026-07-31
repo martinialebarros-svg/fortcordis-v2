@@ -34,6 +34,7 @@ import {
   LV_2D_KEYS,
   LV_M_MODE_KEYS,
 } from "@/lib/echo-derived-measurements";
+import { criarMensagemAlertaSalvamentoEcocardiograma } from "@/lib/ecocardiograma-save-alert";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -970,6 +971,19 @@ export default function NovoLaudoPage() {
       if (tipoLaudo === "pressao_arterial" && !pressaoPayload) {
         alert("Preencha pelo menos uma afericao de pressao para salvar como laudo de pressao arterial.");
         return;
+      }
+
+      if (tipoLaudo === "ecocardiograma") {
+        const mensagemAlerta = criarMensagemAlertaSalvamentoEcocardiograma({
+          analiseQualitativaAplicada: ecocardiogramaEstruturado.usar_no_laudo,
+          imagensCarregadas: imagens.some((imagem) => imagem.uploaded),
+        });
+        if (mensagemAlerta && !window.confirm(mensagemAlerta)) {
+          setAba(
+            ecocardiogramaEstruturado.usar_no_laudo ? "imagens" : "qualitativa"
+          );
+          return;
+        }
       }
 
       const payload =
