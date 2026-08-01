@@ -5103,6 +5103,9 @@ def atualizar_agendamento(
     override_conflito_deslocamento = bool(agendamento.confirmar_conflito_deslocamento)
     excecao_operacional_concedida = bool(getattr(agendamento, "excecao_operacional_concedida", False))
     motivo_excecao_operacional = str(getattr(agendamento, "motivo_excecao_operacional", "") or "").strip()
+    confirmar_alteracao_servico_hoje = bool(
+        getattr(agendamento, "confirmar_alteracao_servico_hoje", False)
+    )
     if override_conflito_deslocamento and not _usuario_tem_papel(current_user, "admin"):
         raise HTTPException(
             status_code=403,
@@ -5123,6 +5126,35 @@ def atualizar_agendamento(
     update_data.pop("confirmar_conflito_deslocamento", None)
     update_data.pop("excecao_operacional_concedida", None)
     update_data.pop("motivo_excecao_operacional", None)
+    update_data.pop("confirmar_alteracao_servico_hoje", None)
+
+    novo_servico_id = update_data.get("servico_id", servico_original)
+    alterando_servico = novo_servico_id != servico_original
+    inicio_original_local = _to_local_naive(inicio_original)
+    hoje_local = datetime.now(LOCAL_TZ).date()
+    alterando_servico_de_hoje = bool(
+        alterando_servico
+        and inicio_original_local is not None
+        and inicio_original_local.date() == hoje_local
+    )
+    if alterando_servico_de_hoje:
+        if not _usuario_tem_papel(current_user, "admin"):
+            raise HTTPException(
+                status_code=403,
+                detail="Somente administradores podem alterar o servico de um agendamento de hoje.",
+            )
+        if not confirmar_alteracao_servico_hoje:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "codigo": "CONFIRMACAO_ALTERACAO_SERVICO_HOJE",
+                    "mensagem": (
+                        "Confirme a alteracao administrativa do servico deste agendamento de hoje."
+                    ),
+                    "confirmavel": True,
+                },
+            )
+
     for field, value in update_data.items():
         setattr(db_agendamento, field, value)
 
@@ -5152,8 +5184,20 @@ def atualizar_agendamento(
 
     campos_horario = "inicio" in update_data or "fim" in update_data or "servico_id" in update_data or "clinica_id" in update_data
     reativando_cancelado = status_anterior == "Cancelado" and db_agendamento.status != "Cancelado"
+    inicio_atual_antes_duracao = _to_local_naive(_coerce_datetime(db_agendamento.inicio))
+    preservar_intervalo_servico_iniciado = bool(
+        alterando_servico_de_hoje
+        and inicio_original_local is not None
+        and inicio_atual_antes_duracao == inicio_original_local
+        and inicio_original_local <= datetime.now(LOCAL_TZ).replace(tzinfo=None)
+    )
     if campos_horario:
-        _apply_service_duration_if_needed(db, db_agendamento)
+        if preservar_intervalo_servico_iniciado:
+            db_agendamento.inicio = inicio_original
+            db_agendamento.fim = fim_original
+            _fill_data_hora_from_inicio(db_agendamento)
+        else:
+            _apply_service_duration_if_needed(db, db_agendamento)
 
         inicio_atual = _coerce_datetime(db_agendamento.inicio)
         fim_atual = _coerce_datetime(db_agendamento.fim)
@@ -5166,7 +5210,10 @@ def atualizar_agendamento(
         if "fim" in update_data:
             alterou_horario = alterou_horario or (_to_local_naive(fim_original) != _to_local_naive(fim_atual))
         if "servico_id" in update_data:
-            alterou_horario = alterou_horario or (servico_original != servico_atual)
+            alterou_horario = alterou_horario or (
+                servico_original != servico_atual
+                and not preservar_intervalo_servico_iniciado
+            )
         if "clinica_id" in update_data:
             alterou_horario = alterou_horario or (clinica_original != clinica_atual)
 
@@ -5227,6 +5274,10 @@ def atualizar_agendamento(
                 "origem_atendimento": _normalizar_origem_atendimento(getattr(db_agendamento, "origem_atendimento", None)),
             },
             "override_conflito_deslocamento": override_conflito_deslocamento,
+            "confirmou_alteracao_servico_hoje": (
+                alterando_servico_de_hoje and confirmar_alteracao_servico_hoje
+            ),
+            "intervalo_original_preservado": preservar_intervalo_servico_iniciado,
             "contexto_agendamento": contexto,
         },
         request=request,
@@ -5322,6 +5373,34 @@ def atualizar_status(
         raise HTTPException(status_code=404, detail="Agendamento nao encontrado")
 
     status_normalizado = _normalizar_status_agendamento(status)
+    transicao_clinica_protegida = status_normalizado == "Realizado" or (
+        db_agendamento.status == "Realizado" and status_normalizado == "Em atendimento"
+    )
+    if (
+        transicao_clinica_protegida
+        and "atendimentos_clinicos" in inspect(db.get_bind()).get_table_names()
+    ):
+        from app.models.atendimento_clinico import AtendimentoClinico
+
+        atendimento_vinculado = (
+            db.query(AtendimentoClinico)
+            .filter(AtendimentoClinico.agendamento_id == agendamento_id)
+            .order_by(AtendimentoClinico.id.asc())
+            .first()
+        )
+        if atendimento_vinculado:
+            orientacao = (
+                "Finalize pelo modulo Atendimento"
+                if status_normalizado == "Realizado"
+                else "A reabertura vinculada esta bloqueada nesta etapa"
+            )
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"O agendamento possui o Atendimento #{atendimento_vinculado.id}. "
+                    f"{orientacao} para manter prontuario, Agenda e OS consistentes."
+                ),
+            )
     if db_agendamento.status == "Expirado" and status_normalizado in AGENDA_STATUS_BLOQUEIAM_SLOT:
         raise HTTPException(
             status_code=409,

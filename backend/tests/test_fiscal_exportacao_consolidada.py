@@ -56,7 +56,7 @@ class FiscalExportacaoConsolidadaTest(unittest.TestCase):
     def _add_os(self, db, *, clinica_id: int, data: str, valor_final: str, status: str = "Pago"):
         os_row = OrdemServico(
             numero_os=f"OS-{clinica_id}-{data}",
-            agendamento_id=clinica_id * 100,
+            agendamento_id=(int(data.replace("-", "")) * 10) + clinica_id,
             paciente_id=clinica_id * 10,
             clinica_id=clinica_id,
             servico_id=1,

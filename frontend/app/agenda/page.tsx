@@ -1428,7 +1428,16 @@ export default function AgendaPage() {
         typeof detail === "string"
           ? detail
           : (typeof detail?.mensagem === "string" ? detail.mensagem : error.message);
-      setErro("Erro ao atualizar status: " + detailTexto);
+      const mensagemErro = String(detailTexto || "Falha inesperada.");
+      const exigeFinalizacaoClinica =
+        novoStatus === "Realizado" &&
+        error?.response?.status === 409 &&
+        mensagemErro.includes("Finalize pelo modulo Atendimento");
+      if (exigeFinalizacaoClinica) {
+        router.push(`/atendimento?agendamento_id=${id}`);
+        return;
+      }
+      setErro("Erro ao atualizar status: " + mensagemErro);
     } finally {
       setAtualizandoStatus(null);
     }

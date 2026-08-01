@@ -1,5 +1,5 @@
 """Modelo para Ordens de Serviço"""
-from sqlalchemy import Column, DateTime, Index, Integer, Numeric, String, Text
+from sqlalchemy import Column, DateTime, Index, Integer, Numeric, String, Text, text
 from sqlalchemy.sql import func
 from app.db.database import Base
 
@@ -13,6 +13,13 @@ class OrdemServico(Base):
         Index("ix_ordens_servico_servico_status_data_id", "servico_id", "status", "data_atendimento", "id"),
         Index("ix_ordens_servico_criado_por_status_data_id", "criado_por_id", "status", "data_atendimento", "id"),
         Index("ix_ordens_servico_agendamento_status_id", "agendamento_id", "status", "id"),
+        Index(
+            "ux_ordens_servico_agendamento_ativa",
+            "agendamento_id",
+            unique=True,
+            postgresql_where=text("COALESCE(status, '') <> 'Cancelado'"),
+            sqlite_where=text("COALESCE(status, '') <> 'Cancelado'"),
+        ),
     )
 
     id = Column(Integer, primary_key=True, index=True)

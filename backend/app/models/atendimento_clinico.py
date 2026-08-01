@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Float, Index, Integer, String, Text
+from sqlalchemy import Column, DateTime, Float, Index, Integer, String, Text, text
 from sqlalchemy.sql import func
 
 from app.db.database import Base
@@ -11,6 +11,13 @@ class AtendimentoClinico(Base):
         Index("ix_atendimentos_clinicos_clinica_data_id", "clinica_id", "data_atendimento", "id"),
         Index("ix_atendimentos_clinicos_status_data_id", "status", "data_atendimento", "id"),
         Index("ix_atendimentos_clinicos_agendamento_data_id", "agendamento_id", "data_atendimento", "id"),
+        Index(
+            "ux_atendimentos_clinicos_agendamento_unico",
+            "agendamento_id",
+            unique=True,
+            postgresql_where=text("agendamento_id IS NOT NULL"),
+            sqlite_where=text("agendamento_id IS NOT NULL"),
+        ),
     )
 
     id = Column(Integer, primary_key=True, index=True)

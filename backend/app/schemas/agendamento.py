@@ -56,6 +56,7 @@ class AgendamentoUpdate(BaseModel):
     confirmar_conflito_deslocamento: Optional[bool] = None
     excecao_operacional_concedida: Optional[bool] = None
     motivo_excecao_operacional: Optional[str] = None
+    confirmar_alteracao_servico_hoje: Optional[bool] = None
 
     @validator('inicio', 'fim', 'reserva_expira_em', pre=True)
     def parse_dates(cls, v):
