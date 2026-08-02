@@ -54,6 +54,7 @@ Status: done
 - [x] T5.3 Preservar o botao `Usar frase`, exibir previa e manter os demais aspectos no seletor simples.
 - [x] T5.4 Validar lint, TypeScript e build de producao.
 - [ ] T5.5 Validar guardrail, publicar em stage e repetir o fluxo no frontend servido.
+- [x] T5.6 Corrigir o recorte vertical com portal, posicionamento adaptativo e altura limitada ao viewport.
 - Criterio de conclusao: conclusoes podem ser encontradas por busca ou patologia sem abrir uma lista nativa unica, e selecionar uma opcao nao altera o texto antes de `Usar frase`.
 - Risco: painel customizado ultrapassar a viewport ou perder fechamento por teclado/clique externo.
 - Rollback: restaurar o `select` nativo apenas para Conclusao, sem alterar o banco ou as frases.

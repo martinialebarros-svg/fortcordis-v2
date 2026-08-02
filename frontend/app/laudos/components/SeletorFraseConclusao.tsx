@@ -1,7 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, ChevronRight, Clock3, Search, X } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Clock3,
+  Search,
+  X,
+} from "lucide-react";
 
 import { type FraseEcoEstruturadoTeste } from "@/lib/ecocardiograma-estruturado-teste";
 
@@ -22,9 +36,21 @@ interface AtalhoConclusao {
   corresponde: (frase: FraseEcoEstruturadoTeste) => boolean;
 }
 
+interface PosicaoPainelConclusao {
+  top?: number;
+  bottom?: number;
+  left: number;
+  width: number;
+  maxHeight: number;
+}
+
 const STORAGE_CONCLUSOES_RECENTES = "fortcordis:eco:conclusoes-recentes";
 const LIMITE_CONCLUSOES_RECENTES = 5;
 const GRUPO_SEM_CLASSIFICACAO = "Outros achados";
+const MARGEM_VIEWPORT = 12;
+const ESPACO_ENTRE_GATILHO_E_PAINEL = 8;
+const ALTURA_PREFERIDA_PAINEL = 620;
+const LARGURA_MINIMA_DESKTOP = 672;
 
 const ORDEM_GRUPOS_CONCLUSAO = [
   "Exame normal",
@@ -53,7 +79,7 @@ function normalizarBusca(valor: unknown): string {
 
 function compararFrases(
   fraseA: FraseEcoEstruturadoTeste,
-  fraseB: FraseEcoEstruturadoTeste
+  fraseB: FraseEcoEstruturadoTeste,
 ): number {
   if ((fraseA.ordem || 999) !== (fraseB.ordem || 999)) {
     return (fraseA.ordem || 999) - (fraseB.ordem || 999);
@@ -63,7 +89,12 @@ function compararFrases(
 
 function camposBuscaFrase(frase: FraseEcoEstruturadoTeste): string {
   return normalizarBusca(
-    [frase.titulo, frase.texto, ...(frase.tags || []), ...(frase.patologias || [])].join(" ")
+    [
+      frase.titulo,
+      frase.texto,
+      ...(frase.tags || []),
+      ...(frase.patologias || []),
+    ].join(" "),
   );
 }
 
@@ -104,7 +135,9 @@ const ATALHOS_CONCLUSAO: AtalhoConclusao[] = [
     label: "HP",
     corresponde: (frase) => {
       const campos = camposBuscaFrase(frase);
-      return contemToken(campos, "hp") || campos.includes("hipertensao pulmonar");
+      return (
+        contemToken(campos, "hp") || campos.includes("hipertensao pulmonar")
+      );
     },
   },
   {
@@ -115,7 +148,9 @@ const ATALHOS_CONCLUSAO: AtalhoConclusao[] = [
 ];
 
 function resumirTexto(texto?: string, limite = 180): string {
-  const normalizado = String(texto || "").replace(/\s+/g, " ").trim();
+  const normalizado = String(texto || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (normalizado.length <= limite) {
     return normalizado;
   }
@@ -124,10 +159,10 @@ function resumirTexto(texto?: string, limite = 180): string {
 
 function ordenarGrupos(grupoA: string, grupoB: string): number {
   const indiceA = ORDEM_GRUPOS_CONCLUSAO.findIndex(
-    (grupo) => normalizarBusca(grupo) === normalizarBusca(grupoA)
+    (grupo) => normalizarBusca(grupo) === normalizarBusca(grupoA),
   );
   const indiceB = ORDEM_GRUPOS_CONCLUSAO.findIndex(
-    (grupo) => normalizarBusca(grupo) === normalizarBusca(grupoB)
+    (grupo) => normalizarBusca(grupo) === normalizarBusca(grupoB),
   );
   const ordemA = indiceA === -1 ? ORDEM_GRUPOS_CONCLUSAO.length - 1 : indiceA;
   const ordemB = indiceB === -1 ? ORDEM_GRUPOS_CONCLUSAO.length - 1 : indiceB;
@@ -146,19 +181,101 @@ export default function SeletorFraseConclusao({
   const [aberto, setAberto] = useState(false);
   const [busca, setBusca] = useState("");
   const [atalhoAtivo, setAtalhoAtivo] = useState("");
-  const [gruposExpandidos, setGruposExpandidos] = useState<Set<string>>(new Set());
+  const [gruposExpandidos, setGruposExpandidos] = useState<Set<string>>(
+    new Set(),
+  );
   const [idsRecentes, setIdsRecentes] = useState<string[]>([]);
+  const [posicaoPainel, setPosicaoPainel] =
+    useState<PosicaoPainelConclusao | null>(null);
   const seletorRef = useRef<HTMLDivElement | null>(null);
+  const painelRef = useRef<HTMLDivElement | null>(null);
+
+  const atualizarPosicaoPainel = useCallback(() => {
+    const seletor = seletorRef.current;
+    if (!seletor) {
+      return;
+    }
+
+    const retangulo = seletor.getBoundingClientRect();
+    const larguraViewport =
+      document.documentElement.clientWidth || window.innerWidth;
+    const alturaViewport =
+      document.documentElement.clientHeight || window.innerHeight;
+    const larguraMaxima = Math.max(0, larguraViewport - MARGEM_VIEWPORT * 2);
+    const larguraPreferida =
+      larguraViewport >= 1024
+        ? Math.max(retangulo.width, LARGURA_MINIMA_DESKTOP)
+        : retangulo.width;
+    const width = Math.min(larguraPreferida, larguraMaxima);
+    const left = Math.min(
+      Math.max(retangulo.left, MARGEM_VIEWPORT),
+      Math.max(MARGEM_VIEWPORT, larguraViewport - MARGEM_VIEWPORT - width),
+    );
+    const espacoAbaixo = Math.max(
+      0,
+      alturaViewport -
+        retangulo.bottom -
+        ESPACO_ENTRE_GATILHO_E_PAINEL -
+        MARGEM_VIEWPORT,
+    );
+    const espacoAcima = Math.max(
+      0,
+      retangulo.top - ESPACO_ENTRE_GATILHO_E_PAINEL - MARGEM_VIEWPORT,
+    );
+    const abrirAcima =
+      espacoAbaixo < Math.min(ALTURA_PREFERIDA_PAINEL, 420) &&
+      espacoAcima > espacoAbaixo;
+    const espacoDisponivel = abrirAcima ? espacoAcima : espacoAbaixo;
+    const maxHeight = Math.min(
+      ALTURA_PREFERIDA_PAINEL,
+      Math.max(120, espacoDisponivel),
+    );
+
+    setPosicaoPainel({
+      top: abrirAcima
+        ? undefined
+        : retangulo.bottom + ESPACO_ENTRE_GATILHO_E_PAINEL,
+      bottom: abrirAcima
+        ? alturaViewport - retangulo.top + ESPACO_ENTRE_GATILHO_E_PAINEL
+        : undefined,
+      left,
+      width,
+      maxHeight,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!aberto) {
+      setPosicaoPainel(null);
+      return undefined;
+    }
+
+    atualizarPosicaoPainel();
+    const handleScroll = (event: Event) => {
+      if (painelRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      atualizarPosicaoPainel();
+    };
+    window.addEventListener("resize", atualizarPosicaoPainel);
+    window.addEventListener("scroll", handleScroll, true);
+    return () => {
+      window.removeEventListener("resize", atualizarPosicaoPainel);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
+  }, [aberto, atualizarPosicaoPainel]);
 
   useEffect(() => {
     try {
-      const idsSalvos = JSON.parse(localStorage.getItem(STORAGE_CONCLUSOES_RECENTES) || "[]");
+      const idsSalvos = JSON.parse(
+        localStorage.getItem(STORAGE_CONCLUSOES_RECENTES) || "[]",
+      );
       if (Array.isArray(idsSalvos)) {
         setIdsRecentes(
           idsSalvos
             .map((id) => String(id || ""))
             .filter(Boolean)
-            .slice(0, LIMITE_CONCLUSOES_RECENTES)
+            .slice(0, LIMITE_CONCLUSOES_RECENTES),
         );
       }
     } catch {
@@ -177,7 +294,12 @@ export default function SeletorFraseConclusao({
       setAtalhoAtivo("");
     };
     const handlePointerDown = (event: PointerEvent) => {
-      if (seletorRef.current && !seletorRef.current.contains(event.target as Node)) {
+      const alvo = event.target as Node;
+      if (
+        seletorRef.current &&
+        !seletorRef.current.contains(alvo) &&
+        !painelRef.current?.contains(alvo)
+      ) {
         fechar();
       }
     };
@@ -198,19 +320,24 @@ export default function SeletorFraseConclusao({
   const frasesOrdenadas = useMemo(
     () =>
       [...frases]
-        .filter((frase) => Number(frase.ativo ?? 1) === 1 && frase.id !== undefined)
+        .filter(
+          (frase) => Number(frase.ativo ?? 1) === 1 && frase.id !== undefined,
+        )
         .sort(compararFrases),
-    [frases]
+    [frases],
   );
 
   const fraseSelecionada = useMemo(
     () => frasesOrdenadas.find((frase) => String(frase.id) === value) || null,
-    [frasesOrdenadas, value]
+    [frasesOrdenadas, value],
   );
 
   const atalhosDisponiveis = useMemo(
-    () => ATALHOS_CONCLUSAO.filter((atalho) => frasesOrdenadas.some(atalho.corresponde)),
-    [frasesOrdenadas]
+    () =>
+      ATALHOS_CONCLUSAO.filter((atalho) =>
+        frasesOrdenadas.some(atalho.corresponde),
+      ),
+    [frasesOrdenadas],
   );
 
   const frasesFiltradas = useMemo(() => {
@@ -220,7 +347,9 @@ export default function SeletorFraseConclusao({
       if (atalho && !atalho.corresponde(frase)) {
         return false;
       }
-      return !buscaNormalizada || camposBuscaFrase(frase).includes(buscaNormalizada);
+      return (
+        !buscaNormalizada || camposBuscaFrase(frase).includes(buscaNormalizada)
+      );
     });
   }, [atalhoAtivo, busca, frasesOrdenadas]);
 
@@ -230,7 +359,9 @@ export default function SeletorFraseConclusao({
       const patologias = (frase.patologias || [])
         .map((patologia) => String(patologia || "").trim())
         .filter(Boolean);
-      const gruposDaFrase = patologias.length ? Array.from(new Set(patologias)) : [GRUPO_SEM_CLASSIFICACAO];
+      const gruposDaFrase = patologias.length
+        ? Array.from(new Set(patologias))
+        : [GRUPO_SEM_CLASSIFICACAO];
       gruposDaFrase.forEach((grupo) => {
         mapa.set(grupo, [...(mapa.get(grupo) || []), frase]);
       });
@@ -242,8 +373,12 @@ export default function SeletorFraseConclusao({
   }, [frasesFiltradas]);
 
   const frasesRecentes = useMemo(() => {
-    const porId = new Map(frasesOrdenadas.map((frase) => [String(frase.id), frase]));
-    return idsRecentes.map((id) => porId.get(id)).filter(Boolean) as FraseEcoEstruturadoTeste[];
+    const porId = new Map(
+      frasesOrdenadas.map((frase) => [String(frase.id), frase]),
+    );
+    return idsRecentes
+      .map((id) => porId.get(id))
+      .filter(Boolean) as FraseEcoEstruturadoTeste[];
   }, [frasesOrdenadas, idsRecentes]);
 
   const filtrosAtivos = Boolean(normalizarBusca(busca) || atalhoAtivo);
@@ -257,13 +392,16 @@ export default function SeletorFraseConclusao({
   const selecionarFrase = (fraseId: string) => {
     onChange(fraseId);
     if (fraseId) {
-      const proximosIds = [fraseId, ...idsRecentes.filter((id) => id !== fraseId)].slice(
-        0,
-        LIMITE_CONCLUSOES_RECENTES
-      );
+      const proximosIds = [
+        fraseId,
+        ...idsRecentes.filter((id) => id !== fraseId),
+      ].slice(0, LIMITE_CONCLUSOES_RECENTES);
       setIdsRecentes(proximosIds);
       try {
-        localStorage.setItem(STORAGE_CONCLUSOES_RECENTES, JSON.stringify(proximosIds));
+        localStorage.setItem(
+          STORAGE_CONCLUSOES_RECENTES,
+          JSON.stringify(proximosIds),
+        );
       } catch {
         // O historico local e apenas uma conveniencia; a selecao clinica nao depende dele.
       }
@@ -312,7 +450,10 @@ export default function SeletorFraseConclusao({
           {(frase.tags || []).length ? (
             <span className="mt-1 flex flex-wrap gap-1">
               {(frase.tags || []).slice(0, 4).map((tag) => (
-                <span key={tag} className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">
+                <span
+                  key={tag}
+                  className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600"
+                >
                   {tag}
                 </span>
               ))}
@@ -332,7 +473,11 @@ export default function SeletorFraseConclusao({
         aria-controls="seletor-frases-conclusao"
         className="flex min-h-[42px] w-full items-center justify-between gap-3 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
       >
-        <span className={fraseSelecionada ? "truncate text-gray-900" : "text-gray-500"}>
+        <span
+          className={
+            fraseSelecionada ? "truncate text-gray-900" : "text-gray-500"
+          }
+        >
           {fraseSelecionada?.titulo || "Selecionar frase do banco"}
         </span>
         <ChevronDown
@@ -340,125 +485,147 @@ export default function SeletorFraseConclusao({
         />
       </button>
 
-      {aberto ? (
-        <div
-          id="seletor-frases-conclusao"
-          role="dialog"
-          aria-label="Selecionar frase de conclusão"
-          className="absolute left-0 z-40 mt-2 w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl lg:min-w-[42rem]"
-        >
-          <div className="space-y-3 border-b border-gray-100 p-3">
-            <div className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 focus-within:ring-2 focus-within:ring-teal-500">
-              <Search className="h-4 w-4 shrink-0 text-gray-400" />
-              <input
-                type="text"
-                value={busca}
-                onChange={(event) => setBusca(event.target.value)}
-                placeholder="Buscar por título, texto, patologia ou tag"
-                aria-label="Buscar conclusão"
-                className="min-w-0 flex-1 border-0 p-0 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0"
-                autoFocus
-              />
-              {busca ? (
-                <button
-                  type="button"
-                  onClick={() => setBusca("")}
-                  className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                  aria-label="Limpar busca de conclusão"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              ) : null}
-            </div>
-
-            {atalhosDisponiveis.length ? (
-              <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                <span className="shrink-0 text-xs font-medium text-gray-500">Atalhos:</span>
-                {atalhosDisponiveis.map((atalho) => (
-                  <button
-                    key={atalho.key}
-                    type="button"
-                    onClick={() =>
-                      setAtalhoAtivo((atual) => (atual === atalho.key ? "" : atalho.key))
-                    }
-                    aria-pressed={atalhoAtivo === atalho.key}
-                    className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium ${
-                      atalhoAtivo === atalho.key
-                        ? "border-teal-500 bg-teal-50 text-teal-700"
-                        : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-                    }`}
-                  >
-                    {atalho.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-
-          </div>
-
-          <div className="max-h-[28rem] space-y-2 overflow-y-auto bg-gray-50/60 p-2">
-            {!filtrosAtivos && frasesRecentes.length ? (
-              <section className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-                <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-3 py-2 text-sm font-medium text-gray-900">
-                  <span className="flex items-center gap-2">
-                    <Clock3 className="h-4 w-4 text-teal-600" />
-                    Recentes
-                  </span>
-                  <span className="text-xs font-normal text-gray-500">{frasesRecentes.length}</span>
-                </div>
-                <div className="space-y-1 p-2">{frasesRecentes.map(renderizarFrase)}</div>
-              </section>
-            ) : null}
-
-            {grupos.length ? (
-              grupos.map((grupo, index) => {
-                const expandido = filtrosAtivos || gruposExpandidos.has(grupo.label);
-                const conteudoId = `grupo-conclusoes-${index}`;
-                return (
-                  <section
-                    key={grupo.label}
-                    className="overflow-hidden rounded-lg border border-gray-200 bg-white"
-                  >
+      {aberto && posicaoPainel && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={painelRef}
+              id="seletor-frases-conclusao"
+              data-testid="seletor-frases-conclusao-painel"
+              role="dialog"
+              aria-label="Selecionar frase de conclusão"
+              style={posicaoPainel}
+              className="fixed z-[100] flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl"
+            >
+              <div className="shrink-0 space-y-3 border-b border-gray-100 p-3">
+                <div className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 focus-within:ring-2 focus-within:ring-teal-500">
+                  <Search className="h-4 w-4 shrink-0 text-gray-400" />
+                  <input
+                    type="text"
+                    value={busca}
+                    onChange={(event) => setBusca(event.target.value)}
+                    placeholder="Buscar por título, texto, patologia ou tag"
+                    aria-label="Buscar conclusão"
+                    className="min-w-0 flex-1 border-0 p-0 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0"
+                    autoFocus
+                  />
+                  {busca ? (
                     <button
                       type="button"
-                      onClick={() => alternarGrupo(grupo.label)}
-                      aria-expanded={expandido}
-                      aria-controls={conteudoId}
-                      className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left text-sm font-medium text-gray-900 transition hover:bg-gray-50"
+                      onClick={() => setBusca("")}
+                      className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                      aria-label="Limpar busca de conclusão"
                     >
-                      <span className="flex min-w-0 items-center gap-2">
-                        {expandido ? (
-                          <ChevronDown className="h-4 w-4 shrink-0 text-teal-600" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4 shrink-0 text-teal-600" />
-                        )}
-                        <span className="truncate">{grupo.label}</span>
-                      </span>
-                      <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-normal text-gray-600">
-                        {grupo.frases.length} {grupo.frases.length === 1 ? "frase" : "frases"}
-                      </span>
+                      <X className="h-4 w-4" />
                     </button>
-                    {expandido ? (
-                      <div id={conteudoId} className="space-y-1 border-t border-gray-100 bg-gray-50/60 p-2">
-                        {grupo.frases.map(renderizarFrase)}
-                      </div>
-                    ) : null}
-                  </section>
-                );
-              })
-            ) : (
-              <div className="rounded-lg border border-dashed border-gray-300 bg-white px-3 py-8 text-center text-sm text-gray-500">
-                Nenhuma conclusão encontrada.
+                  ) : null}
+                </div>
+
+                {atalhosDisponiveis.length ? (
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                    <span className="shrink-0 text-xs font-medium text-gray-500">
+                      Atalhos:
+                    </span>
+                    {atalhosDisponiveis.map((atalho) => (
+                      <button
+                        key={atalho.key}
+                        type="button"
+                        onClick={() =>
+                          setAtalhoAtivo((atual) =>
+                            atual === atalho.key ? "" : atalho.key,
+                          )
+                        }
+                        aria-pressed={atalhoAtivo === atalho.key}
+                        className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium ${
+                          atalhoAtivo === atalho.key
+                            ? "border-teal-500 bg-teal-50 text-teal-700"
+                            : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                        }`}
+                      >
+                        {atalho.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
-            )}
-          </div>
-        </div>
-      ) : null}
+
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain bg-gray-50/60 p-2">
+                {!filtrosAtivos && frasesRecentes.length ? (
+                  <section className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+                    <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-3 py-2 text-sm font-medium text-gray-900">
+                      <span className="flex items-center gap-2">
+                        <Clock3 className="h-4 w-4 text-teal-600" />
+                        Recentes
+                      </span>
+                      <span className="text-xs font-normal text-gray-500">
+                        {frasesRecentes.length}
+                      </span>
+                    </div>
+                    <div className="space-y-1 p-2">
+                      {frasesRecentes.map(renderizarFrase)}
+                    </div>
+                  </section>
+                ) : null}
+
+                {grupos.length ? (
+                  grupos.map((grupo, index) => {
+                    const expandido =
+                      filtrosAtivos || gruposExpandidos.has(grupo.label);
+                    const conteudoId = `grupo-conclusoes-${index}`;
+                    return (
+                      <section
+                        key={grupo.label}
+                        className="overflow-hidden rounded-lg border border-gray-200 bg-white"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => alternarGrupo(grupo.label)}
+                          aria-expanded={expandido}
+                          aria-controls={conteudoId}
+                          className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left text-sm font-medium text-gray-900 transition hover:bg-gray-50"
+                        >
+                          <span className="flex min-w-0 items-center gap-2">
+                            {expandido ? (
+                              <ChevronDown className="h-4 w-4 shrink-0 text-teal-600" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4 shrink-0 text-teal-600" />
+                            )}
+                            <span className="truncate">{grupo.label}</span>
+                          </span>
+                          <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-normal text-gray-600">
+                            {grupo.frases.length}{" "}
+                            {grupo.frases.length === 1 ? "frase" : "frases"}
+                          </span>
+                        </button>
+                        {expandido ? (
+                          <div
+                            id={conteudoId}
+                            className="space-y-1 border-t border-gray-100 bg-gray-50/60 p-2"
+                          >
+                            {grupo.frases.map(renderizarFrase)}
+                          </div>
+                        ) : null}
+                      </section>
+                    );
+                  })
+                ) : (
+                  <div className="rounded-lg border border-dashed border-gray-300 bg-white px-3 py-8 text-center text-sm text-gray-500">
+                    Nenhuma conclusão encontrada.
+                  </div>
+                )}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       {fraseSelecionada ? (
         <div className="mt-2 rounded-lg border border-teal-100 bg-teal-50/60 px-3 py-2">
-          <div className="text-xs font-medium text-teal-800">Prévia da frase selecionada</div>
-          <p className="mt-1 text-xs text-gray-600">{resumirTexto(fraseSelecionada.texto)}</p>
+          <div className="text-xs font-medium text-teal-800">
+            Prévia da frase selecionada
+          </div>
+          <p className="mt-1 text-xs text-gray-600">
+            {resumirTexto(fraseSelecionada.texto)}
+          </p>
         </div>
       ) : null}
     </div>

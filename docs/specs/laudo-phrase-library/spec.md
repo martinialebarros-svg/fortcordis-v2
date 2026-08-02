@@ -37,6 +37,7 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - NFR-005 (acessibilidade): cabecalhos dos grupos expansivos devem expor `aria-expanded` e `aria-controls` e ser acionaveis por teclado.
 - NFR-006 (acessibilidade): o seletor de Conclusao deve fechar com Escape, fechar por clique externo e manter busca, grupos e frases acessiveis por controles nativos de teclado.
 - NFR-007 (privacidade): o historico local deve armazenar somente IDs de frases, nunca texto clinico do laudo ou dados do paciente.
+- NFR-008 (responsividade): o painel de Conclusao deve permanecer contido no viewport, independente do overflow dos ancestrais, abrir no lado com mais espaco quando necessario e reservar a rolagem vertical para a lista de resultados.
 
 ## 4) Contratos tecnicos
 
@@ -88,6 +89,8 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - CA-015: selecionar uma conclusao exibe sua previa e mantem o texto do laudo inalterado ate `Usar frase`.
 - CA-016: os cinco IDs selecionados mais recentemente podem reaparecer no grupo Recentes sem persistir conteudo clinico no navegador.
 - CA-017: aspectos diferentes de Conclusao preservam o seletor simples existente.
+- CA-018: ao abrir o seletor proximo ao limite inferior da tela, busca, atalhos e toda a regiao rolavel permanecem visiveis; o painel pode abrir acima do gatilho quando houver mais espaco.
+- CA-019: redimensionar ou rolar a pagina reposiciona o painel, enquanto rolar a lista nao desloca o formulario ao atingir os limites internos.
 
 ## 7) Casos de borda
 
@@ -99,6 +102,8 @@ Adicionar uma aba Biblioteca ao formulario de novo/editar laudo para gerir o ban
 - CB-006: frase sem patologia no seletor de Conclusao deve aparecer em `Outros achados`.
 - CB-007: frase associada a mais de uma patologia pode aparecer em cada grupo aplicavel, preservando o mesmo ID e uma unica selecao.
 - CB-008: ID recente que estiver inativo ou ausente no payload atual deve ser ignorado.
+- CB-009: o painel dentro de ancestral com `overflow` nao pode ser recortado pelo formulario ou modal.
+- CB-010: em viewport estreito, a largura do painel deve respeitar margens laterais minimas e nunca ultrapassar a area visivel.
 
 ## 8) Fora de escopo
 
