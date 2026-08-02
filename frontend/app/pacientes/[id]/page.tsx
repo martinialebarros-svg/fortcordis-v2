@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
 import {
   formatarCepVisual,
   formatarCpfVisual,
@@ -73,10 +74,7 @@ type ResumoClinicoPaciente = {
 };
 
 const formatarDataClinica = (value?: string | null) => {
-  if (!value) return "Data não informada";
-  const data = new Date(value);
-  if (Number.isNaN(data.getTime())) return "Data não informada";
-  return data.toLocaleDateString("pt-BR", { timeZone: "America/Fortaleza" });
+  return formatOperationalDate(value, "Data não informada");
 };
 
 export default function EditarPacientePage() {
@@ -435,7 +433,9 @@ export default function EditarPacientePage() {
                             </div>
                             <p>
                               {getTipoLaudoLabel(laudo.tipo)} ·{" "}
-                              {formatarDataClinica(laudo.data_exame || laudo.data_laudo)}
+                              {laudo.data_exame
+                                ? formatCalendarDate(laudo.data_exame)
+                                : formatarDataClinica(laudo.data_laudo)}
                             </p>
                           </div>
                           <ChevronRight className="h-4 w-4" />

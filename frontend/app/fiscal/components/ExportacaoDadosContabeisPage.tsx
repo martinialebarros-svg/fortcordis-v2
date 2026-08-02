@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import { formatCalendarDate, operationalTodayDateInput } from "@/lib/calendar-date";
 import {
   AlertCircle,
   ArrowLeft,
@@ -105,7 +106,7 @@ const DEFAULT_TOMADOR: DadosTomador = {
 };
 
 function fmtDate(v: string | null) {
-  return v ? new Date(v).toLocaleDateString("pt-BR") : "-";
+  return formatCalendarDate(v);
 }
 function fmtMoney(v: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -139,8 +140,8 @@ function anyDateToBr(v: string | null) {
   const text = String(v).trim();
   const yyyyMmDd = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (yyyyMmDd) return `${yyyyMmDd[3]}/${yyyyMmDd[2]}/${yyyyMmDd[1]}`;
-  const d = new Date(text);
-  if (!Number.isNaN(d.getTime())) return d.toLocaleDateString("pt-BR");
+  const formatted = formatCalendarDate(text, "");
+  if (formatted) return formatted;
   return text;
 }
 function descricaoServicoDataUnica(dataAtendimento: string | null) {
@@ -149,11 +150,13 @@ function descricaoServicoDataUnica(dataAtendimento: string | null) {
   return `Servicos veterinarios prestados na data de ${data}.`;
 }
 function monthPeriod() {
-  const n = new Date();
-  const i = new Date(n.getFullYear(), n.getMonth(), 1);
-  const f = new Date(n.getFullYear(), n.getMonth() + 1, 0);
-  const s = (d: Date) => `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, "0")}-${`${d.getDate()}`.padStart(2, "0")}`;
-  return { inicio: s(i), fim: s(f) };
+  const today = operationalTodayDateInput();
+  const [year, month] = today.split("-");
+  const lastDay = new Date(Date.UTC(Number(year), Number(month), 0)).getUTCDate();
+  return {
+    inicio: `${year}-${month}-01`,
+    fim: `${year}-${month}-${String(lastDay).padStart(2, "0")}`,
+  };
 }
 
 function normalizeApiError(err: any, fallback: string) {

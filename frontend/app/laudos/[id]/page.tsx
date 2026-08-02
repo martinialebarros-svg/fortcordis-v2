@@ -11,6 +11,7 @@ import {
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
 import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
+import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
 import { parseStoredEchoMeasurements } from "@/lib/echo-derived-measurements";
 import { ArrowLeft, CheckCircle, Download, FileText, Loader2, Printer, Send, Upload } from "lucide-react";
 
@@ -492,7 +493,9 @@ export default function VisualizarLaudoPage() {
               <div>
                 <span className="text-gray-500">Data do Exame:</span>
                 <p className="font-medium">
-                  {new Date(laudo.data_exame || laudo.data_laudo).toLocaleDateString('pt-BR')}
+                  {laudo.data_exame
+                    ? formatCalendarDate(laudo.data_exame)
+                    : formatOperationalDate(laudo.data_laudo)}
                 </p>
               </div>
               {laudo.clinica && (
@@ -679,7 +682,7 @@ export default function VisualizarLaudoPage() {
             <p>Laudo emitido por {laudo.criado_por_nome || "Médico Veterinário"}</p>
             <p className="mt-1">
               Documento gerado eletronicamente em{' '}
-              {new Date(laudo.data_laudo).toLocaleDateString('pt-BR')}
+              {formatOperationalDate(laudo.data_laudo)}
             </p>
           </div>
         </article>

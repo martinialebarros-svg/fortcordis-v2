@@ -11,6 +11,7 @@ import {
   TIPO_LAUDO_ELETROCARDIOGRAMA,
 } from "@/lib/laudos";
 import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
+import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
 import {
   Calendar,
   ChevronDown,
@@ -625,7 +626,9 @@ export default function LaudosPage() {
                             )}
                             <span className="flex items-center gap-1">
                               <Calendar className="w-3 h-3" />
-                              {new Date(laudo.data_exame || laudo.data_laudo).toLocaleDateString("pt-BR")}
+                              {laudo.data_exame
+                                ? formatCalendarDate(laudo.data_exame)
+                                : formatOperationalDate(laudo.data_laudo)}
                             </span>
                           </div>
                         </div>

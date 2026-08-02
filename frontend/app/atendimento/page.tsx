@@ -2263,7 +2263,10 @@ export default function AtendimentoPage() {
     const pesoAtual = normalizePeso(form.triagem.peso);
     if (pesoAtual) {
       const atendimentoAtualId = Number(selecionado || 0);
-      const dataAtual = form.data_atendimento ? new Date(form.data_atendimento).toISOString() : new Date().toISOString();
+      const dataAtual =
+        localInputToOperationalIso(form.data_atendimento) ||
+        localInputToOperationalIso(nowLocalInput()) ||
+        new Date().toISOString();
       if (atendimentoAtualId) {
         pontosMap.set(atendimentoAtualId, {
           atendimento_id: atendimentoAtualId,
@@ -3070,7 +3073,7 @@ export default function AtendimentoPage() {
         paciente_idade: idadePacienteExibicao || "",
         tutor_nome: tutorNomeExibicao || "",
         veterinario_nome: "",
-        data_atendimento: form.data_atendimento || new Date().toISOString().split("T")[0],
+        data_atendimento: form.data_atendimento || nowLocalInput().slice(0, 10),
         orientacoes_gerais: form.prescricao_orientacoes || "",
         retorno_dias: form.prescricao_retorno_dias ? Number(form.prescricao_retorno_dias) : null,
         itens: form.prescricao_itens.map((item) => ({

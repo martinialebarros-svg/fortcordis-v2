@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import TransacaoModal from "./TransacaoModal";
+import { calendarDateInput, formatCalendarDate, operationalTodayDateInput } from "@/lib/calendar-date";
 import {
   FORMA_PAGAMENTO_FALLBACK,
   FORMA_PAGAMENTO_PADRAO,
@@ -602,8 +603,7 @@ export default function FinanceiroPage() {
   };
 
   const formatarData = (data: string) => {
-    if (!data) return "-";
-    return new Date(data).toLocaleDateString('pt-BR');
+    return formatCalendarDate(data);
   };
 
   const formatarDataHoraCurta = (data: string) => {
@@ -617,16 +617,11 @@ export default function FinanceiroPage() {
   };
 
   const hojeLocalISO = () => {
-    const agora = new Date();
-    const local = new Date(agora.getTime() - agora.getTimezoneOffset() * 60000);
-    return local.toISOString().slice(0, 10);
+    return operationalTodayDateInput();
   };
 
   const normalizarDataISO = (valor?: string | null) => {
-    if (!valor) return "";
-    const data = new Date(valor);
-    if (Number.isNaN(data.getTime())) return "";
-    return data.toISOString().slice(0, 10);
+    return calendarDateInput(valor);
   };
 
   const estaNoPeriodo = (valor?: string | null) => {
@@ -1255,7 +1250,7 @@ export default function FinanceiroPage() {
     return digitos;
   };
 
-  const formatarDataArquivo = () => new Date().toISOString().slice(0, 10);
+  const formatarDataArquivo = () => operationalTodayDateInput();
 
   const obterContatoCompartilhamento = (ids: number[]) => {
     const selecionadas = ordensServico.filter((os) => ids.includes(os.id));
@@ -1287,7 +1282,7 @@ export default function FinanceiroPage() {
         : destinatarios.length > 1
           ? "Multiplos destinatarios"
           : "Nao informado";
-    const dataHoje = new Date().toLocaleDateString("pt-BR");
+    const dataHoje = formatCalendarDate(operationalTodayDateInput());
     const listaOS = selecionadas
       .map(
         (os, index) =>
@@ -1472,7 +1467,7 @@ export default function FinanceiroPage() {
   };
 
   const preencherMensagemCobranca = (grupo: GrupoCobrancaDestinatario) => {
-    const hoje = new Date().toLocaleDateString("pt-BR");
+    const hoje = formatCalendarDate(operationalTodayDateInput());
     const linhasOS = montarLinhasPendentes(grupo);
     const listaOS = linhasOS.length > 0 ? linhasOS.join("\n") : "1. Nenhuma OS pendente.";
 
@@ -1607,8 +1602,8 @@ export default function FinanceiroPage() {
         .replace(/[^a-z0-9_]/g, "")
         .slice(0, 40);
       const fallback = sufixoClinica
-        ? `relatorio_cobranca_${sufixoClinica}_${new Date().toISOString().slice(0, 10)}.pdf`
-        : `relatorio_cobranca_pendencias_${new Date().toISOString().slice(0, 10)}.pdf`;
+        ? `relatorio_cobranca_${sufixoClinica}_${operationalTodayDateInput()}.pdf`
+        : `relatorio_cobranca_pendencias_${operationalTodayDateInput()}.pdf`;
       link.href = url;
       link.download = match?.[1] || fallback;
       document.body.appendChild(link);
@@ -1657,8 +1652,8 @@ export default function FinanceiroPage() {
         ids.length === 1
           ? `recibo_os_${ids[0]}.pdf`
           : agrupar
-            ? `recibo_os_agrupado_${new Date().toISOString().slice(0, 10)}.pdf`
-            : `recibos_os_${new Date().toISOString().slice(0, 10)}.pdf`;
+            ? `recibo_os_agrupado_${operationalTodayDateInput()}.pdf`
+            : `recibos_os_${operationalTodayDateInput()}.pdf`;
       return { blob, filename: match?.[1] || filename };
     } catch (error: any) {
       console.error("Erro ao gerar recibo PDF:", error);

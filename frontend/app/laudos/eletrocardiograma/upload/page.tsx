@@ -9,6 +9,7 @@ import {
   formatarTelefoneVisual,
   normalizarTelefone,
 } from "@/lib/atendimento-cadastro";
+import { calendarDateInput, operationalTodayDateInput } from "@/lib/calendar-date";
 import { ArrowLeft, FileText, Loader2, Search, Upload, UserPlus, X } from "lucide-react";
 
 type UploadContext = {
@@ -138,19 +139,11 @@ function readInitialContext(): UploadContext {
 }
 
 function toDateInput(value?: string | null) {
-  if (!value) return "";
-  const parsed = new Date(value);
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toISOString().slice(0, 10);
-  }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return value;
-  }
-  return "";
+  return calendarDateInput(value);
 }
 
 function getTodayDateInput() {
-  return new Date().toISOString().slice(0, 10);
+  return operationalTodayDateInput();
 }
 
 function readApiError(

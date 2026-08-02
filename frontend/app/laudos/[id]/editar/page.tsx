@@ -44,6 +44,7 @@ import {
   parseStoredEchoMeasurements,
 } from "@/lib/echo-derived-measurements";
 import { criarMensagemAlertaSalvamentoEcocardiograma } from "@/lib/ecocardiograma-save-alert";
+import { operationalTodayDateInput } from "@/lib/calendar-date";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -335,7 +336,7 @@ export default function EditarLaudoPage() {
     idade: "",
     tutor: "",
     telefone: "",
-    data_exame: new Date().toISOString().split('T')[0],
+    data_exame: operationalTodayDateInput(),
   });
   const [novaRaca, setNovaRaca] = useState("");
   const [racasCustomPorEspecie, setRacasCustomPorEspecie] = useState<Record<string, string[]>>({});
@@ -662,7 +663,7 @@ export default function EditarLaudoPage() {
         telefone: dados.paciente.telefone || anterior.telefone,
         data_exame: dados.paciente.data_exame
           ? dados.paciente.data_exame.substring(0, 10)
-          : anterior.data_exame || new Date().toISOString().split('T')[0],
+          : anterior.data_exame || operationalTodayDateInput(),
       }));
     }
 
@@ -808,7 +809,7 @@ export default function EditarLaudoPage() {
           telefone: pacienteData.telefone || "",
           data_exame: laudoData.data_exame
             ? laudoData.data_exame.substring(0, 10)
-            : new Date().toISOString().split('T')[0],
+            : operationalTodayDateInput(),
         });
       } else if (laudoData.paciente_id) {
         // Fallback: buscar paciente separadamente (para laudos antigos)
@@ -829,7 +830,7 @@ export default function EditarLaudoPage() {
             telefone: pacienteData.telefone || "",
             data_exame: laudoData.data_exame
               ? laudoData.data_exame.substring(0, 10)
-              : new Date().toISOString().split('T')[0],
+              : operationalTodayDateInput(),
           });
         } catch (e) {
           console.error("Erro ao carregar paciente:", e);

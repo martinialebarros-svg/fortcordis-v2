@@ -27,14 +27,14 @@ function calcularIdadePorNascimento(dataNascimento?: string | null): string {
   const texto = String(dataNascimento || "").trim();
   if (!texto) return "";
 
-  const nascimento = new Date(texto);
-  if (Number.isNaN(nascimento.getTime())) {
+  const nascimento = calendarDateParts(texto);
+  const hoje = calendarDateParts(operationalTodayDateInput());
+  if (!nascimento || !hoje) {
     return texto;
   }
 
-  const hoje = new Date();
-  let meses = (hoje.getFullYear() - nascimento.getFullYear()) * 12;
-  meses += hoje.getMonth() - nascimento.getMonth();
+  let meses = (Number(hoje.year) - Number(nascimento.year)) * 12;
+  meses += Number(hoje.month) - Number(nascimento.month);
 
   if (meses < 12) {
     return `${meses}m`;
@@ -63,3 +63,4 @@ export function extrairIdadePaciente(source: {
   const match = /(?:^|\n)Idade:\s*(.+?)(?:\n|$)/i.exec(String(source.observacoes || ""));
   return match ? match[1].trim() : "";
 }
+import { calendarDateParts, operationalTodayDateInput } from "@/lib/calendar-date";
