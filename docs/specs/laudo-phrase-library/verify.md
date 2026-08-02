@@ -31,6 +31,9 @@ Status: done
 | NFR-005 | acessibilidade | cabecalhos usam `aria-expanded` e `aria-controls` em botoes nativos. | ok |
 | NFR-006 | acessibilidade | seletor fecha por Escape/clique externo; gatilho e grupos expõem estado expandido e todos os comandos usam botoes/input nativos. | ok |
 | NFR-007 | privacidade | chave local `fortcordis:eco:conclusoes-recentes` recebe somente array de IDs, sem texto do laudo ou identificadores do paciente. | ok |
+| NFR-008 | responsividade | painel e renderizado em portal no `document.body`, usa coordenadas fixas e calcula lado, largura e `maxHeight` a partir do gatilho e do viewport. | ok |
+| CA-018 | aceitacao | cabecalho e `shrink-0`; lista usa `min-h-0`, `flex-1` e `overflow-y-auto`, mantendo o final rolavel dentro da altura calculada. | ok |
+| CA-019 | aceitacao | listeners de resize/scroll reposicionam o painel; eventos de scroll originados dentro do proprio painel nao recalculam a ancora. | ok |
 
 ## 2) Testes automatizados executados
 
@@ -53,6 +56,7 @@ Resumo dos resultados:
 - Backend: 12 testes passaram; `py_compile` passou na validacao original da feature.
 - Frontend deste ciclo: ESLint direcionado passou; `tsc --noEmit --pretty false --incremental false` passou; `npm run build` compilou, validou tipos e gerou 39 paginas com sucesso.
 - Frontend do seletor de Conclusao: ESLint direcionado dos dois componentes passou; TypeScript sem emissao passou; o novo build de producao compilou, validou tipos e gerou 39 paginas.
+- Hotfix de viewport do seletor: ESLint direcionado passou; TypeScript sem emissao passou; build de producao compilou e gerou 39 paginas.
 - Store runtime de stage: 15 titulos renomeados para `DMVM`, 6 referencias de presets sincronizadas, 112 titulos unicos e zero referencias quebradas; producao permaneceu com o hash anterior.
 
 ## 3) Testes manuais
@@ -69,6 +73,8 @@ Resumo dos resultados:
 - Cenario 10: buscar uma conclusao por titulo/texto/tag, usar atalho clinico e confirmar expansao automatica dos resultados.
 - Cenario 11: selecionar uma frase, conferir a previa e verificar que o texto so muda apos clicar em `Usar frase`.
 - Cenario 12: reabrir o seletor e confirmar o grupo Recentes com no maximo cinco frases validas.
+- Cenario 13: abrir Conclusao proximo ao rodape da janela e confirmar que o painel cabe abaixo ou inverte para cima, sem esconder o fim da barra de rolagem.
+- Cenario 14: rolar a lista ate a ultima patologia e redimensionar a janela, confirmando que o painel permanece contido no viewport.
 
 Resultado operacional ja confirmado para o cenario 8: arquivo runtime e API publica de stage retornam zero titulos legados e 112 conclusoes integras. Os cenarios 6 e 7 serao repetidos no frontend publicado apos o workflow de deploy.
 

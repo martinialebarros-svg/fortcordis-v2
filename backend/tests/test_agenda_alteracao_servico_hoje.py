@@ -54,7 +54,13 @@ class AgendaAlteracaoServicoHojeTest(unittest.TestCase):
             db.refresh(servico_original)
             db.refresh(servico_novo)
 
-            inicio = datetime.now(agenda.LOCAL_TZ).replace(tzinfo=None) - timedelta(hours=2)
+            agora_local = datetime.now(agenda.LOCAL_TZ).replace(tzinfo=None)
+            # Preserve um horario iniciado do dia atual inclusive entre 00:00 e 01:59,
+            # quando subtrair duas horas atravessaria a virada do dia.
+            inicio = max(
+                agora_local - timedelta(hours=2),
+                agora_local.replace(hour=0, minute=0, second=0, microsecond=0),
+            )
             agendamento = Agendamento(
                 clinica_id=clinica.id,
                 servico_id=servico_original.id,

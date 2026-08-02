@@ -7,3 +7,4 @@
 5. Registrar a decisão na auditoria.
 6. Cobrir confirmação ausente, perfil não-admin e troca confirmada com preservação do intervalo.
 7. Validar lint, TypeScript, build, testes de backend e guardrail SDD antes da publicação.
+8. Fixar a massa do teste no início do dia corrente quando `agora - 2 horas` atravessar a meia-noite.
