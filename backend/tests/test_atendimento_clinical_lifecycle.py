@@ -20,8 +20,9 @@ os.environ.setdefault("SECRET_KEY", "atendimento-clinical-lifecycle-test-secret-
 
 from app.api.v1.endpoints import atendimento
 from app.models.agendamento import Agendamento
-from app.models.atendimento_clinico import AtendimentoClinico
+from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico, PrescricaoClinica, PrescricaoItem
 from app.models.clinica import Clinica
+from app.models.laudo import Exame
 from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.schemas.atendimento import (
@@ -46,6 +47,10 @@ class AtendimentoClinicalLifecycleTest(unittest.TestCase):
             Clinica.__table__,
             Agendamento.__table__,
             AtendimentoClinico.__table__,
+            Exame.__table__,
+            AnexoAtendimento.__table__,
+            PrescricaoClinica.__table__,
+            PrescricaoItem.__table__,
         ):
             table.create(self.engine, checkfirst=True)
         self.db = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)()
@@ -85,7 +90,7 @@ class AtendimentoClinicalLifecycleTest(unittest.TestCase):
         self.db.refresh(item)
         return item
 
-    def test_criacao_vazia_como_concluida_e_rejeitada_antes_de_gravar(self) -> None:
+    def test_criacao_vazia_como_concluida_exige_confirmacao_antes_de_gravar(self) -> None:
         with self.assertRaises(HTTPException) as ctx:
             atendimento.criar_atendimento(
                 AtendimentoCreatePayload(
@@ -97,11 +102,44 @@ class AtendimentoClinicalLifecycleTest(unittest.TestCase):
                 current_user=self.user,
             )
 
-        self.assertEqual(ctx.exception.status_code, 422)
-        self.assertIn("queixa principal", str(ctx.exception.detail))
+        self.assertEqual(ctx.exception.status_code, 409)
+        detalhe = ctx.exception.detail
+        self.assertEqual(detalhe["codigo"], "CONFIRMACAO_CONCLUSAO_PENDENCIAS")
+        self.assertTrue(detalhe["confirmavel"])
+        self.assertIn("queixa principal", "; ".join(detalhe["pendencias"]))
         self.assertEqual(self.db.query(AtendimentoClinico).count(), 0)
 
-    def test_primeira_transicao_vazia_para_concluido_preserva_estado_anterior(self) -> None:
+    def test_criacao_vazia_como_concluida_com_confirmacao_e_gravada_e_auditada(self) -> None:
+        paciente, _tutor, _clinica = self._seed_contexto()
+
+        with (
+            patch.object(atendimento, "_auditar_conclusao_com_pendencias") as auditoria_mock,
+            patch.object(
+                atendimento,
+                "_montar_detalhe_atendimento",
+                side_effect=lambda _db, registro: {
+                    "id": registro.id,
+                    "status": registro.status,
+                },
+            ),
+        ):
+            resposta = atendimento.criar_atendimento(
+                AtendimentoCreatePayload(
+                    paciente_id=paciente.id,
+                    status="Concluido",
+                    triagem=TriagemPayload(),
+                    confirmar_conclusao_pendencias=True,
+                ),
+                db=self.db,
+                current_user=self.user,
+            )
+
+        self.assertEqual(resposta["status"], "Concluido")
+        self.assertEqual(self.db.query(AtendimentoClinico).count(), 1)
+        self.assertEqual(auditoria_mock.call_count, 1)
+        self.assertIn("queixa principal", "; ".join(auditoria_mock.call_args.kwargs["pendencias"]))
+
+    def test_primeira_transicao_vazia_para_concluido_exige_confirmacao_e_preserva_estado(self) -> None:
         item = self._seed_atendimento()
 
         with self.assertRaises(HTTPException) as ctx:
@@ -112,10 +150,33 @@ class AtendimentoClinicalLifecycleTest(unittest.TestCase):
                 current_user=self.user,
             )
 
-        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertEqual(ctx.exception.detail["codigo"], "CONFIRMACAO_CONCLUSAO_PENDENCIAS")
         self.db.refresh(item)
         self.assertEqual(item.status, "Em atendimento")
         self.assertEqual(item.consulta_concluida or 0, 0)
+
+    def test_primeira_transicao_vazia_com_confirmacao_conclui_e_audita(self) -> None:
+        item = self._seed_atendimento()
+
+        with (
+            patch.object(atendimento, "_auditar_conclusao_com_pendencias") as auditoria_mock,
+            patch.object(
+                atendimento,
+                "_montar_detalhe_atendimento",
+                side_effect=lambda _db, registro: {"id": registro.id, "status": registro.status},
+            ),
+        ):
+            atendimento.atualizar_atendimento(
+                item.id,
+                AtendimentoUpdatePayload(status="Concluido", confirmar_conclusao_pendencias=True),
+                db=self.db,
+                current_user=self.user,
+            )
+
+        self.db.refresh(item)
+        self.assertEqual(item.status, "Concluido")
+        self.assertEqual(auditoria_mock.call_count, 1)
 
     def test_conclusao_valida_normaliza_status_e_marca_consulta(self) -> None:
         item = self._seed_atendimento()

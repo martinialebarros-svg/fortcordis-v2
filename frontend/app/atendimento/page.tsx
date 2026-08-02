@@ -3830,7 +3830,7 @@ export default function AtendimentoPage() {
     }
   };
 
-  const finalizarAtendimento = async () => {
+  const finalizarAtendimento = async (confirmarConclusaoPendencias: boolean = false) => {
     setFinalizando(true);
     try {
       const atendimentoId = await saveAtendimento("manual");
@@ -3838,6 +3838,7 @@ export default function AtendimentoPage() {
 
       const response = await api.post(`/atendimentos/${atendimentoId}/finalizar`, {
         tipo_horario: tipoHorarioFinalizacao,
+        confirmar_conclusao_pendencias: confirmarConclusaoPendencias,
       });
       const detalhe = response.data?.atendimento || {};
       const hydrated = hydrateFormFromDetail(detalhe);
@@ -3864,6 +3865,22 @@ export default function AtendimentoPage() {
       setErro("");
       setSucesso(response.data?.mensagem || "Atendimento finalizado com sucesso.");
     } catch (e: any) {
+      const detalhe = e?.response?.data?.detail;
+      const precisaConfirmar =
+        !confirmarConclusaoPendencias &&
+        e?.response?.status === 409 &&
+        detalhe &&
+        typeof detalhe === "object" &&
+        detalhe.codigo === "CONFIRMACAO_CONCLUSAO_PENDENCIAS";
+
+      if (precisaConfirmar) {
+        setFinalizando(false);
+        if (window.confirm(String(detalhe.mensagem || "Concluir mesmo com pendencias?"))) {
+          await finalizarAtendimento(true);
+        }
+        return;
+      }
+
       setErro(
         extractApiErrorMessageSync(
           e,
