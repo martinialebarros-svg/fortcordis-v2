@@ -39,7 +39,7 @@ Status: done
 | CA-022 | aceitacao | CSV analitico com `first_download_at`, `last_access_at` e `days_since_last_activity` | ok |
 | CA-023 | aceitacao | `frontend/app/layout.tsx` publicando `metadataBase`, `openGraph`, `twitter` e `icons` para o host `https://app.fortcordis.com.br` com a logomarca oficial | ok |
 | CA-024 | aceitacao | `backend/app/api/v1/endpoints/portal_clinic_auth.py::_normalize_utc_naive_datetime` + `test_portal_overview_datetime_helpers_normalize_mixed_timezones` cobrindo timestamps mistos no cockpit | ok |
-| CA-025 | aceitacao | `backend/tests/test_portal_access_foundation.py::test_clinica_exam_list_includes_operational_panel` valida `operational_summary` | ok |
+| CA-025 | aceitacao | `backend/tests/test_portal_access_foundation.py::test_clinica_exam_list_includes_operational_panel` valida `operational_summary`, inclusive uma liberacao as 23:30 de Fortaleza gravada como 02:30 UTC do dia seguinte | ok |
 | CA-026 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx` renderiza a fila operacional com status e previsao/data de liberacao | ok |
 | CA-027 | frontend | `frontend/components/portal/PortalClinicaPageShell.tsx` + `frontend/components/portal/PortalClinicaWorkspace.tsx` alternando entre landing publica e shell autenticado sem sobreposicao | ok |
 | CA-028 | frontend | `PortalClinicaPageShell` reutiliza a sessao ja hidratada em `standalone` e `PortalClinicaWorkspace` so notifica o shell pai apos concluir o bootstrap local, evitando piscar entre landing e dashboard | ok |
@@ -184,6 +184,12 @@ Resumo dos resultados:
 - Causa confirmada: comparacao entre `row.created_at` timezone-aware e `utcnow()` sem timezone em `_load_portal_download_analytics`.
 - Ajuste aplicado: normalizacao para UTC sem timezone antes de calcular downloads dos ultimos 30 dias, ultimo acesso e ordenacao da linha do tempo.
 - Regressao automatizada adicionada em `test_portal_overview_datetime_helpers_normalize_mixed_timezones`.
+
+### Correcao de `Liberados hoje` de 2026-08-02
+
+- Causa confirmada: `data_resultado` e gravada em UTC sem timezone, enquanto o painel comparava esse valor diretamente contra os limites sem timezone do dia de Fortaleza.
+- Correcao aplicada: `_portal_utc_naive_bounds_for_local_day` converte o inicio e o fim do dia local para UTC antes de calcular `operational_summary.liberados_hoje`.
+- Regressao automatizada: `test_clinica_exam_list_includes_operational_panel` cobre uma liberacao as 23:30 em Fortaleza, persistida como 02:30 UTC no dia seguinte.
 
 ## 4) Regressao e riscos residuais
 

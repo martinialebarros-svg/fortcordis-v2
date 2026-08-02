@@ -562,6 +562,16 @@ def _portal_local_date(value: datetime | None) -> date | None:
     return normalized.date() if normalized else None
 
 
+def _portal_utc_naive_bounds_for_local_day(value: date) -> tuple[datetime, datetime]:
+    """Return UTC-naive bounds for a calendar day in the portal's local timezone."""
+    local_start = datetime.combine(value, datetime.min.time(), tzinfo=PORTAL_LOCAL_TZ)
+    local_end = local_start + timedelta(days=1)
+    return (
+        local_start.astimezone(timezone.utc).replace(tzinfo=None),
+        local_end.astimezone(timezone.utc).replace(tzinfo=None),
+    )
+
+
 def _portal_clinic_release_sla_hours() -> int:
     return max(1, int(settings.PORTAL_CLINIC_RELEASE_SLA_HOURS or 48))
 
@@ -632,6 +642,7 @@ def _build_clinic_operational_panel(
     local_today = local_now.date()
     today_start = datetime.combine(local_today, datetime.min.time())
     today_end = today_start + timedelta(days=1)
+    released_today_start, released_today_end = _portal_utc_naive_bounds_for_local_day(local_today)
     sla_horas = _portal_clinic_release_sla_hours()
 
     clinic_filter = or_(
@@ -647,8 +658,8 @@ def _build_clinic_operational_panel(
     )
     released_today = released_exam_base.filter(
         Exame.data_resultado.is_not(None),
-        Exame.data_resultado >= today_start,
-        Exame.data_resultado < today_end,
+        Exame.data_resultado >= released_today_start,
+        Exame.data_resultado < released_today_end,
     ).count()
 
     laudo_base = db.query(Laudo).filter(Laudo.clinic_id == clinica_id)

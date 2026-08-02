@@ -607,7 +607,9 @@ class PortalAccessFoundationTest(unittest.TestCase):
     def test_clinica_exam_list_includes_operational_panel(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
-            _, paciente, clinica, *_ = self._seed_portal_data(db, tmpdir)
+            _, paciente, clinica, _, released_exam, _ = self._seed_portal_data(db, tmpdir)
+            # 02:30 UTC on 17/06 is still 23:30 on 16/06 in Fortaleza.
+            released_exam.data_resultado = datetime(2026, 6, 17, 2, 30)
             laudo_pendente = Laudo(
                 paciente_id=paciente.id,
                 veterinario_id=77,
@@ -648,7 +650,7 @@ class PortalAccessFoundationTest(unittest.TestCase):
             with patch.object(
                 portal,
                 "_portal_local_now",
-                return_value=datetime(2026, 6, 16, 12, 0, tzinfo=portal.PORTAL_LOCAL_TZ),
+                return_value=datetime(2026, 6, 16, 23, 45, tzinfo=portal.PORTAL_LOCAL_TZ),
             ):
                 response = portal.listar_exames_clinica_portal(
                     q=None,
