@@ -1505,13 +1505,41 @@ export default function AgendaFullCalendarPage() {
       setMenuStatusAberto(false);
 
       try {
-        const params = new URLSearchParams();
-        params.append("status", novoStatus);
-        if (tipoHorarioParam) {
-          params.append("tipo_horario", tipoHorarioParam);
-        }
+        const enviarAtualizacao = (confirmarReservaExpirada = false) => {
+          const params = new URLSearchParams();
+          params.append("status", novoStatus);
+          if (tipoHorarioParam) {
+            params.append("tipo_horario", tipoHorarioParam);
+          }
+          if (confirmarReservaExpirada) {
+            params.append("confirmar_slot_reserva_expirada", "true");
+          }
+          return api.patch(`/agenda/${agendamentoId}/status?${params.toString()}`);
+        };
 
-        const response = await api.patch(`/agenda/${agendamentoId}/status?${params.toString()}`);
+        let response;
+        try {
+          response = await enviarAtualizacao(false);
+        } catch (errorInicial: any) {
+          const detail = errorInicial?.response?.data?.detail;
+          if (
+            errorInicial?.response?.status !== 409 ||
+            detail?.codigo !== "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+          ) {
+            throw errorInicial;
+          }
+          const confirmou = await fortinho.confirm({
+            title: "Confirmação recebida após o prazo",
+            message:
+              "Confirme somente se este mesmo cliente respondeu depois do vencimento. O sistema verificará se o horário ainda está livre antes de mudar o status para Agendado.",
+            mood: "alert",
+            gesture: "open-arms",
+            confirmLabel: "Cliente confirmou; agendar",
+            cancelLabel: "Cancelar",
+          });
+          if (!confirmou) return;
+          response = await enviarAtualizacao(true);
+        }
         setErro("");
         setMensagemStatus(response.data?.mensagem || `Status atualizado para ${novoStatus}.`);
 
@@ -1530,7 +1558,7 @@ export default function AgendaFullCalendarPage() {
         setAtualizandoStatusId(null);
       }
     },
-    [carregarAgendamentos, intervalo]
+    [carregarAgendamentos, fortinho, intervalo]
   );
 
   const abrirExcecaoNoSlotAdmin = useCallback(
@@ -1601,6 +1629,18 @@ export default function AgendaFullCalendarPage() {
 
       if (selecionado.status === acao.status) {
         setMensagemStatus(`Este agendamento ja esta com status ${acao.status}.`);
+        setMenuStatusAberto(false);
+        return;
+      }
+
+      if (
+        selecionado.status === "Expirado" &&
+        acao.status === "Agendado" &&
+        (!selecionado.paciente_id || !selecionado.tutor_id)
+      ) {
+        setErro(
+          "Antes de confirmar tardiamente, edite a reserva e preencha os dados do tutor e do pet. Depois use 'Agendar após confirmação tardia'."
+        );
         setMenuStatusAberto(false);
         return;
       }

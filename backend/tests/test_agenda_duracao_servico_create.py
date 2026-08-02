@@ -132,7 +132,7 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
-    def test_reserva_vencida_libera_slot_para_novo_agendamento(self) -> None:
+    def test_reserva_vencida_exige_revisao_antes_de_liberar_novo_agendamento(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
             clinica = Clinica(
@@ -174,11 +174,32 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
                 reserva_expira_em=agora_local + timedelta(hours=3),
             )
 
+            with self.assertRaises(HTTPException) as ctx:
+                agenda.criar_agendamento(
+                    agendamento=payload,
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=SimpleNamespace(id=1, nome="Teste"),
+                )
+
+            self.assertEqual(ctx.exception.status_code, 409)
+            self.assertEqual(
+                ctx.exception.detail["codigo"],
+                "CONFIRMACAO_SLOT_RESERVA_EXPIRADA",
+            )
+            self.assertEqual(
+                ctx.exception.detail["reservas_expiradas"][0]["id"],
+                reserva_vencida.id,
+            )
+
+            payload_confirmado = payload.model_copy(
+                update={"confirmar_slot_reserva_expirada": True}
+            )
             with patch.object(agenda, "registrar_auditoria", return_value=None), patch.object(
                 agenda, "_notificar_agenda_update", return_value=None
             ):
                 resposta = agenda.criar_agendamento(
-                    agendamento=payload,
+                    agendamento=payload_confirmado,
                     request=SimpleNamespace(),
                     db=db,
                     current_user=SimpleNamespace(id=1, nome="Teste"),
@@ -187,6 +208,118 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
             db.refresh(reserva_vencida)
             self.assertEqual(reserva_vencida.status, "Expirado")
             self.assertNotEqual(int(resposta["id"]), reserva_vencida.id)
+
+            with self.assertRaises(HTTPException) as conflito_ativo:
+                agenda.criar_agendamento(
+                    agendamento=payload_confirmado,
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=SimpleNamespace(id=1, nome="Teste"),
+                )
+            self.assertEqual(conflito_ativo.exception.status_code, 409)
+            self.assertIn("ja existe atendimento", str(conflito_ativo.exception.detail))
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_reserva_expirada_pode_ser_agendada_apos_confirmacao_se_slot_livre(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            clinica = Clinica(
+                nome="Clinica Confirmacao Tardia",
+                ativo=True,
+                latitude=-3.7319,
+                longitude=-38.5267,
+            )
+            servico = Servico(nome="Consulta", duracao_minutos=30, ativo=True)
+            db.add_all([clinica, servico])
+            db.commit()
+            db.refresh(clinica)
+            db.refresh(servico)
+
+            inicio = datetime(2099, 5, 25, 11, 0, 0)
+            reserva_expirada = Agendamento(
+                paciente_id=None,
+                clinica_id=clinica.id,
+                servico_id=servico.id,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                data="2099-05-25",
+                hora="11:00",
+                status="Expirado",
+                reserva_expira_em=datetime.now(agenda.LOCAL_TZ).replace(tzinfo=None) - timedelta(minutes=5),
+            )
+            db.add(reserva_expirada)
+            db.commit()
+            db.refresh(reserva_expirada)
+
+            with self.assertRaises(HTTPException) as confirmacao:
+                agenda.atualizar_status(
+                    agendamento_id=reserva_expirada.id,
+                    request=SimpleNamespace(),
+                    status="Agendado",
+                    db=db,
+                    current_user=SimpleNamespace(id=1, nome="Teste"),
+                )
+            self.assertEqual(confirmacao.exception.status_code, 409)
+            self.assertEqual(
+                confirmacao.exception.detail["codigo"],
+                "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA",
+            )
+
+            with patch.object(
+                agenda, "_validar_paciente_tutor_para_status", return_value=None
+            ), patch.object(
+                agenda, "_validar_deslocamento_agendamento", return_value=None
+            ), patch.object(
+                agenda, "registrar_auditoria", return_value=None
+            ), patch.object(
+                agenda, "_notificar_agenda_update", return_value=None
+            ):
+                agenda.atualizar_status(
+                    agendamento_id=reserva_expirada.id,
+                    request=SimpleNamespace(),
+                    status="Agendado",
+                    confirmar_slot_reserva_expirada=True,
+                    db=db,
+                    current_user=SimpleNamespace(id=1, nome="Teste"),
+                )
+
+            db.refresh(reserva_expirada)
+            self.assertEqual(reserva_expirada.status, "Agendado")
+
+            outra_expirada = Agendamento(
+                paciente_id=None,
+                clinica_id=clinica.id,
+                servico_id=servico.id,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                data="2099-05-25",
+                hora="11:00",
+                status="Expirado",
+                reserva_expira_em=datetime.now(agenda.LOCAL_TZ).replace(tzinfo=None) - timedelta(minutes=1),
+            )
+            db.add(outra_expirada)
+            db.commit()
+            db.refresh(outra_expirada)
+
+            with patch.object(
+                agenda, "_validar_paciente_tutor_para_status", return_value=None
+            ), patch.object(
+                agenda, "_validar_deslocamento_agendamento", return_value=None
+            ):
+                with self.assertRaises(HTTPException) as conflito:
+                    agenda.atualizar_status(
+                        agendamento_id=outra_expirada.id,
+                        request=SimpleNamespace(),
+                        status="Agendado",
+                        confirmar_slot_reserva_expirada=True,
+                        db=db,
+                        current_user=SimpleNamespace(id=1, nome="Teste"),
+                    )
+            self.assertEqual(conflito.exception.status_code, 409)
+            self.assertIn("ja existe atendimento", str(conflito.exception.detail))
         finally:
             db.close()
             engine.dispose()

@@ -146,6 +146,21 @@ interface ConflitoDeslocamentoDetail {
   limite_desvio_min?: number;
 }
 
+interface ReservaExpiradaDetail {
+  codigo?: string;
+  mensagem?: string;
+  confirmavel?: boolean;
+  reservas_expiradas?: Array<{
+    id: number;
+    clinica?: string | null;
+    paciente?: string | null;
+    tutor?: string | null;
+    inicio?: string | null;
+    fim?: string | null;
+    reserva_expira_em?: string | null;
+  }>;
+}
+
 interface SugestaoProximidadeResponse {
   ok: boolean;
   sugerir: boolean;
@@ -2107,6 +2122,58 @@ export default function NovoAgendamentoModal({
     return null;
   };
 
+  const extrairReservaExpirada = (error: any): ReservaExpiradaDetail | null => {
+    if (error?.response?.status !== 409) return null;
+    const detail = error?.response?.data?.detail;
+    if (
+      detail &&
+      typeof detail === "object" &&
+      [
+        "CONFIRMACAO_SLOT_RESERVA_EXPIRADA",
+        "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA",
+      ].includes(detail.codigo)
+    ) {
+      return detail as ReservaExpiradaDetail;
+    }
+    return null;
+  };
+
+  const confirmarRevisaoReservaExpirada = async (
+    detail: ReservaExpiradaDetail
+  ): Promise<boolean> => {
+    const reativandoMesmaReserva =
+      detail.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA";
+    const reserva = detail.reservas_expiradas?.[0];
+    const contexto = reserva
+      ? [
+          `Clínica: ${reserva.clinica || "Pendente"}`,
+          `Tutor: ${reserva.tutor || "Pendente"}`,
+          `Pet: ${reserva.paciente || "Pendente"}`,
+        ].join("\n")
+      : "";
+
+    return fortinho.confirm({
+      title: reativandoMesmaReserva
+        ? "Confirmação recebida após o prazo"
+        : "ATENÇÃO: este horário teve uma reserva expirada",
+      message:
+        `${extrairMensagemErro(
+          detail,
+          "Este horário já teve uma reserva que expirou."
+        )}` +
+        `${contexto ? `\n\n${contexto}` : ""}` +
+        (reativandoMesmaReserva
+          ? "\n\nConfirme somente se este mesmo cliente respondeu depois do vencimento. O sistema verificará novamente se o horário continua livre antes de agendar."
+          : "\n\nAntes de agendar outra pessoa, volte às mensagens do WhatsApp e confira se a clínica enviou os dados após o prazo. Só continue se não houver resposta."),
+      mood: "alert",
+      gesture: "open-arms",
+      confirmLabel: reativandoMesmaReserva
+        ? "Cliente confirmou; verificar e agendar"
+        : "Revisei as mensagens e quero agendar",
+      cancelLabel: reativandoMesmaReserva ? "Cancelar" : "Voltar e verificar WhatsApp",
+    });
+  };
+
   const confirmarExcecaoConflitoAdmin = async (conflito: ConflitoDeslocamentoDetail): Promise<boolean> => {
     if (!isAdmin) return false;
 
@@ -2714,10 +2781,14 @@ export default function NovoAgendamentoModal({
         payloadBase.confirmar_alteracao_servico_hoje = true;
       }
 
-      const enviarAgendamento = async (confirmarConflitoDeslocamento = false) => {
+      const enviarAgendamento = async (
+        confirmarConflitoDeslocamento = false,
+        confirmarSlotReservaExpirada = false
+      ) => {
         const payload = {
           ...payloadBase,
           confirmar_conflito_deslocamento: confirmarConflitoDeslocamento,
+          confirmar_slot_reserva_expirada: confirmarSlotReservaExpirada,
         };
         if (isEditando) {
           return api.put(`/agenda/${agendamento.id}`, payload);
@@ -2726,9 +2797,26 @@ export default function NovoAgendamentoModal({
       };
 
       let response;
-      try {
-        response = await enviarAgendamento(false);
-      } catch (error: any) {
+      let confirmouConflitoDeslocamento = false;
+      let confirmouRevisaoReservaExpirada = false;
+      for (let tentativa = 0; tentativa < 3 && !response; tentativa += 1) {
+        try {
+          response = await enviarAgendamento(
+            confirmouConflitoDeslocamento,
+            confirmouRevisaoReservaExpirada
+          );
+          continue;
+        } catch (error: any) {
+          const reservaExpirada = extrairReservaExpirada(error);
+          if (reservaExpirada && !confirmouRevisaoReservaExpirada) {
+            const confirmou = await confirmarRevisaoReservaExpirada(reservaExpirada);
+            if (!confirmou) {
+              return;
+            }
+            confirmouRevisaoReservaExpirada = true;
+            continue;
+          }
+
         const conflito = extrairConflitoDeslocamento(error);
         if (conflito) {
           if (!isAdmin) {
@@ -2749,24 +2837,18 @@ export default function NovoAgendamentoModal({
               )
             );
           }
-
-          try {
-            response = await enviarAgendamento(true);
-          } catch (errorOverride: any) {
-            const conflitoOverride = extrairConflitoDeslocamento(errorOverride);
-            if (conflitoOverride) {
-              throw new Error(
-                extrairMensagemErro(
-                  conflitoOverride,
-                  "Nao foi possivel concluir mesmo com excecao. Ajuste o horario ou revise o destino do atendimento."
-                )
-              );
-            }
-            throw errorOverride;
-          }
+          confirmouConflitoDeslocamento = true;
+          continue;
         } else {
           throw error;
         }
+        }
+      }
+
+      if (!response) {
+        throw new Error(
+          "Não foi possível concluir o agendamento após as confirmações. Revise o horário e tente novamente."
+        );
       }
 
       if (entregaMensagemAgenda) {

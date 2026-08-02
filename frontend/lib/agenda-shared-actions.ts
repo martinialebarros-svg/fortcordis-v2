@@ -46,7 +46,7 @@ const PROXIMOS_STATUS: Record<AgendaStatus, AgendaStatus[]> = {
   Realizado: ["Em atendimento"],
   Cancelado: ["Agendado"],
   Faltou: ["Agendado"],
-  Expirado: [],
+  Expirado: ["Agendado"],
 };
 
 export const obterProximosStatus = (statusAtual?: string): AgendaStatus[] => {
@@ -56,7 +56,14 @@ export const obterProximosStatus = (statusAtual?: string): AgendaStatus[] => {
 
 export const obterAcoesStatusPorFluxo = (statusAtual?: string): AgendaStatusAction[] => {
   const permitidos = new Set(obterProximosStatus(statusAtual));
-  return AGENDA_STATUS_ACOES.filter((acao) => permitidos.has(acao.status));
+  const status = String(statusAtual || "").trim();
+  return AGENDA_STATUS_ACOES
+    .filter((acao) => permitidos.has(acao.status))
+    .map((acao) =>
+      status === "Expirado" && acao.status === "Agendado"
+        ? { ...acao, label: "Agendar após confirmação tardia" }
+        : acao
+    );
 };
 
 export const FORMA_PAGAMENTO_OPCOES = [
