@@ -436,6 +436,7 @@ type AtendimentoResumo = {
   queixa_principal?: string;
   total_exames?: number;
   tem_prescricao?: boolean;
+  documentacao_pendencias?: string[];
 };
 
 type Medicamento = {
@@ -1354,6 +1355,7 @@ export default function AtendimentoPage() {
   const [clinicaFiltro, setClinicaFiltro] = useState("");
   const [dataInicioFiltro, setDataInicioFiltro] = useState("");
   const [dataFimFiltro, setDataFimFiltro] = useState("");
+  const [documentacaoIncompletaFiltro, setDocumentacaoIncompletaFiltro] = useState(false);
   const [paginaLista, setPaginaLista] = useState(1);
   const [totalLista, setTotalLista] = useState(0);
   const [selecionado, setSelecionado] = useState<number | null>(null);
@@ -1952,6 +1954,7 @@ export default function AtendimentoPage() {
       clinicaId?: string;
       dataInicio?: string;
       dataFim?: string;
+      documentacaoIncompleta?: boolean;
     }
   ) => {
     try {
@@ -1962,6 +1965,8 @@ export default function AtendimentoPage() {
       const clinicaAtual = filtrosOverride?.clinicaId ?? clinicaFiltro;
       const dataInicioAtual = filtrosOverride?.dataInicio ?? dataInicioFiltro;
       const dataFimAtual = filtrosOverride?.dataFim ?? dataFimFiltro;
+      const documentacaoIncompletaAtual =
+        filtrosOverride?.documentacaoIncompleta ?? documentacaoIncompletaFiltro;
       params.append("limit", String(ATENDIMENTOS_LIST_LIMIT));
       params.append("skip", String((safePage - 1) * ATENDIMENTOS_LIST_LIMIT));
       if (statusAtual) params.append("status", statusAtual);
@@ -1969,6 +1974,7 @@ export default function AtendimentoPage() {
       if (clinicaAtual) params.append("clinica_id", clinicaAtual);
       if (dataInicioAtual) params.append("data_inicio", `${dataInicioAtual}T00:00:00`);
       if (dataFimAtual) params.append("data_fim", `${dataFimAtual}T23:59:59`);
+      if (documentacaoIncompletaAtual) params.append("documentacao_incompleta", "true");
       const response = await api.get(`/atendimentos?${params.toString()}`);
       setLista(response.data?.items || []);
       setTotalLista(Number(response.data?.total || 0));
@@ -1992,12 +1998,14 @@ export default function AtendimentoPage() {
     setClinicaFiltro(vazio);
     setDataInicioFiltro(vazio);
     setDataFimFiltro(vazio);
+    setDocumentacaoIncompletaFiltro(false);
     await carregarLista(1, {
       busca: vazio,
       status: vazio,
       clinicaId: vazio,
       dataInicio: vazio,
       dataFim: vazio,
+      documentacaoIncompleta: false,
     });
   };
 
@@ -6047,6 +6055,15 @@ export default function AtendimentoPage() {
                       {STATUS_ATENDIMENTO.map((status) => <option key={status} value={status}>{status}</option>)}
                     </select>
                   </div>
+                  <label className="flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    <input
+                      type="checkbox"
+                      checked={documentacaoIncompletaFiltro}
+                      onChange={(e) => setDocumentacaoIncompletaFiltro(e.target.checked)}
+                      className="h-4 w-4 rounded border-amber-300"
+                    />
+                    Concluidos com documentacao incompleta
+                  </label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
@@ -6085,6 +6102,14 @@ export default function AtendimentoPage() {
                           <span className="rounded-full bg-white px-2.5 py-1 text-slate-600">{item.total_exames || 0} exame(s)</span>
                           {item.tem_prescricao ? (
                             <span className="rounded-full bg-violet-100 px-2.5 py-1 text-violet-700">Receita salva</span>
+                          ) : null}
+                          {item.documentacao_pendencias && item.documentacao_pendencias.length > 0 ? (
+                            <span
+                              className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-800"
+                              title={`Faltam: ${item.documentacao_pendencias.join("; ")}`}
+                            >
+                              Documentacao incompleta
+                            </span>
                           ) : null}
                         </div>
                       </button>
