@@ -39,7 +39,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from sqlalchemy import func, or_, text
+from sqlalchemy import and_, func, or_, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -295,6 +295,64 @@ def _tem_texto_clinico(value: Any) -> bool:
     return bool(str(value or "").strip())
 
 
+def _calcular_pendencias_documentacao(
+    *,
+    queixa_principal: Any,
+    anamnese: Any,
+    exame_fisico: Any,
+    dados_clinicos: Any,
+    diagnostico_principal: Any,
+    diagnostico_secundario: Any,
+    diagnostico_diferencial: Any,
+    plano_terapeutico: Any,
+) -> List[str]:
+    """Pendencias de documentacao clinica minima, independente de status.
+
+    Usada tanto para bloquear a primeira conclusao
+    (`_validar_primeira_conclusao_atendimento`) quanto para sinalizar, depois,
+    quais atendimentos ja concluidos ficaram com documentacao incompleta
+    (`listar_atendimentos`, filtro `documentacao_incompleta`).
+    """
+    pendencias: List[str] = []
+    if not _tem_texto_clinico(queixa_principal):
+        pendencias.append("queixa principal")
+    if not any(_tem_texto_clinico(item) for item in (anamnese, exame_fisico, dados_clinicos)):
+        pendencias.append("anamnese, exame fisico ou dados clinicos")
+    if not any(
+        _tem_texto_clinico(item)
+        for item in (
+            diagnostico_principal,
+            diagnostico_secundario,
+            diagnostico_diferencial,
+            plano_terapeutico,
+        )
+    ):
+        pendencias.append("diagnostico ou plano terapeutico")
+    return pendencias
+
+
+def _condicao_sql_documentacao_incompleta():
+    """Equivalente em SQL de `_calcular_pendencias_documentacao` retornar
+    pendencias, para filtrar no banco sem quebrar paginacao."""
+
+    def _vazio(coluna):
+        return func.trim(func.coalesce(coluna, "")) == ""
+
+    grupo_queixa = _vazio(AtendimentoClinico.queixa_principal)
+    grupo_evolucao = and_(
+        _vazio(AtendimentoClinico.anamnese),
+        _vazio(AtendimentoClinico.exame_fisico),
+        _vazio(AtendimentoClinico.dados_clinicos),
+    )
+    grupo_diagnostico = and_(
+        _vazio(AtendimentoClinico.diagnostico_principal),
+        _vazio(AtendimentoClinico.diagnostico_secundario),
+        _vazio(AtendimentoClinico.diagnostico_diferencial),
+        _vazio(AtendimentoClinico.plano_terapeutico),
+    )
+    return or_(grupo_queixa, grupo_evolucao, grupo_diagnostico)
+
+
 def _validar_primeira_conclusao_atendimento(
     *,
     status_atual: Any,
@@ -319,21 +377,16 @@ def _validar_primeira_conclusao_atendimento(
     if not _status_atendimento_concluido(status_destino) or _status_atendimento_concluido(status_atual):
         return []
 
-    pendencias: List[str] = []
-    if not _tem_texto_clinico(queixa_principal):
-        pendencias.append("queixa principal")
-    if not any(_tem_texto_clinico(item) for item in (anamnese, exame_fisico, dados_clinicos)):
-        pendencias.append("anamnese, exame fisico ou dados clinicos")
-    if not any(
-        _tem_texto_clinico(item)
-        for item in (
-            diagnostico_principal,
-            diagnostico_secundario,
-            diagnostico_diferencial,
-            plano_terapeutico,
-        )
-    ):
-        pendencias.append("diagnostico ou plano terapeutico")
+    pendencias = _calcular_pendencias_documentacao(
+        queixa_principal=queixa_principal,
+        anamnese=anamnese,
+        exame_fisico=exame_fisico,
+        dados_clinicos=dados_clinicos,
+        diagnostico_principal=diagnostico_principal,
+        diagnostico_secundario=diagnostico_secundario,
+        diagnostico_diferencial=diagnostico_diferencial,
+        plano_terapeutico=plano_terapeutico,
+    )
 
     if not pendencias:
         return []
@@ -2030,6 +2083,7 @@ def listar_atendimentos(
     clinica_id: Optional[int] = None,
     agendamento_id: Optional[int] = None,
     status: Optional[str] = None,
+    documentacao_incompleta: Optional[bool] = None,
     search: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
@@ -2063,6 +2117,11 @@ def listar_atendimentos(
         query = query.filter(AtendimentoClinico.agendamento_id == agendamento_id)
     if status:
         query = query.filter(AtendimentoClinico.status == status)
+    if documentacao_incompleta:
+        # So faz sentido sinalizar retrabalho pendente em prontuario ja
+        # fechado; um atendimento aberto naturalmente tem campos vazios.
+        query = query.filter(AtendimentoClinico.status == "Concluido")
+        query = query.filter(_condicao_sql_documentacao_incompleta())
     if search:
         termo = f"%{search.strip()}%"
         query = query.filter(
@@ -2120,6 +2179,22 @@ def listar_atendimentos(
     for atendimento, paciente_nome, tutor_nome, clinica_nome in rows:
         total_exames = exames_por_atendimento.get(atendimento.id, 0)
         prescricao_existe = atendimento.id in prescricoes_atendimento_ids
+        # So sinaliza retrabalho pendente para prontuario ja fechado; um
+        # atendimento ainda aberto tem campos vazios por natureza.
+        pendencias_documentacao = (
+            _calcular_pendencias_documentacao(
+                queixa_principal=atendimento.queixa_principal,
+                anamnese=atendimento.anamnese,
+                exame_fisico=atendimento.exame_fisico,
+                dados_clinicos=atendimento.dados_clinicos,
+                diagnostico_principal=atendimento.diagnostico_principal,
+                diagnostico_secundario=atendimento.diagnostico_secundario,
+                diagnostico_diferencial=atendimento.diagnostico_diferencial,
+                plano_terapeutico=atendimento.plano_terapeutico,
+            )
+            if _status_atendimento_concluido(atendimento.status)
+            else []
+        )
         items.append(
             {
                 "id": atendimento.id,
@@ -2136,6 +2211,7 @@ def listar_atendimentos(
                 "clinica_nome": clinica_nome or "",
                 "total_exames": total_exames,
                 "tem_prescricao": prescricao_existe,
+                "documentacao_pendencias": pendencias_documentacao,
                 "created_at": _to_iso(atendimento.created_at),
             }
         )
