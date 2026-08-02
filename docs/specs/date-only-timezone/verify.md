@@ -57,14 +57,26 @@ Resultados:
 - `py_compile`, ESLint, TypeScript e build do Next.js: aprovados.
 - Auditoria estatica: nenhum uso restante de `new Date("YYYY-MM-DD")` nos campos de data de exame, realizacao, vencimento, transacao ou nascimento; horarios de agenda seguem usando seus helpers proprios.
 
-## 3) Cenarios manuais
+## 3) Smoke em stage
+
+- Commit funcional publicado: `dc9d0deb`.
+- `Migration CI`, `quality-gate`, `sdd-guardrail` e `Deploy to Stage (VPS)`: aprovados no workflow `30768539115`.
+- `https://stage.fortcordis.com.br/`: `200`.
+- `https://app.stage.fortcordis.com.br/`: `200`.
+- `https://stage.fortcordis.com.br/laudos/eletrocardiograma/upload`: `200`.
+- `https://app.stage.fortcordis.com.br/laudos/eletrocardiograma/upload`: `200`.
+- `GET /api/v1/laudos` sem credenciais: `401` esperado.
+- Os chunks servidos pela rota de upload incluem `PDF do eletrocardiograma` e `America/Fortaleza`.
+- Pendente apenas a aceitacao autenticada: enviar ou abrir um laudo real com data `25/07/2026` e conferir a mesma data no documento e no portal autorizado.
+
+## 4) Cenarios manuais
 
 1. Em Laudos, envie um PDF de eletrocardiograma com data de exame `25/07/2026`.
 2. Confirme que a pagina de visualizacao e a lista exibem `25/07/2026`.
 3. Libere o laudo para uma clinica e confirme a mesma data no portal da clinica e, quando aplicavel, no portal do veterinario parceiro e do tutor.
 4. Repita o teste no periodo noturno, quando a conversao UTC antes podia antecipar ou atrasar o dia exibido.
 
-## 4) Decisao de release
+## 5) Decisao de release
 
 - [x] Aprovado para stage.
 - [ ] Aprovado para producao.

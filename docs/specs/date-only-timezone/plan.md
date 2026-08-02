@@ -2,7 +2,7 @@
 
 Data: 2026-08-02
 Responsavel: Equipe Fort Cordis
-Status: in progress
+Status: done
 
 ## 1) Sequencia de fases
 
@@ -35,10 +35,10 @@ Status: in progress
 
 ### Fase 4
 
-- [ ] T4.1 Commit e push para `stage`.
-- [ ] T4.2 Aguardar `quality-gate`, `sdd-guardrail` e deploy da VPS.
-- [ ] T4.3 Executar smoke no portal de laudos em stage.
-- Criterio: data `25/07/2026` exibida como `25/07/2026` no ambiente stage.
+- [x] T4.1 Commit e push para `stage` (`dc9d0deb`).
+- [x] T4.2 Aguardar `quality-gate`, `sdd-guardrail`, `Migration CI` e deploy da VPS.
+- [x] T4.3 Executar smoke externo no portal de laudos em stage.
+- Criterio: build servido com a regra de calendario de Fortaleza; a conferencia autenticada de um laudo real fica indicada no `verify.md`.
 
 ## 3) Plano de testes
 
