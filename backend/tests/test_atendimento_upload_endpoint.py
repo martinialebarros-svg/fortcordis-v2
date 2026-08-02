@@ -20,6 +20,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
 os.environ.setdefault("SECRET_KEY", "atendimento-upload-endpoint-test-secret-key-1234567890")
 
 from app.api.v1.endpoints import atendimento
+from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.services.atendimento_upload_service import AttachmentTooLargeError, AttachmentTypeError
 
 
@@ -287,6 +288,60 @@ class AtendimentoUploadEndpointTest(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("Arquivo vazio", str(ctx.exception.detail))
         self.assertEqual(store_mock.call_count, 0)
+
+    def _upload_para_exame(self, exame) -> None:
+        db = _FakeDB()
+        db._exame = exame
+        arquivo = _make_upload_file("segundo-resultado.pdf", "application/pdf", b"conteudo-novo")
+
+        with patch.object(
+            atendimento,
+            "store_atendimento_attachment_file",
+            return_value=("C:/tmp/segundo.pdf", "segundo-resultado.pdf", "application/pdf"),
+        ):
+            asyncio.run(
+                atendimento.upload_anexo(
+                    atendimento_id=1,
+                    arquivo=arquivo,
+                    tipo="documento",
+                    descricao="Segundo arquivo do exame",
+                    exame_id=exame.id,
+                    db=db,
+                    current_user=self.user,
+                )
+            )
+
+    def test_upload_anexo_preserves_portal_released_exam_status(self) -> None:
+        """Anexar um segundo arquivo nao pode retirar o exame do portal."""
+        exame = SimpleNamespace(
+            id=5,
+            atendimento_id=1,
+            status=PORTAL_RELEASED_STATUS,
+            data_resultado="2026-07-31T10:00:00",
+        )
+
+        self._upload_para_exame(exame)
+
+        self.assertEqual(exame.status, PORTAL_RELEASED_STATUS)
+
+    def test_upload_anexo_still_promotes_pending_exam_to_in_progress(self) -> None:
+        exame = SimpleNamespace(id=6, atendimento_id=1, status="Solicitado", data_resultado=None)
+
+        self._upload_para_exame(exame)
+
+        self.assertEqual(exame.status, "Em andamento")
+
+    def test_upload_anexo_does_not_downgrade_concluded_exam(self) -> None:
+        exame = SimpleNamespace(
+            id=7,
+            atendimento_id=1,
+            status="Concluido",
+            data_resultado="2026-07-31T10:00:00",
+        )
+
+        self._upload_para_exame(exame)
+
+        self.assertEqual(exame.status, "Concluido")
 
 
 if __name__ == "__main__":
