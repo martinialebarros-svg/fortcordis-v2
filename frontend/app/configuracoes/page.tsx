@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { formatCalendarDate } from "@/lib/calendar-date";
 import { requestPushSync, syncPushNotificationsNow } from "@/lib/usePushNotifications";
 import {
   AgendaExcecaoConfig,
@@ -1623,7 +1624,7 @@ export default function ConfiguracoesPage() {
                         className="flex items-center justify-between gap-3 px-3 py-2 border border-gray-200 rounded-lg"
                       >
                         <div className="text-sm text-gray-700">
-                          <span className="font-medium">{new Date(`${feriado.data}T00:00:00`).toLocaleDateString("pt-BR")}</span>
+                          <span className="font-medium">{formatCalendarDate(feriado.data)}</span>
                           <span className="mx-2 text-gray-400">|</span>
                           <span className="uppercase text-xs font-semibold text-orange-700">
                             {feriado.tipo || "local"}
@@ -1713,7 +1714,7 @@ export default function ConfiguracoesPage() {
                         className="flex items-center justify-between gap-3 px-3 py-2 border border-gray-200 rounded-lg"
                       >
                         <div className="text-sm text-gray-700">
-                          <span className="font-medium">{new Date(`${excecao.data}T00:00:00`).toLocaleDateString("pt-BR")}</span>
+                          <span className="font-medium">{formatCalendarDate(excecao.data)}</span>
                           <span className="mx-2 text-gray-400">|</span>
                           {excecao.ativo ? (
                             <span className="text-emerald-700 font-medium">

@@ -3,6 +3,7 @@
 import { Download, FileCheck2, Loader2 } from "lucide-react";
 
 import { formatPortalDateTime } from "@/lib/portal-datetime";
+import { formatCalendarDate } from "@/lib/calendar-date";
 import type { PortalExamItem } from "@/lib/portal-api";
 
 function formatFileSize(value: number | null): string {
@@ -56,7 +57,7 @@ export default function PortalExamResults({
             <dl className="grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
               <div>
                 <dt className="font-semibold text-slate-900">Data de realização</dt>
-                <dd>{formatPortalDateTime(exam.data_exame || exam.data_solicitacao)}</dd>
+                <dd>{formatCalendarDate(exam.data_exame || exam.data_solicitacao)}</dd>
               </div>
               <div>
                 <dt className="font-semibold text-slate-900">Data de liberação</dt>

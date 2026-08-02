@@ -9,6 +9,7 @@ import json
 import os
 import re
 import unicodedata
+from zoneinfo import ZoneInfo
 
 from app.db.database import get_db
 from app.core.portal_release import PORTAL_RELEASED_STATUS, is_portal_released_status
@@ -64,6 +65,8 @@ TIPO_LAUDO_ELETROCARDIOGRAMA = "eletrocardiograma"
 ELETROCARDIOGRAMA_EXTERNAL_PDF_KEY = "eletrocardiograma_pdf"
 ELETROCARDIOGRAMA_UPLOAD_ORIGIN = "laudo_eletrocardiograma_upload"
 ELETROCARDIOGRAMA_UPLOAD_ATTACHMENT_DESCRIPTION = "PDF do eletrocardiograma."
+OPERATIONAL_TIME_ZONE = ZoneInfo("America/Fortaleza")
+DATE_ONLY_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 ULTRASSOM_ORGAOS_ABDOMINAIS = [
     ("figado", "Figado"),
@@ -130,17 +133,19 @@ def _parse_data_exame(value: Any) -> Optional[datetime]:
         return None
     if isinstance(value, datetime):
         return value
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=OPERATIONAL_TIME_ZONE)
     if isinstance(value, str):
         value = value.strip()
         if not value:
             return None
+        if DATE_ONLY_PATTERN.fullmatch(value):
+            parsed_date = datetime.strptime(value, "%Y-%m-%d")
+            return parsed_date.replace(tzinfo=OPERATIONAL_TIME_ZONE)
         try:
             return datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
-            try:
-                return datetime.strptime(value, "%Y-%m-%d")
-            except ValueError:
-                return None
+            return None
     return None
 
 

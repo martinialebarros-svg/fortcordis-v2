@@ -46,6 +46,7 @@ import {
   type PortalSessionResponse,
 } from "@/lib/portal-api";
 import { formatPortalDate, formatPortalDateTime, portalDateTimeMillis } from "@/lib/portal-datetime";
+import { formatCalendarDate } from "@/lib/calendar-date";
 
 type PortalClinicaWorkspaceProps = {
   mode?: "embedded" | "standalone" | "admin_preview";
@@ -760,7 +761,7 @@ export default function PortalClinicaWorkspace({
                             </div>
                             <div>
                               <dt className="font-bold text-slate-900">Data de realização</dt>
-                              <dd className="mt-1">{formatPortalDateTime(item.data_realizacao || null)}</dd>
+                              <dd className="mt-1">{formatCalendarDate(item.data_realizacao || null)}</dd>
                             </div>
                             <div>
                               <dt className="font-bold text-slate-900">
@@ -979,7 +980,7 @@ export default function PortalClinicaWorkspace({
                           </div>
                           <div>
                             <dt className="font-bold text-slate-900">Data de realização</dt>
-                            <dd className="mt-1">{formatPortalDate(examExecutionDateValue(exam))}</dd>
+                            <dd className="mt-1">{formatCalendarDate(examExecutionDateValue(exam))}</dd>
                           </div>
                           <div>
                             <dt className="font-bold text-slate-900">Data de liberação</dt>

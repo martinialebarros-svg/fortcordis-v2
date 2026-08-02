@@ -66,6 +66,12 @@ def _make_upload_file(filename: str, content_type: str, content: bytes) -> Uploa
 
 
 class LaudoPortalReleaseTest(unittest.TestCase):
+    def test_parse_data_exame_preserves_calendar_date_in_operational_timezone(self) -> None:
+        parsed = laudos._parse_data_exame("2026-07-25")
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.isoformat(), "2026-07-25T00:00:00-03:00")
+
     def _build_session(self):
         tmpdir = tempfile.TemporaryDirectory()
         db_path = Path(tmpdir.name) / "laudo-portal-release.db"
