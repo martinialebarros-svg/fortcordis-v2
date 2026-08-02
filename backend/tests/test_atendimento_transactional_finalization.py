@@ -128,7 +128,13 @@ class AtendimentoTransactionalFinalizationTest(unittest.TestCase):
         self.db.commit()
         return registro, agendamento, paciente, clinica, servico
 
-    def _finalizar(self, atendimento_id: int, tipo_horario: str = "comercial"):
+    def _finalizar(
+        self,
+        atendimento_id: int,
+        tipo_horario: str = "comercial",
+        *,
+        confirmar_conclusao_pendencias: bool = False,
+    ):
         with (
             patch.object(atendimento, "_emitir_efeitos_finalizacao"),
             patch.object(
@@ -143,7 +149,10 @@ class AtendimentoTransactionalFinalizationTest(unittest.TestCase):
         ):
             return atendimento.finalizar_atendimento(
                 atendimento_id,
-                AtendimentoFinalizarPayload(tipo_horario=tipo_horario),
+                AtendimentoFinalizarPayload(
+                    tipo_horario=tipo_horario,
+                    confirmar_conclusao_pendencias=confirmar_conclusao_pendencias,
+                ),
                 self.request,
                 db=self.db,
                 current_user=self.user,
@@ -167,7 +176,7 @@ class AtendimentoTransactionalFinalizationTest(unittest.TestCase):
         self.assertEqual(resposta["ordem_servico"]["id"], ordem.id)
         self.assertFalse(resposta["ordem_servico"]["reutilizada"])
 
-    def test_prontuario_incompleto_nao_altera_agenda_nem_cria_os(self) -> None:
+    def test_prontuario_incompleto_exige_confirmacao_nao_altera_agenda_nem_cria_os(self) -> None:
         registro, agendamento, *_ = self._seed_linked()
         registro.queixa_principal = ""
         self.db.commit()
@@ -175,12 +184,26 @@ class AtendimentoTransactionalFinalizationTest(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             self._finalizar(registro.id)
 
-        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertEqual(ctx.exception.detail["codigo"], "CONFIRMACAO_CONCLUSAO_PENDENCIAS")
         self.db.refresh(registro)
         self.db.refresh(agendamento)
         self.assertEqual(registro.status, "Em atendimento")
         self.assertEqual(agendamento.status, "Em atendimento")
         self.assertEqual(self.db.query(OrdemServico).count(), 0)
+
+    def test_prontuario_incompleto_com_confirmacao_finaliza_e_audita(self) -> None:
+        registro, agendamento, *_ = self._seed_linked()
+        registro.queixa_principal = ""
+        self.db.commit()
+
+        with patch.object(atendimento, "_auditar_conclusao_com_pendencias") as auditoria_mock:
+            self._finalizar(registro.id, confirmar_conclusao_pendencias=True)
+
+        self.db.refresh(registro)
+        self.assertEqual(registro.status, "Concluido")
+        self.assertEqual(auditoria_mock.call_count, 1)
+        self.assertIn("queixa principal", "; ".join(auditoria_mock.call_args.kwargs["pendencias"]))
 
     def test_falha_de_preco_faz_rollback_dos_tres_recursos(self) -> None:
         registro, agendamento, *_ = self._seed_linked()

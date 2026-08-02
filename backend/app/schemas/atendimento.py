@@ -144,6 +144,7 @@ class AtendimentoCreatePayload(BaseModel):
     observacoes: Optional[str] = ""
     exames: List[ExameSolicitacaoPayload] = Field(default_factory=list)
     prescricao: Optional[PrescricaoPayload] = None
+    confirmar_conclusao_pendencias: Optional[bool] = None
 
 
 class AtendimentoUpdatePayload(BaseModel):
@@ -167,10 +168,12 @@ class AtendimentoUpdatePayload(BaseModel):
     exames: Optional[List[ExameSolicitacaoPayload]] = None
     prescricao: Optional[PrescricaoPayload] = None
     confirmar_desvinculo_agendamento: Optional[bool] = None
+    confirmar_conclusao_pendencias: Optional[bool] = None
 
 
 class AtendimentoFinalizarPayload(BaseModel):
     tipo_horario: str = Field(default="comercial", max_length=20)
+    confirmar_conclusao_pendencias: Optional[bool] = None
 
 
 class MedicamentoPayload(BaseModel):

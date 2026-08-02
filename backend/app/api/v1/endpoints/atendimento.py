@@ -307,9 +307,17 @@ def _validar_primeira_conclusao_atendimento(
     diagnostico_secundario: Any,
     diagnostico_diferencial: Any,
     plano_terapeutico: Any,
-) -> None:
+    confirmado: bool = False,
+) -> List[str]:
+    """Barreira clinica minima antes da primeira conclusao do atendimento.
+
+    Devolve a lista de pendencias (vazia se nao houver). Com pendencias e sem
+    confirmacao, bloqueia com 409 confirmavel. Com `confirmado=True`, deixa
+    passar e devolve as pendencias para o chamador decidir se audita a
+    conclusao com documentacao incompleta.
+    """
     if not _status_atendimento_concluido(status_destino) or _status_atendimento_concluido(status_atual):
-        return
+        return []
 
     pendencias: List[str] = []
     if not _tem_texto_clinico(queixa_principal):
@@ -327,15 +335,50 @@ def _validar_primeira_conclusao_atendimento(
     ):
         pendencias.append("diagnostico ou plano terapeutico")
 
-    if pendencias:
+    if not pendencias:
+        return []
+
+    if not confirmado:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "Nao foi possivel concluir o atendimento. Preencha: "
-                + "; ".join(pendencias)
-                + ". Voce pode manter o atendimento em andamento e continuar depois."
-            ),
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "codigo": "CONFIRMACAO_CONCLUSAO_PENDENCIAS",
+                "mensagem": (
+                    "Faltam preencher: "
+                    + "; ".join(pendencias)
+                    + ". Confirme para concluir mesmo assim, ou mantenha o "
+                    "atendimento em andamento e continue depois."
+                ),
+                "confirmavel": True,
+                "pendencias": pendencias,
+            },
         )
+
+    return pendencias
+
+
+def _auditar_conclusao_com_pendencias(
+    *,
+    current_user: User,
+    atendimento: AtendimentoClinico,
+    pendencias: List[str],
+    request: Optional[Request] = None,
+) -> None:
+    """Concluir sem diagnostico/plano terapeutico e uma decisao clinica que
+    precisa deixar rastro, mesmo sendo permitida apos confirmacao explicita."""
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="atendimento",
+        entidade="atendimento_clinico",
+        entidade_id=atendimento.id,
+        acao="CONCLUIR_COM_PENDENCIAS",
+        descricao=(
+            f"Atendimento #{atendimento.id} concluido com documentacao incompleta: "
+            + "; ".join(pendencias)
+        ),
+        detalhes={"pendencias": pendencias, "paciente_id": atendimento.paciente_id},
+        request=request,
+    )
 
 
 def _normalizar_tipo_horario_atendimento(value: Any) -> str:
@@ -2743,11 +2786,12 @@ def criar_atendimento(
     payload: AtendimentoCreatePayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    request: Request = None,
 ):
     status_atendimento = _normalizar_status_atendimento(payload.status or "Triagem")
     triagem = payload.triagem
     diagnostico = _normalizar_diagnostico(payload.diagnostico)
-    _validar_primeira_conclusao_atendimento(
+    pendencias_conclusao = _validar_primeira_conclusao_atendimento(
         status_atual=None,
         status_destino=status_atendimento,
         queixa_principal=payload.queixa_principal,
@@ -2758,6 +2802,7 @@ def criar_atendimento(
         diagnostico_secundario=diagnostico["diagnostico_secundario"],
         diagnostico_diferencial=diagnostico["diagnostico_diferencial"],
         plano_terapeutico=payload.plano_terapeutico,
+        confirmado=bool(payload.confirmar_conclusao_pendencias),
     )
 
     agendamento = None
@@ -2848,6 +2893,13 @@ def criar_atendimento(
 
     _commit_atendimento_com_guard(db, agendamento_id=payload.agendamento_id)
     db.refresh(atendimento)
+    if pendencias_conclusao:
+        _auditar_conclusao_com_pendencias(
+            current_user=current_user,
+            atendimento=atendimento,
+            pendencias=pendencias_conclusao,
+            request=request,
+        )
     return _montar_detalhe_atendimento(db, atendimento)
 
 
@@ -2909,7 +2961,7 @@ def atualizar_atendimento(
             "prognostico": atendimento.prognostico,
         }
     )
-    _validar_primeira_conclusao_atendimento(
+    pendencias_conclusao = _validar_primeira_conclusao_atendimento(
         status_atual=status_atual,
         status_destino=status_destino,
         queixa_principal=data.get("queixa_principal", atendimento.queixa_principal),
@@ -2920,6 +2972,7 @@ def atualizar_atendimento(
         diagnostico_secundario=diagnostico_destino["diagnostico_secundario"],
         diagnostico_diferencial=diagnostico_destino["diagnostico_diferencial"],
         plano_terapeutico=data.get("plano_terapeutico", atendimento.plano_terapeutico),
+        confirmado=bool(payload.confirmar_conclusao_pendencias),
     )
     if (
         agendamento_referencia
@@ -3063,6 +3116,13 @@ def atualizar_atendimento(
             current_user=current_user,
             atendimento=atendimento,
             agendamento_id=agendamento_atual,
+            request=request,
+        )
+    if pendencias_conclusao:
+        _auditar_conclusao_com_pendencias(
+            current_user=current_user,
+            atendimento=atendimento,
+            pendencias=pendencias_conclusao,
             request=request,
         )
     return _montar_detalhe_atendimento(db, atendimento)
@@ -3236,7 +3296,7 @@ def finalizar_atendimento(
             raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
 
         atendimento_status_anterior = atendimento.status
-        _validar_primeira_conclusao_atendimento(
+        pendencias_conclusao = _validar_primeira_conclusao_atendimento(
             status_atual=atendimento.status,
             status_destino="Concluido",
             queixa_principal=atendimento.queixa_principal,
@@ -3247,6 +3307,7 @@ def finalizar_atendimento(
             diagnostico_secundario=atendimento.diagnostico_secundario,
             diagnostico_diferencial=atendimento.diagnostico_diferencial,
             plano_terapeutico=atendimento.plano_terapeutico,
+            confirmado=bool(payload.confirmar_conclusao_pendencias),
         )
 
         if atendimento.agendamento_id:
@@ -3385,6 +3446,13 @@ def finalizar_atendimento(
         os_reutilizada=os_reutilizada,
         tipo_horario=tipo_horario,
     )
+    if pendencias_conclusao:
+        _auditar_conclusao_com_pendencias(
+            current_user=current_user,
+            atendimento=atendimento,
+            pendencias=pendencias_conclusao,
+            request=request,
+        )
 
     if agendamento and ordem_servico:
         acao_os = "reutilizada" if os_reutilizada else "gerada"
