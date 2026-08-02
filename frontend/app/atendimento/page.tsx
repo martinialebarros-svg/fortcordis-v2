@@ -202,7 +202,7 @@ type PendingExamUpload = {
   kind: "image" | "pdf" | "other";
 };
 
-type ExameFluxoStatus = "aguardando_arquivo" | "arquivo_anexado" | "interpretado";
+type ExameFluxoStatus = "aguardando_arquivo" | "arquivo_anexado" | "interpretado" | "liberado_portal";
 type ExameFiltroRapido = "todos" | ExameFluxoStatus;
 
 type Alerta = {
@@ -294,6 +294,8 @@ type ExameSolicitacao = {
   data_solicitacao?: string;
   data_resultado?: string;
   anexos_resultado?: Anexo[];
+  /** Marcacao explicita de exclusao. Omitir um exame do payload nao apaga nada. */
+  _destroy?: boolean;
 };
 
 type CatalogoExame = {
@@ -554,6 +556,7 @@ const EXAME_FILTRO_OPCOES: Array<{ key: ExameFiltroRapido; label: string }> = [
   { key: "aguardando_arquivo", label: "Sem arquivo" },
   { key: "arquivo_anexado", label: "Com arquivo" },
   { key: "interpretado", label: "Interpretados" },
+  { key: "liberado_portal", label: "No portal" },
 ];
 const EXAME_STATUS_META: Record<ExameFluxoStatus, { label: string; chipClass: string; cardClass: string }> = {
   aguardando_arquivo: {
@@ -570,6 +573,11 @@ const EXAME_STATUS_META: Record<ExameFluxoStatus, { label: string; chipClass: st
     label: "Interpretado",
     chipClass: "bg-emerald-100 text-emerald-700",
     cardClass: "border-emerald-200 bg-emerald-50/50",
+  },
+  liberado_portal: {
+    label: "Liberado no portal",
+    chipClass: "bg-violet-100 text-violet-700",
+    cardClass: "border-violet-200 bg-violet-50/50",
   },
 };
 
@@ -919,17 +927,26 @@ const validarItensPrescricao = (itens: PrescricaoItem[]) => {
   return { total, errors };
 };
 
+// Valor exato que o Portal usa para autorizar acesso da clinica parceira
+// (backend/app/core/portal_release.py). Nao recalcular status de exame no
+// cliente: a liberacao e propriedade do servidor.
+const PORTAL_EXAME_STATUS_LIBERADO = "Liberado no portal";
+
+const isExamePortalLiberado = (exame: ExameSolicitacao): boolean =>
+  (exame.status || "").trim().toLowerCase() === PORTAL_EXAME_STATUS_LIBERADO.toLowerCase();
+
+const exameTemPdfAnexado = (anexos: Anexo[]): boolean =>
+  anexos.some((anexo) => {
+    const mime = (anexo.mime_type || "").trim().toLowerCase();
+    const nome = (anexo.nome_original || anexo.url || "").trim().toLowerCase();
+    return mime === "application/pdf" || nome.endsWith(".pdf");
+  });
+
 const resolveExamFlowStatus = (exame: ExameSolicitacao, anexosCount: number): ExameFluxoStatus => {
+  if (isExamePortalLiberado(exame)) return "liberado_portal";
   if ((exame.resultado || "").trim()) return "interpretado";
   if (anexosCount > 0) return "arquivo_anexado";
   return "aguardando_arquivo";
-};
-
-const resolveExamBackendStatus = (exame: ExameSolicitacao, anexosCount: number): string => {
-  const flow = resolveExamFlowStatus(exame, anexosCount);
-  if (flow === "interpretado") return "Concluido";
-  if (flow === "arquivo_anexado") return "Em andamento";
-  return "Solicitado";
 };
 
 const emptyTriagem = (): Triagem => ({
@@ -1140,16 +1157,13 @@ const sanitizeDraftForm = (raw: Partial<AtendimentoForm> | null | undefined): At
 });
 
 const buildAtendimentoPayload = (form: AtendimentoForm) => {
-  const anexosPorExame = form.anexos.reduce<Record<number, number>>((acc, anexo) => {
-    if (!anexo.exame_id) return acc;
-    acc[anexo.exame_id] = (acc[anexo.exame_id] || 0) + 1;
-    return acc;
-  }, {});
-
   return {
     paciente_id: Number(form.paciente_id),
     clinica_id: form.clinica_id ? Number(form.clinica_id) : null,
-    agendamento_id: form.agendamento_id ? Number(form.agendamento_id) : null,
+    // `agendamento_id` so entra no payload quando ha valor. Enviar `null` num
+    // PUT parcial desvincularia o prontuario da Agenda em qualquer hidratacao
+    // incompleta do formulario; desvincular e acao explicita, nao autosave.
+    ...(form.agendamento_id ? { agendamento_id: Number(form.agendamento_id) } : {}),
     data_atendimento: localInputToOperationalIso(form.data_atendimento),
     status: form.status,
     triagem: form.triagem,
@@ -1165,9 +1179,14 @@ const buildAtendimentoPayload = (form: AtendimentoForm) => {
     motivo_retorno: form.motivo_retorno,
     observacoes: form.observacoes,
     exames: form.exames
-      .filter((item) => (item.tipo_exame || "").trim())
+      // Exame marcado para exclusao vai como `_destroy`. Exame sem nome fica de
+      // fora: omitir e um no-op no backend, entao um campo em branco durante a
+      // digitacao nao apaga nem invalida o save.
+      .filter((item) => item._destroy || (item.tipo_exame || "").trim())
       .map((item) => {
-        const anexosCount = item.id ? (anexosPorExame[item.id] || 0) : (item.anexos_resultado?.length || 0);
+        if (item._destroy) {
+          return { id: item.id, _destroy: true };
+        }
         return {
           id: item.id,
           catalogo_exame_id: item.catalogo_exame_id || null,
@@ -1177,7 +1196,8 @@ const buildAtendimentoPayload = (form: AtendimentoForm) => {
           categoria_exame: item.categoria_exame || "",
           preparo: item.preparo || "",
           prioridade: item.prioridade,
-          status: resolveExamBackendStatus(item, anexosCount),
+          // O backend deriva o status e preserva a liberacao no portal.
+          status: item.status,
           resultado: item.resultado || "",
           valor_referencia: item.valor_referencia || "",
           unidade: item.unidade || "",
@@ -1385,6 +1405,7 @@ export default function AtendimentoPage() {
   const [attachmentPdfZoom, setAttachmentPdfZoom] = useState(110);
   const [examUploadDrafts, setExamUploadDrafts] = useState<Record<number, PendingExamUpload>>({});
   const [examDropActive, setExamDropActive] = useState<Record<number, boolean>>({});
+  const [portalExameAcaoId, setPortalExameAcaoId] = useState<number | null>(null);
   const [clinicalPhraseSearch, setClinicalPhraseSearch] = useState("");
   const [clinicalPhraseSectionFilter, setClinicalPhraseSectionFilter] = useState<ClinicalFieldKey | "">("");
   const [clinicalPhraseForm, setClinicalPhraseForm] = useState<ClinicalPhraseForm>(emptyClinicalPhraseForm());
@@ -2179,8 +2200,10 @@ export default function AtendimentoPage() {
       aguardando_arquivo: 0,
       arquivo_anexado: 0,
       interpretado: 0,
+      liberado_portal: 0,
     };
     examesComContexto.forEach((item) => {
+      if (item.exame._destroy) return;
       if (!(item.exame.tipo_exame || "").trim()) return;
       base.solicitados += 1;
       base[item.flowStatus] += 1;
@@ -2190,6 +2213,9 @@ export default function AtendimentoPage() {
   const examesVisiveis = useMemo(
     () =>
       examesComContexto.filter((item) => {
+        // Exame marcado para exclusao sai da lista na hora, mas continua no
+        // payload como `_destroy` ate o save confirmar a exclusao.
+        if (item.exame._destroy) return false;
         const hasNome = (item.exame.tipo_exame || "").trim().length > 0;
         if (!hasNome) return exameFiltroRapido === "todos";
         if (exameFiltroRapido === "todos") return true;
@@ -3569,6 +3595,89 @@ export default function AtendimentoPage() {
     }
   };
 
+  const removerExame = (index: number) => {
+    const exame = form.exames[index];
+    if (!exame) return;
+
+    clearExamUploadDraft(index);
+    clearExamDropState(index);
+
+    // Exame ja persistido some do prontuario apenas por marcacao explicita, com
+    // confirmacao. Exame que nunca foi salvo sai so do estado local.
+    if (exame.id) {
+      const nome = (exame.tipo_exame || "").trim() || "sem nome";
+      if (
+        !window.confirm(
+          `Excluir o exame "${nome}" do prontuario? A exclusao e aplicada no proximo salvamento.`
+        )
+      ) {
+        return;
+      }
+      setField(
+        "exames",
+        form.exames.map((item, itemIndex) =>
+          itemIndex === index ? { ...item, _destroy: true } : item
+        )
+      );
+      setExamesExpandidos({ 0: true });
+      setSucesso(`Exame "${nome}" marcado para exclusao.`);
+      setErro("");
+      return;
+    }
+
+    const restantes = form.exames.filter((_, itemIndex) => itemIndex !== index);
+    setField("exames", restantes.length > 0 ? restantes : [emptyExam()]);
+    setExamesExpandidos({ 0: true });
+  };
+
+  const aplicarExameAtualizado = (exameAtualizado: ExameSolicitacao | null | undefined) => {
+    if (!exameAtualizado?.id) return;
+    setForm((current) => ({
+      ...current,
+      exames: current.exames.map((item) =>
+        item.id === exameAtualizado.id ? { ...item, ...exameAtualizado } : item
+      ),
+    }));
+  };
+
+  const alternarLiberacaoExameNoPortal = async (
+    exame: ExameSolicitacao,
+    acao: "liberar" | "revogar"
+  ) => {
+    if (!exame.id) return;
+    if (
+      acao === "revogar" &&
+      !window.confirm(
+        "Revogar a liberacao deste exame? A clinica parceira perde o acesso no portal."
+      )
+    ) {
+      return;
+    }
+
+    setPortalExameAcaoId(exame.id);
+    try {
+      const response = await api.post(`/atendimentos/exames/${exame.id}/portal/${acao}`);
+      aplicarExameAtualizado(response.data?.exame);
+      setSucesso(
+        acao === "liberar"
+          ? "Exame liberado no portal da clinica parceira."
+          : "Liberacao do exame no portal revogada."
+      );
+      setErro("");
+    } catch (e: unknown) {
+      setErro(
+        extractApiErrorMessageSync(
+          e,
+          acao === "liberar"
+            ? "Erro ao liberar o exame no portal."
+            : "Erro ao revogar a liberacao do exame."
+        )
+      );
+    } finally {
+      setPortalExameAcaoId(null);
+    }
+  };
+
   const atualizarExame = (index: number, updates: Partial<ExameSolicitacao>) => {
     setField(
       "exames",
@@ -3681,7 +3790,13 @@ export default function AtendimentoPage() {
         }
       } else {
         setForm((current) => {
-          return mergeAutoSavedFormState(current, hydrated);
+          // A exclusao foi aplicada no servidor: o marcador sai do estado local
+          // para nao voltar em todo save seguinte.
+          const semExcluidos = current.exames.filter((item) => !item._destroy);
+          return mergeAutoSavedFormState(
+            { ...current, exames: semExcluidos.length > 0 ? semExcluidos : [emptyExam()] },
+            hydrated
+          );
         });
         setAutosaveState("saved");
         setAutosaveAt(response.data?.updated_at || response.data?.created_at || new Date().toISOString());
@@ -3689,6 +3804,18 @@ export default function AtendimentoPage() {
       setErro("");
       return response.data?.id || selecionado || null;
     } catch (e: any) {
+      // Nada foi aplicado: devolver os exames marcados para exclusao a lista,
+      // para nao deixar exame invisivel que continua existindo no prontuario.
+      setForm((current) =>
+        current.exames.some((item) => item._destroy)
+          ? {
+              ...current,
+              exames: current.exames.map((item) =>
+                item._destroy ? { ...item, _destroy: false } : item
+              ),
+            }
+          : current
+      );
       if (mode === "autosave") {
         setAutosaveState("error");
         setErro(extractApiErrorMessageSync(e, "Nao foi possivel sincronizar o atendimento."));
@@ -5091,7 +5218,7 @@ export default function AtendimentoPage() {
   };
 
   const removerExamesVazios = () => {
-    const next = form.exames.filter((item) => {
+    const temConteudo = (item: ExameSolicitacao) => {
       if ((item.tipo_exame || "").trim()) return true;
       if ((item.observacoes || "").trim()) return true;
       if ((item.resultado || "").trim()) return true;
@@ -5099,10 +5226,15 @@ export default function AtendimentoPage() {
       if (item.catalogo_exame_id || item.painel_exame_id) return true;
       if ((item.anexos_resultado || []).length > 0) return true;
       return false;
-    });
+    };
+    // Exame vazio ja persistido e marcado para exclusao; exame vazio que nunca
+    // foi salvo sai apenas do estado local.
+    const next = form.exames
+      .filter((item) => temConteudo(item) || Boolean(item.id))
+      .map((item) => (temConteudo(item) ? item : { ...item, _destroy: true }));
     clearExamUploadDrafts();
-    const finalList = next.length > 0 ? next : [emptyExam()];
-    setField("exames", finalList);
+    const restantes = next.filter((item) => !item._destroy);
+    setField("exames", restantes.length > 0 ? next : [...next, emptyExam()]);
     setExamesExpandidos({ 0: true });
   };
 
@@ -6238,7 +6370,12 @@ export default function AtendimentoPage() {
                     painelModalMode={painelModalMode}
                     painelModalOpen={painelModalOpen}
                     paineisExames={paineisExames}
+                    removerExame={removerExame}
                     removerExamesVazios={removerExamesVazios}
+                    alternarLiberacaoExameNoPortal={alternarLiberacaoExameNoPortal}
+                    portalExameAcaoId={portalExameAcaoId}
+                    exameTemPdfAnexado={exameTemPdfAnexado}
+                    isExamePortalLiberado={isExamePortalLiberado}
                     resolvePreviewKind={resolvePreviewKind}
                     resumoExamesFluxo={resumoExamesFluxo}
                     salvando={salvando}

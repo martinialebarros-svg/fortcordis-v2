@@ -11,6 +11,18 @@ const readDetailFromObject = (value: unknown): string | null => {
     if (joined) return joined;
   }
 
+  // Conflitos confirmaveis do backend chegam como objeto
+  // ({ codigo, mensagem, confirmavel }) em vez de string.
+  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+    const detalhe = detail as { mensagem?: unknown; message?: unknown };
+    if (typeof detalhe.mensagem === "string" && detalhe.mensagem.trim()) {
+      return detalhe.mensagem.trim();
+    }
+    if (typeof detalhe.message === "string" && detalhe.message.trim()) {
+      return detalhe.message.trim();
+    }
+  }
+
   const message = (value as { message?: unknown }).message;
   if (typeof message === "string" && message.trim()) return message.trim();
 

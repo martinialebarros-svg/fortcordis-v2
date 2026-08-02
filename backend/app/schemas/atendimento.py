@@ -1,15 +1,25 @@
 """Schemas Pydantic para o módulo de atendimento clínico."""
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ExameSolicitacaoPayload(BaseModel):
+    """Exame solicitado no prontuario.
+
+    `status` continua aceito por compatibilidade, mas e ignorado pelo backend:
+    o status do exame e derivado no servidor para nao revogar liberacao no
+    portal a cada save. Exclusao acontece somente com `_destroy`; exame
+    existente omitido do payload e preservado.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
     id: Optional[int] = None
     catalogo_exame_id: Optional[int] = None
     painel_exame_id: Optional[int] = None
     painel_exame_nome: Optional[str] = ""
-    tipo_exame: str = Field(..., min_length=2, max_length=120)
+    tipo_exame: str = Field(default="", max_length=120)
     categoria_exame: Optional[str] = ""
     preparo: Optional[str] = ""
     prioridade: str = Field(default="Rotina", max_length=50)
@@ -21,6 +31,15 @@ class ExameSolicitacaoPayload(BaseModel):
     observacoes: Optional[str] = ""
     valor: Optional[float] = 0.0
     laudo_id: Optional[int] = None
+    destroy: bool = Field(default=False, alias="_destroy")
+
+    @model_validator(mode="after")
+    def _exigir_tipo_exame_quando_nao_excluir(self) -> "ExameSolicitacaoPayload":
+        if self.destroy:
+            return self
+        if len((self.tipo_exame or "").strip()) < 2:
+            raise ValueError("Informe o tipo de exame com pelo menos 2 caracteres.")
+        return self
 
 
 class PrescricaoItemPayload(BaseModel):
@@ -147,6 +166,7 @@ class AtendimentoUpdatePayload(BaseModel):
     observacoes: Optional[str] = None
     exames: Optional[List[ExameSolicitacaoPayload]] = None
     prescricao: Optional[PrescricaoPayload] = None
+    confirmar_desvinculo_agendamento: Optional[bool] = None
 
 
 class AtendimentoFinalizarPayload(BaseModel):
