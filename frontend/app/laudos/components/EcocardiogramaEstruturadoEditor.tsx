@@ -22,6 +22,8 @@ import {
   normalizarEcocardiogramaEstruturado,
 } from "@/lib/ecocardiograma-estruturado";
 
+import SeletorFraseConclusao from "./SeletorFraseConclusao";
+
 interface EcocardiogramaEstruturadoEditorProps {
   value: EcocardiogramaEstruturadoPersistido;
   onChange: (next: EcocardiogramaEstruturadoPersistido) => void;
@@ -1625,24 +1627,37 @@ export default function EcocardiogramaEstruturadoEditor({
                 </div>
                 <div className="text-xs text-gray-500">{aspecto.placeholder}</div>
               </div>
-              <div className="mb-3 flex flex-col gap-2 lg:flex-row">
-                <select
-                  value={fraseSelecionadaEfetivaPorAspecto[aspecto.key] || ""}
-                  onChange={(e) =>
-                    setFraseSelecionadaPorAspecto((prev) => ({
-                      ...prev,
-                      [aspecto.key]: e.target.value,
-                    }))
-                  }
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
-                >
-                  <option value="">Selecionar frase do banco</option>
-                  {frasesAtivas.map((frase) => (
-                    <option key={frase.id} value={String(frase.id)}>
-                      {frase.titulo}
-                    </option>
-                  ))}
-                </select>
+              <div className="mb-3 flex flex-col items-start gap-2 lg:flex-row">
+                {aspecto.key === "conclusao" ? (
+                  <SeletorFraseConclusao
+                    frases={frasesAtivas}
+                    value={fraseSelecionadaEfetivaPorAspecto[aspecto.key] || ""}
+                    onChange={(fraseId) =>
+                      setFraseSelecionadaPorAspecto((prev) => ({
+                        ...prev,
+                        [aspecto.key]: fraseId,
+                      }))
+                    }
+                  />
+                ) : (
+                  <select
+                    value={fraseSelecionadaEfetivaPorAspecto[aspecto.key] || ""}
+                    onChange={(e) =>
+                      setFraseSelecionadaPorAspecto((prev) => ({
+                        ...prev,
+                        [aspecto.key]: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
+                  >
+                    <option value="">Selecionar frase do banco</option>
+                    {frasesAtivas.map((frase) => (
+                      <option key={frase.id} value={String(frase.id)}>
+                        {frase.titulo}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"

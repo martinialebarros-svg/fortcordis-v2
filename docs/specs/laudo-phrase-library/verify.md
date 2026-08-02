@@ -20,10 +20,17 @@ Status: done
 | CA-010 | aceitacao | `EcocardiogramaEstruturadoBiblioteca.tsx` renderiza cabecalhos de patologia como botoes expansivos com chevron, contagem e conteudo condicional. | ok |
 | CA-011 | aceitacao | busca e filtros de patologia/tag forcam a expansao dos grupos resultantes. | ok |
 | CA-012 | aceitacao | validacao operacional do JSON e da API publica de stage confirma 15 titulos renomeados, 112 conclusoes preservadas, 6 referencias sincronizadas e zero referencias quebradas. | ok |
+| CA-013 | aceitacao | `SeletorFraseConclusao.tsx` substitui o `select` apenas quando `aspecto.key === "conclusao"`, agrupando por patologia com contagem e controles expansivos. | ok |
+| CA-014 | aceitacao | busca normalizada cobre titulo, texto, patologias e tags; busca/atalho ativos forcam a expansao dos grupos resultantes. | ok |
+| CA-015 | aceitacao | o seletor chama somente `setFraseSelecionadaPorAspecto`; `aplicarFraseDoAspecto` continua vinculado exclusivamente ao botao `Usar frase`. | ok |
+| CA-016 | aceitacao | historico em `localStorage` limita-se a cinco IDs e descarta referencias inativas/ausentes ao renderizar. | ok |
+| CA-017 | aceitacao | ramo alternativo em `EcocardiogramaEstruturadoEditor.tsx` preserva o `select` existente para os demais aspectos. | ok |
 | NFR-001 | compatibilidade | teste `test_normalize_adds_phrase_pathologies_and_order`. | ok |
 | NFR-003 | resiliencia | testes verificam backups runtime em alteracoes. | ok |
 | NFR-004 | integridade | guarda de persistencia no `_save_store` bloqueia shrink acidental fora de `import/recovery`. | ok |
 | NFR-005 | acessibilidade | cabecalhos usam `aria-expanded` e `aria-controls` em botoes nativos. | ok |
+| NFR-006 | acessibilidade | seletor fecha por Escape/clique externo; gatilho e grupos expõem estado expandido e todos os comandos usam botoes/input nativos. | ok |
+| NFR-007 | privacidade | chave local `fortcordis:eco:conclusoes-recentes` recebe somente array de IDs, sem texto do laudo ou identificadores do paciente. | ok |
 
 ## 2) Testes automatizados executados
 
@@ -45,6 +52,7 @@ npm run build
 Resumo dos resultados:
 - Backend: 12 testes passaram; `py_compile` passou na validacao original da feature.
 - Frontend deste ciclo: ESLint direcionado passou; `tsc --noEmit --pretty false --incremental false` passou; `npm run build` compilou, validou tipos e gerou 39 paginas com sucesso.
+- Frontend do seletor de Conclusao: ESLint direcionado dos dois componentes passou; TypeScript sem emissao passou; o novo build de producao compilou, validou tipos e gerou 39 paginas.
 - Store runtime de stage: 15 titulos renomeados para `DMVM`, 6 referencias de presets sincronizadas, 112 titulos unicos e zero referencias quebradas; producao permaneceu com o hash anterior.
 
 ## 3) Testes manuais
@@ -57,8 +65,14 @@ Resumo dos resultados:
 - Cenario 6: na Biblioteca, confirmar grupos recolhidos por padrao, expandir/recolher uma patologia e validar contagem.
 - Cenario 7: pesquisar `DMVM` e confirmar que os grupos resultantes abrem automaticamente.
 - Cenario 8: verificar no store vivo de stage que nenhum titulo de conclusao contem `Endocardiose de mitral` ou `Endocardiose mitral`.
+- Cenario 9: no aspecto Conclusao, confirmar grupos recolhidos, contagens e expansao individual por patologia.
+- Cenario 10: buscar uma conclusao por titulo/texto/tag, usar atalho clinico e confirmar expansao automatica dos resultados.
+- Cenario 11: selecionar uma frase, conferir a previa e verificar que o texto so muda apos clicar em `Usar frase`.
+- Cenario 12: reabrir o seletor e confirmar o grupo Recentes com no maximo cinco frases validas.
 
 Resultado operacional ja confirmado para o cenario 8: arquivo runtime e API publica de stage retornam zero titulos legados e 112 conclusoes integras. Os cenarios 6 e 7 serao repetidos no frontend publicado apos o workflow de deploy.
+
+Os cenarios 9 a 12 dependem do primeiro deploy desta iteracao em stage e serao repetidos no frontend servido antes de qualquer promocao para producao.
 
 ## 4) Regressao e riscos residuais
 
@@ -66,6 +80,7 @@ Resultado operacional ja confirmado para o cenario 8: arquivo runtime e API publ
 - Risco residual 2: a primeira normalizacao adiciona campos ao JSON runtime; backups sao preservados pelo servico.
 - Risco residual 3: autorecovery depende da existencia de backup runtime valido e mais rico no ambiente.
 - Risco residual 4: a validacao visual dos menus expansivos depende do deploy de stage concluir.
+- Risco residual 5: o historico Recentes e local a cada navegador e nao sincroniza entre dispositivos, por desenho.
 
 ## 5) Itens fora de escopo entregues
 
