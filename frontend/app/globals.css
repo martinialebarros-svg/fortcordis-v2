@@ -6723,7 +6723,12 @@ body {
   }
 
   .fc-care-header-actions {
-    @apply flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:max-w-xl lg:justify-end;
+    /* Sem teto de largura artificial: o irmao (bloco de titulo) fica bem
+       abaixo do seu proprio max-w-2xl na pratica, entao limitar as acoes a
+       max-w-xl (576px) forcava a quebra em 3 linhas mesmo sobrando espaco
+       real no cabecalho. `flex-wrap` + a largura do proprio `.fc-care-header`
+       already bound isso corretamente sem precisar de um numero fixo. */
+    @apply flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end;
   }
 
   .fc-care-autosave,
