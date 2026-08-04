@@ -3176,9 +3176,16 @@ def criar_exame(
     current_user: User = Depends(get_current_user)
 ):
     """Cria novo exame"""
+    paciente_id = exame_data["paciente_id"]
+    laudo_id = exame_data.get("laudo_id")
+    if laudo_id and not db.query(Laudo).filter(Laudo.id == laudo_id, Laudo.paciente_id == paciente_id).first():
+        # Mesma protecao de _sync_exames (atendimento.py) contra vincular um
+        # exame a um laudo de outro paciente - vazaria o exame no portal via
+        # o status de liberacao do laudo alheio.
+        laudo_id = None
     exame = Exame(
-        laudo_id=exame_data.get("laudo_id"),
-        paciente_id=exame_data["paciente_id"],
+        laudo_id=laudo_id,
+        paciente_id=paciente_id,
         tipo_exame=exame_data["tipo_exame"],
         resultado=exame_data.get("resultado"),
         valor_referencia=exame_data.get("valor_referencia"),
@@ -3223,9 +3230,15 @@ def atualizar_exame(
         raise HTTPException(status_code=404, detail="Exame não encontrado")
     
     for field, value in exame_data.items():
-        if hasattr(exame, field):
+        if field == "laudo_id":
+            # Mesma protecao de _sync_exames (atendimento.py): so aceita um
+            # laudo_id que pertenca ao mesmo paciente deste exame.
+            if value and not db.query(Laudo).filter(Laudo.id == value, Laudo.paciente_id == exame.paciente_id).first():
+                continue
+            exame.laudo_id = value
+        elif hasattr(exame, field):
             setattr(exame, field, value)
-    
+
     db.commit()
     db.refresh(exame)
     return exame

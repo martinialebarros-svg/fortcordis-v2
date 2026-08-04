@@ -292,6 +292,52 @@ class AtendimentoDeleteGuardTest(unittest.TestCase):
             self.db.query(PrescricaoItemAjuste).filter_by(atendimento_id=registro_id).count(), 0
         )
 
+    def test_delete_nao_concluido_com_exame_liberado_portal_exige_confirmacao(self) -> None:
+        # Um exame pode estar liberado no portal parceiro mesmo com o atendimento
+        # ainda "Em atendimento" - excluir o atendimento inteiro nao pode ser um
+        # atalho para apagar esse PDF sem a mesma confirmacao que excluir_anexo
+        # ja exige para o mesmo cenario.
+        registro = self._seed_avulso(atendimento_status="Em atendimento")
+        registro_id = registro.id
+        exame = Exame(
+            atendimento_id=registro_id,
+            paciente_id=registro.paciente_id,
+            tipo_exame="Ecocardiograma",
+            status="Liberado no portal",
+        )
+        self.db.add(exame)
+        self.db.commit()
+
+        with patch.object(atendimento, "registrar_auditoria") as auditoria_mock:
+            with self.assertRaises(HTTPException) as ctx:
+                atendimento.excluir_atendimento(
+                    registro_id,
+                    self.request,
+                    confirmar_exclusao=False,
+                    db=self.db,
+                    current_user=self.user,
+                )
+
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertEqual(ctx.exception.detail["codigo"], "CONFIRMACAO_EXCLUSAO_ATENDIMENTO_CONCLUIDO")
+        self.assertTrue(ctx.exception.detail["confirmavel"])
+        auditoria_mock.assert_not_called()
+        self.assertIsNotNone(self.db.query(AtendimentoClinico).filter_by(id=registro_id).first())
+        self.assertIsNotNone(self.db.query(Exame).filter_by(id=exame.id).first())
+
+        with patch.object(atendimento, "registrar_auditoria"):
+            resposta = atendimento.excluir_atendimento(
+                registro_id,
+                self.request,
+                confirmar_exclusao=True,
+                db=self.db,
+                current_user=self.user,
+            )
+
+        self.assertEqual(resposta["id"], registro_id)
+        self.assertIsNone(self.db.query(AtendimentoClinico).filter_by(id=registro_id).first())
+        self.assertIsNone(self.db.query(Exame).filter_by(id=exame.id).first())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1813,13 +1813,32 @@ def _sync_exames(
         exame.resultado = (payload.resultado or "").strip() or None
         exame.valor_referencia = (payload.valor_referencia or "").strip() or None
         exame.unidade = (payload.unidade or "").strip() or None
-        exame.observacoes = (
-            (payload.observacoes or "").strip()
-            or (catalogo_exame.observacoes_padrao if catalogo_exame else "")
-            or ""
-        )
+        if not is_portal_released_status(exame.status):
+            # Mesmo cuidado que _derivar_status_exame ja tem com o status:
+            # enquanto o exame esta liberado no portal, exame.observacoes
+            # guarda a mensagem fixa (o texto clinico original fica em
+            # observacoes_pre_portal) - um save/autosave nesse meio tempo nao
+            # pode sobrescrever a mensagem fixa nem perder o backup.
+            exame.observacoes = (
+                (payload.observacoes or "").strip()
+                or (catalogo_exame.observacoes_padrao if catalogo_exame else "")
+                or ""
+            )
         exame.valor = payload.valor if payload.valor not in (None, "") else (catalogo_exame.valor_padrao if catalogo_exame else 0)
-        exame.laudo_id = payload.laudo_id
+        if payload.laudo_id and payload.laudo_id != exame.laudo_id:
+            # O frontend so faz round-trip do valor ja hidratado, mas o payload
+            # e a verdade do cliente - um laudo_id de outro paciente nao pode
+            # ser aceito (exporia o exame como "liberado" via o laudo alheio no
+            # portal da clinica parceira). Sem laudo valido para este paciente,
+            # mantem o vinculo atual em vez de aceitar o valor recebido.
+            laudo_valido = (
+                db.query(Laudo)
+                .filter(Laudo.id == payload.laudo_id, Laudo.paciente_id == atendimento.paciente_id)
+                .first()
+            )
+            exame.laudo_id = payload.laudo_id if laudo_valido else exame.laudo_id
+        else:
+            exame.laudo_id = payload.laudo_id
         exame.data_solicitacao = exame.data_solicitacao or datetime.now()
         exame.data_resultado = _parse_datetime(payload.data_resultado) if payload.data_resultado else exame.data_resultado
         if _status_exame_concluido(exame.status) and exame.data_resultado is None:
@@ -3588,15 +3607,28 @@ def excluir_atendimento(
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
 
-    if _status_atendimento_concluido(atendimento.status) and not confirmar_exclusao:
+    exames_do_atendimento = db.query(Exame).filter(Exame.atendimento_id == atendimento_id).all()
+    # Um exame pode estar liberado no portal parceiro mesmo com o atendimento
+    # ainda em andamento (liberar_exame_no_portal nao exige status Concluido) -
+    # excluir o atendimento inteiro nao pode ser um atalho para contornar o
+    # guard de excluir_anexo, que ja bloqueia apagar o unico PDF desse exame.
+    tem_exame_liberado_portal = any(is_portal_released_status(e.status) for e in exames_do_atendimento)
+
+    if (_status_atendimento_concluido(atendimento.status) or tem_exame_liberado_portal) and not confirmar_exclusao:
+        motivos = []
+        if _status_atendimento_concluido(atendimento.status):
+            motivos.append("esta concluido")
+        if tem_exame_liberado_portal:
+            motivos.append("tem exame(s) liberado(s) no portal da clinica parceira")
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "codigo": "CONFIRMACAO_EXCLUSAO_ATENDIMENTO_CONCLUIDO",
                 "mensagem": (
-                    f"Atendimento #{atendimento_id} esta concluido. Confirme para "
+                    f"Atendimento #{atendimento_id} {' e '.join(motivos)}. Confirme para "
                     "excluir mesmo assim - o agendamento vinculado (se houver) volta "
-                    'para "Confirmado" e a Ordem de Servico ativa e cancelada.'
+                    'para "Confirmado", a Ordem de Servico ativa e cancelada, e '
+                    "qualquer PDF liberado no portal parceiro e removido definitivamente."
                 ),
                 "confirmavel": True,
             },
@@ -3628,8 +3660,7 @@ def excluir_atendimento(
         synchronize_session=False
     )
 
-    exames = db.query(Exame).filter(Exame.atendimento_id == atendimento_id).all()
-    for exame in exames:
+    for exame in exames_do_atendimento:
         _excluir_anexos_por_exame(db, exame.id)
         db.delete(exame)
 
@@ -4053,6 +4084,31 @@ def liberar_exame_no_portal(
     if not exame.paciente_id:
         raise HTTPException(status_code=422, detail="Exame sem paciente vinculado.")
 
+    if is_portal_released_status(exame.status):
+        # Idempotente: chamar liberar de novo enquanto ja liberado nao pode
+        # reprocessar - reescreveria observacoes_pre_portal com a propria
+        # mensagem fixa (ja ocorreu com duplo clique/retry de rede antes
+        # desta guarda), perdendo o texto original para sempre no revogar.
+        anexos_atuais = (
+            db.query(AnexoAtendimento)
+            .filter(AnexoAtendimento.exame_id == exame.id)
+            .order_by(AnexoAtendimento.created_at.desc(), AnexoAtendimento.id.desc())
+            .all()
+        )
+        return {
+            "message": "Exame ja estava liberado no portal da clinica parceira.",
+            "exame_id": exame.id,
+            "paciente_id": exame.paciente_id,
+            "atendimento_id": exame.atendimento_id,
+            "clinic_id": atendimento.clinica_id,
+            "status": exame.status,
+            "released_at": _to_operational_iso(exame.data_resultado),
+            "exame": {
+                **_map_exame(exame),
+                "anexos_resultado": [_serialize_anexo(anexo) for anexo in anexos_atuais],
+            },
+        }
+
     anexos = (
         db.query(AnexoAtendimento)
         .filter(AnexoAtendimento.exame_id == exame.id)
@@ -4069,6 +4125,7 @@ def liberar_exame_no_portal(
         exame.categoria_exame = "Cardiologia"
     exame.status = PORTAL_RELEASED_STATUS
     exame.data_resultado = released_at
+    exame.observacoes_pre_portal = exame.observacoes or ""
     exame.observacoes = PORTAL_EXAME_RELEASE_MESSAGE
     if not exame.criado_por_id:
         exame.criado_por_id = getattr(current_user, "id", None)
@@ -4133,7 +4190,8 @@ def revogar_liberacao_exame_no_portal(
         total_anexos=total_anexos,
     )
     if (exame.observacoes or "").strip() == PORTAL_EXAME_RELEASE_MESSAGE:
-        exame.observacoes = ""
+        exame.observacoes = exame.observacoes_pre_portal or ""
+    exame.observacoes_pre_portal = None
 
     db.commit()
     db.refresh(exame)
@@ -4412,6 +4470,23 @@ def excluir_anexo(
     anexo = db.query(AnexoAtendimento).filter(AnexoAtendimento.id == anexo_id).first()
     if not anexo:
         raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
+
+    if anexo.exame_id and _anexo_eh_pdf(anexo):
+        exame = db.query(Exame).filter(Exame.id == anexo.exame_id).first()
+        if exame and is_portal_released_status(exame.status):
+            outros_pdfs = (
+                db.query(AnexoAtendimento)
+                .filter(AnexoAtendimento.exame_id == exame.id, AnexoAtendimento.id != anexo.id)
+                .all()
+            )
+            if not any(_anexo_eh_pdf(outro) for outro in outros_pdfs):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"O exame #{exame.id} esta liberado no portal da clinica parceira e este "
+                        "e o unico PDF vinculado. Revogue a liberacao antes de excluir este anexo."
+                    ),
+                )
 
     _excluir_anexo_registro(db, anexo)
     db.commit()
