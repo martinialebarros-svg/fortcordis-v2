@@ -497,6 +497,153 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_criar_agendamento_fechado_sem_confirmacao_mantem_bloqueio(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            clinica = Clinica(
+                nome="Clinica Agenda Fechada",
+                ativo=True,
+                latitude=-3.7319,
+                longitude=-38.5267,
+            )
+            config = Configuracao(
+                agenda_excecoes='[{"data":"2099-05-25","ativo":false,"motivo":"Feriado local"}]'
+            )
+            db.add_all([clinica, config])
+            db.commit()
+            db.refresh(clinica)
+
+            inicio = datetime(2099, 5, 25, 11, 0, 0)
+            payload = agenda.AgendamentoCreate(
+                paciente_id=None,
+                clinica_id=clinica.id,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                status="Reservado",
+            )
+
+            with self.assertRaises(HTTPException) as ctx:
+                agenda.criar_agendamento(
+                    agendamento=payload,
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=SimpleNamespace(id=10, nome="Admin", tem_papel=lambda papel: papel == "admin"),
+                )
+
+            self.assertEqual(int(ctx.exception.status_code), 422)
+            self.assertIn("Agenda fechada por excecao", str(ctx.exception.detail))
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_criar_agendamento_bloqueia_confirmacao_agenda_fechada_para_nao_admin(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            inicio = datetime(2099, 5, 25, 11, 0, 0)
+            payload = agenda.AgendamentoCreate(
+                paciente_id=None,
+                clinica_id=1,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                status="Agendado",
+                confirmar_agenda_fechada=True,
+            )
+
+            with self.assertRaises(HTTPException) as ctx:
+                agenda.criar_agendamento(
+                    agendamento=payload,
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=SimpleNamespace(id=10, nome="Sem Admin", tem_papel=lambda _: False),
+                )
+
+            self.assertEqual(int(ctx.exception.status_code), 403)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_criar_agendamento_admin_nao_confirma_intervalo_invalido(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            inicio = datetime(2099, 5, 25, 11, 0, 0)
+            agendamento_invalido = Agendamento(
+                inicio=inicio,
+                fim=inicio,
+            )
+
+            with self.assertRaises(HTTPException) as ctx:
+                agenda._validar_agendamento_no_funcionamento(
+                    db=db,
+                    agendamento=agendamento_invalido,
+                    permitir_excecao_agenda_fechada=True,
+                )
+
+            self.assertEqual(int(ctx.exception.status_code), 422)
+            self.assertIn("Horario invalido", str(ctx.exception.detail))
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_criar_agendamento_admin_confirma_agenda_fechada_e_audita(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            clinica = Clinica(
+                nome="Clinica Confirmacao Admin",
+                ativo=True,
+                latitude=-3.7319,
+                longitude=-38.5267,
+            )
+            config = Configuracao(
+                agenda_excecoes='[{"data":"2099-05-25","ativo":false,"motivo":"Feriado local"}]'
+            )
+            db.add_all([clinica, config])
+            db.commit()
+            db.refresh(clinica)
+
+            inicio = datetime(2099, 5, 25, 11, 0, 0)
+            payload = agenda.AgendamentoCreate(
+                paciente_id=None,
+                clinica_id=clinica.id,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                status="Reservado",
+                confirmar_agenda_fechada=True,
+            )
+            usuario_admin = SimpleNamespace(
+                id=99,
+                nome="Admin",
+                tem_papel=lambda papel: papel == "admin",
+            )
+
+            with patch.object(agenda, "registrar_auditoria", return_value=None) as mocked_auditoria, patch.object(
+                agenda, "_notificar_agenda_update", return_value=None
+            ), patch.object(
+                agenda, "_validar_deslocamento_agendamento", return_value=None
+            ):
+                resposta = agenda.criar_agendamento(
+                    agendamento=payload,
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=usuario_admin,
+                )
+
+            self.assertTrue(int(resposta.get("id") or 0) > 0)
+            self.assertTrue(
+                any(
+                    call.kwargs.get("acao") == "AGENDAMENTO_AGENDA_FECHADA_CONFIRMADO"
+                    and call.kwargs.get("detalhes", {}).get("motivo_validacao")
+                    == "Agenda fechada por excecao de data (Feriado local)."
+                    for call in mocked_auditoria.call_args_list
+                )
+            )
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -33,6 +33,7 @@ class AgendamentoBase(BaseModel):
     observacoes: Optional[str] = None
     confirmar_conflito_deslocamento: bool = False
     confirmar_slot_reserva_expirada: bool = False
+    confirmar_agenda_fechada: bool = False
     excecao_operacional_concedida: bool = False
     motivo_excecao_operacional: Optional[str] = None
 

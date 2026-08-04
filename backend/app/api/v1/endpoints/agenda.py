@@ -2294,7 +2294,23 @@ def _exigir_confirmacao_reativacao_reserva_expirada(
     return reativando
 
 
-def _validar_agendamento_no_funcionamento(db: Session, agendamento: Agendamento) -> None:
+def _motivo_agenda_fechada_confirmavel(mensagem: str) -> bool:
+    texto = str(mensagem or "").strip()
+    return texto.startswith(
+        (
+            "Agenda fechada",
+            "Horario fora do funcionamento da agenda",
+            "Horario fora da excecao desta data",
+        )
+    )
+
+
+def _validar_agendamento_no_funcionamento(
+    db: Session,
+    agendamento: Agendamento,
+    *,
+    permitir_excecao_agenda_fechada: bool = False,
+) -> Optional[str]:
     inicio_dt = _coerce_datetime(agendamento.inicio)
     if inicio_dt is None:
         raise HTTPException(status_code=422, detail="Horario de inicio invalido.")
@@ -2317,7 +2333,10 @@ def _validar_agendamento_no_funcionamento(db: Session, agendamento: Agendamento)
         agenda_excecoes=agenda_excecoes,
     )
     if not valido:
+        if permitir_excecao_agenda_fechada and _motivo_agenda_fechada_confirmavel(mensagem):
+            return mensagem
         raise HTTPException(status_code=422, detail=mensagem)
+    return None
 
 
 def _validar_slot_disponivel(
@@ -5277,12 +5296,18 @@ def criar_agendamento(
     confirmou_slot_reserva_expirada = bool(
         getattr(agendamento, "confirmar_slot_reserva_expirada", False)
     )
+    confirmar_agenda_fechada = bool(getattr(agendamento, "confirmar_agenda_fechada", False))
     excecao_operacional_concedida = bool(getattr(agendamento, "excecao_operacional_concedida", False))
     motivo_excecao_operacional = str(getattr(agendamento, "motivo_excecao_operacional", "") or "").strip()
     if override_conflito_deslocamento and not _usuario_tem_papel(current_user, "admin"):
         raise HTTPException(
             status_code=403,
             detail="Somente administradores podem confirmar excecao de conflito operacional.",
+        )
+    if confirmar_agenda_fechada and not _usuario_tem_papel(current_user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Somente administradores podem confirmar agendamento com a agenda fechada.",
         )
     if excecao_operacional_concedida and not _usuario_tem_papel(current_user, "admin"):
         raise HTTPException(
@@ -5301,6 +5326,7 @@ def criar_agendamento(
             exclude={
                 "confirmar_conflito_deslocamento",
                 "confirmar_slot_reserva_expirada",
+                "confirmar_agenda_fechada",
                 "excecao_operacional_concedida",
                 "motivo_excecao_operacional",
             }
@@ -5323,7 +5349,11 @@ def criar_agendamento(
 
     _apply_service_duration_if_needed(db, db_agendamento, force_from_service=True)
     _validar_prazo_reserva(db_agendamento)
-    _validar_agendamento_no_funcionamento(db, db_agendamento)
+    motivo_agenda_fechada = _validar_agendamento_no_funcionamento(
+        db,
+        db_agendamento,
+        permitir_excecao_agenda_fechada=confirmar_agenda_fechada,
+    )
     reservas_expiradas_revisadas = _validar_slot_disponivel(
         db,
         db_agendamento,
@@ -5368,10 +5398,31 @@ def criar_agendamento(
             "reservas_expiradas_revisadas_ids": [
                 item.id for item in reservas_expiradas_revisadas
             ],
+            "confirmacao_agenda_fechada": bool(motivo_agenda_fechada),
+            "motivo_agenda_fechada": motivo_agenda_fechada,
             "contexto_agendamento": contexto,
         },
         request=request,
     )
+    if motivo_agenda_fechada:
+        registrar_auditoria(
+            current_user=current_user,
+            modulo="agenda",
+            entidade="agendamento",
+            entidade_id=db_agendamento.id,
+            acao="AGENDAMENTO_AGENDA_FECHADA_CONFIRMADO",
+            descricao=(
+                "Administrador confirmou agendamento fora do funcionamento da agenda - "
+                f"{_descricao_contexto_agendamento(contexto)}"
+            ),
+            detalhes={
+                "motivo_validacao": motivo_agenda_fechada,
+                "confirmado_por_admin": True,
+                "agendamento_id": db_agendamento.id,
+                "contexto_agendamento": contexto,
+            },
+            request=request,
+        )
     observacoes_agendamento = str(db_agendamento.observacoes or "")
     if "[Assistente agenda] sugestao aceita" in observacoes_agendamento:
         _registrar_evento_funil_assistente(
