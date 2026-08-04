@@ -27,6 +27,7 @@ from app.api.v1.endpoints import portal
 from app.api.v1.endpoints import portal_clinic_auth
 from app.core.config import settings
 from app.core.portal_release import PORTAL_RELEASED_STATUS
+from app.core.security import get_current_user
 from app.db.database import get_db
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
 from app.models.auditoria_evento import AuditoriaEvento
@@ -248,10 +249,24 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
 
     def _install_overrides(self):
         self._app.dependency_overrides[get_db] = self._override_get_db()
-        self._app.dependency_overrides[portal_clinic_auth._require_portal_admin] = lambda: SimpleNamespace(
+        admin_user = lambda: SimpleNamespace(
             id=1,
             nome="Admin Teste",
             email="admin@example.com",
+        )
+        self._app.dependency_overrides[portal_clinic_auth._require_portal_admin] = admin_user
+        self._app.dependency_overrides[portal_clinic_auth._require_portal_invite_operator] = admin_user
+
+    def _install_role_overrides(self, role: str) -> None:
+        def tem_papel(required_role: str) -> bool:
+            return required_role.lower() == role.lower()
+
+        self._app.dependency_overrides[get_db] = self._override_get_db()
+        self._app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
+            id=2,
+            nome=f"Operacao {role}",
+            email=f"{role}@example.com",
+            tem_papel=tem_papel,
         )
 
     def test_admin_can_inspect_and_revoke_pending_invite(self) -> None:
@@ -298,6 +313,48 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                 )
                 self.assertEqual(summary_after_revoke.status_code, 200)
                 self.assertEqual(summary_after_revoke.json()["invite"]["status"], "revoked")
+
+    def test_secretaria_e_recepcao_podem_gerar_convite_sem_poder_revogar(self) -> None:
+        seed = self._seed_portal_data()
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
+            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
+
+            created_invite_id = None
+            for role in ("secretaria", "recepcao"):
+                with self.subTest(role=role):
+                    self._install_role_overrides(role)
+                    with TestClient(self._app) as client:
+                        overview_response = client.get("/api/v1/portal/admin/clinicas/acessos/painel")
+                        self.assertEqual(overview_response.status_code, 200)
+
+                        create_response = client.post(
+                            f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/convites",
+                            json={
+                                "delivery_channel": "whatsapp",
+                                "delivery_target": "85999990000",
+                                "expires_in_hours": 72,
+                                "allow_manual_copy": True,
+                            },
+                        )
+                        self.assertEqual(create_response.status_code, 200)
+                        created_invite_id = create_response.json()["invite_id"]
+
+            self.assertIsNotNone(created_invite_id)
+            self._install_role_overrides("recepcao")
+            with TestClient(self._app) as client:
+                summary_response = client.get(
+                    f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/acesso",
+                )
+                self.assertEqual(summary_response.status_code, 200)
+
+                revoke_response = client.post(
+                    f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/convites/{created_invite_id}/revogar",
+                    json={"reason": "tentativa sem autorizacao"},
+                )
+                self.assertEqual(revoke_response.status_code, 403)
 
     def test_admin_reenvia_acesso_para_conta_ativa_sem_criar_novo_convite(self) -> None:
         seed = self._seed_portal_data()

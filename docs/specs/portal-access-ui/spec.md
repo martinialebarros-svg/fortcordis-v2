@@ -37,6 +37,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - RF-025: a rota `/clinica-parceira` deve operar com um shell exclusivo por estado, exibindo a landing publica apenas quando nao houver sessao valida e substituindo-a integralmente pelo ambiente autenticado da unidade quando a clinica estiver logada.
 - RF-026: o app administrativo deve oferecer uma tela de espelho em `/clinicas/portal/espelho` para abrir a mesma visao da clinica parceira, no escopo de uma unidade selecionada.
 - RF-027: o campo `WhatsApp da clinica` do compositor administrativo de convites deve aplicar mascara brasileira durante digitacao, colagem e carregamento do contato cadastrado.
+- RF-028: os papeis `recepcao`, `recepção`, `secretaria` e `secretária` devem poder consultar o painel/resumo operacional e gerar ou reenviar convite de clinica parceira.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -59,6 +60,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - NFR-017 (UX/legibilidade): o hero autenticado da clinica deve restringir o contraste invertido ao bloco institucional, preservando cards de apoio com superficie clara e texto escuro legivel.
 - NFR-018 (consistencia operacional): a visao espelhada administrativa deve reutilizar o mesmo contrato de exames, fila operacional e downloads do portal autenticado da clinica, sem manter uma segunda implementacao paralela dos dados.
 - NFR-019 (integridade): a mascara de WhatsApp deve ser apenas visual; o `delivery_target` enviado ao backend deve conter somente digitos.
+- NFR-020 (menor privilegio): a liberacao operacional de convite nao pode autorizar secretaria/recepcao a revogar convites, contas ou sessoes; essas acoes permanecem exclusivas de `admin`.
 - NFR-020 (robustez temporal): o contador `Liberados hoje` deve converter os limites do dia de Fortaleza para UTC antes de consultar `data_resultado`, para incluir liberacoes realizadas entre 21h00 e 23h59 no horario local.
 
 ## 4) Contratos tecnicos

@@ -179,3 +179,16 @@ Status: done
 - Manuais:
   - compartilhar um link novo do portal em um mensageiro com preview;
   - confirmar nome, descricao e logomarca oficial no card.
+
+## 10) Refinamento de autorizacao operacional - 2026-08-04
+
+- [x] T10.1 Identificar o papel operacional persistido para secretaria (`recepcao`) e a trava direta de `admin` nas rotas de convite.
+- [x] T10.2 Permitir `recepcao` e variantes de `secretaria` apenas para consultar o painel/resumo e gerar ou reenviar convites.
+- [x] T10.3 Manter as rotas de revogacao de convite, conta e sessoes exclusivas do papel `admin`.
+- [x] T10.4 Cobrir a permissao de secretaria/recepcao e a negativa de revogacao com teste HTTP.
+- Criterio de conclusao:
+  - secretaria gera e copia/reenvia um convite no cockpit; tentativas de revogacao por esse papel recebem `403`.
+- Risco:
+  - ampliar indevidamente os poderes operacionais do papel de secretaria.
+- Rollback:
+  - restaurar `_require_portal_admin` nas tres rotas de leitura/convite, sem alterar as rotas de revogacao.
