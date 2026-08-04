@@ -16,7 +16,9 @@ export default function AtendimentoConsultaEditorSection(props: AtendimentoConsu
     consultaEditorEtapa,
     consultaEditorEtapas,
     consultaEtapasCompletas,
+    dadosClinicosOrigem,
     form,
+    formatDate,
     getClinicalFieldValue,
     goToConsultaCampoAnterior,
     goToConsultaCampoProximo,
@@ -64,6 +66,14 @@ export default function AtendimentoConsultaEditorSection(props: AtendimentoConsu
             ) : null}
           </div>
         </div>
+
+        {dadosClinicosOrigem ? (
+          <div className="rounded-[22px] border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900">
+            Queixa, anamnese, exame fisico e dados clinicos foram copiados do atendimento #
+            {dadosClinicosOrigem.atendimento_id}, de {formatDate(dadosClinicosOrigem.data_atendimento)}.
+            Diagnostico, plano terapeutico e triagem NAO foram copiados - revise e preencha antes de salvar.
+          </div>
+        ) : null}
 
         <div className="grid gap-4 xl:grid-cols-12">
           <div className="xl:col-span-8 rounded-[24px] border border-slate-200 bg-gradient-to-br from-slate-50 to-white px-5 py-4">

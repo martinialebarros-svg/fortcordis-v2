@@ -1360,6 +1360,7 @@ export default function AtendimentoPage() {
   const [cadastroComplementarExpandido, setCadastroComplementarExpandido] = useState(false);
   const [painelCasosAberto, setPainelCasosAberto] = useState(false);
   const [prescricaoOrigem, setPrescricaoOrigem] = useState<PrescricaoOrigem | null>(null);
+  const [dadosClinicosOrigem, setDadosClinicosOrigem] = useState<PrescricaoOrigem | null>(null);
   const [examesExpandidos, setExamesExpandidos] = useState<Record<string, boolean>>({});
   const [gerandoPdfTipo, setGerandoPdfTipo] = useState<"prescricao" | "exames" | null>(null);
   const [contextoAplicado, setContextoAplicado] = useState(false);
@@ -2670,6 +2671,7 @@ export default function AtendimentoPage() {
       setPrescricaoEntradaModo(null);
       setPrescricaoBuscaRapida("");
       setPrescricaoOrigem(null);
+      setDadosClinicosOrigem(null);
       setCadastroComplementarExpandido(false);
       setTriagemExpandida(false);
       setDocumentoTemplateSelecionado("");
@@ -2718,6 +2720,7 @@ export default function AtendimentoPage() {
     setPrescricaoEntradaModo(null);
     setPrescricaoBuscaRapida("");
     setPrescricaoOrigem(null);
+    setDadosClinicosOrigem(null);
     setCadastroComplementarExpandido(false);
     setTriagemExpandida(false);
     setDocumentoTemplateSelecionado("");
@@ -2743,7 +2746,13 @@ export default function AtendimentoPage() {
 
   const iniciarNovoAtendimentoPaciente = async (
     prescricao?: PrescricaoHistorica | null,
-    origem?: AtendimentoHistorico | null
+    origem?: AtendimentoHistorico | null,
+    dadosClinicos?: {
+      queixa_principal?: string;
+      anamnese?: string;
+      exame_fisico?: string;
+      dados_clinicos?: string;
+    } | null
   ) => {
     const atual = formRef.current;
     if (!atual.paciente_id) {
@@ -2751,7 +2760,11 @@ export default function AtendimentoPage() {
       setErro("Selecione um paciente antes de iniciar o atendimento.");
       return;
     }
-    if (autosaveState === "saving") {
+    // Le via refs (nao via closure de state) porque callers como
+    // herdarAtendimentoAnterior fazem um await (fetch de rede) antes de
+    // chegar aqui - o usuario pode ter continuado digitando nesse intervalo,
+    // e so a ref reflete o autosaveState/selecionado mais atual nesse caso.
+    if (autosaveStateRef.current === "saving") {
       setErro("Aguarde a sincronizacao atual terminar antes de iniciar outro atendimento.");
       return;
     }
@@ -2759,12 +2772,12 @@ export default function AtendimentoPage() {
       window.clearTimeout(autosaveTimerRef.current);
       autosaveTimerRef.current = null;
     }
-    if (selecionado && autosaveState === "dirty") {
+    if (selecionadoRef.current && autosaveStateRef.current === "dirty") {
       const savedId = await saveAtendimento("manual");
       if (!savedId) return;
     }
     if (
-      !selecionado &&
+      !selecionadoRef.current &&
       hasEncounterContent(atual) &&
       typeof window !== "undefined" &&
       !window.confirm("Substituir o rascunho atual por um novo atendimento deste paciente?")
@@ -2779,6 +2792,14 @@ export default function AtendimentoPage() {
       paciente_id: atual.paciente_id,
       especie: atual.especie || cadastroComplementar.paciente.especie || "",
       clinica_id: atual.clinica_id,
+      // Diagnostico, plano terapeutico e triagem NUNCA sao herdados aqui -
+      // decisao clinica deliberada (ver intent.md do pacote
+      // atendimento-herdar-dados-anteriores): sao avaliacoes/medidas novas a
+      // cada consulta, nao um carry-over do atendimento anterior.
+      queixa_principal: dadosClinicos?.queixa_principal || "",
+      anamnese: dadosClinicos?.anamnese || "",
+      exame_fisico: dadosClinicos?.exame_fisico || "",
+      dados_clinicos: dadosClinicos?.dados_clinicos || "",
       prescricao_orientacoes: prescricao?.orientacoes_gerais || "",
       prescricao_retorno_dias: prescricao?.retorno_dias ? String(prescricao.retorno_dias) : "",
       prescricao_itens: itensCopiados.length ? itensCopiados : [emptyPrescriptionItem()],
@@ -2807,6 +2828,11 @@ export default function AtendimentoPage() {
         ? { atendimento_id: origem.id, data_atendimento: origem.data_atendimento }
         : null
     );
+    setDadosClinicosOrigem(
+      dadosClinicos && origem
+        ? { atendimento_id: origem.id, data_atendimento: origem.data_atendimento }
+        : null
+    );
     setDocumentoTemplateSelecionado("");
     setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
     setAnexoArquivo(null);
@@ -2826,6 +2852,60 @@ export default function AtendimentoPage() {
         ? `Novo atendimento iniciado com uma copia revisavel da receita do atendimento #${origem.id}. O registro anterior permanece preservado.`
         : "Novo atendimento iniciado para o mesmo paciente. O prontuario anterior permanece preservado."
     );
+  };
+
+  const herdarAtendimentoAnterior = async (atendimentoId: number) => {
+    const atual = formRef.current;
+    if (!atual.paciente_id) {
+      setErro("Selecione um paciente antes de iniciar o atendimento.");
+      return;
+    }
+    if (autosaveStateRef.current === "saving") {
+      setErro("Aguarde a sincronizacao atual terminar antes de iniciar outro atendimento.");
+      return;
+    }
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        "Iniciar um novo atendimento herdando queixa principal, anamnese, exame fisico, " +
+          "dados clinicos e a receita (se houver) do atendimento selecionado? Diagnostico, " +
+          "plano terapeutico e triagem nao sao copiados - revise e preencha novamente."
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const response = await api.get(`/atendimentos/${atendimentoId}`);
+      const detalhe = response.data || {};
+      const itensHistoricos: PrescricaoItem[] = detalhe.prescricao?.itens || [];
+      const prescricaoHistorica: PrescricaoHistorica | null = detalhe.prescricao
+        ? {
+            id: detalhe.prescricao.id,
+            orientacoes_gerais: detalhe.prescricao.orientacoes_gerais || "",
+            retorno_dias: detalhe.prescricao.retorno_dias ?? null,
+            total_itens: itensHistoricos.length,
+            itens: itensHistoricos,
+          }
+        : null;
+      const origem: AtendimentoHistorico = {
+        id: detalhe.id,
+        data_atendimento: detalhe.data_atendimento,
+        status: detalhe.status,
+        queixa_principal: detalhe.queixa_principal || "",
+        diagnostico_principal: detalhe.diagnostico_principal || "",
+        veterinario: detalhe.criado_por_nome || "",
+        prescricao: prescricaoHistorica,
+      };
+      await iniciarNovoAtendimentoPaciente(prescricaoHistorica, origem, {
+        queixa_principal: detalhe.queixa_principal || "",
+        anamnese: detalhe.anamnese || "",
+        exame_fisico: detalhe.exame_fisico || "",
+        dados_clinicos: detalhe.dados_clinicos || "",
+      });
+    } catch (e: any) {
+      setErro(extractApiErrorMessageSync(e, "Erro ao carregar o atendimento anterior."));
+    }
   };
 
   const setField = (name: keyof AtendimentoForm, value: any) => setForm((prev) => ({ ...prev, [name]: value }));
@@ -3934,6 +4014,7 @@ export default function AtendimentoPage() {
         setAutosaveState("saved");
         setAutosaveAt(response.data?.updated_at || response.data?.created_at || new Date().toISOString());
         setPrescricaoOrigem(null);
+        setDadosClinicosOrigem(null);
         if (typeof window !== "undefined") {
           window.requestAnimationFrame(() => {
             hydratingFormRef.current = false;
@@ -6553,7 +6634,9 @@ export default function AtendimentoPage() {
                     consultaEditorEtapa={consultaEditorEtapa}
                     consultaEditorEtapas={consultaEditorEtapas}
                     consultaEtapasCompletas={consultaEtapasCompletas}
+                    dadosClinicosOrigem={dadosClinicosOrigem}
                     form={form}
+                    formatDate={formatDate}
                     getClinicalFieldValue={getClinicalFieldValue}
                     goToConsultaCampoAnterior={goToConsultaCampoAnterior}
                     goToConsultaCampoProximo={goToConsultaCampoProximo}
@@ -6705,8 +6788,8 @@ export default function AtendimentoPage() {
                     <AtendimentoPrescricaoHistorySection
                       abrirAtendimento={abrirAtendimento}
                       formatDate={formatDate}
+                      herdarAtendimentoAnterior={herdarAtendimentoAnterior}
                       historicoPaciente={historicoPaciente}
-                      iniciarNovoAtendimentoPaciente={iniciarNovoAtendimentoPaciente}
                       prescricaoOrigem={prescricaoOrigem}
                       selecionado={selecionado}
                     />
@@ -6787,6 +6870,7 @@ export default function AtendimentoPage() {
                       form={form}
                       getBadgeStatusClass={getBadgeStatusClass}
                       getGravidadeClass={getGravidadeClass}
+                      herdarAtendimentoAnterior={herdarAtendimentoAnterior}
                       historicoPaciente={historicoPaciente}
                       pacienteNomeExibicao={pacienteNomeExibicao}
                       preenchimentoConsultaLabel={preenchimentoConsultaLabel}
