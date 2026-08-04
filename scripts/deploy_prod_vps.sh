@@ -36,6 +36,8 @@ set -euo pipefail
 #   BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR=0
 #   ENABLE_ECO_STUDY_OCR=1
 #   REQUIRE_ECO_STUDY_OCR=0
+#   RUNTIME_BACKUP_RETENTION_DAYS=30
+#   RUNTIME_BACKUP_MAX_ITEMS=200
 
 APP_DIR="${APP_DIR:-/var/www/fortcordis-v2}"
 BRANCH="${BRANCH:-main}"
@@ -62,6 +64,13 @@ WHATSAPP_DEFAULT_ALLOWED_PAPEIS="${WHATSAPP_DEFAULT_ALLOWED_PAPEIS:-admin,recepc
 WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS="${WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS:-${WHATSAPP_DEFAULT_ALLOWED_PAPEIS}}"
 
 RUNTIME_BACKUP_DIR="${RUNTIME_BACKUP_DIR:-$HOME/fortcordis-runtime-backups}"
+# Stage e prod rodam na mesma VPS, com o mesmo $HOME, e escrevem nesse mesmo
+# diretorio - sem rotacao, ele cresce sem limite a cada deploy (chegou a 2004
+# itens / 13G em ~5 meses e derrubou o disco). Os dois limites abaixo sao
+# aplicados juntos: por idade e por quantidade, para segurar o crescimento
+# mesmo se a frequencia de deploy aumentar.
+RUNTIME_BACKUP_RETENTION_DAYS="${RUNTIME_BACKUP_RETENTION_DAYS:-30}"
+RUNTIME_BACKUP_MAX_ITEMS="${RUNTIME_BACKUP_MAX_ITEMS:-200}"
 AUTO_ROLLBACK_ON_FAILURE="${AUTO_ROLLBACK_ON_FAILURE:-1}"
 ENABLE_AUTH_CANARY="${ENABLE_AUTH_CANARY:-1}"
 AUTH_CANARY_TIMEOUT_SECONDS="${AUTH_CANARY_TIMEOUT_SECONDS:-8}"
@@ -569,6 +578,33 @@ backup_runtime_file() {
   fi
 }
 
+prune_runtime_backups() {
+  if [[ ! -d "$RUNTIME_BACKUP_DIR" ]]; then
+    return
+  fi
+
+  local pruned_by_age=0
+  while IFS= read -r -d '' item; do
+    rm -rf -- "$item"
+    pruned_by_age=$((pruned_by_age + 1))
+  done < <(find "$RUNTIME_BACKUP_DIR" -mindepth 1 -maxdepth 1 -mtime "+${RUNTIME_BACKUP_RETENTION_DAYS}" -print0 2>/dev/null)
+  if [[ "$pruned_by_age" -gt 0 ]]; then
+    log "Pruned ${pruned_by_age} runtime backup item(s) com mais de ${RUNTIME_BACKUP_RETENTION_DAYS} dias em ${RUNTIME_BACKUP_DIR}"
+  fi
+
+  local total_items
+  total_items="$(find "$RUNTIME_BACKUP_DIR" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')"
+  if [[ "$total_items" -gt "$RUNTIME_BACKUP_MAX_ITEMS" ]]; then
+    local excess=$((total_items - RUNTIME_BACKUP_MAX_ITEMS))
+    local pruned_by_count=0
+    while IFS= read -r item && [[ "$pruned_by_count" -lt "$excess" ]]; do
+      rm -rf -- "$item"
+      pruned_by_count=$((pruned_by_count + 1))
+    done < <(find "$RUNTIME_BACKUP_DIR" -mindepth 1 -maxdepth 1 -printf '%T@ %p\n' 2>/dev/null | sort -n | cut -d' ' -f2-)
+    log "Pruned ${pruned_by_count} runtime backup item(s) adicionais para manter no maximo ${RUNTIME_BACKUP_MAX_ITEMS} itens em ${RUNTIME_BACKUP_DIR}"
+  fi
+}
+
 restore_runtime_file() {
   local rel_path="$1"
   local src="${RUNTIME_SNAPSHOT_DIR}/${rel_path}"
@@ -708,6 +744,7 @@ if [[ -n "${PRE_DEPLOY_HASH}" ]]; then
 fi
 
 mkdir -p "$RUNTIME_BACKUP_DIR"
+prune_runtime_backups
 STAMP="$(date +%Y%m%d_%H%M%S)"
 DEPLOY_BACKUP_MARKER="${RUNTIME_BACKUP_DIR}/${STAMP}__deploy-prod.marker"
 touch "$DEPLOY_BACKUP_MARKER"
