@@ -114,5 +114,8 @@ consistencia.
 
 ## 7) Decisao de release
 
-- [ ] Aprovado para stage.
+- [x] Aprovado para stage - `76315163`, deploy-stage concluido com sucesso
+  (sdd-guardrail + quality-gate + deploy-stage). Verificacao visual ao vivo
+  nao realizada nesta sessao (mesma limitacao de Browser tool do pacote
+  anterior).
 - [ ] Aprovado para producao.
