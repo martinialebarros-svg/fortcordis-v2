@@ -17,6 +17,10 @@ Status: done
 | CA-007 | aceitacao | aviso experimental visivel antes e depois do carregamento | ok |
 | CA-008 | aceitacao | link ativo `Visualizador Vivid IQ` no menu Clinica | ok |
 | CA-009 | aceitacao | canvas real 326x144 exibido em 603x490 (1,232:1) | ok |
+| CA-010 | aceitacao | `PAME5GG2`: 2.962 quadros em dois tamanhos exatos, sem warning | ok |
+| CA-011 | aceitacao | `PAME5GG2`: 20,0436 s e taxa media de 147,728 fps | ok |
+| CA-012 | aceitacao | setor vertical 465x493 derivado localmente da previa | ok |
+| CA-013 | aceitacao | conversao setorial e inversao lateral sem alterar o buffer | ok |
 | NFR-001 | privacidade | parser coleta apenas tags tecnicas e retorna zero PII | ok |
 | NFR-002 | prudencia | nenhuma ferramenta de medida; alerta persistente | ok |
 | NFR-003 | memoria | um `ArrayBuffer` fonte e um `ImageData` reutilizado | ok |
@@ -73,6 +77,31 @@ Resultados:
   proporcao coincidente com a regiao do equipamento e sem erros de console.
 - O arquivo permaneceu local; apenas metadados tecnicos seguros foram impressos
   durante o smoke.
+
+### Correcao multibloco e orientacao setorial - 2026-08-04
+
+- A suite sintetica passou em 9/9 cenarios: pixels/timestamps, mudanca de
+  dimensao entre blocos, extracao local da previa JPEG, mapa setorial,
+  estimativa prudente da proporcao e falhas controladas.
+- `PAME5GG2` passou de uma leitura incorreta de 2.863 quadros em 493x138 para
+  2.962 quadros exatos: 1.098 em 493x126 e 1.864 em 493x138. O aviso de buffer
+  incompleto desapareceu e a transicao 1.098 -> 1.099 foi inspecionada sem
+  deslocamento dos pixels.
+- A linha temporal de `PAME5GG2` permaneceu em 20,04357 s e a taxa media passou
+  a 147,728 fps. A proporcao 0,943:1 foi obtida na memoria local a partir da
+  maior regiao neutra da previa encapsulada; o canvas derivado ficou 465x493.
+- A conversao profundidade x feixes para setor vertical foi inspecionada em
+  `PAME5GG2`, em um cine `2D+Trace+MM` 326x144 e em `Q1TBHPGK` 536x195. Os
+  quadros derivados mostraram apice superior, profundidade vertical e arco
+  inferior, mantendo as medicoes desativadas.
+- Smoke em lote somente leitura: 34/34 arquivos de outubro de 2025 e 54/54 de
+  janeiro de 2026 foram analisados sem erro. Quatro cines com dimensoes variaveis
+  foram preservados por bloco; nenhum arquivo clinico foi copiado ao repositorio
+  ou enviado ao backend.
+- Regressao real: `Q1TBHPGK` permaneceu com 1.279 quadros, 10,0205 s e regiao
+  761x589; `Q1TBJA8U` permaneceu com 1.421 quadros, 10,0183 s e regiao 324x263.
+- `npm run lint`, `tsc --noEmit`, build Next.js 15.5.14 e `git diff --check`
+  passaram. A rota compilada passou a 10,8 kB, com 40 paginas estaticas geradas.
 
 ### Evidencias de release
 

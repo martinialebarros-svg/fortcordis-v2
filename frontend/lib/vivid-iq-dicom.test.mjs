@@ -3,8 +3,11 @@ import test from "node:test";
 
 import {
   VividIqDicomError,
+  createVividIqDisplayMap,
+  detectVividIqPreviewAspectRatio,
   findVividIqFrameAtTimestamp,
   getVividIqFramePixels,
+  getVividIqPreviewJpeg,
   parseVividIqDicom,
 } from "./vivid-iq-dicom.mjs";
 
@@ -64,6 +67,24 @@ function item(value) {
   return concat(header, payload);
 }
 
+function undefinedLengthElement(group, tag, vr, fragments) {
+  const header = Buffer.alloc(12);
+  header.writeUInt16LE(group, 0);
+  header.writeUInt16LE(tag, 2);
+  header.write(vr, 4, 2, "ascii");
+  header.writeUInt32LE(0xffffffff, 8);
+  const delimiter = Buffer.alloc(8);
+  delimiter.writeUInt16LE(0xfffe, 0);
+  delimiter.writeUInt16LE(0xe0dd, 2);
+  return concat(header, ...fragments.map((fragment) => item(fragment)), delimiter);
+}
+
+function timestampsBuffer(values) {
+  const timestamps = Buffer.alloc(values.length * 8);
+  values.forEach((value, index) => timestamps.writeDoubleLE(value, index * 8));
+  return timestamps;
+}
+
 function sequence(group, tag, ...items) {
   return element(group, tag, "SQ", concat(...items.map((value) => item(value))));
 }
@@ -75,6 +96,10 @@ function asArrayBuffer(value) {
 function buildSyntheticVividIqDicom({
   includePrivateMovie = true,
   includeUltrasoundRegion = true,
+  includeCurvedSurface = false,
+  includePreview = false,
+  imageSizes = [[2, 2]],
+  voxelGroupSpecs,
   rawPixels,
 } = {}) {
   const preamble = Buffer.alloc(128);
@@ -95,6 +120,12 @@ function buildSyntheticVividIqDicom({
         ),
       )
     : Buffer.alloc(0);
+  const preview = includePreview
+    ? undefinedLengthElement(0x7fe0, 0x0010, "OB", [
+        Buffer.alloc(4),
+        Buffer.from([0xff, 0xd8, 0x01, 0x02, 0xff, 0xd9]),
+      ])
+    : Buffer.alloc(0);
   const safeDataset = concat(
     textElement(0x0008, 0x0060, "CS", "US"),
     textElement(0x0008, 0x0070, "LO", "GE Vingmed Ultrasound"),
@@ -103,37 +134,44 @@ function buildSyntheticVividIqDicom({
     ultrasoundRegion,
     uint16Element(0x0028, 0x0010, 708),
     uint16Element(0x0028, 0x0011, 1016),
+    preview,
   );
 
   if (!includePrivateMovie) {
     return asArrayBuffer(concat(preamble, magic, meta, safeDataset));
   }
 
-  const timestamps = Buffer.alloc(16);
-  timestamps.writeDoubleLE(1, 0);
-  timestamps.writeDoubleLE(1.1, 8);
-  const pixels = rawPixels || Buffer.from([
+  const defaultPixels = rawPixels || Buffer.from([
     0, 64, 128, 255,
     255, 128, 64, 0,
   ]);
+  const groups = voxelGroupSpecs || [{
+    timestamps: [1, 1.1],
+    pixels: defaultPixels,
+  }];
 
   const imageDescription = sequence(
     0x7fe1,
     0x1026,
     concat(
       textElement(0x7fe1, 0x0010, "LO", "GEMS_Ultrasound_MovieGroup_001"),
-      int32x4Element(0x7fe1, 0x1086, [2, 2, 0, 2]),
+      includeCurvedSurface
+        ? textElement(0x7fe1, 0x1057, "LT", "CurvedSurface")
+        : Buffer.alloc(0),
+      ...imageSizes.map(([width, height]) => (
+        int32x4Element(0x7fe1, 0x1086, [width, height, 0, 2])
+      )),
     ),
   );
   const voxelGroups = sequence(
     0x7fe1,
     0x1036,
-    concat(
+    ...groups.map((group) => concat(
       textElement(0x7fe1, 0x0010, "LO", "GEMS_Ultrasound_MovieGroup_001"),
-      uint32Element(0x7fe1, 0x1037, 2),
-      element(0x7fe1, 0x1043, "OB", timestamps),
-      element(0x7fe1, 0x1060, "OB", pixels),
-    ),
+      uint32Element(0x7fe1, 0x1037, group.timestamps.length),
+      element(0x7fe1, 0x1043, "OB", timestampsBuffer(group.timestamps)),
+      element(0x7fe1, 0x1060, "OB", group.pixels),
+    )),
   );
   const levelTwo = sequence(
     0x7fe1,
@@ -199,6 +237,81 @@ test("usa proporcao nativa quando a regiao 2D do equipamento nao existe", () => 
   assert.equal(study.displayHeight, 2);
   assert.equal(study.displayAspectRatio, 1);
   assert.equal(study.displayAspectRatioSource, "native-pixels");
+});
+
+test("preserva dimensoes por bloco quando o equipamento muda a geometria no mesmo cine", () => {
+  const study = parseVividIqDicom(buildSyntheticVividIqDicom({
+    includeUltrasoundRegion: false,
+    imageSizes: [[2, 2], [3, 2]],
+    voxelGroupSpecs: [
+      {
+        timestamps: [1, 1.1],
+        pixels: Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]),
+      },
+      {
+        timestamps: [1.2],
+        pixels: Buffer.from([9, 10, 11, 12, 13, 14]),
+      },
+    ],
+  }));
+
+  assert.equal(study.frameCount, 3);
+  assert.deepEqual(study.frameDimensions, [
+    { width: 2, height: 2, frameCount: 2 },
+    { width: 3, height: 2, frameCount: 1 },
+  ]);
+  assert.deepEqual(
+    study.frames.map(({ width, height, frameSize }) => ({ width, height, frameSize })),
+    [
+      { width: 2, height: 2, frameSize: 4 },
+      { width: 2, height: 2, frameSize: 4 },
+      { width: 3, height: 2, frameSize: 6 },
+    ],
+  );
+  assert.deepEqual([...getVividIqFramePixels(study, 2)], [9, 10, 11, 12, 13, 14]);
+  assert.ok(Math.abs(study.frameRate - 10) < 0.0001);
+});
+
+test("extrai a previa JPEG local sem interpretar seus metadados visuais", () => {
+  const study = parseVividIqDicom(buildSyntheticVividIqDicom({ includePreview: true }));
+  assert.deepEqual(
+    [...getVividIqPreviewJpeg(study)],
+    [0xff, 0xd8, 0x01, 0x02, 0xff, 0xd9],
+  );
+});
+
+test("orienta a varredura curva como setor com profundidade vertical", () => {
+  const study = parseVividIqDicom(buildSyntheticVividIqDicom({
+    includeCurvedSurface: true,
+    includeUltrasoundRegion: false,
+  }));
+  const mapping = createVividIqDisplayMap(5, 3, 5, 5, true, true);
+
+  assert.equal(study.scanConversion, true);
+  assert.equal(study.displayAspectRatioSource, "estimated-sector");
+  assert.equal(mapping.length, 25);
+  assert.ok(mapping.some((sourceIndex) => sourceIndex >= 0));
+  assert.equal(mapping[2], 5);
+  assert.equal(mapping[4], -1);
+});
+
+test("estima a proporcao da maior regiao neutra da previa", () => {
+  const width = 120;
+  const height = 100;
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  for (let y = 20; y < 90; y += 1) {
+    const halfWidth = Math.round((y - 20) * 0.6);
+    for (let x = 60 - halfWidth; x <= 60 + halfWidth; x += 1) {
+      const offset = (y * width + x) * 4;
+      pixels[offset] = 90;
+      pixels[offset + 1] = 90;
+      pixels[offset + 2] = 90;
+      pixels[offset + 3] = 255;
+    }
+  }
+
+  const aspectRatio = detectVividIqPreviewAspectRatio(pixels, width, height, 4);
+  assert.ok(aspectRatio > 1 && aspectRatio < 1.4);
 });
 
 test("rejeita arquivo sem assinatura DICM", () => {

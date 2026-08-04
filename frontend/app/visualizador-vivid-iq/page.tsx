@@ -18,6 +18,7 @@ import {
   ChevronsRight,
   Download,
   FileVideo,
+  FlipHorizontal2,
   Gauge,
   Loader2,
   Maximize2,
@@ -33,8 +34,11 @@ import {
 import DashboardLayout from "../layout-dashboard";
 import {
   VIVID_IQ_MAX_FILE_BYTES,
+  createVividIqDisplayMap,
+  detectVividIqPreviewAspectRatio,
   findVividIqFrameAtTimestamp,
   getVividIqFramePixels,
+  getVividIqPreviewJpeg,
   parseVividIqDicom,
   type VividIqStudy,
 } from "@/lib/vivid-iq-dicom.mjs";
@@ -56,6 +60,25 @@ function clampFrame(study: VividIqStudy, frameIndex: number) {
   return Math.max(0, Math.min(study.frameCount - 1, frameIndex));
 }
 
+function formatFrameDimensions(study: VividIqStudy) {
+  return study.frameDimensions
+    .map(({ width, height }) => `${width} x ${height}`)
+    .join(" → ");
+}
+
+function displayGeometryLabel(source: VividIqStudy["displayAspectRatioSource"]) {
+  if (source === "ultrasound-region") {
+    return "orientacao setorial informada pelo equipamento";
+  }
+  if (source === "preview-image") {
+    return "orientacao setorial estimada pela previa local";
+  }
+  if (source === "estimated-sector") {
+    return "orientacao setorial estimada";
+  }
+  return "orientacao nativa dos pixels";
+}
+
 function readableError(error: unknown) {
   if (error instanceof Error && error.message) {
     return error.message;
@@ -70,6 +93,8 @@ export default function VisualizadorVividIqPage() {
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [brightness, setBrightness] = useState(0);
   const [contrast, setContrast] = useState(1);
+  const [lateralFlip, setLateralFlip] = useState(true);
+  const [previewAspectRatio, setPreviewAspectRatio] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -85,6 +110,32 @@ export default function VisualizadorVividIqPage() {
     height: number;
     imageData: ImageData;
   } | null>(null);
+  const displayMapRef = useRef<Map<string, Int32Array>>(new Map());
+
+  const displayGeometry = useMemo(() => {
+    if (!study) {
+      return null;
+    }
+    const aspectRatio = previewAspectRatio || study.displayAspectRatio;
+    const equipmentHeight = study.displayAspectRatioSource === "ultrasound-region"
+      ? study.displayHeight
+      : 1;
+    let height = Math.min(768, Math.max(1, study.maxFrameWidth, equipmentHeight));
+    let width = Math.max(1, Math.round(height * aspectRatio));
+    if (width > 768) {
+      const scale = 768 / width;
+      width = 768;
+      height = Math.max(1, Math.round(height * scale));
+    }
+    return {
+      aspectRatio,
+      width,
+      height,
+      source: previewAspectRatio
+        ? "preview-image" as const
+        : study.displayAspectRatioSource,
+    };
+  }, [previewAspectRatio, study]);
 
   const goToFrame = useCallback((nextIndex: number) => {
     if (!study) {
@@ -111,8 +162,11 @@ export default function VisualizadorVividIqPage() {
     frameIndexRef.current = 0;
     setBrightness(0);
     setContrast(1);
+    setLateralFlip(true);
+    setPreviewAspectRatio(null);
     setErrorMessage("");
     imageDataRef.current = null;
+    displayMapRef.current.clear();
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -132,7 +186,11 @@ export default function VisualizadorVividIqPage() {
     frameIndexRef.current = 0;
     setBrightness(0);
     setContrast(1);
+    setLateralFlip(true);
+    setPreviewAspectRatio(null);
     setErrorMessage("");
+    imageDataRef.current = null;
+    displayMapRef.current.clear();
 
     if (file.size > VIVID_IQ_MAX_FILE_BYTES) {
       setErrorMessage("O arquivo excede o limite local de 512 MB.");
@@ -179,8 +237,66 @@ export default function VisualizadorVividIqPage() {
     }
   };
 
+  useEffect(() => {
+    setPreviewAspectRatio(null);
+    if (!study || study.displayAspectRatioSource !== "estimated-sector") {
+      return;
+    }
+    const previewJpeg = getVividIqPreviewJpeg(study);
+    if (!previewJpeg || typeof createImageBitmap !== "function") {
+      return;
+    }
+
+    let cancelled = false;
+    let bitmap: ImageBitmap | null = null;
+    const detectPreviewGeometry = async () => {
+      try {
+        const jpegCopy = new Uint8Array(previewJpeg.length);
+        jpegCopy.set(previewJpeg);
+        bitmap = await createImageBitmap(new Blob([jpegCopy.buffer], { type: "image/jpeg" }));
+        if (cancelled) {
+          return;
+        }
+        const previewCanvas = document.createElement("canvas");
+        previewCanvas.width = bitmap.width;
+        previewCanvas.height = bitmap.height;
+        const previewContext = previewCanvas.getContext("2d", { willReadFrequently: true });
+        if (!previewContext) {
+          return;
+        }
+        previewContext.drawImage(bitmap, 0, 0);
+        const previewPixels = previewContext.getImageData(
+          0,
+          0,
+          bitmap.width,
+          bitmap.height,
+        );
+        const detected = detectVividIqPreviewAspectRatio(
+          previewPixels.data,
+          bitmap.width,
+          bitmap.height,
+          4,
+        );
+        if (!cancelled && detected) {
+          displayMapRef.current.clear();
+          imageDataRef.current = null;
+          setPreviewAspectRatio(detected);
+        }
+      } catch {
+        // A geometria 1:1 prudente permanece ativa se a previa nao puder ser decodificada.
+      } finally {
+        bitmap?.close();
+      }
+    };
+    void detectPreviewGeometry();
+    return () => {
+      cancelled = true;
+      bitmap?.close();
+    };
+  }, [study]);
+
   const renderFrame = useCallback(() => {
-    if (!study || !canvasRef.current) {
+    if (!study || !displayGeometry || !canvasRef.current) {
       return;
     }
     const canvas = canvasRef.current;
@@ -189,38 +305,67 @@ export default function VisualizadorVividIqPage() {
       return;
     }
 
-    if (canvas.width !== study.width || canvas.height !== study.height) {
-      canvas.width = study.width;
-      canvas.height = study.height;
+    if (
+      canvas.width !== displayGeometry.width
+      || canvas.height !== displayGeometry.height
+    ) {
+      canvas.width = displayGeometry.width;
+      canvas.height = displayGeometry.height;
       imageDataRef.current = null;
+      displayMapRef.current.clear();
     }
     if (
       !imageDataRef.current
-      || imageDataRef.current.width !== study.width
-      || imageDataRef.current.height !== study.height
+      || imageDataRef.current.width !== displayGeometry.width
+      || imageDataRef.current.height !== displayGeometry.height
     ) {
       imageDataRef.current = {
-        width: study.width,
-        height: study.height,
-        imageData: context.createImageData(study.width, study.height),
+        width: displayGeometry.width,
+        height: displayGeometry.height,
+        imageData: context.createImageData(displayGeometry.width, displayGeometry.height),
       };
     }
 
+    const frame = study.frames[frameIndex];
     const source = getVividIqFramePixels(study, frameIndex);
-    const target = imageDataRef.current.imageData.data;
-    for (let pixelIndex = 0; pixelIndex < source.length; pixelIndex += 1) {
-      const adjusted = Math.max(
-        0,
-        Math.min(255, (source[pixelIndex] - 128) * contrast + 128 + brightness),
+    const mapKey = [
+      frame.width,
+      frame.height,
+      displayGeometry.width,
+      displayGeometry.height,
+      Number(study.scanConversion),
+      Number(lateralFlip),
+    ].join(":");
+    let displayMap = displayMapRef.current.get(mapKey);
+    if (!displayMap) {
+      displayMap = createVividIqDisplayMap(
+        frame.width,
+        frame.height,
+        displayGeometry.width,
+        displayGeometry.height,
+        study.scanConversion,
+        lateralFlip,
       );
-      const targetOffset = pixelIndex * 4;
-      target[targetOffset] = adjusted;
-      target[targetOffset + 1] = adjusted;
-      target[targetOffset + 2] = adjusted;
-      target[targetOffset + 3] = 255;
+      displayMapRef.current.set(mapKey, displayMap);
+    }
+    const target = imageDataRef.current.imageData.data;
+    const targetPixels = new Uint32Array(
+      target.buffer,
+      target.byteOffset,
+      target.byteLength / Uint32Array.BYTES_PER_ELEMENT,
+    );
+    for (let pixelIndex = 0; pixelIndex < displayMap.length; pixelIndex += 1) {
+      const sourceIndex = displayMap[pixelIndex];
+      const adjusted = sourceIndex < 0
+        ? 0
+        : Math.max(
+            0,
+            Math.min(255, (source[sourceIndex] - 128) * contrast + 128 + brightness),
+          );
+      targetPixels[pixelIndex] = 0xff000000 | adjusted * 0x010101;
     }
     context.putImageData(imageDataRef.current.imageData, 0, 0);
-  }, [brightness, contrast, frameIndex, study]);
+  }, [brightness, contrast, displayGeometry, frameIndex, lateralFlip, study]);
 
   useEffect(() => {
     renderFrame();
@@ -303,6 +448,7 @@ export default function VisualizadorVividIqPage() {
   const resetImageAdjustments = () => {
     setBrightness(0);
     setContrast(1);
+    setLateralFlip(true);
   };
 
   const requestFullscreen = async () => {
@@ -319,8 +465,8 @@ export default function VisualizadorVividIqPage() {
       return;
     }
     const captureCanvas = document.createElement("canvas");
-    captureCanvas.width = study.width;
-    captureCanvas.height = Math.max(1, Math.round(study.width / study.displayAspectRatio));
+    captureCanvas.width = canvas.width;
+    captureCanvas.height = canvas.height;
     const captureContext = captureCanvas.getContext("2d", { alpha: false });
     if (!captureContext) {
       setErrorMessage("Nao foi possivel preparar a captura PNG deste quadro.");
@@ -461,7 +607,7 @@ export default function VisualizadorVividIqPage() {
           </div>
         )}
 
-        {study && (
+        {study && displayGeometry && (
           <>
             <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
               <div className="rounded-2xl border border-ink-100 bg-white p-4 shadow-sm sm:col-span-2 xl:col-span-1">
@@ -472,11 +618,11 @@ export default function VisualizadorVividIqPage() {
               <div className="rounded-2xl border border-ink-100 bg-white p-4 shadow-sm">
                 <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Cine</p>
                 <p className="mt-2 text-lg font-bold text-ink-900">{study.frameCount.toLocaleString("pt-BR")} quadros</p>
-                <p className="mt-1 text-xs text-ink-500">{study.width} x {study.height} px brutos</p>
+                <p className="mt-1 text-xs text-ink-500">
+                  {formatFrameDimensions(study)} px brutos
+                </p>
                 <p className="mt-1 text-xs text-vital-700">
-                  {study.displayAspectRatioSource === "ultrasound-region"
-                    ? "proporcao visual corrigida pelo equipamento"
-                    : "proporcao nativa dos pixels"}
+                  {displayGeometryLabel(displayGeometry.source)}
                 </p>
               </div>
               <div className="rounded-2xl border border-ink-100 bg-white p-4 shadow-sm">
@@ -510,8 +656,8 @@ export default function VisualizadorVividIqPage() {
                 <div
                   className="w-full max-w-6xl"
                   style={{
-                    aspectRatio: `${study.displayWidth} / ${study.displayHeight}`,
-                    width: `min(100%, calc(68vh * ${study.displayAspectRatio}))`,
+                    aspectRatio: `${displayGeometry.width} / ${displayGeometry.height}`,
+                    width: `min(100%, calc(68vh * ${displayGeometry.aspectRatio}))`,
                   }}
                 >
                   <canvas
@@ -605,7 +751,7 @@ export default function VisualizadorVividIqPage() {
                   </label>
                 </div>
 
-                <div className="grid gap-4 border-t border-ink-100 pt-5 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
+                <div className="grid gap-4 border-t border-ink-100 pt-5 lg:grid-cols-[1fr_1fr_auto_auto] lg:items-end">
                   <label className="block">
                     <span className="mb-2 flex items-center justify-between text-xs font-semibold text-ink-600">
                       <span className="flex items-center gap-2"><Sun className="h-4 w-4" /> Brilho</span>
@@ -635,6 +781,14 @@ export default function VisualizadorVividIqPage() {
                       className="h-2 w-full accent-vital-600"
                     />
                   </label>
+                  <button
+                    type="button"
+                    onClick={() => setLateralFlip((current) => !current)}
+                    aria-pressed={!lateralFlip}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-ink-200 px-4 py-2.5 text-sm font-semibold text-ink-700 hover:bg-ink-50"
+                  >
+                    <FlipHorizontal2 className="h-4 w-4" /> Inverter lado
+                  </button>
                   <button
                     type="button"
                     onClick={resetImageAdjustments}

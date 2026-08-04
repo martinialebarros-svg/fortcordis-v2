@@ -33,6 +33,15 @@ upload para o backend.
 - RF-010: quando existir uma regiao ultrassonografica 2D em `(0018,6011)`, usar
   `Region Location Min/Max X/Y` para corrigir a proporcao visual dos pixels
   privados da GE sem modificar o quadro fonte.
+- RF-011: resolver as dimensoes de cada bloco de voxels de forma independente,
+  aceitando mudancas de largura/altura dentro do mesmo cine somente quando o
+  tamanho declarado, o buffer e a quantidade de timestamps forem exatos.
+- RF-012: para imagens `CurvedSurface`, converter a matriz bruta profundidade x
+  feixes para uma apresentacao setorial com profundidade vertical, respeitando
+  a proporcao da regiao 2D do equipamento.
+- RF-013: quando a regiao 2D nao existir, estimar localmente a proporcao do
+  setor a partir da maior regiao neutra da previa JPEG encapsulada, sem exibir,
+  persistir ou transmitir essa previa; oferecer inversao lateral manual.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -49,6 +58,8 @@ upload para o backend.
   presente.
 - NFR-006 (rastreabilidade): o arquivo clinico real permanece externo; testes
   versionados usam apenas um DICOM sintetico sem identificadores.
+- NFR-007 (desempenho): reutilizar o `ImageData` e um mapa de conversao espacial
+  por dimensao de bloco, sem reconstruir a geometria a cada quadro.
 
 ## 4) Contratos tecnicos
 
@@ -70,9 +81,9 @@ upload para o backend.
 - Tela: `/visualizador-vivid-iq`.
 - Biblioteca: `frontend/lib/vivid-iq-dicom.mjs`.
 - Estados: vazio, lendo, pronto, reproduzindo e erro.
-- O canvas renderiza um quadro nativo por vez, usa os timestamps do equipamento
-  para escolher o quadro correspondente ao relogio de reproducao e aplica na
-  camada de apresentacao a proporcao da regiao 2D do equipamento.
+- O canvas usa os timestamps do equipamento para escolher o quadro
+  correspondente ao relogio de reproducao, respeita as dimensoes declaradas de
+  cada bloco e aplica uma conversao setorial somente na camada de apresentacao.
 
 ## 5) Compatibilidade e rollout
 
@@ -98,20 +109,35 @@ upload para o backend.
 - CA-008: o menu autenticado contem acesso direto a pagina.
 - CA-009: um cine `2D+Trace+MM` com pixels brutos 326x144 e regiao 2D 324x263
   e exibido em aproximadamente 1,23:1, sem o alongamento horizontal de 2,26:1.
+- CA-010: `PAME5GG2` e montado com 2.962 quadros, sendo 1.098 em 493x126 e
+  1.864 em 493x138, sem deslocamento do inicio dos quadros nem aviso falso de
+  buffer incompleto.
+- CA-011: a linha temporal real de `PAME5GG2` permanece em aproximadamente
+  20,04 s e informa taxa media de aproximadamente 147,7 fps.
+- CA-012: a apresentacao de `PAME5GG2` usa setor vertical em aproximadamente
+  0,94:1, estimado apenas na memoria local a partir da previa encapsulada.
+- CA-013: cines com regiao 2D valida usam sua proporcao na conversao setorial e
+  permitem inversao lateral sem alterar o buffer fonte.
 
 ## 7) Casos de borda
 
 - CB-001: timestamps ausentes ou nao monotonicos usam uma linha temporal
   sintetica prudente de 30 fps e exibem aviso.
-- CB-002: quantidade declarada maior que o buffer usa somente quadros completos.
+- CB-002: bloco cujo buffer nao corresponde exatamente a nenhuma dimensao 2D
+  declarada e ignorado como componente auxiliar; o cine falha se nenhum bloco
+  2D exato permanecer.
 - CB-003: troca de arquivo interrompe a reproducao anterior e libera a
   referencia ao buffer anterior.
 - CB-004: arquivo acima de 512 MB e recusado antes da leitura integral.
 - CB-005: se a sequencia de regiao ultrassonografica 2D estiver ausente ou for
-  invalida, a exibicao usa a proporcao nativa dos pixels como fallback seguro.
+  invalida, a exibicao tenta a geometria da previa local e usa setor 1:1 como
+  fallback prudente quando a previa nao puder ser decodificada.
+- CB-006: mudanca de dimensao entre blocos preserva a continuidade dos
+  timestamps e reutiliza um mapa espacial separado para cada tamanho.
 
 ## 8) Fora de escopo
 
 - Medicoes calibradas ou diagnostico automatizado.
 - Persistencia, compartilhamento, DICOMweb, PACS ou vinculo com paciente/laudo.
 - Suporte a MovieGroup 3D/4D ou reconstrucao de traces da GE.
+- Medicao ou homologacao geometrica da conversao setorial experimental.
