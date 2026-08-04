@@ -106,3 +106,9 @@ Por isso, esta iteracao adiciona:
 - Implementar multiusuario por clinica.
 - Criar analytics financeiros ou dashboards executivos fora do escopo do portal.
 - Automatizar contato ativo com clinicas inativas via WhatsApp ou email.
+
+### Refinamento de autorizacao operacional de 2026-08-04
+
+O convite para clinica parceira ja existia, mas estava protegido exclusivamente pelo papel `admin`. Na base operacional, a colaboradora de secretaria esta cadastrada como `recepcao`; por isso ela conseguia chegar ao cockpit, mas recebia `403` ao consultar ou gerar o convite.
+
+O objetivo deste refinamento e permitir que `recepcao` e as variantes de `secretaria` consultem o estado necessario e gerem ou reenviem convites. Revogar convite, conta ou sessoes continua sendo uma decisao administrativa e permanece restrito a `admin`.
