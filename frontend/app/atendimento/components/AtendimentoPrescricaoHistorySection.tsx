@@ -9,8 +9,8 @@ export default function AtendimentoPrescricaoHistorySection(props: AtendimentoPr
   const {
     abrirAtendimento,
     formatDate,
+    herdarAtendimentoAnterior,
     historicoPaciente,
-    iniciarNovoAtendimentoPaciente,
     prescricaoOrigem,
     selecionado,
   } = props;
@@ -87,7 +87,7 @@ export default function AtendimentoPrescricaoHistorySection(props: AtendimentoPr
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => iniciarNovoAtendimentoPaciente(atendimento.prescricao, atendimento)}
+                  onClick={() => void herdarAtendimentoAnterior(atendimento.id)}
                   className="inline-flex items-center gap-2 rounded-2xl bg-violet-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-violet-700"
                 >
                   <Copy className="h-3.5 w-3.5" />
