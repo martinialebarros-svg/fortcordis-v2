@@ -1717,6 +1717,10 @@ def _map_prescricao_item(item: PrescricaoItem) -> dict:
         "via": item.via or "",
         "instrucoes": item.instrucoes or "",
         "ordem": item.ordem or 0,
+        "dose_mg_kg": item.dose_mg_kg or "",
+        "peso_referencia_kg": item.peso_referencia_kg or "",
+        "unidade_dose_calculo": item.unidade_dose_calculo or "",
+        "concentracao_personalizada": item.concentracao_personalizada or "",
     }
 
 
@@ -1873,6 +1877,10 @@ def _sync_prescricao(
             "duracao": item.duracao,
             "via": item.via,
             "instrucoes": item.instrucoes,
+            "dose_mg_kg": item.dose_mg_kg,
+            "peso_referencia_kg": item.peso_referencia_kg,
+            "unidade_dose_calculo": item.unidade_dose_calculo,
+            "concentracao_personalizada": item.concentracao_personalizada,
         }
         item.prescricao_id = prescricao.id
         item.medicamento_id = item_payload.medicamento_id
@@ -1888,6 +1896,10 @@ def _sync_prescricao(
         item.via = item_payload.via or ""
         item.instrucoes = item_payload.instrucoes or ""
         item.ordem = item_payload.ordem if item_payload.ordem is not None else index
+        item.dose_mg_kg = item_payload.dose_mg_kg or ""
+        item.peso_referencia_kg = item_payload.peso_referencia_kg or ""
+        item.unidade_dose_calculo = item_payload.unidade_dose_calculo or ""
+        item.concentracao_personalizada = item_payload.concentracao_personalizada or ""
         item.updated_at = datetime.now()
 
         if item_payload.id and item.id:
@@ -2108,7 +2120,7 @@ def listar_atendimentos(
     if dt_inicio:
         query = query.filter(AtendimentoClinico.data_atendimento >= dt_inicio)
     if dt_fim:
-        query = query.filter(AtendimentoClinico.data_atendimento < dt_fim + timedelta(days=1))
+        query = query.filter(AtendimentoClinico.data_atendimento <= dt_fim)
     if paciente_id:
         query = query.filter(AtendimentoClinico.paciente_id == paciente_id)
     if clinica_id:
@@ -3567,13 +3579,54 @@ def finalizar_atendimento(
 @router.delete("/{atendimento_id}")
 def excluir_atendimento(
     atendimento_id: int,
+    request: Request,
+    confirmar_exclusao: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _ = current_user
     atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+
+    if _status_atendimento_concluido(atendimento.status) and not confirmar_exclusao:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "codigo": "CONFIRMACAO_EXCLUSAO_ATENDIMENTO_CONCLUIDO",
+                "mensagem": (
+                    f"Atendimento #{atendimento_id} esta concluido. Confirme para "
+                    "excluir mesmo assim - o agendamento vinculado (se houver) volta "
+                    'para "Confirmado" e a Ordem de Servico ativa e cancelada.'
+                ),
+                "confirmavel": True,
+            },
+        )
+
+    status_anterior = atendimento.status
+    agendamento_id_vinculado = atendimento.agendamento_id
+    agendamento = None
+    agenda_status_anterior = None
+    ordem_servico_cancelada_id = None
+
+    if agendamento_id_vinculado:
+        agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id_vinculado).first()
+        if agendamento:
+            agenda_status_anterior = agendamento.status
+            agendamento.status = "Confirmado"
+            agendamento.atualizado_em = datetime.now()
+            agendamento.updated_at = datetime.now()
+
+            ordem_servico_ativa = _buscar_os_ativa(db, agendamento_id_vinculado)
+            if ordem_servico_ativa:
+                ordem_servico_ativa.status = "Cancelado"
+                ordem_servico_cancelada_id = ordem_servico_ativa.id
+
+    db.query(EvolucaoClinica).filter(EvolucaoClinica.atendimento_id == atendimento_id).delete(
+        synchronize_session=False
+    )
+    db.query(PrescricaoItemAjuste).filter(PrescricaoItemAjuste.atendimento_id == atendimento_id).delete(
+        synchronize_session=False
+    )
 
     exames = db.query(Exame).filter(Exame.atendimento_id == atendimento_id).all()
     for exame in exames:
@@ -3592,6 +3645,42 @@ def excluir_atendimento(
     documentos = db.query(DocumentoAtendimento).filter(DocumentoAtendimento.atendimento_id == atendimento_id).all()
     for documento in documentos:
         db.delete(documento)
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="atendimento",
+        entidade="atendimento_clinico",
+        entidade_id=atendimento_id,
+        acao="ATENDIMENTO_EXCLUIDO",
+        descricao=f"Atendimento #{atendimento_id} excluido (status anterior: {status_anterior}).",
+        detalhes={
+            "status_anterior": status_anterior,
+            "agendamento_id": agendamento_id_vinculado,
+            "agenda_status_anterior": agenda_status_anterior,
+            "agenda_status_novo": agendamento.status if agendamento else None,
+            "ordem_servico_cancelada_id": ordem_servico_cancelada_id,
+        },
+        request=request,
+    )
+    if agendamento and agenda_status_anterior != agendamento.status:
+        registrar_auditoria(
+            current_user=current_user,
+            modulo="agenda",
+            entidade="agendamento",
+            entidade_id=agendamento.id,
+            acao="AGENDAMENTO_REVERTIDO_POR_EXCLUSAO_ATENDIMENTO",
+            descricao=(
+                f"Agenda #{agendamento.id} revertida para \"{agendamento.status}\" "
+                f"pela exclusao do Atendimento #{atendimento_id}."
+            ),
+            detalhes={
+                "atendimento_id": atendimento_id,
+                "status_anterior": agenda_status_anterior,
+                "status_novo": agendamento.status,
+                "ordem_servico_cancelada_id": ordem_servico_cancelada_id,
+            },
+            request=request,
+        )
 
     db.delete(atendimento)
     db.commit()

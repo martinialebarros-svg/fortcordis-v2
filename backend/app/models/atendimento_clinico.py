@@ -240,6 +240,10 @@ class PrescricaoItem(Base):
     via = Column(String)
     instrucoes = Column(Text)
     ordem = Column(Integer, nullable=False, default=0)
+    dose_mg_kg = Column(String)
+    peso_referencia_kg = Column(String)
+    unidade_dose_calculo = Column(String)
+    concentracao_personalizada = Column(String)
 
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

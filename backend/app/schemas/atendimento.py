@@ -1,5 +1,5 @@
 """Schemas Pydantic para o módulo de atendimento clínico."""
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -53,6 +53,10 @@ class PrescricaoItemPayload(BaseModel):
     via: Optional[str] = ""
     instrucoes: Optional[str] = ""
     ordem: Optional[int] = 0
+    dose_mg_kg: Optional[str] = None
+    peso_referencia_kg: Optional[str] = None
+    unidade_dose_calculo: Optional[Literal["mg", "ml", "comprimido"]] = None
+    concentracao_personalizada: Optional[str] = None
 
 
 class PrescricaoPayload(BaseModel):
