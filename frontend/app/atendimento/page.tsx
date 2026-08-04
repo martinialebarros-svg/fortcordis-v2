@@ -296,6 +296,8 @@ type ExameSolicitacao = {
   anexos_resultado?: Anexo[];
   /** Marcacao explicita de exclusao. Omitir um exame do payload nao apaga nada. */
   _destroy?: boolean;
+  /** Identificador local estavel para exames ainda nao persistidos (nunca enviado ao backend). */
+  _localId?: string;
 };
 
 type CatalogoExame = {
@@ -693,6 +695,18 @@ const persistLocalPresets = (storageKey: string, value: unknown) => {
   window.localStorage.setItem(storageKey, JSON.stringify(value));
 };
 
+let exameLocalIdCounter = 0;
+const gerarExameLocalId = (): string => {
+  exameLocalIdCounter += 1;
+  return `exame-local-${Date.now()}-${exameLocalIdCounter}`;
+};
+
+/** Chave estavel para os mapas de estado por exame (examesExpandidos/examUploadDrafts/examDropActive):
+ * `exame.id` quando ja persistido, senao o `_localId` gerado no client - nunca o indice no array,
+ * que desloca quando um exame do meio da lista e removido/inserido. */
+const getExameStateKey = (exame: Pick<ExameSolicitacao, "id" | "_localId">): string =>
+  exame.id != null ? String(exame.id) : exame._localId || "sem-id";
+
 const emptyExam = (): ExameSolicitacao => ({
   catalogo_exame_id: null,
   painel_exame_id: null,
@@ -711,6 +725,7 @@ const emptyExam = (): ExameSolicitacao => ({
   data_solicitacao: "",
   data_resultado: "",
   anexos_resultado: [],
+  _localId: gerarExameLocalId(),
 });
 
 const emptyPrescriptionItem = (): PrescricaoItem => ({
@@ -1093,6 +1108,12 @@ const hydrateExam = (item: any): ExameSolicitacao => ({
 const ATENDIMENTO_DRAFT_KEY = "fortcordis:atendimento:draft:v1";
 const AUTOSAVE_DELAY_MS = 1800;
 
+/** Chave do backup local pos-primeiro-save: por atendimento_id, distinta da
+ * chave global usada antes do primeiro save (ATENDIMENTO_DRAFT_KEY), para
+ * nao misturar rascunhos de atendimentos diferentes ja persistidos. */
+const getAtendimentoDraftBackupKey = (atendimentoId: number | string) =>
+  `${ATENDIMENTO_DRAFT_KEY}:${atendimentoId}`;
+
 const hydrateFormFromDetail = (d: any): AtendimentoForm => ({
   id: d.id,
   paciente_id: String(d.paciente_id || ""),
@@ -1223,6 +1244,10 @@ const buildAtendimentoPayload = (form: AtendimentoForm) => {
           via: item.via,
           instrucoes: item.instrucoes,
           ordem: index,
+          dose_mg_kg: item.dose_mg_kg || "",
+          peso_referencia_kg: item.peso_referencia_kg || "",
+          unidade_dose_calculo: item.unidade_dose_calculo || "mg",
+          concentracao_personalizada: item.concentracao_personalizada || "",
         }))
         .filter((item) => item.medicamento_id || (item.medicamento_nome || "").trim()),
     },
@@ -1335,7 +1360,7 @@ export default function AtendimentoPage() {
   const [cadastroComplementarExpandido, setCadastroComplementarExpandido] = useState(false);
   const [painelCasosAberto, setPainelCasosAberto] = useState(false);
   const [prescricaoOrigem, setPrescricaoOrigem] = useState<PrescricaoOrigem | null>(null);
-  const [examesExpandidos, setExamesExpandidos] = useState<Record<number, boolean>>({});
+  const [examesExpandidos, setExamesExpandidos] = useState<Record<string, boolean>>({});
   const [gerandoPdfTipo, setGerandoPdfTipo] = useState<"prescricao" | "exames" | null>(null);
   const [contextoAplicado, setContextoAplicado] = useState(false);
   const [autosaveState, setAutosaveState] = useState<"idle" | "local" | "dirty" | "saving" | "saved" | "error">("idle");
@@ -1405,8 +1430,8 @@ export default function AtendimentoPage() {
   const [attachmentImageDragging, setAttachmentImageDragging] = useState(false);
   const [attachmentPdfPage, setAttachmentPdfPage] = useState(1);
   const [attachmentPdfZoom, setAttachmentPdfZoom] = useState(110);
-  const [examUploadDrafts, setExamUploadDrafts] = useState<Record<number, PendingExamUpload>>({});
-  const [examDropActive, setExamDropActive] = useState<Record<number, boolean>>({});
+  const [examUploadDrafts, setExamUploadDrafts] = useState<Record<string, PendingExamUpload>>({});
+  const [examDropActive, setExamDropActive] = useState<Record<string, boolean>>({});
   const [portalExameAcaoId, setPortalExameAcaoId] = useState<number | null>(null);
   const [clinicalPhraseSearch, setClinicalPhraseSearch] = useState("");
   const [clinicalPhraseSectionFilter, setClinicalPhraseSectionFilter] = useState<ClinicalFieldKey | "">("");
@@ -1426,6 +1451,9 @@ export default function AtendimentoPage() {
   const lastPersistedSnapshotRef = useRef(serializeAtendimentoSnapshot(form));
   const hydratingFormRef = useRef(false);
   const draftRestoreRef = useRef(false);
+  const selecionadoRef = useRef<number | null>(null);
+  const autosaveStateRef = useRef<"idle" | "local" | "dirty" | "saving" | "saved" | "error">("idle");
+  const criandoAtendimentoAutomaticoRef = useRef(false);
   const clinicalTextareaRefs = useRef<Partial<Record<ClinicalFieldKey, HTMLTextAreaElement | null>>>({});
   const attachmentImagePanRef = useRef({
     pointerId: null as number | null,
@@ -1436,7 +1464,7 @@ export default function AtendimentoPage() {
   });
   const uploadAbortControllersRef = useRef<Record<string, AbortController>>({});
   const activeUploadSignaturesRef = useRef<Set<string>>(new Set());
-  const examUploadDraftsRef = useRef<Record<number, PendingExamUpload>>({});
+  const examUploadDraftsRef = useRef<Record<string, PendingExamUpload>>({});
   const pdfDownloadInFlightRef = useRef<"prescricao" | "exames" | null>(null);
 
   const [medBusca, setMedBusca] = useState("");
@@ -1452,6 +1480,30 @@ export default function AtendimentoPage() {
   useEffect(() => {
     formRef.current = form;
   }, [form]);
+
+  useEffect(() => {
+    selecionadoRef.current = selecionado;
+  }, [selecionado]);
+
+  useEffect(() => {
+    autosaveStateRef.current = autosaveState;
+  }, [autosaveState]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      const estado = autosaveStateRef.current;
+      // "idle": nada digitado ainda. "saved": tudo persistido no servidor.
+      // Nenhum dos dois tem edicao em risco de se perder ao fechar a aba.
+      if (estado === "idle" || estado === "saved") return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, []);
 
   useEffect(() => {
     carregarCustomPaineis();
@@ -1610,9 +1662,12 @@ export default function AtendimentoPage() {
     attachmentImagePanRef.current.pointerId = null;
   }, [attachmentImageZoom]);
 
-  const clearDraftStorage = () => {
+  const clearDraftStorage = (atendimentoId?: number | string | null) => {
     if (typeof window === "undefined") return;
     localStorage.removeItem(ATENDIMENTO_DRAFT_KEY);
+    if (atendimentoId) {
+      localStorage.removeItem(getAtendimentoDraftBackupKey(atendimentoId));
+    }
   };
 
   const clearExamUploadDrafts = () => {
@@ -1883,7 +1938,7 @@ export default function AtendimentoPage() {
           agendamento_id: String(agendamentoId),
           data_atendimento: contexto.inicio ? isoToLocalInput(contexto.inicio) : prev.data_atendimento,
         }));
-        aplicarCadastroComplementar(contexto.paciente, contexto.tutor);
+        void carregarCadastroComplementar(contexto.paciente_id);
         setContextoAplicado(true);
         return;
       }
@@ -2506,6 +2561,31 @@ export default function AtendimentoPage() {
     };
   }, [clinicalFieldValues, contextoAplicado, form.agendamento_id, form.clinica_id, form.exames, form.paciente_id, form.prescricao_itens, form.triagem.peso, form.triagem.pressao_arterial, form.triagem.temperatura, loading, selecionado]);
 
+  // Backup local silencioso pos-primeiro-save: se um autosave remoto falhar
+  // (autosaveState === "error"), a edicao ainda fica recuperavel aqui, numa
+  // chave por atendimento_id - sem interferir no autosaveState "dirty" /
+  // "saving" / "saved" / "error", que continua sendo dono exclusivo do efeito
+  // de autosave remoto.
+  useEffect(() => {
+    if (typeof window === "undefined" || loading || !contextoAplicado || !selecionado || hydratingFormRef.current) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      localStorage.setItem(
+        getAtendimentoDraftBackupKey(selecionado),
+        JSON.stringify({
+          form: formRef.current,
+          updated_at: new Date().toISOString(),
+        })
+      );
+    }, 700);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [contextoAplicado, form, loading, selecionado]);
+
   const carregarHistoricoPaciente = async (pacienteId: string | number, limite = 12) => {
     const normalized = Number(pacienteId || 0);
     if (!Number.isFinite(normalized) || normalized <= 0) {
@@ -2522,6 +2602,11 @@ export default function AtendimentoPage() {
   };
 
   useEffect(() => {
+    // hydratingFormRef.current: uma mudanca de paciente_id vinda de hidratacao
+    // (abrirAtendimento, finalizarAtendimento, save manual) ja tem seus proprios
+    // callers explicitos para historico/cadastro complementar - este efeito e
+    // so para mudanca de paciente feita pelo USUARIO (selecao manual).
+    if (hydratingFormRef.current) return;
     if (!form.paciente_id) {
       setHistoricoPaciente(null);
       aplicarCadastroComplementar();
@@ -2544,6 +2629,31 @@ export default function AtendimentoPage() {
       const response = await api.get(`/atendimentos/${id}`);
       const d = response.data;
       const hydrated = hydrateFormFromDetail(d);
+
+      // Se um autosave anterior falhou (aba fechada, rede fora do ar), pode
+      // existir um backup local mais recente do que o servidor - recuperar em
+      // vez de descartar silenciosamente.
+      let formParaAplicar = hydrated;
+      let recuperadoDoBackupLocal = false;
+      if (typeof window !== "undefined") {
+        const backupKey = getAtendimentoDraftBackupKey(id);
+        const rawBackup = localStorage.getItem(backupKey);
+        if (rawBackup) {
+          try {
+            const parsedBackup = JSON.parse(rawBackup) as { form?: Partial<AtendimentoForm> };
+            if (parsedBackup.form) {
+              const candidato = { ...hydrated, ...parsedBackup.form, id: hydrated.id };
+              if (serializeAtendimentoSnapshot(candidato) !== serializeAtendimentoSnapshot(hydrated)) {
+                formParaAplicar = candidato;
+                recuperadoDoBackupLocal = true;
+              }
+            }
+          } catch {
+            localStorage.removeItem(backupKey);
+          }
+        }
+      }
+
       setSelecionado(id);
       clearDraftStorage();
       draftRestoreRef.current = true;
@@ -2552,9 +2662,9 @@ export default function AtendimentoPage() {
       if (d.paciente_id) {
         await carregarHistoricoPaciente(d.paciente_id);
       }
-      aplicarCadastroComplementar(d.paciente, d.tutor);
+      void carregarCadastroComplementar(d.paciente_id);
       hydratingFormRef.current = true;
-      setForm(hydrated);
+      setForm(formParaAplicar);
       setProtocoloPrescricaoSelecionado("");
       setPrescricaoEditorManualAberto(false);
       setPrescricaoEntradaModo(null);
@@ -2566,8 +2676,18 @@ export default function AtendimentoPage() {
       setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
       setAnexoArquivo(null);
       clearExamUploadDrafts();
+      // O snapshot "persistido" continua sendo o do servidor (nao o
+      // recuperado), para que o efeito de autosave detecte a diferenca e
+      // sincronize a edicao recuperada de volta automaticamente.
       lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(hydrated);
-      setAutosaveState("saved");
+      if (recuperadoDoBackupLocal) {
+        setAutosaveState("dirty");
+        setSucesso(
+          `Atendimento #${id}: recuperamos uma edicao local que ainda nao havia sido sincronizada com o servidor.`
+        );
+      } else {
+        setAutosaveState("saved");
+      }
       setAutosaveAt(d.updated_at || d.created_at || new Date().toISOString());
       if (typeof window !== "undefined") {
         window.requestAnimationFrame(() => {
@@ -2581,6 +2701,7 @@ export default function AtendimentoPage() {
   };
 
   const novoAtendimento = () => {
+    const atendimentoAnteriorId = selecionadoRef.current;
     const next = emptyForm();
     setSelecionado(null);
     setWorkspacePainel("consulta");
@@ -2609,7 +2730,7 @@ export default function AtendimentoPage() {
     setStatusCepTutor("");
     setAutosaveState("idle");
     setAutosaveAt("");
-    clearDraftStorage();
+    clearDraftStorage(atendimentoAnteriorId);
     draftRestoreRef.current = false;
     if (typeof window !== "undefined") {
       window.requestAnimationFrame(() => {
@@ -2651,6 +2772,7 @@ export default function AtendimentoPage() {
       return;
     }
 
+    const atendimentoAnteriorId = selecionadoRef.current;
     const itensCopiados = (prescricao?.itens || []).map(cloneHistoricalPrescriptionItem);
     const next: AtendimentoForm = {
       ...emptyForm(),
@@ -2691,7 +2813,7 @@ export default function AtendimentoPage() {
     clearExamUploadDrafts();
     setAutosaveState("idle");
     setAutosaveAt("");
-    clearDraftStorage();
+    clearDraftStorage(atendimentoAnteriorId);
     draftRestoreRef.current = false;
     if (typeof window !== "undefined") {
       window.requestAnimationFrame(() => {
@@ -3306,16 +3428,19 @@ export default function AtendimentoPage() {
     valor: item.valor_padrao || 0,
   });
 
+  const expandirApenasPrimeiroExame = (exames: ExameSolicitacao[]) => {
+    setExamesExpandidos(exames.length ? { [getExameStateKey(exames[0])]: true } : {});
+  };
+
   const mergeExamesNoFormulario = (novosExames: ExameSolicitacao[]) => {
     if (!novosExames.length) return;
     const base = form.exames.length === 1 && !(form.exames[0].tipo_exame || "").trim() ? [] : form.exames;
     setField("exames", [...base, ...novosExames]);
     setExameFiltroRapido("todos");
-    const firstNewIndex = base.length;
     setExamesExpandidos((prev) => {
       const next = { ...prev };
-      novosExames.forEach((_, offset) => {
-        next[firstNewIndex + offset] = true;
+      novosExames.forEach((exame) => {
+        next[getExameStateKey(exame)] = true;
       });
       return next;
     });
@@ -3610,8 +3735,9 @@ export default function AtendimentoPage() {
     const exame = form.exames[index];
     if (!exame) return;
 
-    clearExamUploadDraft(index);
-    clearExamDropState(index);
+    const key = getExameStateKey(exame);
+    clearExamUploadDraft(key);
+    clearExamDropState(key);
 
     // Exame ja persistido some do prontuario apenas por marcacao explicita, com
     // confirmacao. Exame que nunca foi salvo sai so do estado local.
@@ -3624,21 +3750,20 @@ export default function AtendimentoPage() {
       ) {
         return;
       }
-      setField(
-        "exames",
-        form.exames.map((item, itemIndex) =>
-          itemIndex === index ? { ...item, _destroy: true } : item
-        )
+      const atualizados = form.exames.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, _destroy: true } : item
       );
-      setExamesExpandidos({ 0: true });
+      setField("exames", atualizados);
+      expandirApenasPrimeiroExame(atualizados.filter((item) => !item._destroy));
       setSucesso(`Exame "${nome}" marcado para exclusao.`);
       setErro("");
       return;
     }
 
     const restantes = form.exames.filter((_, itemIndex) => itemIndex !== index);
-    setField("exames", restantes.length > 0 ? restantes : [emptyExam()]);
-    setExamesExpandidos({ 0: true });
+    const proximosExames = restantes.length > 0 ? restantes : [emptyExam()];
+    setField("exames", proximosExames);
+    expandirApenasPrimeiroExame(proximosExames);
   };
 
   const aplicarExameAtualizado = (exameAtualizado: ExameSolicitacao | null | undefined) => {
@@ -3743,6 +3868,7 @@ export default function AtendimentoPage() {
   };
 
   const saveAtendimento = async (mode: "manual" | "autosave" = "manual") => {
+    let criandoAutomaticamente = false;
     try {
       const currentForm = formRef.current;
       const isAutosave = mode === "autosave";
@@ -3760,6 +3886,26 @@ export default function AtendimentoPage() {
         setErro("Selecione um paciente.");
         return null;
       }
+      if (!isAutosave && !selecionadoRef.current && criandoAtendimentoAutomaticoRef.current) {
+        // Um autosave ja esta criando este atendimento automaticamente (POST
+        // em voo). Um clique manual em "Salvar" nesse intervalo nao pode
+        // disparar um segundo POST e duplicar o atendimento.
+        setErro("Aguarde a sincronizacao automatica terminar antes de salvar manualmente.");
+        return null;
+      }
+
+      // Criacao automatica em modo autosave: guarda de idempotencia para nao
+      // duplicar o atendimento se o debounce disparar de novo (ex.: usuario
+      // continua digitando) enquanto o primeiro POST ainda esta em voo.
+      // `criandoAutomaticamente` so vira true se ESTA chamada especifica
+      // adquirir a trava - uma chamada bloqueada pelo guard abaixo nunca deve
+      // liberar a trava de quem esta com o POST em voo.
+      if (isAutosave && !selecionadoRef.current) {
+        if (criandoAtendimentoAutomaticoRef.current) return;
+        criandoAtendimentoAutomaticoRef.current = true;
+        criandoAutomaticamente = true;
+      }
+
       if (!isAutosave) {
         setSalvando(true);
       } else {
@@ -3769,10 +3915,9 @@ export default function AtendimentoPage() {
       const payload = buildAtendimentoPayload(currentForm);
       let response;
 
-      if (selecionado) {
-        response = await api.put(`/atendimentos/${selecionado}`, payload);
+      if (selecionadoRef.current) {
+        response = await api.put(`/atendimentos/${selecionadoRef.current}`, payload);
       } else {
-        if (isAutosave) return;
         response = await api.post("/atendimentos", payload);
       }
       const hydrated = hydrateFormFromDetail(response.data || {});
@@ -3784,7 +3929,7 @@ export default function AtendimentoPage() {
         }
         hydratingFormRef.current = true;
         setForm(hydrated);
-        clearDraftStorage();
+        clearDraftStorage(response.data?.id || selecionadoRef.current);
         draftRestoreRef.current = true;
         setAutosaveState("saved");
         setAutosaveAt(response.data?.updated_at || response.data?.created_at || new Date().toISOString());
@@ -3794,7 +3939,7 @@ export default function AtendimentoPage() {
             hydratingFormRef.current = false;
           });
         }
-        setSucesso(selecionado ? "Atendimento atualizado com sucesso." : "Atendimento criado com sucesso.");
+        setSucesso(selecionadoRef.current ? "Atendimento atualizado com sucesso." : "Atendimento criado com sucesso.");
         await carregarLista(paginaLista);
         if (hydrated.paciente_id) {
           await carregarHistoricoPaciente(hydrated.paciente_id);
@@ -3809,11 +3954,18 @@ export default function AtendimentoPage() {
             hydrated
           );
         });
+        if (criandoAutomaticamente && response.data?.id) {
+          // Primeiro POST automatico bem-sucedido: o atendimento passa a
+          // existir no servidor, entao os saves seguintes viram PUT.
+          setSelecionado(response.data.id);
+          clearDraftStorage(response.data.id);
+          draftRestoreRef.current = true;
+        }
         setAutosaveState("saved");
         setAutosaveAt(response.data?.updated_at || response.data?.created_at || new Date().toISOString());
       }
       setErro("");
-      return response.data?.id || selecionado || null;
+      return response.data?.id || selecionadoRef.current || null;
     } catch (e: any) {
       // Nada foi aplicado: devolver os exames marcados para exclusao a lista,
       // para nao deixar exame invisivel que continua existindo no prontuario.
@@ -3838,8 +3990,29 @@ export default function AtendimentoPage() {
       if (mode === "manual") {
         setSalvando(false);
       }
+      if (criandoAutomaticamente) {
+        criandoAtendimentoAutomaticoRef.current = false;
+      }
     }
   };
+
+  const saveAtendimentoRef = useRef(saveAtendimento);
+  useEffect(() => {
+    saveAtendimentoRef.current = saveAtendimento;
+  });
+
+  useEffect(() => {
+    return () => {
+      // Cleanup de deps [] roda so no unmount de verdade (sair de /atendimento),
+      // ao contrario do cleanup do efeito de debounce, que roda a cada
+      // keystroke. Se havia um autosave pendente, dispara o flush antes de
+      // desmontar, em vez de deixar a ultima edicao so no debounce perdido.
+      if (typeof window === "undefined" || !autosaveTimerRef.current) return;
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+      void saveAtendimentoRef.current("autosave");
+    };
+  }, []);
 
   const finalizarAtendimento = async (confirmarConclusaoPendencias: boolean = false) => {
     setFinalizando(true);
@@ -3859,7 +4032,7 @@ export default function AtendimentoPage() {
       setForm(hydrated);
       formRef.current = hydrated;
       lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(hydrated);
-      clearDraftStorage();
+      clearDraftStorage(atendimentoId);
       draftRestoreRef.current = true;
       setAutosaveState("saved");
       setAutosaveAt(detalhe.updated_at || detalhe.created_at || new Date().toISOString());
@@ -3904,17 +4077,33 @@ export default function AtendimentoPage() {
   };
 
   useEffect(() => {
-    if (typeof window === "undefined" || loading || !contextoAplicado || !selecionado || hydratingFormRef.current) {
+    if (typeof window === "undefined" || loading || !contextoAplicado || hydratingFormRef.current) {
       return;
     }
 
-    const currentSnapshot = serializeAtendimentoSnapshot(form);
-    if (currentSnapshot === lastPersistedSnapshotRef.current) {
-      if (autosaveState !== "saved") {
-        setAutosaveState("saved");
+    let deveAgendar: boolean;
+    if (selecionado) {
+      const currentSnapshot = serializeAtendimentoSnapshot(form);
+      if (currentSnapshot === lastPersistedSnapshotRef.current) {
+        if (autosaveState !== "saved") {
+          setAutosaveState("saved");
+        }
+        return;
       }
-      return;
+      deveAgendar = true;
+    } else {
+      // Atendimento ainda nao existe no servidor: so agenda a criacao
+      // automatica quando ja ha paciente + algum conteudo digitado (mesma
+      // checagem usada pelo rascunho local pre-save).
+      deveAgendar =
+        Boolean(form.paciente_id) &&
+        (hasMeaningfulDraft(clinicalFieldValues) ||
+          Boolean(form.triagem.peso || form.triagem.temperatura || form.triagem.pressao_arterial.trim()) ||
+          form.exames.some((item) => (item.tipo_exame || "").trim()) ||
+          form.prescricao_itens.some((item) => item.medicamento_id || (item.medicamento_nome || "").trim()));
     }
+
+    if (!deveAgendar) return;
 
     setAutosaveState("dirty");
     if (autosaveTimerRef.current) {
@@ -3922,6 +4111,11 @@ export default function AtendimentoPage() {
     }
 
     autosaveTimerRef.current = window.setTimeout(() => {
+      // Zera a ref ANTES de chamar saveAtendimento: o timer ja disparou (nao
+      // ha mais nada "pendente" no sentido do flush-no-unmount), e o proximo
+      // saveAtendimento pode, ele mesmo, mudar `form` (hidratacao) e reagendar
+      // um novo timer - zerar aqui evita confundir os dois.
+      autosaveTimerRef.current = null;
       void saveAtendimento("autosave");
     }, AUTOSAVE_DELAY_MS);
 
@@ -3930,7 +4124,7 @@ export default function AtendimentoPage() {
         window.clearTimeout(autosaveTimerRef.current);
       }
     };
-  }, [contextoAplicado, form, loading, selecionado]);
+  }, [clinicalFieldValues, contextoAplicado, form, loading, selecionado]);
 
   const deleteAtendimento = async (id: number) => {
     if (!confirm(`Excluir atendimento #${id}?`)) return;
@@ -4063,36 +4257,36 @@ export default function AtendimentoPage() {
     };
   };
 
-  const clearExamUploadDraft = (index: number) => {
+  const clearExamUploadDraft = (key: string) => {
     setExamUploadDrafts((prev) => {
-      const current = prev[index];
+      const current = prev[key];
       if (current?.previewUrl) {
         window.URL.revokeObjectURL(current.previewUrl);
       }
       const next = { ...prev };
-      delete next[index];
+      delete next[key];
       return next;
     });
   };
 
-  const setExamUploadDraftFile = (index: number, file: File) => {
+  const setExamUploadDraftFile = (key: string, file: File) => {
     setExamUploadDrafts((prev) => {
-      const current = prev[index];
+      const current = prev[key];
       if (current?.previewUrl) {
         window.URL.revokeObjectURL(current.previewUrl);
       }
       return {
         ...prev,
-        [index]: buildPendingExamUpload(file),
+        [key]: buildPendingExamUpload(file),
       };
     });
   };
 
-  const clearExamDropState = (index: number) => {
+  const clearExamDropState = (key: string) => {
     setExamDropActive((prev) => {
-      if (!prev[index]) return prev;
+      if (!prev[key]) return prev;
       const next = { ...prev };
-      delete next[index];
+      delete next[key];
       return next;
     });
   };
@@ -4145,8 +4339,8 @@ export default function AtendimentoPage() {
       uploadKey,
     });
     if (uploadConcluido) {
-      clearExamUploadDraft(index);
-      clearExamDropState(index);
+      clearExamUploadDraft(getExameStateKey(examAtual));
+      clearExamDropState(getExameStateKey(examAtual));
     }
   };
 
@@ -4177,8 +4371,8 @@ export default function AtendimentoPage() {
         break;
       }
     }
-    clearExamUploadDraft(index);
-    clearExamDropState(index);
+    clearExamUploadDraft(getExameStateKey(examAtual));
+    clearExamDropState(getExameStateKey(examAtual));
   };
 
   const cancelarUploadAnexo = (uploadKey: string) => {
@@ -5158,11 +5352,6 @@ export default function AtendimentoPage() {
   }, [consultaCampoAtivo, consultaEditorCamposVisiveis]);
 
   useEffect(() => {
-    const valorEsperado = consultaEtapasCompletas ? 1 : 0;
-    setForm((prev) => (prev.consulta_concluida === valorEsperado ? prev : { ...prev, consulta_concluida: valorEsperado }));
-  }, [consultaEtapasCompletas]);
-
-  useEffect(() => {
     if (!isConsultaWorkspace || !consultaCampoAtivoConfig) return;
     if (typeof window === "undefined") return;
     window.requestAnimationFrame(() => {
@@ -5190,21 +5379,31 @@ export default function AtendimentoPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [goToConsultaCampoAnterior, goToConsultaCampoProximo, isConsultaWorkspace]);
 
+  const examesChavesAtuaisRaw = form.exames.map((exame) => getExameStateKey(exame)).join(",");
   useEffect(() => {
+    // So `examesChavesAtuaisRaw` (string derivada) na dependencia: ela so muda
+    // quando o CONJUNTO de chaves muda de verdade (exame adicionado/removido),
+    // nao a cada tecla digitada em algum campo de exame (que gera uma nova
+    // referencia de form.exames sem mudar nenhuma chave).
+    const chavesOrdenadas = examesChavesAtuaisRaw ? examesChavesAtuaisRaw.split(",") : [];
+    const chavesAtuais = new Set(chavesOrdenadas);
     setExamesExpandidos((prev) => {
-      const next: Record<number, boolean> = {};
+      const next: Record<string, boolean> = {};
+      let mudou = false;
       Object.entries(prev).forEach(([key, value]) => {
-        const index = Number(key);
-        if (Number.isFinite(index) && index >= 0 && index < form.exames.length) {
-          next[index] = value;
+        if (chavesAtuais.has(key)) {
+          next[key] = value;
+        } else {
+          mudou = true;
         }
       });
-      if (!Object.keys(next).length && form.exames.length > 0) {
-        next[0] = true;
+      if (!Object.keys(next).length && chavesOrdenadas.length > 0) {
+        next[chavesOrdenadas[0]] = true;
+        mudou = true;
       }
-      return next;
+      return mudou ? next : prev;
     });
-  }, [form.exames.length]);
+  }, [examesChavesAtuaisRaw]);
 
   useEffect(() => {
     if (workspacePainel === "prescricao") {
@@ -5230,16 +5429,16 @@ export default function AtendimentoPage() {
   }, [prescricaoErrosCount, prescricaoValidacaoAtual.errors]);
 
   const expandirTodosExames = () => {
-    const next = examesVisiveis.reduce<Record<number, boolean>>((acc, item) => {
-      acc[item.index] = true;
+    const next = examesVisiveis.reduce<Record<string, boolean>>((acc, item) => {
+      acc[getExameStateKey(item.exame)] = true;
       return acc;
     }, {});
     setExamesExpandidos(next);
   };
 
   const colapsarTodosExames = () => {
-    const next = examesVisiveis.reduce<Record<number, boolean>>((acc, item) => {
-      acc[item.index] = false;
+    const next = examesVisiveis.reduce<Record<string, boolean>>((acc, item) => {
+      acc[getExameStateKey(item.exame)] = false;
       return acc;
     }, {});
     setExamesExpandidos(next);
@@ -5262,8 +5461,9 @@ export default function AtendimentoPage() {
       .map((item) => (temConteudo(item) ? item : { ...item, _destroy: true }));
     clearExamUploadDrafts();
     const restantes = next.filter((item) => !item._destroy);
-    setField("exames", restantes.length > 0 ? next : [...next, emptyExam()]);
-    setExamesExpandidos({ 0: true });
+    const proximosExames = restantes.length > 0 ? next : [...next, emptyExam()];
+    setField("exames", proximosExames);
+    expandirApenasPrimeiroExame(proximosExames.filter((item) => !item._destroy));
   };
 
   const atendimentosVisiveis = filtered;
@@ -5853,7 +6053,7 @@ export default function AtendimentoPage() {
                 </button>
                 <button
                   onClick={() => void saveAtendimento()}
-                  disabled={salvando || finalizando}
+                  disabled={salvando || finalizando || (!selecionado && autosaveState === "saving")}
                   className="fc-care-button-primary"
                 >
                   <span className="inline-flex items-center gap-2"><Save className="h-4 w-4" />{salvando ? "Salvando..." : "Salvar atendimento"}</span>
@@ -6400,6 +6600,7 @@ export default function AtendimentoPage() {
                     formatBytes={formatBytes}
                     formatDate={formatDate}
                     gerandoPdfTipo={gerandoPdfTipo}
+                    getExameStateKey={getExameStateKey}
                     goLaudo={goLaudo}
                     hasExamRequest={hasExamRequest}
                     imprimirSolicitacaoExames={imprimirSolicitacaoExames}
