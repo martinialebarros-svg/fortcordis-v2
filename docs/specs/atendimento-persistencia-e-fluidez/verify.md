@@ -42,9 +42,11 @@ Testes novos (10 casos, 3 arquivos + 1 migration):
 
 ## 3) Testes manuais
 
-Sem test runner de frontend no projeto - roteiro documentado abaixo para execucao contra `stage` apos o deploy (mesmo padrao usado nos pacotes anteriores desta serie), reaproveitando sessao autenticada via Browser tool.
+Sem test runner de frontend no projeto. O roteiro abaixo foi planejado para execucao ao vivo contra `stage` apos o deploy, via Browser tool (mesmo padrao usado nos pacotes anteriores desta serie).
 
-**Roteiro planejado (a executar apos deploy em stage):**
+**Execucao real:** apos o deploy em stage (`00946d34`), a ferramenta de Browser retornou bloqueio de acesso ("This site requires per-action approval") de forma consistente em `app.stage.fortcordis.com.br`, mesmo apos aprovacao do usuario e testes em aba nova - uma restricao do ambiente desta sessao, nao um problema pontual de permissao. A verificacao visual ao vivo destes 4 itens **nao foi possivel nesta sessao**. A decisao (registrada explicitamente pelo usuario) foi promover para producao apoiado na cobertura automatizada (backend: 579 testes, 0 falhas; frontend: build/typecheck/lint limpos) mais a leitura de codigo linha a linha feita na revisao adversarial (secao 4), sem bloquear o release por essa lacuna.
+
+**Roteiro planejado (nao executado nesta sessao - fica para confirmacao manual pelo usuario ou proxima sessao com acesso ao Browser tool):**
 
 1. **Item 1 - beforeunload:** abrir `/atendimento`, selecionar um paciente, digitar em "Queixa principal", tentar fechar a aba antes do autosave persistir -> navegador deve pedir confirmacao de saida.
 2. **Item 1 - criacao automatica:** abrir `/atendimento` sem selecionar nenhum atendimento existente, selecionar paciente, digitar conteudo clinico, aguardar ~2s sem interagir -> o atendimento deve ser criado automaticamente no servidor (verificar na lista de atendimentos), sem duplicar mesmo digitando em rajadas.
@@ -86,5 +88,8 @@ Duas rodadas de re-verificacao por agentes independentes confirmaram que as corr
 
 ## 7) Decisao de release
 
-- [ ] Aprovado para stage.
+- [x] Aprovado para stage - `00946d34`, deploy-stage concluido com sucesso
+  (sdd-guardrail + quality-gate + deploy-stage). Verificacao visual ao vivo
+  nao realizada nesta sessao (bloqueio de acesso do Browser tool); decisao
+  explicita do usuario de prosseguir apoiado na cobertura automatizada.
 - [ ] Aprovado para producao.
