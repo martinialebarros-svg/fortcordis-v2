@@ -78,5 +78,25 @@ quando o mesmo padrao de busca encontrou corretamente 1194 itens com mais de
 
 ## 6) Decisao de release
 
-- [ ] Aprovado para stage.
+- [x] Aprovado para stage - `f9574514`, deploy-stage concluido com sucesso
+  (quality-gate + sdd-guardrail + deploy-stage, run 30874637950).
 - [ ] Aprovado para producao.
+
+## 7) Nota operacional: ativacao em duas etapas
+
+`scripts/deploy_prod_vps.sh` atualiza o proprio codigo dele via `git
+checkout` no meio da propria execucao (para atualizar o worktree da
+aplicacao). O processo bash que ja estava em execucao continua interpretando
+o conteudo que tinha em memoria desde o inicio do run - ou seja, a chamada a
+`prune_runtime_backups()` so passa a ser efetivamente executada a partir do
+PROXIMO deploy que ler o script do zero (ja com o commit `f9574514`
+previamente + checked out), nao durante o deploy que introduziu a mudanca.
+
+Confirmado em stage: no run 30874637950 (o que introduziu a mudanca), o log
+nao mostrou nenhuma linha `Pruned ...`, e uma verificacao via SSH logo depois
+mostrou 818 itens ainda presentes em `~/fortcordis-runtime-backups`
+(incluindo 2 com mtime > 30 dias) - consistente com a hipotese de que a
+funcao nova nao rodou nesse primeiro pass. Um segundo deploy em stage
+(disparado por este proprio commit de documentacao) foi usado para confirmar
+ao vivo, com o volume real de 818 itens, que a poda executa corretamente
+antes de promover para producao.
