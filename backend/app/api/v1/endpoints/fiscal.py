@@ -1,6 +1,6 @@
 """Endpoints REST para o modulo fiscal."""
 
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -9,12 +9,15 @@ from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
 from app.db.database import get_db
+from app.models.user import User
 from app.schemas.fiscal import (
     CNPJConsultaResponse,
     NotaFiscalCreate,
     NotaFiscalListResponse,
     NotaFiscalResponse,
     NotaFiscalUpdate,
+    RelatorioFiscalEmissaoListResponse,
+    RelatorioFiscalEmissaoResponse,
 )
 from app.services import cnpj_consulta, fiscal_export_service
 from app.services.fiscal_service import (
@@ -25,8 +28,11 @@ from app.services.fiscal_service import (
     buscar_os_por_ids_para_exportacao,
     criar_nota_fiscal,
     excluir_nota_fiscal,
+    listar_clinicas_invalidas_para_exportacao,
+    listar_emissoes_relatorios_fiscais,
     listar_notas_fiscais,
     marcar_exportada,
+    registrar_emissao_relatorio_fiscal,
 )
 
 
@@ -58,6 +64,9 @@ class ExportarOSLoteRequest(BaseModel):
     formato: str = Field(..., pattern="^(pdf|csv|xlsx)$")
     dados_tomador: Optional[DadosTomadorExportacao] = None
     modo_multiclinica: bool = False
+    tipo_emissao: Literal["fechamento_periodo", "por_servico"] = "fechamento_periodo"
+    data_inicio: Optional[str] = None
+    data_fim: Optional[str] = None
 
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -76,14 +85,40 @@ def consultar_cnpj(cnpj: str):
 def listar_clinicas_com_os(
     data_inicio: str = Query(...),
     data_fim: str = Query(...),
+    somente_completas: bool = Query(False),
     db: Session = Depends(get_db),
 ):
-    """Lista clinicas ativas que tiveram OS com data de atendimento no periodo."""
+    """Lista clínicas ativas com OS no período e a situação de seu cadastro fiscal."""
     try:
-        items = buscar_clinicas_com_os(db, data_inicio=data_inicio, data_fim=data_fim)
+        items = buscar_clinicas_com_os(
+            db,
+            data_inicio=data_inicio,
+            data_fim=data_fim,
+            somente_completas=somente_completas is True,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return {"total": len(items), "items": items}
+
+
+@router.get("/relatorios-emissoes", response_model=RelatorioFiscalEmissaoListResponse)
+def listar_historico_relatorios(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    clinica_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Lista o histórico auditável de relatórios contábeis já exportados."""
+    items, total = listar_emissoes_relatorios_fiscais(
+        db,
+        skip=skip,
+        limit=limit,
+        clinica_id=clinica_id,
+    )
+    return RelatorioFiscalEmissaoListResponse(
+        total=total,
+        items=[RelatorioFiscalEmissaoResponse(**item) for item in items],
+    )
 
 
 @router.get("/notas-fiscais", response_model=NotaFiscalListResponse)
@@ -259,6 +294,7 @@ def exportar_lote(
 @router.post("/os/exportar-lote")
 def exportar_os_lote(
     body: Annotated[ExportarOSLoteRequest, Body(...)],
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -271,7 +307,7 @@ def exportar_os_lote(
     dados_tomador = body.dados_tomador.model_dump(exclude_none=True) if body.dados_tomador else None
 
     if body.modo_multiclinica:
-        clinicas_invalidas = _validar_dados_clinicas_para_exportacao(os_items)
+        clinicas_invalidas = listar_clinicas_invalidas_para_exportacao(os_items)
         if clinicas_invalidas:
             raise HTTPException(
                 status_code=422,
@@ -301,41 +337,22 @@ def exportar_os_lote(
         content, filename = fiscal_export_service.exportar_os_xlsx(os_items, db, dados_tomador=dados_tomador)
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
+    registrar_emissao_relatorio_fiscal(
+        db,
+        os_items=os_items,
+        formato=body.formato,
+        modo_multiclinica=body.modo_multiclinica,
+        tipo_emissao=body.tipo_emissao,
+        data_inicio=body.data_inicio,
+        data_fim=body.data_fim,
+        descricao_servico=(dados_tomador or {}).get("descricao_servico"),
+        arquivo_nome=filename,
+        usuario_id=current_user.id,
+        usuario_nome=current_user.nome,
+    )
+
     return StreamingResponse(
         iter([content]),
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
-
-
-def _validar_dados_clinicas_para_exportacao(os_items: list[dict]) -> list[dict]:
-    required_map = {
-        "clinica_nome": "razao/nome",
-        "clinica_cnpj": "cnpj",
-        "clinica_endereco": "logradouro",
-        "clinica_bairro": "bairro",
-        "clinica_cidade": "cidade",
-        "clinica_estado": "estado",
-        "clinica_cep": "cep",
-        "clinica_telefone": "telefone",
-    }
-    clinica_por_id: dict[str, dict] = {}
-    for item in os_items:
-        clinica_id = str(item.get("clinica_id") or item.get("clinica_nome") or "sem-clinica")
-        if clinica_id not in clinica_por_id:
-            clinica_por_id[clinica_id] = item
-
-    invalidas: list[dict] = []
-    for row in clinica_por_id.values():
-        faltando = [
-            label for key, label in required_map.items() if not str(row.get(key) or "").strip()
-        ]
-        if faltando:
-            invalidas.append(
-                {
-                    "clinica_id": row.get("clinica_id"),
-                    "clinica_nome": row.get("clinica_nome") or "Clinica sem nome",
-                    "faltando": faltando,
-                }
-            )
-    return invalidas
