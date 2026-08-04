@@ -62,6 +62,23 @@ a VPS real durante o diagnostico do incidente de disco cheio em 2026-08-03,
 quando o mesmo padrao de busca encontrou corretamente 1194 itens com mais de
 30 dias em `~/fortcordis-runtime-backups`.
 
+**Confirmacao ao vivo em stage (2026-08-04, run 30875164666):** apos o
+primeiro deploy ter apenas atualizado o script em disco (ver secao 7), um
+segundo deploy em stage leu o script ja atualizado desde o inicio e executou
+a poda de verdade contra o volume real acumulado (818 itens, incluindo os 2
+que ficaram >30 dias desde a limpeza manual do incidente):
+
+```
+[03:37:36] Pruned 2 runtime backup item(s) com mais de 30 dias em ~/fortcordis-runtime-backups
+[03:37:37] Pruned 616 runtime backup item(s) adicionais para manter no maximo 200 itens em ~/fortcordis-runtime-backups
+```
+
+Verificacao via SSH logo depois: `find ~/fortcordis-runtime-backups -mindepth
+1 -maxdepth 1 | wc -l` -> `204` (200 remanescentes da poda + 4 novos itens
+criados pelo proprio deploy e pelo backup restore drill). Confirma os dois
+ramos (idade e quantidade) funcionando corretamente contra dados reais de
+producao/stage, nao apenas em teste sintetico local.
+
 ## 4) Regressao e riscos residuais
 
 - Nenhum risco residual conhecido. A poda so remove itens acima dos limites
@@ -79,7 +96,8 @@ quando o mesmo padrao de busca encontrou corretamente 1194 itens com mais de
 ## 6) Decisao de release
 
 - [x] Aprovado para stage - `f9574514`, deploy-stage concluido com sucesso
-  (quality-gate + sdd-guardrail + deploy-stage, run 30874637950).
+  (quality-gate + sdd-guardrail + deploy-stage, run 30874637950); poda
+  confirmada ao vivo no deploy seguinte (`8695951a`, run 30875164666).
 - [ ] Aprovado para producao.
 
 ## 7) Nota operacional: ativacao em duas etapas
