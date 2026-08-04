@@ -175,6 +175,12 @@ function collectElement(state, context, header) {
     }
     return;
   }
+  if (tagMatches(header, PRIVATE_GROUP, 0x1057)) {
+    if (readAscii(view, header.valueOffset, header.valueLength) === "CurvedSurface") {
+      state.curvedSurfaceFound = true;
+    }
+    return;
+  }
   if (tagMatches(header, PRIVATE_GROUP, 0x1086) && header.valueLength >= 16) {
     state.imageSizeCandidates.push({
       width: view.getInt32(header.valueOffset, true),
@@ -201,6 +207,36 @@ function collectElement(state, context, header) {
   if (tagMatches(header, PRIVATE_GROUP, 0x1060)) {
     context.voxelGroup.voxelsOffset = header.valueOffset;
     context.voxelGroup.voxelsLength = header.valueLength;
+  }
+}
+
+function collectEncapsulatedPreview(state, header, end) {
+  let position = header.valueOffset;
+  let fragmentIndex = 0;
+
+  while (position + 8 <= end) {
+    const item = readElementHeader(state.view, position, end);
+    if (item.group !== ITEM_GROUP) {
+      return;
+    }
+    if (item.element === SEQUENCE_DELIMITATION_TAG) {
+      return;
+    }
+    if (item.element !== ITEM_TAG || item.valueLength === UNDEFINED_LENGTH) {
+      return;
+    }
+    if (
+      fragmentIndex > 0
+      && item.valueLength >= 4
+      && state.view.getUint8(item.valueOffset) === 0xff
+      && state.view.getUint8(item.valueOffset + 1) === 0xd8
+    ) {
+      state.previewJpegOffset = item.valueOffset;
+      state.previewJpegLength = item.valueLength;
+      return;
+    }
+    fragmentIndex += 1;
+    position = item.valueOffset + item.valueLength;
   }
 }
 
@@ -329,6 +365,9 @@ function parseDataset(
     if (header.valueRepresentation === "SQ") {
       position = parseSequence(state, header, context, depth + 1, end);
     } else if (header.valueLength === UNDEFINED_LENGTH) {
+      if (tagMatches(header, 0x7fe0, 0x0010)) {
+        collectEncapsulatedPreview(state, header, end);
+      }
       position = skipUndefinedBinary(state, header.valueOffset, end);
     } else {
       position = header.valueOffset + header.valueLength;
@@ -374,39 +413,42 @@ function validateTransferSyntax(transferSyntax) {
   }
 }
 
-function chooseImageSize(candidates, groups) {
-  const validCandidates = candidates.filter(({ width, height }) => (
+function listValidImageSizes(candidates) {
+  return candidates.filter(({ width, height }) => (
     Number.isInteger(width)
     && Number.isInteger(height)
     && width > 0
     && height > 0
     && width <= 8192
     && height <= 8192
-  ));
+  )).map((candidate) => ({
+    ...candidate,
+    frameSize: candidate.width * candidate.height,
+  }));
+}
 
-  const ranked = validCandidates.map((candidate) => {
-    const frameSize = candidate.width * candidate.height;
+function chooseImageSize(imageSizes, groups) {
+  const ranked = imageSizes.map((candidate) => {
     let exactGroups = 0;
     let compatibleGroups = 0;
     for (const group of groups) {
-      if (!group.voxelsLength || group.voxelsLength < frameSize) {
+      if (!group.voxelsLength || group.voxelsLength < candidate.frameSize) {
         continue;
       }
-      const availableFrames = Math.floor(group.voxelsLength / frameSize);
+      const availableFrames = Math.floor(group.voxelsLength / candidate.frameSize);
       if (availableFrames > 0) {
         compatibleGroups += 1;
       }
       if (
         group.declaredFrames
         && availableFrames === group.declaredFrames
-        && group.voxelsLength % frameSize === 0
+        && group.voxelsLength % candidate.frameSize === 0
       ) {
         exactGroups += 1;
       }
     }
     return {
       ...candidate,
-      frameSize,
       exactGroups,
       compatibleGroups,
     };
@@ -425,7 +467,7 @@ function chooseImageSize(candidates, groups) {
   return selected;
 }
 
-function chooseDisplayGeometry(regions, imageSize) {
+function chooseDisplayGeometry(regions, imageSize, scanConversion) {
   const validTwoDimensionalRegions = regions
     .filter((region) => (
       region.spatialFormat === 1
@@ -456,6 +498,14 @@ function chooseDisplayGeometry(regions, imageSize) {
 
   const selected = validTwoDimensionalRegions[0];
   if (!selected) {
+    if (scanConversion) {
+      return {
+        displayWidth: 1,
+        displayHeight: 1,
+        displayAspectRatio: 1,
+        displayAspectRatioSource: "estimated-sector",
+      };
+    }
     return {
       displayWidth: imageSize.width,
       displayHeight: imageSize.height,
@@ -472,23 +522,47 @@ function chooseDisplayGeometry(regions, imageSize) {
   };
 }
 
-function median(values) {
-  if (!values.length) {
-    return null;
+function chooseGroupImageSize(group, imageSizes) {
+  const timestampCount = group.timestampsOffset === null
+    ? 0
+    : Math.floor(group.timestampsLength / 8);
+  const expectedFrameCounts = [group.declaredFrames, timestampCount]
+    .filter((value) => Number.isInteger(value) && value > 0);
+
+  const exact = imageSizes.filter((candidate) => expectedFrameCounts.some(
+    (frameCount) => candidate.frameSize * frameCount === group.voxelsLength,
+  ));
+  if (exact.length) {
+    exact.sort((left, right) => (
+      Number(right.kind === 2) - Number(left.kind === 2)
+      || Number(right.component === 0) - Number(left.component === 0)
+      || right.frameSize - left.frameSize
+    ));
+    return exact[0];
   }
-  const sorted = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2
-    ? sorted[middle]
-    : (sorted[middle - 1] + sorted[middle]) / 2;
+
+  if (!expectedFrameCounts.length) {
+    const divisible = imageSizes.filter((candidate) => (
+      group.voxelsLength >= candidate.frameSize
+      && group.voxelsLength % candidate.frameSize === 0
+    ));
+    divisible.sort((left, right) => right.frameSize - left.frameSize);
+    return divisible[0] || null;
+  }
+  return null;
 }
 
-function buildFrames(state, imageSize) {
+function buildFrames(state, imageSizes) {
   const frames = [];
   const warnings = [];
 
   for (const group of state.voxelGroups) {
     if (group.voxelsOffset === null || !group.voxelsLength) {
+      continue;
+    }
+
+    const imageSize = chooseGroupImageSize(group, imageSizes);
+    if (!imageSize) {
       continue;
     }
 
@@ -507,10 +581,6 @@ function buildFrames(state, imageSize) {
     if (frameCount <= 0) {
       continue;
     }
-    if (availableFrames < declaredFrames) {
-      warnings.push("Um bloco declarou mais quadros do que o buffer contem; somente quadros completos foram usados.");
-    }
-
     for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
       const timestampSeconds = group.timestampsOffset === null
         ? Number.NaN
@@ -518,6 +588,9 @@ function buildFrames(state, imageSize) {
       frames.push({
         offset: group.voxelsOffset + frameIndex * imageSize.frameSize,
         timestampSeconds,
+        width: imageSize.width,
+        height: imageSize.height,
+        frameSize: imageSize.frameSize,
       });
     }
   }
@@ -548,23 +621,32 @@ function buildFrames(state, imageSize) {
     warnings.push("Os timestamps privados estavam ausentes ou fora de ordem; a reproducao usa 30 fps estimados.");
   }
 
-  const deltas = [];
-  for (let index = 1; index < frames.length; index += 1) {
-    const delta = frames[index].timestampSeconds - frames[index - 1].timestampSeconds;
-    if (delta > 0 && delta < 1) {
-      deltas.push(delta);
-    }
-  }
-  const medianDelta = median(deltas) || (1 / 30);
   const firstTimestamp = frames[0].timestampSeconds;
   const lastTimestamp = frames[frames.length - 1].timestampSeconds;
+  const durationSeconds = Math.max(0, lastTimestamp - firstTimestamp);
+  const frameRate = durationSeconds > 0 && frames.length > 1
+    ? (frames.length - 1) / durationSeconds
+    : 30;
+  const dimensions = new Map();
+  for (const frame of frames) {
+    const key = `${frame.width}x${frame.height}`;
+    const current = dimensions.get(key) || {
+      width: frame.width,
+      height: frame.height,
+      frameCount: 0,
+    };
+    current.frameCount += 1;
+    dimensions.set(key, current);
+  }
 
   return {
     frames,
     warnings: [...new Set(warnings)],
-    frameRate: 1 / medianDelta,
+    frameRate,
     firstTimestamp,
-    durationSeconds: Math.max(0, lastTimestamp - firstTimestamp),
+    durationSeconds,
+    frameDimensions: [...dimensions.values()],
+    maxFrameWidth: Math.max(...frames.map((frame) => frame.width)),
   };
 }
 
@@ -594,7 +676,10 @@ export function parseVividIqDicom(buffer, fileName = "arquivo DICOM") {
     cineType: "",
     previewWidth: null,
     previewHeight: null,
+    previewJpegOffset: null,
+    previewJpegLength: 0,
     privateCreatorFound: false,
+    curvedSurfaceFound: false,
     imageSizeCandidates: [],
     voxelGroups: [],
     ultrasoundRegions: [],
@@ -617,9 +702,15 @@ export function parseVividIqDicom(buffer, fileName = "arquivo DICOM") {
     );
   }
 
-  const imageSize = chooseImageSize(state.imageSizeCandidates, state.voxelGroups);
-  const displayGeometry = chooseDisplayGeometry(state.ultrasoundRegions, imageSize);
-  const timeline = buildFrames(state, imageSize);
+  const imageSizes = listValidImageSizes(state.imageSizeCandidates);
+  const imageSize = chooseImageSize(imageSizes, state.voxelGroups);
+  const timeline = buildFrames(state, imageSizes);
+  const scanConversion = state.curvedSurfaceFound && state.cineType.includes("2D");
+  const displayGeometry = chooseDisplayGeometry(
+    state.ultrasoundRegions,
+    imageSize,
+    scanConversion,
+  );
   const equipment = [state.manufacturer, state.model].filter(Boolean).join(" · ");
 
   return {
@@ -637,6 +728,11 @@ export function parseVividIqDicom(buffer, fileName = "arquivo DICOM") {
     height: imageSize.height,
     ...displayGeometry,
     frameSize: imageSize.frameSize,
+    frameDimensions: timeline.frameDimensions,
+    maxFrameWidth: timeline.maxFrameWidth,
+    scanConversion,
+    previewJpegOffset: state.previewJpegOffset,
+    previewJpegLength: state.previewJpegLength,
     frameCount: timeline.frames.length,
     frameRate: timeline.frameRate,
     durationSeconds: timeline.durationSeconds,
@@ -652,7 +748,198 @@ export function getVividIqFramePixels(study, frameIndex) {
     fail("INVALID_FRAME", "Quadro solicitado fora da sequencia.");
   }
   const frame = study.frames[frameIndex];
-  return new Uint8Array(study.sourceBuffer, frame.offset, study.frameSize);
+  return new Uint8Array(study.sourceBuffer, frame.offset, frame.frameSize);
+}
+
+export function getVividIqPreviewJpeg(study) {
+  if (
+    !Number.isInteger(study.previewJpegOffset)
+    || study.previewJpegOffset < 0
+    || !Number.isInteger(study.previewJpegLength)
+    || study.previewJpegLength <= 0
+  ) {
+    return null;
+  }
+  return new Uint8Array(
+    study.sourceBuffer,
+    study.previewJpegOffset,
+    study.previewJpegLength,
+  );
+}
+
+export function createVividIqDisplayMap(
+  sourceWidth,
+  sourceHeight,
+  outputWidth,
+  outputHeight,
+  scanConversion = true,
+  lateralFlip = true,
+) {
+  for (const dimension of [sourceWidth, sourceHeight, outputWidth, outputHeight]) {
+    if (!Number.isInteger(dimension) || dimension <= 0 || dimension > 8192) {
+      fail("INVALID_GEOMETRY", "Dimensao invalida para orientar o quadro do cine.");
+    }
+  }
+
+  const mapping = new Int32Array(outputWidth * outputHeight);
+  mapping.fill(-1);
+  if (!scanConversion) {
+    for (let y = 0; y < outputHeight; y += 1) {
+      const sourceX = Math.min(
+        sourceWidth - 1,
+        Math.round((y / Math.max(1, outputHeight - 1)) * (sourceWidth - 1)),
+      );
+      for (let x = 0; x < outputWidth; x += 1) {
+        const normalized = x / Math.max(1, outputWidth - 1);
+        const sourceY = Math.min(
+          sourceHeight - 1,
+          Math.round((lateralFlip ? 1 - normalized : normalized) * (sourceHeight - 1)),
+        );
+        mapping[y * outputWidth + x] = sourceY * sourceWidth + sourceX;
+      }
+    }
+    return mapping;
+  }
+
+  const aspectRatio = outputWidth / outputHeight;
+  const halfAngle = Math.asin(Math.min(0.98, aspectRatio / 2));
+  const centerX = (outputWidth - 1) / 2;
+  const outerRadius = Math.max(1, outputHeight - 1);
+  for (let y = 0; y < outputHeight; y += 1) {
+    for (let x = 0; x < outputWidth; x += 1) {
+      const deltaX = x - centerX;
+      const radius = Math.hypot(deltaX, y);
+      const angle = Math.atan2(deltaX, y);
+      if (radius > outerRadius || Math.abs(angle) > halfAngle) {
+        continue;
+      }
+      const sourceX = Math.min(
+        sourceWidth - 1,
+        Math.round((radius / outerRadius) * (sourceWidth - 1)),
+      );
+      const beamPosition = 0.5 + angle / (2 * halfAngle);
+      const sourceY = Math.min(
+        sourceHeight - 1,
+        Math.max(
+          0,
+          Math.round(
+            (lateralFlip ? 1 - beamPosition : beamPosition) * (sourceHeight - 1),
+          ),
+        ),
+      );
+      mapping[y * outputWidth + x] = sourceY * sourceWidth + sourceX;
+    }
+  }
+  return mapping;
+}
+
+export function detectVividIqPreviewAspectRatio(
+  pixels,
+  width,
+  height,
+  channels = 4,
+) {
+  if (
+    !pixels
+    || !Number.isInteger(width)
+    || !Number.isInteger(height)
+    || !Number.isInteger(channels)
+    || width <= 0
+    || height <= 0
+    || channels < 3
+    || pixels.length < width * height * channels
+  ) {
+    return null;
+  }
+
+  const blockSize = Math.max(4, Math.round(Math.min(width, height) / 118));
+  const gridWidth = Math.floor(width / blockSize);
+  const gridHeight = Math.floor(height / blockSize);
+  if (gridWidth < 3 || gridHeight < 3) {
+    return null;
+  }
+  const active = new Uint8Array(gridWidth * gridHeight);
+  const minimumActivePixels = Math.ceil(blockSize * blockSize * 0.12);
+  for (let gridY = 0; gridY < gridHeight; gridY += 1) {
+    for (let gridX = 0; gridX < gridWidth; gridX += 1) {
+      let activePixels = 0;
+      for (let y = 0; y < blockSize; y += 1) {
+        for (let x = 0; x < blockSize; x += 1) {
+          const pixelOffset = (
+            (gridY * blockSize + y) * width
+            + gridX * blockSize
+            + x
+          ) * channels;
+          const red = pixels[pixelOffset];
+          const green = pixels[pixelOffset + 1];
+          const blue = pixels[pixelOffset + 2];
+          const maximum = Math.max(red, green, blue);
+          const minimum = Math.min(red, green, blue);
+          if (maximum > 12 && maximum - minimum < 15) {
+            activePixels += 1;
+          }
+        }
+      }
+      if (activePixels >= minimumActivePixels) {
+        active[gridY * gridWidth + gridX] = 1;
+      }
+    }
+  }
+
+  const visited = new Uint8Array(active.length);
+  let largest = null;
+  for (let start = 0; start < active.length; start += 1) {
+    if (!active[start] || visited[start]) {
+      continue;
+    }
+    const queue = [start];
+    let head = 0;
+    let count = 0;
+    let minX = gridWidth;
+    let minY = gridHeight;
+    let maxX = 0;
+    let maxY = 0;
+    visited[start] = 1;
+    while (head < queue.length) {
+      const index = queue[head];
+      head += 1;
+      const x = index % gridWidth;
+      const y = Math.floor(index / gridWidth);
+      count += 1;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+      for (let adjacentY = Math.max(0, y - 1); adjacentY <= Math.min(gridHeight - 1, y + 1); adjacentY += 1) {
+        for (let adjacentX = Math.max(0, x - 1); adjacentX <= Math.min(gridWidth - 1, x + 1); adjacentX += 1) {
+          const adjacent = adjacentY * gridWidth + adjacentX;
+          if (active[adjacent] && !visited[adjacent]) {
+            visited[adjacent] = 1;
+            queue.push(adjacent);
+          }
+        }
+      }
+    }
+    if (!largest || count > largest.count) {
+      largest = { count, minX, minY, maxX, maxY };
+    }
+  }
+
+  if (!largest || largest.count < gridWidth * gridHeight * 0.03) {
+    return null;
+  }
+  const componentWidth = (largest.maxX - largest.minX + 1) * blockSize;
+  const componentHeight = (largest.maxY - largest.minY + 1) * blockSize;
+  const aspectRatio = componentWidth / componentHeight;
+  if (
+    componentWidth < width * 0.15
+    || componentHeight < height * 0.15
+    || aspectRatio < 0.45
+    || aspectRatio > 1.95
+  ) {
+    return null;
+  }
+  return aspectRatio;
 }
 
 export function findVividIqFrameAtTimestamp(study, timestampSeconds) {

@@ -1,6 +1,15 @@
 export interface VividIqFrame {
   offset: number;
   timestampSeconds: number;
+  width: number;
+  height: number;
+  frameSize: number;
+}
+
+export interface VividIqFrameDimension {
+  width: number;
+  height: number;
+  frameCount: number;
 }
 
 export interface VividIqStudy {
@@ -19,8 +28,17 @@ export interface VividIqStudy {
   displayWidth: number;
   displayHeight: number;
   displayAspectRatio: number;
-  displayAspectRatioSource: "ultrasound-region" | "native-pixels";
+  displayAspectRatioSource:
+    | "ultrasound-region"
+    | "preview-image"
+    | "estimated-sector"
+    | "native-pixels";
   frameSize: number;
+  frameDimensions: VividIqFrameDimension[];
+  maxFrameWidth: number;
+  scanConversion: boolean;
+  previewJpegOffset: number | null;
+  previewJpegLength: number;
   frameCount: number;
   frameRate: number;
   durationSeconds: number;
@@ -37,6 +55,21 @@ export class VividIqDicomError extends Error {
 
 export function parseVividIqDicom(buffer: ArrayBuffer, fileName?: string): VividIqStudy;
 export function getVividIqFramePixels(study: VividIqStudy, frameIndex: number): Uint8Array;
+export function getVividIqPreviewJpeg(study: VividIqStudy): Uint8Array | null;
+export function createVividIqDisplayMap(
+  sourceWidth: number,
+  sourceHeight: number,
+  outputWidth: number,
+  outputHeight: number,
+  scanConversion?: boolean,
+  lateralFlip?: boolean,
+): Int32Array;
+export function detectVividIqPreviewAspectRatio(
+  pixels: ArrayLike<number>,
+  width: number,
+  height: number,
+  channels?: number,
+): number | null;
 export function findVividIqFrameAtTimestamp(
   study: VividIqStudy,
   timestampSeconds: number,
