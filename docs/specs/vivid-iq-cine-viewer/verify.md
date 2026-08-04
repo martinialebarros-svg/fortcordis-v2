@@ -16,6 +16,7 @@ Status: done
 | CA-006 | aceitacao | nenhuma API de upload; `File.arrayBuffer()` local | ok |
 | CA-007 | aceitacao | aviso experimental visivel antes e depois do carregamento | ok |
 | CA-008 | aceitacao | link ativo `Visualizador Vivid IQ` no menu Clinica | ok |
+| CA-009 | aceitacao | canvas real 326x144 exibido em 603x490 (1,232:1) | ok |
 | NFR-001 | privacidade | parser coleta apenas tags tecnicas e retorna zero PII | ok |
 | NFR-002 | prudencia | nenhuma ferramenta de medida; alerta persistente | ok |
 | NFR-003 | memoria | um `ArrayBuffer` fonte e um `ImageData` reutilizado | ok |
@@ -36,15 +37,15 @@ python3 scripts/ci/check_sdd_guardrail.py --base-sha origin/stage --head-sha HEA
 
 Resultados:
 
-- Parser: 4/4 testes passaram, incluindo pixels/timestamps e tres falhas
-  controladas.
+- Parser: 5/5 testes passaram, incluindo proporcao 2D, fallback nativo,
+  pixels/timestamps e tres falhas controladas.
 - Smoke externo somente leitura: `Q1TBHPGK`, GE Vingmed Ultrasound / Vivid iq,
   `2D+Trace`, preview 1016x708, cine 536x195, 1.279 quadros, 10,0205 s e
   127,5595 fps; nenhum dado identificavel foi impresso ou persistido.
 - ESLint completo: passou sem warnings.
 - TypeScript: passou sem erros.
 - Build Next.js 15.5.14: 40 paginas geradas; `/visualizador-vivid-iq` compilou
-  como rota estatica de 8,49 kB.
+  como rota estatica de 8,99 kB apos a correcao.
 - `git diff --check`: passou.
 - Guardrail SDD: passou contra o `origin/stage` atualizado; somente a feature
   `vivid-iq-cine-viewer` foi qualificada no diff final.
@@ -59,7 +60,19 @@ Resultados:
 - Confirmar ausencia de requisicao de upload: concluido por arquitetura e
   inspecao do fluxo local; o dashboard manteve apenas suas requisicoes normais
   de autenticacao/branding.
-- Revisao visual: cine exibido com proporcao nativa e controles responsivos.
+- Revisao visual inicial: cine exibido com controles responsivos.
+
+### Correcao de proporcao visual - 2026-08-04
+
+- O arquivo real `Q1TBHPGK` manteve os pixels brutos 536x195 e passou a usar a
+  regiao 2D 761x589, alterando somente a apresentacao de 2,749:1 para 1,292:1.
+- Um arquivo real `2D+Trace+MM` do mesmo conjunto manteve os pixels brutos
+  326x144 e usou a regiao 2D 324x263, alterando somente a apresentacao de
+  2,264:1 para 1,232:1.
+- No navegador local, o canvas 326x144 mediu 603x490 CSS (1,23195:1), com
+  proporcao coincidente com a regiao do equipamento e sem erros de console.
+- O arquivo permaneceu local; apenas metadados tecnicos seguros foram impressos
+  durante o smoke.
 
 ### Evidencias de release
 
@@ -98,3 +111,8 @@ Resultados:
 - [x] Aprovado para stage.
 - [x] Aprovado para producao.
 - [ ] Nao aprovado.
+
+### Correcao de proporcao visual
+
+- [x] Validada localmente.
+- [x] Aprovada tecnicamente para rollout protegido `stage -> producao`.

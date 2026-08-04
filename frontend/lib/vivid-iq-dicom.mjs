@@ -138,6 +138,29 @@ function collectElement(state, context, header) {
     return;
   }
 
+  if (context.ultrasoundRegion) {
+    if (tagMatches(header, 0x0018, 0x6012) && header.valueLength >= 2) {
+      context.ultrasoundRegion.spatialFormat = view.getUint16(header.valueOffset, true);
+      return;
+    }
+    if (tagMatches(header, 0x0018, 0x6018) && header.valueLength >= 4) {
+      context.ultrasoundRegion.minX = view.getUint32(header.valueOffset, true);
+      return;
+    }
+    if (tagMatches(header, 0x0018, 0x601a) && header.valueLength >= 4) {
+      context.ultrasoundRegion.minY = view.getUint32(header.valueOffset, true);
+      return;
+    }
+    if (tagMatches(header, 0x0018, 0x601c) && header.valueLength >= 4) {
+      context.ultrasoundRegion.maxX = view.getUint32(header.valueOffset, true);
+      return;
+    }
+    if (tagMatches(header, 0x0018, 0x601e) && header.valueLength >= 4) {
+      context.ultrasoundRegion.maxY = view.getUint32(header.valueOffset, true);
+      return;
+    }
+  }
+
   if (tagMatches(header, PRIVATE_GROUP, 0x0010)) {
     const creator = readAscii(view, header.valueOffset, header.valueLength);
     if (creator === PRIVATE_CREATOR) {
@@ -210,6 +233,7 @@ function parseSequence(state, header, context, depth, end) {
     ? end
     : header.valueOffset + header.valueLength;
   const isVoxelGroupSequence = tagMatches(header, PRIVATE_GROUP, 0x1036);
+  const isUltrasoundRegionSequence = tagMatches(header, 0x0018, 0x6011);
   let position = header.valueOffset;
 
   while (position + 8 <= sequenceEnd) {
@@ -236,16 +260,28 @@ function parseSequence(state, header, context, depth, end) {
           voxelsLength: 0,
         }
       : context.voxelGroup;
+    const ultrasoundRegion = isUltrasoundRegionSequence
+      ? {
+          spatialFormat: null,
+          minX: null,
+          minY: null,
+          maxX: null,
+          maxY: null,
+        }
+      : context.ultrasoundRegion;
 
     if (isVoxelGroupSequence) {
       state.voxelGroups.push(voxelGroup);
+    }
+    if (isUltrasoundRegionSequence) {
+      state.ultrasoundRegions.push(ultrasoundRegion);
     }
 
     const parsed = parseDataset(
       state,
       item.valueOffset,
       itemEnd,
-      { voxelGroup },
+      { voxelGroup, ultrasoundRegion },
       depth + 1,
     );
 
@@ -265,7 +301,13 @@ function parseSequence(state, header, context, depth, end) {
   return sequenceEnd;
 }
 
-function parseDataset(state, start, end, context = { voxelGroup: null }, depth = 0) {
+function parseDataset(
+  state,
+  start,
+  end,
+  context = { voxelGroup: null, ultrasoundRegion: null },
+  depth = 0,
+) {
   if (depth > MAX_DEPTH) {
     fail("RESOURCE_LIMIT", "O DICOM excede o limite seguro de profundidade.");
   }
@@ -381,6 +423,53 @@ function chooseImageSize(candidates, groups) {
     fail("INVALID_MOVIE", "Nao foi possivel determinar as dimensoes do cine GE.");
   }
   return selected;
+}
+
+function chooseDisplayGeometry(regions, imageSize) {
+  const validTwoDimensionalRegions = regions
+    .filter((region) => (
+      region.spatialFormat === 1
+      && Number.isInteger(region.minX)
+      && Number.isInteger(region.minY)
+      && Number.isInteger(region.maxX)
+      && Number.isInteger(region.maxY)
+      && region.maxX >= region.minX
+      && region.maxY >= region.minY
+    ))
+    .map((region) => ({
+      width: region.maxX - region.minX + 1,
+      height: region.maxY - region.minY + 1,
+    }))
+    .filter(({ width, height }) => (
+      width > 0
+      && height > 0
+      && width <= 8192
+      && height <= 8192
+      && width / height >= 0.2
+      && width / height <= 5
+    ));
+
+  validTwoDimensionalRegions.sort((left, right) => (
+    Math.abs(Math.log(left.width / imageSize.width))
+    - Math.abs(Math.log(right.width / imageSize.width))
+  ));
+
+  const selected = validTwoDimensionalRegions[0];
+  if (!selected) {
+    return {
+      displayWidth: imageSize.width,
+      displayHeight: imageSize.height,
+      displayAspectRatio: imageSize.width / imageSize.height,
+      displayAspectRatioSource: "native-pixels",
+    };
+  }
+
+  return {
+    displayWidth: selected.width,
+    displayHeight: selected.height,
+    displayAspectRatio: selected.width / selected.height,
+    displayAspectRatioSource: "ultrasound-region",
+  };
 }
 
 function median(values) {
@@ -508,6 +597,7 @@ export function parseVividIqDicom(buffer, fileName = "arquivo DICOM") {
     privateCreatorFound: false,
     imageSizeCandidates: [],
     voxelGroups: [],
+    ultrasoundRegions: [],
   };
 
   const datasetOffset = parseMetaHeader(state);
@@ -528,6 +618,7 @@ export function parseVividIqDicom(buffer, fileName = "arquivo DICOM") {
   }
 
   const imageSize = chooseImageSize(state.imageSizeCandidates, state.voxelGroups);
+  const displayGeometry = chooseDisplayGeometry(state.ultrasoundRegions, imageSize);
   const timeline = buildFrames(state, imageSize);
   const equipment = [state.manufacturer, state.model].filter(Boolean).join(" · ");
 
@@ -544,6 +635,7 @@ export function parseVividIqDicom(buffer, fileName = "arquivo DICOM") {
     previewHeight: state.previewHeight,
     width: imageSize.width,
     height: imageSize.height,
+    ...displayGeometry,
     frameSize: imageSize.frameSize,
     frameCount: timeline.frames.length,
     frameRate: timeline.frameRate,

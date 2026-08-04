@@ -1,6 +1,6 @@
 # Spec - vivid-iq-cine-viewer
 
-Data: 2026-08-02
+Data: 2026-08-04
 Responsavel: Codex
 Status: done
 
@@ -25,10 +25,14 @@ upload para o backend.
 - RF-006: permitir velocidade de reproducao, brilho e contraste apenas para
   visualizacao, sem alterar o arquivo fonte.
 - RF-007: permitir baixar o quadro visivel como PNG, identificado como captura
-  derivada e nao como DICOM original.
+  derivada e nao como DICOM original, aplicando a mesma proporcao visual usada
+  na tela.
 - RF-008: disponibilizar a pagina `Visualizador Vivid IQ` no menu autenticado.
 - RF-009: exibir erros controlados para arquivos invalidos, formatos nao
   suportados, blocos incompletos e ausencia do cine privado.
+- RF-010: quando existir uma regiao ultrassonografica 2D em `(0018,6011)`, usar
+  `Region Location Min/Max X/Y` para corrigir a proporcao visual dos pixels
+  privados da GE sem modificar o quadro fonte.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -66,8 +70,9 @@ upload para o backend.
 - Tela: `/visualizador-vivid-iq`.
 - Biblioteca: `frontend/lib/vivid-iq-dicom.mjs`.
 - Estados: vazio, lendo, pronto, reproduzindo e erro.
-- O canvas renderiza um quadro nativo por vez e usa os timestamps do equipamento
-  para escolher o quadro correspondente ao relogio de reproducao.
+- O canvas renderiza um quadro nativo por vez, usa os timestamps do equipamento
+  para escolher o quadro correspondente ao relogio de reproducao e aplica na
+  camada de apresentacao a proporcao da regiao 2D do equipamento.
 
 ## 5) Compatibilidade e rollout
 
@@ -91,6 +96,8 @@ upload para o backend.
 - CA-007: aviso de uso experimental e proibicao de medicoes permanecem visiveis
   durante toda a visualizacao.
 - CA-008: o menu autenticado contem acesso direto a pagina.
+- CA-009: um cine `2D+Trace+MM` com pixels brutos 326x144 e regiao 2D 324x263
+  e exibido em aproximadamente 1,23:1, sem o alongamento horizontal de 2,26:1.
 
 ## 7) Casos de borda
 
@@ -100,6 +107,8 @@ upload para o backend.
 - CB-003: troca de arquivo interrompe a reproducao anterior e libera a
   referencia ao buffer anterior.
 - CB-004: arquivo acima de 512 MB e recusado antes da leitura integral.
+- CB-005: se a sequencia de regiao ultrassonografica 2D estiver ausente ou for
+  invalida, a exibicao usa a proporcao nativa dos pixels como fallback seguro.
 
 ## 8) Fora de escopo
 

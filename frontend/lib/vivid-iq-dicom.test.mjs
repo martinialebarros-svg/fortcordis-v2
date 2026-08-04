@@ -72,17 +72,35 @@ function asArrayBuffer(value) {
   return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
 }
 
-function buildSyntheticVividIqDicom({ includePrivateMovie = true, rawPixels } = {}) {
+function buildSyntheticVividIqDicom({
+  includePrivateMovie = true,
+  includeUltrasoundRegion = true,
+  rawPixels,
+} = {}) {
   const preamble = Buffer.alloc(128);
   const magic = Buffer.from("DICM", "ascii");
   const meta = concat(
     textElement(0x0002, 0x0010, "UI", "1.2.840.10008.1.2.4.50"),
   );
+  const ultrasoundRegion = includeUltrasoundRegion
+    ? sequence(
+        0x0018,
+        0x6011,
+        concat(
+          uint16Element(0x0018, 0x6012, 1),
+          uint32Element(0x0018, 0x6018, 10),
+          uint32Element(0x0018, 0x601a, 20),
+          uint32Element(0x0018, 0x601c, 209),
+          uint32Element(0x0018, 0x601e, 119),
+        ),
+      )
+    : Buffer.alloc(0);
   const safeDataset = concat(
     textElement(0x0008, 0x0060, "CS", "US"),
     textElement(0x0008, 0x0070, "LO", "GE Vingmed Ultrasound"),
     textElement(0x0008, 0x1090, "LO", "Vivid iq"),
     textElement(0x0010, 0x0010, "PN", "PACIENTE^NAO_EXIBIR"),
+    ultrasoundRegion,
     uint16Element(0x0028, 0x0010, 708),
     uint16Element(0x0028, 0x0011, 1016),
   );
@@ -158,6 +176,10 @@ test("extrai cine GE sintetico sem expor metadados do paciente", () => {
   assert.equal(study.cineType, "2D+Trace");
   assert.equal(study.width, 2);
   assert.equal(study.height, 2);
+  assert.equal(study.displayWidth, 200);
+  assert.equal(study.displayHeight, 100);
+  assert.equal(study.displayAspectRatio, 2);
+  assert.equal(study.displayAspectRatioSource, "ultrasound-region");
   assert.equal(study.frameCount, 2);
   assert.ok(Math.abs(study.durationSeconds - 0.1) < 0.0001);
   assert.ok(Math.abs(study.frameRate - 10) < 0.0001);
@@ -166,6 +188,17 @@ test("extrai cine GE sintetico sem expor metadados do paciente", () => {
   assert.equal(findVividIqFrameAtTimestamp(study, 1.05), 0);
   assert.equal(findVividIqFrameAtTimestamp(study, 1.1), 1);
   assert.equal(JSON.stringify(study).includes("PACIENTE"), false);
+});
+
+test("usa proporcao nativa quando a regiao 2D do equipamento nao existe", () => {
+  const study = parseVividIqDicom(
+    buildSyntheticVividIqDicom({ includeUltrasoundRegion: false }),
+  );
+
+  assert.equal(study.displayWidth, 2);
+  assert.equal(study.displayHeight, 2);
+  assert.equal(study.displayAspectRatio, 1);
+  assert.equal(study.displayAspectRatioSource, "native-pixels");
 });
 
 test("rejeita arquivo sem assinatura DICM", () => {

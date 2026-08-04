@@ -318,7 +318,19 @@ export default function VisualizadorVividIqPage() {
     if (!canvas || !study) {
       return;
     }
-    canvas.toBlob((blob) => {
+    const captureCanvas = document.createElement("canvas");
+    captureCanvas.width = study.width;
+    captureCanvas.height = Math.max(1, Math.round(study.width / study.displayAspectRatio));
+    const captureContext = captureCanvas.getContext("2d", { alpha: false });
+    if (!captureContext) {
+      setErrorMessage("Nao foi possivel preparar a captura PNG deste quadro.");
+      return;
+    }
+    captureContext.imageSmoothingEnabled = true;
+    captureContext.imageSmoothingQuality = "high";
+    captureContext.drawImage(canvas, 0, 0, captureCanvas.width, captureCanvas.height);
+
+    captureCanvas.toBlob((blob) => {
       if (!blob) {
         setErrorMessage("Nao foi possivel gerar a captura PNG deste quadro.");
         return;
@@ -460,7 +472,12 @@ export default function VisualizadorVividIqPage() {
               <div className="rounded-2xl border border-ink-100 bg-white p-4 shadow-sm">
                 <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Cine</p>
                 <p className="mt-2 text-lg font-bold text-ink-900">{study.frameCount.toLocaleString("pt-BR")} quadros</p>
-                <p className="mt-1 text-xs text-ink-500">{study.width} x {study.height} px</p>
+                <p className="mt-1 text-xs text-ink-500">{study.width} x {study.height} px brutos</p>
+                <p className="mt-1 text-xs text-vital-700">
+                  {study.displayAspectRatioSource === "ultrasound-region"
+                    ? "proporcao visual corrigida pelo equipamento"
+                    : "proporcao nativa dos pixels"}
+                </p>
               </div>
               <div className="rounded-2xl border border-ink-100 bg-white p-4 shadow-sm">
                 <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Duracao</p>
@@ -490,12 +507,19 @@ export default function VisualizadorVividIqPage() {
                 ref={canvasStageRef}
                 className="flex min-h-72 items-center justify-center bg-black p-3 sm:p-6"
               >
-                <canvas
-                  ref={canvasRef}
-                  aria-label={`Cine do Vivid iq, quadro ${frameIndex + 1} de ${study.frameCount}`}
-                  className="block h-auto max-h-[68vh] w-full max-w-6xl bg-black object-contain"
-                  style={{ aspectRatio: `${study.width} / ${study.height}` }}
-                />
+                <div
+                  className="w-full max-w-6xl"
+                  style={{
+                    aspectRatio: `${study.displayWidth} / ${study.displayHeight}`,
+                    width: `min(100%, calc(68vh * ${study.displayAspectRatio}))`,
+                  }}
+                >
+                  <canvas
+                    ref={canvasRef}
+                    aria-label={`Cine do Vivid iq, quadro ${frameIndex + 1} de ${study.frameCount}`}
+                    className="block h-full w-full bg-black"
+                  />
+                </div>
               </div>
 
               <div className="space-y-5 p-4 sm:p-6">

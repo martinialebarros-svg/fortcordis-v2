@@ -16,6 +16,10 @@ export interface VividIqStudy {
   previewHeight: number | null;
   width: number;
   height: number;
+  displayWidth: number;
+  displayHeight: number;
+  displayAspectRatio: number;
+  displayAspectRatioSource: "ultrasound-region" | "native-pixels";
   frameSize: number;
   frameCount: number;
   frameRate: number;

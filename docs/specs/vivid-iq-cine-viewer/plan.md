@@ -12,6 +12,8 @@ Status: done
 - Fase 4 (verificacao): fixture sintetica, arquivo externo real, lint e build.
 - Fase 5 (release): publicar com guardrails em stage e promover o snapshot
   validado para producao.
+- Fase 6 (correcao de proporcao): usar a regiao 2D do DICOM para compensar
+  pixels privados GE nao quadrados na apresentacao.
 
 ## 2) Tarefas por fase
 
@@ -61,6 +63,20 @@ Status: done
 - Risco: divergencia entre `stage` e `main` durante a promocao.
 - Rollback: nao promover se o SHA remoto mudar; em producao, reverter o merge
   de release se for constatada regressao.
+
+### Fase 6
+
+- [x] T6.1 Ler `Sequence of Ultrasound Regions` e selecionar a regiao com
+  `Region Spatial Format = 1`.
+- [x] T6.2 Aplicar a proporcao corrigida somente na apresentacao e na captura
+  PNG, preservando o buffer e as dimensoes brutas.
+- [x] T6.3 Adicionar fallback para proporcao nativa e testes sinteticos.
+- [x] T6.4 Validar arquivos reais `2D+Trace` e `2D+Trace+MM` e medir o canvas no
+  navegador.
+- Criterio de conclusao: o cine 326x144 usa a regiao 324x263 e aparece em
+  aproximadamente 1,23:1 sem erros de console.
+- Risco: arquivos sem regiao 2D valida.
+- Rollback: manter o fallback automatico para a proporcao bruta.
 
 ## 3) Plano de testes
 
