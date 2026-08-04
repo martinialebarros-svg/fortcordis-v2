@@ -1,6 +1,6 @@
 # Verify - vivid-iq-cine-viewer
 
-Data: 2026-08-02
+Data: 2026-08-04
 Responsavel: Codex
 Status: done
 
@@ -61,6 +61,28 @@ Resultados:
   de autenticacao/branding.
 - Revisao visual: cine exibido com proporcao nativa e controles responsivos.
 
+### Evidencias de release
+
+- Stage publicou o snapshot `99781bc067494243cf346aab92019b4428d3c462`.
+- `Migration CI` (`30876545082`) e `Deploy to Stage (VPS)` (`30876545092`)
+  terminaram com sucesso; neste ultimo, `sdd-guardrail`, `quality-gate`, deploy
+  e canario tambem ficaram verdes.
+- Em stage, os hosts `stage.fortcordis.com.br` e
+  `app.stage.fortcordis.com.br`, inclusive a rota
+  `/visualizador-vivid-iq`, responderam `200`; `/api/v1/auth/me` sem token
+  respondeu `401`.
+- Os 13 chunks JavaScript referenciados pela pagina de stage foram baixados e
+  inspecionados; dois continham os marcadores esperados do visualizador.
+- Producao recebeu o merge `26a1ac21c97aa0e43c8b11916f14a990a4e37271`,
+  contendo integralmente o snapshot validado de stage.
+- `Migration CI` (`30877169340`) e `Deploy to VPS` (`30877169321`) terminaram
+  com sucesso; `sdd-guardrail`, `quality-gate` e deploy ficaram verdes.
+- Em producao, `app.fortcordis.com.br`, `fortcordis.com.br` e
+  `www.fortcordis.com.br`, inclusive a rota do visualizador, responderam
+  `200`; `/api/v1/auth/me` sem token respondeu `401`.
+- Os 13 chunks JavaScript referenciados pela pagina de producao foram baixados
+  e inspecionados; dois continham os marcadores esperados do visualizador.
+
 ## 4) Regressao e riscos residuais
 
 - Novas versoes de firmware GE exigirao arquivos de homologacao adicionais.
@@ -73,6 +95,6 @@ Resultados:
 
 ## 6) Decisao de release
 
-- [ ] Aprovado para stage.
-- [ ] Aprovado para producao.
-- [x] Nao aprovado: entrega local, aguardando revisao visual do usuario.
+- [x] Aprovado para stage.
+- [x] Aprovado para producao.
+- [ ] Nao aprovado.

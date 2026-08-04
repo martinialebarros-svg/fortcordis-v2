@@ -1,6 +1,6 @@
 # Plan - vivid-iq-cine-viewer
 
-Data: 2026-08-02
+Data: 2026-08-04
 Responsavel: Codex
 Status: done
 
@@ -10,6 +10,8 @@ Status: done
 - Fase 2 (frontend): construir canvas, controles e estados da pagina.
 - Fase 3 (integracao): adicionar menu e mensagens de prudencia clinica.
 - Fase 4 (verificacao): fixture sintetica, arquivo externo real, lint e build.
+- Fase 5 (release): publicar com guardrails em stage e promover o snapshot
+  validado para producao.
 
 ## 2) Tarefas por fase
 
@@ -46,7 +48,19 @@ Status: done
 - [x] T4.3 Executar `git diff --check` e guardrail SDD.
 - Criterio de conclusao: evidencias registradas em `verify.md`.
 - Risco: dependencias ausentes no worktree.
-- Rollback: nenhuma publicacao sera realizada nesta iteracao.
+- Rollback: interromper a promocao se qualquer validacao falhar.
+
+### Fase 5
+
+- [x] T5.1 Rebasear sobre o `origin/stage` atual e repetir as validacoes locais.
+- [x] T5.2 Publicar em stage, aguardar workflows terminais e executar smokes.
+- [x] T5.3 Mesclar o stage validado em worktree limpo de `origin/main`.
+- [x] T5.4 Aguardar workflows de producao e executar smokes dos hosts e chunks.
+- Criterio de conclusao: CI/deploy verdes, rota `200`, API protegida `401` sem
+  credencial e marcadores presentes nos chunks servidos.
+- Risco: divergencia entre `stage` e `main` durante a promocao.
+- Rollback: nao promover se o SHA remoto mudar; em producao, reverter o merge
+  de release se for constatada regressao.
 
 ## 3) Plano de testes
 
@@ -65,4 +79,4 @@ Status: done
 - [x] `intent.md` aprovado.
 - [x] `spec.md` aprovado.
 - [x] Fases e rollback revisados.
-- [x] Ambiente de teste definido (worktree local, sem deploy).
+- [x] Ambientes de teste definidos (worktrees isolados, stage e producao).
