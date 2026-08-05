@@ -462,6 +462,47 @@ class AssistenteIAAdminTest(unittest.TestCase):
             self.assertEqual(payload.status, "Agendado")
             self.assertEqual(payload.paciente_id, patient.id)
 
+    def test_paciente_com_tutor_legado_ativo_nulo_e_resolvido(self) -> None:
+        with self._session_factory() as db:
+            clinic, service, _patient, conversation = self._seed_base(db)
+            tutor_legado = Tutor(
+                nome="Marcos Pereira",
+                telefone="(85) 98888-1122",
+                whatsapp="85988881122",
+                ativo=None,
+            )
+            db.add(tutor_legado)
+            db.flush()
+            patient_legado = Paciente(nome="Bolt", tutor_id=tutor_legado.id, ativo=1)
+            db.add(patient_legado)
+            db.commit()
+            db.refresh(patient_legado)
+
+            future = datetime.now(assistente_ia_tools.LOCAL_TZ) + timedelta(days=10)
+            with (
+                patch.object(assistente_ia_tools, "_validate_appointment_candidate"),
+                patch.object(assistente_ia_tools, "registrar_auditoria"),
+            ):
+                prepared = assistente_ia_tools.solicitar_criacao_agendamento(
+                    self._context(db, conversation),
+                    tipo="agendamento",
+                    origem_atendimento="clinica_parceira",
+                    clinica=clinic.nome,
+                    tutor=None,
+                    paciente=patient_legado.nome,
+                    servico=service.nome,
+                    data=future.date().isoformat(),
+                    horario="13:00",
+                    destinatario_mensagem="tutor",
+                    prazo_confirmacao_horas=None,
+                    observacoes=None,
+                )
+
+            self.assertTrue(prepared["ok"])
+            target = prepared["pending_action"]["target"]
+            self.assertEqual(target["tutor_id"], tutor_legado.id)
+            self.assertEqual(target["tutor_nome"], "Marcos Pereira")
+
     def test_rejeitar_criacao_preserva_agenda(self) -> None:
         with self._session_factory() as db:
             clinic, service, _patient, conversation = self._seed_base(db)
