@@ -6,11 +6,11 @@ Status: done
 
 ## 1) Problema atual
 
-O editor qualitativo de ecocardiograma ja possui banco de frases e presets, mas a manutencao fica misturada ao fluxo de redacao do laudo. Isso dificulta renomear frases, organizar por patologia de base, revisar presets e controlar frases inativas sem risco de baguncar o laudo em andamento.
+O editor qualitativo de ecocardiograma ja possui banco de frases e presets, mas a manutencao fica misturada ao fluxo de redacao do laudo. Isso dificulta renomear frases, organizar por patologia de base, revisar presets e controlar frases inativas sem risco de baguncar o laudo em andamento. No aspecto Conclusao, o seletor nativo tambem apresenta todas as frases em uma lista unica extensa, sem busca nem navegacao por patologia. Paineis extensos precisam permanecer integralmente acessiveis mesmo quando o gatilho esta proximo ao limite inferior da tela ou dentro de um formulario com overflow.
 
 ## 2) Objetivo
 
-Criar uma aba Biblioteca no modulo de laudos para organizar frases e presets estruturados de ecocardiograma, com edicao segura, agrupamento por patologias multiplas, soft delete e preservacao de compatibilidade com os presets existentes.
+Criar uma aba Biblioteca no modulo de laudos para organizar frases e presets estruturados de ecocardiograma, com edicao segura, agrupamento por patologias multiplas, soft delete e preservacao de compatibilidade com os presets existentes. Reutilizar essa classificacao no aspecto Conclusao da aba Qualitativa, oferecendo busca e grupos expansivos sem remover a confirmacao explicita antes de aplicar uma frase.
 
 ## 3) Nao objetivos
 

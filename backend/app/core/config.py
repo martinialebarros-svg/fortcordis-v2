@@ -109,6 +109,9 @@ class Settings(BaseSettings):
     PORTAL_CLINIC_PASSWORD_RESET_EXPIRE_MINUTES: int = 30
     PORTAL_CLINIC_MAX_AUTH_ATTEMPTS: int = 5
     PORTAL_CLINIC_RELEASE_SLA_HOURS: int = 48
+    PORTAL_PARTNER_INVITE_AUTH_ENABLED: bool = True
+    PORTAL_PARTNER_PASSWORD_LOGIN_ENABLED: bool = True
+    PORTAL_PARTNER_REFRESH_COOKIE_NAME: str = "fortcordis_portal_partner_refresh"
     PORTAL_DEBUG_EXPOSE_CODE: bool = False
     PORTAL_EMAIL_SMTP_HOST: str = ""
     PORTAL_EMAIL_SMTP_PORT: int = 587
@@ -128,6 +131,11 @@ class Settings(BaseSettings):
     PORTAL_REMOTE_STORAGE_AUTH_HEADER: str = "Authorization"
     PORTAL_REMOTE_STORAGE_AUTH_TOKEN: str = ""
     PORTAL_REMOTE_STORAGE_TIMEOUT_SECONDS: int = 20
+    # Hosts (dominio exato, separados por virgula) para os quais
+    # PORTAL_REMOTE_STORAGE_AUTH_TOKEN pode ser enviado. Anexos com URL livre
+    # (link externo colado pelo usuario) nunca devem receber esse header -
+    # so a URL do storage remoto legitimo, configurada aqui, recebe o token.
+    PORTAL_REMOTE_STORAGE_TRUSTED_HOSTS: str = ""
 
     class Config:
         env_file = str(ENV_FILE_PATH)

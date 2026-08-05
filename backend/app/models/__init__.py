@@ -58,6 +58,14 @@ from app.models.portal_clinic_auth import (
     PortalClinicSession,
     PortalPasswordResetToken,
 )
+from app.models.portal_partner import PortalPartnerProfile, PortalPartnerReleaseTarget
+from app.models.portal_partner_auth import (
+    PortalPartnerAccount,
+    PortalPartnerAuthChallenge,
+    PortalPartnerInvite,
+    PortalPartnerPasswordResetToken,
+    PortalPartnerSession,
+)
 from app.models.assistente_ia import (
     AssistenteIAAcaoPendente,
     AssistenteIAAprendizado,

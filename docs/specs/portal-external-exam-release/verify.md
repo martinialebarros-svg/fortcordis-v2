@@ -20,6 +20,7 @@ Status: in-progress
 | CA-010 | frontend | `frontend/app/laudos/eletrocardiograma/upload/page.tsx` com busca de paciente por pet/tutor no modo sem agendamento | ok |
 | CA-011 | frontend | `frontend/app/laudos/eletrocardiograma/upload/page.tsx` com cadastro rapido de tutor e pet no mesmo fluxo | ok |
 | CA-012 | frontend | `frontend/app/laudos/eletrocardiograma/upload/page.tsx` criando paciente via `/pacientes` antes do upload | ok |
+| CA-013 | frontend | `frontend/app/laudos/page.tsx` + `frontend/app/globals.css` com menu visivel fora do cabeçalho | ok |
 
 ## 2) Testes automatizados planejados
 
@@ -70,6 +71,7 @@ Resultados executados:
 
 - Cenario 1: abrir agenda, menu `Laudar`, selecionar `Eletrocardiograma`.
 - Cenario 1A: abrir `Laudos`, clicar em `Novo Laudo` e confirmar a opcao `Upload de eletrocardiograma`.
+- Cenario 1B: confirmar que o menu `Novo Laudo` abre por completo, sem ficar escondido pelo cabeçalho da Central de laudos.
 - Cenario 2: enviar PDF e confirmar criacao do laudo em `Laudos`.
 - Cenario 3: baixar PDF em `Laudos` e confirmar que e o arquivo original enviado.
 - Cenario 4: clicar em `Liberar portal` no laudo de eletrocardiograma.

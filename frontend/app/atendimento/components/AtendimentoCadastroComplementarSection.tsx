@@ -32,7 +32,10 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
   } = props;
 
   return (
-    <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
+    <section
+      id="atendimento-cadastro-complementar"
+      className="scroll-mt-24 rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm"
+    >
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex items-center gap-3">
@@ -42,6 +45,9 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
             <div>
               <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Antes da triagem</p>
               <h3 className="text-lg font-semibold text-slate-900">Complementacao cadastral</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Corrija paciente e tutor aqui. Os dados atuais serao usados tambem nas reimpressoes.
+              </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -140,6 +146,16 @@ export default function AtendimentoCadastroComplementarSection(props: Atendiment
                     <option value="">Especie</option>
                     <option value="Canina">Canino</option>
                     <option value="Felina">Felino</option>
+                  </select>
+                  <select
+                    aria-label="Sexo do paciente"
+                    value={cadastroComplementar.paciente.sexo || ""}
+                    onChange={(e) => setCadastroPacienteField("sexo", e.target.value)}
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                  >
+                    <option value="">Sexo</option>
+                    <option value="Macho">Macho</option>
+                    <option value="Fêmea">Fêmea</option>
                   </select>
                   <div className="space-y-2 md:col-span-2">
                     <select

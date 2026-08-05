@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  ChevronDown,
+  ChevronRight,
   Copy,
   FileText,
   FolderOpen,
@@ -137,6 +139,7 @@ export default function EcocardiogramaEstruturadoBiblioteca() {
   const [filtroPatologia, setFiltroPatologia] = useState("");
   const [filtroTag, setFiltroTag] = useState("");
   const [filtroStatus, setFiltroStatus] = useState<StatusFiltro>("ativos");
+  const [gruposFrasesExpandidos, setGruposFrasesExpandidos] = useState<Set<string>>(new Set());
   const [fraseForm, setFraseForm] = useState<FraseFormState>(fraseFormVazio());
   const [presetForm, setPresetForm] = useState<PresetFormState>(presetFormVazio([]));
 
@@ -247,6 +250,22 @@ export default function EcocardiogramaEstruturadoBiblioteca() {
       return a.localeCompare(b);
     });
   }, [filtroPatologia, frasesFiltradas]);
+
+  const filtrosForcamGruposExpandidos = Boolean(
+    textoNormalizado(busca) || filtroPatologia || filtroTag
+  );
+
+  const alternarGrupoFrases = (patologia: string) => {
+    setGruposFrasesExpandidos((atuais) => {
+      const proximos = new Set(atuais);
+      if (proximos.has(patologia)) {
+        proximos.delete(patologia);
+      } else {
+        proximos.add(patologia);
+      }
+      return proximos;
+    });
+  };
 
   const presetsFiltrados = useMemo(() => {
     const termo = textoNormalizado(busca);
@@ -650,58 +669,84 @@ export default function EcocardiogramaEstruturadoBiblioteca() {
                 Nova frase
               </button>
             </div>
-            {gruposFrases.map(([patologia, itens]) => (
-              <section key={patologia} className="space-y-2">
-                <div className="flex items-center gap-2 text-sm font-medium text-gray-900">
-                  <Tag className="h-4 w-4 text-teal-600" />
-                  {patologia}
-                  <span className="text-xs font-normal text-gray-500">({itens.length})</span>
-                </div>
-                <div className="space-y-2">
-                  {itens.map((item) => {
-                    const ativo = Number(item.frase.ativo ?? 1) === 1;
-                    const selected =
-                      fraseForm.id === item.frase.id && fraseForm.sourceAspecto === item.aspecto.key;
-                    return (
-                      <button
-                        key={`${item.aspecto.key}-${item.frase.id}`}
-                        type="button"
-                        onClick={() => selecionarFrase(item)}
-                        className={`block w-full rounded-lg border bg-white p-3 text-left text-sm transition ${
-                          selected
-                            ? "border-teal-300 ring-2 ring-teal-100"
-                            : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
-                        }`}
-                      >
-                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                          <div>
-                            <div className="font-medium text-gray-900">{item.frase.titulo}</div>
-                            <div className="text-xs text-gray-500">{item.aspecto.label}</div>
-                          </div>
-                          <span
-                            className={`w-fit rounded-full border px-2 py-0.5 text-xs ${
-                              ativo
-                                ? "border-green-200 bg-green-50 text-green-700"
-                                : "border-gray-200 bg-gray-50 text-gray-500"
+            {gruposFrases.map(([patologia, itens], index) => {
+              const expandido =
+                filtrosForcamGruposExpandidos || gruposFrasesExpandidos.has(patologia);
+              const conteudoId = `grupo-frases-${index}`;
+              return (
+                <section
+                  key={patologia}
+                  className="overflow-hidden rounded-lg border border-gray-200 bg-white"
+                >
+                  <button
+                    type="button"
+                    onClick={() => alternarGrupoFrases(patologia)}
+                    aria-expanded={expandido}
+                    aria-controls={conteudoId}
+                    className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left text-sm font-medium text-gray-900 transition hover:bg-gray-50"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      {expandido ? (
+                        <ChevronDown className="h-4 w-4 shrink-0 text-teal-600" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 shrink-0 text-teal-600" />
+                      )}
+                      <Tag className="h-4 w-4 shrink-0 text-teal-600" />
+                      <span className="truncate">{patologia}</span>
+                    </span>
+                    <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-normal text-gray-600">
+                      {itens.length} {itens.length === 1 ? "frase" : "frases"}
+                    </span>
+                  </button>
+                  {expandido ? (
+                    <div id={conteudoId} className="space-y-2 border-t border-gray-200 bg-gray-50/60 p-3">
+                      {itens.map((item) => {
+                        const ativo = Number(item.frase.ativo ?? 1) === 1;
+                        const selected =
+                          fraseForm.id === item.frase.id &&
+                          fraseForm.sourceAspecto === item.aspecto.key;
+                        return (
+                          <button
+                            key={`${item.aspecto.key}-${item.frase.id}`}
+                            type="button"
+                            onClick={() => selecionarFrase(item)}
+                            className={`block w-full rounded-lg border bg-white p-3 text-left text-sm transition ${
+                              selected
+                                ? "border-teal-300 ring-2 ring-teal-100"
+                                : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
                             }`}
                           >
-                            {ativo ? "Ativa" : "Inativa"}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-gray-600">{resumirTexto(item.frase.texto)}</p>
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {(item.frase.tags || []).map((tag) => (
-                            <span key={tag} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
+                            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                              <div>
+                                <div className="font-medium text-gray-900">{item.frase.titulo}</div>
+                                <div className="text-xs text-gray-500">{item.aspecto.label}</div>
+                              </div>
+                              <span
+                                className={`w-fit rounded-full border px-2 py-0.5 text-xs ${
+                                  ativo
+                                    ? "border-green-200 bg-green-50 text-green-700"
+                                    : "border-gray-200 bg-gray-50 text-gray-500"
+                                }`}
+                              >
+                                {ativo ? "Ativa" : "Inativa"}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-gray-600">{resumirTexto(item.frase.texto)}</p>
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {(item.frase.tags || []).map((tag) => (
+                                <span key={tag} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </section>
+              );
+            })}
           </div>
 
           <div className="rounded-lg border border-gray-200 bg-white p-4">

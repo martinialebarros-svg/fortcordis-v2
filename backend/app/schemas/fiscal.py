@@ -112,3 +112,26 @@ class NotaFiscalResponse(BaseModel):
 class NotaFiscalListResponse(BaseModel):
     total: int
     items: list[NotaFiscalResponse]
+
+
+class RelatorioFiscalEmissaoResponse(BaseModel):
+    """Metadados seguros de uma exportação contábil concluída."""
+
+    id: int
+    formato: str
+    modo: str
+    tipo_emissao: str
+    data_inicio: Optional[str]
+    data_fim: Optional[str]
+    quantidade_os: int
+    valor_total: float
+    clinicas: list[dict]
+    descricao_servico: Optional[str]
+    arquivo_nome: Optional[str]
+    usuario_nome: Optional[str]
+    emitido_em: str
+
+
+class RelatorioFiscalEmissaoListResponse(BaseModel):
+    total: int
+    items: list[RelatorioFiscalEmissaoResponse]

@@ -132,7 +132,7 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
-    def test_reserva_vencida_libera_slot_para_novo_agendamento(self) -> None:
+    def test_reserva_vencida_exige_revisao_antes_de_liberar_novo_agendamento(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
             clinica = Clinica(
@@ -174,11 +174,32 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
                 reserva_expira_em=agora_local + timedelta(hours=3),
             )
 
+            with self.assertRaises(HTTPException) as ctx:
+                agenda.criar_agendamento(
+                    agendamento=payload,
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=SimpleNamespace(id=1, nome="Teste"),
+                )
+
+            self.assertEqual(ctx.exception.status_code, 409)
+            self.assertEqual(
+                ctx.exception.detail["codigo"],
+                "CONFIRMACAO_SLOT_RESERVA_EXPIRADA",
+            )
+            self.assertEqual(
+                ctx.exception.detail["reservas_expiradas"][0]["id"],
+                reserva_vencida.id,
+            )
+
+            payload_confirmado = payload.model_copy(
+                update={"confirmar_slot_reserva_expirada": True}
+            )
             with patch.object(agenda, "registrar_auditoria", return_value=None), patch.object(
                 agenda, "_notificar_agenda_update", return_value=None
             ):
                 resposta = agenda.criar_agendamento(
-                    agendamento=payload,
+                    agendamento=payload_confirmado,
                     request=SimpleNamespace(),
                     db=db,
                     current_user=SimpleNamespace(id=1, nome="Teste"),
@@ -187,6 +208,118 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
             db.refresh(reserva_vencida)
             self.assertEqual(reserva_vencida.status, "Expirado")
             self.assertNotEqual(int(resposta["id"]), reserva_vencida.id)
+
+            with self.assertRaises(HTTPException) as conflito_ativo:
+                agenda.criar_agendamento(
+                    agendamento=payload_confirmado,
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=SimpleNamespace(id=1, nome="Teste"),
+                )
+            self.assertEqual(conflito_ativo.exception.status_code, 409)
+            self.assertIn("ja existe atendimento", str(conflito_ativo.exception.detail))
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_reserva_expirada_pode_ser_agendada_apos_confirmacao_se_slot_livre(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            clinica = Clinica(
+                nome="Clinica Confirmacao Tardia",
+                ativo=True,
+                latitude=-3.7319,
+                longitude=-38.5267,
+            )
+            servico = Servico(nome="Consulta", duracao_minutos=30, ativo=True)
+            db.add_all([clinica, servico])
+            db.commit()
+            db.refresh(clinica)
+            db.refresh(servico)
+
+            inicio = datetime(2099, 5, 25, 11, 0, 0)
+            reserva_expirada = Agendamento(
+                paciente_id=None,
+                clinica_id=clinica.id,
+                servico_id=servico.id,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                data="2099-05-25",
+                hora="11:00",
+                status="Expirado",
+                reserva_expira_em=datetime.now(agenda.LOCAL_TZ).replace(tzinfo=None) - timedelta(minutes=5),
+            )
+            db.add(reserva_expirada)
+            db.commit()
+            db.refresh(reserva_expirada)
+
+            with self.assertRaises(HTTPException) as confirmacao:
+                agenda.atualizar_status(
+                    agendamento_id=reserva_expirada.id,
+                    request=SimpleNamespace(),
+                    status="Agendado",
+                    db=db,
+                    current_user=SimpleNamespace(id=1, nome="Teste"),
+                )
+            self.assertEqual(confirmacao.exception.status_code, 409)
+            self.assertEqual(
+                confirmacao.exception.detail["codigo"],
+                "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA",
+            )
+
+            with patch.object(
+                agenda, "_validar_paciente_tutor_para_status", return_value=None
+            ), patch.object(
+                agenda, "_validar_deslocamento_agendamento", return_value=None
+            ), patch.object(
+                agenda, "registrar_auditoria", return_value=None
+            ), patch.object(
+                agenda, "_notificar_agenda_update", return_value=None
+            ):
+                agenda.atualizar_status(
+                    agendamento_id=reserva_expirada.id,
+                    request=SimpleNamespace(),
+                    status="Agendado",
+                    confirmar_slot_reserva_expirada=True,
+                    db=db,
+                    current_user=SimpleNamespace(id=1, nome="Teste"),
+                )
+
+            db.refresh(reserva_expirada)
+            self.assertEqual(reserva_expirada.status, "Agendado")
+
+            outra_expirada = Agendamento(
+                paciente_id=None,
+                clinica_id=clinica.id,
+                servico_id=servico.id,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                data="2099-05-25",
+                hora="11:00",
+                status="Expirado",
+                reserva_expira_em=datetime.now(agenda.LOCAL_TZ).replace(tzinfo=None) - timedelta(minutes=1),
+            )
+            db.add(outra_expirada)
+            db.commit()
+            db.refresh(outra_expirada)
+
+            with patch.object(
+                agenda, "_validar_paciente_tutor_para_status", return_value=None
+            ), patch.object(
+                agenda, "_validar_deslocamento_agendamento", return_value=None
+            ):
+                with self.assertRaises(HTTPException) as conflito:
+                    agenda.atualizar_status(
+                        agendamento_id=outra_expirada.id,
+                        request=SimpleNamespace(),
+                        status="Agendado",
+                        confirmar_slot_reserva_expirada=True,
+                        db=db,
+                        current_user=SimpleNamespace(id=1, nome="Teste"),
+                    )
+            self.assertEqual(conflito.exception.status_code, 409)
+            self.assertIn("ja existe atendimento", str(conflito.exception.detail))
         finally:
             db.close()
             engine.dispose()
@@ -357,6 +490,153 @@ class AgendaDuracaoServicoCreateTest(unittest.TestCase):
                     and call.kwargs.get("detalhes", {}).get("motivo")
                     == "Cliente sem alternativa nas opcoes ofertadas."
                     for call in chamadas
+                )
+            )
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_criar_agendamento_fechado_sem_confirmacao_mantem_bloqueio(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            clinica = Clinica(
+                nome="Clinica Agenda Fechada",
+                ativo=True,
+                latitude=-3.7319,
+                longitude=-38.5267,
+            )
+            config = Configuracao(
+                agenda_excecoes='[{"data":"2099-05-25","ativo":false,"motivo":"Feriado local"}]'
+            )
+            db.add_all([clinica, config])
+            db.commit()
+            db.refresh(clinica)
+
+            inicio = datetime(2099, 5, 25, 11, 0, 0)
+            payload = agenda.AgendamentoCreate(
+                paciente_id=None,
+                clinica_id=clinica.id,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                status="Reservado",
+            )
+
+            with self.assertRaises(HTTPException) as ctx:
+                agenda.criar_agendamento(
+                    agendamento=payload,
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=SimpleNamespace(id=10, nome="Admin", tem_papel=lambda papel: papel == "admin"),
+                )
+
+            self.assertEqual(int(ctx.exception.status_code), 422)
+            self.assertIn("Agenda fechada por excecao", str(ctx.exception.detail))
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_criar_agendamento_bloqueia_confirmacao_agenda_fechada_para_nao_admin(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            inicio = datetime(2099, 5, 25, 11, 0, 0)
+            payload = agenda.AgendamentoCreate(
+                paciente_id=None,
+                clinica_id=1,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                status="Agendado",
+                confirmar_agenda_fechada=True,
+            )
+
+            with self.assertRaises(HTTPException) as ctx:
+                agenda.criar_agendamento(
+                    agendamento=payload,
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=SimpleNamespace(id=10, nome="Sem Admin", tem_papel=lambda _: False),
+                )
+
+            self.assertEqual(int(ctx.exception.status_code), 403)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_criar_agendamento_admin_nao_confirma_intervalo_invalido(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            inicio = datetime(2099, 5, 25, 11, 0, 0)
+            agendamento_invalido = Agendamento(
+                inicio=inicio,
+                fim=inicio,
+            )
+
+            with self.assertRaises(HTTPException) as ctx:
+                agenda._validar_agendamento_no_funcionamento(
+                    db=db,
+                    agendamento=agendamento_invalido,
+                    permitir_excecao_agenda_fechada=True,
+                )
+
+            self.assertEqual(int(ctx.exception.status_code), 422)
+            self.assertIn("Horario invalido", str(ctx.exception.detail))
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_criar_agendamento_admin_confirma_agenda_fechada_e_audita(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            clinica = Clinica(
+                nome="Clinica Confirmacao Admin",
+                ativo=True,
+                latitude=-3.7319,
+                longitude=-38.5267,
+            )
+            config = Configuracao(
+                agenda_excecoes='[{"data":"2099-05-25","ativo":false,"motivo":"Feriado local"}]'
+            )
+            db.add_all([clinica, config])
+            db.commit()
+            db.refresh(clinica)
+
+            inicio = datetime(2099, 5, 25, 11, 0, 0)
+            payload = agenda.AgendamentoCreate(
+                paciente_id=None,
+                clinica_id=clinica.id,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                status="Reservado",
+                confirmar_agenda_fechada=True,
+            )
+            usuario_admin = SimpleNamespace(
+                id=99,
+                nome="Admin",
+                tem_papel=lambda papel: papel == "admin",
+            )
+
+            with patch.object(agenda, "registrar_auditoria", return_value=None) as mocked_auditoria, patch.object(
+                agenda, "_notificar_agenda_update", return_value=None
+            ), patch.object(
+                agenda, "_validar_deslocamento_agendamento", return_value=None
+            ):
+                resposta = agenda.criar_agendamento(
+                    agendamento=payload,
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=usuario_admin,
+                )
+
+            self.assertTrue(int(resposta.get("id") or 0) > 0)
+            self.assertTrue(
+                any(
+                    call.kwargs.get("acao") == "AGENDAMENTO_AGENDA_FECHADA_CONFIRMADO"
+                    and call.kwargs.get("detalhes", {}).get("motivo_validacao")
+                    == "Agenda fechada por excecao de data (Feriado local)."
+                    for call in mocked_auditoria.call_args_list
                 )
             )
         finally:

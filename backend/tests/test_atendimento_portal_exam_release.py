@@ -5,6 +5,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from fastapi import HTTPException
 from sqlalchemy import create_engine
@@ -93,16 +94,21 @@ class AtendimentoPortalExamReleaseTest(unittest.TestCase):
             _, exame = self._seed_exam(db, tipo_exame="ECG", pdf=True)
             user = SimpleNamespace(id=99, nome="Dr Teste")
 
-            payload = atendimento.liberar_exame_no_portal(
-                exame_id=exame.id,
-                db=db,
-                current_user=user,
-            )
+            # A auditoria abre sessao propria contra o banco real; manter o teste
+            # hermetico ao banco temporario.
+            with patch.object(atendimento, "_auditar_transicao_exame_portal") as auditoria_mock:
+                payload = atendimento.liberar_exame_no_portal(
+                    exame_id=exame.id,
+                    db=db,
+                    current_user=user,
+                )
 
             self.assertEqual(payload["status"], PORTAL_RELEASED_STATUS)
             self.assertEqual(payload["exame"]["tipo_exame"], "Eletrocardiograma")
             self.assertEqual(payload["exame"]["categoria_exame"], "Cardiologia")
             self.assertEqual(len(payload["exame"]["anexos_resultado"]), 1)
+            self.assertEqual(auditoria_mock.call_count, 1)
+            self.assertEqual(auditoria_mock.call_args.kwargs["acao"], "LIBERAR_EXAME_PORTAL")
 
             db.refresh(exame)
             self.assertEqual(exame.status, PORTAL_RELEASED_STATUS)

@@ -59,3 +59,48 @@ export function buildClinicWhatsappLink(target: string, message: string): string
   const baseUrl = normalizedTarget ? `https://wa.me/${normalizedTarget}` : "https://wa.me/";
   return `${baseUrl}?text=${encodeURIComponent(message)}`;
 }
+
+export function buildPartnerInviteMessage({
+  partnerNome,
+  activationUrl,
+  accessMode,
+  expiresAt,
+  accountEmailMasked,
+}: {
+  partnerNome: string;
+  activationUrl: string;
+  accessMode: "activation" | "login";
+  expiresAt?: string | null;
+  accountEmailMasked?: string | null;
+}): string {
+  const emailLine = accountEmailMasked
+    ? `O email definido para este acesso e ${accountEmailMasked}.`
+    : "O parceiro usara o email cadastrado no portal.";
+
+  if (accessMode === "login") {
+    return [
+      `Ola, ${partnerNome}.`,
+      "",
+      "A Fort Cordis manteve seu acesso seguro ao portal para consulta de exames e laudos liberados.",
+      "Use o link abaixo para entrar com o email ja cadastrado:",
+      activationUrl,
+      "",
+      emailLine,
+      "Se a senha nao estiver mais com voce, use a opcao 'Esqueci minha senha' na tela de entrada para redefinir o acesso.",
+      "Este ambiente mostra apenas os casos liberados para você no portal.",
+    ].join("\n");
+  }
+
+  const expirationText = expiresAt ? formatPortalDateTime(expiresAt) : "no prazo informado no portal";
+  return [
+    `Ola, ${partnerNome}.`,
+    "",
+    "A Fort Cordis criou um acesso seguro para voce consultar exames e laudos liberados no portal.",
+    "Use o link abaixo para cadastrar sua senha e concluir a ativacao:",
+    activationUrl,
+    "",
+    emailLine,
+    `Este link e individual, expira em ${expirationText} e nao deve ser compartilhado.`,
+    "Depois da ativacao, o acesso passa a ser feito com email, senha e confirmacao adicional apenas quando necessario.",
+  ].join("\n");
+}

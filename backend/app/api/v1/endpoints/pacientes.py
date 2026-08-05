@@ -113,7 +113,7 @@ def _clean_optional_text(value: Optional[str]) -> Optional[str]:
     return str(value).strip()
 
 
-def _paciente_tem_payload_tutor(paciente: "PacienteCreate") -> bool:
+def _paciente_tem_payload_tutor(paciente: BaseModel) -> bool:
     campos = (
         "tutor_id",
         "tutor",
@@ -129,12 +129,19 @@ def _paciente_tem_payload_tutor(paciente: "PacienteCreate") -> bool:
         "tutor_cidade",
         "tutor_estado",
     )
-    return any(getattr(paciente, campo, None) not in (None, "") for campo in campos)
+    campos_enviados = getattr(paciente, "model_fields_set", set())
+    return any(campo in campos_enviados for campo in campos) or any(
+        getattr(paciente, campo, None) not in (None, "") for campo in campos
+    )
 
 
-def _aplicar_dados_tutor(tutor: Tutor, paciente: "PacienteCreate") -> None:
+def _aplicar_dados_tutor(tutor: Tutor, paciente: BaseModel) -> None:
+    campos_enviados = getattr(paciente, "model_fields_set", set())
     nome = _clean_optional_text(paciente.tutor)
-    if nome:
+    if "tutor" in campos_enviados and not nome:
+        tutor.nome = ""
+        tutor.nome_key = ""
+    elif nome:
         tutor.nome = nome
         tutor.nome_key = _gerar_nome_key(nome)
 
@@ -153,7 +160,9 @@ def _aplicar_dados_tutor(tutor: Tutor, paciente: "PacienteCreate") -> None:
     }
     for attr, payload_attr in mapping.items():
         value = _clean_optional_text(getattr(paciente, payload_attr, None))
-        if value:
+        if payload_attr in campos_enviados:
+            setattr(tutor, attr, value or "")
+        elif value:
             setattr(tutor, attr, value)
 
     if not _clean_optional_text(tutor.whatsapp) and _clean_optional_text(tutor.telefone):
@@ -185,15 +194,24 @@ def _serialize_tutor_fields(tutor: Tutor | None) -> dict[str, Optional[str] | Op
     }
 
 
-def _obter_ou_criar_tutor(db: Session, paciente: "PacienteCreate") -> Optional[int]:
+def _obter_ou_criar_tutor(
+    db: Session,
+    paciente: BaseModel,
+    *,
+    tutor_id_padrao: Optional[int] = None,
+    commit_changes: bool = True,
+) -> Optional[int]:
     _ensure_tutores_timestamp_columns(db)
 
-    tutor_id = int(paciente.tutor_id or 0)
+    tutor_id = int(getattr(paciente, "tutor_id", None) or tutor_id_padrao or 0)
     if tutor_id > 0:
         tutor = db.query(Tutor).filter(Tutor.id == tutor_id).first()
         if tutor:
             _aplicar_dados_tutor(tutor, paciente)
-            db.commit()
+            if commit_changes:
+                db.commit()
+            else:
+                db.flush()
             return tutor.id
 
     tutor_nome_raw = paciente.tutor
@@ -211,7 +229,10 @@ def _obter_ou_criar_tutor(db: Session, paciente: "PacienteCreate") -> Optional[i
 
     if tutor:
         _aplicar_dados_tutor(tutor, paciente)
-        db.commit()
+        if commit_changes:
+            db.commit()
+        else:
+            db.flush()
         return tutor.id
 
     tutor = Tutor(
@@ -238,8 +259,11 @@ def _obter_ou_criar_tutor(db: Session, paciente: "PacienteCreate") -> Optional[i
     db.add(tutor)
 
     try:
-        db.commit()
-        db.refresh(tutor)
+        if commit_changes:
+            db.commit()
+            db.refresh(tutor)
+        else:
+            db.flush()
         return tutor.id
     except IntegrityError:
         db.rollback()
@@ -249,7 +273,10 @@ def _obter_ou_criar_tutor(db: Session, paciente: "PacienteCreate") -> Optional[i
         if not tutor:
             raise
         _aplicar_dados_tutor(tutor, paciente)
-        db.commit()
+        if commit_changes:
+            db.commit()
+        else:
+            db.flush()
         return tutor.id
 
 
@@ -320,6 +347,30 @@ class PacienteCreate(BaseModel):
     data_nascimento: Optional[str] = None
     microchip: Optional[str] = ""
     observacoes: Optional[str] = ""
+
+
+class PacienteUpdate(BaseModel):
+    nome: Optional[str] = None
+    tutor_id: Optional[int] = None
+    tutor: Optional[str] = None
+    tutor_email: Optional[str] = None
+    tutor_telefone: Optional[str] = None
+    tutor_whatsapp: Optional[str] = None
+    tutor_cpf: Optional[str] = None
+    tutor_cep: Optional[str] = None
+    tutor_endereco: Optional[str] = None
+    tutor_numero: Optional[str] = None
+    tutor_complemento: Optional[str] = None
+    tutor_bairro: Optional[str] = None
+    tutor_cidade: Optional[str] = None
+    tutor_estado: Optional[str] = None
+    especie: Optional[str] = None
+    raca: Optional[str] = None
+    sexo: Optional[str] = None
+    peso_kg: Optional[float] = None
+    data_nascimento: Optional[str] = None
+    microchip: Optional[str] = None
+    observacoes: Optional[str] = None
 
 
 class PacienteResponse(BaseModel):
@@ -631,7 +682,7 @@ def obter_resumo_clinico_paciente(
 @router.put("/{paciente_id}")
 def atualizar_paciente(
     paciente_id: int,
-    paciente: PacienteCreate,
+    paciente: PacienteUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -641,22 +692,42 @@ def atualizar_paciente(
     if not db_paciente:
         raise HTTPException(status_code=404, detail="Paciente nao encontrado")
 
+    campos_enviados = paciente.model_fields_set
+    nome_atualizado: Optional[str] = None
+    if "nome" in campos_enviados:
+        nome_atualizado = (paciente.nome or "").strip()
+        if not nome_atualizado:
+            raise HTTPException(status_code=400, detail="Nome do paciente e obrigatorio")
+
     if _paciente_tem_payload_tutor(paciente):
         try:
-            db_paciente.tutor_id = _obter_ou_criar_tutor(db, paciente)
+            db_paciente.tutor_id = _obter_ou_criar_tutor(
+                db,
+                paciente,
+                tutor_id_padrao=db_paciente.tutor_id,
+                commit_changes=False,
+            )
         except Exception as e:
             db.rollback()
             raise HTTPException(status_code=500, detail=f"Erro ao resolver tutor: {str(e)}")
 
-    db_paciente.nome = paciente.nome
-    db_paciente.nome_key = _gerar_nome_key(paciente.nome)
-    db_paciente.especie = paciente.especie
-    db_paciente.raca = paciente.raca
-    db_paciente.sexo = normalizar_sexo_paciente(paciente.sexo)
-    db_paciente.peso_kg = paciente.peso_kg
-    db_paciente.nascimento = paciente.data_nascimento
-    db_paciente.microchip = paciente.microchip
-    db_paciente.observacoes = paciente.observacoes
+    if nome_atualizado is not None:
+        db_paciente.nome = nome_atualizado
+        db_paciente.nome_key = _gerar_nome_key(nome_atualizado)
+    if "especie" in campos_enviados:
+        db_paciente.especie = paciente.especie
+    if "raca" in campos_enviados:
+        db_paciente.raca = paciente.raca
+    if "sexo" in campos_enviados:
+        db_paciente.sexo = normalizar_sexo_paciente(paciente.sexo)
+    if "peso_kg" in campos_enviados:
+        db_paciente.peso_kg = paciente.peso_kg
+    if "data_nascimento" in campos_enviados:
+        db_paciente.nascimento = paciente.data_nascimento
+    if "microchip" in campos_enviados:
+        db_paciente.microchip = paciente.microchip
+    if "observacoes" in campos_enviados:
+        db_paciente.observacoes = paciente.observacoes
     db_paciente.updated_at = _legacy_now_dt()
 
     db.commit()
@@ -667,6 +738,13 @@ def atualizar_paciente(
         "id": db_paciente.id,
         "nome": db_paciente.nome,
         **_serialize_tutor_fields(tutor),
+        "especie": db_paciente.especie,
+        "raca": db_paciente.raca,
+        "sexo": normalizar_sexo_paciente(db_paciente.sexo),
+        "peso_kg": db_paciente.peso_kg,
+        "data_nascimento": db_paciente.nascimento,
+        "microchip": db_paciente.microchip,
+        "observacoes": db_paciente.observacoes,
         "message": "Paciente atualizado com sucesso",
     }
 

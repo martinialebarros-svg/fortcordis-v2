@@ -6,6 +6,7 @@ import { CarFront, Fuel, Plus, RefreshCw, Save, Settings2, Trash2, Waypoints } f
 
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import { operationalTodayDateInput } from "@/lib/calendar-date";
 
 type FormaRateio = "por_km" | "por_atendimento" | "fixo_mensal" | "hibrido";
 type AbaFrota = "custos" | "veiculos" | "telemetria" | "config";
@@ -134,7 +135,7 @@ const ABAS: Array<{ id: AbaFrota; label: string }> = [
   { id: "config", label: "Configuração" },
 ];
 
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+const hojeISO = () => operationalTodayDateInput();
 const competenciaAtual = () => hojeISO().slice(0, 7);
 
 const parseNumero = (raw: string): number | null => {

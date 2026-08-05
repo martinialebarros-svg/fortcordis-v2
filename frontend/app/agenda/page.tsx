@@ -58,6 +58,7 @@ import {
   Search, ChevronDown, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2, DollarSign, MapPin, Wallet
 } from "lucide-react";
 import NovoAgendamentoModal from "./NovoAgendamentoModal";
+import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 
 interface Agendamento {
   id: number;
@@ -73,6 +74,7 @@ interface Agendamento {
   inicio: string;
   fim: string | null;
   status: string;
+  reserva_expira_em?: string | null;
   observacoes: string | null;
   telefone: string | null;
   data: string;
@@ -175,17 +177,6 @@ const toTimeInput = (date: Date) => {
   const hora = String(date.getHours()).padStart(2, "0");
   const minuto = String(date.getMinutes()).padStart(2, "0");
   return `${hora}:${minuto}`;
-};
-
-const somarMinutosHHMM = (hora: string, minutosAdicionar: number): string => {
-  const [hhRaw = "0", mmRaw = "0"] = String(hora || "00:00").split(":");
-  const hh = Number.parseInt(hhRaw, 10);
-  const mm = Number.parseInt(mmRaw, 10);
-  const base = (Number.isFinite(hh) ? hh : 0) * 60 + (Number.isFinite(mm) ? mm : 0);
-  const total = Math.max(0, Math.min((24 * 60) - 1, base + Math.max(1, minutosAdicionar)));
-  const h = Math.floor(total / 60);
-  const m = total % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 };
 
 const parseApiDateTime = (value?: string | null): Date | null => {
@@ -306,6 +297,41 @@ const isModoVisualizacaoValido = (value?: string | null): value is ModoVisualiza
   return value === "lista" || value === "panoramica-dia" || value === "panoramica-semana";
 };
 
+interface ReservaPrazoEstado {
+  minutosRestantes: number;
+  label: string;
+  emAlerta: boolean;
+  critico: boolean;
+  vencido: boolean;
+}
+
+const obterEstadoPrazoReserva = (
+  agendamento: Agendamento,
+  agoraMs: number
+): ReservaPrazoEstado | null => {
+  if (agendamento.status !== "Reservado" || !agendamento.reserva_expira_em) {
+    return null;
+  }
+  const prazoMs = new Date(agendamento.reserva_expira_em).getTime();
+  if (!Number.isFinite(prazoMs)) return null;
+
+  const minutosRestantes = Math.ceil((prazoMs - agoraMs) / 60_000);
+  const vencido = minutosRestantes <= 0;
+  const critico = minutosRestantes <= 15;
+  const emAlerta = minutosRestantes <= 60;
+  let label = "";
+  if (vencido) {
+    label = "prazo vencido agora";
+  } else if (minutosRestantes >= 60) {
+    const horas = Math.floor(minutosRestantes / 60);
+    const minutos = minutosRestantes % 60;
+    label = `expira em ${horas}h${minutos ? ` ${minutos}min` : ""}`;
+  } else {
+    label = `expira em ${minutosRestantes} min`;
+  }
+  return { minutosRestantes, label, emAlerta, critico, vencido };
+};
+
 const gerarPagamentoId = () => {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 };
@@ -326,6 +352,7 @@ const SLOT_INTERVALO_PADRAO_MIN = DEFAULT_AGENDA_ROTA_REGRAS.rendering_policy.sl
 
 export default function AgendaPage() {
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
+  const [agoraReservas, setAgoraReservas] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState("");
   const [modoVisualizacao, setModoVisualizacao] = useState<ModoVisualizacao>("lista");
@@ -385,7 +412,15 @@ export default function AgendaPage() {
   const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastRealtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
+  const fortinho = useFortinho();
   const filtrosIniciaisAplicadosRef = useRef(false);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setAgoraReservas(Date.now());
+    }, 30_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   useEffect(() => {
     if (filtrosIniciaisAplicadosRef.current) return;
@@ -1406,15 +1441,69 @@ export default function AgendaPage() {
       return;
     }
 
+    const agendamentoAtual = agendamentos.find((item) => item.id === id);
+    if (
+      agendamentoAtual?.status === "Expirado" &&
+      novoStatus === "Agendado" &&
+      (!agendamentoAtual.paciente_id || !agendamentoAtual.tutor_id)
+    ) {
+      setErro(
+        "Antes de confirmar tardiamente, abra a reserva e preencha os dados do tutor e do pet. Depois use 'Agendar após confirmação tardia'."
+      );
+      return;
+    }
+
     setAtualizandoStatus(id);
     try {
-      const params = new URLSearchParams();
-      params.append("status", novoStatus);
-      if (tipoHorarioParam) {
-        params.append("tipo_horario", tipoHorarioParam);
+      const enviarAtualizacaoStatus = (confirmarReservaExpirada = false) => {
+        const params = new URLSearchParams();
+        params.append("status", novoStatus);
+        if (tipoHorarioParam) {
+          params.append("tipo_horario", tipoHorarioParam);
+        }
+        if (confirmarReservaExpirada) {
+          params.append("confirmar_slot_reserva_expirada", "true");
+        }
+        return api.patch(`/agenda/${id}/status?${params.toString()}`);
+      };
+
+      let response;
+      try {
+        response = await enviarAtualizacaoStatus(false);
+      } catch (errorInicial: any) {
+        const detail = errorInicial?.response?.data?.detail;
+        if (
+          errorInicial?.response?.status !== 409 ||
+          ![
+            "CONFIRMACAO_SLOT_RESERVA_EXPIRADA",
+            "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA",
+          ].includes(detail?.codigo)
+        ) {
+          throw errorInicial;
+        }
+        const confirmou = await fortinho.confirm({
+          title:
+            detail?.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+              ? "Confirmação recebida após o prazo"
+              : "ATENÇÃO: este horário teve uma reserva expirada",
+          message:
+            detail?.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+              ? "Confirme somente se este mesmo cliente respondeu depois do vencimento. O sistema verificará se o horário ainda está livre antes de mudar o status para Agendado."
+              : "Antes de reativar este horário, volte às mensagens do WhatsApp e confira se a clínica enviou os dados do tutor ou do pet após o prazo. Só continue se não houver resposta.",
+          mood: "alert",
+          gesture: "open-arms",
+          confirmLabel:
+            detail?.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+              ? "Cliente confirmou; agendar"
+              : "Revisei as mensagens e quero continuar",
+          cancelLabel:
+            detail?.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+              ? "Cancelar"
+              : "Voltar e verificar WhatsApp",
+        });
+        if (!confirmou) return;
+        response = await enviarAtualizacaoStatus(true);
       }
-      
-      const response = await api.patch(`/agenda/${id}/status?${params.toString()}`);
       await carregarAgendamentos();
       
       // Se gerou OS, mostra o modal
@@ -1683,61 +1772,9 @@ export default function AgendaPage() {
     return dt.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
   };
 
-  const abrirExcecaoNoSlotAdmin = async (data: string, hora: string) => {
-    if (!isAdmin) {
-      setErro("Apenas administradores podem abrir excecao de agenda.");
-      return false;
-    }
-
-    const confirmado = window.confirm(
-      `Abrir excecao de agenda em ${data} às ${hora} para permitir agendamento?`
-    );
-    if (!confirmado) {
-      return false;
-    }
-
-    const fim = somarMinutosHHMM(hora, intervaloSlotMinutos);
-    const excecaoExistente = agendaExcecoes.find((item) => item.data === data);
-
-    let inicioExcecao = hora;
-    let fimExcecao = fim;
-    if (excecaoExistente?.ativo) {
-      inicioExcecao = excecaoExistente.inicio < hora ? excecaoExistente.inicio : hora;
-      fimExcecao = excecaoExistente.fim > fim ? excecaoExistente.fim : fim;
-    }
-
-    const payloadExcecoes = normalizarAgendaExcecoes([
-      ...agendaExcecoes.filter((item) => item.data !== data),
-      {
-        data,
-        ativo: true,
-        inicio: inicioExcecao,
-        fim: fimExcecao,
-        motivo: "Abertura rapida via slot da agenda",
-      },
-    ]);
-
-    try {
-      setLoading(true);
-      await api.put("/configuracoes", { agenda_excecoes: payloadExcecoes });
-      setAgendaExcecoes(payloadExcecoes);
-      setErro("");
-      return true;
-    } catch (error: any) {
-      if (error?.response?.status === 403) {
-        setErro("Sem permissao para abrir excecao de agenda.");
-      } else {
-        setErro("Nao foi possivel abrir excecao para este horario.");
-      }
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const abrirNovoNoHorario = (data: string, hora: string) => {
     const jornada = jornadaPanoramicaPorDia.get(data);
-    if (!jornada || !slotDentroDaJornada(hora, jornada)) {
+    if ((!jornada || !slotDentroDaJornada(hora, jornada)) && !isAdmin) {
       setErro(jornada?.motivo || "Agenda fechada para este horario.");
       return;
     }
@@ -1756,6 +1793,18 @@ export default function AgendaPage() {
     realizado: agendamentos.filter(a => a.status === 'Realizado').length,
     cancelado: agendamentos.filter(a => a.status === 'Cancelado').length,
   };
+
+  const reservasEmAlerta = agendamentos
+    .map((agendamento) => ({
+      agendamento,
+      prazo: obterEstadoPrazoReserva(agendamento, agoraReservas),
+    }))
+    .filter(
+      (item): item is { agendamento: Agendamento; prazo: ReservaPrazoEstado } =>
+        Boolean(item.prazo?.emAlerta)
+    )
+    .sort((a, b) => a.prazo.minutosRestantes - b.prazo.minutosRestantes);
+  const existeReservaCritica = reservasEmAlerta.some((item) => item.prazo.critico);
 
   const formatarDataHora = (dataIso: string) => {
     if (!dataIso) return "-";
@@ -1995,6 +2044,72 @@ export default function AgendaPage() {
             <button onClick={() => setErro("")} className="text-red-500 hover:text-red-700">
               <X className="w-4 h-4" />
             </button>
+          </div>
+        )}
+
+        {reservasEmAlerta.length > 0 && (
+          <div
+            className={`mb-5 rounded-2xl border-2 p-4 shadow-sm ${
+              existeReservaCritica
+                ? "border-red-500 bg-red-50 text-red-950"
+                : "border-amber-400 bg-amber-50 text-amber-950"
+            }`}
+            role="alert"
+            aria-live="assertive"
+          >
+            <div className="flex items-start gap-3">
+              <AlertCircle
+                className={`mt-0.5 h-7 w-7 shrink-0 ${
+                  existeReservaCritica ? "text-red-600 animate-pulse" : "text-amber-600"
+                }`}
+              />
+              <div className="min-w-0 flex-1">
+                <h2 className="text-lg font-black uppercase tracking-wide">
+                  Ação necessária: {reservasEmAlerta.length} reserva(s) perto de expirar
+                </h2>
+                <p className="mt-1 font-semibold">
+                  Reforce agora com a clínica a necessidade de enviar os dados do tutor e do pet.
+                  Se o prazo vencer, o horário voltará a ficar disponível.
+                </p>
+                <div className="mt-3 grid gap-2">
+                  {reservasEmAlerta.slice(0, 5).map(({ agendamento, prazo }) => (
+                    <div
+                      key={agendamento.id}
+                      className="flex flex-col gap-2 rounded-xl border border-current/20 bg-white/70 p-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div>
+                        <div className="font-bold">
+                          {agendamento.clinica || "Clínica não informada"} — {formatarDataHoraAgendamento(agendamento)}
+                        </div>
+                        <div className="text-sm">
+                          Pet: {agendamento.paciente || "Pendente"} | Tutor: {agendamento.tutor || "Pendente"}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`rounded-full px-3 py-1 text-sm font-black uppercase ${
+                            prazo.critico ? "bg-red-600 text-white animate-pulse" : "bg-amber-500 text-white"
+                          }`}
+                        >
+                          {prazo.label}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAgendamentoEditando(agendamento);
+                            setSlotSelecionado(null);
+                            setModalAberto(true);
+                          }}
+                          className="rounded-lg border border-current px-3 py-1 text-sm font-bold hover:bg-white"
+                        >
+                          Abrir reserva
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -2284,9 +2399,20 @@ export default function AgendaPage() {
                   : (ag.clinica || "clinica");
                 const podeAbrirWaze = Boolean(montarWazeDestinoLocal(destinoNavegacao));
                 const podeAbrirGoogleMaps = Boolean(montarGoogleMapsDestinoLocal(destinoNavegacao));
+                const prazoReserva = obterEstadoPrazoReserva(ag, agoraReservas);
+                const reservaEmAlerta = Boolean(prazoReserva?.emAlerta);
                 
                 return (
-                  <div key={ag.id} className="fc-agenda-list-row">
+                  <div
+                    key={ag.id}
+                    className={`fc-agenda-list-row ${
+                      reservaEmAlerta
+                        ? prazoReserva?.critico
+                          ? "ring-2 ring-red-500 bg-red-50/70"
+                          : "ring-2 ring-amber-400 bg-amber-50/70"
+                        : ""
+                    }`}
+                  >
                     <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
                       {/* Info Principal */}
                       <div className="flex-1">
@@ -2310,6 +2436,31 @@ export default function AgendaPage() {
                             </span>
                           )}
                         </div>
+
+                        {reservaEmAlerta && prazoReserva && (
+                          <div
+                            className={`mb-3 flex items-start gap-2 rounded-xl border-2 p-3 font-bold ${
+                              prazoReserva.critico
+                                ? "border-red-500 bg-red-100 text-red-900"
+                                : "border-amber-400 bg-amber-100 text-amber-900"
+                            }`}
+                            role="alert"
+                          >
+                            <AlertCircle
+                              className={`mt-0.5 h-5 w-5 shrink-0 ${
+                                prazoReserva.critico ? "animate-pulse" : ""
+                              }`}
+                            />
+                            <div>
+                              <div className="uppercase">
+                                Atenção: esta reserva {prazoReserva.label}
+                              </div>
+                              <div className="text-sm font-semibold">
+                                Reforce agora o envio dos dados do tutor e do pet para evitar a perda do horário.
+                              </div>
+                            </div>
+                          </div>
+                        )}
 
                         <div className="text-base font-semibold text-gray-900 mb-2">
                           {ag.paciente || "Animal nao informado"}
@@ -2343,6 +2494,7 @@ export default function AgendaPage() {
                         {/* Botões de mudança de status */}
                         {proximosStatus.map((novoStatus) => {
                           const desfazerRealizado = ag.status === 'Realizado' && novoStatus === 'Em atendimento';
+                          const confirmarAposExpiracao = ag.status === 'Expirado' && novoStatus === 'Agendado';
                           const icons: Record<string, any> = {
                             'Confirmado': CheckCircle2,
                             'Em atendimento': PlayCircle,
@@ -2362,7 +2514,11 @@ export default function AgendaPage() {
                             'Agendado': 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200',
                             'Reservado': 'bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200',
                           };
-                          const actionLabel = desfazerRealizado ? "Desfazer realizado" : novoStatus;
+                          const actionLabel = desfazerRealizado
+                            ? "Desfazer realizado"
+                            : confirmarAposExpiracao
+                              ? "Agendar após confirmação tardia"
+                              : novoStatus;
                           const actionColor = desfazerRealizado
                             ? 'bg-sky-50 text-sky-700 hover:bg-sky-100 border-sky-200'
                             : colors[novoStatus];
@@ -2594,18 +2750,12 @@ export default function AgendaPage() {
                           <button
                             key={chave}
                             type="button"
-                            onClick={async () => {
-                              const abriu = await abrirExcecaoNoSlotAdmin(dia, slot);
-                              if (!abriu) return;
-                              setAgendamentoEditando(null);
-                              setSlotSelecionado({ data: dia, hora: slot });
-                              setModalAberto(true);
-                            }}
+                            onClick={() => abrirNovoNoHorario(dia, slot)}
                             className="border-b border-r px-2 py-2 text-left bg-amber-50 hover:bg-amber-100 text-amber-700 transition-colors"
                             title={jornadaDia?.motivo || "Agenda fechada"}
                           >
                             <div className="text-xs font-semibold">Agenda fechada</div>
-                            <div className="text-[11px]">Abrir excecao</div>
+                            <div className="text-[11px]">Agendar com confirmação</div>
                           </button>
                         );
                       }
@@ -2639,7 +2789,29 @@ export default function AgendaPage() {
                     const origemPrimeiro = obterOrigemAtendimentoMeta(primeiro.origem_atendimento);
                     const tituloPrimeiro = obterTituloAgendamentoPorOrigem(primeiro.origem_atendimento, primeiro.clinica);
                     const slotReservado = statusPrimeiro === "Reservado";
-                    const slotClasses = slotReservado
+                    const prazoReservaPrimeiro = obterEstadoPrazoReserva(primeiro, agoraReservas);
+                    const reservaEmAlerta = Boolean(prazoReservaPrimeiro?.emAlerta);
+                    const slotClasses = slotReservado && reservaEmAlerta
+                      ? {
+                          container: `border-b border-r px-2 py-2 text-left transition-colors ${
+                            prazoReservaPrimeiro?.critico
+                              ? "bg-red-100 hover:bg-red-200 ring-2 ring-inset ring-red-500"
+                              : "bg-amber-100 hover:bg-amber-200 ring-2 ring-inset ring-amber-400"
+                          }`,
+                          titulo: prazoReservaPrimeiro?.critico
+                            ? "text-xs font-black text-red-900 truncate"
+                            : "text-xs font-black text-amber-900 truncate",
+                          texto: prazoReservaPrimeiro?.critico
+                            ? "text-[11px] text-red-800 truncate"
+                            : "text-[11px] text-amber-800 truncate",
+                          extra: prazoReservaPrimeiro?.critico
+                            ? "text-[11px] text-red-700"
+                            : "text-[11px] text-amber-700",
+                          badge: prazoReservaPrimeiro?.critico
+                            ? "inline-flex items-center rounded-full border border-red-600 bg-red-600 px-2 py-0.5 text-[10px] font-bold text-white animate-pulse"
+                            : "inline-flex items-center rounded-full border border-amber-500 bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white",
+                        }
+                      : slotReservado
                       ? {
                           container: "border-b border-r px-2 py-2 text-left bg-amber-50 hover:bg-amber-100 transition-colors",
                           titulo: "text-xs font-bold text-amber-800 truncate",
@@ -2667,6 +2839,11 @@ export default function AgendaPage() {
                           <span className={origemPrimeiro.compactBadgeClassName}>{origemPrimeiro.label}</span>
                           <span className={slotClasses.badge}>{statusPrimeiro || "Agendado"}</span>
                         </div>
+                        {reservaEmAlerta && prazoReservaPrimeiro && (
+                          <div className={`${slotClasses.extra} mb-1 font-black uppercase`}>
+                            Atenção: {prazoReservaPrimeiro.label}
+                          </div>
+                        )}
                         <div className={slotClasses.texto}>
                           {primeiro.paciente || "Animal nao informado"}
                         </div>

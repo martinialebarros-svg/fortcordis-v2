@@ -32,10 +32,12 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - RF-020: cada clinica da lista deve exibir uma linha do tempo resumida com convites, ativacao, revogacoes e downloads auditados.
 - RF-021: a exportacao CSV do cockpit deve incluir primeiro download, ultimo acesso, dias sem atividade e dados do convite mais recente.
 - RF-022: links do portal compartilhados por WhatsApp devem expor metadata institucional com logomarca oficial da Fort Cordis no host `app.fortcordis.com.br`.
-- RF-023: o portal autenticado da clinica parceira deve exibir um painel operacional com indicadores de `Realizados hoje`, `Em laudo`, `Aguardando liberacao` e `Liberados hoje`.
+- RF-023: o portal autenticado da clinica parceira deve exibir um painel operacional com indicadores de `Realizados hoje`, `Em laudo`, `Aguardando liberacao` e `Liberados hoje`; este ultimo deve considerar o dia civil de Fortaleza, inclusive quando a liberacao for registrada em UTC.
 - RF-024: o portal autenticado da clinica parceira deve exibir uma fila operacional recente com status do exame, data de realizacao e previsao ou data de liberacao.
 - RF-025: a rota `/clinica-parceira` deve operar com um shell exclusivo por estado, exibindo a landing publica apenas quando nao houver sessao valida e substituindo-a integralmente pelo ambiente autenticado da unidade quando a clinica estiver logada.
 - RF-026: o app administrativo deve oferecer uma tela de espelho em `/clinicas/portal/espelho` para abrir a mesma visao da clinica parceira, no escopo de uma unidade selecionada.
+- RF-027: o campo `WhatsApp da clinica` do compositor administrativo de convites deve aplicar mascara brasileira durante digitacao, colagem e carregamento do contato cadastrado.
+- RF-028: os papeis `recepcao`, `recepção`, `secretaria` e `secretária` devem poder consultar o painel/resumo operacional e gerar ou reenviar convite de clinica parceira.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -57,6 +59,9 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - NFR-016 (UX/sessao): durante o bootstrap da sessao da clinica, a shell autenticada nao deve propagar estado `null` transitorio para o roteamento da pagina, evitando alternancia visual entre landing publica e dashboard autenticado.
 - NFR-017 (UX/legibilidade): o hero autenticado da clinica deve restringir o contraste invertido ao bloco institucional, preservando cards de apoio com superficie clara e texto escuro legivel.
 - NFR-018 (consistencia operacional): a visao espelhada administrativa deve reutilizar o mesmo contrato de exames, fila operacional e downloads do portal autenticado da clinica, sem manter uma segunda implementacao paralela dos dados.
+- NFR-019 (integridade): a mascara de WhatsApp deve ser apenas visual; o `delivery_target` enviado ao backend deve conter somente digitos.
+- NFR-020 (menor privilegio): a liberacao operacional de convite nao pode autorizar secretaria/recepcao a revogar convites, contas ou sessoes; essas acoes permanecem exclusivas de `admin`.
+- NFR-020 (robustez temporal): o contador `Liberados hoje` deve converter os limites do dia de Fortaleza para UTC antes de consultar `data_resultado`, para incluir liberacoes realizadas entre 21h00 e 23h59 no horario local.
 
 ## 4) Contratos tecnicos
 
@@ -250,7 +255,7 @@ Ligar as paginas publicas de tutor e clinica parceira ao backend do portal segur
 - CA-022: o CSV exportado inclui primeiro download, ultimo acesso e dias sem atividade.
 - CA-023: um link compartilhado do portal gera preview institucional com nome, descricao e logomarca oficial da Fort Cordis.
 - CA-024: a tela `/clinicas/portal` continua carregando metricas, downloads recentes e linha do tempo mesmo quando a auditoria trouxer timestamps timezone-aware misturados com timestamps sem timezone.
-- CA-025: a tela autenticada da clinica parceira exibe um painel operacional com os quatro indicadores principais da unidade.
+- CA-025: a tela autenticada da clinica parceira exibe um painel operacional com os quatro indicadores principais da unidade, incluindo liberacoes feitas no fim do dia local que estejam armazenadas em UTC no dia seguinte.
 - CA-026: a tela autenticada da clinica parceira exibe fila operacional recente com status do exame e previsao ou data de liberacao do portal.
 - CA-027: com sessao valida da clinica, a rota `/clinica-parceira` exibe somente o ambiente autenticado da unidade, sem manter a landing institucional ativa por baixo nem causar sobreposicao visual durante a rolagem.
 - CA-028: com sessao valida persistida no navegador, a rota `/clinica-parceira` nao oscila entre landing publica e dashboard autenticado durante a hidratacao do client-side.

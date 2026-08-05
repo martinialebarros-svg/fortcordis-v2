@@ -39,13 +39,13 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from sqlalchemy import func, or_, text
+from sqlalchemy import and_, func, or_, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.agenda_realtime import agenda_realtime_manager
-from app.core.portal_release import PORTAL_RELEASED_STATUS
+from app.core.portal_release import PORTAL_RELEASED_STATUS, is_portal_released_status
 from app.core.security import _authorize_request_by_matrix, get_current_user, get_request_token
 from app.db.database import get_db
 from app.models.agendamento import Agendamento
@@ -295,10 +295,8 @@ def _tem_texto_clinico(value: Any) -> bool:
     return bool(str(value or "").strip())
 
 
-def _validar_primeira_conclusao_atendimento(
+def _calcular_pendencias_documentacao(
     *,
-    status_atual: Any,
-    status_destino: Any,
     queixa_principal: Any,
     anamnese: Any,
     exame_fisico: Any,
@@ -307,10 +305,14 @@ def _validar_primeira_conclusao_atendimento(
     diagnostico_secundario: Any,
     diagnostico_diferencial: Any,
     plano_terapeutico: Any,
-) -> None:
-    if not _status_atendimento_concluido(status_destino) or _status_atendimento_concluido(status_atual):
-        return
+) -> List[str]:
+    """Pendencias de documentacao clinica minima, independente de status.
 
+    Usada tanto para bloquear a primeira conclusao
+    (`_validar_primeira_conclusao_atendimento`) quanto para sinalizar, depois,
+    quais atendimentos ja concluidos ficaram com documentacao incompleta
+    (`listar_atendimentos`, filtro `documentacao_incompleta`).
+    """
     pendencias: List[str] = []
     if not _tem_texto_clinico(queixa_principal):
         pendencias.append("queixa principal")
@@ -326,16 +328,110 @@ def _validar_primeira_conclusao_atendimento(
         )
     ):
         pendencias.append("diagnostico ou plano terapeutico")
+    return pendencias
 
-    if pendencias:
+
+def _condicao_sql_documentacao_incompleta():
+    """Equivalente em SQL de `_calcular_pendencias_documentacao` retornar
+    pendencias, para filtrar no banco sem quebrar paginacao."""
+
+    def _vazio(coluna):
+        return func.trim(func.coalesce(coluna, "")) == ""
+
+    grupo_queixa = _vazio(AtendimentoClinico.queixa_principal)
+    grupo_evolucao = and_(
+        _vazio(AtendimentoClinico.anamnese),
+        _vazio(AtendimentoClinico.exame_fisico),
+        _vazio(AtendimentoClinico.dados_clinicos),
+    )
+    grupo_diagnostico = and_(
+        _vazio(AtendimentoClinico.diagnostico_principal),
+        _vazio(AtendimentoClinico.diagnostico_secundario),
+        _vazio(AtendimentoClinico.diagnostico_diferencial),
+        _vazio(AtendimentoClinico.plano_terapeutico),
+    )
+    return or_(grupo_queixa, grupo_evolucao, grupo_diagnostico)
+
+
+def _validar_primeira_conclusao_atendimento(
+    *,
+    status_atual: Any,
+    status_destino: Any,
+    queixa_principal: Any,
+    anamnese: Any,
+    exame_fisico: Any,
+    dados_clinicos: Any,
+    diagnostico_principal: Any,
+    diagnostico_secundario: Any,
+    diagnostico_diferencial: Any,
+    plano_terapeutico: Any,
+    confirmado: bool = False,
+) -> List[str]:
+    """Barreira clinica minima antes da primeira conclusao do atendimento.
+
+    Devolve a lista de pendencias (vazia se nao houver). Com pendencias e sem
+    confirmacao, bloqueia com 409 confirmavel. Com `confirmado=True`, deixa
+    passar e devolve as pendencias para o chamador decidir se audita a
+    conclusao com documentacao incompleta.
+    """
+    if not _status_atendimento_concluido(status_destino) or _status_atendimento_concluido(status_atual):
+        return []
+
+    pendencias = _calcular_pendencias_documentacao(
+        queixa_principal=queixa_principal,
+        anamnese=anamnese,
+        exame_fisico=exame_fisico,
+        dados_clinicos=dados_clinicos,
+        diagnostico_principal=diagnostico_principal,
+        diagnostico_secundario=diagnostico_secundario,
+        diagnostico_diferencial=diagnostico_diferencial,
+        plano_terapeutico=plano_terapeutico,
+    )
+
+    if not pendencias:
+        return []
+
+    if not confirmado:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "Nao foi possivel concluir o atendimento. Preencha: "
-                + "; ".join(pendencias)
-                + ". Voce pode manter o atendimento em andamento e continuar depois."
-            ),
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "codigo": "CONFIRMACAO_CONCLUSAO_PENDENCIAS",
+                "mensagem": (
+                    "Faltam preencher: "
+                    + "; ".join(pendencias)
+                    + ". Confirme para concluir mesmo assim, ou mantenha o "
+                    "atendimento em andamento e continue depois."
+                ),
+                "confirmavel": True,
+                "pendencias": pendencias,
+            },
         )
+
+    return pendencias
+
+
+def _auditar_conclusao_com_pendencias(
+    *,
+    current_user: User,
+    atendimento: AtendimentoClinico,
+    pendencias: List[str],
+    request: Optional[Request] = None,
+) -> None:
+    """Concluir sem diagnostico/plano terapeutico e uma decisao clinica que
+    precisa deixar rastro, mesmo sendo permitida apos confirmacao explicita."""
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="atendimento",
+        entidade="atendimento_clinico",
+        entidade_id=atendimento.id,
+        acao="CONCLUIR_COM_PENDENCIAS",
+        descricao=(
+            f"Atendimento #{atendimento.id} concluido com documentacao incompleta: "
+            + "; ".join(pendencias)
+        ),
+        detalhes={"pendencias": pendencias, "paciente_id": atendimento.paciente_id},
+        request=request,
+    )
 
 
 def _normalizar_tipo_horario_atendimento(value: Any) -> str:
@@ -591,6 +687,15 @@ def _formatar_data_hora(value: Any) -> str:
 def _nome_arquivo_limpo(raw: str, fallback: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", (raw or "").strip()).strip("_")
     return cleaned or fallback
+
+
+def _headers_download_pdf(filename: str) -> Dict[str, str]:
+    return {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
 
 
 def _formatar_data_curta(value: Any) -> str:
@@ -1438,6 +1543,65 @@ def _status_exame_concluido(value: Optional[str]) -> bool:
     return status in {"concluido", "concluida"} or status.startswith("concluid")
 
 
+def _status_exame_regressao_bloqueada(value: Optional[str]) -> bool:
+    """Status que nao pode ser rebaixado por efeito colateral de upload."""
+    return _status_exame_concluido(value) or is_portal_released_status(value)
+
+
+def _contar_anexos_por_exame(db: Session, atendimento_id: int) -> dict[int, int]:
+    """Contagem de anexos por exame em uma consulta, para derivar status."""
+    linhas = (
+        db.query(AnexoAtendimento.exame_id, func.count(AnexoAtendimento.id))
+        .filter(
+            AnexoAtendimento.atendimento_id == atendimento_id,
+            AnexoAtendimento.exame_id.isnot(None),
+        )
+        .group_by(AnexoAtendimento.exame_id)
+        .all()
+    )
+    return {int(exame_id): int(total) for exame_id, total in linhas if exame_id is not None}
+
+
+def _derivar_status_exame(
+    *,
+    status_atual: Optional[str],
+    resultado: Optional[str],
+    total_anexos: int,
+) -> str:
+    """Status do exame e propriedade do servidor.
+
+    A liberacao no portal e preservada porque e o valor exato que autoriza o
+    acesso da clinica parceira; revogar exige acao explicita.
+    """
+    if is_portal_released_status(status_atual):
+        return str(status_atual)
+    if (resultado or "").strip():
+        return "Concluido"
+    if total_anexos > 0:
+        return "Em andamento"
+    return "Solicitado"
+
+
+def _motivo_bloqueio_exclusao_exame(exame: Exame, total_anexos: int) -> Optional[str]:
+    """Motivo para recusar a exclusao de um exame do prontuario."""
+    if exame.laudo_id:
+        return (
+            f"O exame #{exame.id} possui laudo vinculado (#{exame.laudo_id}) e nao pode ser "
+            "excluido pelo prontuario."
+        )
+    if is_portal_released_status(exame.status):
+        return (
+            f"O exame #{exame.id} esta liberado no portal da clinica parceira. Revogue a "
+            "liberacao antes de excluir."
+        )
+    if total_anexos > 0:
+        return (
+            f"O exame #{exame.id} possui {total_anexos} arquivo(s) anexado(s). Remova os "
+            "arquivos antes de excluir o exame."
+        )
+    return None
+
+
 def _anexo_eh_pdf(anexo: AnexoAtendimento) -> bool:
     mime = (anexo.mime_type or "").strip().lower()
     nome = (anexo.nome_original or anexo.url or anexo.caminho_arquivo or "").strip().lower()
@@ -1553,6 +1717,10 @@ def _map_prescricao_item(item: PrescricaoItem) -> dict:
         "via": item.via or "",
         "instrucoes": item.instrucoes or "",
         "ordem": item.ordem or 0,
+        "dose_mg_kg": item.dose_mg_kg or "",
+        "peso_referencia_kg": item.peso_referencia_kg or "",
+        "unidade_dose_calculo": item.unidade_dose_calculo or "",
+        "concentracao_personalizada": item.concentracao_personalizada or "",
     }
 
 
@@ -1581,13 +1749,20 @@ def _sync_exames(
         exame.id: exame
         for exame in db.query(Exame).filter(Exame.atendimento_id == atendimento.id).all()
     }
-    recebidos_ids: set[int] = set()
+    anexos_por_exame = _contar_anexos_por_exame(db, atendimento.id)
+    excluir_ids: list[int] = []
 
     for payload in exames_payload:
+        if payload.destroy:
+            # Exclusao acontece somente por marcacao explicita. Item novo ou ja
+            # inexistente e ignorado, para que repetir o save seja idempotente.
+            if payload.id and payload.id in existentes:
+                excluir_ids.append(payload.id)
+            continue
+
         exame = None
         if payload.id and payload.id in existentes:
             exame = existentes[payload.id]
-            recebidos_ids.add(payload.id)
 
         if exame is None:
             exame = Exame(
@@ -1630,26 +1805,52 @@ def _sync_exames(
             or None
         )
         exame.prioridade = (payload.prioridade or "Rotina").strip() or "Rotina"
-        exame.status = (payload.status or "Solicitado").strip() or "Solicitado"
+        exame.status = _derivar_status_exame(
+            status_atual=exame.status,
+            resultado=payload.resultado,
+            total_anexos=anexos_por_exame.get(payload.id or 0, 0),
+        )
         exame.resultado = (payload.resultado or "").strip() or None
         exame.valor_referencia = (payload.valor_referencia or "").strip() or None
         exame.unidade = (payload.unidade or "").strip() or None
-        exame.observacoes = (
-            (payload.observacoes or "").strip()
-            or (catalogo_exame.observacoes_padrao if catalogo_exame else "")
-            or ""
-        )
+        if not is_portal_released_status(exame.status):
+            # Mesmo cuidado que _derivar_status_exame ja tem com o status:
+            # enquanto o exame esta liberado no portal, exame.observacoes
+            # guarda a mensagem fixa (o texto clinico original fica em
+            # observacoes_pre_portal) - um save/autosave nesse meio tempo nao
+            # pode sobrescrever a mensagem fixa nem perder o backup.
+            exame.observacoes = (
+                (payload.observacoes or "").strip()
+                or (catalogo_exame.observacoes_padrao if catalogo_exame else "")
+                or ""
+            )
         exame.valor = payload.valor if payload.valor not in (None, "") else (catalogo_exame.valor_padrao if catalogo_exame else 0)
-        exame.laudo_id = payload.laudo_id
+        if payload.laudo_id and payload.laudo_id != exame.laudo_id:
+            # O frontend so faz round-trip do valor ja hidratado, mas o payload
+            # e a verdade do cliente - um laudo_id de outro paciente nao pode
+            # ser aceito (exporia o exame como "liberado" via o laudo alheio no
+            # portal da clinica parceira). Sem laudo valido para este paciente,
+            # mantem o vinculo atual em vez de aceitar o valor recebido.
+            laudo_valido = (
+                db.query(Laudo)
+                .filter(Laudo.id == payload.laudo_id, Laudo.paciente_id == atendimento.paciente_id)
+                .first()
+            )
+            exame.laudo_id = payload.laudo_id if laudo_valido else exame.laudo_id
+        else:
+            exame.laudo_id = payload.laudo_id
         exame.data_solicitacao = exame.data_solicitacao or datetime.now()
         exame.data_resultado = _parse_datetime(payload.data_resultado) if payload.data_resultado else exame.data_resultado
         if _status_exame_concluido(exame.status) and exame.data_resultado is None:
             exame.data_resultado = datetime.now()
 
-    for exame_id, exame in existentes.items():
-        if exame_id not in recebidos_ids:
-            _excluir_anexos_por_exame(db, exame.id)
-            db.delete(exame)
+    for exame_id in excluir_ids:
+        exame = existentes[exame_id]
+        motivo = _motivo_bloqueio_exclusao_exame(exame, anexos_por_exame.get(exame_id, 0))
+        if motivo:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=motivo)
+        _excluir_anexos_por_exame(db, exame.id)
+        db.delete(exame)
 
 
 def _sync_prescricao(
@@ -1695,6 +1896,10 @@ def _sync_prescricao(
             "duracao": item.duracao,
             "via": item.via,
             "instrucoes": item.instrucoes,
+            "dose_mg_kg": item.dose_mg_kg,
+            "peso_referencia_kg": item.peso_referencia_kg,
+            "unidade_dose_calculo": item.unidade_dose_calculo,
+            "concentracao_personalizada": item.concentracao_personalizada,
         }
         item.prescricao_id = prescricao.id
         item.medicamento_id = item_payload.medicamento_id
@@ -1710,6 +1915,10 @@ def _sync_prescricao(
         item.via = item_payload.via or ""
         item.instrucoes = item_payload.instrucoes or ""
         item.ordem = item_payload.ordem if item_payload.ordem is not None else index
+        item.dose_mg_kg = item_payload.dose_mg_kg or ""
+        item.peso_referencia_kg = item_payload.peso_referencia_kg or ""
+        item.unidade_dose_calculo = item_payload.unidade_dose_calculo or ""
+        item.concentracao_personalizada = item_payload.concentracao_personalizada or ""
         item.updated_at = datetime.now()
 
         if item_payload.id and item.id:
@@ -1905,6 +2114,7 @@ def listar_atendimentos(
     clinica_id: Optional[int] = None,
     agendamento_id: Optional[int] = None,
     status: Optional[str] = None,
+    documentacao_incompleta: Optional[bool] = None,
     search: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
@@ -1929,7 +2139,7 @@ def listar_atendimentos(
     if dt_inicio:
         query = query.filter(AtendimentoClinico.data_atendimento >= dt_inicio)
     if dt_fim:
-        query = query.filter(AtendimentoClinico.data_atendimento < dt_fim + timedelta(days=1))
+        query = query.filter(AtendimentoClinico.data_atendimento <= dt_fim)
     if paciente_id:
         query = query.filter(AtendimentoClinico.paciente_id == paciente_id)
     if clinica_id:
@@ -1938,6 +2148,11 @@ def listar_atendimentos(
         query = query.filter(AtendimentoClinico.agendamento_id == agendamento_id)
     if status:
         query = query.filter(AtendimentoClinico.status == status)
+    if documentacao_incompleta:
+        # So faz sentido sinalizar retrabalho pendente em prontuario ja
+        # fechado; um atendimento aberto naturalmente tem campos vazios.
+        query = query.filter(AtendimentoClinico.status == "Concluido")
+        query = query.filter(_condicao_sql_documentacao_incompleta())
     if search:
         termo = f"%{search.strip()}%"
         query = query.filter(
@@ -1995,6 +2210,22 @@ def listar_atendimentos(
     for atendimento, paciente_nome, tutor_nome, clinica_nome in rows:
         total_exames = exames_por_atendimento.get(atendimento.id, 0)
         prescricao_existe = atendimento.id in prescricoes_atendimento_ids
+        # So sinaliza retrabalho pendente para prontuario ja fechado; um
+        # atendimento ainda aberto tem campos vazios por natureza.
+        pendencias_documentacao = (
+            _calcular_pendencias_documentacao(
+                queixa_principal=atendimento.queixa_principal,
+                anamnese=atendimento.anamnese,
+                exame_fisico=atendimento.exame_fisico,
+                dados_clinicos=atendimento.dados_clinicos,
+                diagnostico_principal=atendimento.diagnostico_principal,
+                diagnostico_secundario=atendimento.diagnostico_secundario,
+                diagnostico_diferencial=atendimento.diagnostico_diferencial,
+                plano_terapeutico=atendimento.plano_terapeutico,
+            )
+            if _status_atendimento_concluido(atendimento.status)
+            else []
+        )
         items.append(
             {
                 "id": atendimento.id,
@@ -2011,6 +2242,7 @@ def listar_atendimentos(
                 "clinica_nome": clinica_nome or "",
                 "total_exames": total_exames,
                 "tem_prescricao": prescricao_existe,
+                "documentacao_pendencias": pendencias_documentacao,
                 "created_at": _to_iso(atendimento.created_at),
             }
         )
@@ -2390,9 +2622,7 @@ def gerar_pdf_prescricao(
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
 
-    paciente = db.query(Paciente).filter(Paciente.id == atendimento.paciente_id).first()
-    tutor = db.query(Tutor).filter(Tutor.id == atendimento.tutor_id).first() if atendimento.tutor_id else None
-    clinica = db.query(Clinica).filter(Clinica.id == atendimento.clinica_id).first() if atendimento.clinica_id else None
+    paciente, tutor, clinica = carregar_contexto_entidades_documento_service(db, atendimento)
     prescricao = (
         db.query(PrescricaoClinica)
         .filter(PrescricaoClinica.atendimento_id == atendimento.id)
@@ -2429,7 +2659,7 @@ def gerar_pdf_prescricao(
     return StreamingResponse(
         BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=_headers_download_pdf(filename),
     )
 
 
@@ -2578,9 +2808,7 @@ def gerar_pdf_solicitacao_exames(
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
 
-    paciente = db.query(Paciente).filter(Paciente.id == atendimento.paciente_id).first()
-    tutor = db.query(Tutor).filter(Tutor.id == atendimento.tutor_id).first() if atendimento.tutor_id else None
-    clinica = db.query(Clinica).filter(Clinica.id == atendimento.clinica_id).first() if atendimento.clinica_id else None
+    paciente, tutor, clinica = carregar_contexto_entidades_documento_service(db, atendimento)
     exames = (
         db.query(Exame)
         .filter(Exame.atendimento_id == atendimento.id)
@@ -2608,7 +2836,7 @@ def gerar_pdf_solicitacao_exames(
     return StreamingResponse(
         BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=_headers_download_pdf(filename),
     )
 
 
@@ -2656,7 +2884,7 @@ def gerar_pdf_documento_atendimento(
     return StreamingResponse(
         BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=_headers_download_pdf(filename),
     )
 
 
@@ -2665,11 +2893,12 @@ def criar_atendimento(
     payload: AtendimentoCreatePayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    request: Request = None,
 ):
     status_atendimento = _normalizar_status_atendimento(payload.status or "Triagem")
     triagem = payload.triagem
     diagnostico = _normalizar_diagnostico(payload.diagnostico)
-    _validar_primeira_conclusao_atendimento(
+    pendencias_conclusao = _validar_primeira_conclusao_atendimento(
         status_atual=None,
         status_destino=status_atendimento,
         queixa_principal=payload.queixa_principal,
@@ -2680,6 +2909,7 @@ def criar_atendimento(
         diagnostico_secundario=diagnostico["diagnostico_secundario"],
         diagnostico_diferencial=diagnostico["diagnostico_diferencial"],
         plano_terapeutico=payload.plano_terapeutico,
+        confirmado=bool(payload.confirmar_conclusao_pendencias),
     )
 
     agendamento = None
@@ -2770,6 +3000,13 @@ def criar_atendimento(
 
     _commit_atendimento_com_guard(db, agendamento_id=payload.agendamento_id)
     db.refresh(atendimento)
+    if pendencias_conclusao:
+        _auditar_conclusao_com_pendencias(
+            current_user=current_user,
+            atendimento=atendimento,
+            pendencias=pendencias_conclusao,
+            request=request,
+        )
     return _montar_detalhe_atendimento(db, atendimento)
 
 
@@ -2779,12 +3016,16 @@ def atualizar_atendimento(
     payload: AtendimentoUpdatePayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    request: Request = None,
 ):
     atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
 
-    data = payload.model_dump(exclude_unset=True, exclude={"triagem", "diagnostico"})
+    data = payload.model_dump(
+        exclude_unset=True,
+        exclude={"triagem", "diagnostico", "confirmar_desvinculo_agendamento"},
+    )
 
     paciente_destino = (
         data["paciente_id"]
@@ -2792,7 +3033,14 @@ def atualizar_atendimento(
         else atendimento.paciente_id
     )
     clinica_destino = data.get("clinica_id", atendimento.clinica_id)
-    agendamento_destino = data.get("agendamento_id", atendimento.agendamento_id)
+    agendamento_atual = atendimento.agendamento_id
+    agendamento_destino = data.get("agendamento_id", agendamento_atual)
+    # Os guards da finalizacao transacional avaliam o vinculo relevante: um PUT
+    # parcial com `agendamento_id: null` nao pode zerar a referencia e escapar.
+    agendamento_referencia = agendamento_destino or agendamento_atual
+    desvinculando_agendamento = bool(
+        "agendamento_id" in data and not data["agendamento_id"] and agendamento_atual
+    )
     agendamento_validado = None
     if agendamento_destino:
         agendamento_validado = _carregar_e_validar_agendamento_atendimento(
@@ -2820,7 +3068,7 @@ def atualizar_atendimento(
             "prognostico": atendimento.prognostico,
         }
     )
-    _validar_primeira_conclusao_atendimento(
+    pendencias_conclusao = _validar_primeira_conclusao_atendimento(
         status_atual=status_atual,
         status_destino=status_destino,
         queixa_principal=data.get("queixa_principal", atendimento.queixa_principal),
@@ -2831,9 +3079,10 @@ def atualizar_atendimento(
         diagnostico_secundario=diagnostico_destino["diagnostico_secundario"],
         diagnostico_diferencial=diagnostico_destino["diagnostico_diferencial"],
         plano_terapeutico=data.get("plano_terapeutico", atendimento.plano_terapeutico),
+        confirmado=bool(payload.confirmar_conclusao_pendencias),
     )
     if (
-        agendamento_destino
+        agendamento_referencia
         and status_destino == "Concluido"
         and not _status_atendimento_concluido(status_atual)
     ):
@@ -2845,7 +3094,7 @@ def atualizar_atendimento(
             ),
         )
     if (
-        agendamento_destino
+        agendamento_referencia
         and _status_atendimento_concluido(status_atual)
         and not _status_atendimento_concluido(status_destino)
     ):
@@ -2857,6 +3106,34 @@ def atualizar_atendimento(
                 "em uma unica operacao."
             ),
         )
+    alterando_vinculo_agendamento = bool(
+        "agendamento_id" in data and agendamento_destino != agendamento_atual
+    )
+    if alterando_vinculo_agendamento and _status_atendimento_concluido(status_atual):
+        # Um prontuario concluido sustenta a Agenda realizada e a OS gerada: nem
+        # desvincular (agendamento_id: null) nem reatribuir para OUTRO agendamento
+        # nao-nulo pode acontecer fora do fluxo explicito de finalizacao/reabertura.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Um atendimento concluido nao pode ter o vinculo com o agendamento "
+                "alterado: o vinculo sustenta a Agenda realizada e a OS gerada."
+            ),
+        )
+    if desvinculando_agendamento:
+        if not payload.confirmar_desvinculo_agendamento:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "codigo": "CONFIRMACAO_DESVINCULO_AGENDAMENTO",
+                    "mensagem": (
+                        "Confirme a desvinculacao deste prontuario do agendamento "
+                        f"#{agendamento_atual}."
+                    ),
+                    "confirmavel": True,
+                    "agendamento_id": agendamento_atual,
+                },
+            )
 
     if "paciente_id" in data and data["paciente_id"] is not None:
         atendimento.paciente_id = data["paciente_id"]
@@ -2941,7 +3218,48 @@ def atualizar_atendimento(
         atendimento_id_excluir=atendimento.id,
     )
     db.refresh(atendimento)
+    if desvinculando_agendamento:
+        _auditar_desvinculo_agendamento(
+            current_user=current_user,
+            atendimento=atendimento,
+            agendamento_id=agendamento_atual,
+            request=request,
+        )
+    if pendencias_conclusao:
+        _auditar_conclusao_com_pendencias(
+            current_user=current_user,
+            atendimento=atendimento,
+            pendencias=pendencias_conclusao,
+            request=request,
+        )
     return _montar_detalhe_atendimento(db, atendimento)
+
+
+def _auditar_desvinculo_agendamento(
+    *,
+    current_user: User,
+    atendimento: AtendimentoClinico,
+    agendamento_id: Optional[int],
+    request: Optional[Request] = None,
+) -> None:
+    """Desvincular prontuario da Agenda e acao explicita e precisa deixar rastro."""
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="atendimento",
+        entidade="atendimento_clinico",
+        entidade_id=atendimento.id,
+        acao="DESVINCULAR_AGENDAMENTO",
+        descricao=(
+            f"Atendimento #{atendimento.id} desvinculado do agendamento #{agendamento_id}."
+        ),
+        detalhes={
+            "agendamento_id_anterior": agendamento_id,
+            "paciente_id": atendimento.paciente_id,
+            "clinica_id": atendimento.clinica_id,
+            "status_atendimento": atendimento.status,
+        },
+        request=request,
+    )
 
 
 def _emitir_efeitos_finalizacao(
@@ -3085,7 +3403,7 @@ def finalizar_atendimento(
             raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
 
         atendimento_status_anterior = atendimento.status
-        _validar_primeira_conclusao_atendimento(
+        pendencias_conclusao = _validar_primeira_conclusao_atendimento(
             status_atual=atendimento.status,
             status_destino="Concluido",
             queixa_principal=atendimento.queixa_principal,
@@ -3096,6 +3414,7 @@ def finalizar_atendimento(
             diagnostico_secundario=atendimento.diagnostico_secundario,
             diagnostico_diferencial=atendimento.diagnostico_diferencial,
             plano_terapeutico=atendimento.plano_terapeutico,
+            confirmado=bool(payload.confirmar_conclusao_pendencias),
         )
 
         if atendimento.agendamento_id:
@@ -3234,6 +3553,13 @@ def finalizar_atendimento(
         os_reutilizada=os_reutilizada,
         tipo_horario=tipo_horario,
     )
+    if pendencias_conclusao:
+        _auditar_conclusao_com_pendencias(
+            current_user=current_user,
+            atendimento=atendimento,
+            pendencias=pendencias_conclusao,
+            request=request,
+        )
 
     if agendamento and ordem_servico:
         acao_os = "reutilizada" if os_reutilizada else "gerada"
@@ -3272,16 +3598,69 @@ def finalizar_atendimento(
 @router.delete("/{atendimento_id}")
 def excluir_atendimento(
     atendimento_id: int,
+    request: Request,
+    confirmar_exclusao: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _ = current_user
     atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
 
-    exames = db.query(Exame).filter(Exame.atendimento_id == atendimento_id).all()
-    for exame in exames:
+    exames_do_atendimento = db.query(Exame).filter(Exame.atendimento_id == atendimento_id).all()
+    # Um exame pode estar liberado no portal parceiro mesmo com o atendimento
+    # ainda em andamento (liberar_exame_no_portal nao exige status Concluido) -
+    # excluir o atendimento inteiro nao pode ser um atalho para contornar o
+    # guard de excluir_anexo, que ja bloqueia apagar o unico PDF desse exame.
+    tem_exame_liberado_portal = any(is_portal_released_status(e.status) for e in exames_do_atendimento)
+
+    if (_status_atendimento_concluido(atendimento.status) or tem_exame_liberado_portal) and not confirmar_exclusao:
+        motivos = []
+        if _status_atendimento_concluido(atendimento.status):
+            motivos.append("esta concluido")
+        if tem_exame_liberado_portal:
+            motivos.append("tem exame(s) liberado(s) no portal da clinica parceira")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "codigo": "CONFIRMACAO_EXCLUSAO_ATENDIMENTO_CONCLUIDO",
+                "mensagem": (
+                    f"Atendimento #{atendimento_id} {' e '.join(motivos)}. Confirme para "
+                    "excluir mesmo assim - o agendamento vinculado (se houver) volta "
+                    'para "Confirmado", a Ordem de Servico ativa e cancelada, e '
+                    "qualquer PDF liberado no portal parceiro e removido definitivamente."
+                ),
+                "confirmavel": True,
+            },
+        )
+
+    status_anterior = atendimento.status
+    agendamento_id_vinculado = atendimento.agendamento_id
+    agendamento = None
+    agenda_status_anterior = None
+    ordem_servico_cancelada_id = None
+
+    if agendamento_id_vinculado:
+        agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id_vinculado).first()
+        if agendamento:
+            agenda_status_anterior = agendamento.status
+            agendamento.status = "Confirmado"
+            agendamento.atualizado_em = datetime.now()
+            agendamento.updated_at = datetime.now()
+
+            ordem_servico_ativa = _buscar_os_ativa(db, agendamento_id_vinculado)
+            if ordem_servico_ativa:
+                ordem_servico_ativa.status = "Cancelado"
+                ordem_servico_cancelada_id = ordem_servico_ativa.id
+
+    db.query(EvolucaoClinica).filter(EvolucaoClinica.atendimento_id == atendimento_id).delete(
+        synchronize_session=False
+    )
+    db.query(PrescricaoItemAjuste).filter(PrescricaoItemAjuste.atendimento_id == atendimento_id).delete(
+        synchronize_session=False
+    )
+
+    for exame in exames_do_atendimento:
         _excluir_anexos_por_exame(db, exame.id)
         db.delete(exame)
 
@@ -3297,6 +3676,42 @@ def excluir_atendimento(
     documentos = db.query(DocumentoAtendimento).filter(DocumentoAtendimento.atendimento_id == atendimento_id).all()
     for documento in documentos:
         db.delete(documento)
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="atendimento",
+        entidade="atendimento_clinico",
+        entidade_id=atendimento_id,
+        acao="ATENDIMENTO_EXCLUIDO",
+        descricao=f"Atendimento #{atendimento_id} excluido (status anterior: {status_anterior}).",
+        detalhes={
+            "status_anterior": status_anterior,
+            "agendamento_id": agendamento_id_vinculado,
+            "agenda_status_anterior": agenda_status_anterior,
+            "agenda_status_novo": agendamento.status if agendamento else None,
+            "ordem_servico_cancelada_id": ordem_servico_cancelada_id,
+        },
+        request=request,
+    )
+    if agendamento and agenda_status_anterior != agendamento.status:
+        registrar_auditoria(
+            current_user=current_user,
+            modulo="agenda",
+            entidade="agendamento",
+            entidade_id=agendamento.id,
+            acao="AGENDAMENTO_REVERTIDO_POR_EXCLUSAO_ATENDIMENTO",
+            descricao=(
+                f"Agenda #{agendamento.id} revertida para \"{agendamento.status}\" "
+                f"pela exclusao do Atendimento #{atendimento_id}."
+            ),
+            detalhes={
+                "atendimento_id": atendimento_id,
+                "status_anterior": agenda_status_anterior,
+                "status_novo": agendamento.status,
+                "ordem_servico_cancelada_id": ordem_servico_cancelada_id,
+            },
+            request=request,
+        )
 
     db.delete(atendimento)
     db.commit()
@@ -3621,11 +4036,39 @@ def consultar_status_cleanup_upload_dedupe_metricas(
     return get_upload_dedupe_cleanup_status()
 
 
+def _auditar_transicao_exame_portal(
+    *,
+    current_user: User,
+    exame: Exame,
+    acao: str,
+    descricao: str,
+    status_anterior: str,
+    request: Optional[Request] = None,
+) -> None:
+    """Auditoria best-effort da liberacao e da revogacao no portal."""
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="atendimento",
+        entidade="exame",
+        entidade_id=exame.id,
+        acao=acao,
+        descricao=descricao,
+        detalhes={
+            "atendimento_id": exame.atendimento_id,
+            "paciente_id": exame.paciente_id,
+            "status_anterior": status_anterior,
+            "status_atual": exame.status,
+        },
+        request=request,
+    )
+
+
 @router.post("/exames/{exame_id}/portal/liberar")
 def liberar_exame_no_portal(
     exame_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    request: Request = None,
 ):
     exame = db.query(Exame).filter(Exame.id == exame_id).first()
     if not exame:
@@ -3641,6 +4084,31 @@ def liberar_exame_no_portal(
     if not exame.paciente_id:
         raise HTTPException(status_code=422, detail="Exame sem paciente vinculado.")
 
+    if is_portal_released_status(exame.status):
+        # Idempotente: chamar liberar de novo enquanto ja liberado nao pode
+        # reprocessar - reescreveria observacoes_pre_portal com a propria
+        # mensagem fixa (ja ocorreu com duplo clique/retry de rede antes
+        # desta guarda), perdendo o texto original para sempre no revogar.
+        anexos_atuais = (
+            db.query(AnexoAtendimento)
+            .filter(AnexoAtendimento.exame_id == exame.id)
+            .order_by(AnexoAtendimento.created_at.desc(), AnexoAtendimento.id.desc())
+            .all()
+        )
+        return {
+            "message": "Exame ja estava liberado no portal da clinica parceira.",
+            "exame_id": exame.id,
+            "paciente_id": exame.paciente_id,
+            "atendimento_id": exame.atendimento_id,
+            "clinic_id": atendimento.clinica_id,
+            "status": exame.status,
+            "released_at": _to_operational_iso(exame.data_resultado),
+            "exame": {
+                **_map_exame(exame),
+                "anexos_resultado": [_serialize_anexo(anexo) for anexo in anexos_atuais],
+            },
+        }
+
     anexos = (
         db.query(AnexoAtendimento)
         .filter(AnexoAtendimento.exame_id == exame.id)
@@ -3651,11 +4119,13 @@ def liberar_exame_no_portal(
         raise HTTPException(status_code=422, detail="Anexe o PDF do resultado antes de liberar no portal.")
 
     released_at = datetime.utcnow()
+    status_anterior = exame.status or ""
     exame.tipo_exame = _normalizar_tipo_exame_portal_externo(exame.tipo_exame)
     if exame.tipo_exame == "Eletrocardiograma" and not (exame.categoria_exame or "").strip():
         exame.categoria_exame = "Cardiologia"
     exame.status = PORTAL_RELEASED_STATUS
     exame.data_resultado = released_at
+    exame.observacoes_pre_portal = exame.observacoes or ""
     exame.observacoes = PORTAL_EXAME_RELEASE_MESSAGE
     if not exame.criado_por_id:
         exame.criado_por_id = getattr(current_user, "id", None)
@@ -3674,6 +4144,14 @@ def liberar_exame_no_portal(
         **_map_exame(exame),
         "anexos_resultado": [_serialize_anexo(anexo) for anexo in anexos_atualizados],
     }
+    _auditar_transicao_exame_portal(
+        current_user=current_user,
+        exame=exame,
+        acao="LIBERAR_EXAME_PORTAL",
+        descricao=f"Exame #{exame.id} liberado no portal da clinica parceira.",
+        status_anterior=status_anterior,
+        request=request,
+    )
     return {
         "message": "Exame liberado no portal da clinica parceira.",
         "exame_id": exame.id,
@@ -3683,6 +4161,66 @@ def liberar_exame_no_portal(
         "status": exame.status,
         "released_at": _to_operational_iso(exame.data_resultado),
         "exame": exame_payload,
+    }
+
+
+@router.post("/exames/{exame_id}/portal/revogar")
+def revogar_liberacao_exame_no_portal(
+    exame_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    request: Request = None,
+):
+    exame = db.query(Exame).filter(Exame.id == exame_id).first()
+    if not exame:
+        raise HTTPException(status_code=404, detail="Exame nao encontrado.")
+    if not is_portal_released_status(exame.status):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este exame nao esta liberado no portal.",
+        )
+
+    status_anterior = exame.status or ""
+    total_anexos = (
+        db.query(AnexoAtendimento).filter(AnexoAtendimento.exame_id == exame.id).count()
+    )
+    exame.status = _derivar_status_exame(
+        status_atual=None,
+        resultado=exame.resultado,
+        total_anexos=total_anexos,
+    )
+    if (exame.observacoes or "").strip() == PORTAL_EXAME_RELEASE_MESSAGE:
+        exame.observacoes = exame.observacoes_pre_portal or ""
+    exame.observacoes_pre_portal = None
+
+    db.commit()
+    db.refresh(exame)
+
+    anexos_atualizados = (
+        db.query(AnexoAtendimento)
+        .filter(AnexoAtendimento.exame_id == exame.id)
+        .order_by(AnexoAtendimento.created_at.desc(), AnexoAtendimento.id.desc())
+        .all()
+    )
+    _auditar_transicao_exame_portal(
+        current_user=current_user,
+        exame=exame,
+        acao="REVOGAR_EXAME_PORTAL",
+        descricao=f"Liberacao do exame #{exame.id} no portal foi revogada.",
+        status_anterior=status_anterior,
+        request=request,
+    )
+    return {
+        "message": "Liberacao do exame no portal revogada.",
+        "exame_id": exame.id,
+        "paciente_id": exame.paciente_id,
+        "atendimento_id": exame.atendimento_id,
+        "status": exame.status,
+        "status_anterior": status_anterior,
+        "exame": {
+            **_map_exame(exame),
+            "anexos_resultado": [_serialize_anexo(anexo) for anexo in anexos_atualizados],
+        },
     }
 
 
@@ -3852,7 +4390,7 @@ async def upload_anexo(
         db.flush()
         anexo.url = f"/api/v1/atendimentos/anexos/{anexo.id}/arquivo"
 
-        if exame and not _status_exame_concluido(exame.status):
+        if exame and not _status_exame_regressao_bloqueada(exame.status):
             exame.status = "Em andamento"
         if exame and not exame.data_resultado:
             exame.data_resultado = datetime.now()
@@ -3932,6 +4470,23 @@ def excluir_anexo(
     anexo = db.query(AnexoAtendimento).filter(AnexoAtendimento.id == anexo_id).first()
     if not anexo:
         raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
+
+    if anexo.exame_id and _anexo_eh_pdf(anexo):
+        exame = db.query(Exame).filter(Exame.id == anexo.exame_id).first()
+        if exame and is_portal_released_status(exame.status):
+            outros_pdfs = (
+                db.query(AnexoAtendimento)
+                .filter(AnexoAtendimento.exame_id == exame.id, AnexoAtendimento.id != anexo.id)
+                .all()
+            )
+            if not any(_anexo_eh_pdf(outro) for outro in outros_pdfs):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"O exame #{exame.id} esta liberado no portal da clinica parceira e este "
+                        "e o unico PDF vinculado. Revogue a liberacao antes de excluir este anexo."
+                    ),
+                )
 
     _excluir_anexo_registro(db, anexo)
     db.commit()

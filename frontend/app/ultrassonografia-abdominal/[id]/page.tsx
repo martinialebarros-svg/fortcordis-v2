@@ -10,6 +10,7 @@ import {
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
 import { baixarLaudoPdf } from "@/lib/laudo-pdf";
+import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
 import {
   getOrgaosVisiveis,
   normalizarSexoPaciente,
@@ -182,7 +183,7 @@ export default function VisualizarUltrassonografiaAbdominalPage() {
             <div><span className="text-gray-500">Sexo</span><p className="font-medium">{normalizarSexoPaciente(sexoPaciente)}</p></div>
             <div><span className="text-gray-500">Peso</span><p className="font-medium">{laudo.paciente?.peso_kg ? `${laudo.paciente.peso_kg} kg` : "N/A"}</p></div>
             <div><span className="text-gray-500">Idade</span><p className="font-medium">{laudo.paciente?.idade || "N/A"}</p></div>
-            <div><span className="text-gray-500">Data</span><p className="font-medium">{new Date(laudo.data_exame || laudo.data_laudo).toLocaleDateString("pt-BR")}</p></div>
+            <div><span className="text-gray-500">Data</span><p className="font-medium">{laudo.data_exame ? formatCalendarDate(laudo.data_exame) : formatOperationalDate(laudo.data_laudo)}</p></div>
             <div><span className="text-gray-500">Clinica</span><p className="font-medium">{laudo.clinica || "N/A"}</p></div>
             <div><span className="text-gray-500">Veterinario</span><p className="font-medium">{laudo.medico_solicitante || "N/A"}</p></div>
             <div><span className="text-gray-500">Status</span><p className="font-medium">{laudo.status}</p></div>

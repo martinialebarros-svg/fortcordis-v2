@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import { operationalTodayDateInput } from "@/lib/calendar-date";
 import {
   ArrowDownCircle,
   ArrowUpCircle,
@@ -60,10 +61,9 @@ export default function RelatoriosFinanceirosPage() {
     }
     
     // Definir período padrão (último mês)
-    const hoje = new Date();
-    const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-    setPeriodoFim(hoje.toISOString().split('T')[0]);
-    setPeriodoInicio(inicioMes.toISOString().split('T')[0]);
+    const hoje = operationalTodayDateInput();
+    setPeriodoFim(hoje);
+    setPeriodoInicio(`${hoje.slice(0, 7)}-01`);
   }, [router]);
 
   const carregarRelatorios = async () => {

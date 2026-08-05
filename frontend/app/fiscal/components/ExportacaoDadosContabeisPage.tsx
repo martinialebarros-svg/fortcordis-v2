@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import { formatCalendarDate, operationalTodayDateInput } from "@/lib/calendar-date";
 import {
   AlertCircle,
   ArrowLeft,
@@ -34,6 +35,8 @@ interface ClinicaItem {
   email?: string | null;
   qtd_os?: number;
   valor_total?: number;
+  dados_fiscais_completos?: boolean;
+  campos_fiscais_pendentes?: string[];
 }
 interface ClinicaListResponse {
   items: ClinicaItem[];
@@ -64,6 +67,31 @@ interface OSItem {
   servico_nome: string;
   clinica_nome: string | null;
 }
+interface HistoricoClinica {
+  clinica_id: number | null;
+  nome: string;
+  quantidade_os: number;
+  valor_total: number;
+}
+interface HistoricoEmissaoItem {
+  id: number;
+  formato: ExportFormat;
+  modo: string;
+  tipo_emissao: TipoEmissao;
+  data_inicio: string | null;
+  data_fim: string | null;
+  quantidade_os: number;
+  valor_total: number;
+  clinicas: HistoricoClinica[];
+  descricao_servico: string | null;
+  arquivo_nome: string | null;
+  usuario_nome: string | null;
+  emitido_em: string;
+}
+interface HistoricoEmissaoResponse {
+  total: number;
+  items: HistoricoEmissaoItem[];
+}
 interface DadosTomador {
   tipo_cliente: "PF" | "PJ";
   cliente_nome: string;
@@ -83,6 +111,7 @@ interface DadosTomador {
 
 type ExportFormat = "csv" | "xlsx" | "pdf";
 type Modo = "single" | "multi";
+type TipoEmissao = "fechamento_periodo" | "por_servico";
 const FISCAL_PAGE_SIZE = 500;
 const DESC_SERVICO_PADRAO_ANTIGA = "Servicos veterinarios prestados conforme ordens de servico selecionadas.";
 const TOMADOR_STORAGE_PREFIX = "fiscal_tomador_clinica_v1_";
@@ -105,7 +134,7 @@ const DEFAULT_TOMADOR: DadosTomador = {
 };
 
 function fmtDate(v: string | null) {
-  return v ? new Date(v).toLocaleDateString("pt-BR") : "-";
+  return formatCalendarDate(v);
 }
 function fmtMoney(v: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -139,9 +168,15 @@ function anyDateToBr(v: string | null) {
   const text = String(v).trim();
   const yyyyMmDd = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (yyyyMmDd) return `${yyyyMmDd[3]}/${yyyyMmDd[2]}/${yyyyMmDd[1]}`;
-  const d = new Date(text);
-  if (!Number.isNaN(d.getTime())) return d.toLocaleDateString("pt-BR");
+  const formatted = formatCalendarDate(text, "");
+  if (formatted) return formatted;
   return text;
+}
+function fmtDateTime(v: string | null) {
+  const text = String(v || "").trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  if (match) return `${match[3]}/${match[2]}/${match[1]} ${match[4]}:${match[5]}`;
+  return anyDateToBr(v);
 }
 function descricaoServicoDataUnica(dataAtendimento: string | null) {
   const data = anyDateToBr(dataAtendimento);
@@ -149,11 +184,13 @@ function descricaoServicoDataUnica(dataAtendimento: string | null) {
   return `Servicos veterinarios prestados na data de ${data}.`;
 }
 function monthPeriod() {
-  const n = new Date();
-  const i = new Date(n.getFullYear(), n.getMonth(), 1);
-  const f = new Date(n.getFullYear(), n.getMonth() + 1, 0);
-  const s = (d: Date) => `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, "0")}-${`${d.getDate()}`.padStart(2, "0")}`;
-  return { inicio: s(i), fim: s(f) };
+  const today = operationalTodayDateInput();
+  const [year, month] = today.split("-");
+  const lastDay = new Date(Date.UTC(Number(year), Number(month), 0)).getUTCDate();
+  return {
+    inicio: `${year}-${month}-01`,
+    fim: `${year}-${month}-${String(lastDay).padStart(2, "0")}`,
+  };
 }
 
 function normalizeApiError(err: any, fallback: string) {
@@ -243,6 +280,7 @@ export default function ExportacaoDadosContabeisPage() {
   const [modo, setModo] = useState<Modo>("single");
   const [clinicas, setClinicas] = useState<ClinicaItem[]>([]);
   const [loadingClinicas, setLoadingClinicas] = useState(true);
+  const [somenteClinicasCompletas, setSomenteClinicasCompletas] = useState(true);
   const [clinicaId, setClinicaId] = useState("");
   const [clinicasSel, setClinicasSel] = useState<Set<number>>(new Set());
   const [dataInicio, setDataInicio] = useState(period.inicio);
@@ -255,10 +293,29 @@ export default function ExportacaoDadosContabeisPage() {
   const [searchDone, setSearchDone] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [format, setFormat] = useState<ExportFormat>("xlsx");
+  const [tipoEmissao, setTipoEmissao] = useState<TipoEmissao>("fechamento_periodo");
   const [exporting, setExporting] = useState(false);
+  const [historico, setHistorico] = useState<HistoricoEmissaoItem[]>([]);
+  const [loadingHistorico, setLoadingHistorico] = useState(true);
   const [autosaveStatus, setAutosaveStatus] = useState("");
   const [autosaving, setAutosaving] = useState(false);
   const lastSavedClinicPayloadRef = useRef<Record<number, string>>({});
+
+  const clinicaEstaCompleta = (clinica: ClinicaItem) => clinica.dados_fiscais_completos === true;
+  const camposPendentesDaClinica = (clinica: ClinicaItem) =>
+    Array.isArray(clinica.campos_fiscais_pendentes) ? clinica.campos_fiscais_pendentes : [];
+
+  const carregarHistorico = useCallback(async () => {
+    setLoadingHistorico(true);
+    try {
+      const response = await api.get<HistoricoEmissaoResponse>("/fiscal/relatorios-emissoes?limit=20");
+      setHistorico(Array.isArray(response.data?.items) ? response.data.items : []);
+    } catch {
+      setHistorico([]);
+    } finally {
+      setLoadingHistorico(false);
+    }
+  }, []);
 
   function buildTomadorFromClinica(clinica: ClinicaItem): DadosTomador {
     const enderecoBase = txt(clinica.endereco);
@@ -336,7 +393,11 @@ export default function ExportacaoDadosContabeisPage() {
       }
       setLoadingClinicas(true);
       try {
-        const params = new URLSearchParams({ data_inicio: dataInicio, data_fim: dataFim });
+        const params = new URLSearchParams({
+          data_inicio: dataInicio,
+          data_fim: dataFim,
+          somente_completas: String(modo === "multi" && somenteClinicasCompletas),
+        });
         const r = await api.get<ClinicaListResponse>(`/fiscal/clinicas-com-os?${params.toString()}`);
         const items = Array.isArray(r.data?.items) ? r.data.items : [];
         setClinicas(items);
@@ -349,12 +410,16 @@ export default function ExportacaoDadosContabeisPage() {
         setLoadingClinicas(false);
       }
     })();
-  }, [dataInicio, dataFim]);
+  }, [dataInicio, dataFim, modo, somenteClinicasCompletas]);
 
   useEffect(() => {
     if (modo !== "multi") return;
-    setClinicasSel(new Set(clinicas.map((clinica) => clinica.id)));
+    setClinicasSel(new Set(clinicas.filter((clinica) => clinica.dados_fiscais_completos === true).map((clinica) => clinica.id)));
   }, [clinicas, modo]);
+
+  useEffect(() => {
+    void carregarHistorico();
+  }, [carregarHistorico]);
 
   function onChangeClinica(v: string) {
     setClinicaId(v);
@@ -552,7 +617,15 @@ export default function ExportacaoDadosContabeisPage() {
               data_referencia_nf: dataFim,
               aliquota_iss: Number(tomador.aliquota_iss),
             };
-      const payload = { os_ids: Array.from(selected), formato: format, dados_tomador: dadosTomador, modo_multiclinica: modo === "multi" };
+      const payload = {
+        os_ids: Array.from(selected),
+        formato: format,
+        dados_tomador: dadosTomador,
+        modo_multiclinica: modo === "multi",
+        tipo_emissao: tipoEmissao,
+        data_inicio: dataInicio,
+        data_fim: dataFim,
+      };
       const r = await api.post("/fiscal/os/exportar-lote", payload, { responseType: "blob" });
       const type = format === "pdf" ? "application/pdf" : format === "csv" ? "text/csv;charset=utf-8" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
       const blob = new Blob([r.data], { type });
@@ -562,6 +635,7 @@ export default function ExportacaoDadosContabeisPage() {
       a.download = `dados_contabeis_${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}.${format}`;
       a.click();
       URL.revokeObjectURL(url);
+      void carregarHistorico();
     } catch (err: any) {
       const detail = await extractApiErrorDetail(err);
       if (detail && typeof detail === "object" && Array.isArray((detail as any).clinicas) && (detail as any).clinicas.length) {
@@ -584,6 +658,12 @@ export default function ExportacaoDadosContabeisPage() {
 
   const rowsSel = useMemo(() => results.filter((x) => selected.has(x.os_id)), [results, selected]);
   const totalSel = useMemo(() => rowsSel.reduce((a, b) => a + Number(b.valor_final || 0), 0), [rowsSel]);
+  const totalClinicasSel = useMemo(
+    () => clinicas.filter((clinica) => clinicasSel.has(clinica.id)).reduce((total, clinica) => total + Number(clinica.valor_total || 0), 0),
+    [clinicas, clinicasSel],
+  );
+  const totalResumo = results.length > 0 ? totalSel : totalClinicasSel;
+  const rotuloTotalResumo = results.length > 0 ? "Total das OS selecionadas" : "Total das clínicas selecionadas";
 
   return (
     <DashboardLayout>
@@ -605,7 +685,7 @@ export default function ExportacaoDadosContabeisPage() {
           <div className="fc-fiscal-metric fc-fiscal-metric-cordis"><FileSpreadsheet className="h-5 w-5" /><strong>{clinicas.length}</strong><span>Clínicas no período</span></div>
           <div className="fc-fiscal-metric fc-fiscal-metric-vital"><FileText className="h-5 w-5" /><strong>{results.length}</strong><span>OS consolidadas</span></div>
           <div className="fc-fiscal-metric fc-fiscal-metric-amber"><CheckSquare className="h-5 w-5" /><strong>{selected.size}</strong><span>OS selecionadas</span></div>
-          <div className="fc-fiscal-metric fc-fiscal-metric-ink"><Download className="h-5 w-5" /><strong>{fmtMoney(totalSel)}</strong><span>Total selecionado</span></div>
+          <div className="fc-fiscal-metric fc-fiscal-metric-ink"><Download className="h-5 w-5" /><strong>{fmtMoney(totalResumo)}</strong><span>{rotuloTotalResumo}</span></div>
         </section>
 
         <section className="fc-fiscal-scope">
@@ -625,9 +705,33 @@ export default function ExportacaoDadosContabeisPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="md:col-span-2">
-                <label className="block text-sm mb-1">Clínicas *</label>
-                <div className="fc-fiscal-clinic-list">{loadingClinicas ? <p className="text-sm text-gray-500 px-1 py-2">Carregando...</p> : clinicas.length ? clinicas.map((c) => <label key={c.id} className="flex items-center justify-between gap-3 text-sm"><span className="flex items-center gap-2"><input type="checkbox" checked={clinicasSel.has(c.id)} onChange={() => setClinicasSel((s) => { const n = new Set(s); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; })} />{c.nome}</span><span className="text-xs text-gray-500">{Number(c.qtd_os || 0)} OS | {fmtMoney(Number(c.valor_total || 0))}</span></label>) : <p className="text-sm text-gray-500 px-1 py-2">Nenhuma clínica com OS no período.</p>}</div>
-                <p className="text-xs text-gray-500 mt-1">{clinicasSel.size} de {clinicas.length} selecionada(s)</p>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                  <label className="block text-sm">Clínicas *</label>
+                  <label className="inline-flex items-center gap-2 text-xs text-emerald-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={somenteClinicasCompletas}
+                      onChange={(event) => setSomenteClinicasCompletas(event.target.checked)}
+                    />
+                    Mostrar somente cadastros fiscais completos
+                  </label>
+                </div>
+                <div className="fc-fiscal-clinic-list">{loadingClinicas ? <p className="text-sm text-gray-500 px-1 py-2">Carregando...</p> : clinicas.length ? clinicas.map((c) => {
+                  const completa = clinicaEstaCompleta(c);
+                  const pendentes = camposPendentesDaClinica(c);
+                  return <label key={c.id} className={`flex items-center justify-between gap-3 text-sm ${completa ? "" : "opacity-65"}`}>
+                    <span className="flex min-w-0 items-center gap-2"><input type="checkbox" checked={clinicasSel.has(c.id)} disabled={!completa} onChange={() => {
+                      if (!completa) return;
+                      setClinicasSel((s) => { const n = new Set(s); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; });
+                    }} />
+                    <span className="min-w-0"><span>{c.nome}</span>{!completa && <span className="block text-xs text-amber-700">Pendente: {pendentes.join(", ") || "dados fiscais"}</span>}</span></span>
+                    <span className="shrink-0 text-xs text-gray-500">{Number(c.qtd_os || 0)} OS | {fmtMoney(Number(c.valor_total || 0))}</span>
+                  </label>;
+                }) : <p className="text-sm text-gray-500 px-1 py-2">{somenteClinicasCompletas ? "Nenhuma clínica com cadastro fiscal completo no período." : "Nenhuma clínica com OS no período."}</p>}</div>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                  <p className="text-xs text-emerald-900">{clinicasSel.size} de {clinicas.length} selecionada(s)</p>
+                  <p className="text-sm font-semibold text-emerald-900">Serviços das clínicas marcadas: {fmtMoney(totalClinicasSel)}</p>
+                </div>
               </div>
               <div className="space-y-3"><div><label className="block text-sm mb-1">Data inicial *</label><input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" /></div><div><label className="block text-sm mb-1">Data final *</label><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" /></div></div>
             </div>
@@ -645,7 +749,7 @@ export default function ExportacaoDadosContabeisPage() {
               {autosaving ? "Salvando automaticamente..." : autosaveStatus}
             </p>
           )}
-          {modo === "multi" && <p className="text-sm text-blue-700 bg-blue-50 rounded p-3 mb-3">No modo multiclinica, os dados cadastrais vem de cada clinica. Se faltar algum dado, o sistema sinaliza antes de exportar.</p>}
+          {modo === "multi" && <p className="text-sm text-blue-700 bg-blue-50 rounded p-3 mb-3">No modo multiclínica, os dados cadastrais vêm de cada clínica. O filtro padrão mostra apenas cadastros completos; a API continua protegendo a exportação contra dados pendentes.</p>}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {modo === "single" && (
               <>
@@ -802,6 +906,17 @@ export default function ExportacaoDadosContabeisPage() {
                 <option>Nao tributavel</option>
               </select>
             </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm mb-1">Como esta emissão será registrada?</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button type="button" onClick={() => setTipoEmissao("fechamento_periodo")} className={`rounded-lg border px-3 py-2 text-left text-sm ${tipoEmissao === "fechamento_periodo" ? "border-blue-400 bg-blue-50 text-blue-800" : "border-gray-200 bg-white text-gray-700"}`}>
+                  <strong className="block">Fechamento do período</strong><span className="text-xs">Para consolidar os serviços de uma clínica no mês ou período escolhido.</span>
+                </button>
+                <button type="button" onClick={() => setTipoEmissao("por_servico")} className={`rounded-lg border px-3 py-2 text-left text-sm ${tipoEmissao === "por_servico" ? "border-blue-400 bg-blue-50 text-blue-800" : "border-gray-200 bg-white text-gray-700"}`}>
+                  <strong className="block">Conforme os serviços</strong><span className="text-xs">Para registrar a emissão à medida que os serviços são prestados.</span>
+                </button>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -833,6 +948,37 @@ export default function ExportacaoDadosContabeisPage() {
             Nenhuma ordem de serviço encontrada para os filtros selecionados.
           </div>
         )}
+
+        <section className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm" aria-label="Histórico de emissões fiscais">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Rastreabilidade fiscal</span>
+              <h2 className="text-lg font-semibold text-slate-900">Histórico de relatórios emitidos</h2>
+              <p className="text-sm text-slate-600">Cada download concluído fica registrado com o período, as clínicas e o valor exportado.</p>
+            </div>
+            <button type="button" onClick={() => void carregarHistorico()} disabled={loadingHistorico} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60">
+              {loadingHistorico ? "Atualizando..." : "Atualizar histórico"}
+            </button>
+          </div>
+          {loadingHistorico ? (
+            <div className="flex items-center gap-2 py-6 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />Carregando emissões...</div>
+          ) : historico.length ? (
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-2 py-2">Emitido em</th><th className="px-2 py-2">Tipo</th><th className="px-2 py-2">Clínicas e serviços</th><th className="px-2 py-2">Formato</th><th className="px-2 py-2 text-right">Valor</th><th className="px-2 py-2">Responsável</th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {historico.map((item) => {
+                    const periodo = item.data_inicio && item.data_fim ? `${isoToBrDate(item.data_inicio)} a ${isoToBrDate(item.data_fim)}` : "Período não informado";
+                    const clinicasHistorico = Array.isArray(item.clinicas) ? item.clinicas : [];
+                    return <tr key={item.id} className="align-top"><td className="whitespace-nowrap px-2 py-3 text-slate-700">{fmtDateTime(item.emitido_em)}<span className="block text-xs text-slate-500">{periodo}</span></td><td className="px-2 py-3"><span className={`rounded-full px-2 py-1 text-xs font-medium ${item.tipo_emissao === "por_servico" ? "bg-violet-100 text-violet-800" : "bg-blue-100 text-blue-800"}`}>{item.tipo_emissao === "por_servico" ? "Conforme os serviços" : "Fechamento do período"}</span></td><td className="px-2 py-3 text-slate-700"><span className="block">{clinicasHistorico.map((clinica) => clinica.nome).join(", ") || "Clínica não informada"}</span><span className="text-xs text-slate-500">{item.quantidade_os} OS · {clinicasHistorico.length} clínica(s)</span></td><td className="px-2 py-3 uppercase text-slate-700">{item.formato}</td><td className="whitespace-nowrap px-2 py-3 text-right font-semibold text-slate-900">{fmtMoney(Number(item.valor_total || 0))}</td><td className="px-2 py-3 text-slate-700">{item.usuario_nome || "Usuário não identificado"}</td></tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="py-6 text-sm text-slate-500">Nenhum relatório fiscal foi emitido ainda.</p>
+          )}
+        </section>
       </div>
     </DashboardLayout>
   );

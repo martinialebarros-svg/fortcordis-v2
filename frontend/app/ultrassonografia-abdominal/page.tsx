@@ -10,6 +10,7 @@ import {
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
 import { baixarLaudoPdf } from "@/lib/laudo-pdf";
+import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
 import { Calendar, Download, Eye, Edit, Plus, Search, Trash2, ScanLine } from "lucide-react";
 
 interface LaudoLista {
@@ -153,7 +154,9 @@ export default function UltrassonografiaAbdominalPage() {
                         {laudo.clinica && <span>{laudo.clinica}</span>}
                         <span className="inline-flex items-center gap-1">
                           <Calendar className="w-3 h-3" />
-                          {new Date(laudo.data_exame || laudo.data_laudo).toLocaleDateString("pt-BR")}
+                          {laudo.data_exame
+                            ? formatCalendarDate(laudo.data_exame)
+                            : formatOperationalDate(laudo.data_laudo)}
                         </span>
                       </div>
                     </div>

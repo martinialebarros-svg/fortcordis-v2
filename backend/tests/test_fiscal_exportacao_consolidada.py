@@ -7,6 +7,8 @@ import unittest
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from openpyxl import load_workbook
 from sqlalchemy import create_engine
@@ -22,8 +24,9 @@ os.environ.setdefault("SECRET_KEY", "fiscal-exportacao-consolidada-test-secret-k
 from app.api.v1.endpoints import fiscal
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
+from app.models.fiscal import RelatorioFiscalEmissao
 from app.models.ordem_servico import OrdemServico
-from app.services import fiscal_export_service
+from app.services import fiscal_export_service, fiscal_service
 
 
 class FiscalExportacaoConsolidadaTest(unittest.TestCase):
@@ -35,6 +38,7 @@ class FiscalExportacaoConsolidadaTest(unittest.TestCase):
             Configuracao.__table__,
             Clinica.__table__,
             OrdemServico.__table__,
+            RelatorioFiscalEmissao.__table__,
         ):
             table.create(engine, checkfirst=True)
         session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()
@@ -97,6 +101,74 @@ class FiscalExportacaoConsolidadaTest(unittest.TestCase):
             self.assertEqual(response["items"][0]["id"], 1)
             self.assertEqual(response["items"][0]["qtd_os"], 2)
             self.assertEqual(response["items"][0]["valor_total"], 350.0)
+            self.assertFalse(response["items"][0]["dados_fiscais_completos"])
+            self.assertIn("cnpj", response["items"][0]["campos_fiscais_pendentes"])
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_filtro_de_clinicas_completas_usa_mesma_regra_da_validacao_final(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            db.add_all(
+                [
+                    Clinica(id=1, nome="Clinica incompleta", ativo=True),
+                    Clinica(
+                        id=2,
+                        nome="Clinica completa",
+                        razao_social="Clinica completa LTDA",
+                        cnpj="22.222.222/0001-22",
+                        endereco="Rua Completa",
+                        bairro="Centro",
+                        cidade="Fortaleza",
+                        estado="CE",
+                        cep="60000-000",
+                        telefone="85999990000",
+                        ativo=True,
+                    ),
+                ]
+            )
+            db.commit()
+            self._add_os(db, clinica_id=1, data="2026-04-10", valor_final="100.00")
+            os_completa = self._add_os(db, clinica_id=2, data="2026-04-10", valor_final="250.00")
+
+            response = fiscal.listar_clinicas_com_os(
+                data_inicio="2026-04-01",
+                data_fim="2026-04-30",
+                somente_completas=True,
+                db=db,
+            )
+
+            self.assertEqual(response["total"], 1)
+            self.assertEqual(response["items"][0]["id"], 2)
+            self.assertTrue(response["items"][0]["dados_fiscais_completos"])
+
+            invalidas = fiscal_service.listar_clinicas_invalidas_para_exportacao(
+                [
+                    {
+                        "clinica_id": 1,
+                        "clinica_nome": "Clinica incompleta",
+                        "clinica_cnpj": "",
+                    },
+                    {
+                        "clinica_id": 2,
+                        "clinica_nome": "Clinica completa",
+                        "clinica_razao_social": "Clinica completa LTDA",
+                        "clinica_cnpj": "22.222.222/0001-22",
+                        "clinica_endereco": "Rua Completa",
+                        "clinica_bairro": "Centro",
+                        "clinica_cidade": "Fortaleza",
+                        "clinica_estado": "CE",
+                        "clinica_cep": "60000-000",
+                        "clinica_telefone": "85999990000",
+                        "os_id": os_completa.id,
+                    },
+                ]
+            )
+            self.assertEqual(len(invalidas), 1)
+            self.assertEqual(invalidas[0]["clinica_id"], 1)
+            self.assertIn("cnpj", invalidas[0]["faltando"])
         finally:
             db.close()
             engine.dispose()
@@ -254,6 +326,82 @@ class FiscalExportacaoConsolidadaTest(unittest.TestCase):
             )
             self.assertTrue(content.startswith(b"%PDF"))
             self.assertTrue(filename.endswith(".pdf"))
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_registra_e_lista_historico_da_emissao_sem_dados_de_paciente(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            emissao = fiscal_service.registrar_emissao_relatorio_fiscal(
+                db,
+                os_items=self._sample_os_items(),
+                formato="xlsx",
+                modo_multiclinica=True,
+                tipo_emissao="fechamento_periodo",
+                data_inicio="2026-04-01",
+                data_fim="2026-04-30",
+                descricao_servico="Servicos veterinarios prestados no periodo.",
+                arquivo_nome="dados_contabeis.xlsx",
+                usuario_id=7,
+                usuario_nome="Fiscal Fort Cordis",
+            )
+
+            items, total = fiscal_service.listar_emissoes_relatorios_fiscais(db)
+
+            self.assertEqual(total, 1)
+            self.assertEqual(items[0]["id"], emissao.id)
+            self.assertEqual(items[0]["formato"], "xlsx")
+            self.assertEqual(items[0]["tipo_emissao"], "fechamento_periodo")
+            self.assertEqual(items[0]["quantidade_os"], 3)
+            self.assertEqual(items[0]["valor_total"], 530.0)
+            self.assertEqual(items[0]["usuario_nome"], "Fiscal Fort Cordis")
+            self.assertEqual(items[0]["clinicas"][0]["nome"], "Clinica A")
+            self.assertNotIn("paciente_nome", items[0])
+            self.assertNotIn("os_ids", items[0])
+
+            por_clinica, total_por_clinica = fiscal_service.listar_emissoes_relatorios_fiscais(
+                db,
+                clinica_id=2,
+            )
+            self.assertEqual(total_por_clinica, 1)
+            self.assertEqual(por_clinica[0]["id"], emissao.id)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_endpoint_de_exportacao_registra_historico_apos_gerar_arquivo(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            body = fiscal.ExportarOSLoteRequest(
+                os_ids=[10, 11, 20],
+                formato="xlsx",
+                modo_multiclinica=True,
+                tipo_emissao="por_servico",
+                data_inicio="2026-04-01",
+                data_fim="2026-04-30",
+                dados_tomador={"descricao_servico": "Servicos selecionados."},
+            )
+            with patch.object(fiscal, "buscar_os_por_ids_para_exportacao", return_value=self._sample_os_items()), patch.object(
+                fiscal_export_service,
+                "exportar_os_xlsx",
+                return_value=(b"arquivo-xlsx", "dados_contabeis.xlsx"),
+            ):
+                response = fiscal.exportar_os_lote(
+                    body,
+                    current_user=SimpleNamespace(id=9, nome="Usuária fiscal"),
+                    db=db,
+                )
+
+            self.assertEqual(response.media_type, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            items, total = fiscal_service.listar_emissoes_relatorios_fiscais(db)
+            self.assertEqual(total, 1)
+            self.assertEqual(items[0]["tipo_emissao"], "por_servico")
+            self.assertEqual(items[0]["data_inicio"], "2026-04-01")
+            self.assertEqual(items[0]["data_fim"], "2026-04-30")
+            self.assertEqual(items[0]["usuario_nome"], "Usuária fiscal")
         finally:
             db.close()
             engine.dispose()

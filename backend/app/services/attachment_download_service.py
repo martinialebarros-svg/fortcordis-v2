@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import ipaddress
 import os
+import socket
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from typing import Iterator
 from urllib.parse import quote, urlparse
@@ -18,12 +22,63 @@ class AttachmentDownloadSource:
     value: str
 
 
+def _is_public_address(ip_text: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_text)
+    except ValueError:
+        return False
+    # `is_global` cobre privado/loopback/link-local/reservado E faixas
+    # especiais como CGNAT (100.64.0.0/10, RFC 6598 - usada por infra/metadata
+    # interna em algumas nuvens, ex.: Alibaba Cloud) que a combinacao manual
+    # anterior nao cobria. Mas `is_global` NAO exclui multicast (IANA trata
+    # multicast como uma classe de endereco a parte, nao "privado") - mantem
+    # essa checagem explicita.
+    return ip.is_global and not ip.is_multicast
+
+
+DNS_RESOLUTION_TIMEOUT_SECONDS = 2.0
+
+
+def _hostname_resolves_to_public_address(hostname: str) -> bool:
+    """Anexos "externo" apontam para URLs livres colocadas pelo usuario, mas o
+    download e feito pelo SERVIDOR (proxy) - sem essa checagem, um usuario
+    autenticado poderia usar o proprio backend para alcancar servicos
+    internos/metadata (SSRF), inclusive vazando PORTAL_REMOTE_STORAGE_AUTH_TOKEN
+    se o host tambem estivesse na allowlist de confianca.
+
+    Timeout curto e deliberado, aplicado via thread separada (nao
+    socket.setdefaulttimeout, que e global/process-wide e afetaria outras
+    threads concorrentes no mesmo processo): esta funcao roda em rotas
+    sincronas de listagem do portal (thread do pool), disparada para todo
+    anexo com URL externa - sem timeout, um host com DNS deliberadamente
+    lento travaria a thread ate o timeout do resolver do SO (negacao de
+    servico)."""
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        future = executor.submit(socket.getaddrinfo, hostname, None)
+        try:
+            addr_infos = future.result(timeout=DNS_RESOLUTION_TIMEOUT_SECONDS)
+        except (socket.gaierror, FutureTimeoutError, OSError):
+            return False
+    finally:
+        # shutdown(wait=False): se a resolucao estourou o timeout, a thread
+        # de fundo pode continuar bloqueada por muito mais tempo - nao
+        # esperar por ela aqui e o que de fato limita a espera da thread
+        # chamadora a DNS_RESOLUTION_TIMEOUT_SECONDS.
+        executor.shutdown(wait=False)
+    if not addr_infos:
+        return False
+    return all(_is_public_address(info[4][0]) for info in addr_infos)
+
+
 def _normalize_remote_url(raw_value: str | None) -> str | None:
     value = str(raw_value or "").strip()
     if not value:
         return None
     parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return None
+    if not _hostname_resolves_to_public_address(parsed.hostname):
         return None
     return value
 
@@ -44,10 +99,27 @@ def attachment_has_download_source(attachment) -> bool:
     return resolve_attachment_download_source(attachment) is not None
 
 
-def _build_remote_headers() -> dict[str, str]:
+def _is_trusted_storage_host(hostname: str) -> bool:
+    trusted_hosts = {
+        host.strip().lower()
+        for host in str(settings.PORTAL_REMOTE_STORAGE_TRUSTED_HOSTS or "").split(",")
+        if host.strip()
+    }
+    return hostname.lower() in trusted_hosts
+
+
+def _build_remote_headers(url: str) -> dict[str, str]:
     headers: dict[str, str] = {}
     token = str(settings.PORTAL_REMOTE_STORAGE_AUTH_TOKEN or "").strip()
     if not token:
+        return headers
+
+    # O token de storage remoto e um segredo do sistema - so pode ser enviado
+    # ao host configurado como storage legitimo, nunca a uma URL livre que o
+    # usuario colou como "link anexo" (isso vazaria o token para qualquer
+    # servidor de terceiros que o usuario apontar).
+    hostname = urlparse(url).hostname or ""
+    if not _is_trusted_storage_host(hostname):
         return headers
 
     header_name = str(settings.PORTAL_REMOTE_STORAGE_AUTH_HEADER or "").strip() or "Authorization"
@@ -75,12 +147,20 @@ def _iter_remote_response_bytes(client: httpx.Client, response: httpx.Response) 
 
 def _build_remote_download_response(attachment, source: AttachmentDownloadSource, *, missing_detail: str):
     client = httpx.Client(
-        follow_redirects=True,
+        # Redirects nao sao seguidos: um host inicialmente valido (IP publico)
+        # poderia redirecionar para um destino interno/privado, contornando a
+        # validacao de _hostname_resolves_to_public_address feita so na URL
+        # original.
+        follow_redirects=False,
         timeout=max(1, int(settings.PORTAL_REMOTE_STORAGE_TIMEOUT_SECONDS or 20)),
     )
     try:
-        request = client.build_request("GET", source.value, headers=_build_remote_headers())
+        request = client.build_request("GET", source.value, headers=_build_remote_headers(source.value))
         response = client.send(request, stream=True)
+        if response.is_redirect:
+            response.close()
+            client.close()
+            raise HTTPException(status_code=502, detail="Storage do anexo respondeu com redirecionamento.")
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         try:

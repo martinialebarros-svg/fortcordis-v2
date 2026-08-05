@@ -155,6 +155,7 @@ def _serialize_tutor_lista_item(tutor: Tutor) -> dict:
 
 class TutorCreate(BaseModel):
     nome: str
+    confirmar_reativacao: bool = False
     telefone: Optional[str] = None
     whatsapp: Optional[str] = None
     email: Optional[str] = None
@@ -311,6 +312,48 @@ def criar_tutor(
         existente = db.query(Tutor).filter(Tutor.nome.ilike(nome)).first()
 
     if existente:
+        if existente.ativo != 1:
+            if not tutor.confirmar_reativacao:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "codigo": "TUTOR_INATIVO_EXISTENTE",
+                        "mensagem": "Ja existe um tutor inativo com este nome. Confirme a reativacao para reutilizar o cadastro.",
+                        "tutor": {"id": existente.id, "nome": existente.nome},
+                    },
+                )
+
+            # Um novo cadastro com o mesmo nome deve ser uma decisao explicita de
+            # reativacao; nao reutilize silenciosamente um registro arquivado.
+            existente.ativo = 1
+            for campo in (
+                "telefone",
+                "whatsapp",
+                "email",
+                "cpf",
+                "cep",
+                "endereco",
+                "numero",
+                "complemento",
+                "bairro",
+                "cidade",
+                "estado",
+                "latitude",
+                "longitude",
+                "place_id",
+                "endereco_normalizado",
+            ):
+                valor = getattr(tutor, campo)
+                if valor is not None and valor != "":
+                    setattr(existente, campo, valor)
+
+            db.commit()
+            db.refresh(existente)
+            return {
+                **_serialize_tutor(existente),
+                "message": "Tutor reativado com sucesso",
+            }
+
         return {
             "id": existente.id,
             "nome": existente.nome,

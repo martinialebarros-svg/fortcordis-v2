@@ -18,6 +18,7 @@ import {
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
 import { listarTodasClinicas } from "@/lib/clinicas";
+import { calendarDateInput, operationalTodayDateInput } from "@/lib/calendar-date";
 import {
   ArrowLeft,
   Image as ImageIcon,
@@ -103,7 +104,7 @@ function obterTituloLaudo(nomePaciente: string) {
 }
 
 function obterDataAtualIso() {
-  return new Date().toISOString().split("T")[0];
+  return operationalTodayDateInput();
 }
 
 async function blobParaDataUrl(blob: Blob): Promise<string> {
@@ -460,7 +461,7 @@ export default function UltrassonografiaAbdominalForm({
         sexo: sexoPaciente,
         peso: laudo.paciente?.peso_kg ? String(laudo.paciente.peso_kg) : "",
         idade: laudo.paciente?.idade || "",
-        data_exame: laudo.data_exame ? laudo.data_exame.slice(0, 10) : new Date().toISOString().split("T")[0],
+        data_exame: laudo.data_exame ? calendarDateInput(laudo.data_exame) : operationalTodayDateInput(),
       });
       setStatus(laudo.status || "Finalizado");
       setClinicaId(laudo.clinic_id ? String(laudo.clinic_id) : "");

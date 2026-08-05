@@ -39,12 +39,14 @@ Status: done
 | CA-022 | aceitacao | CSV analitico com `first_download_at`, `last_access_at` e `days_since_last_activity` | ok |
 | CA-023 | aceitacao | `frontend/app/layout.tsx` publicando `metadataBase`, `openGraph`, `twitter` e `icons` para o host `https://app.fortcordis.com.br` com a logomarca oficial | ok |
 | CA-024 | aceitacao | `backend/app/api/v1/endpoints/portal_clinic_auth.py::_normalize_utc_naive_datetime` + `test_portal_overview_datetime_helpers_normalize_mixed_timezones` cobrindo timestamps mistos no cockpit | ok |
-| CA-025 | aceitacao | `backend/tests/test_portal_access_foundation.py::test_clinica_exam_list_includes_operational_panel` valida `operational_summary` | ok |
+| CA-025 | aceitacao | `backend/tests/test_portal_access_foundation.py::test_clinica_exam_list_includes_operational_panel` valida `operational_summary`, inclusive uma liberacao as 23:30 de Fortaleza gravada como 02:30 UTC do dia seguinte | ok |
 | CA-026 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx` renderiza a fila operacional com status e previsao/data de liberacao | ok |
 | CA-027 | frontend | `frontend/components/portal/PortalClinicaPageShell.tsx` + `frontend/components/portal/PortalClinicaWorkspace.tsx` alternando entre landing publica e shell autenticado sem sobreposicao | ok |
 | CA-028 | frontend | `PortalClinicaPageShell` reutiliza a sessao ja hidratada em `standalone` e `PortalClinicaWorkspace` so notifica o shell pai apos concluir o bootstrap local, evitando piscar entre landing e dashboard | ok |
 | CA-029 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx` + `frontend/app/globals.css` mantem o card `Sessao ativa` legivel dentro do hero autenticado da clinica | ok |
 | CA-030 | aceitacao | `frontend/app/clinicas/portal/espelho/page.tsx` + `frontend/components/portal/PortalClinicaWorkspace.tsx` em `mode="admin_preview"` + `backend/tests/test_portal_access_foundation.py::test_admin_mirror_reuses_clinic_portal_scope_and_downloads` | ok |
+| CA-031 | frontend | `frontend/app/clinicas/portal/page.tsx` formata o WhatsApp como `(00) 00000-0000` ao carregar, digitar ou colar e limita a entrada visual a 15 caracteres | ok |
+| CA-032 | autorizacao | `backend/tests/test_portal_clinic_invite_auth.py::test_secretaria_e_recepcao_podem_gerar_convite_sem_poder_revogar` valida painel, criacao de convite e negativa `403` para revogacao | ok |
 | NFR-008 | nao funcional | auditoria de download enriquecida com `actor_type`, `clinica_id` e `account_id` em `backend/app/api/v1/endpoints/portal.py` | ok |
 | NFR-009 | nao funcional | confirmacoes explicitas antes de revogacoes no cockpit administrativo | ok |
 | NFR-010 | nao funcional | painel calcula metricas somente a partir dos dados de acesso ja autorizados no backend | ok |
@@ -55,6 +57,8 @@ Status: done
 | NFR-016 | nao funcional | bootstrap da sessao autenticada nao propaga `null` transitorio para o roteamento da pagina | ok |
 | NFR-017 | nao funcional | hero autenticado restringe contraste invertido ao bloco institucional e preserva cards de apoio com fundo claro e texto escuro | ok |
 | NFR-018 | nao funcional | rotas administrativas de espelho reutilizam `listar_exames_clinica_portal` e `gerar_download_url_exame_portal`, evitando duplicacao do motor de escopo da clinica | ok |
+| NFR-019 | nao funcional | `normalizarWhatsappsParaApi` remove a mascara antes de montar `delivery_target` no convite administrativo | ok |
+| NFR-020 | seguranca | `recepcao`/`secretaria` so usam as rotas de leitura e criacao de convite; as dependencias das revogacoes continuam em `_require_portal_admin` | ok |
 
 ## 2) Testes automatizados executados
 
@@ -168,12 +172,26 @@ Resumo dos resultados:
 - As rotas administrativas de espelho reaproveitam o mesmo motor de escopo e download do portal autenticado da clinica, reduzindo risco de divergencia entre visao interna e visao da unidade.
 - `frontend/app/clinicas/portal/page.tsx` ganhou atalhos para abrir o espelho diretamente do painel e da lista de clinicas.
 
+### Mascara do WhatsApp no convite administrativo de 2026-07-30
+
+- O contato cadastrado, a digitacao e a colagem passaram a usar a mascara visual `(00) 00000-0000`.
+- Entradas `85997060034`, `+55 (85) 99706-0034` e `85 99706-0034` foram validadas com a mesma exibicao `(85) 99706-0034` e payload `85997060034`.
+- `npx eslint app/clinicas/portal/page.tsx --max-warnings=0`: ok.
+- `npx tsc --noEmit --pretty false`: ok.
+- `git diff --check`: ok.
+
 ### Regressao de timezone de 2026-07-22
 
 - Log de producao revisado para o erro em `GET /api/v1/portal/admin/clinicas/acessos/painel`.
 - Causa confirmada: comparacao entre `row.created_at` timezone-aware e `utcnow()` sem timezone em `_load_portal_download_analytics`.
 - Ajuste aplicado: normalizacao para UTC sem timezone antes de calcular downloads dos ultimos 30 dias, ultimo acesso e ordenacao da linha do tempo.
 - Regressao automatizada adicionada em `test_portal_overview_datetime_helpers_normalize_mixed_timezones`.
+
+### Correcao de `Liberados hoje` de 2026-08-02
+
+- Causa confirmada: `data_resultado` e gravada em UTC sem timezone, enquanto o painel comparava esse valor diretamente contra os limites sem timezone do dia de Fortaleza.
+- Correcao aplicada: `_portal_utc_naive_bounds_for_local_day` converte o inicio e o fim do dia local para UTC antes de calcular `operational_summary.liberados_hoje`.
+- Regressao automatizada: `test_clinica_exam_list_includes_operational_panel` cobre uma liberacao as 23:30 em Fortaleza, persistida como 02:30 UTC no dia seguinte.
 
 ## 4) Regressao e riscos residuais
 

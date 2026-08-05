@@ -146,6 +146,21 @@ interface ConflitoDeslocamentoDetail {
   limite_desvio_min?: number;
 }
 
+interface ReservaExpiradaDetail {
+  codigo?: string;
+  mensagem?: string;
+  confirmavel?: boolean;
+  reservas_expiradas?: Array<{
+    id: number;
+    clinica?: string | null;
+    paciente?: string | null;
+    tutor?: string | null;
+    inicio?: string | null;
+    fim?: string | null;
+    reserva_expira_em?: string | null;
+  }>;
+}
+
 interface SugestaoProximidadeResponse {
   ok: boolean;
   sugerir: boolean;
@@ -2197,6 +2212,79 @@ export default function NovoAgendamentoModal({
     return null;
   };
 
+  const extrairReservaExpirada = (error: any): ReservaExpiradaDetail | null => {
+    if (error?.response?.status !== 409) return null;
+    const detail = error?.response?.data?.detail;
+    if (
+      detail &&
+      typeof detail === "object" &&
+      [
+        "CONFIRMACAO_SLOT_RESERVA_EXPIRADA",
+        "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA",
+      ].includes(detail.codigo)
+    ) {
+      return detail as ReservaExpiradaDetail;
+    }
+    return null;
+  };
+
+  const confirmarRevisaoReservaExpirada = async (
+    detail: ReservaExpiradaDetail
+  ): Promise<boolean> => {
+    const reativandoMesmaReserva =
+      detail.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA";
+    const reserva = detail.reservas_expiradas?.[0];
+    const contexto = reserva
+      ? [
+          `Clínica: ${reserva.clinica || "Pendente"}`,
+          `Tutor: ${reserva.tutor || "Pendente"}`,
+          `Pet: ${reserva.paciente || "Pendente"}`,
+        ].join("\n")
+      : "";
+
+    return fortinho.confirm({
+      title: reativandoMesmaReserva
+        ? "Confirmação recebida após o prazo"
+        : "ATENÇÃO: este horário teve uma reserva expirada",
+      message:
+        `${extrairMensagemErro(
+          detail,
+          "Este horário já teve uma reserva que expirou."
+        )}` +
+        `${contexto ? `\n\n${contexto}` : ""}` +
+        (reativandoMesmaReserva
+          ? "\n\nConfirme somente se este mesmo cliente respondeu depois do vencimento. O sistema verificará novamente se o horário continua livre antes de agendar."
+          : "\n\nAntes de agendar outra pessoa, volte às mensagens do WhatsApp e confira se a clínica enviou os dados após o prazo. Só continue se não houver resposta."),
+      mood: "alert",
+      gesture: "open-arms",
+      confirmLabel: reativandoMesmaReserva
+        ? "Cliente confirmou; verificar e agendar"
+        : "Revisei as mensagens e quero agendar",
+      cancelLabel: reativandoMesmaReserva ? "Cancelar" : "Voltar e verificar WhatsApp",
+    });
+  };
+
+  const motivoAgendaFechadaConfirmavel = (motivo?: string | null): boolean => {
+    const texto = String(motivo || "").trim();
+    return [
+      "Agenda fechada",
+      "Horario fora do funcionamento da agenda",
+      "Horario fora da excecao desta data",
+    ].some((prefixo) => texto.startsWith(prefixo));
+  };
+
+  const confirmarAgendamentoAgendaFechadaAdmin = async (motivo: string): Promise<boolean> =>
+    fortinho.confirm({
+      title: "Agenda fechada",
+      message:
+        `${motivo}\n\nEste agendamento ficará fora do horário de funcionamento. ` +
+        "A confirmação não altera a configuração da agenda e ficará registrada na auditoria. Deseja continuar?",
+      mood: "alert",
+      gesture: "open-arms",
+      confirmLabel: "Confirmar agendamento",
+      cancelLabel: "Voltar",
+    });
+
   const confirmarExcecaoConflitoAdmin = async (conflito: ConflitoDeslocamentoDetail): Promise<boolean> => {
     if (!isAdmin) return false;
 
@@ -2233,7 +2321,7 @@ export default function NovoAgendamentoModal({
     setModalAnimalAberto(true);
   };
 
-  const salvarNovoTutor = async () => {
+  const salvarNovoTutor = async (confirmarReativacao = false) => {
     const nome = novoTutor.nome.trim();
     if (!nome) {
       fortinho.notify({
@@ -2250,6 +2338,7 @@ export default function NovoAgendamentoModal({
       setSalvandoTutor(true);
       const payload = {
         nome,
+        confirmar_reativacao: confirmarReativacao,
         telefone: novoTutor.telefone || null,
         whatsapp: novoTutor.whatsapp || novoTutor.telefone || null,
         email: novoTutor.email || null,
@@ -2306,6 +2395,29 @@ export default function NovoAgendamentoModal({
       await carregarPanoramaTutor(String(tutorId));
     } catch (error: any) {
       const detail = error?.response?.data?.detail ?? error?.message;
+      if (
+        !confirmarReativacao &&
+        detail &&
+        typeof detail === "object" &&
+        detail.codigo === "TUTOR_INATIVO_EXISTENTE"
+      ) {
+        const tutorExistente = detail.tutor || {};
+        const nomeExistente = String(tutorExistente.nome || nome).trim() || "este tutor";
+        const confirmou = await fortinho.confirm({
+          title: "Cadastro anterior encontrado",
+          message:
+            `${nomeExistente} possui um cadastro inativo com este mesmo nome. ` +
+            "Deseja reativa-lo e usar este cadastro no agendamento?",
+          mood: "alert",
+          gesture: "idle",
+          confirmLabel: "Reativar tutor",
+          cancelLabel: "Manter como esta",
+        });
+        if (confirmou) {
+          await salvarNovoTutor(true);
+        }
+        return;
+      }
       fortinho.notify({
         title: "Erro ao salvar tutor",
         message: extrairMensagemErro(detail),
@@ -2681,8 +2793,17 @@ export default function NovoAgendamentoModal({
         agendaFeriados,
         agendaExcecoes
       );
+      let confirmarAgendaFechada = false;
       if (!validacaoHorario.valido) {
-        throw new Error(validacaoHorario.motivo);
+        const motivo = validacaoHorario.motivo || "Agenda fechada para este horario.";
+        if (isEditando || !isAdmin || !motivoAgendaFechadaConfirmavel(motivo)) {
+          throw new Error(motivo);
+        }
+        const confirmou = await confirmarAgendamentoAgendaFechadaAdmin(motivo);
+        if (!confirmou) {
+          return;
+        }
+        confirmarAgendaFechada = true;
       }
 
       let pacienteId = formData.paciente_id ? parseInt(formData.paciente_id, 10) : NaN;
@@ -2804,11 +2925,22 @@ export default function NovoAgendamentoModal({
         payloadBase.confirmar_alteracao_servico_hoje = true;
       }
 
-      const enviarAgendamento = async (confirmarConflitoDeslocamento = false) => {
-        const payload = {
+      const enviarAgendamento = async (
+        confirmarConflitoDeslocamento = false,
+        confirmarSlotReservaExpirada = false
+      ) => {
+        const payload: typeof payloadBase & {
+          confirmar_conflito_deslocamento: boolean;
+          confirmar_slot_reserva_expirada: boolean;
+          confirmar_agenda_fechada?: boolean;
+        } = {
           ...payloadBase,
           confirmar_conflito_deslocamento: confirmarConflitoDeslocamento,
+          confirmar_slot_reserva_expirada: confirmarSlotReservaExpirada,
         };
+        if (!isEditando && confirmarAgendaFechada) {
+          payload.confirmar_agenda_fechada = true;
+        }
         if (isEditando) {
           return api.put(`/agenda/${agendamento.id}`, payload);
         }
@@ -2816,9 +2948,26 @@ export default function NovoAgendamentoModal({
       };
 
       let response;
-      try {
-        response = await enviarAgendamento(false);
-      } catch (error: any) {
+      let confirmouConflitoDeslocamento = false;
+      let confirmouRevisaoReservaExpirada = false;
+      for (let tentativa = 0; tentativa < 3 && !response; tentativa += 1) {
+        try {
+          response = await enviarAgendamento(
+            confirmouConflitoDeslocamento,
+            confirmouRevisaoReservaExpirada
+          );
+          continue;
+        } catch (error: any) {
+          const reservaExpirada = extrairReservaExpirada(error);
+          if (reservaExpirada && !confirmouRevisaoReservaExpirada) {
+            const confirmou = await confirmarRevisaoReservaExpirada(reservaExpirada);
+            if (!confirmou) {
+              return;
+            }
+            confirmouRevisaoReservaExpirada = true;
+            continue;
+          }
+
         const conflito = extrairConflitoDeslocamento(error);
         if (conflito) {
           if (!isAdmin) {
@@ -2839,24 +2988,18 @@ export default function NovoAgendamentoModal({
               )
             );
           }
-
-          try {
-            response = await enviarAgendamento(true);
-          } catch (errorOverride: any) {
-            const conflitoOverride = extrairConflitoDeslocamento(errorOverride);
-            if (conflitoOverride) {
-              throw new Error(
-                extrairMensagemErro(
-                  conflitoOverride,
-                  "Nao foi possivel concluir mesmo com excecao. Ajuste o horario ou revise o destino do atendimento."
-                )
-              );
-            }
-            throw errorOverride;
-          }
+          confirmouConflitoDeslocamento = true;
+          continue;
         } else {
           throw error;
         }
+        }
+      }
+
+      if (!response) {
+        throw new Error(
+          "Não foi possível concluir o agendamento após as confirmações. Revise o horário e tente novamente."
+        );
       }
 
       if (entregaMensagemAgenda) {
@@ -4235,7 +4378,7 @@ export default function NovoAgendamentoModal({
               </button>
               <button
                 type="button"
-                onClick={salvarNovoTutor}
+                onClick={() => void salvarNovoTutor()}
                 className="fc-appointment-button-primary"
                 disabled={salvandoTutor}
               >

@@ -34,6 +34,8 @@ import {
   LV_2D_KEYS,
   LV_M_MODE_KEYS,
 } from "@/lib/echo-derived-measurements";
+import { criarMensagemAlertaSalvamentoEcocardiograma } from "@/lib/ecocardiograma-save-alert";
+import { operationalTodayDateInput } from "@/lib/calendar-date";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -410,7 +412,7 @@ export default function NovoLaudoPage() {
       return;
     }
     // Inicializar valores dinâmicos no cliente para evitar hydration mismatch
-    setPaciente(prev => ({ ...prev, data_exame: prev.data_exame || new Date().toISOString().split('T')[0] }));
+    setPaciente(prev => ({ ...prev, data_exame: prev.data_exame || operationalTodayDateInput() }));
     setSessionId(Math.random().toString(36).substring(2, 15));
     carregarClinicas();
   }, [router]);
@@ -600,7 +602,7 @@ export default function NovoLaudoPage() {
         idade: extrairIdadePaciente(dadosPaciente || {}) || prev.idade,
         sexo: normalizarSexoPaciente(dadosPaciente?.sexo || prev.sexo || "Macho") || "Macho",
         telefone: agendamento.telefone || prev.telefone,
-        data_exame: agendamento.data || prev.data_exame || new Date().toISOString().split("T")[0],
+        data_exame: agendamento.data || prev.data_exame || operationalTodayDateInput(),
       }));
 
       if (agendamento.clinica_id) {
@@ -642,7 +644,7 @@ export default function NovoLaudoPage() {
             : prev.peso,
         idade: extrairIdadePaciente(dadosPaciente || {}) || prev.idade,
         sexo: normalizarSexoPaciente(dadosPaciente?.sexo || prev.sexo || "Macho") || "Macho",
-        data_exame: prev.data_exame || new Date().toISOString().split("T")[0],
+        data_exame: prev.data_exame || operationalTodayDateInput(),
       }));
 
       setMensagemSucesso(`Paciente #${pacienteId} carregado para novo laudo.`);
@@ -769,7 +771,7 @@ export default function NovoLaudoPage() {
         telefone: dados.paciente.telefone || anterior.telefone || "",
         data_exame: dados.paciente.data_exame
           ? dados.paciente.data_exame.substring(0, 10)
-          : anterior.data_exame || new Date().toISOString().split('T')[0],
+          : anterior.data_exame || operationalTodayDateInput(),
       }));
     }
     
@@ -970,6 +972,19 @@ export default function NovoLaudoPage() {
       if (tipoLaudo === "pressao_arterial" && !pressaoPayload) {
         alert("Preencha pelo menos uma afericao de pressao para salvar como laudo de pressao arterial.");
         return;
+      }
+
+      if (tipoLaudo === "ecocardiograma") {
+        const mensagemAlerta = criarMensagemAlertaSalvamentoEcocardiograma({
+          analiseQualitativaAplicada: ecocardiogramaEstruturado.usar_no_laudo,
+          imagensCarregadas: imagens.some((imagem) => imagem.uploaded),
+        });
+        if (mensagemAlerta && !window.confirm(mensagemAlerta)) {
+          setAba(
+            ecocardiogramaEstruturado.usar_no_laudo ? "imagens" : "qualitativa"
+          );
+          return;
+        }
       }
 
       const payload =

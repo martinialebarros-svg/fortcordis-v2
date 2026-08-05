@@ -33,6 +33,7 @@ from app.models.clinica import Clinica
 from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
 from app.models.portal_access import PortalAccessChallenge
+from app.models.portal_partner import PortalPartnerProfile, PortalPartnerReleaseTarget
 from app.models.tutor import Tutor
 from app.schemas.portal import (
     PortalChallengeResponse,
@@ -69,6 +70,7 @@ PORTAL_CHALLENGE_STATUS_EXPIRED = "expired"
 PORTAL_CHALLENGE_STATUS_LOCKED = "locked"
 PORTAL_SCOPE_TUTOR = ["pet:read", "exam:read", "exam:download"]
 PORTAL_SCOPE_CLINICA = ["clinic:read", "exam:read", "exam:download"]
+PORTAL_SCOPE_PARTNER = ["partner:read", "exam:read", "exam:download"]
 
 
 def _utcnow() -> datetime:
@@ -469,7 +471,53 @@ def _assert_portal_exam_access(
     if session.actor_type == "clinica":
         _assert_clinica_scope_for_exam(session, exam, atendimentos_map, laudos_map)
         return
+    if session.actor_type == "parceiro":
+        _assert_partner_scope_for_exam(db, session, exam.id)
+        return
     raise HTTPException(status_code=403, detail="Sessao do portal sem escopo reconhecido.")
+
+
+def _partner_label(tipo: str | None) -> str:
+    if str(tipo or "").strip().lower() == "veterinario":
+        return "Veterinario parceiro"
+    return "Parceiro externo"
+
+
+def _load_active_partner_for_session(
+    db: Session,
+    session: PortalSessionContext,
+) -> PortalPartnerProfile:
+    partner = db.query(PortalPartnerProfile).filter(PortalPartnerProfile.id == session.actor_id).first()
+    if partner is None or not bool(partner.ativo):
+        raise HTTPException(status_code=403, detail="Parceiro externo sem acesso ativo ao portal.")
+    return partner
+
+
+def _partner_release_target_exists(
+    db: Session,
+    *,
+    partner_id: int,
+    exame_id: int,
+) -> bool:
+    target = (
+        db.query(PortalPartnerReleaseTarget.id)
+        .filter(
+            PortalPartnerReleaseTarget.partner_id == partner_id,
+            PortalPartnerReleaseTarget.exame_id == exame_id,
+            PortalPartnerReleaseTarget.revoked_at.is_(None),
+        )
+        .first()
+    )
+    return target is not None
+
+
+def _assert_partner_scope_for_exam(
+    db: Session,
+    session: PortalSessionContext,
+    exame_id: int,
+) -> None:
+    if not _partner_release_target_exists(db, partner_id=session.actor_id, exame_id=exame_id):
+        raise HTTPException(status_code=403, detail="Exame fora do escopo do parceiro externo.")
 
 
 def _date_start(value: date) -> datetime:
@@ -512,6 +560,16 @@ def _normalize_local_naive_datetime(value: datetime | None) -> datetime | None:
 def _portal_local_date(value: datetime | None) -> date | None:
     normalized = _normalize_local_naive_datetime(value)
     return normalized.date() if normalized else None
+
+
+def _portal_utc_naive_bounds_for_local_day(value: date) -> tuple[datetime, datetime]:
+    """Return UTC-naive bounds for a calendar day in the portal's local timezone."""
+    local_start = datetime.combine(value, datetime.min.time(), tzinfo=PORTAL_LOCAL_TZ)
+    local_end = local_start + timedelta(days=1)
+    return (
+        local_start.astimezone(timezone.utc).replace(tzinfo=None),
+        local_end.astimezone(timezone.utc).replace(tzinfo=None),
+    )
 
 
 def _portal_clinic_release_sla_hours() -> int:
@@ -584,6 +642,7 @@ def _build_clinic_operational_panel(
     local_today = local_now.date()
     today_start = datetime.combine(local_today, datetime.min.time())
     today_end = today_start + timedelta(days=1)
+    released_today_start, released_today_end = _portal_utc_naive_bounds_for_local_day(local_today)
     sla_horas = _portal_clinic_release_sla_hours()
 
     clinic_filter = or_(
@@ -599,8 +658,8 @@ def _build_clinic_operational_panel(
     )
     released_today = released_exam_base.filter(
         Exame.data_resultado.is_not(None),
-        Exame.data_resultado >= today_start,
-        Exame.data_resultado < today_end,
+        Exame.data_resultado >= released_today_start,
+        Exame.data_resultado < released_today_end,
     ).count()
 
     laudo_base = db.query(Laudo).filter(Laudo.clinic_id == clinica_id)
@@ -1135,6 +1194,102 @@ def listar_exames_clinica_portal(
     )
 
 
+@router.get("/parceiros/exames", response_model=PortalExamListResponse)
+def listar_exames_parceiro_portal(
+    q: str | None = Query(default=None, max_length=120),
+    pet: str | None = Query(default=None, max_length=120),
+    tutor: str | None = Query(default=None, max_length=120),
+    especie: str | None = Query(default=None, max_length=80),
+    tipo_exame: str | None = Query(default=None, max_length=120),
+    status_exame: str | None = Query(default=None, max_length=80),
+    data_inicio: date | None = None,
+    data_fim: date | None = None,
+    sort_by: str = Query(default="data", pattern="^(data|tipo_exame|especie|pet|tutor|status)$"),
+    sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    portal_session: PortalSessionContext = Depends(get_current_portal_session),
+):
+    if portal_session.actor_type != "parceiro":
+        raise HTTPException(status_code=403, detail="Sessao do portal sem acesso para parceiro externo.")
+
+    partner = _load_active_partner_for_session(db, portal_session)
+    query = (
+        db.query(Exame)
+        .join(
+            PortalPartnerReleaseTarget,
+            PortalPartnerReleaseTarget.exame_id == Exame.id,
+        )
+        .outerjoin(AtendimentoClinico, AtendimentoClinico.id == Exame.atendimento_id)
+        .outerjoin(Laudo, Laudo.id == Exame.laudo_id)
+        .join(Paciente, Paciente.id == Exame.paciente_id)
+        .outerjoin(Tutor, Tutor.id == Paciente.tutor_id)
+        .filter(PortalPartnerReleaseTarget.partner_id == partner.id)
+        .filter(PortalPartnerReleaseTarget.revoked_at.is_(None))
+        .filter(_portal_exam_release_filter())
+    )
+
+    def _like(value: str) -> str:
+        return f"%{value.strip()}%"
+
+    if q and q.strip():
+        term = _like(q)
+        query = query.filter(
+            or_(
+                Paciente.nome.ilike(term),
+                Tutor.nome.ilike(term),
+                Exame.tipo_exame.ilike(term),
+                Exame.categoria_exame.ilike(term),
+            )
+        )
+    if pet and pet.strip():
+        query = query.filter(Paciente.nome.ilike(_like(pet)))
+    if tutor and tutor.strip():
+        query = query.filter(Tutor.nome.ilike(_like(tutor)))
+    if especie and especie.strip():
+        query = query.filter(Paciente.especie.ilike(_like(especie)))
+    if tipo_exame and tipo_exame.strip():
+        query = query.filter(Exame.tipo_exame.ilike(_like(tipo_exame)))
+    if status_exame and status_exame.strip():
+        query = query.filter(Exame.status.ilike(_like(status_exame)))
+    if data_inicio and data_fim and data_inicio > data_fim:
+        raise HTTPException(status_code=422, detail="data_inicio nao pode ser maior que data_fim.")
+
+    effective_data_fim = data_fim or data_inicio
+    date_expr = _portal_exam_date_expression()
+    if data_inicio:
+        query = query.filter(date_expr >= _date_start(data_inicio))
+    if effective_data_fim:
+        query = query.filter(date_expr < _date_end_exclusive(effective_data_fim))
+
+    total = query.count()
+    sort_expr = _portal_exam_sort_expression(sort_by)
+    primary_order = sort_expr.asc() if sort_dir == "asc" else sort_expr.desc()
+    exams = query.order_by(primary_order, Exame.id.desc()).offset(offset).limit(limit).all()
+
+    attachments_by_exam, pacientes_map, tutores_map, laudos_map = _load_exam_related_maps(db, exams)
+    items = [
+        _build_exam_summary(
+            exam,
+            attachments_by_exam.get(exam.id, []),
+            pacientes_map.get(exam.paciente_id),
+            tutores_map.get(getattr(pacientes_map.get(exam.paciente_id), "tutor_id", None)),
+            laudos_map.get(exam.laudo_id) if exam.laudo_id else None,
+        )
+        for exam in exams
+    ]
+
+    return PortalExamListResponse(
+        total=total,
+        partner_id=partner.id,
+        partner_nome=partner.nome_exibicao,
+        partner_tipo=partner.tipo,
+        partner_tipo_label=_partner_label(partner.tipo),
+        items=items,
+    )
+
+
 @router.get("/pets/{paciente_id}/exames", response_model=PortalExamListResponse)
 def listar_exames_pet_portal(
     paciente_id: int,
@@ -1163,6 +1318,11 @@ def listar_exames_pet_portal(
                 _assert_clinica_scope_for_exam(portal_session, exam, atendimentos_map, laudos_map)
             except HTTPException:
                 continue
+        if portal_session.actor_type == "parceiro":
+            try:
+                _assert_partner_scope_for_exam(db, portal_session, exam.id)
+            except HTTPException:
+                continue
         paciente = pacientes_map.get(exam.paciente_id)
         tutor = tutores_map.get(getattr(paciente, "tutor_id", None))
         items.append(
@@ -1175,7 +1335,14 @@ def listar_exames_pet_portal(
             )
         )
 
-    return PortalExamListResponse(total=len(items), clinica_id=portal_session.clinica_id, items=items)
+    response = PortalExamListResponse(total=len(items), clinica_id=portal_session.clinica_id, items=items)
+    if portal_session.actor_type == "parceiro":
+        partner = _load_active_partner_for_session(db, portal_session)
+        response.partner_id = partner.id
+        response.partner_nome = partner.nome_exibicao
+        response.partner_tipo = partner.tipo
+        response.partner_tipo_label = _partner_label(partner.tipo)
+    return response
 
 
 @router.post("/exames/{exame_id}/download-url", response_model=PortalDownloadUrlResponse)

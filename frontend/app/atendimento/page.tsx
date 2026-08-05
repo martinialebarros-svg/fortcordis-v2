@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import { extractApiErrorMessage, extractApiErrorMessageSync } from "@/lib/api-error";
-import { extrairIdadePaciente } from "@/lib/paciente";
+import { extrairIdadePaciente, normalizarSexoPaciente } from "@/lib/paciente";
 import {
   ATENDIMENTOS_LIST_LIMIT,
   PRESCRICAO_PRESETS_STORAGE_KEY,
@@ -202,7 +202,7 @@ type PendingExamUpload = {
   kind: "image" | "pdf" | "other";
 };
 
-type ExameFluxoStatus = "aguardando_arquivo" | "arquivo_anexado" | "interpretado";
+type ExameFluxoStatus = "aguardando_arquivo" | "arquivo_anexado" | "interpretado" | "liberado_portal";
 type ExameFiltroRapido = "todos" | ExameFluxoStatus;
 
 type Alerta = {
@@ -294,6 +294,10 @@ type ExameSolicitacao = {
   data_solicitacao?: string;
   data_resultado?: string;
   anexos_resultado?: Anexo[];
+  /** Marcacao explicita de exclusao. Omitir um exame do payload nao apaga nada. */
+  _destroy?: boolean;
+  /** Identificador local estavel para exames ainda nao persistidos (nunca enviado ao backend). */
+  _localId?: string;
 };
 
 type CatalogoExame = {
@@ -434,6 +438,7 @@ type AtendimentoResumo = {
   queixa_principal?: string;
   total_exames?: number;
   tem_prescricao?: boolean;
+  documentacao_pendencias?: string[];
 };
 
 type Medicamento = {
@@ -554,6 +559,7 @@ const EXAME_FILTRO_OPCOES: Array<{ key: ExameFiltroRapido; label: string }> = [
   { key: "aguardando_arquivo", label: "Sem arquivo" },
   { key: "arquivo_anexado", label: "Com arquivo" },
   { key: "interpretado", label: "Interpretados" },
+  { key: "liberado_portal", label: "No portal" },
 ];
 const EXAME_STATUS_META: Record<ExameFluxoStatus, { label: string; chipClass: string; cardClass: string }> = {
   aguardando_arquivo: {
@@ -570,6 +576,11 @@ const EXAME_STATUS_META: Record<ExameFluxoStatus, { label: string; chipClass: st
     label: "Interpretado",
     chipClass: "bg-emerald-100 text-emerald-700",
     cardClass: "border-emerald-200 bg-emerald-50/50",
+  },
+  liberado_portal: {
+    label: "Liberado no portal",
+    chipClass: "bg-violet-100 text-violet-700",
+    cardClass: "border-violet-200 bg-violet-50/50",
   },
 };
 
@@ -684,6 +695,18 @@ const persistLocalPresets = (storageKey: string, value: unknown) => {
   window.localStorage.setItem(storageKey, JSON.stringify(value));
 };
 
+let exameLocalIdCounter = 0;
+const gerarExameLocalId = (): string => {
+  exameLocalIdCounter += 1;
+  return `exame-local-${Date.now()}-${exameLocalIdCounter}`;
+};
+
+/** Chave estavel para os mapas de estado por exame (examesExpandidos/examUploadDrafts/examDropActive):
+ * `exame.id` quando ja persistido, senao o `_localId` gerado no client - nunca o indice no array,
+ * que desloca quando um exame do meio da lista e removido/inserido. */
+const getExameStateKey = (exame: Pick<ExameSolicitacao, "id" | "_localId">): string =>
+  exame.id != null ? String(exame.id) : exame._localId || "sem-id";
+
 const emptyExam = (): ExameSolicitacao => ({
   catalogo_exame_id: null,
   painel_exame_id: null,
@@ -702,6 +725,7 @@ const emptyExam = (): ExameSolicitacao => ({
   data_solicitacao: "",
   data_resultado: "",
   anexos_resultado: [],
+  _localId: gerarExameLocalId(),
 });
 
 const emptyPrescriptionItem = (): PrescricaoItem => ({
@@ -919,17 +943,26 @@ const validarItensPrescricao = (itens: PrescricaoItem[]) => {
   return { total, errors };
 };
 
+// Valor exato que o Portal usa para autorizar acesso da clinica parceira
+// (backend/app/core/portal_release.py). Nao recalcular status de exame no
+// cliente: a liberacao e propriedade do servidor.
+const PORTAL_EXAME_STATUS_LIBERADO = "Liberado no portal";
+
+const isExamePortalLiberado = (exame: ExameSolicitacao): boolean =>
+  (exame.status || "").trim().toLowerCase() === PORTAL_EXAME_STATUS_LIBERADO.toLowerCase();
+
+const exameTemPdfAnexado = (anexos: Anexo[]): boolean =>
+  anexos.some((anexo) => {
+    const mime = (anexo.mime_type || "").trim().toLowerCase();
+    const nome = (anexo.nome_original || anexo.url || "").trim().toLowerCase();
+    return mime === "application/pdf" || nome.endsWith(".pdf");
+  });
+
 const resolveExamFlowStatus = (exame: ExameSolicitacao, anexosCount: number): ExameFluxoStatus => {
+  if (isExamePortalLiberado(exame)) return "liberado_portal";
   if ((exame.resultado || "").trim()) return "interpretado";
   if (anexosCount > 0) return "arquivo_anexado";
   return "aguardando_arquivo";
-};
-
-const resolveExamBackendStatus = (exame: ExameSolicitacao, anexosCount: number): string => {
-  const flow = resolveExamFlowStatus(exame, anexosCount);
-  if (flow === "interpretado") return "Concluido";
-  if (flow === "arquivo_anexado") return "Em andamento";
-  return "Solicitado";
 };
 
 const emptyTriagem = (): Triagem => ({
@@ -1075,6 +1108,12 @@ const hydrateExam = (item: any): ExameSolicitacao => ({
 const ATENDIMENTO_DRAFT_KEY = "fortcordis:atendimento:draft:v1";
 const AUTOSAVE_DELAY_MS = 1800;
 
+/** Chave do backup local pos-primeiro-save: por atendimento_id, distinta da
+ * chave global usada antes do primeiro save (ATENDIMENTO_DRAFT_KEY), para
+ * nao misturar rascunhos de atendimentos diferentes ja persistidos. */
+const getAtendimentoDraftBackupKey = (atendimentoId: number | string) =>
+  `${ATENDIMENTO_DRAFT_KEY}:${atendimentoId}`;
+
 const hydrateFormFromDetail = (d: any): AtendimentoForm => ({
   id: d.id,
   paciente_id: String(d.paciente_id || ""),
@@ -1140,16 +1179,13 @@ const sanitizeDraftForm = (raw: Partial<AtendimentoForm> | null | undefined): At
 });
 
 const buildAtendimentoPayload = (form: AtendimentoForm) => {
-  const anexosPorExame = form.anexos.reduce<Record<number, number>>((acc, anexo) => {
-    if (!anexo.exame_id) return acc;
-    acc[anexo.exame_id] = (acc[anexo.exame_id] || 0) + 1;
-    return acc;
-  }, {});
-
   return {
     paciente_id: Number(form.paciente_id),
     clinica_id: form.clinica_id ? Number(form.clinica_id) : null,
-    agendamento_id: form.agendamento_id ? Number(form.agendamento_id) : null,
+    // `agendamento_id` so entra no payload quando ha valor. Enviar `null` num
+    // PUT parcial desvincularia o prontuario da Agenda em qualquer hidratacao
+    // incompleta do formulario; desvincular e acao explicita, nao autosave.
+    ...(form.agendamento_id ? { agendamento_id: Number(form.agendamento_id) } : {}),
     data_atendimento: localInputToOperationalIso(form.data_atendimento),
     status: form.status,
     triagem: form.triagem,
@@ -1165,9 +1201,14 @@ const buildAtendimentoPayload = (form: AtendimentoForm) => {
     motivo_retorno: form.motivo_retorno,
     observacoes: form.observacoes,
     exames: form.exames
-      .filter((item) => (item.tipo_exame || "").trim())
+      // Exame marcado para exclusao vai como `_destroy`. Exame sem nome fica de
+      // fora: omitir e um no-op no backend, entao um campo em branco durante a
+      // digitacao nao apaga nem invalida o save.
+      .filter((item) => item._destroy || (item.tipo_exame || "").trim())
       .map((item) => {
-        const anexosCount = item.id ? (anexosPorExame[item.id] || 0) : (item.anexos_resultado?.length || 0);
+        if (item._destroy) {
+          return { id: item.id, _destroy: true };
+        }
         return {
           id: item.id,
           catalogo_exame_id: item.catalogo_exame_id || null,
@@ -1177,7 +1218,8 @@ const buildAtendimentoPayload = (form: AtendimentoForm) => {
           categoria_exame: item.categoria_exame || "",
           preparo: item.preparo || "",
           prioridade: item.prioridade,
-          status: resolveExamBackendStatus(item, anexosCount),
+          // O backend deriva o status e preserva a liberacao no portal.
+          status: item.status,
           resultado: item.resultado || "",
           valor_referencia: item.valor_referencia || "",
           unidade: item.unidade || "",
@@ -1202,6 +1244,10 @@ const buildAtendimentoPayload = (form: AtendimentoForm) => {
           via: item.via,
           instrucoes: item.instrucoes,
           ordem: index,
+          dose_mg_kg: item.dose_mg_kg || "",
+          peso_referencia_kg: item.peso_referencia_kg || "",
+          unidade_dose_calculo: item.unidade_dose_calculo || "mg",
+          concentracao_personalizada: item.concentracao_personalizada || "",
         }))
         .filter((item) => item.medicamento_id || (item.medicamento_nome || "").trim()),
     },
@@ -1314,7 +1360,8 @@ export default function AtendimentoPage() {
   const [cadastroComplementarExpandido, setCadastroComplementarExpandido] = useState(false);
   const [painelCasosAberto, setPainelCasosAberto] = useState(false);
   const [prescricaoOrigem, setPrescricaoOrigem] = useState<PrescricaoOrigem | null>(null);
-  const [examesExpandidos, setExamesExpandidos] = useState<Record<number, boolean>>({});
+  const [dadosClinicosOrigem, setDadosClinicosOrigem] = useState<PrescricaoOrigem | null>(null);
+  const [examesExpandidos, setExamesExpandidos] = useState<Record<string, boolean>>({});
   const [gerandoPdfTipo, setGerandoPdfTipo] = useState<"prescricao" | "exames" | null>(null);
   const [contextoAplicado, setContextoAplicado] = useState(false);
   const [autosaveState, setAutosaveState] = useState<"idle" | "local" | "dirty" | "saving" | "saved" | "error">("idle");
@@ -1334,6 +1381,7 @@ export default function AtendimentoPage() {
   const [clinicaFiltro, setClinicaFiltro] = useState("");
   const [dataInicioFiltro, setDataInicioFiltro] = useState("");
   const [dataFimFiltro, setDataFimFiltro] = useState("");
+  const [documentacaoIncompletaFiltro, setDocumentacaoIncompletaFiltro] = useState(false);
   const [paginaLista, setPaginaLista] = useState(1);
   const [totalLista, setTotalLista] = useState(0);
   const [selecionado, setSelecionado] = useState<number | null>(null);
@@ -1383,8 +1431,9 @@ export default function AtendimentoPage() {
   const [attachmentImageDragging, setAttachmentImageDragging] = useState(false);
   const [attachmentPdfPage, setAttachmentPdfPage] = useState(1);
   const [attachmentPdfZoom, setAttachmentPdfZoom] = useState(110);
-  const [examUploadDrafts, setExamUploadDrafts] = useState<Record<number, PendingExamUpload>>({});
-  const [examDropActive, setExamDropActive] = useState<Record<number, boolean>>({});
+  const [examUploadDrafts, setExamUploadDrafts] = useState<Record<string, PendingExamUpload>>({});
+  const [examDropActive, setExamDropActive] = useState<Record<string, boolean>>({});
+  const [portalExameAcaoId, setPortalExameAcaoId] = useState<number | null>(null);
   const [clinicalPhraseSearch, setClinicalPhraseSearch] = useState("");
   const [clinicalPhraseSectionFilter, setClinicalPhraseSectionFilter] = useState<ClinicalFieldKey | "">("");
   const [clinicalPhraseForm, setClinicalPhraseForm] = useState<ClinicalPhraseForm>(emptyClinicalPhraseForm());
@@ -1403,6 +1452,9 @@ export default function AtendimentoPage() {
   const lastPersistedSnapshotRef = useRef(serializeAtendimentoSnapshot(form));
   const hydratingFormRef = useRef(false);
   const draftRestoreRef = useRef(false);
+  const selecionadoRef = useRef<number | null>(null);
+  const autosaveStateRef = useRef<"idle" | "local" | "dirty" | "saving" | "saved" | "error">("idle");
+  const criandoAtendimentoAutomaticoRef = useRef(false);
   const clinicalTextareaRefs = useRef<Partial<Record<ClinicalFieldKey, HTMLTextAreaElement | null>>>({});
   const attachmentImagePanRef = useRef({
     pointerId: null as number | null,
@@ -1413,7 +1465,7 @@ export default function AtendimentoPage() {
   });
   const uploadAbortControllersRef = useRef<Record<string, AbortController>>({});
   const activeUploadSignaturesRef = useRef<Set<string>>(new Set());
-  const examUploadDraftsRef = useRef<Record<number, PendingExamUpload>>({});
+  const examUploadDraftsRef = useRef<Record<string, PendingExamUpload>>({});
   const pdfDownloadInFlightRef = useRef<"prescricao" | "exames" | null>(null);
 
   const [medBusca, setMedBusca] = useState("");
@@ -1429,6 +1481,30 @@ export default function AtendimentoPage() {
   useEffect(() => {
     formRef.current = form;
   }, [form]);
+
+  useEffect(() => {
+    selecionadoRef.current = selecionado;
+  }, [selecionado]);
+
+  useEffect(() => {
+    autosaveStateRef.current = autosaveState;
+  }, [autosaveState]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      const estado = autosaveStateRef.current;
+      // "idle": nada digitado ainda. "saved": tudo persistido no servidor.
+      // Nenhum dos dois tem edicao em risco de se perder ao fechar a aba.
+      if (estado === "idle" || estado === "saved") return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, []);
 
   useEffect(() => {
     carregarCustomPaineis();
@@ -1587,9 +1663,12 @@ export default function AtendimentoPage() {
     attachmentImagePanRef.current.pointerId = null;
   }, [attachmentImageZoom]);
 
-  const clearDraftStorage = () => {
+  const clearDraftStorage = (atendimentoId?: number | string | null) => {
     if (typeof window === "undefined") return;
     localStorage.removeItem(ATENDIMENTO_DRAFT_KEY);
+    if (atendimentoId) {
+      localStorage.removeItem(getAtendimentoDraftBackupKey(atendimentoId));
+    }
   };
 
   const clearExamUploadDrafts = () => {
@@ -1860,7 +1939,7 @@ export default function AtendimentoPage() {
           agendamento_id: String(agendamentoId),
           data_atendimento: contexto.inicio ? isoToLocalInput(contexto.inicio) : prev.data_atendimento,
         }));
-        aplicarCadastroComplementar(contexto.paciente, contexto.tutor);
+        void carregarCadastroComplementar(contexto.paciente_id);
         setContextoAplicado(true);
         return;
       }
@@ -1931,6 +2010,7 @@ export default function AtendimentoPage() {
       clinicaId?: string;
       dataInicio?: string;
       dataFim?: string;
+      documentacaoIncompleta?: boolean;
     }
   ) => {
     try {
@@ -1941,6 +2021,8 @@ export default function AtendimentoPage() {
       const clinicaAtual = filtrosOverride?.clinicaId ?? clinicaFiltro;
       const dataInicioAtual = filtrosOverride?.dataInicio ?? dataInicioFiltro;
       const dataFimAtual = filtrosOverride?.dataFim ?? dataFimFiltro;
+      const documentacaoIncompletaAtual =
+        filtrosOverride?.documentacaoIncompleta ?? documentacaoIncompletaFiltro;
       params.append("limit", String(ATENDIMENTOS_LIST_LIMIT));
       params.append("skip", String((safePage - 1) * ATENDIMENTOS_LIST_LIMIT));
       if (statusAtual) params.append("status", statusAtual);
@@ -1948,6 +2030,7 @@ export default function AtendimentoPage() {
       if (clinicaAtual) params.append("clinica_id", clinicaAtual);
       if (dataInicioAtual) params.append("data_inicio", `${dataInicioAtual}T00:00:00`);
       if (dataFimAtual) params.append("data_fim", `${dataFimAtual}T23:59:59`);
+      if (documentacaoIncompletaAtual) params.append("documentacao_incompleta", "true");
       const response = await api.get(`/atendimentos?${params.toString()}`);
       setLista(response.data?.items || []);
       setTotalLista(Number(response.data?.total || 0));
@@ -1971,12 +2054,14 @@ export default function AtendimentoPage() {
     setClinicaFiltro(vazio);
     setDataInicioFiltro(vazio);
     setDataFimFiltro(vazio);
+    setDocumentacaoIncompletaFiltro(false);
     await carregarLista(1, {
       busca: vazio,
       status: vazio,
       clinicaId: vazio,
       dataInicio: vazio,
       dataFim: vazio,
+      documentacaoIncompleta: false,
     });
   };
 
@@ -2104,6 +2189,7 @@ export default function AtendimentoPage() {
 
   const pacienteNomeExibicao = cadastroComplementar.paciente.nome || pacienteSelecionado?.nome || "";
   const tutorNomeExibicao = cadastroComplementar.tutor.nome || pacienteSelecionado?.tutor || "";
+  const sexoPacienteExibicao = normalizarSexoPaciente(cadastroComplementar.paciente.sexo || "");
   const especieRacaExibicao = [
     cadastroComplementar.paciente.especie || especieExibicao || "",
     cadastroComplementar.paciente.raca || pacienteSelecionado?.raca || "",
@@ -2128,6 +2214,7 @@ export default function AtendimentoPage() {
     const pendencias: string[] = [];
     if (!cadastroComplementar.paciente.especie) pendencias.push("especie");
     if (!cadastroComplementar.paciente.raca) pendencias.push("raca");
+    if (!cadastroComplementar.paciente.sexo) pendencias.push("sexo");
     if (!cadastroComplementar.paciente.data_nascimento) pendencias.push("data de nascimento");
     if (cadastroComplementar.paciente.peso_kg == null) pendencias.push("peso cadastral");
     if (!cadastroComplementar.tutor.whatsapp) pendencias.push("whatsapp");
@@ -2177,8 +2264,10 @@ export default function AtendimentoPage() {
       aguardando_arquivo: 0,
       arquivo_anexado: 0,
       interpretado: 0,
+      liberado_portal: 0,
     };
     examesComContexto.forEach((item) => {
+      if (item.exame._destroy) return;
       if (!(item.exame.tipo_exame || "").trim()) return;
       base.solicitados += 1;
       base[item.flowStatus] += 1;
@@ -2188,6 +2277,9 @@ export default function AtendimentoPage() {
   const examesVisiveis = useMemo(
     () =>
       examesComContexto.filter((item) => {
+        // Exame marcado para exclusao sai da lista na hora, mas continua no
+        // payload como `_destroy` ate o save confirmar a exclusao.
+        if (item.exame._destroy) return false;
         const hasNome = (item.exame.tipo_exame || "").trim().length > 0;
         if (!hasNome) return exameFiltroRapido === "todos";
         if (exameFiltroRapido === "todos") return true;
@@ -2227,7 +2319,10 @@ export default function AtendimentoPage() {
     const pesoAtual = normalizePeso(form.triagem.peso);
     if (pesoAtual) {
       const atendimentoAtualId = Number(selecionado || 0);
-      const dataAtual = form.data_atendimento ? new Date(form.data_atendimento).toISOString() : new Date().toISOString();
+      const dataAtual =
+        localInputToOperationalIso(form.data_atendimento) ||
+        localInputToOperationalIso(nowLocalInput()) ||
+        new Date().toISOString();
       if (atendimentoAtualId) {
         pontosMap.set(atendimentoAtualId, {
           atendimento_id: atendimentoAtualId,
@@ -2467,6 +2562,31 @@ export default function AtendimentoPage() {
     };
   }, [clinicalFieldValues, contextoAplicado, form.agendamento_id, form.clinica_id, form.exames, form.paciente_id, form.prescricao_itens, form.triagem.peso, form.triagem.pressao_arterial, form.triagem.temperatura, loading, selecionado]);
 
+  // Backup local silencioso pos-primeiro-save: se um autosave remoto falhar
+  // (autosaveState === "error"), a edicao ainda fica recuperavel aqui, numa
+  // chave por atendimento_id - sem interferir no autosaveState "dirty" /
+  // "saving" / "saved" / "error", que continua sendo dono exclusivo do efeito
+  // de autosave remoto.
+  useEffect(() => {
+    if (typeof window === "undefined" || loading || !contextoAplicado || !selecionado || hydratingFormRef.current) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      localStorage.setItem(
+        getAtendimentoDraftBackupKey(selecionado),
+        JSON.stringify({
+          form: formRef.current,
+          updated_at: new Date().toISOString(),
+        })
+      );
+    }, 700);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [contextoAplicado, form, loading, selecionado]);
+
   const carregarHistoricoPaciente = async (pacienteId: string | number, limite = 12) => {
     const normalized = Number(pacienteId || 0);
     if (!Number.isFinite(normalized) || normalized <= 0) {
@@ -2483,6 +2603,11 @@ export default function AtendimentoPage() {
   };
 
   useEffect(() => {
+    // hydratingFormRef.current: uma mudanca de paciente_id vinda de hidratacao
+    // (abrirAtendimento, finalizarAtendimento, save manual) ja tem seus proprios
+    // callers explicitos para historico/cadastro complementar - este efeito e
+    // so para mudanca de paciente feita pelo USUARIO (selecao manual).
+    if (hydratingFormRef.current) return;
     if (!form.paciente_id) {
       setHistoricoPaciente(null);
       aplicarCadastroComplementar();
@@ -2505,6 +2630,44 @@ export default function AtendimentoPage() {
       const response = await api.get(`/atendimentos/${id}`);
       const d = response.data;
       const hydrated = hydrateFormFromDetail(d);
+
+      // Se um autosave anterior falhou (aba fechada, rede fora do ar), pode
+      // existir um backup local mais recente do que o servidor - recuperar em
+      // vez de descartar silenciosamente.
+      let formParaAplicar = hydrated;
+      let recuperadoDoBackupLocal = false;
+      if (typeof window !== "undefined") {
+        const backupKey = getAtendimentoDraftBackupKey(id);
+        const rawBackup = localStorage.getItem(backupKey);
+        if (rawBackup) {
+          try {
+            const parsedBackup = JSON.parse(rawBackup) as { form?: Partial<AtendimentoForm> };
+            if (parsedBackup.form) {
+              // `especie`/`evolucoes`/`anexos`/`documentos` nao fazem parte de
+              // buildAtendimentoPayload - sao autoritativos do servidor e podem
+              // ter mudado nesse meio-tempo por uma acao diferente do autosave
+              // (ex.: registrar evolucao, upload de anexo). O backup local so
+              // deve substituir os campos que ele proprio protege (o payload);
+              // esses 4 sempre vem do `hydrated` (servidor), nunca do backup.
+              const {
+                especie: _especieBackup,
+                evolucoes: _evolucoesBackup,
+                anexos: _anexosBackup,
+                documentos: _documentosBackup,
+                ...backupSemCamposServidor
+              } = parsedBackup.form;
+              const candidato = { ...hydrated, ...backupSemCamposServidor, id: hydrated.id };
+              if (serializeAtendimentoSnapshot(candidato) !== serializeAtendimentoSnapshot(hydrated)) {
+                formParaAplicar = candidato;
+                recuperadoDoBackupLocal = true;
+              }
+            }
+          } catch {
+            localStorage.removeItem(backupKey);
+          }
+        }
+      }
+
       setSelecionado(id);
       clearDraftStorage();
       draftRestoreRef.current = true;
@@ -2513,22 +2676,33 @@ export default function AtendimentoPage() {
       if (d.paciente_id) {
         await carregarHistoricoPaciente(d.paciente_id);
       }
-      aplicarCadastroComplementar(d.paciente, d.tutor);
+      void carregarCadastroComplementar(d.paciente_id);
       hydratingFormRef.current = true;
-      setForm(hydrated);
+      setForm(formParaAplicar);
       setProtocoloPrescricaoSelecionado("");
       setPrescricaoEditorManualAberto(false);
       setPrescricaoEntradaModo(null);
       setPrescricaoBuscaRapida("");
       setPrescricaoOrigem(null);
+      setDadosClinicosOrigem(null);
       setCadastroComplementarExpandido(false);
       setTriagemExpandida(false);
       setDocumentoTemplateSelecionado("");
       setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
       setAnexoArquivo(null);
       clearExamUploadDrafts();
+      // O snapshot "persistido" continua sendo o do servidor (nao o
+      // recuperado), para que o efeito de autosave detecte a diferenca e
+      // sincronize a edicao recuperada de volta automaticamente.
       lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(hydrated);
-      setAutosaveState("saved");
+      if (recuperadoDoBackupLocal) {
+        setAutosaveState("dirty");
+        setSucesso(
+          `Atendimento #${id}: recuperamos uma edicao local que ainda nao havia sido sincronizada com o servidor.`
+        );
+      } else {
+        setAutosaveState("saved");
+      }
       setAutosaveAt(d.updated_at || d.created_at || new Date().toISOString());
       if (typeof window !== "undefined") {
         window.requestAnimationFrame(() => {
@@ -2542,6 +2716,7 @@ export default function AtendimentoPage() {
   };
 
   const novoAtendimento = () => {
+    const atendimentoAnteriorId = selecionadoRef.current;
     const next = emptyForm();
     setSelecionado(null);
     setWorkspacePainel("consulta");
@@ -2558,6 +2733,7 @@ export default function AtendimentoPage() {
     setPrescricaoEntradaModo(null);
     setPrescricaoBuscaRapida("");
     setPrescricaoOrigem(null);
+    setDadosClinicosOrigem(null);
     setCadastroComplementarExpandido(false);
     setTriagemExpandida(false);
     setDocumentoTemplateSelecionado("");
@@ -2570,7 +2746,7 @@ export default function AtendimentoPage() {
     setStatusCepTutor("");
     setAutosaveState("idle");
     setAutosaveAt("");
-    clearDraftStorage();
+    clearDraftStorage(atendimentoAnteriorId);
     draftRestoreRef.current = false;
     if (typeof window !== "undefined") {
       window.requestAnimationFrame(() => {
@@ -2583,7 +2759,13 @@ export default function AtendimentoPage() {
 
   const iniciarNovoAtendimentoPaciente = async (
     prescricao?: PrescricaoHistorica | null,
-    origem?: AtendimentoHistorico | null
+    origem?: AtendimentoHistorico | null,
+    dadosClinicos?: {
+      queixa_principal?: string;
+      anamnese?: string;
+      exame_fisico?: string;
+      dados_clinicos?: string;
+    } | null
   ) => {
     const atual = formRef.current;
     if (!atual.paciente_id) {
@@ -2591,7 +2773,11 @@ export default function AtendimentoPage() {
       setErro("Selecione um paciente antes de iniciar o atendimento.");
       return;
     }
-    if (autosaveState === "saving") {
+    // Le via refs (nao via closure de state) porque callers como
+    // herdarAtendimentoAnterior fazem um await (fetch de rede) antes de
+    // chegar aqui - o usuario pode ter continuado digitando nesse intervalo,
+    // e so a ref reflete o autosaveState/selecionado mais atual nesse caso.
+    if (autosaveStateRef.current === "saving") {
       setErro("Aguarde a sincronizacao atual terminar antes de iniciar outro atendimento.");
       return;
     }
@@ -2599,12 +2785,12 @@ export default function AtendimentoPage() {
       window.clearTimeout(autosaveTimerRef.current);
       autosaveTimerRef.current = null;
     }
-    if (selecionado && autosaveState === "dirty") {
+    if (selecionadoRef.current && autosaveStateRef.current === "dirty") {
       const savedId = await saveAtendimento("manual");
       if (!savedId) return;
     }
     if (
-      !selecionado &&
+      !selecionadoRef.current &&
       hasEncounterContent(atual) &&
       typeof window !== "undefined" &&
       !window.confirm("Substituir o rascunho atual por um novo atendimento deste paciente?")
@@ -2612,12 +2798,21 @@ export default function AtendimentoPage() {
       return;
     }
 
+    const atendimentoAnteriorId = selecionadoRef.current;
     const itensCopiados = (prescricao?.itens || []).map(cloneHistoricalPrescriptionItem);
     const next: AtendimentoForm = {
       ...emptyForm(),
       paciente_id: atual.paciente_id,
       especie: atual.especie || cadastroComplementar.paciente.especie || "",
       clinica_id: atual.clinica_id,
+      // Diagnostico, plano terapeutico e triagem NUNCA sao herdados aqui -
+      // decisao clinica deliberada (ver intent.md do pacote
+      // atendimento-herdar-dados-anteriores): sao avaliacoes/medidas novas a
+      // cada consulta, nao um carry-over do atendimento anterior.
+      queixa_principal: dadosClinicos?.queixa_principal || "",
+      anamnese: dadosClinicos?.anamnese || "",
+      exame_fisico: dadosClinicos?.exame_fisico || "",
+      dados_clinicos: dadosClinicos?.dados_clinicos || "",
       prescricao_orientacoes: prescricao?.orientacoes_gerais || "",
       prescricao_retorno_dias: prescricao?.retorno_dias ? String(prescricao.retorno_dias) : "",
       prescricao_itens: itensCopiados.length ? itensCopiados : [emptyPrescriptionItem()],
@@ -2646,13 +2841,18 @@ export default function AtendimentoPage() {
         ? { atendimento_id: origem.id, data_atendimento: origem.data_atendimento }
         : null
     );
+    setDadosClinicosOrigem(
+      dadosClinicos && origem
+        ? { atendimento_id: origem.id, data_atendimento: origem.data_atendimento }
+        : null
+    );
     setDocumentoTemplateSelecionado("");
     setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
     setAnexoArquivo(null);
     clearExamUploadDrafts();
     setAutosaveState("idle");
     setAutosaveAt("");
-    clearDraftStorage();
+    clearDraftStorage(atendimentoAnteriorId);
     draftRestoreRef.current = false;
     if (typeof window !== "undefined") {
       window.requestAnimationFrame(() => {
@@ -2665,6 +2865,60 @@ export default function AtendimentoPage() {
         ? `Novo atendimento iniciado com uma copia revisavel da receita do atendimento #${origem.id}. O registro anterior permanece preservado.`
         : "Novo atendimento iniciado para o mesmo paciente. O prontuario anterior permanece preservado."
     );
+  };
+
+  const herdarAtendimentoAnterior = async (atendimentoId: number) => {
+    const atual = formRef.current;
+    if (!atual.paciente_id) {
+      setErro("Selecione um paciente antes de iniciar o atendimento.");
+      return;
+    }
+    if (autosaveStateRef.current === "saving") {
+      setErro("Aguarde a sincronizacao atual terminar antes de iniciar outro atendimento.");
+      return;
+    }
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        "Iniciar um novo atendimento herdando queixa principal, anamnese, exame fisico, " +
+          "dados clinicos e a receita (se houver) do atendimento selecionado? Diagnostico, " +
+          "plano terapeutico e triagem nao sao copiados - revise e preencha novamente."
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const response = await api.get(`/atendimentos/${atendimentoId}`);
+      const detalhe = response.data || {};
+      const itensHistoricos: PrescricaoItem[] = detalhe.prescricao?.itens || [];
+      const prescricaoHistorica: PrescricaoHistorica | null = detalhe.prescricao
+        ? {
+            id: detalhe.prescricao.id,
+            orientacoes_gerais: detalhe.prescricao.orientacoes_gerais || "",
+            retorno_dias: detalhe.prescricao.retorno_dias ?? null,
+            total_itens: itensHistoricos.length,
+            itens: itensHistoricos,
+          }
+        : null;
+      const origem: AtendimentoHistorico = {
+        id: detalhe.id,
+        data_atendimento: detalhe.data_atendimento,
+        status: detalhe.status,
+        queixa_principal: detalhe.queixa_principal || "",
+        diagnostico_principal: detalhe.diagnostico_principal || "",
+        veterinario: detalhe.criado_por_nome || "",
+        prescricao: prescricaoHistorica,
+      };
+      await iniciarNovoAtendimentoPaciente(prescricaoHistorica, origem, {
+        queixa_principal: detalhe.queixa_principal || "",
+        anamnese: detalhe.anamnese || "",
+        exame_fisico: detalhe.exame_fisico || "",
+        dados_clinicos: detalhe.dados_clinicos || "",
+      });
+    } catch (e: any) {
+      setErro(extractApiErrorMessageSync(e, "Erro ao carregar o atendimento anterior."));
+    }
   };
 
   const setField = (name: keyof AtendimentoForm, value: any) => setForm((prev) => ({ ...prev, [name]: value }));
@@ -2804,48 +3058,33 @@ export default function AtendimentoPage() {
       const pacienteId = Number(form.paciente_id);
       const pacientePayload = {
         nome: cadastroComplementar.paciente.nome.trim(),
+        tutor_id: cadastroComplementar.tutor.id || cadastroComplementar.paciente.tutor_id || undefined,
         tutor: cadastroComplementar.tutor.nome.trim() || undefined,
+        tutor_telefone: normalizarTelefone(cadastroComplementar.tutor.telefone || ""),
+        tutor_whatsapp: normalizarTelefone(cadastroComplementar.tutor.whatsapp || ""),
+        tutor_email: cadastroComplementar.tutor.email || "",
+        tutor_cpf: normalizarCpf(cadastroComplementar.tutor.cpf || ""),
+        tutor_cep: normalizarCep(cadastroComplementar.tutor.cep || ""),
+        tutor_endereco: cadastroComplementar.tutor.endereco || "",
+        tutor_numero: cadastroComplementar.tutor.numero || "",
+        tutor_complemento: cadastroComplementar.tutor.complemento || "",
+        tutor_bairro: cadastroComplementar.tutor.bairro || "",
+        tutor_cidade: cadastroComplementar.tutor.cidade || "",
+        tutor_estado: cadastroComplementar.tutor.estado || "",
         especie: cadastroComplementar.paciente.especie || null,
         raca: cadastroComplementar.paciente.raca || null,
+        sexo: normalizarSexoPaciente(cadastroComplementar.paciente.sexo || "") || null,
         data_nascimento: cadastroComplementar.paciente.data_nascimento || null,
         peso_kg:
           cadastroComplementar.paciente.peso_kg == null || Number.isNaN(Number(cadastroComplementar.paciente.peso_kg))
             ? null
             : Number(cadastroComplementar.paciente.peso_kg),
+        microchip: cadastroComplementar.paciente.microchip || "",
+        observacoes: cadastroComplementar.paciente.observacoes || "",
       };
 
-      await api.put(`/pacientes/${pacienteId}`, pacientePayload);
-      const pacienteAtualizado = await api.get(`/pacientes/${pacienteId}`);
-      let tutorId = Number(pacienteAtualizado.data?.tutor_id || cadastroComplementar.tutor.id || 0);
-      if (!Number.isFinite(tutorId) || tutorId <= 0) {
-        try {
-          const tutorAtual = await api.get(`/pacientes/${pacienteId}/tutor`);
-          tutorId = Number(tutorAtual.data?.id || 0);
-        } catch {
-          tutorId = 0;
-        }
-      }
-
-      if (Number.isFinite(tutorId) && tutorId > 0) {
-        try {
-          await api.put(`/tutores/${tutorId}`, {
-            nome: cadastroComplementar.tutor.nome.trim() || undefined,
-            telefone: normalizarTelefone(cadastroComplementar.tutor.telefone || ""),
-            whatsapp: normalizarTelefone(cadastroComplementar.tutor.whatsapp || ""),
-            email: cadastroComplementar.tutor.email || "",
-            cpf: normalizarCpf(cadastroComplementar.tutor.cpf || ""),
-            cep: normalizarCep(cadastroComplementar.tutor.cep || ""),
-            endereco: cadastroComplementar.tutor.endereco || "",
-            numero: cadastroComplementar.tutor.numero || "",
-            complemento: cadastroComplementar.tutor.complemento || "",
-            bairro: cadastroComplementar.tutor.bairro || "",
-            cidade: cadastroComplementar.tutor.cidade || "",
-            estado: cadastroComplementar.tutor.estado || "",
-          });
-        } catch (tutorError) {
-          console.error("Falha ao atualizar tutor no cadastro complementar", tutorError);
-        }
-      }
+      const pacienteAtualizado = await api.put(`/pacientes/${pacienteId}`, pacientePayload);
+      const tutorId = Number(pacienteAtualizado.data?.tutor_id || cadastroComplementar.tutor.id || 0);
 
       await carregarCadastroComplementar(pacienteId);
       setField("especie", pacientePayload.especie || "");
@@ -2864,13 +3103,23 @@ export default function AtendimentoPage() {
             : item
         )
       );
-      setSucesso("Cadastro complementar salvo com sucesso.");
+      setSucesso("Cadastro atualizado. Receitas e solicitacoes de exame usarao estes dados nas proximas impressoes.");
       setErro("");
     } catch (e: any) {
       setErro(extractApiErrorMessageSync(e, "Erro ao salvar cadastro complementar."));
     } finally {
       setSalvandoCadastroComplementar(false);
     }
+  };
+
+  const abrirCadastroComplementar = () => {
+    setCadastroComplementarExpandido(true);
+    window.requestAnimationFrame(() => {
+      document.getElementById("atendimento-cadastro-complementar")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
   };
 
   const updatePrescricaoItem = (index: number, updates: Partial<PrescricaoItem>) => {
@@ -3039,7 +3288,7 @@ export default function AtendimentoPage() {
         paciente_idade: idadePacienteExibicao || "",
         tutor_nome: tutorNomeExibicao || "",
         veterinario_nome: "",
-        data_atendimento: form.data_atendimento || new Date().toISOString().split("T")[0],
+        data_atendimento: form.data_atendimento || nowLocalInput().slice(0, 10),
         orientacoes_gerais: form.prescricao_orientacoes || "",
         retorno_dias: form.prescricao_retorno_dias ? Number(form.prescricao_retorno_dias) : null,
         itens: form.prescricao_itens.map((item) => ({
@@ -3272,16 +3521,19 @@ export default function AtendimentoPage() {
     valor: item.valor_padrao || 0,
   });
 
+  const expandirApenasPrimeiroExame = (exames: ExameSolicitacao[]) => {
+    setExamesExpandidos(exames.length ? { [getExameStateKey(exames[0])]: true } : {});
+  };
+
   const mergeExamesNoFormulario = (novosExames: ExameSolicitacao[]) => {
     if (!novosExames.length) return;
     const base = form.exames.length === 1 && !(form.exames[0].tipo_exame || "").trim() ? [] : form.exames;
     setField("exames", [...base, ...novosExames]);
     setExameFiltroRapido("todos");
-    const firstNewIndex = base.length;
     setExamesExpandidos((prev) => {
       const next = { ...prev };
-      novosExames.forEach((_, offset) => {
-        next[firstNewIndex + offset] = true;
+      novosExames.forEach((exame) => {
+        next[getExameStateKey(exame)] = true;
       });
       return next;
     });
@@ -3572,6 +3824,89 @@ export default function AtendimentoPage() {
     }
   };
 
+  const removerExame = (index: number) => {
+    const exame = form.exames[index];
+    if (!exame) return;
+
+    const key = getExameStateKey(exame);
+    clearExamUploadDraft(key);
+    clearExamDropState(key);
+
+    // Exame ja persistido some do prontuario apenas por marcacao explicita, com
+    // confirmacao. Exame que nunca foi salvo sai so do estado local.
+    if (exame.id) {
+      const nome = (exame.tipo_exame || "").trim() || "sem nome";
+      if (
+        !window.confirm(
+          `Excluir o exame "${nome}" do prontuario? A exclusao e aplicada no proximo salvamento.`
+        )
+      ) {
+        return;
+      }
+      const atualizados = form.exames.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, _destroy: true } : item
+      );
+      setField("exames", atualizados);
+      expandirApenasPrimeiroExame(atualizados.filter((item) => !item._destroy));
+      setSucesso(`Exame "${nome}" marcado para exclusao.`);
+      setErro("");
+      return;
+    }
+
+    const restantes = form.exames.filter((_, itemIndex) => itemIndex !== index);
+    const proximosExames = restantes.length > 0 ? restantes : [emptyExam()];
+    setField("exames", proximosExames);
+    expandirApenasPrimeiroExame(proximosExames);
+  };
+
+  const aplicarExameAtualizado = (exameAtualizado: ExameSolicitacao | null | undefined) => {
+    if (!exameAtualizado?.id) return;
+    setForm((current) => ({
+      ...current,
+      exames: current.exames.map((item) =>
+        item.id === exameAtualizado.id ? { ...item, ...exameAtualizado } : item
+      ),
+    }));
+  };
+
+  const alternarLiberacaoExameNoPortal = async (
+    exame: ExameSolicitacao,
+    acao: "liberar" | "revogar"
+  ) => {
+    if (!exame.id) return;
+    if (
+      acao === "revogar" &&
+      !window.confirm(
+        "Revogar a liberacao deste exame? A clinica parceira perde o acesso no portal."
+      )
+    ) {
+      return;
+    }
+
+    setPortalExameAcaoId(exame.id);
+    try {
+      const response = await api.post(`/atendimentos/exames/${exame.id}/portal/${acao}`);
+      aplicarExameAtualizado(response.data?.exame);
+      setSucesso(
+        acao === "liberar"
+          ? "Exame liberado no portal da clinica parceira."
+          : "Liberacao do exame no portal revogada."
+      );
+      setErro("");
+    } catch (e: unknown) {
+      setErro(
+        extractApiErrorMessageSync(
+          e,
+          acao === "liberar"
+            ? "Erro ao liberar o exame no portal."
+            : "Erro ao revogar a liberacao do exame."
+        )
+      );
+    } finally {
+      setPortalExameAcaoId(null);
+    }
+  };
+
   const atualizarExame = (index: number, updates: Partial<ExameSolicitacao>) => {
     setField(
       "exames",
@@ -3626,6 +3961,7 @@ export default function AtendimentoPage() {
   };
 
   const saveAtendimento = async (mode: "manual" | "autosave" = "manual") => {
+    let criandoAutomaticamente = false;
     try {
       const currentForm = formRef.current;
       const isAutosave = mode === "autosave";
@@ -3643,6 +3979,26 @@ export default function AtendimentoPage() {
         setErro("Selecione um paciente.");
         return null;
       }
+      if (!isAutosave && !selecionadoRef.current && criandoAtendimentoAutomaticoRef.current) {
+        // Um autosave ja esta criando este atendimento automaticamente (POST
+        // em voo). Um clique manual em "Salvar" nesse intervalo nao pode
+        // disparar um segundo POST e duplicar o atendimento.
+        setErro("Aguarde a sincronizacao automatica terminar antes de salvar manualmente.");
+        return null;
+      }
+
+      // Criacao automatica em modo autosave: guarda de idempotencia para nao
+      // duplicar o atendimento se o debounce disparar de novo (ex.: usuario
+      // continua digitando) enquanto o primeiro POST ainda esta em voo.
+      // `criandoAutomaticamente` so vira true se ESTA chamada especifica
+      // adquirir a trava - uma chamada bloqueada pelo guard abaixo nunca deve
+      // liberar a trava de quem esta com o POST em voo.
+      if (isAutosave && !selecionadoRef.current) {
+        if (criandoAtendimentoAutomaticoRef.current) return;
+        criandoAtendimentoAutomaticoRef.current = true;
+        criandoAutomaticamente = true;
+      }
+
       if (!isAutosave) {
         setSalvando(true);
       } else {
@@ -3652,10 +4008,9 @@ export default function AtendimentoPage() {
       const payload = buildAtendimentoPayload(currentForm);
       let response;
 
-      if (selecionado) {
-        response = await api.put(`/atendimentos/${selecionado}`, payload);
+      if (selecionadoRef.current) {
+        response = await api.put(`/atendimentos/${selecionadoRef.current}`, payload);
       } else {
-        if (isAutosave) return;
         response = await api.post("/atendimentos", payload);
       }
       const hydrated = hydrateFormFromDetail(response.data || {});
@@ -3667,31 +4022,57 @@ export default function AtendimentoPage() {
         }
         hydratingFormRef.current = true;
         setForm(hydrated);
-        clearDraftStorage();
+        clearDraftStorage(response.data?.id || selecionadoRef.current);
         draftRestoreRef.current = true;
         setAutosaveState("saved");
         setAutosaveAt(response.data?.updated_at || response.data?.created_at || new Date().toISOString());
         setPrescricaoOrigem(null);
+        setDadosClinicosOrigem(null);
         if (typeof window !== "undefined") {
           window.requestAnimationFrame(() => {
             hydratingFormRef.current = false;
           });
         }
-        setSucesso(selecionado ? "Atendimento atualizado com sucesso." : "Atendimento criado com sucesso.");
+        setSucesso(selecionadoRef.current ? "Atendimento atualizado com sucesso." : "Atendimento criado com sucesso.");
         await carregarLista(paginaLista);
         if (hydrated.paciente_id) {
           await carregarHistoricoPaciente(hydrated.paciente_id);
         }
       } else {
         setForm((current) => {
-          return mergeAutoSavedFormState(current, hydrated);
+          // A exclusao foi aplicada no servidor: o marcador sai do estado local
+          // para nao voltar em todo save seguinte.
+          const semExcluidos = current.exames.filter((item) => !item._destroy);
+          return mergeAutoSavedFormState(
+            { ...current, exames: semExcluidos.length > 0 ? semExcluidos : [emptyExam()] },
+            hydrated
+          );
         });
+        if (criandoAutomaticamente && response.data?.id) {
+          // Primeiro POST automatico bem-sucedido: o atendimento passa a
+          // existir no servidor, entao os saves seguintes viram PUT.
+          setSelecionado(response.data.id);
+          clearDraftStorage(response.data.id);
+          draftRestoreRef.current = true;
+        }
         setAutosaveState("saved");
         setAutosaveAt(response.data?.updated_at || response.data?.created_at || new Date().toISOString());
       }
       setErro("");
-      return response.data?.id || selecionado || null;
+      return response.data?.id || selecionadoRef.current || null;
     } catch (e: any) {
+      // Nada foi aplicado: devolver os exames marcados para exclusao a lista,
+      // para nao deixar exame invisivel que continua existindo no prontuario.
+      setForm((current) =>
+        current.exames.some((item) => item._destroy)
+          ? {
+              ...current,
+              exames: current.exames.map((item) =>
+                item._destroy ? { ...item, _destroy: false } : item
+              ),
+            }
+          : current
+      );
       if (mode === "autosave") {
         setAutosaveState("error");
         setErro(extractApiErrorMessageSync(e, "Nao foi possivel sincronizar o atendimento."));
@@ -3703,10 +4084,31 @@ export default function AtendimentoPage() {
       if (mode === "manual") {
         setSalvando(false);
       }
+      if (criandoAutomaticamente) {
+        criandoAtendimentoAutomaticoRef.current = false;
+      }
     }
   };
 
-  const finalizarAtendimento = async () => {
+  const saveAtendimentoRef = useRef(saveAtendimento);
+  useEffect(() => {
+    saveAtendimentoRef.current = saveAtendimento;
+  });
+
+  useEffect(() => {
+    return () => {
+      // Cleanup de deps [] roda so no unmount de verdade (sair de /atendimento),
+      // ao contrario do cleanup do efeito de debounce, que roda a cada
+      // keystroke. Se havia um autosave pendente, dispara o flush antes de
+      // desmontar, em vez de deixar a ultima edicao so no debounce perdido.
+      if (typeof window === "undefined" || !autosaveTimerRef.current) return;
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+      void saveAtendimentoRef.current("autosave");
+    };
+  }, []);
+
+  const finalizarAtendimento = async (confirmarConclusaoPendencias: boolean = false) => {
     setFinalizando(true);
     try {
       const atendimentoId = await saveAtendimento("manual");
@@ -3714,6 +4116,7 @@ export default function AtendimentoPage() {
 
       const response = await api.post(`/atendimentos/${atendimentoId}/finalizar`, {
         tipo_horario: tipoHorarioFinalizacao,
+        confirmar_conclusao_pendencias: confirmarConclusaoPendencias,
       });
       const detalhe = response.data?.atendimento || {};
       const hydrated = hydrateFormFromDetail(detalhe);
@@ -3723,7 +4126,7 @@ export default function AtendimentoPage() {
       setForm(hydrated);
       formRef.current = hydrated;
       lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(hydrated);
-      clearDraftStorage();
+      clearDraftStorage(atendimentoId);
       draftRestoreRef.current = true;
       setAutosaveState("saved");
       setAutosaveAt(detalhe.updated_at || detalhe.created_at || new Date().toISOString());
@@ -3740,6 +4143,22 @@ export default function AtendimentoPage() {
       setErro("");
       setSucesso(response.data?.mensagem || "Atendimento finalizado com sucesso.");
     } catch (e: any) {
+      const detalhe = e?.response?.data?.detail;
+      const precisaConfirmar =
+        !confirmarConclusaoPendencias &&
+        e?.response?.status === 409 &&
+        detalhe &&
+        typeof detalhe === "object" &&
+        detalhe.codigo === "CONFIRMACAO_CONCLUSAO_PENDENCIAS";
+
+      if (precisaConfirmar) {
+        setFinalizando(false);
+        if (window.confirm(String(detalhe.mensagem || "Concluir mesmo com pendencias?"))) {
+          await finalizarAtendimento(true);
+        }
+        return;
+      }
+
       setErro(
         extractApiErrorMessageSync(
           e,
@@ -3752,17 +4171,33 @@ export default function AtendimentoPage() {
   };
 
   useEffect(() => {
-    if (typeof window === "undefined" || loading || !contextoAplicado || !selecionado || hydratingFormRef.current) {
+    if (typeof window === "undefined" || loading || !contextoAplicado || hydratingFormRef.current) {
       return;
     }
 
-    const currentSnapshot = serializeAtendimentoSnapshot(form);
-    if (currentSnapshot === lastPersistedSnapshotRef.current) {
-      if (autosaveState !== "saved") {
-        setAutosaveState("saved");
+    let deveAgendar: boolean;
+    if (selecionado) {
+      const currentSnapshot = serializeAtendimentoSnapshot(form);
+      if (currentSnapshot === lastPersistedSnapshotRef.current) {
+        if (autosaveState !== "saved") {
+          setAutosaveState("saved");
+        }
+        return;
       }
-      return;
+      deveAgendar = true;
+    } else {
+      // Atendimento ainda nao existe no servidor: so agenda a criacao
+      // automatica quando ja ha paciente + algum conteudo digitado (mesma
+      // checagem usada pelo rascunho local pre-save).
+      deveAgendar =
+        Boolean(form.paciente_id) &&
+        (hasMeaningfulDraft(clinicalFieldValues) ||
+          Boolean(form.triagem.peso || form.triagem.temperatura || form.triagem.pressao_arterial.trim()) ||
+          form.exames.some((item) => (item.tipo_exame || "").trim()) ||
+          form.prescricao_itens.some((item) => item.medicamento_id || (item.medicamento_nome || "").trim()));
     }
+
+    if (!deveAgendar) return;
 
     setAutosaveState("dirty");
     if (autosaveTimerRef.current) {
@@ -3770,6 +4205,11 @@ export default function AtendimentoPage() {
     }
 
     autosaveTimerRef.current = window.setTimeout(() => {
+      // Zera a ref ANTES de chamar saveAtendimento: o timer ja disparou (nao
+      // ha mais nada "pendente" no sentido do flush-no-unmount), e o proximo
+      // saveAtendimento pode, ele mesmo, mudar `form` (hidratacao) e reagendar
+      // um novo timer - zerar aqui evita confundir os dois.
+      autosaveTimerRef.current = null;
       void saveAtendimento("autosave");
     }, AUTOSAVE_DELAY_MS);
 
@@ -3778,7 +4218,7 @@ export default function AtendimentoPage() {
         window.clearTimeout(autosaveTimerRef.current);
       }
     };
-  }, [contextoAplicado, form, loading, selecionado]);
+  }, [clinicalFieldValues, contextoAplicado, form, loading, selecionado]);
 
   const deleteAtendimento = async (id: number) => {
     if (!confirm(`Excluir atendimento #${id}?`)) return;
@@ -3911,36 +4351,36 @@ export default function AtendimentoPage() {
     };
   };
 
-  const clearExamUploadDraft = (index: number) => {
+  const clearExamUploadDraft = (key: string) => {
     setExamUploadDrafts((prev) => {
-      const current = prev[index];
+      const current = prev[key];
       if (current?.previewUrl) {
         window.URL.revokeObjectURL(current.previewUrl);
       }
       const next = { ...prev };
-      delete next[index];
+      delete next[key];
       return next;
     });
   };
 
-  const setExamUploadDraftFile = (index: number, file: File) => {
+  const setExamUploadDraftFile = (key: string, file: File) => {
     setExamUploadDrafts((prev) => {
-      const current = prev[index];
+      const current = prev[key];
       if (current?.previewUrl) {
         window.URL.revokeObjectURL(current.previewUrl);
       }
       return {
         ...prev,
-        [index]: buildPendingExamUpload(file),
+        [key]: buildPendingExamUpload(file),
       };
     });
   };
 
-  const clearExamDropState = (index: number) => {
+  const clearExamDropState = (key: string) => {
     setExamDropActive((prev) => {
-      if (!prev[index]) return prev;
+      if (!prev[key]) return prev;
       const next = { ...prev };
-      delete next[index];
+      delete next[key];
       return next;
     });
   };
@@ -3993,8 +4433,8 @@ export default function AtendimentoPage() {
       uploadKey,
     });
     if (uploadConcluido) {
-      clearExamUploadDraft(index);
-      clearExamDropState(index);
+      clearExamUploadDraft(getExameStateKey(examAtual));
+      clearExamDropState(getExameStateKey(examAtual));
     }
   };
 
@@ -4025,8 +4465,8 @@ export default function AtendimentoPage() {
         break;
       }
     }
-    clearExamUploadDraft(index);
-    clearExamDropState(index);
+    clearExamUploadDraft(getExameStateKey(examAtual));
+    clearExamDropState(getExameStateKey(examAtual));
   };
 
   const cancelarUploadAnexo = (uploadKey: string) => {
@@ -4204,6 +4644,12 @@ export default function AtendimentoPage() {
   };
 
   const excluirAnexo = async (anexo: Anexo) => {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Excluir este anexo definitivamente? O arquivo original nao podera ser recuperado.")
+    ) {
+      return;
+    }
     try {
       await api.delete(`/atendimentos/anexos/${anexo.id}`);
       if (attachmentPreview?.anexo.id === anexo.id) {
@@ -4345,7 +4791,10 @@ export default function AtendimentoPage() {
       setGerandoDocumentoPdfId(documentoParaPdf.id);
       const response = await api.get(
         `/atendimentos/${documentoParaPdf.atendimento_id}/documentos/${documentoParaPdf.id}/pdf`,
-        { responseType: "blob" }
+        {
+          responseType: "blob",
+          params: { impressao: Date.now() },
+        }
       );
       const filename = parseDownloadFilename(
         response.headers?.["content-disposition"],
@@ -4816,6 +5265,7 @@ export default function AtendimentoPage() {
 
       const response = await api.get(`/atendimentos/${atendimentoId}/${tipo}/pdf`, {
         responseType: "blob",
+        params: { impressao: Date.now() },
       });
 
       const fallbackFilename =
@@ -5002,11 +5452,6 @@ export default function AtendimentoPage() {
   }, [consultaCampoAtivo, consultaEditorCamposVisiveis]);
 
   useEffect(() => {
-    const valorEsperado = consultaEtapasCompletas ? 1 : 0;
-    setForm((prev) => (prev.consulta_concluida === valorEsperado ? prev : { ...prev, consulta_concluida: valorEsperado }));
-  }, [consultaEtapasCompletas]);
-
-  useEffect(() => {
     if (!isConsultaWorkspace || !consultaCampoAtivoConfig) return;
     if (typeof window === "undefined") return;
     window.requestAnimationFrame(() => {
@@ -5034,21 +5479,31 @@ export default function AtendimentoPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [goToConsultaCampoAnterior, goToConsultaCampoProximo, isConsultaWorkspace]);
 
+  const examesChavesAtuaisRaw = form.exames.map((exame) => getExameStateKey(exame)).join(",");
   useEffect(() => {
+    // So `examesChavesAtuaisRaw` (string derivada) na dependencia: ela so muda
+    // quando o CONJUNTO de chaves muda de verdade (exame adicionado/removido),
+    // nao a cada tecla digitada em algum campo de exame (que gera uma nova
+    // referencia de form.exames sem mudar nenhuma chave).
+    const chavesOrdenadas = examesChavesAtuaisRaw ? examesChavesAtuaisRaw.split(",") : [];
+    const chavesAtuais = new Set(chavesOrdenadas);
     setExamesExpandidos((prev) => {
-      const next: Record<number, boolean> = {};
+      const next: Record<string, boolean> = {};
+      let mudou = false;
       Object.entries(prev).forEach(([key, value]) => {
-        const index = Number(key);
-        if (Number.isFinite(index) && index >= 0 && index < form.exames.length) {
-          next[index] = value;
+        if (chavesAtuais.has(key)) {
+          next[key] = value;
+        } else {
+          mudou = true;
         }
       });
-      if (!Object.keys(next).length && form.exames.length > 0) {
-        next[0] = true;
+      if (!Object.keys(next).length && chavesOrdenadas.length > 0) {
+        next[chavesOrdenadas[0]] = true;
+        mudou = true;
       }
-      return next;
+      return mudou ? next : prev;
     });
-  }, [form.exames.length]);
+  }, [examesChavesAtuaisRaw]);
 
   useEffect(() => {
     if (workspacePainel === "prescricao") {
@@ -5074,23 +5529,23 @@ export default function AtendimentoPage() {
   }, [prescricaoErrosCount, prescricaoValidacaoAtual.errors]);
 
   const expandirTodosExames = () => {
-    const next = examesVisiveis.reduce<Record<number, boolean>>((acc, item) => {
-      acc[item.index] = true;
+    const next = examesVisiveis.reduce<Record<string, boolean>>((acc, item) => {
+      acc[getExameStateKey(item.exame)] = true;
       return acc;
     }, {});
     setExamesExpandidos(next);
   };
 
   const colapsarTodosExames = () => {
-    const next = examesVisiveis.reduce<Record<number, boolean>>((acc, item) => {
-      acc[item.index] = false;
+    const next = examesVisiveis.reduce<Record<string, boolean>>((acc, item) => {
+      acc[getExameStateKey(item.exame)] = false;
       return acc;
     }, {});
     setExamesExpandidos(next);
   };
 
   const removerExamesVazios = () => {
-    const next = form.exames.filter((item) => {
+    const temConteudo = (item: ExameSolicitacao) => {
       if ((item.tipo_exame || "").trim()) return true;
       if ((item.observacoes || "").trim()) return true;
       if ((item.resultado || "").trim()) return true;
@@ -5098,11 +5553,17 @@ export default function AtendimentoPage() {
       if (item.catalogo_exame_id || item.painel_exame_id) return true;
       if ((item.anexos_resultado || []).length > 0) return true;
       return false;
-    });
+    };
+    // Exame vazio ja persistido e marcado para exclusao; exame vazio que nunca
+    // foi salvo sai apenas do estado local.
+    const next = form.exames
+      .filter((item) => temConteudo(item) || Boolean(item.id))
+      .map((item) => (temConteudo(item) ? item : { ...item, _destroy: true }));
     clearExamUploadDrafts();
-    const finalList = next.length > 0 ? next : [emptyExam()];
-    setField("exames", finalList);
-    setExamesExpandidos({ 0: true });
+    const restantes = next.filter((item) => !item._destroy);
+    const proximosExames = restantes.length > 0 ? next : [...next, emptyExam()];
+    setField("exames", proximosExames);
+    expandirApenasPrimeiroExame(proximosExames.filter((item) => !item._destroy));
   };
 
   const atendimentosVisiveis = filtered;
@@ -5692,7 +6153,7 @@ export default function AtendimentoPage() {
                 </button>
                 <button
                   onClick={() => void saveAtendimento()}
-                  disabled={salvando || finalizando}
+                  disabled={salvando || finalizando || (!selecionado && autosaveState === "saving")}
                   className="fc-care-button-primary"
                 >
                   <span className="inline-flex items-center gap-2"><Save className="h-4 w-4" />{salvando ? "Salvando..." : "Salvar atendimento"}</span>
@@ -5897,6 +6358,15 @@ export default function AtendimentoPage() {
                       {STATUS_ATENDIMENTO.map((status) => <option key={status} value={status}>{status}</option>)}
                     </select>
                   </div>
+                  <label className="flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    <input
+                      type="checkbox"
+                      checked={documentacaoIncompletaFiltro}
+                      onChange={(e) => setDocumentacaoIncompletaFiltro(e.target.checked)}
+                      className="h-4 w-4 rounded border-amber-300"
+                    />
+                    Concluidos com documentacao incompleta
+                  </label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
@@ -5935,6 +6405,14 @@ export default function AtendimentoPage() {
                           <span className="rounded-full bg-white px-2.5 py-1 text-slate-600">{item.total_exames || 0} exame(s)</span>
                           {item.tem_prescricao ? (
                             <span className="rounded-full bg-violet-100 px-2.5 py-1 text-violet-700">Receita salva</span>
+                          ) : null}
+                          {item.documentacao_pendencias && item.documentacao_pendencias.length > 0 ? (
+                            <span
+                              className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-800"
+                              title={`Faltam: ${item.documentacao_pendencias.join("; ")}`}
+                            >
+                              Documentacao incompleta
+                            </span>
                           ) : null}
                         </div>
                       </button>
@@ -6104,6 +6582,7 @@ export default function AtendimentoPage() {
               <div className="space-y-6">
                 {isConsultaWorkspace ? (
                   <AtendimentoConsultaOverviewSection
+                    abrirCadastroComplementar={abrirCadastroComplementar}
                     clinicas={clinicas}
                     fluxoClinico={fluxoClinico}
                     form={form}
@@ -6120,6 +6599,7 @@ export default function AtendimentoPage() {
                     setWorkspacePainel={setWorkspacePainel}
                     STATUS_ATENDIMENTO={STATUS_ATENDIMENTO}
                     especieRacaExibicao={especieRacaExibicao}
+                    sexoPacienteExibicao={sexoPacienteExibicao}
                     tutorNomeExibicao={tutorNomeExibicao}
                   />
                 ) : null}
@@ -6173,7 +6653,9 @@ export default function AtendimentoPage() {
                     consultaEditorEtapa={consultaEditorEtapa}
                     consultaEditorEtapas={consultaEditorEtapas}
                     consultaEtapasCompletas={consultaEtapasCompletas}
+                    dadosClinicosOrigem={dadosClinicosOrigem}
                     form={form}
+                    formatDate={formatDate}
                     getClinicalFieldValue={getClinicalFieldValue}
                     goToConsultaCampoAnterior={goToConsultaCampoAnterior}
                     goToConsultaCampoProximo={goToConsultaCampoProximo}
@@ -6220,6 +6702,7 @@ export default function AtendimentoPage() {
                     formatBytes={formatBytes}
                     formatDate={formatDate}
                     gerandoPdfTipo={gerandoPdfTipo}
+                    getExameStateKey={getExameStateKey}
                     goLaudo={goLaudo}
                     hasExamRequest={hasExamRequest}
                     imprimirSolicitacaoExames={imprimirSolicitacaoExames}
@@ -6235,7 +6718,12 @@ export default function AtendimentoPage() {
                     painelModalMode={painelModalMode}
                     painelModalOpen={painelModalOpen}
                     paineisExames={paineisExames}
+                    removerExame={removerExame}
                     removerExamesVazios={removerExamesVazios}
+                    alternarLiberacaoExameNoPortal={alternarLiberacaoExameNoPortal}
+                    portalExameAcaoId={portalExameAcaoId}
+                    exameTemPdfAnexado={exameTemPdfAnexado}
+                    isExamePortalLiberado={isExamePortalLiberado}
                     resolvePreviewKind={resolvePreviewKind}
                     resumoExamesFluxo={resumoExamesFluxo}
                     salvando={salvando}
@@ -6319,8 +6807,8 @@ export default function AtendimentoPage() {
                     <AtendimentoPrescricaoHistorySection
                       abrirAtendimento={abrirAtendimento}
                       formatDate={formatDate}
+                      herdarAtendimentoAnterior={herdarAtendimentoAnterior}
                       historicoPaciente={historicoPaciente}
-                      iniciarNovoAtendimentoPaciente={iniciarNovoAtendimentoPaciente}
                       prescricaoOrigem={prescricaoOrigem}
                       selecionado={selecionado}
                     />
@@ -6401,6 +6889,7 @@ export default function AtendimentoPage() {
                       form={form}
                       getBadgeStatusClass={getBadgeStatusClass}
                       getGravidadeClass={getGravidadeClass}
+                      herdarAtendimentoAnterior={herdarAtendimentoAnterior}
                       historicoPaciente={historicoPaciente}
                       pacienteNomeExibicao={pacienteNomeExibicao}
                       preenchimentoConsultaLabel={preenchimentoConsultaLabel}

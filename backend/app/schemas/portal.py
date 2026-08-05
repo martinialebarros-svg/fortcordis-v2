@@ -42,6 +42,10 @@ class PortalTokenResponse(BaseModel):
     actor_id: int
     paciente_id: Optional[int] = None
     clinica_id: Optional[int] = None
+    partner_id: Optional[int] = None
+    partner_nome: Optional[str] = None
+    partner_tipo: Optional[str] = None
+    partner_tipo_label: Optional[str] = None
     account_id: Optional[int] = None
     auth_method: Optional[str] = None
     trusted_session_expires_at: Optional[datetime] = None
@@ -103,6 +107,10 @@ class PortalExamListResponse(BaseModel):
     total: int
     clinica_id: Optional[int] = None
     clinica_nome: Optional[str] = None
+    partner_id: Optional[int] = None
+    partner_nome: Optional[str] = None
+    partner_tipo: Optional[str] = None
+    partner_tipo_label: Optional[str] = None
     operational_summary: Optional[PortalClinicOperationalSummaryResponse] = None
     operational_items: list[PortalClinicOperationalItemResponse] = Field(default_factory=list)
     items: list[PortalExamSummaryResponse] = Field(default_factory=list)
@@ -261,6 +269,150 @@ class PortalAdminClinicAccessOverviewResponse(BaseModel):
     recent_downloads: list[PortalAdminClinicDownloadEventResponse] = Field(default_factory=list)
 
 
+class PortalPartnerProfileResponse(BaseModel):
+    id: int
+    tipo: Literal["clinica", "veterinario"]
+    tipo_label: str
+    clinica_id: Optional[int] = None
+    clinica_nome: Optional[str] = None
+    nome_exibicao: str
+    email_login: Optional[str] = None
+    telefone: Optional[str] = None
+    whatsapp: Optional[str] = None
+    cidade_base: Optional[str] = None
+    estado_base: Optional[str] = None
+    crmv: Optional[str] = None
+    cpf_documento: Optional[str] = None
+    area_atuacao: Optional[str] = None
+    observacoes: Optional[str] = None
+    ativo: bool = True
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class PortalPartnerProfileListResponse(BaseModel):
+    total: int
+    items: list[PortalPartnerProfileResponse] = Field(default_factory=list)
+
+
+class PortalPartnerProfileCreateRequest(BaseModel):
+    tipo: Literal["clinica", "veterinario"]
+    clinica_id: Optional[int] = Field(default=None, gt=0)
+    nome_exibicao: Optional[str] = Field(default=None, min_length=2, max_length=255)
+    email_login: Optional[str] = Field(default=None, min_length=5, max_length=255)
+    telefone: Optional[str] = Field(default=None, min_length=8, max_length=50)
+    whatsapp: Optional[str] = Field(default=None, min_length=8, max_length=50)
+    cidade_base: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    estado_base: Optional[str] = Field(default=None, min_length=2, max_length=20)
+    crmv: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    cpf_documento: Optional[str] = Field(default=None, min_length=11, max_length=40)
+    area_atuacao: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    observacoes: Optional[str] = Field(default=None, max_length=4000)
+    ativo: bool = True
+
+
+class PortalPartnerProfileUpdateRequest(BaseModel):
+    nome_exibicao: Optional[str] = Field(default=None, min_length=2, max_length=255)
+    email_login: Optional[str] = Field(default=None, min_length=5, max_length=255)
+    telefone: Optional[str] = Field(default=None, min_length=8, max_length=50)
+    whatsapp: Optional[str] = Field(default=None, min_length=8, max_length=50)
+    cidade_base: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    estado_base: Optional[str] = Field(default=None, min_length=2, max_length=20)
+    crmv: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    cpf_documento: Optional[str] = Field(default=None, min_length=11, max_length=40)
+    area_atuacao: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    observacoes: Optional[str] = Field(default=None, max_length=4000)
+    ativo: Optional[bool] = None
+
+
+class PortalPartnerInviteCreateRequest(BaseModel):
+    delivery_channel: Literal["whatsapp"] = "whatsapp"
+    delivery_target: str = Field(..., min_length=8, max_length=50)
+    expires_in_hours: int = Field(default=72, ge=1, le=240)
+    allow_manual_copy: bool = True
+
+
+class PortalPartnerInviteResponse(BaseModel):
+    invite_id: Optional[int] = None
+    status: str
+    expires_at: Optional[datetime] = None
+    activation_url: str
+    access_mode: Literal["activation", "login"]
+    delivery_channel: str
+    delivery_target_masked: Optional[str] = None
+    account_email_masked: Optional[str] = None
+    delivery_status: str
+    delivery_provider: Optional[str] = None
+
+
+class PortalPartnerInviteStatusResponse(BaseModel):
+    status: str
+    partner_id: int
+    partner_nome: str
+    partner_tipo: Literal["clinica", "veterinario"]
+    partner_tipo_label: str
+    expires_at: datetime
+    can_activate: bool
+    email_hint: Optional[str] = None
+
+
+PORTAL_CLINIC_PASSWORD_MIN_LENGTH = 8
+PORTAL_PARTNER_PASSWORD_MIN_LENGTH = PORTAL_CLINIC_PASSWORD_MIN_LENGTH
+
+
+class PortalPartnerActivationRequest(BaseModel):
+    invite_token: str = Field(..., min_length=16, max_length=255)
+    responsavel_nome: str = Field(..., min_length=2, max_length=255)
+    password: str = Field(..., min_length=PORTAL_PARTNER_PASSWORD_MIN_LENGTH, max_length=255)
+    password_confirmation: str = Field(..., min_length=PORTAL_PARTNER_PASSWORD_MIN_LENGTH, max_length=255)
+
+
+class PortalPartnerAuthResponse(BaseModel):
+    access_token: Optional[str] = None
+    token_type: str = "bearer"
+    expires_at: Optional[datetime] = None
+    actor_type: Optional[str] = None
+    actor_id: Optional[int] = None
+    partner_id: Optional[int] = None
+    partner_nome: Optional[str] = None
+    partner_tipo: Optional[str] = None
+    partner_tipo_label: Optional[str] = None
+    clinica_id: Optional[int] = None
+    account_id: Optional[int] = None
+    auth_method: Optional[str] = None
+    trusted_session_expires_at: Optional[datetime] = None
+    scope: list[str] = Field(default_factory=list)
+    mfa_required: bool = False
+    challenge_id: Optional[str] = None
+    message: Optional[str] = None
+
+
+class PortalPartnerActivationResponse(PortalPartnerAuthResponse):
+    activation_id: int
+
+
+class PortalPartnerLoginRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=255)
+    password: str = Field(..., min_length=1, max_length=255)
+    remember_device_until_shift_end: bool = False
+
+
+class PortalPartnerMfaVerifyRequest(BaseModel):
+    challenge_id: str = Field(..., min_length=16, max_length=128)
+    codigo: str = Field(..., min_length=4, max_length=12)
+    remember_device_until_shift_end: bool = False
+
+
+class PortalPartnerPasswordResetRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=255)
+
+
+class PortalPartnerPasswordResetConfirmRequest(BaseModel):
+    reset_token: str = Field(..., min_length=16, max_length=255)
+    password: str = Field(..., min_length=PORTAL_PARTNER_PASSWORD_MIN_LENGTH, max_length=255)
+    password_confirmation: str = Field(..., min_length=PORTAL_PARTNER_PASSWORD_MIN_LENGTH, max_length=255)
+
+
 class PortalAdminClinicAccountRevokeRequest(BaseModel):
     reason: str = Field(default="revogada pela operacao", min_length=3, max_length=255)
     revoke_sessions: bool = True
@@ -289,9 +441,6 @@ class PortalClinicInviteStatusResponse(BaseModel):
     expires_at: datetime
     can_activate: bool
     email_hint: Optional[str] = None
-
-
-PORTAL_CLINIC_PASSWORD_MIN_LENGTH = 8
 
 
 class PortalClinicActivationRequest(BaseModel):

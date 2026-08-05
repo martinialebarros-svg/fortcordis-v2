@@ -6,6 +6,7 @@ import DashboardLayout from "../../../layout-dashboard";
 import api from "@/lib/axios";
 import {
   getLaudoEditPath,
+  TIPO_LAUDO_ECOCARDIOGRAMA,
   TIPO_LAUDO_PRESSAO_ARTERIAL,
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
@@ -42,6 +43,8 @@ import {
   LV_M_MODE_KEYS,
   parseStoredEchoMeasurements,
 } from "@/lib/echo-derived-measurements";
+import { criarMensagemAlertaSalvamentoEcocardiograma } from "@/lib/ecocardiograma-save-alert";
+import { operationalTodayDateInput } from "@/lib/calendar-date";
 
 // Componente de input de medida com botões +/-
 interface MedidaInputProps {
@@ -176,6 +179,15 @@ interface Clinica {
   nome: string;
 }
 
+interface ParceiroVeterinario {
+  id: number;
+  nome_exibicao: string;
+  email_login?: string | null;
+  cidade_base?: string | null;
+  estado_base?: string | null;
+  crmv?: string | null;
+}
+
 interface Imagem {
   id: number;
   nome: string;
@@ -200,6 +212,9 @@ interface Laudo {
   data_exame?: string;
   clinic_id?: number;
   clinica?: string;
+  veterinario_parceiro_id?: number | null;
+  veterinario_parceiro_nome?: string | null;
+  veterinario_parceiro_crmv?: string | null;
   medico_solicitante?: string;
   imagens?: Imagem[];
   pressao_arterial?: {
@@ -321,7 +336,7 @@ export default function EditarLaudoPage() {
     idade: "",
     tutor: "",
     telefone: "",
-    data_exame: new Date().toISOString().split('T')[0],
+    data_exame: operationalTodayDateInput(),
   });
   const [novaRaca, setNovaRaca] = useState("");
   const [racasCustomPorEspecie, setRacasCustomPorEspecie] = useState<Record<string, string[]>>({});
@@ -348,6 +363,8 @@ export default function EditarLaudoPage() {
   const [clinicaId, setClinicaId] = useState<string>("");
   const [clinicaNome, setClinicaNome] = useState<string>("");
   const [clinicas, setClinicas] = useState<Clinica[]>([]);
+  const [veterinarioParceiroId, setVeterinarioParceiroId] = useState<string>("");
+  const [parceirosVeterinarios, setParceirosVeterinarios] = useState<ParceiroVeterinario[]>([]);
   const [medicoSolicitante, setMedicoSolicitante] = useState("");
 
   // Imagens
@@ -392,6 +409,7 @@ export default function EditarLaudoPage() {
     }
     carregarLaudo();
     carregarClinicas();
+    carregarParceirosVeterinarios();
   }, [router, laudoId]);
 
   useEffect(() => {
@@ -517,6 +535,17 @@ export default function EditarLaudoPage() {
     }
   };
 
+  const carregarParceirosVeterinarios = async () => {
+    try {
+      const response = await api.get("/portal/parceiros/veterinarios/opcoes", {
+        params: { limit: 100 },
+      });
+      setParceirosVeterinarios(Array.isArray(response.data?.items) ? response.data.items : []);
+    } catch (error) {
+      console.error("Erro ao carregar veterinários parceiros:", error);
+    }
+  };
+
   // Mapeamento de campos antigos para novos (compatibilidade com XMLs)
   const mapearCamposMedidas = (medidasOriginais: Record<string, number | string>): Record<string, string> => {
     const mapeamento: Record<string, string> = {
@@ -634,7 +663,7 @@ export default function EditarLaudoPage() {
         telefone: dados.paciente.telefone || anterior.telefone,
         data_exame: dados.paciente.data_exame
           ? dados.paciente.data_exame.substring(0, 10)
-          : anterior.data_exame || new Date().toISOString().split('T')[0],
+          : anterior.data_exame || operationalTodayDateInput(),
       }));
     }
 
@@ -705,6 +734,9 @@ export default function EditarLaudoPage() {
       // Preencher clínica
       if (laudoData.clinic_id) {
         setClinicaId(laudoData.clinic_id.toString());
+      }
+      if (laudoData.veterinario_parceiro_id) {
+        setVeterinarioParceiroId(laudoData.veterinario_parceiro_id.toString());
       }
       setMedicoSolicitante(laudoData.medico_solicitante || "");
       setEcocardiogramaCabecalho({
@@ -777,7 +809,7 @@ export default function EditarLaudoPage() {
           telefone: pacienteData.telefone || "",
           data_exame: laudoData.data_exame
             ? laudoData.data_exame.substring(0, 10)
-            : new Date().toISOString().split('T')[0],
+            : operationalTodayDateInput(),
         });
       } else if (laudoData.paciente_id) {
         // Fallback: buscar paciente separadamente (para laudos antigos)
@@ -798,7 +830,7 @@ export default function EditarLaudoPage() {
             telefone: pacienteData.telefone || "",
             data_exame: laudoData.data_exame
               ? laudoData.data_exame.substring(0, 10)
-              : new Date().toISOString().split('T')[0],
+              : operationalTodayDateInput(),
           });
         } catch (e) {
           console.error("Erro ao carregar paciente:", e);
@@ -868,6 +900,22 @@ export default function EditarLaudoPage() {
         setAba("medidas");
         return;
       }
+      const laudoEhEcocardiograma =
+        (laudo?.tipo || "").toLowerCase() === TIPO_LAUDO_ECOCARDIOGRAMA;
+      if (laudoEhEcocardiograma) {
+        const mensagemAlerta = criarMensagemAlertaSalvamentoEcocardiograma({
+          analiseQualitativaAplicada: ecocardiogramaEstruturado.usar_no_laudo,
+          imagensCarregadas:
+            imagens.length > 0 || imagensTemp.some((imagem) => imagem.uploaded),
+        });
+        if (mensagemAlerta && !window.confirm(mensagemAlerta)) {
+          setAba(
+            ecocardiogramaEstruturado.usar_no_laudo ? "imagens" : "qualitativa"
+          );
+          return;
+        }
+      }
+
       // 1. Salvar dados do paciente primeiro
       if (paciente?.id) {
         // Montar observações com idade
@@ -964,6 +1012,10 @@ export default function EditarLaudoPage() {
       if (clinicaId) {
         payload.clinic_id = parseInt(clinicaId);
       }
+
+      payload.veterinario_parceiro_id = veterinarioParceiroId
+        ? parseInt(veterinarioParceiroId)
+        : null;
 
       // Adicionar médico solicitante
       if (medicoSolicitante) {
@@ -1464,7 +1516,7 @@ export default function EditarLaudoPage() {
 
                     <div className="border-t pt-4 mt-4">
                       <h4 className="font-medium text-gray-900 mb-4">Informações da Clínica</h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             Clínica
@@ -1486,6 +1538,26 @@ export default function EditarLaudoPage() {
                               </option>
                             ))}
                           </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Veterinário parceiro
+                          </label>
+                          <select
+                            value={veterinarioParceiroId}
+                            onChange={(e) => setVeterinarioParceiroId(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                          >
+                            <option value="">Selecione o veterinário parceiro</option>
+                            {parceirosVeterinarios.map((partner) => (
+                              <option key={partner.id} value={partner.id}>
+                                {partner.nome_exibicao}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="mt-1 text-xs text-gray-500">
+                            Use este campo para laudos prontos vindos de encaminhamento domiciliar ou volante.
+                          </p>
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">

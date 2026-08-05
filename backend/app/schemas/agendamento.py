@@ -32,6 +32,8 @@ class AgendamentoBase(BaseModel):
     reserva_expira_em: Optional[datetime] = None
     observacoes: Optional[str] = None
     confirmar_conflito_deslocamento: bool = False
+    confirmar_slot_reserva_expirada: bool = False
+    confirmar_agenda_fechada: bool = False
     excecao_operacional_concedida: bool = False
     motivo_excecao_operacional: Optional[str] = None
 
@@ -54,6 +56,7 @@ class AgendamentoUpdate(BaseModel):
     reserva_expira_em: Optional[datetime] = None
     observacoes: Optional[str] = None
     confirmar_conflito_deslocamento: Optional[bool] = None
+    confirmar_slot_reserva_expirada: Optional[bool] = None
     excecao_operacional_concedida: Optional[bool] = None
     motivo_excecao_operacional: Optional[str] = None
     confirmar_alteracao_servico_hoje: Optional[bool] = None

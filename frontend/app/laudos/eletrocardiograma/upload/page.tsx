@@ -9,6 +9,7 @@ import {
   formatarTelefoneVisual,
   normalizarTelefone,
 } from "@/lib/atendimento-cadastro";
+import { calendarDateInput, operationalTodayDateInput } from "@/lib/calendar-date";
 import { ArrowLeft, FileText, Loader2, Search, Upload, UserPlus, X } from "lucide-react";
 
 type UploadContext = {
@@ -16,6 +17,7 @@ type UploadContext = {
   atendimento_id?: string;
   paciente_id?: string;
   clinic_id?: string;
+  veterinario_parceiro_id?: string;
 };
 
 type AgendamentoResumo = {
@@ -32,6 +34,18 @@ type AgendamentoResumo = {
 type Clinica = {
   id: number;
   nome: string;
+};
+
+type ParceiroVeterinario = {
+  id: number;
+  nome_exibicao: string;
+  email_login?: string | null;
+  telefone?: string | null;
+  whatsapp?: string | null;
+  cidade_base?: string | null;
+  estado_base?: string | null;
+  crmv?: string | null;
+  area_atuacao?: string | null;
 };
 
 type PacienteBuscaItem = {
@@ -71,6 +85,17 @@ type NovoPacienteForm = {
   microchip: string;
 };
 
+type NovoParceiroForm = {
+  nome_exibicao: string;
+  email_login: string;
+  telefone: string;
+  whatsapp: string;
+  cidade_base: string;
+  estado_base: string;
+  crmv: string;
+  area_atuacao: string;
+};
+
 const NOVO_PACIENTE_INICIAL: NovoPacienteForm = {
   nome: "",
   tutor: "",
@@ -83,6 +108,17 @@ const NOVO_PACIENTE_INICIAL: NovoPacienteForm = {
   peso_kg: "",
   data_nascimento: "",
   microchip: "",
+};
+
+const NOVO_PARCEIRO_INICIAL: NovoParceiroForm = {
+  nome_exibicao: "",
+  email_login: "",
+  telefone: "",
+  whatsapp: "",
+  cidade_base: "Fortaleza",
+  estado_base: "CE",
+  crmv: "",
+  area_atuacao: "Cardiologia domiciliar",
 };
 
 const INPUT_CLASS_NAME =
@@ -98,23 +134,16 @@ function readInitialContext(): UploadContext {
     atendimento_id: params.get("atendimento_id") || undefined,
     paciente_id: params.get("paciente_id") || undefined,
     clinic_id: params.get("clinic_id") || undefined,
+    veterinario_parceiro_id: params.get("veterinario_parceiro_id") || undefined,
   };
 }
 
 function toDateInput(value?: string | null) {
-  if (!value) return "";
-  const parsed = new Date(value);
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toISOString().slice(0, 10);
-  }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return value;
-  }
-  return "";
+  return calendarDateInput(value);
 }
 
 function getTodayDateInput() {
-  return new Date().toISOString().slice(0, 10);
+  return operationalTodayDateInput();
 }
 
 function readApiError(
@@ -133,6 +162,7 @@ export default function UploadEletrocardiogramaPage() {
   const [contexto, setContexto] = useState<UploadContext>({});
   const [agendamento, setAgendamento] = useState<AgendamentoResumo | null>(null);
   const [clinicas, setClinicas] = useState<Clinica[]>([]);
+  const [parceirosVeterinarios, setParceirosVeterinarios] = useState<ParceiroVeterinario[]>([]);
   const [pacienteSelecionado, setPacienteSelecionado] = useState<PacienteDetalhe | null>(null);
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [dataExame, setDataExame] = useState("");
@@ -140,19 +170,27 @@ export default function UploadEletrocardiogramaPage() {
   const [buscaPaciente, setBuscaPaciente] = useState("");
   const [sugestoesPacientes, setSugestoesPacientes] = useState<PacienteBuscaItem[]>([]);
   const [novoPaciente, setNovoPaciente] = useState<NovoPacienteForm>(NOVO_PACIENTE_INICIAL);
+  const [novoParceiro, setNovoParceiro] = useState<NovoParceiroForm>(NOVO_PARCEIRO_INICIAL);
   const [loadingContexto, setLoadingContexto] = useState(false);
   const [loadingClinicas, setLoadingClinicas] = useState(false);
+  const [loadingParceiros, setLoadingParceiros] = useState(false);
   const [buscandoPacientes, setBuscandoPacientes] = useState(false);
   const [carregandoPaciente, setCarregandoPaciente] = useState(false);
   const [salvandoNovoPaciente, setSalvandoNovoPaciente] = useState(false);
+  const [salvandoNovoParceiro, setSalvandoNovoParceiro] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [mostrarCadastroRapido, setMostrarCadastroRapido] = useState(false);
+  const [mostrarCadastroParceiro, setMostrarCadastroParceiro] = useState(false);
   const [erro, setErro] = useState("");
 
   const modoTelemedicina = !contexto.agendamento_id && !contexto.atendimento_id;
   const clinicaSelecionada = useMemo(
     () => clinicas.find((item) => String(item.id) === contexto.clinic_id) || null,
     [clinicas, contexto.clinic_id],
+  );
+  const parceiroSelecionado = useMemo(
+    () => parceirosVeterinarios.find((item) => String(item.id) === contexto.veterinario_parceiro_id) || null,
+    [parceirosVeterinarios, contexto.veterinario_parceiro_id],
   );
 
   useEffect(() => {
@@ -184,6 +222,32 @@ export default function UploadEletrocardiogramaPage() {
     };
 
     void carregarClinicas();
+    return () => {
+      ativo = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let ativo = true;
+    const carregarParceiros = async () => {
+      try {
+        setLoadingParceiros(true);
+        const response = await api.get("/portal/parceiros/veterinarios/opcoes", {
+          params: { limit: 100 },
+        });
+        if (!ativo) return;
+        setParceirosVeterinarios(Array.isArray(response.data?.items) ? response.data.items : []);
+      } catch (error) {
+        if (!ativo) return;
+        setErro((current) => current || "Nao foi possivel carregar os veterinarios parceiros.");
+      } finally {
+        if (ativo) {
+          setLoadingParceiros(false);
+        }
+      }
+    };
+
+    void carregarParceiros();
     return () => {
       ativo = false;
     };
@@ -315,6 +379,11 @@ export default function UploadEletrocardiogramaPage() {
     clinicaSelecionada?.nome ||
     agendamento?.clinica ||
     (contexto.clinic_id ? `Clinica #${contexto.clinic_id}` : "Clinica nao vinculada");
+  const parceiroLabel =
+    parceiroSelecionado?.nome_exibicao ||
+    (contexto.veterinario_parceiro_id
+      ? `Veterinario parceiro #${contexto.veterinario_parceiro_id}`
+      : "Veterinario parceiro nao vinculado");
 
   const selecionarArquivo = (file: File | null) => {
     setErro("");
@@ -406,6 +475,50 @@ export default function UploadEletrocardiogramaPage() {
     }
   };
 
+  const criarParceiroNoFluxo = async () => {
+    const nomeExibicao = novoParceiro.nome_exibicao.trim();
+    const emailLogin = novoParceiro.email_login.trim().toLowerCase();
+
+    if (!nomeExibicao || !emailLogin) {
+      throw new Error("Informe pelo menos o nome e o email do veterinario parceiro.");
+    }
+
+    setSalvandoNovoParceiro(true);
+    try {
+      const payload = {
+        tipo: "veterinario",
+        nome_exibicao: nomeExibicao,
+        email_login: emailLogin,
+        telefone: normalizarTelefone(novoParceiro.telefone),
+        whatsapp: normalizarTelefone(novoParceiro.whatsapp),
+        cidade_base: novoParceiro.cidade_base.trim(),
+        estado_base: novoParceiro.estado_base.trim().toUpperCase(),
+        crmv: novoParceiro.crmv.trim() || null,
+        area_atuacao: novoParceiro.area_atuacao.trim() || null,
+      };
+
+      const response = await api.post("/portal/parceiros/veterinarios/cadastro-rapido", payload);
+      const parceiro = response.data as ParceiroVeterinario;
+      if (!parceiro?.id) {
+        throw new Error("Nao foi possivel concluir o cadastro do veterinario parceiro.");
+      }
+      setParceirosVeterinarios((current) => {
+        const withoutDuplicated = current.filter((item) => item.id !== parceiro.id);
+        return [...withoutDuplicated, parceiro].sort((a, b) => a.nome_exibicao.localeCompare(b.nome_exibicao, "pt-BR"));
+      });
+      setContexto((current) => ({
+        ...current,
+        veterinario_parceiro_id: String(parceiro.id),
+      }));
+      setMostrarCadastroParceiro(false);
+      return parceiro.id;
+    } catch (error) {
+      throw new Error(readApiError(error, "Nao foi possivel cadastrar o veterinario parceiro neste fluxo."));
+    } finally {
+      setSalvandoNovoParceiro(false);
+    }
+  };
+
   const enviar = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setErro("");
@@ -415,8 +528,19 @@ export default function UploadEletrocardiogramaPage() {
       return;
     }
 
-    if (!contexto.clinic_id) {
-      setErro("Selecione a clinica parceira para este laudo.");
+    let veterinarioParceiroId = contexto.veterinario_parceiro_id;
+    if (!veterinarioParceiroId && mostrarCadastroParceiro) {
+      try {
+        const novoParceiroId = await criarParceiroNoFluxo();
+        veterinarioParceiroId = String(novoParceiroId);
+      } catch (error) {
+        setErro(error instanceof Error ? error.message : "Nao foi possivel cadastrar o veterinario parceiro.");
+        return;
+      }
+    }
+
+    if (!contexto.clinic_id && !veterinarioParceiroId) {
+      setErro("Selecione a clinica parceira ou o veterinario parceiro antes de salvar o laudo.");
       return;
     }
 
@@ -445,7 +569,8 @@ export default function UploadEletrocardiogramaPage() {
     if (contexto.agendamento_id) formData.append("agendamento_id", contexto.agendamento_id);
     if (contexto.atendimento_id) formData.append("atendimento_id", contexto.atendimento_id);
     formData.append("paciente_id", pacienteId);
-    formData.append("clinic_id", contexto.clinic_id);
+    if (contexto.clinic_id) formData.append("clinic_id", contexto.clinic_id);
+    if (veterinarioParceiroId) formData.append("veterinario_parceiro_id", veterinarioParceiroId);
     if (dataExame) formData.append("data_exame", dataExame);
     if (observacoes.trim()) formData.append("observacoes", observacoes.trim());
 
@@ -481,13 +606,14 @@ export default function UploadEletrocardiogramaPage() {
               <h1>Eletrocardiograma</h1>
               <p>
                 {modoTelemedicina
-                  ? "Envie o PDF do exame remoto, vincule a clinica parceira e selecione ou cadastre tutor e pet no mesmo fluxo."
+                  ? "Envie o PDF do exame remoto, vincule a clinica parceira ou o veterinario parceiro e selecione ou cadastre tutor e pet no mesmo fluxo."
                   : "Envie o PDF final para registrar o laudo e liberar depois pelo ambiente de Laudos."}
               </p>
             </div>
             <div className="fc-ecg-upload-context">
               <p className="font-semibold">{pacienteLabel}</p>
               <p>{clinicLabel}</p>
+              <p>{parceiroLabel}</p>
               {tutorLabel ? <p>Tutor: {tutorLabel}</p> : null}
             </div>
           </div>
@@ -513,12 +639,12 @@ export default function UploadEletrocardiogramaPage() {
                 </h2>
                 <p className="mt-1 text-sm text-slate-600">
                   {modoTelemedicina
-                    ? "Defina a unidade parceira e vincule o caso ao pet certo. Se o tutor ainda nao existir, voce pode cadastrar tudo aqui."
+                    ? "Defina a unidade parceira ou o veterinario que encaminhou o caso e vincule tudo ao pet certo. Se o tutor ainda nao existir, voce pode cadastrar tudo aqui."
                     : "Revise a clinica e o paciente antes de anexar o PDF final."}
                 </p>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-3">
                 <div>
                   <label htmlFor="clinic_id">Clinica parceira</label>
                   <select
@@ -542,6 +668,45 @@ export default function UploadEletrocardiogramaPage() {
                       </option>
                     ))}
                   </select>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Use quando houver uma unidade fixa responsavel pelo caso.
+                  </p>
+                </div>
+
+                <div>
+                  <label htmlFor="veterinario_parceiro_id">Veterinario parceiro que encaminhou</label>
+                  <select
+                    id="veterinario_parceiro_id"
+                    value={contexto.veterinario_parceiro_id || ""}
+                    onChange={(event) =>
+                      setContexto((current) => ({
+                        ...current,
+                        veterinario_parceiro_id: event.target.value || undefined,
+                      }))
+                    }
+                    disabled={loadingParceiros}
+                    className={INPUT_CLASS_NAME}
+                  >
+                    <option value="">
+                      {loadingParceiros ? "Carregando parceiros..." : "Selecione o veterinario parceiro"}
+                    </option>
+                    {parceirosVeterinarios.map((partner) => (
+                      <option key={partner.id} value={String(partner.id)}>
+                        {partner.nome_exibicao}
+                      </option>
+                    ))}
+                  </select>
+                  {parceiroSelecionado ? (
+                    <p className="mt-2 text-xs text-slate-500">
+                      {parceiroSelecionado.cidade_base || "Cidade nao informada"}
+                      {parceiroSelecionado.estado_base ? `/${parceiroSelecionado.estado_base}` : ""}
+                      {parceiroSelecionado.email_login ? ` • ${parceiroSelecionado.email_login}` : ""}
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Use quando o caso foi encaminhado por profissional volante ou domiciliar.
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -555,6 +720,150 @@ export default function UploadEletrocardiogramaPage() {
                   />
                 </div>
               </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {!mostrarCadastroParceiro ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setContexto((current) => ({ ...current, veterinario_parceiro_id: undefined }));
+                      setMostrarCadastroParceiro(true);
+                    }}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    Cadastrar veterinario parceiro
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setMostrarCadastroParceiro(false)}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <Search className="h-4 w-4" />
+                    Usar parceiro ja cadastrado
+                  </button>
+                )}
+              </div>
+
+              {mostrarCadastroParceiro ? (
+                <div className="mt-5 rounded-2xl border border-cordis-100 bg-cordis-50/40 p-4">
+                  <div className="mb-4">
+                    <h4 className="text-sm font-black text-slate-900">Cadastro rapido do veterinario parceiro</h4>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Use este bloco quando o profissional ainda nao estiver no portal. O cadastro sera criado e o laudo continua na mesma etapa.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label htmlFor="parceiro-nome">Nome exibido</label>
+                      <input
+                        id="parceiro-nome"
+                        type="text"
+                        value={novoParceiro.nome_exibicao}
+                        onChange={(event) => setNovoParceiro((current) => ({ ...current, nome_exibicao: event.target.value }))}
+                        className={INPUT_CLASS_NAME}
+                        placeholder="Dra. Carla Soares"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="parceiro-email">Email de login</label>
+                      <input
+                        id="parceiro-email"
+                        type="email"
+                        value={novoParceiro.email_login}
+                        onChange={(event) => setNovoParceiro((current) => ({ ...current, email_login: event.target.value }))}
+                        className={INPUT_CLASS_NAME}
+                        placeholder="cardio@vetparceiro.com"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="parceiro-whatsapp">WhatsApp</label>
+                      <input
+                        id="parceiro-whatsapp"
+                        type="tel"
+                        value={novoParceiro.whatsapp}
+                        onChange={(event) =>
+                          setNovoParceiro((current) => ({
+                            ...current,
+                            whatsapp: formatarTelefoneVisual(event.target.value),
+                          }))
+                        }
+                        className={INPUT_CLASS_NAME}
+                        placeholder="(00) 00000-0000"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="parceiro-telefone">Telefone</label>
+                      <input
+                        id="parceiro-telefone"
+                        type="tel"
+                        value={novoParceiro.telefone}
+                        onChange={(event) =>
+                          setNovoParceiro((current) => ({
+                            ...current,
+                            telefone: formatarTelefoneVisual(event.target.value),
+                          }))
+                        }
+                        className={INPUT_CLASS_NAME}
+                        placeholder="(00) 00000-0000"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="parceiro-cidade">Cidade base</label>
+                      <input
+                        id="parceiro-cidade"
+                        type="text"
+                        value={novoParceiro.cidade_base}
+                        onChange={(event) => setNovoParceiro((current) => ({ ...current, cidade_base: event.target.value }))}
+                        className={INPUT_CLASS_NAME}
+                        placeholder="Fortaleza"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="parceiro-estado">Estado base</label>
+                      <input
+                        id="parceiro-estado"
+                        type="text"
+                        value={novoParceiro.estado_base}
+                        onChange={(event) => setNovoParceiro((current) => ({ ...current, estado_base: event.target.value.toUpperCase() }))}
+                        className={INPUT_CLASS_NAME}
+                        placeholder="CE"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="parceiro-crmv">CRMV</label>
+                      <input
+                        id="parceiro-crmv"
+                        type="text"
+                        value={novoParceiro.crmv}
+                        onChange={(event) => setNovoParceiro((current) => ({ ...current, crmv: event.target.value }))}
+                        className={INPUT_CLASS_NAME}
+                        placeholder="Opcional"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="parceiro-area">Area de atuacao</label>
+                      <input
+                        id="parceiro-area"
+                        type="text"
+                        value={novoParceiro.area_atuacao}
+                        onChange={(event) => setNovoParceiro((current) => ({ ...current, area_atuacao: event.target.value }))}
+                        className={INPUT_CLASS_NAME}
+                        placeholder="Cardiologia domiciliar"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -874,10 +1183,16 @@ export default function UploadEletrocardiogramaPage() {
               </button>
               <button
                 type="submit"
-                disabled={enviando || loadingContexto || loadingClinicas || salvandoNovoPaciente}
+                disabled={
+                  enviando ||
+                  loadingContexto ||
+                  loadingClinicas ||
+                  salvandoNovoPaciente ||
+                  salvandoNovoParceiro
+                }
                 className="fc-ecg-upload-submit"
               >
-                {enviando || salvandoNovoPaciente ? (
+                {enviando || salvandoNovoPaciente || salvandoNovoParceiro ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Upload className="h-4 w-4" />
@@ -886,6 +1201,8 @@ export default function UploadEletrocardiogramaPage() {
                   ? "Enviando..."
                   : salvandoNovoPaciente
                     ? "Cadastrando paciente..."
+                    : salvandoNovoParceiro
+                      ? "Cadastrando parceiro..."
                     : "Salvar laudo"}
               </button>
             </div>

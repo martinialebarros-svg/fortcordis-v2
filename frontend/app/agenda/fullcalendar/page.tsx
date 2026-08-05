@@ -274,17 +274,6 @@ const minutosParaHoraComSegundos = (minutos: number): string => {
   return `${String(horas).padStart(2, "0")}:${String(mins).padStart(2, "0")}:00`;
 };
 
-const somarMinutosHHMM = (hora: string, minutosAdicionar: number): string => {
-  const [hhRaw = "0", mmRaw = "0"] = String(hora || "00:00").split(":");
-  const hh = Number.parseInt(hhRaw, 10);
-  const mm = Number.parseInt(mmRaw, 10);
-  const base = (Number.isFinite(hh) ? hh : 0) * 60 + (Number.isFinite(mm) ? mm : 0);
-  const total = Math.max(0, Math.min((24 * 60) - 1, base + Math.max(1, minutosAdicionar)));
-  const h = Math.floor(total / 60);
-  const m = total % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-};
-
 const usuarioEhAdmin = () => {
   if (typeof window === "undefined") return false;
 
@@ -1505,13 +1494,41 @@ export default function AgendaFullCalendarPage() {
       setMenuStatusAberto(false);
 
       try {
-        const params = new URLSearchParams();
-        params.append("status", novoStatus);
-        if (tipoHorarioParam) {
-          params.append("tipo_horario", tipoHorarioParam);
-        }
+        const enviarAtualizacao = (confirmarReservaExpirada = false) => {
+          const params = new URLSearchParams();
+          params.append("status", novoStatus);
+          if (tipoHorarioParam) {
+            params.append("tipo_horario", tipoHorarioParam);
+          }
+          if (confirmarReservaExpirada) {
+            params.append("confirmar_slot_reserva_expirada", "true");
+          }
+          return api.patch(`/agenda/${agendamentoId}/status?${params.toString()}`);
+        };
 
-        const response = await api.patch(`/agenda/${agendamentoId}/status?${params.toString()}`);
+        let response;
+        try {
+          response = await enviarAtualizacao(false);
+        } catch (errorInicial: any) {
+          const detail = errorInicial?.response?.data?.detail;
+          if (
+            errorInicial?.response?.status !== 409 ||
+            detail?.codigo !== "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+          ) {
+            throw errorInicial;
+          }
+          const confirmou = await fortinho.confirm({
+            title: "Confirmação recebida após o prazo",
+            message:
+              "Confirme somente se este mesmo cliente respondeu depois do vencimento. O sistema verificará se o horário ainda está livre antes de mudar o status para Agendado.",
+            mood: "alert",
+            gesture: "open-arms",
+            confirmLabel: "Cliente confirmou; agendar",
+            cancelLabel: "Cancelar",
+          });
+          if (!confirmou) return;
+          response = await enviarAtualizacao(true);
+        }
         setErro("");
         setMensagemStatus(response.data?.mensagem || `Status atualizado para ${novoStatus}.`);
 
@@ -1530,69 +1547,7 @@ export default function AgendaFullCalendarPage() {
         setAtualizandoStatusId(null);
       }
     },
-    [carregarAgendamentos, intervalo]
-  );
-
-  const abrirExcecaoNoSlotAdmin = useCallback(
-    async (dataIso: string, hora: string, duracaoMin: number) => {
-      if (!isAdmin) {
-        setErro("Apenas administradores podem abrir excecao de agenda.");
-        return false;
-      }
-
-      const confirmado = window.confirm(
-        `Abrir excecao de agenda em ${dataIso} às ${hora} para permitir agendamento?`
-      );
-      if (!confirmado) {
-        return false;
-      }
-
-      const fim = somarMinutosHHMM(hora, Math.max(30, duracaoMin));
-      const excecaoExistente = agendaExcecoes.find((item) => item.data === dataIso);
-
-      let inicioExcecao = hora;
-      let fimExcecao = fim;
-      if (excecaoExistente?.ativo) {
-        inicioExcecao = excecaoExistente.inicio < hora ? excecaoExistente.inicio : hora;
-        fimExcecao = excecaoExistente.fim > fim ? excecaoExistente.fim : fim;
-      }
-
-      const payloadExcecoes = normalizarAgendaExcecoes([
-        ...agendaExcecoes.filter((item) => item.data !== dataIso),
-        {
-          data: dataIso,
-          ativo: true,
-          inicio: inicioExcecao,
-          fim: fimExcecao,
-          motivo: "Abertura rapida via slot do FullCalendar",
-        },
-      ]);
-
-      try {
-        setSalvandoAgendaDia(true);
-        setErro("");
-        await api.put("/configuracoes", { agenda_excecoes: payloadExcecoes });
-        setAgendaExcecoes(payloadExcecoes);
-        setDataControleAgenda(dataIso);
-        setMensagemStatus(`Excecao aberta em ${dataIso} (${inicioExcecao} - ${fimExcecao}).`);
-        return true;
-      } catch (error: any) {
-        if (error?.response?.status === 403) {
-          setErro("Sem permissao para abrir excecao de agenda.");
-        } else {
-          setErro(
-            extrairMensagemErroApi(
-              error?.response?.data?.detail,
-              "Nao foi possivel abrir excecao para este horario."
-            )
-          );
-        }
-        return false;
-      } finally {
-        setSalvandoAgendaDia(false);
-      }
-    },
-    [agendaExcecoes, isAdmin]
+    [carregarAgendamentos, fortinho, intervalo]
   );
 
   const executarAcaoStatus = useCallback(
@@ -1601,6 +1556,18 @@ export default function AgendaFullCalendarPage() {
 
       if (selecionado.status === acao.status) {
         setMensagemStatus(`Este agendamento ja esta com status ${acao.status}.`);
+        setMenuStatusAberto(false);
+        return;
+      }
+
+      if (
+        selecionado.status === "Expirado" &&
+        acao.status === "Agendado" &&
+        (!selecionado.paciente_id || !selecionado.tutor_id)
+      ) {
+        setErro(
+          "Antes de confirmar tardiamente, edite a reserva e preencha os dados do tutor e do pet. Depois use 'Agendar após confirmação tardia'."
+        );
         setMenuStatusAberto(false);
         return;
       }
@@ -2209,13 +2176,8 @@ export default function AgendaFullCalendarPage() {
       const validacaoHorario = validarHorarioNaAgenda(inicio, fim);
       if (!validacaoHorario.valido) {
         if (isAdmin) {
-          const dataIso = toDateInput(inicio);
-          const horaIso = toTimeInput(inicio);
-          const abriu = await abrirExcecaoNoSlotAdmin(dataIso, horaIso, duracaoSlotMinutos);
-          if (abriu) {
-            setErro("");
-            abrirModalCriacao(inicio, false);
-          }
+          setErro("");
+          abrirModalCriacao(inicio, false);
           return;
         }
         setErro(validacaoHorario.motivo || "Agenda fechada para este horario.");
@@ -2232,7 +2194,6 @@ export default function AgendaFullCalendarPage() {
       agendaExcecoes,
       agendaFeriados,
       agendaSemanal,
-      abrirExcecaoNoSlotAdmin,
       abrirModalCriacao,
       duracaoSlotMinutos,
       existeConflitoSlot,
@@ -2257,13 +2218,8 @@ export default function AgendaFullCalendarPage() {
       const validacaoHorario = validarHorarioNaAgenda(inicio, fim);
       if (!validacaoHorario.valido) {
         if (isAdmin) {
-          const dataIso = toDateInput(inicio);
-          const horaIso = toTimeInput(inicio);
-          const abriu = await abrirExcecaoNoSlotAdmin(dataIso, horaIso, duracaoSlotMinutos);
-          if (abriu) {
-            setErro("");
-            abrirModalCriacao(inicio, false);
-          }
+          setErro("");
+          abrirModalCriacao(inicio, false);
           return;
         }
         setErro(validacaoHorario.motivo || "Agenda fechada para este horario.");
@@ -2280,7 +2236,6 @@ export default function AgendaFullCalendarPage() {
       agendaExcecoes,
       agendaFeriados,
       agendaSemanal,
-      abrirExcecaoNoSlotAdmin,
       abrirModalCriacao,
       duracaoSlotMinutos,
       existeConflitoSlot,
@@ -2535,7 +2490,9 @@ export default function AgendaFullCalendarPage() {
             eventDrop={handleEventDrop}
             eventResize={handleEventResize}
             businessHours={businessHours}
-            selectAllow={(selectInfo) => permiteInteracaoHorarioAgenda(selectInfo.start, selectInfo.end ?? selectInfo.start)}
+            selectAllow={(selectInfo) =>
+              isAdmin || permiteInteracaoHorarioAgenda(selectInfo.start, selectInfo.end ?? selectInfo.start)
+            }
             eventAllow={(dropInfo) => permiteInteracaoHorarioAgenda(dropInfo.start, dropInfo.end ?? dropInfo.start)}
             eventOverlap={(stillEvent, movingEvent) => {
               const statusStill = String(

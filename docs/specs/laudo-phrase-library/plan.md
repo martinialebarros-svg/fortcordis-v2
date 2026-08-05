@@ -10,6 +10,7 @@ Status: done
 - Fase 2 (backend/API): adicionar endpoints de duplicar, desativar/restaurar e sincronizacao de presets.
 - Fase 3 (frontend): criar aba Biblioteca e cliente API compartilhado.
 - Fase 4 (validacao): executar testes backend, TypeScript e guardrail SDD.
+- Fase 5 (seletor de conclusao): substituir a lista nativa extensa por seletor pesquisavel e agrupado por patologia na aba Qualitativa.
 
 ## 2) Tarefas por fase
 
@@ -46,12 +47,24 @@ Status: done
 - Risco: lint global falhar por erro preexistente.
 - Rollback: documentar erro preexistente e usar verificacao direcionada.
 
+### Fase 5
+
+- [x] T5.1 Criar seletor exclusivo para o aspecto Conclusao com busca, grupos expansivos e contagem.
+- [x] T5.2 Reutilizar `patologias` e `tags` do banco, com atalhos clinicos e grupo de fallback.
+- [x] T5.3 Preservar o botao `Usar frase`, exibir previa e manter os demais aspectos no seletor simples.
+- [x] T5.4 Validar lint, TypeScript e build de producao.
+- [ ] T5.5 Validar guardrail, publicar em stage e repetir o fluxo no frontend servido.
+- [x] T5.6 Corrigir o recorte vertical com portal, posicionamento adaptativo e altura limitada ao viewport.
+- Criterio de conclusao: conclusoes podem ser encontradas por busca ou patologia sem abrir uma lista nativa unica, e selecionar uma opcao nao altera o texto antes de `Usar frase`.
+- Risco: painel customizado ultrapassar a viewport ou perder fechamento por teclado/clique externo.
+- Rollback: restaurar o `select` nativo apenas para Conclusao, sem alterar o banco ou as frases.
+
 ## 3) Plano de testes
 
 - Testes unitarios: `python3 -m unittest backend/tests/test_frases_ecocardiograma_estruturado_teste_service.py`.
 - Testes de integracao: `python3 -m py_compile` nos endpoints/servico alterados.
-- Testes frontend: `cd frontend && npx tsc --noEmit`.
-- Testes manuais: abrir stage, acessar novo/editar laudo, usar aba Biblioteca, editar frase e aplicar preset na Qualitativa.
+- Testes frontend: ESLint direcionado dos componentes, `cd frontend && npx tsc --noEmit --incremental false` e `npm run build`.
+- Testes manuais: abrir stage, acessar novo/editar laudo, usar aba Biblioteca, editar frase, pesquisar/expandir grupos de Conclusao e aplicar uma frase na Qualitativa.
 
 ## 4) Dependencias e bloqueios
 

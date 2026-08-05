@@ -30,6 +30,8 @@ from app.api.v1.endpoints import (
     pacientes,
     portal,
     portal_clinic_auth,
+    portal_partner_auth,
+    portal_partners,
     relatorios,
     referencias_eco,
     servicos,
@@ -157,9 +159,10 @@ def _ensure_financeiro_schema_compat() -> None:
             PushScheduledNotification.__table__.create(bind=conn, checkfirst=True)
 
             # Compat para módulo fiscal
-            from app.models.fiscal import FiscalNumeroSequencia, NotaFiscal
+            from app.models.fiscal import FiscalNumeroSequencia, NotaFiscal, RelatorioFiscalEmissao
             NotaFiscal.__table__.create(bind=conn, checkfirst=True)
             FiscalNumeroSequencia.__table__.create(bind=conn, checkfirst=True)
+            RelatorioFiscalEmissao.__table__.create(bind=conn, checkfirst=True)
 
             inspector = inspect(conn)
             if "configuracoes_usuario" in inspector.get_table_names():
@@ -434,6 +437,8 @@ app.include_router(configuracoes.router, prefix="/api/v1", tags=["configuracoes"
 app.include_router(tutores.router, prefix="/api/v1/tutores", tags=["tutores"])
 app.include_router(portal.router, prefix="/api/v1/portal", tags=["portal"])
 app.include_router(portal_clinic_auth.router, prefix="/api/v1/portal", tags=["portal"])
+app.include_router(portal_partner_auth.router, prefix="/api/v1/portal", tags=["portal"])
+app.include_router(portal_partners.router, prefix="/api/v1/portal", tags=["portal"])
 app.include_router(referencias_eco.router, prefix="/api/v1/referencias-eco", tags=["referencias_eco"])
 app.include_router(atendimento.router, prefix="/api/v1/atendimentos", tags=["atendimento"])
 app.include_router(logistica.router, prefix="/api/v1/logistica", tags=["logistica"])

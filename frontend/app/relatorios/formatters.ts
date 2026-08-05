@@ -11,10 +11,7 @@ export const formatarPercentual = (valor: number | null | undefined): string =>
   `${formatarNumero(valor || 0, 2)}%`;
 
 export const formatarDataPtBr = (valor: string | null | undefined): string => {
-  if (!valor) return "-";
-  const dt = new Date(valor);
-  if (Number.isNaN(dt.getTime())) return valor;
-  return dt.toLocaleDateString("pt-BR");
+  return formatCalendarDate(valor);
 };
 
 export const dateToIsoLocal = (value: Date): string => {
@@ -23,4 +20,5 @@ export const dateToIsoLocal = (value: Date): string => {
   const dia = `${value.getDate()}`.padStart(2, "0");
   return `${ano}-${mes}-${dia}`;
 };
+import { formatCalendarDate } from "@/lib/calendar-date";
 
