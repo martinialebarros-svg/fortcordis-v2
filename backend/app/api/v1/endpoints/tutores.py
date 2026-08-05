@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import String, cast, func, inspect, text
+from sqlalchemy import String, cast, func, inspect, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -36,6 +36,19 @@ def _gerar_nome_key(nome: Optional[str]) -> str:
     texto = re.sub(r"[^a-z0-9\s]", "", texto)
     texto = re.sub(r"\s+", " ", texto)
     return texto
+
+
+def _variantes_busca_nome(termo_key: str) -> set[str]:
+    """Aceita pequenas variacoes comuns, como Jeferson/Jefferson."""
+    termo = str(termo_key or "").strip()
+    if not termo:
+        return set()
+
+    variantes = {termo, re.sub(r"(.)\1+", r"\1", termo)}
+    for indice, caractere in enumerate(termo):
+        if caractere.isalnum():
+            variantes.add(f"{termo[:indice]}{caractere}{termo[indice:]}")
+    return {item for item in variantes if item}
 
 
 def _legacy_now_dt() -> datetime:
@@ -203,14 +216,81 @@ def listar_tutores(
     query = db.query(Tutor).filter(_filtro_tutor_ativo())
 
     if busca:
-        query = query.filter(Tutor.nome.ilike(f"%{busca}%"))
+        termo = busca.strip()
+        if termo:
+            termo_escapado = (
+                termo.replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_")
+            )
+            termo_key = _gerar_nome_key(termo)
+            filtros = [
+                Tutor.nome.ilike(f"%{termo_escapado}%", escape="\\"),
+                Tutor.telefone.ilike(f"%{termo_escapado}%", escape="\\"),
+                Tutor.whatsapp.ilike(f"%{termo_escapado}%", escape="\\"),
+                Tutor.email.ilike(f"%{termo_escapado}%", escape="\\"),
+                Tutor.cidade.ilike(f"%{termo_escapado}%", escape="\\"),
+            ]
+            variantes_nome = _variantes_busca_nome(termo_key)
+            for variante in variantes_nome:
+                variante_escapada = (
+                    variante.replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_")
+                )
+                filtros.append(
+                    Tutor.nome_key.ilike(f"%{variante_escapada}%", escape="\\")
+                )
+            filtros_pet = [
+                Paciente.nome.ilike(f"%{termo_escapado}%", escape="\\")
+            ]
+            for variante in variantes_nome:
+                variante_escapada = (
+                    variante.replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_")
+                )
+                filtros_pet.append(
+                    Paciente.nome_key.ilike(f"%{variante_escapada}%", escape="\\")
+                )
+            tutores_por_pet = (
+                db.query(Paciente.tutor_id)
+                .filter(Paciente.tutor_id.isnot(None), or_(*filtros_pet))
+            )
+            filtros.append(Tutor.id.in_(tutores_por_pet))
+            query = query.filter(or_(*filtros))
 
     total = query.count()
-    items = query.offset(skip).limit(limit).all()
+    items = (
+        query.order_by(Tutor.nome.asc(), Tutor.id.asc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+    items_serializados = [_serialize_tutor_lista_item(tutor) for tutor in items]
+    if busca and items_serializados:
+        tutor_ids = [item["id"] for item in items_serializados]
+        pets_por_tutor: dict[int, list[dict[str, object]]] = {
+            tutor_id: [] for tutor_id in tutor_ids
+        }
+        pets = (
+            db.query(Paciente.id, Paciente.nome, Paciente.tutor_id)
+            .filter(Paciente.tutor_id.in_(tutor_ids))
+            .order_by(Paciente.nome.asc(), Paciente.id.asc())
+            .all()
+        )
+        for pet_id, pet_nome, tutor_id in pets:
+            pets_por_tutor.setdefault(int(tutor_id), []).append(
+                {"id": int(pet_id), "nome": str(pet_nome or "")}
+            )
+        for item in items_serializados:
+            item["pets"] = pets_por_tutor.get(item["id"], [])
+            item["total_pets"] = len(item["pets"])
 
     return {
         "total": total,
-        "items": [_serialize_tutor_lista_item(t) for t in items]
+        "items": items_serializados,
     }
 
 

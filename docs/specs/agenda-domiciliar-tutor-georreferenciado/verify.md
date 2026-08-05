@@ -1,6 +1,6 @@
 # Verify - agenda-domiciliar-tutor-georreferenciado
 
-Data: 2026-07-08  
+Data: 2026-07-30
 Responsavel: Codex  
 Status: done
 
@@ -9,6 +9,8 @@ Status: done
 | ID | Tipo | Evidencia | Status |
 | --- | --- | --- | --- |
 | CA-001 | aceitacao | `backend/tests/test_tutor_panorama_georef.py::test_panorama_tutor_retorna_pets_e_status_georreferenciamento`, `::test_geocode_endereco_tutor_retorna_payload_google`, `::test_listar_tutores_expoe_campos_endereco_para_fluxo_domiciliar` e `::test_listar_tutores_nao_marca_coordenadas_zero_como_georreferenciadas` | ok |
+| CA-001.c | aceitacao | `backend/tests/test_tutor_panorama_georef.py::test_busca_tutor_acontece_antes_da_paginacao_e_aceita_nome_ou_telefone` cobre busca antes da paginação, telefone, pet e variacao `Jeferson`/`Jefferson`; o frontend consulta `/tutores` apos debounce | ok |
+| CA-001.d | frontend | `frontend/app/agenda/NovoAgendamentoModal.tsx` apresenta ID, endereco e pets no resultado remoto antes da selecao | ok |
 | CA-001.b | frontend | `frontend/app/agenda/NovoAgendamentoModal.tsx` e `frontend/lib/atendimento-cadastro.ts` formatam CPF, telefone, WhatsApp e CEP durante a digitacao e para registros existentes; `npm run lint` | ok |
 | CA-002 | aceitacao | `backend/tests/test_agenda_origem_domiciliar.py::test_criar_agendamento_domiciliar_exige_tutor_georreferenciado`, `::test_criar_agendamento_domiciliar_rejeita_tutor_com_coordenadas_zero_sem_endereco` e `::test_criar_agendamento_domiciliar_persiste_origem_e_rotulo_operacional` | ok |
 | CA-003 | aceitacao | `backend/tests/test_agenda_origem_domiciliar.py::test_agendamento_legado_resolve_tutor_id_pelo_paciente_na_lista_e_no_detalhe` e `backend/tests/test_agendamentos_origem_domiciliar_migration.py::test_upgrade_adds_columns_and_backfills_tutor_id_from_paciente` | ok |
@@ -21,6 +23,7 @@ Status: done
 | NFR-003 | nao funcional | `frontend/app/agenda/NovoAgendamentoModal.tsx` explicita fluxo domiciliar sem clinica ficticia e bloqueia save sem georreferenciamento do tutor | ok |
 | NFR-004 | nao funcional | `backend/tests/test_agenda_sugestao_janela_operacional.py`, `backend/tests/test_agenda_assistente_orquestrador_metricas.py` e `frontend/app/agenda/NovoAgendamentoModal.tsx` mantiveram o mesmo assistente guiado para clinica e domiciliar usando destino operacional georreferenciado | ok |
 | NFR-005 | nao funcional | `backend/tests/test_logistica_google_cost_controls.py` validou gate de lookup ao vivo, persistencia de matriz operacional e reuso sem novo consumo do Google para o mesmo par tutor-clinica | ok |
+| NFR-006 | nao funcional | busca remota aplica filtro no backend antes de `skip`/`limit`, eliminando a dependencia do lote inicial de 1.000 tutores | ok |
 
 ## 2) Testes automatizados executados
 
@@ -52,6 +55,12 @@ Resumo dos resultados:
 - Frontend: ESLint focado e `tsc --noEmit` passaram com o novo fluxo de CEP automatico no modal do tutor.
 - Integridade textual: `git diff --check` passou sem whitespace ou marcacao quebrada.
 
+Atualizacao de 2026-07-30:
+- `backend/venv/bin/python -m pytest backend/tests/test_tutor_panorama_georef.py -q`: 6 testes passaram.
+- `cd frontend && npx eslint app/agenda/NovoAgendamentoModal.tsx`: passou.
+- `cd frontend && npx tsc --noEmit`: passou.
+- `git diff --check`: passou.
+
 ## 3) Testes manuais
 
 - Cenario 1: selecionar tutor sem georreferenciamento no modal de agenda domiciliar. Resultado esperado: bloqueio antes do save com orientacao para georreferenciar.
@@ -66,6 +75,8 @@ Resumo dos resultados:
 - Cenario 4: concluir o agendamento domiciliar como `Realizado` e validar na tela financeira que a OS ficou sem clinica e com preco domiciliar do servico.
 - Cenario 4.a: tentar salvar um domiciliar em horario que viole a margem entre um atendimento de clinica e outro destino e confirmar bloqueio por conflito operacional.
 - Cenario 5: em ambiente com legado, abrir um agendamento antigo com `paciente_id` preenchido e `tutor_id` nulo e confirmar que o tutor continua aparecendo apos a migration.
+- Cenario 6: com mais de 1.000 tutores ativos, pesquisar por nome, telefone ou pet um tutor fora do lote inicial e confirmar que ele aparece e pode ser selecionado.
+- Cenario 6.a: pesquisar `Jeferson` e confirmar que os registros `JEFERSON`, `Jefferson` e `Jefferson da Silva` ficam distinguiveis pelo ID, endereco e pets.
 
 ## 4) Regressao e riscos residuais
 
