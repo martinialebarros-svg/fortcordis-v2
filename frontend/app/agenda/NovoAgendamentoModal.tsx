@@ -2210,7 +2210,7 @@ export default function NovoAgendamentoModal({
     setModalAnimalAberto(true);
   };
 
-  const salvarNovoTutor = async () => {
+  const salvarNovoTutor = async (confirmarReativacao = false) => {
     const nome = novoTutor.nome.trim();
     if (!nome) {
       fortinho.notify({
@@ -2227,6 +2227,7 @@ export default function NovoAgendamentoModal({
       setSalvandoTutor(true);
       const payload = {
         nome,
+        confirmar_reativacao: confirmarReativacao,
         telefone: novoTutor.telefone || null,
         whatsapp: novoTutor.whatsapp || novoTutor.telefone || null,
         email: novoTutor.email || null,
@@ -2283,6 +2284,29 @@ export default function NovoAgendamentoModal({
       await carregarPanoramaTutor(String(tutorId));
     } catch (error: any) {
       const detail = error?.response?.data?.detail ?? error?.message;
+      if (
+        !confirmarReativacao &&
+        detail &&
+        typeof detail === "object" &&
+        detail.codigo === "TUTOR_INATIVO_EXISTENTE"
+      ) {
+        const tutorExistente = detail.tutor || {};
+        const nomeExistente = String(tutorExistente.nome || nome).trim() || "este tutor";
+        const confirmou = await fortinho.confirm({
+          title: "Cadastro anterior encontrado",
+          message:
+            `${nomeExistente} possui um cadastro inativo com este mesmo nome. ` +
+            "Deseja reativa-lo e usar este cadastro no agendamento?",
+          mood: "alert",
+          gesture: "idle",
+          confirmLabel: "Reativar tutor",
+          cancelLabel: "Manter como esta",
+        });
+        if (confirmou) {
+          await salvarNovoTutor(true);
+        }
+        return;
+      }
       fortinho.notify({
         title: "Erro ao salvar tutor",
         message: extrairMensagemErro(detail),
@@ -4225,7 +4249,7 @@ export default function NovoAgendamentoModal({
               </button>
               <button
                 type="button"
-                onClick={salvarNovoTutor}
+                onClick={() => void salvarNovoTutor()}
                 className="fc-appointment-button-primary"
                 disabled={salvandoTutor}
               >

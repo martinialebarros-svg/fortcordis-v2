@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.endpoints import portal as portal_endpoints
 from app.core.config import settings
 from app.core.portal_security import PortalSessionContext
-from app.core.security import require_papel
+from app.core.security import require_any_papel, require_papel
 from app.db.database import get_db
 from app.models.atendimento_clinico import AnexoAtendimento
 from app.models.auditoria_evento import AuditoriaEvento
@@ -114,9 +114,23 @@ PORTAL_DOWNLOAD_AUDIT_ACTION = "PORTAL_DOWNLOAD_ARQUIVO"
 PORTAL_RECENT_DOWNLOADS_LIMIT = 20
 PORTAL_TIMELINE_LIMIT_PER_CLINICA = 8
 PORTAL_TIMELINE_DOWNLOAD_LIMIT_PER_CLINICA = 6
+PORTAL_INVITE_OPERATOR_ROLES = (
+    "admin",
+    "secretaria",
+    "secretária",
+    "recepcao",
+    "recepção",
+)
 
 
 def _require_portal_admin(current_user: User = Depends(require_papel("admin"))) -> User:
+    return current_user
+
+
+def _require_portal_invite_operator(
+    current_user: User = Depends(require_any_papel(*PORTAL_INVITE_OPERATOR_ROLES)),
+) -> User:
+    """Permite à operação enviar convites sem conceder poderes de revogação."""
     return current_user
 
 
@@ -625,7 +639,7 @@ def _login_result_response(result, *, message: str | None = None) -> PortalClini
 def consultar_acesso_clinica_admin(
     clinica_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(_require_portal_admin),
+    current_user: User = Depends(_require_portal_invite_operator),
 ):
     _assert_invite_auth_enabled()
     clinica = get_active_clinica_or_404(db, clinica_id)
@@ -730,7 +744,7 @@ def gerar_download_espelho_portal_clinica_admin(
 @router.get("/admin/clinicas/acessos/painel", response_model=PortalAdminClinicAccessOverviewResponse)
 def consultar_painel_acessos_clinicas(
     db: Session = Depends(get_db),
-    current_user: User = Depends(_require_portal_admin),
+    current_user: User = Depends(_require_portal_invite_operator),
 ):
     del current_user
     _assert_invite_auth_enabled()
@@ -886,7 +900,7 @@ def criar_convite_clinica(
     payload: PortalAdminClinicInviteCreateRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(_require_portal_admin),
+    current_user: User = Depends(_require_portal_invite_operator),
 ):
     _assert_invite_auth_enabled()
     clinica = get_active_clinica_or_404(db, clinica_id)

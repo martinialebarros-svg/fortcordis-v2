@@ -46,6 +46,7 @@ Status: done
 | CA-029 | frontend | `frontend/components/portal/PortalClinicaWorkspace.tsx` + `frontend/app/globals.css` mantem o card `Sessao ativa` legivel dentro do hero autenticado da clinica | ok |
 | CA-030 | aceitacao | `frontend/app/clinicas/portal/espelho/page.tsx` + `frontend/components/portal/PortalClinicaWorkspace.tsx` em `mode="admin_preview"` + `backend/tests/test_portal_access_foundation.py::test_admin_mirror_reuses_clinic_portal_scope_and_downloads` | ok |
 | CA-031 | frontend | `frontend/app/clinicas/portal/page.tsx` formata o WhatsApp como `(00) 00000-0000` ao carregar, digitar ou colar e limita a entrada visual a 15 caracteres | ok |
+| CA-032 | autorizacao | `backend/tests/test_portal_clinic_invite_auth.py::test_secretaria_e_recepcao_podem_gerar_convite_sem_poder_revogar` valida painel, criacao de convite e negativa `403` para revogacao | ok |
 | NFR-008 | nao funcional | auditoria de download enriquecida com `actor_type`, `clinica_id` e `account_id` em `backend/app/api/v1/endpoints/portal.py` | ok |
 | NFR-009 | nao funcional | confirmacoes explicitas antes de revogacoes no cockpit administrativo | ok |
 | NFR-010 | nao funcional | painel calcula metricas somente a partir dos dados de acesso ja autorizados no backend | ok |
@@ -57,6 +58,7 @@ Status: done
 | NFR-017 | nao funcional | hero autenticado restringe contraste invertido ao bloco institucional e preserva cards de apoio com fundo claro e texto escuro | ok |
 | NFR-018 | nao funcional | rotas administrativas de espelho reutilizam `listar_exames_clinica_portal` e `gerar_download_url_exame_portal`, evitando duplicacao do motor de escopo da clinica | ok |
 | NFR-019 | nao funcional | `normalizarWhatsappsParaApi` remove a mascara antes de montar `delivery_target` no convite administrativo | ok |
+| NFR-020 | seguranca | `recepcao`/`secretaria` so usam as rotas de leitura e criacao de convite; as dependencias das revogacoes continuam em `_require_portal_admin` | ok |
 
 ## 2) Testes automatizados executados
 

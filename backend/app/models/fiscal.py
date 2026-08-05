@@ -63,3 +63,25 @@ class FiscalNumeroSequencia(Base):
     ano = Column(Integer, primary_key=True)
     ultimo_numero = Column(Integer, nullable=False, default=0)
     updated_at = Column(Text, default=_now_str)
+
+
+class RelatorioFiscalEmissao(Base):
+    """Trilha de auditoria dos relatórios contábeis efetivamente exportados."""
+
+    __tablename__ = "relatorios_fiscais_emissoes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    formato = Column(String(10), nullable=False)
+    modo = Column(String(20), nullable=False)
+    tipo_emissao = Column(String(30), nullable=False, default="fechamento_periodo")
+    data_inicio = Column(String(10))
+    data_fim = Column(String(10))
+    quantidade_os = Column(Integer, nullable=False, default=0)
+    valor_total = Column(Numeric(12, 2), nullable=False, default=0)
+    clinicas_json = Column(Text, nullable=False, default="[]")
+    os_ids_json = Column(Text, nullable=False, default="[]")
+    descricao_servico = Column(Text)
+    arquivo_nome = Column(Text)
+    usuario_id = Column(Integer)
+    usuario_nome = Column(Text)
+    emitido_em = Column(Text, nullable=False, default=_now_str)
