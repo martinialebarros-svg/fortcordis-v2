@@ -172,6 +172,89 @@ class TutorPanoramaGeorefTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_busca_tutor_acontece_antes_da_paginacao_e_aceita_nome_ou_telefone(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            db.add_all(
+                [
+                    Tutor(
+                        nome=f"Tutor comum {indice:03d}",
+                        nome_key=f"tutor comum {indice:03d}",
+                        ativo=1,
+                    )
+                    for indice in range(60)
+                ]
+            )
+            db.add_all(
+                [
+                    Tutor(
+                        nome="Jéfferson remoto",
+                        nome_key="jefferson remoto",
+                        telefone="(85) 99806-9930",
+                        ativo=1,
+                    ),
+                    Tutor(nome="JEFERSON", nome_key="jeferson", ativo=1),
+                    Tutor(
+                        nome="Jefferson da Silva",
+                        nome_key="jefferson da silva",
+                        ativo=1,
+                    ),
+                ]
+            )
+            db.commit()
+            tutor_remoto = (
+                db.query(Tutor)
+                .filter(Tutor.nome_key == "jefferson remoto")
+                .one()
+            )
+            db.add(
+                Paciente(
+                    nome="Billy remoto",
+                    nome_key="billy remoto",
+                    tutor_id=tutor_remoto.id,
+                    ativo=1,
+                )
+            )
+            db.commit()
+
+            por_nome = tutores.listar_tutores(
+                limit=10,
+                busca="Jeferson",
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+            por_telefone = tutores.listar_tutores(
+                limit=10,
+                busca="99806",
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+            por_pet = tutores.listar_tutores(
+                limit=10,
+                busca="Billy remoto",
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+
+            self.assertEqual(por_nome["total"], 3)
+            remoto_por_nome = next(
+                item for item in por_nome["items"]
+                if item["nome"] == "Jéfferson remoto"
+            )
+            self.assertEqual(remoto_por_nome["total_pets"], 1)
+            self.assertEqual(
+                remoto_por_nome["pets"],
+                [{"id": por_pet["items"][0]["pets"][0]["id"], "nome": "Billy remoto"}],
+            )
+            self.assertEqual(por_telefone["total"], 1)
+            self.assertEqual(por_telefone["items"][0]["nome"], "Jéfferson remoto")
+            self.assertEqual(por_pet["total"], 1)
+            self.assertEqual(por_pet["items"][0]["nome"], "Jéfferson remoto")
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_sugestao_horario_exige_clinica_georreferenciada(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
