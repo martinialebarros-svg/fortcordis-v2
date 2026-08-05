@@ -102,5 +102,8 @@ concluidos). Resultado final, apos as correcoes desta secao:
 
 ## 7) Decisao de release
 
-- [ ] Aprovado para stage.
+- [x] Aprovado para stage - `3690182e`, deploy-stage concluido com sucesso
+  (quality-gate + sdd-guardrail + deploy-stage). Colisao de versao de
+  migration com `origin/stage` (outro pacote concorrente tambem usou
+  `20260804_62`) detectada e corrigida antes do push (renumerada para 63).
 - [ ] Aprovado para producao.
