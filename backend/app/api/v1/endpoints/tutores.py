@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import inspect, text
+from sqlalchemy import String, cast, func, inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -19,6 +19,11 @@ from app.services.geocoding_service import GeocodingError, geocodificar_endereco
 from app.core.config import settings
 
 router = APIRouter()
+
+
+def _filtro_tutor_ativo():
+    """Compatibilidade com registros legados onde `ativo` ficou NULL/texto."""
+    return func.lower(func.coalesce(cast(Tutor.ativo, String), "1")).in_(["1", "true", "t"])
 
 
 def _gerar_nome_key(nome: Optional[str]) -> str:
@@ -194,7 +199,7 @@ def listar_tutores(
 ):
     """Lista todos os tutores."""
     _ensure_tutores_georef_columns(db)
-    query = db.query(Tutor).filter(Tutor.ativo == 1)
+    query = db.query(Tutor).filter(_filtro_tutor_ativo())
 
     if busca:
         query = query.filter(Tutor.nome.ilike(f"%{busca}%"))
@@ -301,7 +306,7 @@ def obter_panorama_tutor(
 ):
     """Retorna tutor com a lista panoramica de pets vinculados."""
     _ensure_tutores_georef_columns(db)
-    tutor = db.query(Tutor).filter(Tutor.id == tutor_id, Tutor.ativo == 1).first()
+    tutor = db.query(Tutor).filter(Tutor.id == tutor_id).filter(_filtro_tutor_ativo()).first()
     if not tutor:
         raise HTTPException(status_code=404, detail="Tutor nao encontrado")
 
