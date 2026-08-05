@@ -2643,7 +2643,20 @@ export default function AtendimentoPage() {
           try {
             const parsedBackup = JSON.parse(rawBackup) as { form?: Partial<AtendimentoForm> };
             if (parsedBackup.form) {
-              const candidato = { ...hydrated, ...parsedBackup.form, id: hydrated.id };
+              // `especie`/`evolucoes`/`anexos`/`documentos` nao fazem parte de
+              // buildAtendimentoPayload - sao autoritativos do servidor e podem
+              // ter mudado nesse meio-tempo por uma acao diferente do autosave
+              // (ex.: registrar evolucao, upload de anexo). O backup local so
+              // deve substituir os campos que ele proprio protege (o payload);
+              // esses 4 sempre vem do `hydrated` (servidor), nunca do backup.
+              const {
+                especie: _especieBackup,
+                evolucoes: _evolucoesBackup,
+                anexos: _anexosBackup,
+                documentos: _documentosBackup,
+                ...backupSemCamposServidor
+              } = parsedBackup.form;
+              const candidato = { ...hydrated, ...backupSemCamposServidor, id: hydrated.id };
               if (serializeAtendimentoSnapshot(candidato) !== serializeAtendimentoSnapshot(hydrated)) {
                 formParaAplicar = candidato;
                 recuperadoDoBackupLocal = true;
@@ -4631,6 +4644,12 @@ export default function AtendimentoPage() {
   };
 
   const excluirAnexo = async (anexo: Anexo) => {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Excluir este anexo definitivamente? O arquivo original nao podera ser recuperado.")
+    ) {
+      return;
+    }
     try {
       await api.delete(`/atendimentos/anexos/${anexo.id}`);
       if (attachmentPreview?.anexo.id === anexo.id) {

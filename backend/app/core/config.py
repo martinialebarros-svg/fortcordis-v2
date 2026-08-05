@@ -131,6 +131,11 @@ class Settings(BaseSettings):
     PORTAL_REMOTE_STORAGE_AUTH_HEADER: str = "Authorization"
     PORTAL_REMOTE_STORAGE_AUTH_TOKEN: str = ""
     PORTAL_REMOTE_STORAGE_TIMEOUT_SECONDS: int = 20
+    # Hosts (dominio exato, separados por virgula) para os quais
+    # PORTAL_REMOTE_STORAGE_AUTH_TOKEN pode ser enviado. Anexos com URL livre
+    # (link externo colado pelo usuario) nunca devem receber esse header -
+    # so a URL do storage remoto legitimo, configurada aqui, recebe o token.
+    PORTAL_REMOTE_STORAGE_TRUSTED_HOSTS: str = ""
 
     class Config:
         env_file = str(ENV_FILE_PATH)

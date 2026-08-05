@@ -1,4 +1,5 @@
 import os
+import socket
 import sys
 import tempfile
 import unittest
@@ -36,6 +37,7 @@ class _FakeRemoteResponse:
     def __init__(self, body: bytes, headers: dict[str, str] | None = None):
         self._body = body
         self.headers = headers or {}
+        self.is_redirect = False
 
     def raise_for_status(self):
         return None
@@ -412,6 +414,21 @@ class PortalAccessHttpFlowTest(unittest.TestCase):
             stack.enter_context(
                 patch("app.services.attachment_download_service.httpx.Client", side_effect=_fake_client_factory)
             )
+            # "storage.example.com" e um host fictício deste teste - a
+            # validacao anti-SSRF (attachment_download_service) resolve o
+            # hostname de verdade antes de tentar a conexao; sem esse mock a
+            # resolucao real falharia (NXDOMAIN) e o fluxo nunca chegaria ao
+            # cliente HTTP mockado acima. So intercepta esse host especifico -
+            # qualquer outra resolucao (usada internamente pelo TestClient/
+            # anyio durante o ciclo de request) cai no socket.getaddrinfo real.
+            _real_getaddrinfo = socket.getaddrinfo
+
+            def _fake_getaddrinfo(host, *args, **kwargs):
+                if host == "storage.example.com":
+                    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+                return _real_getaddrinfo(host, *args, **kwargs)
+
+            stack.enter_context(patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo))
             with TestClient(app) as client:
                 token = self._request_tutor_token(client, seed)
                 auth_headers = {"Authorization": f"Bearer {token}"}
