@@ -2174,6 +2174,27 @@ export default function NovoAgendamentoModal({
     });
   };
 
+  const motivoAgendaFechadaConfirmavel = (motivo?: string | null): boolean => {
+    const texto = String(motivo || "").trim();
+    return [
+      "Agenda fechada",
+      "Horario fora do funcionamento da agenda",
+      "Horario fora da excecao desta data",
+    ].some((prefixo) => texto.startsWith(prefixo));
+  };
+
+  const confirmarAgendamentoAgendaFechadaAdmin = async (motivo: string): Promise<boolean> =>
+    fortinho.confirm({
+      title: "Agenda fechada",
+      message:
+        `${motivo}\n\nEste agendamento ficará fora do horário de funcionamento. ` +
+        "A confirmação não altera a configuração da agenda e ficará registrada na auditoria. Deseja continuar?",
+      mood: "alert",
+      gesture: "open-arms",
+      confirmLabel: "Confirmar agendamento",
+      cancelLabel: "Voltar",
+    });
+
   const confirmarExcecaoConflitoAdmin = async (conflito: ConflitoDeslocamentoDetail): Promise<boolean> => {
     if (!isAdmin) return false;
 
@@ -2682,8 +2703,17 @@ export default function NovoAgendamentoModal({
         agendaFeriados,
         agendaExcecoes
       );
+      let confirmarAgendaFechada = false;
       if (!validacaoHorario.valido) {
-        throw new Error(validacaoHorario.motivo);
+        const motivo = validacaoHorario.motivo || "Agenda fechada para este horario.";
+        if (isEditando || !isAdmin || !motivoAgendaFechadaConfirmavel(motivo)) {
+          throw new Error(motivo);
+        }
+        const confirmou = await confirmarAgendamentoAgendaFechadaAdmin(motivo);
+        if (!confirmou) {
+          return;
+        }
+        confirmarAgendaFechada = true;
       }
 
       let pacienteId = formData.paciente_id ? parseInt(formData.paciente_id, 10) : NaN;
@@ -2809,11 +2839,18 @@ export default function NovoAgendamentoModal({
         confirmarConflitoDeslocamento = false,
         confirmarSlotReservaExpirada = false
       ) => {
-        const payload = {
+        const payload: typeof payloadBase & {
+          confirmar_conflito_deslocamento: boolean;
+          confirmar_slot_reserva_expirada: boolean;
+          confirmar_agenda_fechada?: boolean;
+        } = {
           ...payloadBase,
           confirmar_conflito_deslocamento: confirmarConflitoDeslocamento,
           confirmar_slot_reserva_expirada: confirmarSlotReservaExpirada,
         };
+        if (!isEditando && confirmarAgendaFechada) {
+          payload.confirmar_agenda_fechada = true;
+        }
         if (isEditando) {
           return api.put(`/agenda/${agendamento.id}`, payload);
         }

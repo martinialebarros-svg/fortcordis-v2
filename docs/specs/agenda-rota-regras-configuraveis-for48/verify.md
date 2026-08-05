@@ -11,7 +11,7 @@ Status: in-progress
 | CA-001 | aceitacao | `PUT/GET /configuracoes` e `GET /agenda/configuracao` com `agenda_rota_regras` | ok |
 | CA-002 | aceitacao | validação em `agenda.py` com `CONFLITO_DESLOCAMENTO`, `desvio_insercao_min` e limite de trecho vizinho | ok |
 | CA-003 | aceitacao | seção "Regras de rota e oferta" em `frontend/app/configuracoes/page.tsx`, incluindo o campo `max_neighbor_travel_min` como "Deslocamento maximo entre atendimentos" | ok |
-| CA-004 | aceitacao | clique em slot fechado abre excecao somente para `admin` em `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
+| CA-004 | aceitacao | clique em slot fechado abre o formulario somente para `admin` em `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx`; o modal exige confirmacao no salvamento | ok |
 | CA-005 | aceitacao | modo Lista exibe alertas de "Agenda fechada" e "Janela especial" por data no periodo filtrado | ok |
 | CA-006 | aceitacao | botoes de rota para Google Maps adicionados em `frontend/app/agenda/page.tsx` e `frontend/app/agenda/fullcalendar/page.tsx` | ok |
 | CA-007 | aceitacao | Agenda Lista permite receber pagamento da OS vinculada com modal de forma de pagamento em `frontend/app/agenda/page.tsx` | ok |
@@ -22,9 +22,11 @@ Status: in-progress
 | CA-012 | aceitacao | `test_sugestoes_horario_exigem_margem_segura_entre_vizinhos` e `test_validacao_agendamento_exige_margem_segura_de_deslocamento` cobrem folga menor que deslocamento + margem | ok |
 | CA-013 | aceitacao | `test_validacao_agendamento_bloqueia_trecho_vizinho_acima_do_limite_mesmo_com_folga` e `test_sugestoes_horario_bloqueiam_trecho_vizinho_acima_do_limite` cobrem trecho acima de `max_neighbor_travel_min` | ok |
 | CA-014 | aceitacao | `test_sugestao_permite_encaixe_adjacente_a_ancora_registrada`, `test_validacao_permite_encaixe_adjacente_a_ancora_registrada` e `test_proximidade_usa_trecho_aderente_em_encaixe_adjacente` cobrem encaixe livre adjacente a ancora ja registrada por excecao operacional | ok |
+| CA-015 | aceitacao | `NovoAgendamentoModal` solicita confirmacao contextual ao admin; Agenda e FullCalendar abrem o formulario sem editar configuracoes | ok |
+| CA-016 / NFR-006 / NFR-007 | aceitacao e seguranca | `test_agenda_duracao_servico_create.py` cobre bloqueio sem confirmacao, rejeicao nao-admin e evento auditavel para admin | ok |
 | NFR-001 | nao funcional | cache de deslocamento por request mantido | ok |
 | NFR-002 | nao funcional | sem novos endpoints publicos; usa permissao de configuracoes existente | ok |
-| NFR-004 | nao funcional | perfis nao-admin sem acao de abertura rapida de excecao em slot fechado | ok |
+| NFR-004 | nao funcional | perfis nao-admin sem acao de criacao/confirmacao em slot fechado | ok |
 | NFR-005 | nao funcional | secretaria visualiza fechamento/horario especial sem depender de clique em slot | ok |
 
 ## 2) Testes automatizados executados
@@ -41,6 +43,10 @@ python3 -m py_compile backend/app/api/v1/endpoints/agenda.py \
 # frontend
 cd frontend && npx eslint app/configuracoes/page.tsx lib/agenda-route-rules.ts
 cd frontend && npx eslint app/agenda/page.tsx app/agenda/fullcalendar/page.tsx lib/waze.ts lib/agenda-shared-actions.ts
+
+# confirmacao individual em agenda fechada
+cd backend && python3.12 -m pytest tests/test_agenda_duracao_servico_create.py
+cd frontend && npx eslint app/agenda/NovoAgendamentoModal.tsx app/agenda/page.tsx app/agenda/fullcalendar/page.tsx
 cd frontend && npx tsc --noEmit
 cd frontend && npm run build
 
@@ -49,6 +55,7 @@ cd backend && ./venv/bin/python -m pytest -q tests/test_agenda_sugestao_janela_o
 ```
 
 Resumo dos resultados:
+- Atualizacao 2026-08-04: backend aprovado (`11 passed` em `test_agenda_duracao_servico_create.py`, Python 3.12), `py_compile` aprovado para `agenda.py` e `agendamento.py`; ESLint, `tsc --noEmit` e build de producao dos tres fluxos da agenda aprovados.
 - Backend: ok (py_compile).
 - Backend agenda: ok (`28 passed` em `test_agenda_sugestao_janela_operacional.py`).
 - Atualizacao 2026-07-28: ok (`35 passed` em `test_agenda_sugestao_janela_operacional.py`) apos incluir regra de encaixe adjacente a ancora registrada por excecao operacional.
@@ -61,7 +68,7 @@ Resumo dos resultados:
 - Cenario 1: editar e salvar regras de rota em Configuracoes.
 - Cenario 2: validar sugestao de proximidade para clinica distante/baixa frequencia.
 - Cenario 3: validar bloqueio de insercao com desvio acima do limite.
-- Cenario 4: em slot fechado, validar abertura de excecao por `admin` com confirmacao e bloqueio para nao-admin.
+- Cenario 4: em slot fechado, validar abertura do formulario por `admin`, confirmacao no salvamento e bloqueio para nao-admin.
 - Cenario 5: no modo Lista, aplicar periodo e validar exibicao de alertas de agenda fechada/janela especial.
 - Cenario 6: validar abertura de rota por Waze e Google Maps nas acoes da agenda e no drawer do FullCalendar.
 - Cenario 7: no modo Lista, validar botao "Receber" para OS pendente e transicao para "Pago" apos confirmacao.
@@ -69,6 +76,8 @@ Resumo dos resultados:
 - Cenario 9: abrir sugestao de proximidade com vizinho anterior e/ou posterior e confirmar mensagem explicita com nomes das clinicas, total de deslocamento e aviso quando nao ha vizinho anterior/posterior.
 - Cenario 10: tentar salvar e sugerir horario com trecho vizinho acima de `max_neighbor_travel_min` e confirmar bloqueio mesmo com folga suficiente.
 - Cenario 11: manter dois agendamentos no mesmo dia por excecao operacional previa e validar que o slot livre adjacente ao agendamento ja registrado e proximo ao novo destino pode ser sugerido/salvo sem reprocessar a matriz logistica.
+- Cenario 12: como admin, abrir um slot fechado e salvar; validar aviso com motivo, confirmacao explicita, criacao do agendamento e ausencia de alteracao em Configuracoes > Funcionamento da Agenda.
+- Cenario 13: como nao-admin, tentar criar no mesmo horario; validar bloqueio sem opcao de confirmacao.
 
 ## 4) Regressao e riscos residuais
 
