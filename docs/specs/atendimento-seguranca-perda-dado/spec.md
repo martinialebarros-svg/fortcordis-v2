@@ -84,7 +84,7 @@ multi-dimensao (`docs/AUDITORIA-ATENDIMENTO-ACHADOS-2026-08-04.md`).
 
 ## 4) Contratos tecnicos
 
-- Nova migration `20260804_62`: `ALTER TABLE exames ADD COLUMN
+- Nova migration `20260804_63`: `ALTER TABLE exames ADD COLUMN
   observacoes_pre_portal TEXT` (aditiva, nullable).
 - Nova config `PORTAL_REMOTE_STORAGE_TRUSTED_HOSTS` em `Settings`.
 

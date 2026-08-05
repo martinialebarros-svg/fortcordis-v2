@@ -31,7 +31,7 @@ Status: em andamento
 - [x] T2.2 (item B) `_sync_exames`: validar `payload.laudo_id` contra
   `Laudo.paciente_id` antes de aceitar um novo vinculo; preservar
   round-trip do valor ja gravado sem query extra.
-- [x] T2.3 (item D) migration `20260804_62` (coluna
+- [x] T2.3 (item D) migration `20260804_63` (coluna
   `observacoes_pre_portal` em `exames`, aditiva); model `Exame` atualizado;
   `liberar_exame_no_portal`/`revogar_liberacao_exame_no_portal` gravando e
   restaurando o texto original.

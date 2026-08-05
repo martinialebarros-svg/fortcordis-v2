@@ -12,9 +12,9 @@ os.chdir(BACKEND_DIR)
 sys.path.insert(0, str(BACKEND_DIR))
 
 MIGRATION_PATH = (
-    BACKEND_DIR / "migrations" / "versions" / "20260804_62_exame_observacoes_pre_portal.py"
+    BACKEND_DIR / "migrations" / "versions" / "20260804_63_exame_observacoes_pre_portal.py"
 )
-SPEC = importlib.util.spec_from_file_location("migration_20260804_62", MIGRATION_PATH)
+SPEC = importlib.util.spec_from_file_location("migration_20260804_63", MIGRATION_PATH)
 if SPEC is None or SPEC.loader is None:
     raise RuntimeError(f"Nao foi possivel carregar migracao: {MIGRATION_PATH}")
 MIGRATION = importlib.util.module_from_spec(SPEC)

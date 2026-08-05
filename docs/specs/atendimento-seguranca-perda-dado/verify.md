@@ -36,7 +36,7 @@ Testes novos (29 casos, 6 arquivos + 1 migration):
 - `test_atendimento_observacoes_portal_preservadas.py` (4, 2 novos) - item D, incluindo autosave no meio do ciclo e liberar duplicado.
 - `test_atendimento_exclusao_anexo_guard.py` (3) - item E, guard do anexo isolado.
 - `test_atendimento_delete_guard.py` (6, 1 novo) - item E, guard do atendimento inteiro com exame liberado.
-- `test_exame_observacoes_pre_portal_migration.py` (2) - migration `20260804_62`.
+- `test_exame_observacoes_pre_portal_migration.py` (2) - migration `20260804_63`.
 
 ## 3) Testes manuais
 

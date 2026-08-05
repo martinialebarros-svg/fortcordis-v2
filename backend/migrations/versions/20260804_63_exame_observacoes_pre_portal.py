@@ -4,7 +4,7 @@ from __future__ import annotations
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection
 
-VERSION = "20260804_62"
+VERSION = "20260804_63"
 DESCRIPTION = "Adiciona observacoes_pre_portal em exames para restaurar o texto original ao revogar liberacao no portal"
 
 
