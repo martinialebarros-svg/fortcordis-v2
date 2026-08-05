@@ -1,6 +1,6 @@
 # Spec - agenda-domiciliar-tutor-georreferenciado
 
-Data: 2026-07-08  
+Data: 2026-07-30
 Responsavel: Codex  
 Status: done
 
@@ -11,6 +11,8 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
 ## 2) Requisitos funcionais (RF)
 
 - RF-001: a API de tutores deve expor endereco estruturado, status de georreferenciamento e um panorama com os pets vinculados ao tutor.
+- RF-001.c: a selecao de tutor na agenda deve consultar a API por nome, telefone ou pet durante a digitacao, aplicando o filtro antes da paginacao, para que tutores ativos fora do lote inicial continuem localizaveis; variacoes simples de grafia com letra duplicada, como `Jeferson`/`Jefferson`, devem retornar os candidatos relacionados.
+- RF-001.d: resultados remotos de tutor devem informar ID, endereco e pets vinculados para diferenciar cadastros homonimos ou de grafia semelhante antes da selecao.
 - RF-002: a API deve permitir geocodificar o endereco do tutor e retornar `latitude`, `longitude`, `place_id` e `endereco_normalizado`.
 - RF-002.a: ao informar um CEP valido no modal do tutor, o frontend deve consultar ViaCEP automaticamente e preencher `endereco`, `bairro`, `cidade` e `estado` antes do georreferenciamento final.
 - RF-002.b: os campos de CPF, telefone, WhatsApp e CEP no modal do tutor devem aplicar mascara visual durante digitacao e ao abrir registros existentes, aceitando somente a quantidade maxima de digitos de cada identificador.
@@ -32,6 +34,7 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
 - NFR-003 (usabilidade): o fluxo domiciliar nao deve depender do cadastro improvisado de uma clinica `DOMICILIAR`.
 - NFR-004 (governanca operacional): sugestoes automaticas e validacoes de deslocamento permanecem condicionadas a destino operacional georreferenciado; no domiciliar, o tutor entra nas mesmas regras de folga, trecho vizinho e desvio de insercao.
 - NFR-005 (controle de custo Google Maps): fluxo domiciliar deve obedecer ao mesmo gate de lookup ao vivo das clinicas (`LOGISTICA_ALLOW_LIVE_GOOGLE_LOOKUPS_ON_READ`), persistindo heuristica ou resposta Google por par operacional e evitando chamada redundante entre requisicoes para o mesmo destino enquanto a linha estiver fresca.
+- NFR-006 (escalabilidade da busca): o modal de agenda nao deve depender de carregar a base completa de tutores no navegador para localizar um cadastro.
 
 ## 4) Contratos tecnicos
 
@@ -39,6 +42,7 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
 
 - `GET /api/v1/tutores`
   - passa a retornar endereco estruturado, coordenadas confiaveis, `endereco_normalizado` e `georreferenciado`.
+  - aceita `busca` por nome, chave normalizada, telefone, WhatsApp, email, cidade ou nome do pet; filtra antes de aplicar `skip`/`limit`, ordena o resultado de forma deterministica e inclui resumo dos pets nos resultados de busca.
 - `GET /api/v1/tutores/{tutor_id}/panorama`
   - retorna `tutor`, `pets` e `resumo` com total de pets, endereco preenchido e status de georreferenciamento.
 - `POST /api/v1/tutores/geocode-endereco`
@@ -106,6 +110,8 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
 ## 6) Criterios de aceitacao (CA)
 
 - CA-001: o tutor exibe panorama de pets e status de georreferenciamento, e a API de geocode retorna payload reutilizavel pelo cadastro.
+- CA-001.c: um tutor ativo fora do lote inicial da agenda aparece ao pesquisar seu nome, telefone ou pet, inclusive com variacao simples de letra duplicada, e permanece selecionavel no fluxo domiciliar.
+- CA-001.d: cadastros semelhantes exibem ID, endereco e pets no resultado, permitindo distinguir o tutor operacional correto.
 - CA-001.a: o modal do tutor preenche endereco, bairro, cidade e UF ao completar um CEP valido, mantendo o georreferenciamento como etapa posterior dependente do numero.
 - CA-001.b: CPF, telefone, WhatsApp e CEP exibem a mascara correspondente enquanto o usuario digita ou quando um tutor existente e aberto para edicao.
 - CA-002: o sistema bloqueia agendamento domiciliar sem tutor georreferenciado, inclusive quando houver coordenadas invalidas como `0,0`, e salva corretamente quando o tutor possui endereco valido.
@@ -125,6 +131,7 @@ Adicionar um fluxo operacional de atendimento domiciliar na agenda sem depender 
 - CB-004: clinica sem georreferenciamento continua bloqueada nas sugestoes automaticas de agenda.
 - CB-007: atendimento domiciliar sem tutor georreferenciado nao pode ativar sugestao de proximidade nem panorama de horarios, e rotas mistas clinica-domiciliar devem respeitar a mesma margem segura do fluxo convencional.
 - CB-008: repetir consultas de sugestao para o mesmo par clinica-tutor nao deve gerar novo lookup Google enquanto a linha operacional persistida continuar fresca.
+- CB-009: tutor ja selecionado ou carregado pelo panorama nao pode desaparecer do campo quando uma busca remota retornar outro subconjunto de tutores.
 
 ## 8) Fora de escopo
 

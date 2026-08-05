@@ -17,6 +17,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
 os.environ.setdefault("SECRET_KEY", "tutor-inativo-reativacao-secret-key-1234567890")
 
 from app.api.v1.endpoints import tutores
+from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 
 
@@ -26,6 +27,7 @@ class TutorInativoReativacaoTest(unittest.TestCase):
         db_path = Path(tmpdir.name) / "tutor-inativo-reativacao.db"
         engine = create_engine(f"sqlite:///{db_path}")
         Tutor.__table__.create(engine, checkfirst=True)
+        Paciente.__table__.create(engine, checkfirst=True)
         session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()
         return tmpdir, session, engine
 
