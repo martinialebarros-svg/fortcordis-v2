@@ -583,6 +583,70 @@ class LaudoPortalReleaseTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_liberar_laudo_notifica_todos_os_gestores_ativos_da_clinica(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            paciente = Paciente(nome="Luke", especie="Canina", ativo=1)
+            clinica = Clinica(id=8, nome="La no Pet", email="contato@lanopet.com", ativo=True)
+            conta_ana = PortalClinicAccount(
+                clinica_id=8,
+                email_normalized="ana.diretora@lanopet.com",
+                responsavel_nome="Ana Diretora",
+                password_hash="hash",
+                status="active",
+            )
+            conta_bruno = PortalClinicAccount(
+                clinica_id=8,
+                email_normalized="bruno.socio@lanopet.com",
+                responsavel_nome="Bruno Socio",
+                password_hash="hash",
+                status="active",
+            )
+            db.add_all([paciente, clinica, conta_ana, conta_bruno])
+            db.flush()
+
+            laudo = Laudo(
+                paciente_id=paciente.id,
+                veterinario_id=7,
+                tipo="ecocardiograma",
+                titulo="Laudo ecocardiografico - Luke",
+                status="Finalizado",
+                clinic_id=clinica.id,
+                data_exame=datetime(2026, 7, 21, 14, 0),
+                criado_por_id=7,
+                criado_por_nome="Dr. Martiniano",
+            )
+            db.add(laudo)
+            db.commit()
+            db.refresh(laudo)
+
+            current_user = SimpleNamespace(id=7, nome="Dr. Martiniano", email="vet@example.com")
+            with (
+                patch.object(laudos, "render_laudo_pdf", return_value=self._fake_pdf()),
+                patch.object(laudos, "store_atendimento_attachment_file", side_effect=self._fake_store(tmpdir)),
+                patch.object(laudos, "registrar_auditoria", return_value=None),
+                patch("app.services.portal_clinic_notification_service.send_portal_email_message") as email_mock,
+            ):
+                email_mock.return_value = SimpleNamespace(provider="smtp", channel="email")
+                response = laudos.liberar_laudo_para_portal_clinica(
+                    laudo.id,
+                    request=_make_request(),
+                    db=db,
+                    current_user=current_user,
+                )
+
+            self.assertEqual(email_mock.call_count, 2)
+            destinos_notificados = {call.kwargs["destination"] for call in email_mock.call_args_list}
+            self.assertEqual(destinos_notificados, {"ana.diretora@lanopet.com", "bruno.socio@lanopet.com"})
+            self.assertEqual(response["notificacao_clinica"]["status"], "sent")
+            destino_masked = response["notificacao_clinica"]["destination_masked"]
+            self.assertIn("an***@lanopet.com", destino_masked)
+            self.assertIn("br***@lanopet.com", destino_masked)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_substituir_pdf_eletrocardiograma_antes_da_liberacao_reaproveita_anexo(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:

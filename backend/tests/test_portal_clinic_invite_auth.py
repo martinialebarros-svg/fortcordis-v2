@@ -42,6 +42,7 @@ from app.models.portal_clinic_auth import (
     PortalPasswordResetToken,
 )
 from app.models.tutor import Tutor
+from app.services.portal_clinic_auth_service import MAX_ACTIVE_CLINIC_MANAGERS
 
 
 class PortalClinicInviteAuthTest(unittest.TestCase):
@@ -796,6 +797,302 @@ class PortalClinicInviteAuthTest(unittest.TestCase):
                 )
                 self.assertEqual(login_with_new_password.status_code, 200)
                 self.assertTrue(login_with_new_password.json()["mfa_required"])
+
+    def _ativar_convite(self, client: TestClient, *, delivery_target: str, account_email: str, responsavel_nome: str, password: str, clinica_id: int):
+        invite_response = client.post(
+            f"/api/v1/portal/admin/clinicas/{clinica_id}/convites",
+            json={
+                "delivery_channel": "whatsapp",
+                "delivery_target": delivery_target,
+                "account_email": account_email,
+                "expires_in_hours": 72,
+                "allow_manual_copy": True,
+            },
+        )
+        self.assertEqual(invite_response.status_code, 200)
+        invite_payload = invite_response.json()
+        self.assertEqual(invite_payload["access_mode"], "activation")
+        invite_token = invite_payload["activation_url"].rstrip("/").split("/")[-1]
+
+        activation_response = client.post(
+            "/api/v1/portal/clinicas/ativacao",
+            json={
+                "invite_token": invite_token,
+                "responsavel_nome": responsavel_nome,
+                "password": password,
+                "password_confirmation": password,
+            },
+        )
+        self.assertEqual(activation_response.status_code, 200)
+        return activation_response.json()
+
+    def test_clinica_pode_ter_mais_de_um_gestor_com_convite_e_login_proprios(self) -> None:
+        seed = self._seed_portal_data()
+        self._install_overrides()
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED", True))
+            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
+            with TestClient(self._app) as client:
+                primeira_ativacao = self._ativar_convite(
+                    client,
+                    delivery_target="85999990000",
+                    account_email="ana.diretora@example.com",
+                    responsavel_nome="Ana Diretora",
+                    password="Senha-forte-123",
+                    clinica_id=seed["clinica_id"],
+                )
+                segunda_ativacao = self._ativar_convite(
+                    client,
+                    delivery_target="85999991111",
+                    account_email="bruno.socio@example.com",
+                    responsavel_nome="Bruno Socio",
+                    password="Senha-forte-456",
+                    clinica_id=seed["clinica_id"],
+                )
+                self.assertNotEqual(primeira_ativacao["account_id"], segunda_ativacao["account_id"])
+
+                summary_response = client.get(
+                    f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/acesso",
+                )
+                self.assertEqual(summary_response.status_code, 200)
+                summary_payload = summary_response.json()
+                self.assertEqual(len(summary_payload["accounts"]), 2)
+                self.assertEqual(len(summary_payload["invites"]), 2)
+                emails_mascarados = {account["email_masked"] for account in summary_payload["accounts"]}
+                self.assertEqual(emails_mascarados, {"an***@example.com", "br***@example.com"})
+
+                login_a = client.post(
+                    "/api/v1/portal/auth/login",
+                    json={
+                        "email": "ana.diretora@example.com",
+                        "password": "Senha-forte-123",
+                        "remember_device_until_shift_end": False,
+                    },
+                )
+                self.assertEqual(login_a.status_code, 200)
+                self.assertTrue(login_a.json()["access_token"])
+
+                login_b = client.post(
+                    "/api/v1/portal/auth/login",
+                    json={
+                        "email": "bruno.socio@example.com",
+                        "password": "Senha-forte-456",
+                        "remember_device_until_shift_end": False,
+                    },
+                )
+                self.assertEqual(login_b.status_code, 200)
+                self.assertTrue(login_b.json()["access_token"])
+
+                overview_response = client.get("/api/v1/portal/admin/clinicas/acessos/painel")
+                self.assertEqual(overview_response.status_code, 200)
+                overview_item = next(
+                    item for item in overview_response.json()["items"] if item["clinica_id"] == seed["clinica_id"]
+                )
+                self.assertEqual(overview_item["active_accounts_count"], 2)
+
+    def test_convite_recusa_email_ja_ativo_em_outra_clinica(self) -> None:
+        seed = self._seed_portal_data()
+        self._install_overrides()
+
+        db = self._session_factory()
+        try:
+            outra_clinica = db.query(Clinica).filter(Clinica.id != seed["clinica_id"]).order_by(Clinica.id.asc()).first()
+            self.assertIsNotNone(outra_clinica)
+            outra_clinica_id = outra_clinica.id
+            db.add(
+                PortalClinicAccount(
+                    clinica_id=outra_clinica_id,
+                    email_normalized="gestor.exclusivo@example.com",
+                    responsavel_nome="Gestor Exclusivo",
+                    password_hash="hash-existente",
+                    status="active",
+                    activated_at=datetime(2026, 7, 4, 9, 0),
+                    email_verified_at=datetime(2026, 7, 4, 9, 5),
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
+            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
+            with TestClient(self._app) as client:
+                response = client.post(
+                    f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/convites",
+                    json={
+                        "delivery_channel": "whatsapp",
+                        "delivery_target": "85999990000",
+                        "account_email": "gestor.exclusivo@example.com",
+                        "expires_in_hours": 72,
+                        "allow_manual_copy": True,
+                    },
+                )
+                self.assertEqual(response.status_code, 409)
+
+    def test_convite_respeita_limite_de_gestores_por_clinica(self) -> None:
+        seed = self._seed_portal_data()
+        self._install_overrides()
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
+            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
+            with TestClient(self._app) as client:
+                for indice in range(MAX_ACTIVE_CLINIC_MANAGERS):
+                    response = client.post(
+                        f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/convites",
+                        json={
+                            "delivery_channel": "whatsapp",
+                            "delivery_target": f"8599999{indice:04d}",
+                            "account_email": f"gestor{indice}@example.com",
+                            "expires_in_hours": 72,
+                            "allow_manual_copy": True,
+                        },
+                    )
+                    self.assertEqual(response.status_code, 200, response.text)
+
+                limite_excedido_response = client.post(
+                    f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/convites",
+                    json={
+                        "delivery_channel": "whatsapp",
+                        "delivery_target": "85999999999",
+                        "account_email": "gestor.extra@example.com",
+                        "expires_in_hours": 72,
+                        "allow_manual_copy": True,
+                    },
+                )
+                self.assertEqual(limite_excedido_response.status_code, 409)
+
+    def test_revogar_conta_de_um_gestor_nao_encerra_sessao_de_outro_gestor(self) -> None:
+        seed = self._seed_portal_data()
+        self._install_overrides()
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED", True))
+            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
+            with TestClient(self._app) as client:
+                ativacao_a = self._ativar_convite(
+                    client,
+                    delivery_target="85999990000",
+                    account_email="ana.diretora@example.com",
+                    responsavel_nome="Ana Diretora",
+                    password="Senha-forte-123",
+                    clinica_id=seed["clinica_id"],
+                )
+                ativacao_b = self._ativar_convite(
+                    client,
+                    delivery_target="85999991111",
+                    account_email="bruno.socio@example.com",
+                    responsavel_nome="Bruno Socio",
+                    password="Senha-forte-456",
+                    clinica_id=seed["clinica_id"],
+                )
+
+                summary_antes = client.get(f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/acesso").json()
+                self.assertEqual(summary_antes["active_session_count"], 2)
+
+                revoke_response = client.post(
+                    f"/api/v1/portal/admin/clinica-accounts/{ativacao_a['account_id']}/revogar",
+                    json={"reason": "gestor desligado", "revoke_sessions": True},
+                )
+                self.assertEqual(revoke_response.status_code, 200)
+
+                summary_depois = client.get(f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/acesso").json()
+                self.assertEqual(summary_depois["active_session_count"], 1)
+                sessao_restante = summary_depois["active_sessions"][0]
+                self.assertEqual(sessao_restante["account_id"], ativacao_b["account_id"])
+
+                contas_por_id = {conta["id"]: conta for conta in summary_depois["accounts"]}
+                self.assertEqual(contas_por_id[ativacao_a["account_id"]]["status"], "revoked")
+                self.assertEqual(contas_por_id[ativacao_b["account_id"]]["status"], "active")
+
+                login_b_ainda_funciona = client.post(
+                    "/api/v1/portal/auth/login",
+                    json={
+                        "email": "bruno.socio@example.com",
+                        "password": "Senha-forte-456",
+                        "remember_device_until_shift_end": False,
+                    },
+                )
+                self.assertEqual(login_b_ainda_funciona.status_code, 200)
+
+    def test_redefinir_senha_de_um_gestor_nao_encerra_sessao_de_outro_gestor(self) -> None:
+        seed = self._seed_portal_data()
+        self._install_overrides()
+
+        captured_reset: dict[str, str] = {}
+
+        def _capture_reset_email(*, reset_url: str, **kwargs):
+            captured_reset["url"] = reset_url
+            return SimpleNamespace(provider="smtp", channel="email")
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_INVITE_AUTH_ENABLED", True))
+            stack.enter_context(patch.object(settings, "PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED", True))
+            stack.enter_context(patch.object(settings, "PORTAL_WHATSAPP_ENABLED", False))
+            stack.enter_context(patch("app.api.v1.endpoints.portal_clinic_auth.registrar_auditoria", return_value=None))
+            stack.enter_context(
+                patch(
+                    "app.api.v1.endpoints.portal_clinic_auth.send_password_reset_email",
+                    side_effect=_capture_reset_email,
+                )
+            )
+            with TestClient(self._app) as client:
+                ativacao_a = self._ativar_convite(
+                    client,
+                    delivery_target="85999990000",
+                    account_email="ana.diretora@example.com",
+                    responsavel_nome="Ana Diretora",
+                    password="Senha-forte-123",
+                    clinica_id=seed["clinica_id"],
+                )
+                self._ativar_convite(
+                    client,
+                    delivery_target="85999991111",
+                    account_email="bruno.socio@example.com",
+                    responsavel_nome="Bruno Socio",
+                    password="Senha-forte-456",
+                    clinica_id=seed["clinica_id"],
+                )
+
+                forgot_response = client.post(
+                    "/api/v1/portal/auth/esqueci-senha",
+                    json={"email": "ana.diretora@example.com"},
+                )
+                self.assertEqual(forgot_response.status_code, 200)
+                reset_token = parse_qs(urlparse(captured_reset["url"]).query)["token"][0]
+
+                reset_response = client.post(
+                    "/api/v1/portal/auth/redefinir-senha",
+                    json={
+                        "reset_token": reset_token,
+                        "password": "Nova-senha-789",
+                        "password_confirmation": "Nova-senha-789",
+                    },
+                )
+                self.assertEqual(reset_response.status_code, 200)
+
+                summary_depois = client.get(f"/api/v1/portal/admin/clinicas/{seed['clinica_id']}/acesso").json()
+                self.assertEqual(summary_depois["active_session_count"], 1)
+                sessao_restante = summary_depois["active_sessions"][0]
+                self.assertNotEqual(sessao_restante["account_id"], ativacao_a["account_id"])
+
+                login_b_ainda_funciona = client.post(
+                    "/api/v1/portal/auth/login",
+                    json={
+                        "email": "bruno.socio@example.com",
+                        "password": "Senha-forte-456",
+                        "remember_device_until_shift_end": False,
+                    },
+                )
+                self.assertEqual(login_b_ainda_funciona.status_code, 200)
 
 
 if __name__ == "__main__":

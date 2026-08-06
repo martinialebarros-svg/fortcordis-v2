@@ -8,8 +8,8 @@ import {
   MessageCircle,
   RefreshCcw,
   ShieldCheck,
-  Smartphone,
   Trash2,
+  UserPlus,
   UserX,
 } from "lucide-react";
 
@@ -20,6 +20,7 @@ import { formatPortalDateTime } from "@/lib/portal-datetime";
 import type {
   PortalAdminClinicAccessSummaryResponse,
   PortalAdminClinicInviteResponse,
+  PortalAdminClinicInviteSnapshot,
 } from "@/lib/portal-api";
 
 type ClinicaPortalAccessCardProps = {
@@ -29,6 +30,47 @@ type ClinicaPortalAccessCardProps = {
   defaultEmail?: string;
 };
 
+const ACCOUNT_STATUS_LABELS: Record<string, string> = {
+  pending_verification: "Cadastro pendente",
+  active: "Ativo",
+  locked: "Bloqueado",
+  revoked: "Revogado",
+};
+
+const ACCOUNT_STATUS_CLASSES: Record<string, string> = {
+  pending_verification: "border-sky-200 bg-sky-50 text-sky-800",
+  active: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  locked: "border-amber-200 bg-amber-50 text-amber-800",
+  revoked: "border-rose-200 bg-rose-50 text-rose-800",
+};
+
+const INVITE_STATUS_LABELS: Record<string, string> = {
+  pending: "Pendente",
+  used: "Aceito",
+  expired: "Expirado",
+  revoked: "Revogado",
+};
+
+const INVITE_STATUS_CLASSES: Record<string, string> = {
+  pending: "border-sky-200 bg-sky-50 text-sky-800",
+  used: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  expired: "border-slate-200 bg-slate-50 text-slate-700",
+  revoked: "border-rose-200 bg-rose-50 text-rose-800",
+};
+
+function statusBadge(label: string, classes: string) {
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${classes}`}>
+      {label}
+    </span>
+  );
+}
+
+function invitesWithoutMatchingAccount(invites: PortalAdminClinicInviteSnapshot[]): PortalAdminClinicInviteSnapshot[] {
+  // Convites "aceitos" ja aparecem como conta em "Gestores com acesso"; listar aqui so o que ainda precisa de acao ou historico.
+  return invites.filter((invite) => invite.status !== "used");
+}
+
 export default function ClinicaPortalAccessCard({
   clinicaId,
   clinicaNome,
@@ -37,6 +79,7 @@ export default function ClinicaPortalAccessCard({
 }: ClinicaPortalAccessCardProps) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [actionKey, setActionKey] = useState("");
   const [summary, setSummary] = useState<PortalAdminClinicAccessSummaryResponse | null>(null);
   const [deliveryTarget, setDeliveryTarget] = useState(defaultWhatsapp);
   const [inviteEmail, setInviteEmail] = useState(defaultEmail);
@@ -45,8 +88,14 @@ export default function ClinicaPortalAccessCard({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const currentInvite = summary?.invite || null;
-  const currentAccount = summary?.account || null;
+  const accounts = summary?.accounts || [];
+  const invites = summary?.invites || [];
+  const pendingInvitesWithoutAccount = useMemo(() => invitesWithoutMatchingAccount(invites), [invites]);
+  const activeManagerCount = useMemo(
+    () => accounts.filter((account) => account.status !== "revoked").length,
+    [accounts],
+  );
+
   const inviteMessage = useMemo(() => {
     if (!lastInvite?.activation_url) {
       return "";
@@ -59,11 +108,6 @@ export default function ClinicaPortalAccessCard({
       accountEmailMasked: lastInvite.account_email_masked,
     });
   }, [clinicaNome, lastInvite?.access_mode, lastInvite?.account_email_masked, lastInvite?.activation_url, lastInvite?.expires_at]);
-
-  const canRevokeInvite = useMemo(
-    () => currentInvite && currentInvite.status === "pending",
-    [currentInvite],
-  );
 
   async function loadSummary() {
     setLoading(true);
@@ -105,12 +149,15 @@ export default function ClinicaPortalAccessCard({
       setMessage(
         response.data.access_mode === "login"
           ? response.data.delivery_status === "sent"
-            ? "Acesso reenviado com sucesso para a clinica."
-            : "Acesso preparado. Copie a mensagem e encaminhe pelo WhatsApp institucional."
+            ? "Este email ja tinha acesso ativo: reenviamos o acesso em vez de criar um novo convite."
+            : "Este email ja tinha acesso ativo. Copie a mensagem e encaminhe pelo WhatsApp institucional."
           : response.data.delivery_status === "sent"
-            ? "Convite enviado com sucesso para a clinica."
+            ? "Convite enviado com sucesso para o novo gestor."
             : "Convite gerado. Copie a mensagem e encaminhe pelo WhatsApp institucional.",
       );
+      if (response.data.access_mode === "activation") {
+        setInviteEmail("");
+      }
       await loadSummary();
     } catch (err) {
       setError(extractApiErrorMessageSync(err, "Nao foi possivel gerar o convite da clinica."));
@@ -143,16 +190,13 @@ export default function ClinicaPortalAccessCard({
     }
   }
 
-  async function handleRevokeInvite() {
-    if (!currentInvite) {
-      return;
-    }
-    setSubmitting(true);
+  async function handleRevokeInvite(inviteId: number) {
+    setActionKey(`invite-${inviteId}`);
     setError("");
     setMessage("");
     try {
       await api.post(
-        `/portal/admin/clinicas/${clinicaId}/convites/${currentInvite.id}/revogar`,
+        `/portal/admin/clinicas/${clinicaId}/convites/${inviteId}/revogar`,
         { reason: "convite revogado pela operacao" },
         { headers: getPortalAdminAuthHeaders() },
       );
@@ -161,32 +205,29 @@ export default function ClinicaPortalAccessCard({
     } catch (err) {
       setError(extractApiErrorMessageSync(err, "Nao foi possivel revogar o convite."));
     } finally {
-      setSubmitting(false);
+      setActionKey("");
     }
   }
 
-  async function handleRevokeAccount() {
-    if (!currentAccount) {
-      return;
-    }
-    setSubmitting(true);
+  async function handleRevokeAccount(accountId: number) {
+    setActionKey(`account-${accountId}`);
     setError("");
     setMessage("");
     try {
       await api.post(
-        `/portal/admin/clinica-accounts/${currentAccount.id}/revogar`,
+        `/portal/admin/clinica-accounts/${accountId}/revogar`,
         {
           reason: "conta revogada pela operacao",
           revoke_sessions: true,
         },
         { headers: getPortalAdminAuthHeaders() },
       );
-      setMessage("Conta da clinica revogada e sessoes encerradas.");
+      setMessage("Acesso do gestor revogado e sessoes encerradas.");
       await loadSummary();
     } catch (err) {
-      setError(extractApiErrorMessageSync(err, "Nao foi possivel revogar a conta da clinica."));
+      setError(extractApiErrorMessageSync(err, "Nao foi possivel revogar o acesso deste gestor."));
     } finally {
-      setSubmitting(false);
+      setActionKey("");
     }
   }
 
@@ -221,7 +262,7 @@ export default function ClinicaPortalAccessCard({
             Acesso da clinica ao portal
           </h2>
           <p className="text-sm text-gray-500 mt-2">
-            Gere o convite da unidade, acompanhe o estado do cadastro e revogue acessos quando necessario.
+            Convide um ou mais gestores da unidade, acompanhe o estado de cada cadastro e revogue acessos quando necessario.
           </p>
         </div>
 
@@ -240,11 +281,15 @@ export default function ClinicaPortalAccessCard({
         <div className="space-y-4">
           <div className="rounded-lg border border-gray-200 p-4">
             <p className="text-sm font-semibold text-gray-900">
-              {currentAccount ? `Reenviar acesso para ${clinicaNome}` : `Gerar convite para ${clinicaNome}`}
+              {activeManagerCount > 0 ? `Convidar mais um gestor de ${clinicaNome}` : `Convidar gestor de ${clinicaNome}`}
+            </p>
+            <p className="mt-1 text-xs text-gray-500">
+              Cada email institucional recebe um convite individual e passa a ter login proprio no portal. Se o email
+              informado ja tiver acesso ativo, reenviamos o acesso em vez de criar um novo convite.
             </p>
             <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr_120px]">
               <label className="block text-sm font-medium text-gray-700">
-                WhatsApp da unidade
+                WhatsApp do gestor
                 <input
                   value={deliveryTarget}
                   onChange={(event) => setDeliveryTarget(event.target.value)}
@@ -254,14 +299,14 @@ export default function ClinicaPortalAccessCard({
               </label>
 
               <label className="block text-sm font-medium text-gray-700">
-                Email institucional
+                Email institucional do gestor
                 <input
                   required
                   type="email"
                   value={inviteEmail}
                   onChange={(event) => setInviteEmail(event.target.value)}
                   className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-teal-600"
-                  placeholder="portal@clinica.com"
+                  placeholder="gestor@clinica.com"
                 />
               </label>
 
@@ -282,8 +327,8 @@ export default function ClinicaPortalAccessCard({
               disabled={submitting || !deliveryTarget.trim() || !inviteEmail.trim()}
               className="mt-4 inline-flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-teal-300"
             >
-              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Smartphone className="w-4 h-4" />}
-              {currentAccount ? "Reenviar acesso" : "Gerar convite"}
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+              Convidar gestor
             </button>
 
             {lastInvite ? (
@@ -338,95 +383,117 @@ export default function ClinicaPortalAccessCard({
           </div>
 
           <div className="rounded-lg border border-gray-200 p-4">
-            <p className="text-sm font-semibold text-gray-900">Acoes operacionais</p>
-            <div className="mt-4 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => void handleRevokeInvite()}
-                disabled={submitting || !canRevokeInvite}
-                className="inline-flex items-center gap-2 rounded-lg border border-amber-300 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Trash2 className="w-4 h-4" />
-                Revogar convite pendente
-              </button>
-
-              <button
-                type="button"
-                onClick={() => void handleRevokeSessions()}
-                disabled={submitting || !summary?.active_session_count}
-                className="inline-flex items-center gap-2 rounded-lg border border-rose-300 px-3 py-2 text-sm font-medium text-rose-900 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <RefreshCcw className="w-4 h-4" />
-                Encerrar sessoes ativas
-              </button>
-
-              <button
-                type="button"
-                onClick={() => void handleRevokeAccount()}
-                disabled={submitting || !currentAccount || currentAccount.status === "revoked"}
-                className="inline-flex items-center gap-2 rounded-lg border border-rose-300 px-3 py-2 text-sm font-medium text-rose-900 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <UserX className="w-4 h-4" />
-                Revogar conta da unidade
-              </button>
-            </div>
+            <p className="text-sm font-semibold text-gray-900">Encerrar sessoes</p>
+            <p className="mt-1 text-xs text-gray-500">Encerra de uma vez as sessoes ativas de todos os gestores da unidade.</p>
+            <button
+              type="button"
+              onClick={() => void handleRevokeSessions()}
+              disabled={submitting || !summary?.active_session_count}
+              className="mt-3 inline-flex items-center gap-2 rounded-lg border border-rose-300 px-3 py-2 text-sm font-medium text-rose-900 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RefreshCcw className="w-4 h-4" />
+              Encerrar sessoes ativas ({summary?.active_session_count || 0})
+            </button>
           </div>
         </div>
 
         <div className="space-y-4">
           <div className="rounded-lg border border-gray-200 p-4">
-            <p className="text-sm font-semibold text-gray-900">Resumo atual</p>
+            <p className="text-sm font-semibold text-gray-900">
+              Gestores com acesso {accounts.length ? `(${activeManagerCount} de ${accounts.length})` : ""}
+            </p>
             {loading ? (
               <div className="mt-4 text-sm text-gray-500">Carregando resumo do acesso...</div>
+            ) : accounts.length ? (
+              <div className="mt-3 space-y-3">
+                {accounts.map((account) => (
+                  <div key={account.id} className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-medium text-gray-900">{account.email_masked || "-"}</p>
+                      {statusBadge(
+                        ACCOUNT_STATUS_LABELS[account.status] || account.status,
+                        ACCOUNT_STATUS_CLASSES[account.status] || "border-slate-200 bg-slate-50 text-slate-700",
+                      )}
+                    </div>
+                    <p className="mt-1">Responsavel: {account.responsavel_nome}</p>
+                    <p>Ultimo login: {formatPortalDateTime(account.last_login_at)}</p>
+                    {account.status !== "revoked" ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleRevokeAccount(account.id)}
+                        disabled={actionKey === `account-${account.id}`}
+                        className="mt-2 inline-flex items-center gap-2 rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-medium text-rose-900 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {actionKey === `account-${account.id}` ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <UserX className="w-3.5 h-3.5" />
+                        )}
+                        Revogar acesso deste gestor
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
             ) : (
-              <div className="mt-4 space-y-4 text-sm text-gray-700">
-                <div>
-                  <p className="font-medium text-gray-900">Convite mais recente</p>
-                  {summary?.invite ? (
-                    <div className="mt-2 space-y-1">
-                      <p>Status: <span className="font-semibold">{summary.invite.status}</span></p>
-                      <p>Canal: {summary.invite.delivery_channel}</p>
-                      <p>Destino: {summary.invite.delivery_target_masked || "-"}</p>
-                      <p>Expira em: {formatPortalDateTime(summary.invite.expires_at)}</p>
-                    </div>
-                  ) : (
-                    <p className="mt-2 text-gray-500">Nenhum convite registrado.</p>
-                  )}
-                </div>
+              <p className="mt-2 text-sm text-gray-500">Nenhum gestor ativou o cadastro ainda.</p>
+            )}
 
-                <div className="border-t pt-4">
-                  <p className="font-medium text-gray-900">Conta da unidade</p>
-                  {summary?.account ? (
-                    <div className="mt-2 space-y-1">
-                      <p>Status: <span className="font-semibold">{summary.account.status}</span></p>
-                      <p>Email: {summary.account.email_masked || "-"}</p>
-                      <p>Responsavel: {summary.account.responsavel_nome}</p>
-                      <p>Ultimo login: {formatPortalDateTime(summary.account.last_login_at)}</p>
+            {pendingInvitesWithoutAccount.length ? (
+              <div className="mt-4 border-t pt-4">
+                <p className="text-sm font-medium text-gray-900">Convites</p>
+                <div className="mt-3 space-y-3">
+                  {pendingInvitesWithoutAccount.map((invite) => (
+                    <div key={invite.id} className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="font-medium text-gray-900">Destino: {invite.delivery_target_masked || "-"}</p>
+                        {statusBadge(
+                          INVITE_STATUS_LABELS[invite.status] || invite.status,
+                          INVITE_STATUS_CLASSES[invite.status] || "border-slate-200 bg-slate-50 text-slate-700",
+                        )}
+                      </div>
+                      <p className="mt-1">Expira em: {formatPortalDateTime(invite.expires_at)}</p>
+                      {invite.status === "pending" ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleRevokeInvite(invite.id)}
+                          disabled={actionKey === `invite-${invite.id}`}
+                          className="mt-2 inline-flex items-center gap-2 rounded-lg border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {actionKey === `invite-${invite.id}` ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3.5 h-3.5" />
+                          )}
+                          Revogar convite pendente
+                        </button>
+                      ) : null}
                     </div>
-                  ) : (
-                    <p className="mt-2 text-gray-500">Nenhuma conta ativada para esta clinica.</p>
-                  )}
-                </div>
-
-                <div className="border-t pt-4">
-                  <p className="font-medium text-gray-900">Sessoes ativas</p>
-                  <p className="mt-2">
-                    Total em aberto: <span className="font-semibold">{summary?.active_session_count || 0}</span>
-                  </p>
-                  {summary?.active_sessions?.length ? (
-                    <div className="mt-3 space-y-2">
-                      {summary.active_sessions.map((session) => (
-                        <div key={session.id} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                          <p className="font-medium text-gray-900">Sessao #{session.id}</p>
-                          <p>Valida ate: {formatPortalDateTime(session.trusted_until)}</p>
-                          <p>Ultima atividade: {formatPortalDateTime(session.last_seen_at)}</p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
+                  ))}
                 </div>
               </div>
-            )}
+            ) : null}
+          </div>
+
+          <div className="rounded-lg border border-gray-200 p-4">
+            <p className="text-sm font-semibold text-gray-900">Sessoes ativas</p>
+            <p className="mt-2 text-sm text-gray-700">
+              Total em aberto: <span className="font-semibold">{summary?.active_session_count || 0}</span>
+            </p>
+            {summary?.active_sessions?.length ? (
+              <div className="mt-3 space-y-2">
+                {summary.active_sessions.map((session) => {
+                  const account = accounts.find((item) => item.id === session.account_id);
+                  return (
+                    <div key={session.id} className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+                      <p className="font-medium text-gray-900">{account?.email_masked || `Sessao #${session.id}`}</p>
+                      <p>Valida ate: {formatPortalDateTime(session.trusted_until)}</p>
+                      <p>Ultima atividade: {formatPortalDateTime(session.last_seen_at)}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

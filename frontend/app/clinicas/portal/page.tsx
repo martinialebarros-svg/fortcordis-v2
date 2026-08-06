@@ -874,6 +874,7 @@ export default function PortalClinicManagementPage() {
                 <h2 className="mt-2 text-xl font-semibold text-slate-950">Convidar ou reenviar acesso da clinica</h2>
                 <p className="mt-2 max-w-2xl text-sm text-slate-500">
                   Defina o email institucional de login, gere o fluxo correto para a unidade e acompanhe o retorno da clinica.
+                  Cada email recebe convite e login proprios: e possivel convidar mais de um gestor por clinica.
                 </p>
               </div>
               {overview?.generated_at ? (
@@ -915,7 +916,18 @@ export default function PortalClinicManagementPage() {
               </label>
 
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                Email institucional de login
+                <span className="flex items-center justify-between gap-2">
+                  Email institucional de login
+                  {selectedClinic && (selectedClinic.active_accounts_count || 0) > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setInviteEmail("")}
+                      className="text-xs font-semibold text-teal-700 hover:text-teal-800"
+                    >
+                      + Convidar novo gestor
+                    </button>
+                  ) : null}
+                </span>
                 <input
                   type="email"
                   value={inviteEmail}
@@ -957,6 +969,12 @@ export default function PortalClinicManagementPage() {
                     ? "Esta unidade ainda precisa informar o email institucional que sera usado no login."
                     : buildStatusDescription(selectedClinic)}
                 </p>
+                {selectedClinic.active_accounts_count > 1 ? (
+                  <p className="mt-1 text-xs text-slate-500">
+                    {selectedClinic.active_accounts_count} gestores com acesso nesta unidade. Para ver e gerenciar cada um,
+                    abra o cadastro da clinica.
+                  </p>
+                ) : null}
               </div>
             ) : null}
 
@@ -1498,6 +1516,9 @@ export default function PortalClinicManagementPage() {
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Sessoes abertas</p>
                         <p className="mt-2 text-2xl font-semibold text-slate-950">{item.active_session_count}</p>
                         <p className="mt-1 text-sm text-slate-500">Acessos ainda validos</p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {item.active_accounts_count} gestor{item.active_accounts_count === 1 ? "" : "es"} com acesso
+                        </p>
                       </div>
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Situacao</p>
