@@ -263,3 +263,19 @@ class PrescricaoItemAjuste(Base):
     responsavel_nome = Column(String)
 
     created_at = Column(DateTime(timezone=True), default=func.now(), index=True)
+
+
+class ExameAjuste(Base):
+    __tablename__ = "exame_ajustes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    exame_id = Column(Integer, nullable=False, index=True)
+    atendimento_id = Column(Integer, nullable=False, index=True)
+    campo = Column(String, nullable=False, index=True)
+    valor_anterior = Column(Text)
+    valor_novo = Column(Text)
+    motivo = Column(Text)
+    responsavel_id = Column(Integer)
+    responsavel_nome = Column(String)
+
+    created_at = Column(DateTime(timezone=True), default=func.now(), index=True)
