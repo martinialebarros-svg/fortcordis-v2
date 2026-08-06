@@ -4,7 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
+from fastapi import Request
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -17,6 +19,21 @@ os.environ.setdefault("SECRET_KEY", "laudos-exame-laudo-id-propriedade-test-secr
 
 from app.api.v1.endpoints import laudos
 from app.models.laudo import Exame, Laudo
+
+
+def _fake_request() -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "PUT",
+            "path": "/api/v1/exames/1",
+            "headers": [],
+            "client": ("127.0.0.1", 1234),
+            "server": ("testserver", 80),
+            "scheme": "http",
+            "query_string": b"",
+        }
+    )
 
 
 class LaudosExameLaudoIdPropriedadeTest(unittest.TestCase):
@@ -89,12 +106,14 @@ class LaudosExameLaudoIdPropriedadeTest(unittest.TestCase):
             db.add_all([exame, laudo_paciente_b])
             db.commit()
 
-            atualizado = laudos.atualizar_exame(
-                exame_id=exame.id,
-                exame_data={"laudo_id": laudo_paciente_b.id},
-                db=db,
-                current_user=SimpleNamespace(id=1, nome="Dr Teste"),
-            )
+            with patch.object(laudos, "registrar_auditoria"):
+                atualizado = laudos.atualizar_exame(
+                    exame_id=exame.id,
+                    exame_data={"laudo_id": laudo_paciente_b.id},
+                    request=_fake_request(),
+                    db=db,
+                    current_user=SimpleNamespace(id=1, nome="Dr Teste"),
+                )
 
             self.assertIsNone(atualizado.laudo_id)
         finally:
@@ -112,12 +131,14 @@ class LaudosExameLaudoIdPropriedadeTest(unittest.TestCase):
             db.add_all([exame, laudo_paciente_a])
             db.commit()
 
-            atualizado = laudos.atualizar_exame(
-                exame_id=exame.id,
-                exame_data={"laudo_id": laudo_paciente_a.id},
-                db=db,
-                current_user=SimpleNamespace(id=1, nome="Dr Teste"),
-            )
+            with patch.object(laudos, "registrar_auditoria"):
+                atualizado = laudos.atualizar_exame(
+                    exame_id=exame.id,
+                    exame_data={"laudo_id": laudo_paciente_a.id},
+                    request=_fake_request(),
+                    db=db,
+                    current_user=SimpleNamespace(id=1, nome="Dr Teste"),
+                )
 
             self.assertEqual(atualizado.laudo_id, laudo_paciente_a.id)
         finally:

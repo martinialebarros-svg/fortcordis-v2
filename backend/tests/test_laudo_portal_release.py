@@ -20,6 +20,7 @@ os.chdir(BACKEND_DIR)
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.api.v1.endpoints import laudos
+from app.api.v1.endpoints import atendimento as atendimento_module
 from app.core.portal_release import PORTAL_RELEASED_STATUS
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
 from app.models.clinica import Clinica
@@ -871,6 +872,77 @@ class LaudoPortalReleaseTest(unittest.TestCase):
             self.assertIn("eco-portal-corrigido.pdf", anexo.caminho_arquivo)
             self.assertFalse(old_pdf_path.exists())
             render_mock.assert_called_once()
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_deletar_laudo_revoga_liberacao_do_exame_no_portal(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            tutor = Tutor(nome="Monica", email="monica@example.com", ativo=1)
+            db.add(tutor)
+            db.flush()
+            paciente = Paciente(nome="Luna", especie="Canina", tutor_id=tutor.id, ativo=1)
+            clinica = Clinica(id=8, nome="Clinica Parceira", email="contato@clinica.com", ativo=True)
+            db.add_all([paciente, clinica])
+            db.flush()
+            laudo = Laudo(
+                paciente_id=paciente.id,
+                veterinario_id=7,
+                tipo="ecocardiograma",
+                titulo="Laudo ecocardiografico - Luna",
+                status="Finalizado",
+                clinic_id=clinica.id,
+                data_exame=datetime(2026, 7, 4, 15, 30),
+                criado_por_id=7,
+                criado_por_nome="Dr. Martiniano",
+            )
+            db.add(laudo)
+            db.commit()
+            db.refresh(laudo)
+            laudo_id = laudo.id
+
+            current_user = SimpleNamespace(id=7, nome="Dr. Martiniano", email="vet@example.com")
+            with (
+                patch.object(laudos, "render_laudo_pdf", return_value=self._fake_pdf()),
+                patch.object(laudos, "store_atendimento_attachment_file", side_effect=self._fake_store(tmpdir)),
+                patch.object(laudos, "registrar_auditoria", return_value=None),
+                patch("app.services.portal_clinic_notification_service.send_portal_email_message") as email_mock,
+            ):
+                email_mock.return_value = SimpleNamespace(provider="smtp", channel="email")
+                laudos.liberar_laudo_para_portal_clinica(
+                    laudo_id,
+                    request=_make_request(),
+                    db=db,
+                    current_user=current_user,
+                )
+
+            exame = db.query(Exame).filter(Exame.laudo_id == laudo_id).first()
+            self.assertIsNotNone(exame)
+            self.assertEqual(exame.status, PORTAL_RELEASED_STATUS)
+            exame_id = exame.id
+            anexo = db.query(AnexoAtendimento).filter(AnexoAtendimento.exame_id == exame_id).first()
+            self.assertIsNotNone(anexo)
+
+            with patch.object(atendimento_module, "registrar_auditoria", return_value=None):
+                resposta = laudos.deletar_laudo(
+                    laudo_id,
+                    request=_make_request(),
+                    db=db,
+                    current_user=current_user,
+                )
+
+            self.assertEqual(resposta["message"], "Laudo e imagens removidos com sucesso")
+            self.assertIsNone(db.query(Laudo).filter(Laudo.id == laudo_id).first())
+
+            db.refresh(exame)
+            self.assertIsNone(exame.laudo_id)
+            self.assertNotEqual(exame.status, PORTAL_RELEASED_STATUS)
+            # O anexo publicado nao e apagado (o download deixa de ser
+            # oferecido pelo portal porque o exame nao aparece mais como
+            # liberado, nao porque o arquivo sumiu).
+            self.assertIsNotNone(db.query(AnexoAtendimento).filter(AnexoAtendimento.id == anexo.id).first())
         finally:
             db.close()
             engine.dispose()
