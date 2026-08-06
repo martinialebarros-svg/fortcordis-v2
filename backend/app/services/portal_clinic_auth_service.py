@@ -36,6 +36,8 @@ INVITE_STATUS_USED = "used"
 INVITE_STATUS_EXPIRED = "expired"
 INVITE_STATUS_REVOKED = "revoked"
 
+MAX_ACTIVE_CLINIC_MANAGERS = 5
+
 ACCOUNT_STATUS_PENDING = "pending_verification"
 ACCOUNT_STATUS_ACTIVE = "active"
 ACCOUNT_STATUS_LOCKED = "locked"
@@ -265,7 +267,9 @@ def expire_session_if_needed(db: Session, session: PortalClinicSession) -> bool:
     return False
 
 
-def revoke_active_invites_for_clinica(db: Session, clinica_id: int) -> int:
+def revoke_pending_invites_for_clinica_email(db: Session, clinica_id: int, account_email: str | None) -> int:
+    """Revoga apenas o convite pendente do mesmo email nesta clinica, preservando convites de outros gestores."""
+    normalized_email = normalize_email(account_email)
     invites = (
         db.query(PortalClinicInvite)
         .filter(
@@ -277,12 +281,29 @@ def revoke_active_invites_for_clinica(db: Session, clinica_id: int) -> int:
     count = 0
     now = utcnow()
     for invite in invites:
+        invite_email = normalize_email(json_load_dict(invite.contexto_json).get("account_email"))
+        if invite_email != normalized_email:
+            continue
         invite.status = INVITE_STATUS_REVOKED
         invite.revoked_at = now
         count += 1
     if count:
         db.commit()
     return count
+
+
+def count_active_clinic_manager_slots(db: Session, clinica_id: int) -> int:
+    """Conta gestores com conta nao revogada ou convite pendente, para limitar convites simultaneos por clinica."""
+    active_accounts = len(get_active_accounts_by_clinica(db, clinica_id))
+    pending_invites = (
+        db.query(PortalClinicInvite)
+        .filter(
+            PortalClinicInvite.clinica_id == clinica_id,
+            PortalClinicInvite.status == INVITE_STATUS_PENDING,
+        )
+        .count()
+    )
+    return active_accounts + pending_invites
 
 
 def create_clinic_invite(
@@ -295,7 +316,7 @@ def create_clinic_invite(
     expires_in_hours: int,
     created_by_user_id: int | None,
 ) -> tuple[PortalClinicInvite, str]:
-    revoke_active_invites_for_clinica(db, clinica_id)
+    revoke_pending_invites_for_clinica_email(db, clinica_id, account_email)
     raw_token = generate_opaque_token()
     normalized_account_email = normalize_email(account_email)
     invite = PortalClinicInvite(
@@ -339,7 +360,8 @@ def get_account_by_email(db: Session, email: str) -> PortalClinicAccount | None:
     )
 
 
-def get_active_account_by_clinica(db: Session, clinica_id: int) -> PortalClinicAccount | None:
+def get_active_accounts_by_clinica(db: Session, clinica_id: int) -> list[PortalClinicAccount]:
+    """Retorna todas as contas nao revogadas da clinica, mais recente primeiro (uma por gestor convidado)."""
     return (
         db.query(PortalClinicAccount)
         .filter(
@@ -348,7 +370,7 @@ def get_active_account_by_clinica(db: Session, clinica_id: int) -> PortalClinicA
             PortalClinicAccount.revoked_at.is_(None),
         )
         .order_by(PortalClinicAccount.id.desc())
-        .first()
+        .all()
     )
 
 
@@ -369,12 +391,6 @@ def create_or_replace_pending_account(
         else:
             raise HTTPException(status_code=409, detail="Ja existe uma conta para este email.")
 
-    existing_for_clinica = get_active_account_by_clinica(db, clinica_id)
-    if existing_for_clinica and existing_for_clinica.status == ACCOUNT_STATUS_ACTIVE:
-        raise HTTPException(status_code=409, detail="A clinica ja possui conta ativa.")
-    if existing_for_clinica and existing_for_clinica.status == ACCOUNT_STATUS_PENDING:
-        existing_for_clinica.status = ACCOUNT_STATUS_REVOKED
-        existing_for_clinica.revoked_at = utcnow()
     if existing_by_email and existing_by_email.status == ACCOUNT_STATUS_REVOKED:
         account = existing_by_email
         account.clinica_id = clinica_id
@@ -618,6 +634,28 @@ def revoke_session(db: Session, session: PortalClinicSession, *, reason: str, st
     session.revoked_at = utcnow()
     session.last_seen_at = utcnow()
     db.commit()
+
+
+def revoke_sessions_for_account(db: Session, *, account_id: int, reason: str) -> int:
+    """Revoga apenas as sessoes deste gestor, sem afetar sessoes de outros gestores da mesma clinica."""
+    sessions = (
+        db.query(PortalClinicSession)
+        .filter(
+            PortalClinicSession.account_id == account_id,
+            PortalClinicSession.status == SESSION_STATUS_ACTIVE,
+        )
+        .all()
+    )
+    if not sessions:
+        return 0
+    now = utcnow()
+    for session in sessions:
+        session.status = SESSION_STATUS_REVOKED
+        session.revoked_reason = reason or "revogada"
+        session.revoked_at = now
+        session.last_seen_at = now
+    db.commit()
+    return len(sessions)
 
 
 def revoke_sessions_for_clinica(db: Session, *, clinica_id: int, reason: str, session_id: int | None = None) -> int:

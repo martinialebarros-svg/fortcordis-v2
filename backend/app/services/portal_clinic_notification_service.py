@@ -7,8 +7,12 @@ from fastapi import Request
 from sqlalchemy.orm import Session
 
 from app.models.clinica import Clinica
-from app.models.portal_clinic_auth import PortalClinicAccount, PortalClinicInvite
-from app.services.portal_clinic_auth_service import mask_email, normalize_email
+from app.models.portal_clinic_auth import PortalClinicInvite
+from app.services.portal_clinic_auth_service import (
+    get_active_accounts_by_clinica,
+    mask_email,
+    normalize_email,
+)
 from app.services.portal_delivery_service import PortalDeliveryError, send_portal_email_message
 
 LOCAL_TZ = timezone(timedelta(hours=-3))
@@ -43,19 +47,17 @@ def _build_clinic_portal_url(request: Request | None) -> str:
     return f"{str(request.base_url).rstrip('/')}/clinica-parceira"
 
 
-def resolve_clinic_release_notification_email(db: Session, clinica_id: int) -> str | None:
-    account = (
-        db.query(PortalClinicAccount)
-        .filter(
-            PortalClinicAccount.clinica_id == clinica_id,
-            PortalClinicAccount.revoked_at.is_(None),
-        )
-        .order_by(PortalClinicAccount.id.desc())
-        .first()
-    )
-    account_email = normalize_email(getattr(account, "email_normalized", None))
-    if account_email:
-        return account_email
+def resolve_clinic_release_notification_emails(db: Session, clinica_id: int) -> list[str]:
+    """Retorna o email de cada gestor com conta ativa na clinica; sem nenhum, cai para o ultimo convite/contato."""
+    account_emails: list[str] = []
+    seen: set[str] = set()
+    for account in get_active_accounts_by_clinica(db, clinica_id):
+        account_email = normalize_email(account.email_normalized)
+        if account_email and account_email not in seen:
+            seen.add(account_email)
+            account_emails.append(account_email)
+    if account_emails:
+        return account_emails
 
     invite = (
         db.query(PortalClinicInvite)
@@ -78,11 +80,11 @@ def resolve_clinic_release_notification_email(db: Session, clinica_id: int) -> s
             context = parsed if isinstance(parsed, dict) else {}
         invite_email = normalize_email(context.get("account_email"))
         if invite_email:
-            return invite_email
+            return [invite_email]
 
     clinica = db.query(Clinica).filter(Clinica.id == clinica_id).first()
     fallback_email = normalize_email(getattr(clinica, "email", None))
-    return fallback_email or None
+    return [fallback_email] if fallback_email else []
 
 
 def notify_clinic_report_released(
@@ -96,8 +98,8 @@ def notify_clinic_report_released(
     tutor_nome: str | None = None,
     released_at: datetime | None = None,
 ) -> PortalClinicReleaseNotificationResult:
-    destination = resolve_clinic_release_notification_email(db, clinica_id)
-    if not destination:
+    destinations = resolve_clinic_release_notification_emails(db, clinica_id)
+    if not destinations:
         return PortalClinicReleaseNotificationResult(status="skipped", reason="no_recipient")
 
     subject = f"Novo laudo liberado no portal - {tipo_exame}"
@@ -121,22 +123,32 @@ def notify_clinic_report_released(
             "Se a unidade ainda nao tiver acesso configurado, responda este email ou fale com a Fort Cordis.",
         ]
     )
+    body = "\n".join(body_lines)
 
-    try:
-        result = send_portal_email_message(
-            destination=destination,
-            subject=subject,
-            body="\n".join(body_lines),
-        )
-    except PortalDeliveryError as exc:
-        return PortalClinicReleaseNotificationResult(
-            status="failed",
-            destination_masked=mask_email(destination),
-            reason=exc.__class__.__name__,
-        )
+    sent_masked: list[str] = []
+    failed_masked: list[str] = []
+    provider: str | None = None
+    last_failure_reason: str | None = None
+    for destination in destinations:
+        try:
+            result = send_portal_email_message(destination=destination, subject=subject, body=body)
+        except PortalDeliveryError as exc:
+            failed_masked.append(mask_email(destination))
+            last_failure_reason = exc.__class__.__name__
+            continue
+        provider = result.provider
+        sent_masked.append(mask_email(destination))
+
+    if sent_masked and not failed_masked:
+        status_value = "sent"
+    elif sent_masked and failed_masked:
+        status_value = "partially_sent"
+    else:
+        status_value = "failed"
 
     return PortalClinicReleaseNotificationResult(
-        status="sent",
-        destination_masked=mask_email(destination),
-        provider=result.provider,
+        status=status_value,
+        destination_masked=", ".join(sent_masked or failed_masked),
+        provider=provider,
+        reason=last_failure_reason if not sent_masked else None,
     )

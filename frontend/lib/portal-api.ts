@@ -148,6 +148,7 @@ export type PortalAdminClinicAccountSnapshot = {
 
 export type PortalAdminClinicSessionSnapshot = {
   id: number;
+  account_id?: number | null;
   status: string;
   trusted_until: string;
   created_at: string;
@@ -161,6 +162,8 @@ export type PortalAdminClinicAccessSummaryResponse = {
   clinica_nome: string;
   invite?: PortalAdminClinicInviteSnapshot | null;
   account?: PortalAdminClinicAccountSnapshot | null;
+  invites: PortalAdminClinicInviteSnapshot[];
+  accounts: PortalAdminClinicAccountSnapshot[];
   active_session_count: number;
   active_sessions: PortalAdminClinicSessionSnapshot[];
 };
@@ -189,6 +192,7 @@ export type PortalAdminClinicAccessOverviewItem = {
   invite_account_email_masked?: string | null;
   account?: PortalAdminClinicAccountSnapshot | null;
   active_session_count: number;
+  active_accounts_count: number;
   status_key: string;
   status_label: string;
   needs_email_definition: boolean;

@@ -187,6 +187,7 @@ class PortalAdminClinicAccountSnapshot(BaseModel):
 
 class PortalAdminClinicSessionSnapshot(BaseModel):
     id: int
+    account_id: Optional[int] = None
     status: str
     trusted_until: datetime
     created_at: datetime
@@ -200,6 +201,8 @@ class PortalAdminClinicAccessSummaryResponse(BaseModel):
     clinica_nome: str
     invite: Optional[PortalAdminClinicInviteSnapshot] = None
     account: Optional[PortalAdminClinicAccountSnapshot] = None
+    invites: list[PortalAdminClinicInviteSnapshot] = Field(default_factory=list)
+    accounts: list[PortalAdminClinicAccountSnapshot] = Field(default_factory=list)
     active_session_count: int = 0
     active_sessions: list[PortalAdminClinicSessionSnapshot] = Field(default_factory=list)
 
@@ -228,6 +231,7 @@ class PortalAdminClinicAccessOverviewItem(BaseModel):
     invite_account_email_masked: Optional[str] = None
     account: Optional[PortalAdminClinicAccountSnapshot] = None
     active_session_count: int = 0
+    active_accounts_count: int = 0
     status_key: str
     status_label: str
     needs_email_definition: bool = False

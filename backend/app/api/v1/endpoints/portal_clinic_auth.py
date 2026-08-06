@@ -70,17 +70,18 @@ from app.services.portal_clinic_auth_service import (
     INVITE_STATUS_USED,
     SESSION_STATUS_ACTIVE,
     SESSION_STATUS_LOGGED_OUT,
+    MAX_ACTIVE_CLINIC_MANAGERS,
     build_activation_url,
     build_clinic_portal_url,
     build_password_reset_url,
     clear_portal_refresh_cookie,
+    count_active_clinic_manager_slots,
     create_auth_challenge,
     create_clinic_invite,
     create_or_replace_pending_account,
     create_password_reset_token,
     expire_invite_if_needed,
     get_account_by_email,
-    get_active_account_by_clinica,
     get_active_clinica_or_404,
     get_invite_by_raw_token,
     get_password_reset_token,
@@ -97,6 +98,7 @@ from app.services.portal_clinic_auth_service import (
     normalize_email,
     request_user_agent_hash,
     revoke_session,
+    revoke_sessions_for_account,
     revoke_sessions_for_clinica,
     send_login_mfa_code,
     send_password_reset_email,
@@ -201,6 +203,7 @@ def _account_snapshot(account: PortalClinicAccount | None) -> PortalAdminClinicA
 def _session_snapshot(session: PortalClinicSession) -> PortalAdminClinicSessionSnapshot:
     return PortalAdminClinicSessionSnapshot(
         id=session.id,
+        account_id=session.account_id,
         status=session.status,
         trusted_until=session.trusted_until,
         created_at=session.created_at,
@@ -644,21 +647,20 @@ def consultar_acesso_clinica_admin(
     _assert_invite_auth_enabled()
     clinica = get_active_clinica_or_404(db, clinica_id)
 
-    latest_invite = (
+    invites = (
         db.query(PortalClinicInvite)
         .filter(PortalClinicInvite.clinica_id == clinica.id)
         .order_by(PortalClinicInvite.id.desc())
-        .first()
+        .all()
     )
-    if latest_invite:
-        expire_invite_if_needed(db, latest_invite)
-        db.refresh(latest_invite)
+    for invite in invites:
+        expire_invite_if_needed(db, invite)
 
-    latest_account = (
+    accounts = (
         db.query(PortalClinicAccount)
         .filter(PortalClinicAccount.clinica_id == clinica.id)
         .order_by(PortalClinicAccount.id.desc())
-        .first()
+        .all()
     )
     active_sessions = (
         db.query(PortalClinicSession)
@@ -673,8 +675,10 @@ def consultar_acesso_clinica_admin(
     return PortalAdminClinicAccessSummaryResponse(
         clinica_id=clinica.id,
         clinica_nome=clinica.nome,
-        invite=_invite_snapshot(latest_invite),
-        account=_account_snapshot(latest_account),
+        invite=_invite_snapshot(invites[0] if invites else None),
+        account=_account_snapshot(accounts[0] if accounts else None),
+        invites=[_invite_snapshot(invite) for invite in invites],
+        accounts=[_account_snapshot(account) for account in accounts],
         active_session_count=len(active_sessions),
         active_sessions=[_session_snapshot(session) for session in active_sessions],
     )
@@ -833,6 +837,11 @@ def consultar_painel_acessos_clinicas(
         needs_email_definition = _needs_email_definition(clinica, invite, account)
         status_key, status_label = _status_for_clinic_overview(clinica, invite, account)
         active_session_count = active_session_count_by_clinica.get(clinica.id, 0)
+        active_accounts_count = sum(
+            1
+            for clinica_account in account_history_by_clinica.get(clinica.id, [])
+            if clinica_account.status in {ACCOUNT_STATUS_PENDING, ACCOUNT_STATUS_ACTIVE, ACCOUNT_STATUS_LOCKED}
+        )
         download_count = download_count_by_clinica.get(clinica.id, 0)
         last_access_at = _max_datetime(
             account.last_login_at if account else None,
@@ -867,6 +876,7 @@ def consultar_painel_acessos_clinicas(
                 else None,
                 account=_account_snapshot(account),
                 active_session_count=active_session_count,
+                active_accounts_count=active_accounts_count,
                 status_key=status_key,
                 status_label=status_label,
                 needs_email_definition=needs_email_definition,
@@ -905,19 +915,23 @@ def criar_convite_clinica(
     _assert_invite_auth_enabled()
     clinica = get_active_clinica_or_404(db, clinica_id)
     normalized_payload_email = normalize_email(payload.account_email)
-    active_account = get_active_account_by_clinica(db, clinica.id)
-    account_allows_login_reminder = active_account is not None and active_account.status in {
-        ACCOUNT_STATUS_ACTIVE,
-        ACCOUNT_STATUS_LOCKED,
-    }
 
-    if account_allows_login_reminder and normalized_payload_email and normalized_payload_email != normalize_email(
-        active_account.email_normalized
+    existing_account = get_account_by_email(db, normalized_payload_email) if normalized_payload_email else None
+    if (
+        existing_account is not None
+        and existing_account.clinica_id != clinica.id
+        and existing_account.status != ACCOUNT_STATUS_REVOKED
     ):
         raise HTTPException(
             status_code=409,
-            detail="A clinica ja possui acesso ativo com outro email. Revogue a conta atual antes de trocar o email institucional.",
+            detail="Este email institucional ja esta em uso por outra clinica.",
         )
+
+    account_allows_login_reminder = (
+        existing_account is not None
+        and existing_account.clinica_id == clinica.id
+        and existing_account.status in {ACCOUNT_STATUS_ACTIVE, ACCOUNT_STATUS_LOCKED}
+    )
 
     invite = None
     access_mode: str = "activation"
@@ -927,8 +941,16 @@ def criar_convite_clinica(
     if account_allows_login_reminder:
         access_mode = "login"
         access_url = build_clinic_portal_url(request)
-        account_email_masked = mask_email(active_account.email_normalized)
+        account_email_masked = mask_email(existing_account.email_normalized)
     else:
+        if count_active_clinic_manager_slots(db, clinica.id) >= MAX_ACTIVE_CLINIC_MANAGERS:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Limite de {MAX_ACTIVE_CLINIC_MANAGERS} gestores com acesso ativo por clinica foi atingido. "
+                    "Revogue um acesso existente antes de convidar outro gestor."
+                ),
+            )
         invite, raw_token = create_clinic_invite(
             db,
             clinica_id=clinica.id,
@@ -951,7 +973,7 @@ def criar_convite_clinica(
                     destination=payload.delivery_target,
                     clinica_nome=clinica.nome,
                     portal_url=access_url,
-                    account_email=normalize_email(active_account.email_normalized),
+                    account_email=normalize_email(existing_account.email_normalized),
                 )
             else:
                 result = send_whatsapp_invite(
@@ -983,7 +1005,7 @@ def criar_convite_clinica(
         entidade="portal_clinic_account" if access_mode == "login" else "portal_clinic_invite",
         acao="PORTAL_CLINIC_ACCESS_REMINDER_SENT" if access_mode == "login" else "PORTAL_CLINIC_INVITE_CREATED",
         descricao="Acesso da clinica parceira reenviado." if access_mode == "login" else "Convite da clinica parceira criado.",
-        entidade_id=active_account.id if access_mode == "login" else invite.id,
+        entidade_id=existing_account.id if access_mode == "login" else invite.id,
         detalhes={
             "clinica_id": clinica.id,
             "delivery_channel": payload.delivery_channel,
@@ -994,7 +1016,7 @@ def criar_convite_clinica(
     )
     return PortalAdminClinicInviteResponse(
         invite_id=invite.id if invite is not None else None,
-        status=active_account.status if access_mode == "login" else invite.status,
+        status=existing_account.status if access_mode == "login" else invite.status,
         expires_at=invite.expires_at if invite is not None else None,
         activation_url=access_url,
         access_mode=access_mode,
@@ -1077,9 +1099,9 @@ def revogar_conta_clinica(
     account.revoked_at = utcnow()
     db.commit()
     if payload.revoke_sessions:
-        revoke_sessions_for_clinica(
+        revoke_sessions_for_account(
             db,
-            clinica_id=account.clinica_id,
+            account_id=account.id,
             reason=payload.reason,
         )
 
@@ -1143,17 +1165,16 @@ def consultar_convite_clinica(
     if not invite:
         raise HTTPException(status_code=404, detail="Convite da clinica nao encontrado.")
     clinica = get_active_clinica_or_404(db, invite.clinica_id)
-    account = (
-        db.query(PortalClinicAccount)
-        .filter(
-            PortalClinicAccount.clinica_id == clinica.id,
-            PortalClinicAccount.status.in_([ACCOUNT_STATUS_PENDING, ACCOUNT_STATUS_ACTIVE]),
-        )
-        .order_by(PortalClinicAccount.id.desc())
-        .first()
-    )
     invite_context = json_load_dict(invite.contexto_json)
     invite_account_email = invite_context.get("account_email")
+
+    # O hint precisa vir da conta ligada ao email deste convite especifico: com varios
+    # gestores possiveis por clinica, nao ha como adivinhar "a" conta sem esse vinculo.
+    account = get_account_by_email(db, invite_account_email) if invite_account_email else None
+    if account is not None and (
+        account.clinica_id != clinica.id or account.status not in {ACCOUNT_STATUS_PENDING, ACCOUNT_STATUS_ACTIVE}
+    ):
+        account = None
     if account:
         email_hint = mask_email(account.email_normalized)
     elif invite_account_email:
@@ -1591,9 +1612,9 @@ def redefinir_senha_clinica(
     account.force_mfa_on_next_login = True
     reset_token.used_at = utcnow()
     db.commit()
-    revoke_sessions_for_clinica(
+    revoke_sessions_for_account(
         db,
-        clinica_id=account.clinica_id,
+        account_id=account.id,
         reason="password-reset",
     )
 
