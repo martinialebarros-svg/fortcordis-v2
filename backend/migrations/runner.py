@@ -15,8 +15,12 @@ from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection
 
 from app.db.database import engine
+from migrations.exceptions import MigrationDeferred
 
 VERSIONS_DIR = Path(__file__).parent / "versions"
+
+# Preenchido por run_migrations(); lido por get_deferred_migrations().
+_LAST_DEFERRED: List[tuple[str, str]] = []
 
 
 @dataclass(frozen=True)
@@ -128,7 +132,14 @@ def get_migration_status() -> dict:
 
 
 def run_migrations() -> int:
-    """Run pending migrations in order. Returns number of applied migrations."""
+    """Run pending migrations in order. Returns number of applied migrations.
+
+    Uma migracao que levanta `MigrationDeferred` sinaliza pendencia de dados, nao
+    erro: ela e adiada (nao registrada em `schema_migrations`, portanto tentada
+    de novo no proximo deploy) e as migracoes seguintes continuam sendo
+    aplicadas. Qualquer outra excecao continua interrompendo a esteira, porque ai
+    o estado do schema e desconhecido e seguir seria pior.
+    """
     migrations = _discover_migrations()
     if not migrations:
         print("[Migrations] Nenhuma migracao encontrada.")
@@ -139,24 +150,33 @@ def run_migrations() -> int:
 
     applied_versions = _get_applied_versions()
     applied_count = 0
+    deferred: List[tuple[str, str]] = []
+    _LAST_DEFERRED.clear()
 
     for migration in migrations:
         if migration.version in applied_versions:
             continue
 
-        with engine.begin() as connection:
-            dialect_name = connection.dialect.name
-            print(f"[Migrations] Aplicando {migration.version} ({migration.source.name})...")
-            migration.upgrade(connection, dialect_name)
-            connection.execute(
-                text(
-                    """
-                    INSERT INTO schema_migrations (version, description)
-                    VALUES (:version, :description)
-                    """
-                ),
-                {"version": migration.version, "description": migration.description},
-            )
+        try:
+            with engine.begin() as connection:
+                dialect_name = connection.dialect.name
+                print(f"[Migrations] Aplicando {migration.version} ({migration.source.name})...")
+                migration.upgrade(connection, dialect_name)
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO schema_migrations (version, description)
+                        VALUES (:version, :description)
+                        """
+                    ),
+                    {"version": migration.version, "description": migration.description},
+                )
+        except MigrationDeferred as exc:
+            # Pendencia de conciliacao de dados. A transacao ja foi revertida por
+            # engine.begin(), entao nada parcial ficou aplicado.
+            deferred.append((migration.version, str(exc)))
+            print(f"[Migrations] ADIADA {migration.version}: {exc}")
+            continue
 
         applied_count += 1
         applied_versions.add(migration.version)
@@ -167,4 +187,24 @@ def run_migrations() -> int:
     else:
         print(f"[Migrations] {applied_count} migracao(oes) aplicada(s).")
 
+    _LAST_DEFERRED.extend(deferred)
+    if deferred:
+        print(
+            f"[Migrations] {len(deferred)} migracao(oes) adiada(s) por pendencia de dados. "
+            "Sera(ao) tentada(s) novamente no proximo deploy apos a conciliacao:"
+        )
+        for version, motivo in deferred:
+            print(f"[Migrations]   - {version}: {motivo}")
+
     return applied_count
+
+
+def get_deferred_migrations() -> List[tuple[str, str]]:
+    """Migracoes adiadas por pendencia de dados na ultima execucao do runner.
+
+    Deliberadamente NAO sonda o banco reexecutando migracoes pendentes: aplicar
+    DDL especulativo para depois reverter e arriscado em producao (migracao com
+    efeito nao transacional, ordem entre migracoes dependentes). Reflete o que
+    `run_migrations()` de fato adiou nesta execucao do processo.
+    """
+    return list(_LAST_DEFERRED)

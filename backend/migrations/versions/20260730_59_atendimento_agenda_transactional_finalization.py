@@ -4,6 +4,8 @@ from __future__ import annotations
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection
 
+from migrations.exceptions import MigrationDeferred
+
 VERSION = "20260730_59"
 DESCRIPTION = "Garante um atendimento e uma OS ativa por agendamento"
 
@@ -42,26 +44,27 @@ def _duplicate_rows(
     )
 
 
-def _assert_no_duplicates(
+def _pendencia_conciliacao(
     connection: Connection,
     *,
     table_name: str,
     label: str,
     active_where: str = "1 = 1",
-) -> None:
+) -> str | None:
+    """Devolve o diagnostico da duplicidade, ou None se a base esta integra."""
     duplicates = _duplicate_rows(
         connection,
         table_name=table_name,
         active_where=active_where,
     )
     if not duplicates:
-        return
+        return None
 
     sample = "; ".join(
         f"agendamento {agendamento_id}: ids {ids}"
         for agendamento_id, _total, ids in duplicates
     )
-    raise RuntimeError(
+    return (
         f"Nao foi possivel criar a restricao de {label}: existem duplicidades. "
         f"Concilie os registros antes de repetir a migracao. {sample}"
     )
@@ -70,12 +73,38 @@ def _assert_no_duplicates(
 def upgrade(connection: Connection, dialect: str | None = None) -> None:
     _ = dialect
 
-    if _table_exists(connection, "atendimentos_clinicos"):
-        _assert_no_duplicates(
+    tem_atendimentos = _table_exists(connection, "atendimentos_clinicos")
+    tem_ordens = _table_exists(connection, "ordens_servico")
+    active_where_os = "COALESCE(status, '') <> 'Cancelado'"
+
+    # Colhe TODAS as pendencias antes de decidir. Evita o ciclo de conciliar uma
+    # duplicidade, rodar o deploy de novo e so entao descobrir a outra.
+    pendencias: list[str] = []
+    if tem_atendimentos:
+        pendencia = _pendencia_conciliacao(
             connection,
             table_name="atendimentos_clinicos",
             label="um atendimento por agendamento",
         )
+        if pendencia:
+            pendencias.append(pendencia)
+    if tem_ordens:
+        pendencia = _pendencia_conciliacao(
+            connection,
+            table_name="ordens_servico",
+            label="uma OS ativa por agendamento",
+            active_where=active_where_os,
+        )
+        if pendencia:
+            pendencias.append(pendencia)
+
+    if pendencias:
+        # Pendencia de dados, nao erro: o runner adia esta versao, segue com as
+        # demais migracoes e tenta de novo no proximo deploy. Nenhum registro e
+        # apagado ou alterado aqui.
+        raise MigrationDeferred(" | ".join(pendencias))
+
+    if tem_atendimentos:
         connection.execute(
             text(
                 """
@@ -86,14 +115,7 @@ def upgrade(connection: Connection, dialect: str | None = None) -> None:
             )
         )
 
-    if _table_exists(connection, "ordens_servico"):
-        active_where = "COALESCE(status, '') <> 'Cancelado'"
-        _assert_no_duplicates(
-            connection,
-            table_name="ordens_servico",
-            label="uma OS ativa por agendamento",
-            active_where=active_where,
-        )
+    if tem_ordens:
         connection.execute(
             text(
                 """
