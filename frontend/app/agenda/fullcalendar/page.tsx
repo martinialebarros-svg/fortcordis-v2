@@ -76,6 +76,7 @@ const AgendaFullCalendarView = dynamic(() => import("./AgendaFullCalendarView"),
 });
 
 const NovoAgendamentoModal = dynamic(() => import("../NovoAgendamentoModal"));
+const ClienteInfoModal = dynamic(() => import("../ClienteInfoModal"));
 
 interface Agendamento {
   id: number;
@@ -497,6 +498,7 @@ export default function AgendaFullCalendarPage() {
   const [aplicandoRecorrencia, setAplicandoRecorrencia] = useState(false);
   const [menuStatusAberto, setMenuStatusAberto] = useState(false);
   const [selecionado, setSelecionado] = useState<Agendamento | null>(null);
+  const [clienteModalAlvo, setClienteModalAlvo] = useState<{ pacienteId?: number; tutorId?: number } | null>(null);
   const [modalAberto, setModalAberto] = useState(false);
   const [modalTipoHorario, setModalTipoHorario] = useState<{ id: number; status: StatusAgenda } | null>(null);
   const [tipoHorario, setTipoHorario] = useState<"comercial" | "plantao">("comercial");
@@ -2730,11 +2732,45 @@ export default function AgendaFullCalendarPage() {
                 <div className="grid gap-2 text-sm sm:grid-cols-2">
                   <p>
                     <span className="font-medium text-gray-700">Paciente:</span>{" "}
-                    <span className="text-gray-900">{selecionado.paciente || "Nao informado"}</span>
+                    {selecionado.paciente_id || selecionado.tutor_id ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setClienteModalAlvo(
+                            selecionado.paciente_id
+                              ? { pacienteId: selecionado.paciente_id }
+                              : { tutorId: selecionado.tutor_id! }
+                          )
+                        }
+                        className="text-gray-900 hover:text-blue-700 hover:underline"
+                        title="Ver e editar dados do cliente"
+                      >
+                        {selecionado.paciente || "Nao informado"}
+                      </button>
+                    ) : (
+                      <span className="text-gray-900">{selecionado.paciente || "Nao informado"}</span>
+                    )}
                   </p>
                   <p>
                     <span className="font-medium text-gray-700">Tutor:</span>{" "}
-                    <span className="text-gray-900">{selecionado.tutor || "Nao informado"}</span>
+                    {selecionado.paciente_id || selecionado.tutor_id ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setClienteModalAlvo(
+                            selecionado.paciente_id
+                              ? { pacienteId: selecionado.paciente_id }
+                              : { tutorId: selecionado.tutor_id! }
+                          )
+                        }
+                        className="text-gray-900 hover:text-blue-700 hover:underline"
+                        title="Ver e editar dados do cliente"
+                      >
+                        {selecionado.tutor || "Nao informado"}
+                      </button>
+                    ) : (
+                      <span className="text-gray-900">{selecionado.tutor || "Nao informado"}</span>
+                    )}
                   </p>
                   <p>
                     <span className="font-medium text-gray-700">
@@ -3211,6 +3247,15 @@ export default function AgendaFullCalendarPage() {
             isAdmin={isAdmin}
           />
         ) : null}
+
+        {clienteModalAlvo && (
+          <ClienteInfoModal
+            pacienteId={clienteModalAlvo.pacienteId}
+            tutorId={clienteModalAlvo.tutorId}
+            onClose={() => setClienteModalAlvo(null)}
+            onSaved={() => { if (intervalo) void carregarAgendamentos(intervalo); }}
+          />
+        )}
       </div>
     </DashboardLayout>
   );
