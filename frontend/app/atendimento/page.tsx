@@ -1475,6 +1475,12 @@ export default function AtendimentoPage() {
   const salvamentoAtendimentoEmVooRef = useRef<Promise<number | null> | null>(null);
   const autosaveStateRef = useRef<"idle" | "local" | "dirty" | "saving" | "saved" | "error">("idle");
   const criandoAtendimentoAutomaticoRef = useRef(false);
+  // Guard sincrono para criar/salvar documento clinico: setSalvandoDocumentoClinico
+  // so vira true DEPOIS do primeiro await (obterAtendimentoIdParaDocumento pode
+  // disparar um saveAtendimento("manual") inteiro) - nesse intervalo o botao
+  // continua habilitado e um duplo clique cria dois documentos. Um ref e
+  // sincrono: e verdadeiro imediatamente, sem esperar o proximo render.
+  const documentoClinicoEmVooRef = useRef(false);
   const clinicalTextareaRefs = useRef<Partial<Record<ClinicalFieldKey, HTMLTextAreaElement | null>>>({});
   const attachmentImagePanRef = useRef({
     pointerId: null as number | null,
@@ -1759,6 +1765,15 @@ export default function AtendimentoPage() {
         },
         tutorData
       );
+    } catch (e: any) {
+      // Sem isto, a excecao (rede instavel, sessao expirada, 500) se
+      // propagava como unhandled rejection: o spinner desligava no finally
+      // e a tela ficava sem os dados do cadastro complementar sem nenhum
+      // aviso - o vet podia concluir por engano que o paciente nao tem
+      // cadastro complementar.
+      if (requestId === cadastroComplementarRequestIdRef.current) {
+        setErro(extractApiErrorMessageSync(e, "Nao foi possivel carregar o cadastro complementar."));
+      }
     } finally {
       if (requestId === cadastroComplementarRequestIdRef.current) setCarregandoCadastroComplementar(false);
     }
@@ -4076,7 +4091,19 @@ export default function AtendimentoPage() {
           setSelecionado(response.data.id);
         }
         hydratingFormRef.current = true;
-        setForm(hydrated);
+        // Mesmo merge do autosave, nao uma substituicao incondicional: o
+        // payload enviado reflete o form de ANTES do await, entao uma edicao
+        // feita pelo usuario durante o round-trip (o PUT/POST manual pode
+        // levar segundos numa rede lenta, e nenhum campo de texto fica
+        // desabilitado enquanto isso) nao pode ser apagada pela resposta do
+        // servidor.
+        setForm((current) => {
+          const semExcluidos = current.exames.filter((item) => !item._destroy);
+          return mergeAutoSavedFormState(
+            { ...current, exames: semExcluidos.length > 0 ? semExcluidos : [emptyExam()] },
+            hydrated
+          );
+        });
         clearDraftStorage(response.data?.id || selecionadoRef.current);
         draftRestoreRef.current = true;
         setAutosaveState("saved");
@@ -4531,6 +4558,7 @@ export default function AtendimentoPage() {
       return;
     }
 
+    let enviados = 0;
     for (const file of arquivosValidos) {
       const uploadConcluido = await uploadAnexoArquivo(file, {
         exameId,
@@ -4541,9 +4569,23 @@ export default function AtendimentoPage() {
       if (!uploadConcluido) {
         break;
       }
+      enviados += 1;
     }
     clearExamUploadDraft(getExameStateKey(examAtual));
     clearExamDropState(getExameStateKey(examAtual));
+
+    // uploadAnexoArquivo ja mostrou o motivo especifico do arquivo que
+    // interrompeu o lote (tamanho, extensao, rede) - sem isto, o vet ve so
+    // essa mensagem pontual e presume que apenas aquele arquivo ficou de
+    // fora, quando na verdade o lote parou ali e os demais nunca chegaram a
+    // ser tentados.
+    const naoTentados = arquivosValidos.length - enviados - 1;
+    if (naoTentados > 0) {
+      setErro(
+        (atual) =>
+          `${atual} (${naoTentados} de ${arquivosValidos.length} arquivo(s) do lote nao chegaram a ser enviados.)`
+      );
+    }
   };
 
   const cancelarUploadAnexo = (uploadKey: string) => {
@@ -4698,7 +4740,13 @@ export default function AtendimentoPage() {
           window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60_000);
         }
       } catch (e: any) {
-        setErro(extractApiErrorMessageSync(e, "Erro ao abrir anexo."));
+        // Versao async: numa resposta blob, error.response.data e um Blob (nao
+        // tem detail/message), e a versao sincrona nao sabe ler isso - cai
+        // para error.message, o texto tecnico generico do axios, perdendo o
+        // motivo real que o backend devolveu (ex.: "Arquivo nao encontrado no
+        // armazenamento."). Mesma versao ja usada nas outras chamadas blob
+        // deste arquivo (PDF de documento/receita/exames).
+        setErro(await extractApiErrorMessage(e, "Erro ao abrir anexo."));
       } finally {
         setOpeningAttachmentId(null);
       }
@@ -4791,12 +4839,14 @@ export default function AtendimentoPage() {
       setErro("Selecione um template de documento.");
       return null;
     }
-
-    const atendimentoId = await obterAtendimentoIdParaDocumento();
-    if (!atendimentoId) return null;
+    if (documentoClinicoEmVooRef.current) return null;
+    documentoClinicoEmVooRef.current = true;
+    setSalvandoDocumentoClinico(true);
 
     try {
-      setSalvandoDocumentoClinico(true);
+      const atendimentoId = await obterAtendimentoIdParaDocumento();
+      if (!atendimentoId) return null;
+
       const response = await api.post(`/atendimentos/${atendimentoId}/documentos`, {
         template_id: Number(documentoTemplateSelecionado),
       });
@@ -4813,6 +4863,7 @@ export default function AtendimentoPage() {
       return null;
     } finally {
       setSalvandoDocumentoClinico(false);
+      documentoClinicoEmVooRef.current = false;
     }
   };
 
@@ -4823,12 +4874,14 @@ export default function AtendimentoPage() {
       setErro("Preencha titulo e corpo do documento.");
       return null;
     }
-
-    const atendimentoId = await obterAtendimentoIdParaDocumento();
-    if (!atendimentoId) return null;
+    if (documentoClinicoEmVooRef.current) return null;
+    documentoClinicoEmVooRef.current = true;
+    setSalvandoDocumentoClinico(true);
 
     try {
-      setSalvandoDocumentoClinico(true);
+      const atendimentoId = await obterAtendimentoIdParaDocumento();
+      if (!atendimentoId) return null;
+
       const payload = {
         template_id: documentoClinicoForm.template_id || undefined,
         titulo,
@@ -4853,6 +4906,7 @@ export default function AtendimentoPage() {
       return null;
     } finally {
       setSalvandoDocumentoClinico(false);
+      documentoClinicoEmVooRef.current = false;
     }
   };
 
@@ -5074,8 +5128,12 @@ export default function AtendimentoPage() {
   };
 
   const carregarFrasesClinicas = async () => {
-    const response = await api.get("/atendimentos/frases-clinicas?include_inactive=1&limit=1000");
-    setClinicalPhrases(response.data?.frases || []);
+    try {
+      const response = await api.get("/atendimentos/frases-clinicas?include_inactive=1&limit=1000");
+      setClinicalPhrases(response.data?.frases || []);
+    } catch (e: any) {
+      setErro(extractApiErrorMessageSync(e, "Erro ao atualizar banco de frases clinicas."));
+    }
   };
 
   const editarFraseClinica = (item: ClinicalPhraseRecord) => {
