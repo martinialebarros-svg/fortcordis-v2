@@ -58,6 +58,7 @@ import {
   Search, ChevronDown, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2, DollarSign, MapPin, Wallet
 } from "lucide-react";
 import NovoAgendamentoModal from "./NovoAgendamentoModal";
+import ClienteInfoModal from "./ClienteInfoModal";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 
 interface Agendamento {
@@ -370,6 +371,7 @@ export default function AgendaPage() {
   const [agendamentoEditando, setAgendamentoEditando] = useState<Agendamento | null>(null);
   const [slotSelecionado, setSlotSelecionado] = useState<{ data: string; hora: string } | null>(null);
   const [confirmando, setConfirmando] = useState<{ id: number; acao: string } | null>(null);
+  const [clienteModalAlvo, setClienteModalAlvo] = useState<{ pacienteId?: number; tutorId?: number } | null>(null);
   const [atualizandoStatus, setAtualizandoStatus] = useState<number | null>(null);
   const [modalTipoHorario, setModalTipoHorario] = useState<{ id: number; status: StatusType } | null>(null);
   const [tipoHorario, setTipoHorario] = useState<"comercial" | "plantao">("comercial");
@@ -2401,7 +2403,15 @@ export default function AgendaPage() {
                 const podeAbrirGoogleMaps = Boolean(montarGoogleMapsDestinoLocal(destinoNavegacao));
                 const prazoReserva = obterEstadoPrazoReserva(ag, agoraReservas);
                 const reservaEmAlerta = Boolean(prazoReserva?.emAlerta);
-                
+                const podeAbrirClienteModal = Boolean(ag.paciente_id || ag.tutor_id);
+                const abrirClienteModal = () => {
+                  if (ag.paciente_id) {
+                    setClienteModalAlvo({ pacienteId: ag.paciente_id });
+                  } else if (ag.tutor_id) {
+                    setClienteModalAlvo({ tutorId: ag.tutor_id });
+                  }
+                };
+
                 return (
                   <div
                     key={ag.id}
@@ -2463,13 +2473,35 @@ export default function AgendaPage() {
                         )}
 
                         <div className="text-base font-semibold text-gray-900 mb-2">
-                          {ag.paciente || "Animal nao informado"}
+                          {podeAbrirClienteModal ? (
+                            <button
+                              type="button"
+                              onClick={abrirClienteModal}
+                              className="text-left hover:text-blue-700 hover:underline"
+                              title="Ver e editar dados do cliente"
+                            >
+                              {ag.paciente || "Animal nao informado"}
+                            </button>
+                          ) : (
+                            ag.paciente || "Animal nao informado"
+                          )}
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm text-gray-600">
                           <div className="flex items-center gap-2">
                             <User className="w-4 h-4 text-gray-400" />
-                            <span>{ag.tutor || "Tutor nao informado"}</span>
+                            {podeAbrirClienteModal ? (
+                              <button
+                                type="button"
+                                onClick={abrirClienteModal}
+                                className="hover:text-blue-700 hover:underline"
+                                title="Ver e editar dados do cliente"
+                              >
+                                {ag.tutor || "Tutor nao informado"}
+                              </button>
+                            ) : (
+                              <span>{ag.tutor || "Tutor nao informado"}</span>
+                            )}
                           </div>
                           <div className="flex items-center gap-2">
                             <Clock className="w-4 h-4 text-gray-400" />
@@ -2490,7 +2522,7 @@ export default function AgendaPage() {
                       </div>
 
                       {/* Ações */}
-                      <div className="flex flex-wrap gap-2 lg:justify-end">
+                      <div className="flex flex-wrap gap-2 lg:flex-[1.5_1_0%] lg:justify-end">
                         {/* Botões de mudança de status */}
                         {proximosStatus.map((novoStatus) => {
                           const desfazerRealizado = ag.status === 'Realizado' && novoStatus === 'Em atendimento';
@@ -3305,6 +3337,15 @@ export default function AgendaPage() {
           intervaloSlotMinutos={intervaloSlotMinutos}
           isAdmin={isAdmin}
         />
+
+        {clienteModalAlvo && (
+          <ClienteInfoModal
+            pacienteId={clienteModalAlvo.pacienteId}
+            tutorId={clienteModalAlvo.tutorId}
+            onClose={() => setClienteModalAlvo(null)}
+            onSaved={() => { void carregarAgendamentos(); }}
+          />
+        )}
       </div>
     </DashboardLayout>
   );
