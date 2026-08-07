@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import { extractApiErrorMessage, extractApiErrorMessageSync } from "@/lib/api-error";
+import { buildExamMergeKey, mergeAutoSavedFormState } from "@/lib/atendimento-form-merge";
 import { extrairIdadePaciente, normalizarSexoPaciente } from "@/lib/paciente";
 import {
   ATENDIMENTOS_LIST_LIMIT,
@@ -275,7 +276,7 @@ type HistoricoPaciente = {
   timeline: TimelineGrupo[];
 };
 
-type ExameSolicitacao = {
+export type ExameSolicitacao = {
   id?: number;
   catalogo_exame_id?: number | null;
   painel_exame_id?: number | null;
@@ -343,7 +344,7 @@ type WorkspacePainel = "consulta" | "exames" | "prescricao" | "documentos" | "bi
 type ConsultaEditorEtapa = "anamnese" | "diagnostico" | "plano";
 type PrescricaoCampoObrigatorio = "medicamento_nome" | "dose" | "frequencia" | "via";
 
-type PrescricaoItem = {
+export type PrescricaoItem = {
   id?: number;
   medicamento_id?: number | null;
   medicamento_nome: string;
@@ -512,7 +513,7 @@ type ClinicalPhraseForm = {
   ativo: number;
 };
 
-type AtendimentoForm = {
+export type AtendimentoForm = {
   id?: number;
   paciente_id: string;
   especie: string;
@@ -1255,90 +1256,6 @@ const buildAtendimentoPayload = (form: AtendimentoForm) => {
 };
 
 const serializeAtendimentoSnapshot = (form: AtendimentoForm) => JSON.stringify(buildAtendimentoPayload(form));
-
-const buildExamMergeKey = (item: ExameSolicitacao) =>
-  [
-    item.catalogo_exame_id || "",
-    (item.tipo_exame || "").trim().toLowerCase(),
-    item.painel_exame_id || "",
-    item.prioridade || "",
-    item.status || "",
-    (item.resultado || "").trim().toLowerCase(),
-    item.data_resultado || "",
-    Number(item.valor || 0),
-    (item.observacoes || "").trim().toLowerCase(),
-  ].join("|");
-
-const buildPrescriptionMergeKey = (item: PrescricaoItem) =>
-  [
-    item.medicamento_id || "",
-    (item.medicamento_nome || "").trim().toLowerCase(),
-    (item.apresentacao_selecionada || "").trim().toLowerCase(),
-    (item.dose || "").trim().toLowerCase(),
-    (item.frequencia || "").trim().toLowerCase(),
-    (item.duracao || "").trim().toLowerCase(),
-    (item.via || "").trim().toLowerCase(),
-  ].join("|");
-
-const mergeAutoSavedItems = <T extends { id?: number | null }>(
-  currentItems: T[],
-  persistedItems: T[],
-  getMergeKey: (item: T) => string,
-  applyPersisted: (currentItem: T, persistedItem: T) => T
-) => {
-  const pool = [...persistedItems];
-  return currentItems.map((currentItem) => {
-    if (currentItem.id) {
-      const byIdIndex = pool.findIndex((persistedItem) => persistedItem.id === currentItem.id);
-      if (byIdIndex >= 0) {
-        return applyPersisted(currentItem, pool.splice(byIdIndex, 1)[0]);
-      }
-    }
-
-    const mergeKey = getMergeKey(currentItem);
-    if (!mergeKey) return currentItem;
-
-    const bySignatureIndex = pool.findIndex((persistedItem) => getMergeKey(persistedItem) === mergeKey);
-    if (bySignatureIndex >= 0) {
-      return applyPersisted(currentItem, pool.splice(bySignatureIndex, 1)[0]);
-    }
-
-    return currentItem;
-  });
-};
-
-const mergeAutoSavedFormState = (current: AtendimentoForm, persisted: AtendimentoForm): AtendimentoForm => ({
-  ...current,
-  id: persisted.id || current.id,
-  exames: mergeAutoSavedItems(
-    current.exames,
-    persisted.exames,
-    buildExamMergeKey,
-    (currentItem, persistedItem) => ({
-      ...currentItem,
-      id: currentItem.id ?? persistedItem.id,
-      laudo_id: currentItem.laudo_id ?? persistedItem.laudo_id ?? null,
-      data_solicitacao: currentItem.data_solicitacao || persistedItem.data_solicitacao || "",
-      data_resultado: currentItem.data_resultado || persistedItem.data_resultado || "",
-      resultado: currentItem.resultado || persistedItem.resultado || "",
-      valor_referencia: currentItem.valor_referencia || persistedItem.valor_referencia || "",
-      unidade: currentItem.unidade || persistedItem.unidade || "",
-      anexos_resultado: persistedItem.anexos_resultado || currentItem.anexos_resultado || [],
-    })
-  ),
-  prescricao_itens: mergeAutoSavedItems(
-    current.prescricao_itens,
-    persisted.prescricao_itens,
-    buildPrescriptionMergeKey,
-    (currentItem, persistedItem) => ({
-      ...currentItem,
-      id: currentItem.id ?? persistedItem.id,
-      medicamento_nome: currentItem.medicamento_nome || persistedItem.medicamento_nome,
-      apresentacao_selecionada: currentItem.apresentacao_selecionada || persistedItem.apresentacao_selecionada || "",
-      historico_ajustes: persistedItem.historico_ajustes || currentItem.historico_ajustes,
-    })
-  ),
-});
 
 export default function AtendimentoPage() {
   const router = useRouter();
@@ -4227,8 +4144,16 @@ export default function AtendimentoPage() {
 
       hydratingFormRef.current = true;
       setSelecionado(Number(atendimentoId));
-      setForm(hydrated);
-      formRef.current = hydrated;
+      // Mesmo merge do save manual (achado #18): o POST /finalizar reflete o
+      // form de ANTES do await, entao uma edicao feita pelo usuario durante o
+      // round-trip nao pode ser apagada pela resposta do servidor.
+      setForm((current) => {
+        const semExcluidos = current.exames.filter((item) => !item._destroy);
+        return mergeAutoSavedFormState(
+          { ...current, exames: semExcluidos.length > 0 ? semExcluidos : [emptyExam()] },
+          hydrated
+        );
+      });
       lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(hydrated);
       clearDraftStorage(atendimentoId);
       draftRestoreRef.current = true;
