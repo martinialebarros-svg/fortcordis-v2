@@ -2522,7 +2522,7 @@ export default function AgendaPage() {
                       </div>
 
                       {/* Ações */}
-                      <div className="flex flex-wrap gap-2 lg:justify-end">
+                      <div className="flex flex-wrap gap-2 lg:flex-[1.5_1_0%] lg:justify-end">
                         {/* Botões de mudança de status */}
                         {proximosStatus.map((novoStatus) => {
                           const desfazerRealizado = ag.status === 'Realizado' && novoStatus === 'Em atendimento';
