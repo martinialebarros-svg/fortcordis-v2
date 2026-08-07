@@ -20,7 +20,7 @@ from app.models import (
     google_maps_usage_metrica, portal_access, portal_partner, portal_partner_auth
 )
 from app.utils.frases_seed import seed_frases
-from migrations.runner import run_migrations
+from migrations.runner import get_deferred_migrations, run_migrations
 
 # Importar todos os modelos para o Base.metadata
 MODELS = [
@@ -74,15 +74,30 @@ def criar_tabelas():
         return False
 
 def executar_migracoes():
-    """Executa migracoes versionadas para corrigir drift de schema."""
+    """Executa migracoes versionadas para corrigir drift de schema.
+
+    Migracoes adiadas por pendencia de conciliacao de dados nao interrompem o
+    deploy: o runner segue aplicando as demais e a versao adiada volta a ser
+    tentada no proximo deploy. Elas continuam aparecendo como pendentes em
+    `get_migration_status()`, que alimenta o aviso de runtime.
+    """
     print("\n🧱 Executando migracoes versionadas...")
     try:
         run_migrations()
-        print("✅ Migracoes executadas com sucesso!")
-        return True
     except Exception as e:
         print(f"❌ Erro ao executar migracoes: {e}")
         return False
+
+    deferred = get_deferred_migrations()
+    if deferred:
+        print("⚠️  Migracoes adiadas por pendencia de dados (schema segue incompleto):")
+        for version, motivo in deferred:
+            print(f"    - {version}: {motivo}")
+        print("    Concilie os registros citados e rode o deploy novamente.")
+        return True
+
+    print("✅ Migracoes executadas com sucesso!")
+    return True
 
 def criar_tabelas_preco():
     """Cria as tabelas de preço padrão."""

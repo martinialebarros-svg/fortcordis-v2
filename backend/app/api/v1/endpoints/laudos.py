@@ -11,6 +11,11 @@ import re
 import unicodedata
 from zoneinfo import ZoneInfo
 
+from app.api.v1.endpoints.atendimento import (
+    _excluir_anexos_por_exame,
+    _motivo_bloqueio_exclusao_exame,
+    revogar_liberacao_exame_no_portal,
+)
 from app.db.database import get_db
 from app.core.portal_release import PORTAL_RELEASED_STATUS, is_portal_released_status
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
@@ -2513,21 +2518,37 @@ def atualizar_laudo(
 @router.delete("/laudos/{laudo_id}")
 def deletar_laudo(
     laudo_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Remove um laudo e suas imagens associadas"""
     from app.models.imagem_laudo import ImagemLaudo
-    
+
     laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
     if not laudo:
         raise HTTPException(status_code=404, detail="Laudo não encontrado")
-    
+
+    # Exame.laudo_id nao tem FK/cascade: sem isso, um Exame liberado no portal
+    # a partir deste laudo (_sincronizar_exame_liberado_para_portal) ficaria
+    # com status='Liberado no portal' e laudo_id apontando para um registro
+    # inexistente - a clinica parceira/tutor continuaria vendo o resultado.
+    exames_vinculados = db.query(Exame).filter(Exame.laudo_id == laudo_id).all()
+    for exame in exames_vinculados:
+        if is_portal_released_status(exame.status):
+            revogar_liberacao_exame_no_portal(
+                exame_id=exame.id,
+                db=db,
+                current_user=current_user,
+                request=request,
+            )
+        exame.laudo_id = None
+
     # Remover imagens associadas ao laudo
     imagens = db.query(ImagemLaudo).filter(ImagemLaudo.laudo_id == laudo_id).all()
     for img in imagens:
         db.delete(img)
-    
+
     # Remover o laudo
     db.delete(laudo)
     db.commit()
@@ -3221,6 +3242,7 @@ def obter_exame(
 def atualizar_exame(
     exame_id: int,
     exame_data: dict,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -3228,25 +3250,48 @@ def atualizar_exame(
     exame = db.query(Exame).filter(Exame.id == exame_id).first()
     if not exame:
         raise HTTPException(status_code=404, detail="Exame não encontrado")
-    
+
+    # atendimento_id nao e aceito aqui: essa rota generica nao tem o contexto
+    # (guards de exclusao/liberacao no portal) que _sync_exames aplica ao
+    # vincular um exame a um atendimento - so o modulo de Atendimento pode
+    # fazer esse vinculo.
+    campos_ignorados = {"atendimento_id", "id"}
     for field, value in exame_data.items():
+        if field in campos_ignorados:
+            continue
         if field == "laudo_id":
             # Mesma protecao de _sync_exames (atendimento.py): so aceita um
             # laudo_id que pertenca ao mesmo paciente deste exame.
             if value and not db.query(Laudo).filter(Laudo.id == value, Laudo.paciente_id == exame.paciente_id).first():
                 continue
             exame.laudo_id = value
+        elif field == "status" and is_portal_released_status(value) and not is_portal_released_status(exame.status):
+            # A liberacao no portal so pode ser feita pelo endpoint dedicado
+            # (valida PDF, preserva observacoes originais e audita a acao).
+            continue
         elif hasattr(exame, field):
             setattr(exame, field, value)
 
     db.commit()
     db.refresh(exame)
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="laudos",
+        entidade="exame",
+        entidade_id=exame.id,
+        acao="EXAME_ATUALIZADO",
+        descricao=f"Exame #{exame.id} atualizado via tela de Laudos.",
+        detalhes={"paciente_id": exame.paciente_id, "campos_alterados": [f for f in exame_data if f not in campos_ignorados]},
+        request=request,
+    )
     return exame
 
 
 @router.delete("/exames/{exame_id}")
 def deletar_exame(
     exame_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -3254,8 +3299,28 @@ def deletar_exame(
     exame = db.query(Exame).filter(Exame.id == exame_id).first()
     if not exame:
         raise HTTPException(status_code=404, detail="Exame não encontrado")
-    
+
+    total_anexos = db.query(AnexoAtendimento).filter(AnexoAtendimento.exame_id == exame_id).count()
+    motivo_bloqueio = _motivo_bloqueio_exclusao_exame(exame, total_anexos)
+    if motivo_bloqueio:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=motivo_bloqueio)
+
+    paciente_id = exame.paciente_id
+    tipo_exame = exame.tipo_exame
+
+    _excluir_anexos_por_exame(db, exame.id)
     db.delete(exame)
     db.commit()
-    
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="laudos",
+        entidade="exame",
+        entidade_id=exame_id,
+        acao="EXAME_EXCLUIDO",
+        descricao=f"Exame #{exame_id} ({tipo_exame}) excluido via tela de Laudos.",
+        detalhes={"paciente_id": paciente_id},
+        request=request,
+    )
+
     return {"message": "Exame removido com sucesso"}

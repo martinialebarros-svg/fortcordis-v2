@@ -18,7 +18,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
 os.environ.setdefault("SECRET_KEY", "atendimento-observacoes-portal-test-secret-key-1234567890")
 
 from app.api.v1.endpoints import atendimento
-from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
+from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico, ExameAjuste
 from app.models.laudo import Exame
 from app.schemas.atendimento import ExameSolicitacaoPayload
 
@@ -28,7 +28,7 @@ class AtendimentoObservacoesPortalPreservadasTest(unittest.TestCase):
         tmpdir = tempfile.TemporaryDirectory()
         db_path = Path(tmpdir.name) / "atendimento-observacoes-portal.db"
         engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
-        for table in (AtendimentoClinico.__table__, Exame.__table__, AnexoAtendimento.__table__):
+        for table in (AtendimentoClinico.__table__, Exame.__table__, AnexoAtendimento.__table__, ExameAjuste.__table__):
             table.create(engine, checkfirst=True)
         session_factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
         return tmpdir, session_factory(), engine

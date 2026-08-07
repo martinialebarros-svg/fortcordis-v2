@@ -229,6 +229,8 @@ interface TutorOption {
   latitude?: number | null;
   longitude?: number | null;
   georreferenciado?: boolean;
+  pets?: Array<{ id: number; nome: string }>;
+  total_pets?: number;
 }
 
 interface PacienteOption {
@@ -273,6 +275,8 @@ interface SearchableSelectProps {
   clearLabel?: string;
   disabled?: boolean;
   showSelectedDescription?: boolean;
+  onSearchChange?: (value: string) => void;
+  isSearching?: boolean;
 }
 
 type OrigemAtendimento = "clinica_parceira" | "domiciliar";
@@ -438,7 +442,14 @@ const matchesSearch = (value: string, query: string): boolean => {
 
   const normalizedValue = normalizeSearchText(value);
   const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
-  return tokens.every((token) => normalizedValue.includes(token));
+  const flexibleValue = normalizedValue.replace(/(.)\1+/g, "$1");
+  return tokens.every((token) => {
+    const flexibleToken = token.replace(/(.)\1+/g, "$1");
+    return (
+      normalizedValue.includes(token) ||
+      flexibleValue.includes(flexibleToken)
+    );
+  });
 };
 
 const formatarEnderecoClinica = (clinica?: ClinicaOption | null): string => {
@@ -609,6 +620,8 @@ function SearchableSelect({
   clearLabel = "Selecione...",
   disabled = false,
   showSelectedDescription = false,
+  onSearchChange,
+  isSearching = false,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -694,7 +707,11 @@ function SearchableSelect({
                 type="text"
                 value={search}
                 autoComplete="off"
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => {
+                  const nextSearch = event.target.value;
+                  setSearch(nextSearch);
+                  onSearchChange?.(nextSearch);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Escape") {
                     event.preventDefault();
@@ -728,7 +745,9 @@ function SearchableSelect({
             </button>
 
             {filteredOptions.length === 0 ? (
-              <div className="px-3 py-4 text-sm text-gray-500">{emptyText}</div>
+              <div className="px-3 py-4 text-sm text-gray-500">
+                {isSearching ? "Buscando tutores..." : emptyText}
+              </div>
             ) : (
               filteredOptions.map((option) => {
                 const isSelected = option.value === value;
@@ -785,6 +804,8 @@ export default function NovoAgendamentoModal({
   const [tutorSelecionado, setTutorSelecionado] = useState<string>("");
   const [tutorPanorama, setTutorPanorama] = useState<TutorPanoramaData | null>(null);
   const [carregandoTutorPanorama, setCarregandoTutorPanorama] = useState(false);
+  const [buscaTutorRemota, setBuscaTutorRemota] = useState("");
+  const [buscandoTutores, setBuscandoTutores] = useState(false);
   const [erroCarregamento, setErroCarregamento] = useState<string>("");
   const [carregandoSugestoes, setCarregandoSugestoes] = useState(false);
   const [sugestoesHorario, setSugestoesHorario] = useState<SugestaoHorarioItem[]>([]);
@@ -807,6 +828,7 @@ export default function NovoAgendamentoModal({
   });
   const popupProximidadeHistoricoRef = useRef<Record<string, number>>({});
   const sequenciaConsultaProximidadeRef = useRef(0);
+  const sequenciaBuscaTutorRef = useRef(0);
   const [modalTutorAberto, setModalTutorAberto] = useState(false);
   const [modalAnimalAberto, setModalAnimalAberto] = useState(false);
   const [salvandoTutor, setSalvandoTutor] = useState(false);
@@ -1202,6 +1224,49 @@ export default function NovoAgendamentoModal({
     }
   };
 
+  useEffect(() => {
+    const termo = buscaTutorRemota.trim();
+    if (!isOpen || termo.length < 2) {
+      sequenciaBuscaTutorRef.current += 1;
+      setBuscandoTutores(false);
+      return;
+    }
+
+    const sequencia = sequenciaBuscaTutorRef.current + 1;
+    sequenciaBuscaTutorRef.current = sequencia;
+    setBuscandoTutores(true);
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await api.get("/tutores", {
+          params: { busca: termo, limit: 50 },
+        });
+        if (sequencia !== sequenciaBuscaTutorRef.current) return;
+
+        const encontrados = Array.isArray(response?.data?.items)
+          ? (response.data.items as TutorOption[])
+          : [];
+        setTutores((atuais) => {
+          const porId = new Map(atuais.map((tutor) => [tutor.id, tutor]));
+          encontrados.forEach((tutor) => porId.set(tutor.id, tutor));
+          return Array.from(porId.values()).sort((a, b) =>
+            a.nome.localeCompare(b.nome, "pt-BR")
+          );
+        });
+      } catch (error) {
+        console.error("Erro ao buscar tutores:", error);
+      } finally {
+        if (sequencia === sequenciaBuscaTutorRef.current) {
+          setBuscandoTutores(false);
+        }
+      }
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [buscaTutorRemota, isOpen]);
+
   const preencherModalTutor = (tutor?: TutorPanoramaData["tutor"] | null) => {
     if (!tutor) {
       setNovoTutor(buildInitialTutorForm());
@@ -1249,6 +1314,15 @@ export default function NovoAgendamentoModal({
       const response = await api.get(`/tutores/${idNumerico}/panorama`);
       const panorama = response?.data as TutorPanoramaData;
       setTutorPanorama(panorama);
+      if (panorama?.tutor) {
+        setTutores((atuais) => {
+          const tutorAtualizado = panorama.tutor as TutorOption;
+          const restantes = atuais.filter((item) => item.id !== tutorAtualizado.id);
+          return [...restantes, tutorAtualizado].sort((a, b) =>
+            a.nome.localeCompare(b.nome, "pt-BR")
+          );
+        });
+      }
       preencherModalTutor(panorama?.tutor);
     } catch (error) {
       console.error("Erro ao carregar panorama do tutor:", error);
@@ -1762,12 +1836,28 @@ export default function NovoAgendamentoModal({
     value: tutor.id.toString(),
     label: tutor.nome,
     description: [
+      `Tutor #${tutor.id}`,
       tutor.whatsapp || tutor.telefone ? `WhatsApp: ${tutor.whatsapp || tutor.telefone}` : "",
-      tutor.georreferenciado ? "Endereco georreferenciado" : "Endereco pendente",
+      tutor.endereco_resumo ||
+        (tutor.georreferenciado ? "Endereco georreferenciado" : "Endereco pendente"),
+      tutor.pets?.length
+        ? `Pets: ${tutor.pets.map((pet) => pet.nome).filter(Boolean).join(", ")}`
+        : tutor.total_pets === 0
+          ? "Sem pets vinculados"
+          : "",
     ]
       .filter(Boolean)
       .join(" - "),
-    searchText: [tutor.nome, tutor.whatsapp || "", tutor.telefone || "", tutor.email || "", tutor.cidade || ""].filter(Boolean).join(" "),
+    searchText: [
+      tutor.nome,
+      tutor.whatsapp || "",
+      tutor.telefone || "",
+      tutor.email || "",
+      tutor.cidade || "",
+      ...(tutor.pets || []).map((pet) => pet.nome),
+    ]
+      .filter(Boolean)
+      .join(" "),
   }));
 
   const pacienteOptions: SearchableSelectOption[] = pacientesFiltradosPorTutor.map((paciente) => ({
@@ -3220,6 +3310,8 @@ export default function NovoAgendamentoModal({
                 searchPlaceholder="Buscar tutor por nome ou telefone..."
                 emptyText="Nenhum tutor encontrado."
                 clearLabel="Selecione..."
+                onSearchChange={setBuscaTutorRemota}
+                isSearching={buscandoTutores}
               />
               <button
                 type="button"

@@ -26,7 +26,7 @@ os.environ.setdefault("SECRET_KEY", "atendimento-exame-integridade-test-secret-k
 
 from app.api.v1.endpoints import atendimento
 from app.core.portal_release import PORTAL_RELEASED_STATUS
-from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
+from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico, ExameAjuste
 from app.models.clinica import Clinica
 from app.models.laudo import Exame
 from app.models.paciente import Paciente
@@ -49,6 +49,7 @@ class AtendimentoExameIntegridadeTest(unittest.TestCase):
             AtendimentoClinico.__table__,
             AnexoAtendimento.__table__,
             Exame.__table__,
+            ExameAjuste.__table__,
         ):
             table.create(self.engine, checkfirst=True)
         self.db = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)()

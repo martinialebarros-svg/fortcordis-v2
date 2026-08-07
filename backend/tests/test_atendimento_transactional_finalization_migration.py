@@ -22,6 +22,8 @@ assert SPEC and SPEC.loader
 MIGRATION = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MIGRATION)
 
+from migrations.exceptions import MigrationDeferred  # noqa: E402
+
 
 class AtendimentoTransactionalFinalizationMigrationTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -93,7 +95,7 @@ class AtendimentoTransactionalFinalizationMigrationTest(unittest.TestCase):
                     )
                 )
 
-    def test_upgrade_interrompe_sem_apagar_atendimentos_duplicados(self) -> None:
+    def test_upgrade_adia_sem_apagar_atendimentos_duplicados(self) -> None:
         with self.engine.begin() as connection:
             self._create_tables(connection)
             connection.execute(
@@ -101,7 +103,7 @@ class AtendimentoTransactionalFinalizationMigrationTest(unittest.TestCase):
                     "INSERT INTO atendimentos_clinicos (agendamento_id) VALUES (10), (10)"
                 )
             )
-            with self.assertRaises(RuntimeError) as ctx:
+            with self.assertRaises(MigrationDeferred) as ctx:
                 MIGRATION.upgrade(connection)
             total = connection.execute(
                 text(
@@ -113,7 +115,7 @@ class AtendimentoTransactionalFinalizationMigrationTest(unittest.TestCase):
         self.assertIn("ids 1,2", str(ctx.exception))
         self.assertEqual(total, 2)
 
-    def test_upgrade_interrompe_sem_cancelar_os_ativas_duplicadas(self) -> None:
+    def test_upgrade_adia_sem_cancelar_os_ativas_duplicadas(self) -> None:
         with self.engine.begin() as connection:
             self._create_tables(connection)
             connection.execute(
@@ -122,7 +124,7 @@ class AtendimentoTransactionalFinalizationMigrationTest(unittest.TestCase):
                     "(22, 'Pendente'), (22, 'Pago')"
                 )
             )
-            with self.assertRaises(RuntimeError) as ctx:
+            with self.assertRaises(MigrationDeferred) as ctx:
                 MIGRATION.upgrade(connection)
             statuses = list(
                 connection.execute(
@@ -135,6 +137,35 @@ class AtendimentoTransactionalFinalizationMigrationTest(unittest.TestCase):
 
         self.assertIn("agendamento 22", str(ctx.exception))
         self.assertEqual(statuses, ["Pendente", "Pago"])
+
+    def test_upgrade_relata_as_duas_pendencias_de_uma_vez(self) -> None:
+        """Evita o ciclo de conciliar uma duplicidade e so no proximo deploy
+        descobrir a outra."""
+        with self.engine.begin() as connection:
+            self._create_tables(connection)
+            connection.execute(
+                text(
+                    "INSERT INTO atendimentos_clinicos (agendamento_id) VALUES (10), (10)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO ordens_servico (agendamento_id, status) VALUES "
+                    "(22, 'Pendente'), (22, 'Pago')"
+                )
+            )
+            with self.assertRaises(MigrationDeferred) as ctx:
+                MIGRATION.upgrade(connection)
+
+        mensagem = str(ctx.exception)
+        self.assertIn("um atendimento por agendamento", mensagem)
+        self.assertIn("uma OS ativa por agendamento", mensagem)
+        self.assertIn("agendamento 10", mensagem)
+        self.assertIn("agendamento 22", mensagem)
+
+    def test_migration_deferred_e_runtime_error(self) -> None:
+        """Compatibilidade: quem captura RuntimeError continua funcionando."""
+        self.assertTrue(issubclass(MigrationDeferred, RuntimeError))
 
 
 if __name__ == "__main__":

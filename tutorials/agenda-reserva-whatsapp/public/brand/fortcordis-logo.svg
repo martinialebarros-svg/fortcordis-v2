@@ -1,0 +1,19 @@
+<svg width="512" height="140" viewBox="0 0 512 140" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">FortCordis</title>
+  <desc id="desc">Logomarca FortCordis com simbolo cardiologico veterinario.</desc>
+  <defs>
+    <linearGradient id="fcGrad" x1="20" y1="20" x2="120" y2="120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#10B981"/>
+    </linearGradient>
+    <linearGradient id="fcText" x1="154" y1="20" x2="420" y2="126" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E2F8FF"/>
+      <stop offset="1" stop-color="#A7F3D0"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="132" height="132" rx="34" fill="#0F172A" stroke="url(#fcGrad)" stroke-width="8"/>
+  <path d="M45 66C45 52 55 42 68 42C75 42 82 45 87 50C92 45 99 42 106 42C119 42 129 52 129 66C129 78 123 87 112 96L87 116L62 96C51 87 45 78 45 66Z" fill="url(#fcGrad)" fill-opacity="0.18"/>
+  <path d="M54 70H70L77 58L87 84L95 69H112" stroke="#D9FBFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="106" cy="95" r="8" fill="#0F172A" stroke="#CCFBF1" stroke-width="4"/>
+  <text x="158" y="93" fill="url(#fcText)" font-family="Arial, sans-serif" font-size="58" font-weight="800">FortCordis</text>
+</svg>

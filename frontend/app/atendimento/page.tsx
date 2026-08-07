@@ -1453,6 +1453,26 @@ export default function AtendimentoPage() {
   const hydratingFormRef = useRef(false);
   const draftRestoreRef = useRef(false);
   const selecionadoRef = useRef<number | null>(null);
+  // Descartam respostas de historico/cadastro complementar que cheguem fora
+  // de ordem apos o usuario trocar de paciente rapidamente (so a chamada
+  // mais recente de cada uma pode aplicar setState / liberar o loading).
+  // Refs separados: as duas funcoes sao disparadas em sequencia sincrona no
+  // mesmo efeito, entao um contador compartilhado invalidaria a primeira
+  // chamada antes mesmo dela chegar a esperar a resposta.
+  const historicoPacienteRequestIdRef = useRef(0);
+  const cadastroComplementarRequestIdRef = useRef(0);
+  // Idem para abrirAtendimento: dois cliques rapidos na lista lateral nao
+  // podem deixar a resposta do clique mais antigo sobrescrever o prontuario
+  // do clique mais recente.
+  const abrirAtendimentoRequestIdRef = useRef(0);
+  // Save manual e autosave nao podem ter dois PUT/POST em voo ao mesmo tempo
+  // para o mesmo atendimento: sem isso, se o PUT do autosave (payload mais
+  // antigo) commitar depois do PUT manual (mais novo), o registro final fica
+  // com o conteudo antigo - perda silenciosa de dado clinico. Uma chamada que
+  // chega enquanto outra esta em voo espera ela terminar e refaz com o
+  // formRef.current mais atual, em vez de disparar uma segunda requisicao
+  // concorrente.
+  const salvamentoAtendimentoEmVooRef = useRef<Promise<number | null> | null>(null);
   const autosaveStateRef = useRef<"idle" | "local" | "dirty" | "saving" | "saved" | "error">("idle");
   const criandoAtendimentoAutomaticoRef = useRef(false);
   const clinicalTextareaRefs = useRef<Partial<Record<ClinicalFieldKey, HTMLTextAreaElement | null>>>({});
@@ -1696,9 +1716,10 @@ export default function AtendimentoPage() {
   };
 
   const carregarCadastroComplementar = async (pacienteId: string | number) => {
+    const requestId = ++cadastroComplementarRequestIdRef.current;
     const normalized = Number(pacienteId || 0);
     if (!Number.isFinite(normalized) || normalized <= 0) {
-      aplicarCadastroComplementar();
+      if (requestId === cadastroComplementarRequestIdRef.current) aplicarCadastroComplementar();
       return;
     }
 
@@ -1727,6 +1748,10 @@ export default function AtendimentoPage() {
           };
         }
       }
+      // Se o usuario ja trocou de paciente de novo, uma requisicao mais nova
+      // esta em voo (ou ja aplicou seu resultado) - aplicar esta agora
+      // sobrescreveria cadastroComplementar com dados do paciente errado.
+      if (requestId !== cadastroComplementarRequestIdRef.current) return;
       aplicarCadastroComplementar(
         {
           ...pacienteData,
@@ -1735,7 +1760,7 @@ export default function AtendimentoPage() {
         tutorData
       );
     } finally {
-      setCarregandoCadastroComplementar(false);
+      if (requestId === cadastroComplementarRequestIdRef.current) setCarregandoCadastroComplementar(false);
     }
   };
 
@@ -1979,21 +2004,45 @@ export default function AtendimentoPage() {
   }, []);
 
   const carregarBase = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const [rp, rc, rm, re, rf] = await Promise.all([
+      // allSettled em vez de all: a falha de um recurso secundario (ex.:
+      // frases clinicas do autocomplete) nao pode derrubar pacientes/
+      // clinicas/medicamentos/catalogo, que sao essenciais para operar o
+      // atendimento.
+      const [rp, rc, rm, re, rf] = await Promise.allSettled([
         api.get("/pacientes?limit=1000"),
         api.get("/clinicas?limit=500"),
         api.get("/atendimentos/medicamentos/banco?limit=500"),
         api.get("/atendimentos/exames/catalogo"),
         api.get("/atendimentos/frases-clinicas?include_inactive=1&limit=1000"),
       ]);
-      setPacientes(rp.data?.items || []);
-      setClinicas(rc.data?.items || []);
-      setMedicamentos(rm.data?.items || []);
-      setCatalogoExames(re.data?.exames || []);
-      setPaineisExames(re.data?.paineis || []);
-      setClinicalPhrases(rf.data?.frases || []);
+      if (rp.status === "fulfilled") setPacientes(rp.value.data?.items || []);
+      if (rc.status === "fulfilled") setClinicas(rc.value.data?.items || []);
+      if (rm.status === "fulfilled") setMedicamentos(rm.value.data?.items || []);
+      if (re.status === "fulfilled") {
+        setCatalogoExames(re.value.data?.exames || []);
+        setPaineisExames(re.value.data?.paineis || []);
+      }
+      if (rf.status === "fulfilled") setClinicalPhrases(rf.value.data?.frases || []);
+
+      const recursosComFalha = (
+        [
+          [rp, "lista de pacientes"],
+          [rc, "lista de clinicas"],
+          [rm, "banco de medicamentos"],
+          [re, "catalogo de exames"],
+          [rf, "frases clinicas"],
+        ] as const
+      )
+        .filter(([resultado]) => resultado.status === "rejected")
+        .map(([, rotulo]) => rotulo);
+      if (recursosComFalha.length > 0) {
+        setErro(
+          `Nao foi possivel carregar: ${recursosComFalha.join(", ")}. Recarregue a pagina para tentar novamente.`
+        );
+      }
+
       await carregarLista(1);
     } catch (e: any) {
       setErro(extractApiErrorMessageSync(e, "Erro ao carregar dados de atendimento."));
@@ -2588,16 +2637,19 @@ export default function AtendimentoPage() {
   }, [contextoAplicado, form, loading, selecionado]);
 
   const carregarHistoricoPaciente = async (pacienteId: string | number, limite = 12) => {
+    const requestId = ++historicoPacienteRequestIdRef.current;
     const normalized = Number(pacienteId || 0);
     if (!Number.isFinite(normalized) || normalized <= 0) {
-      setHistoricoPaciente(null);
+      if (requestId === historicoPacienteRequestIdRef.current) setHistoricoPaciente(null);
       return;
     }
 
     try {
       const response = await api.get(`/atendimentos/paciente/${normalized}/historico?limite=${limite}`);
+      if (requestId !== historicoPacienteRequestIdRef.current) return;
       setHistoricoPaciente(response.data);
     } catch {
+      if (requestId !== historicoPacienteRequestIdRef.current) return;
       setHistoricoPaciente(null);
     }
   };
@@ -2626,8 +2678,10 @@ export default function AtendimentoPage() {
     ) {
       return;
     }
+    const requestId = ++abrirAtendimentoRequestIdRef.current;
     try {
       const response = await api.get(`/atendimentos/${id}`);
+      if (requestId !== abrirAtendimentoRequestIdRef.current) return;
       const d = response.data;
       const hydrated = hydrateFormFromDetail(d);
 
@@ -2711,6 +2765,7 @@ export default function AtendimentoPage() {
       }
       setErro("");
     } catch (e: any) {
+      if (requestId !== abrirAtendimentoRequestIdRef.current) return;
       setErro(extractApiErrorMessageSync(e, "Erro ao abrir atendimento."));
     }
   };
@@ -3960,7 +4015,7 @@ export default function AtendimentoPage() {
     setSucesso(`Painel "${painelExameAtual.nome}" aplicado com ${novosExames.length} exame(s).`);
   };
 
-  const saveAtendimento = async (mode: "manual" | "autosave" = "manual") => {
+  const executarSaveAtendimento = async (mode: "manual" | "autosave" = "manual") => {
     let criandoAutomaticamente = false;
     try {
       const currentForm = formRef.current;
@@ -4086,6 +4141,28 @@ export default function AtendimentoPage() {
       }
       if (criandoAutomaticamente) {
         criandoAtendimentoAutomaticoRef.current = false;
+      }
+    }
+  };
+
+  const saveAtendimento = async (mode: "manual" | "autosave" = "manual"): Promise<number | null> => {
+    const emVoo = salvamentoAtendimentoEmVooRef.current;
+    if (emVoo) {
+      // Nao dispara um segundo PUT/POST concorrente: espera o save em voo
+      // terminar (ignorando seu erro, se houver) e entao refaz com o estado
+      // mais atual do form, garantindo que a edicao mais recente sempre
+      // acabe persistida, sem nunca ter duas requisicoes simultaneas.
+      await emVoo.catch(() => null);
+      return saveAtendimento(mode);
+    }
+
+    const promise = executarSaveAtendimento(mode);
+    salvamentoAtendimentoEmVooRef.current = promise;
+    try {
+      return await promise;
+    } finally {
+      if (salvamentoAtendimentoEmVooRef.current === promise) {
+        salvamentoAtendimentoEmVooRef.current = null;
       }
     }
   };

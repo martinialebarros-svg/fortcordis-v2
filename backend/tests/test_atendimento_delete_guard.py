@@ -21,6 +21,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
 os.environ.setdefault("SECRET_KEY", "atendimento-delete-guard-test-secret-key-1234567890")
 
 from app.api.v1.endpoints import atendimento
+from app.api.v1.endpoints import ordens_servico as ordens_servico_module
 from app.models.agendamento import Agendamento
 from app.models.atendimento_clinico import (
     AnexoAtendimento,
@@ -32,6 +33,7 @@ from app.models.atendimento_clinico import (
     PrescricaoItemAjuste,
 )
 from app.models.clinica import Clinica
+from app.models.financeiro import CreditoFinanceiro, OrdemServicoPagamento, Transacao
 from app.models.laudo import Exame
 from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
@@ -55,6 +57,9 @@ class AtendimentoDeleteGuardTest(unittest.TestCase):
             Agendamento.__table__,
             AtendimentoClinico.__table__,
             OrdemServico.__table__,
+            OrdemServicoPagamento.__table__,
+            Transacao.__table__,
+            CreditoFinanceiro.__table__,
             Exame.__table__,
             AnexoAtendimento.__table__,
             PrescricaoClinica.__table__,
@@ -337,6 +342,44 @@ class AtendimentoDeleteGuardTest(unittest.TestCase):
         self.assertEqual(resposta["id"], registro_id)
         self.assertIsNone(self.db.query(AtendimentoClinico).filter_by(id=registro_id).first())
         self.assertIsNone(self.db.query(Exame).filter_by(id=exame.id).first())
+
+    def test_delete_concluido_com_os_paga_desfaz_recebimento_antes_de_cancelar(self) -> None:
+        registro, agendamento, ordem_servico = self._seed_vinculado()
+        ordem_servico.status = "Pago"
+        self.db.commit()
+
+        transacao = Transacao(
+            tipo="entrada",
+            categoria="Servico",
+            valor=150.0,
+            valor_final=150.0,
+            status="Pago",
+            data_pagamento=datetime(2026, 7, 29, 15, 0),
+            descricao=f"Recebimento da OS {ordem_servico.numero_os}",
+            observacoes=f"OS_ID={ordem_servico.id};TIPO=RECEBIMENTO_OS",
+        )
+        self.db.add(transacao)
+        self.db.commit()
+        transacao_id = transacao.id
+
+        with patch.object(atendimento, "registrar_auditoria"), patch.object(
+            ordens_servico_module, "registrar_auditoria"
+        ):
+            resposta = atendimento.excluir_atendimento(
+                registro.id,
+                self.request,
+                confirmar_exclusao=True,
+                db=self.db,
+                current_user=self.user,
+            )
+
+        self.assertEqual(resposta["id"], registro.id)
+        self.db.refresh(ordem_servico)
+        self.assertEqual(ordem_servico.status, "Cancelado")
+
+        transacao_atualizada = self.db.query(Transacao).filter_by(id=transacao_id).first()
+        self.assertEqual(transacao_atualizada.status, "Cancelado")
+        self.assertIsNone(transacao_atualizada.data_pagamento)
 
 
 if __name__ == "__main__":

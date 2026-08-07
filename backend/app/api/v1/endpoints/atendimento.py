@@ -14,6 +14,7 @@ from xml.sax.saxutils import escape as xml_escape
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from jose import JWTError, jwt
+from app.api.v1.endpoints.ordens_servico import desfazer_recebimento_ordem
 from app.schemas.atendimento import (
     AnexoPayload,
     AlertaPayload,
@@ -56,6 +57,7 @@ from app.models.atendimento_clinico import (
     DocumentoAtendimento,
     DocumentoAtendimentoTemplate,
     EvolucaoClinica,
+    ExameAjuste,
     Medicamento,
     PrescricaoClinica,
     PrescricaoItem,
@@ -229,6 +231,66 @@ def _map_ajustes_por_item(
     grouped: Dict[int, List[dict]] = defaultdict(list)
     for ajuste in ajustes:
         grouped[ajuste.prescricao_item_id].append(
+            {
+                "id": ajuste.id,
+                "campo": ajuste.campo,
+                "valor_anterior": ajuste.valor_anterior or "",
+                "valor_novo": ajuste.valor_novo or "",
+                "motivo": ajuste.motivo or "",
+                "responsavel_id": ajuste.responsavel_id,
+                "responsavel_nome": ajuste.responsavel_nome or "",
+                "created_at": _to_iso(ajuste.created_at),
+            }
+        )
+    return grouped
+
+
+def _registrar_ajuste_exame(
+    db: Session,
+    *,
+    exame: Exame,
+    atendimento_id: int,
+    campo: str,
+    valor_anterior: Any,
+    valor_novo: Any,
+    current_user: User,
+    motivo: str = "Atualizacao manual do exame",
+) -> None:
+    anterior = "" if valor_anterior is None else str(valor_anterior).strip()
+    novo = "" if valor_novo is None else str(valor_novo).strip()
+    if anterior == novo:
+        return
+
+    db.add(
+        ExameAjuste(
+            exame_id=exame.id,
+            atendimento_id=atendimento_id,
+            campo=campo,
+            valor_anterior=anterior,
+            valor_novo=novo,
+            motivo=motivo,
+            responsavel_id=current_user.id,
+            responsavel_nome=current_user.nome,
+        )
+    )
+
+
+def _map_ajustes_por_exame(
+    db: Session,
+    exame_ids: List[int],
+) -> Dict[int, List[dict]]:
+    if not exame_ids:
+        return {}
+
+    ajustes = (
+        db.query(ExameAjuste)
+        .filter(ExameAjuste.exame_id.in_(exame_ids))
+        .order_by(ExameAjuste.created_at.desc(), ExameAjuste.id.desc())
+        .all()
+    )
+    grouped: Dict[int, List[dict]] = defaultdict(list)
+    for ajuste in ajustes:
+        grouped[ajuste.exame_id].append(
             {
                 "id": ajuste.id,
                 "campo": ajuste.campo,
@@ -1764,6 +1826,19 @@ def _sync_exames(
         if payload.id and payload.id in existentes:
             exame = existentes[payload.id]
 
+        campos_exame_antes = (
+            {
+                "resultado": exame.resultado,
+                "valor_referencia": exame.valor_referencia,
+                "unidade": exame.unidade,
+                "prioridade": exame.prioridade,
+                "status": exame.status,
+                "observacoes": exame.observacoes,
+            }
+            if exame is not None
+            else None
+        )
+
         if exame is None:
             exame = Exame(
                 atendimento_id=atendimento.id,
@@ -1843,6 +1918,18 @@ def _sync_exames(
         exame.data_resultado = _parse_datetime(payload.data_resultado) if payload.data_resultado else exame.data_resultado
         if _status_exame_concluido(exame.status) and exame.data_resultado is None:
             exame.data_resultado = datetime.now()
+
+        if campos_exame_antes is not None:
+            for campo, valor_anterior in campos_exame_antes.items():
+                _registrar_ajuste_exame(
+                    db,
+                    exame=exame,
+                    atendimento_id=atendimento.id,
+                    campo=campo,
+                    valor_anterior=valor_anterior,
+                    valor_novo=getattr(exame, campo),
+                    current_user=current_user,
+                )
 
     for exame_id in excluir_ids:
         exame = existentes[exame_id]
@@ -1958,6 +2045,7 @@ def _montar_detalhe_atendimento(
         .order_by(Exame.id.asc())
         .all()
     )
+    historico_por_exame = _map_ajustes_por_exame(db, [exame.id for exame in exames if exame.id])
 
     prescricao = (
         db.query(PrescricaoClinica)
@@ -2087,6 +2175,7 @@ def _montar_detalhe_atendimento(
             {
                 **_map_exame(exame),
                 "anexos_resultado": anexos_por_exame.get(exame.id, []),
+                "historico_ajustes": historico_por_exame.get(exame.id, []),
             }
             for exame in exames
         ],
@@ -3010,6 +3099,70 @@ def criar_atendimento(
     return _montar_detalhe_atendimento(db, atendimento)
 
 
+_CAMPOS_CONTEUDO_CLINICO_AUDITAVEIS = (
+    "status",
+    "peso",
+    "temperatura",
+    "frequencia_cardiaca",
+    "frequencia_respiratoria",
+    "pressao_arterial",
+    "saturacao_oxigenio",
+    "escore_condicion_corpo",
+    "mucosas",
+    "hidratacao",
+    "triagem_observacoes",
+    "queixa_principal",
+    "anamnese",
+    "exame_fisico",
+    "dados_clinicos",
+    "diagnostico_principal",
+    "diagnostico_secundario",
+    "diagnostico_diferencial",
+    "prognostico",
+    "plano_terapeutico",
+    "retorno_recomendado",
+    "motivo_retorno",
+    "observacoes",
+)
+
+
+def _snapshot_conteudo_clinico(atendimento: AtendimentoClinico) -> dict:
+    return {campo: getattr(atendimento, campo) for campo in _CAMPOS_CONTEUDO_CLINICO_AUDITAVEIS}
+
+
+def _diff_conteudo_clinico(antes: dict, depois: dict) -> dict:
+    return {
+        campo: {"antes": antes[campo], "depois": depois[campo]}
+        for campo in _CAMPOS_CONTEUDO_CLINICO_AUDITAVEIS
+        if antes[campo] != depois[campo]
+    }
+
+
+def _auditar_conteudo_clinico_atualizado(
+    *,
+    current_user: User,
+    atendimento: AtendimentoClinico,
+    alteracoes: dict,
+    request: Optional[Request] = None,
+) -> None:
+    """PUT /atendimentos/{id} e o unico caminho de escrita do prontuario (save
+    manual e autosave): sem isso, diagnostico/triagem/queixa podiam ser
+    reescritos a qualquer momento sem nenhum rastro de quem mudou o que."""
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="atendimento",
+        entidade="atendimento_clinico",
+        entidade_id=atendimento.id,
+        acao="ATENDIMENTO_CONTEUDO_CLINICO_ATUALIZADO",
+        descricao=(
+            f"Atendimento #{atendimento.id} teve conteudo clinico atualizado: "
+            + ", ".join(sorted(alteracoes))
+        ),
+        detalhes={"paciente_id": atendimento.paciente_id, "alteracoes": alteracoes},
+        request=request,
+    )
+
+
 @router.put("/{atendimento_id}")
 def atualizar_atendimento(
     atendimento_id: int,
@@ -3021,6 +3174,8 @@ def atualizar_atendimento(
     atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
+
+    conteudo_clinico_antes = _snapshot_conteudo_clinico(atendimento)
 
     data = payload.model_dump(
         exclude_unset=True,
@@ -3218,6 +3373,16 @@ def atualizar_atendimento(
         atendimento_id_excluir=atendimento.id,
     )
     db.refresh(atendimento)
+    alteracoes_conteudo_clinico = _diff_conteudo_clinico(
+        conteudo_clinico_antes, _snapshot_conteudo_clinico(atendimento)
+    )
+    if alteracoes_conteudo_clinico:
+        _auditar_conteudo_clinico_atualizado(
+            current_user=current_user,
+            atendimento=atendimento,
+            alteracoes=alteracoes_conteudo_clinico,
+            request=request,
+        )
     if desvinculando_agendamento:
         _auditar_desvinculo_agendamento(
             current_user=current_user,
@@ -3650,6 +3815,18 @@ def excluir_atendimento(
 
             ordem_servico_ativa = _buscar_os_ativa(db, agendamento_id_vinculado)
             if ordem_servico_ativa:
+                if ordem_servico_ativa.status == "Pago":
+                    # Cancelar direto perderia o rastro do recebimento: a
+                    # Transacao continuaria "Pago"/"Recebido" e nenhum
+                    # CreditoFinanceiro consumido seria restituido, divergindo
+                    # do financeiro. Desfaz pelo mesmo fluxo usado manualmente
+                    # antes de cancelar a OS.
+                    desfazer_recebimento_ordem(
+                        os_id=ordem_servico_ativa.id,
+                        request=request,
+                        db=db,
+                        current_user=current_user,
+                    )
                 ordem_servico_ativa.status = "Cancelado"
                 ordem_servico_cancelada_id = ordem_servico_ativa.id
 
@@ -4528,10 +4705,10 @@ def listar_alertas_paciente(
 def criar_alerta(
     paciente_id: int,
     payload: AlertaPayload,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _ = current_user
     paciente = db.query(Paciente).filter(Paciente.id == paciente_id).first()
     if not paciente:
         raise HTTPException(status_code=404, detail="Paciente nao encontrado.")
@@ -4547,6 +4724,22 @@ def criar_alerta(
     db.commit()
     db.refresh(alerta)
 
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="atendimento",
+        entidade="alerta_clinico",
+        entidade_id=alerta.id,
+        acao="ALERTA_CLINICO_CRIADO",
+        descricao=f"Alerta clinico '{alerta.titulo}' ({alerta.gravidade}) criado para o paciente #{paciente_id}.",
+        detalhes={
+            "paciente_id": paciente_id,
+            "tipo": alerta.tipo,
+            "titulo": alerta.titulo,
+            "gravidade": alerta.gravidade,
+        },
+        request=request,
+    )
+
     return {
         "id": alerta.id,
         "paciente_id": alerta.paciente_id,
@@ -4561,13 +4754,20 @@ def criar_alerta(
 def atualizar_alerta(
     alerta_id: int,
     payload: AlertaPayload,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _ = current_user
     alerta = db.query(AlertaClinico).filter(AlertaClinico.id == alerta_id).first()
     if not alerta:
         raise HTTPException(status_code=404, detail="Alerta nao encontrado.")
+
+    valores_anteriores = {
+        "tipo": alerta.tipo,
+        "titulo": alerta.titulo,
+        "descricao": alerta.descricao or "",
+        "gravidade": alerta.gravidade,
+    }
 
     alerta.tipo = payload.tipo
     alerta.titulo = payload.titulo
@@ -4575,6 +4775,29 @@ def atualizar_alerta(
     alerta.gravidade = payload.gravidade or "media"
     db.commit()
     db.refresh(alerta)
+
+    valores_novos = {
+        "tipo": alerta.tipo,
+        "titulo": alerta.titulo,
+        "descricao": alerta.descricao or "",
+        "gravidade": alerta.gravidade,
+    }
+    alteracoes = {
+        campo: {"antes": valores_anteriores[campo], "depois": valores_novos[campo]}
+        for campo in valores_anteriores
+        if valores_anteriores[campo] != valores_novos[campo]
+    }
+    if alteracoes:
+        registrar_auditoria(
+            current_user=current_user,
+            modulo="atendimento",
+            entidade="alerta_clinico",
+            entidade_id=alerta.id,
+            acao="ALERTA_CLINICO_ATUALIZADO",
+            descricao=f"Alerta clinico #{alerta.id} atualizado: {', '.join(sorted(alteracoes))}.",
+            detalhes={"paciente_id": alerta.paciente_id, "alteracoes": alteracoes},
+            request=request,
+        )
 
     return {
         "id": alerta.id,
@@ -4589,16 +4812,32 @@ def atualizar_alerta(
 @router.delete("/alertas/{alerta_id}")
 def desativar_alerta(
     alerta_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _ = current_user
     alerta = db.query(AlertaClinico).filter(AlertaClinico.id == alerta_id).first()
     if not alerta:
         raise HTTPException(status_code=404, detail="Alerta nao encontrado.")
 
     alerta.ativo = 0
     db.commit()
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="atendimento",
+        entidade="alerta_clinico",
+        entidade_id=alerta_id,
+        acao="ALERTA_CLINICO_DESATIVADO",
+        descricao=f"Alerta clinico '{alerta.titulo}' ({alerta.gravidade}) desativado.",
+        detalhes={
+            "paciente_id": alerta.paciente_id,
+            "tipo": alerta.tipo,
+            "titulo": alerta.titulo,
+            "gravidade": alerta.gravidade,
+        },
+        request=request,
+    )
     return {"message": "Alerta desativado com sucesso.", "id": alerta_id}
 
 

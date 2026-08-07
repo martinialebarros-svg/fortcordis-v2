@@ -13,7 +13,7 @@ from fastapi import HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.v1.endpoints import agenda, clinicas, configuracoes
+from app.api.v1.endpoints import agenda, clinicas, configuracoes, tutores
 from app.core.agenda_config import (
     DEFAULT_AGENDA_SEMANAL,
     DEFAULT_EXCECAO_FIM,
@@ -1580,7 +1580,7 @@ def solicitar_criacao_agendamento(
         if tutor_obj is None and patient_obj.tutor_id:
             tutor_obj = (
                 ctx.db.query(Tutor)
-                .filter(Tutor.id == int(patient_obj.tutor_id), Tutor.ativo.in_([True, 1]))
+                .filter(Tutor.id == int(patient_obj.tutor_id), tutores._filtro_tutor_ativo())
                 .first()
             )
 
@@ -2250,7 +2250,7 @@ def _load_creation_records(
         else None
     )
     tutor = (
-        db.query(Tutor).filter(Tutor.id == tutor_id, Tutor.ativo.in_([True, 1])).first()
+        db.query(Tutor).filter(Tutor.id == tutor_id, tutores._filtro_tutor_ativo()).first()
         if tutor_id > 0
         else None
     )
@@ -2892,7 +2892,7 @@ def _approve_attach_patient_to_reservation(
         db.query(Tutor)
         .filter(
             Tutor.id == int(arguments.get("tutor_id") or 0),
-            Tutor.ativo.in_([True, 1]),
+            tutores._filtro_tutor_ativo(),
         )
         .first()
     )
