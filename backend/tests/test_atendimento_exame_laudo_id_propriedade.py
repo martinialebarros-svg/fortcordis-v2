@@ -176,6 +176,84 @@ class AtendimentoExameLaudoIdPropriedadeTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_payload_sem_laudo_id_nao_desvincula_laudo_ja_setado(self) -> None:
+        """Achado #17 da auditoria: um payload com laudo_id vazio para um
+        exame que ja tem laudo vinculado no banco e sempre um snapshot
+        desatualizado do cliente - o atendimento nunca oferece um jeito de
+        desvincular por aqui, so laudos.py cria esse vinculo. Sem esta
+        protecao, o proximo autosave (com o form ainda sem o vinculo
+        recem-criado por outra aba/sessao) apagaria a ligacao."""
+        tmpdir, db, engine = self._build_session()
+        try:
+            atendimento_item = self._seed_atendimento(db, paciente_id=100)
+            laudo = Laudo(
+                paciente_id=100,
+                veterinario_id=1,
+                tipo="exame",
+                titulo="Laudo do paciente A",
+                status="Liberado",
+            )
+            db.add(laudo)
+            db.commit()
+
+            # Exame ja existe com laudo vinculado (simula vinculo feito por
+            # laudos.py enquanto o atendimento estava aberto em outra aba).
+            exame = Exame(
+                atendimento_id=atendimento_item.id,
+                paciente_id=100,
+                tipo_exame="Ecocardiograma",
+                laudo_id=laudo.id,
+                criado_por_id=1,
+                criado_por_nome="Dr Teste",
+            )
+            db.add(exame)
+            db.commit()
+
+            payload_desatualizado = ExameSolicitacaoPayload(
+                id=exame.id, tipo_exame="Ecocardiograma", laudo_id=None
+            )
+            atendimento._sync_exames(
+                db, atendimento_item, [payload_desatualizado], SimpleNamespace(id=1, nome="Dr Teste")
+            )
+            db.commit()
+
+            db.refresh(exame)
+            self.assertEqual(exame.laudo_id, laudo.id)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_payload_sem_laudo_id_em_exame_sem_vinculo_continua_sem_vinculo(self) -> None:
+        """Caso de borda: exame que nunca teve laudo e continua sem laudo
+        quando o payload nao envia nenhum - garante que a nova protecao nao
+        vira um `if not payload.laudo_id: pass` incondicional."""
+        tmpdir, db, engine = self._build_session()
+        try:
+            atendimento_item = self._seed_atendimento(db, paciente_id=100)
+            exame = Exame(
+                atendimento_id=atendimento_item.id,
+                paciente_id=100,
+                tipo_exame="Ecocardiograma",
+                criado_por_id=1,
+                criado_por_nome="Dr Teste",
+            )
+            db.add(exame)
+            db.commit()
+
+            payload = ExameSolicitacaoPayload(id=exame.id, tipo_exame="Ecocardiograma", laudo_id=None)
+            atendimento._sync_exames(
+                db, atendimento_item, [payload], SimpleNamespace(id=1, nome="Dr Teste")
+            )
+            db.commit()
+
+            db.refresh(exame)
+            self.assertIsNone(exame.laudo_id)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()
