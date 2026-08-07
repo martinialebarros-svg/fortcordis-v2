@@ -116,6 +116,31 @@ class PortalExamListResponse(BaseModel):
     items: list[PortalExamSummaryResponse] = Field(default_factory=list)
 
 
+class PortalClinicaAgendamentoItemResponse(BaseModel):
+    id: int
+    data: Optional[str] = None
+    hora: Optional[str] = None
+    inicio: Optional[datetime] = None
+    fim: Optional[datetime] = None
+    status: str
+    paciente_nome: Optional[str] = None
+    tutor_nome: Optional[str] = None
+    servico_nome: Optional[str] = None
+    pode_cancelar: bool = False
+
+
+class PortalClinicaAgendamentoListResponse(BaseModel):
+    total: int
+    clinica_id: int
+    clinica_nome: str
+    items: list[PortalClinicaAgendamentoItemResponse] = Field(default_factory=list)
+
+
+class PortalClinicaAgendamentoCancelResponse(BaseModel):
+    item: PortalClinicaAgendamentoItemResponse
+    message: str
+
+
 class PortalDownloadLinkItemResponse(BaseModel):
     anexo_id: int
     nome_original: str

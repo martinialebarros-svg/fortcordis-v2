@@ -866,6 +866,62 @@ export async function listPortalClinicExams(
   );
 }
 
+export type PortalClinicaAgendamentoItem = {
+  id: number;
+  data: string | null;
+  hora: string | null;
+  inicio: string | null;
+  fim: string | null;
+  status: string;
+  paciente_nome: string | null;
+  tutor_nome: string | null;
+  servico_nome: string | null;
+  pode_cancelar: boolean;
+};
+
+export type PortalClinicaAgendamentoListResponse = {
+  total: number;
+  clinica_id: number;
+  clinica_nome: string;
+  items: PortalClinicaAgendamentoItem[];
+};
+
+export type PortalClinicaAgendamentoCancelResponse = {
+  item: PortalClinicaAgendamentoItem;
+  message: string;
+};
+
+export async function listPortalClinicAgendamentos(
+  token: string,
+): Promise<PortalClinicaAgendamentoListResponse> {
+  return portalFetchJson<PortalClinicaAgendamentoListResponse>(
+    "/api/v1/portal/clinicas/agendamentos",
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+    "Nao foi possivel carregar os agendamentos da clinica.",
+  );
+}
+
+export async function cancelPortalClinicAgendamento(
+  agendamentoId: number,
+  token: string,
+): Promise<PortalClinicaAgendamentoCancelResponse> {
+  return portalFetchJson<PortalClinicaAgendamentoCancelResponse>(
+    `/api/v1/portal/clinicas/agendamentos/${agendamentoId}/cancelar`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({}),
+    },
+    "Nao foi possivel cancelar o agendamento.",
+  );
+}
+
 export async function listPortalPartnerExams(
   filters: PortalClinicExamFilters,
   token: string,

@@ -27,7 +27,9 @@ from app.core.portal_release import (
     PORTAL_RELEASED_LAUDO_STATUSES,
     is_portal_released_status,
 )
+from app.api.v1.endpoints.agenda import _adquirir_lock_escrita_agenda
 from app.db.database import get_db
+from app.models.agendamento import Agendamento
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
 from app.models.clinica import Clinica
 from app.models.laudo import Exame, Laudo
@@ -39,6 +41,9 @@ from app.schemas.portal import (
     PortalChallengeResponse,
     PortalClinicOperationalItemResponse,
     PortalClinicOperationalSummaryResponse,
+    PortalClinicaAgendamentoCancelResponse,
+    PortalClinicaAgendamentoItemResponse,
+    PortalClinicaAgendamentoListResponse,
     PortalClinicaSessionLinkRequest,
     PortalCodeVerifyRequest,
     PortalDownloadLinkItemResponse,
@@ -1191,6 +1196,122 @@ def listar_exames_clinica_portal(
         operational_summary=operational_summary,
         operational_items=operational_items,
         items=items,
+    )
+
+
+AGENDA_PORTAL_STATUSES_VISIVEIS = ("Agendado", "Reservado", "Confirmado", "Em atendimento")
+AGENDA_PORTAL_STATUSES_CANCELAVEIS = ("Agendado", "Reservado", "Confirmado")
+
+
+def _exigir_sessao_clinica_portal(db: Session, portal_session: PortalSessionContext) -> Clinica:
+    if portal_session.actor_type != "clinica" or portal_session.clinica_id is None:
+        raise HTTPException(status_code=403, detail="Sessao do portal sem acesso para clinica.")
+    clinica = _obter_clinica_ativa(db, portal_session.clinica_id)
+    if not clinica:
+        raise HTTPException(status_code=403, detail="Clinica sem acesso ativo ao portal.")
+    return clinica
+
+
+def _build_portal_agendamento_item(agendamento: Agendamento) -> PortalClinicaAgendamentoItemResponse:
+    status_atual = str(agendamento.status or "")
+    return PortalClinicaAgendamentoItemResponse(
+        id=agendamento.id,
+        data=agendamento.data,
+        hora=agendamento.hora,
+        inicio=agendamento.inicio,
+        fim=agendamento.fim,
+        status=status_atual,
+        paciente_nome=agendamento.paciente,
+        tutor_nome=agendamento.tutor,
+        servico_nome=agendamento.servico,
+        pode_cancelar=status_atual in AGENDA_PORTAL_STATUSES_CANCELAVEIS,
+    )
+
+
+@router.get("/clinicas/agendamentos", response_model=PortalClinicaAgendamentoListResponse)
+def listar_agendamentos_clinica_portal(
+    db: Session = Depends(get_db),
+    portal_session: PortalSessionContext = Depends(get_current_portal_session),
+):
+    clinica = _exigir_sessao_clinica_portal(db, portal_session)
+
+    agendamentos = (
+        db.query(Agendamento)
+        .filter(Agendamento.clinica_id == clinica.id)
+        .filter(Agendamento.status.in_(AGENDA_PORTAL_STATUSES_VISIVEIS))
+        .order_by(Agendamento.inicio.asc())
+        .limit(200)
+        .all()
+    )
+
+    return PortalClinicaAgendamentoListResponse(
+        total=len(agendamentos),
+        clinica_id=clinica.id,
+        clinica_nome=clinica.nome,
+        items=[_build_portal_agendamento_item(agendamento) for agendamento in agendamentos],
+    )
+
+
+@router.patch(
+    "/clinicas/agendamentos/{agendamento_id}/cancelar",
+    response_model=PortalClinicaAgendamentoCancelResponse,
+)
+def cancelar_agendamento_clinica_portal(
+    agendamento_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    portal_session: PortalSessionContext = Depends(get_current_portal_session),
+):
+    clinica = _exigir_sessao_clinica_portal(db, portal_session)
+    _adquirir_lock_escrita_agenda(db)
+
+    agendamento = (
+        db.query(Agendamento)
+        .filter(Agendamento.id == agendamento_id, Agendamento.clinica_id == clinica.id)
+        .first()
+    )
+    if not agendamento:
+        raise HTTPException(status_code=404, detail="Agendamento nao encontrado.")
+
+    status_atual = str(agendamento.status or "")
+    if status_atual not in AGENDA_PORTAL_STATUSES_CANCELAVEIS:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Este agendamento nao pode ser cancelado pelo portal no status atual "
+                f"({status_atual or 'desconhecido'}). Entre em contato com a Fort Cordis."
+            ),
+        )
+
+    nota_portal = (
+        f"[Portal] Cancelado pela clinica parceira ({clinica.nome}) em "
+        f"{_utcnow().strftime('%d/%m/%Y %H:%M')} UTC."
+    )
+    observacoes_atuais = str(agendamento.observacoes or "").strip()
+    agendamento.observacoes = "\n".join(filter(None, [observacoes_atuais, nota_portal]))
+    agendamento.status = "Cancelado"
+    db.commit()
+    db.refresh(agendamento)
+
+    registrar_auditoria(
+        current_user=None,
+        modulo="portal_clinica",
+        entidade="Agendamento",
+        acao="cancelar",
+        descricao=f"Agendamento #{agendamento.id} cancelado pela clinica parceira via portal.",
+        entidade_id=agendamento.id,
+        detalhes={
+            "clinica_id": clinica.id,
+            "clinica_nome": clinica.nome,
+            "status_anterior": status_atual,
+            "portal_actor_id": portal_session.actor_id,
+        },
+        request=request,
+    )
+
+    return PortalClinicaAgendamentoCancelResponse(
+        item=_build_portal_agendamento_item(agendamento),
+        message="Agendamento cancelado com sucesso.",
     )
 
 
