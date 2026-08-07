@@ -33,7 +33,7 @@ class AtendimentoObservacoesPortalPreservadasTest(unittest.TestCase):
         session_factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
         return tmpdir, session_factory(), engine
 
-    def _seed_exam(self, db, observacoes_originais):
+    def _seed_exam(self, db, observacoes_originais, tmpdir):
         atendimento_item = AtendimentoClinico(
             paciente_id=182,
             tutor_id=44,
@@ -61,6 +61,11 @@ class AtendimentoObservacoesPortalPreservadasTest(unittest.TestCase):
         )
         db.add(exame)
         db.flush()
+        # achado #20 da auditoria: liberar no portal agora exige que o anexo
+        # tenha uma fonte de download REAL (attachment_has_download_source) -
+        # o arquivo precisa existir de fato no caminho declarado.
+        caminho_arquivo = str(Path(tmpdir.name) / "hemograma.pdf")
+        Path(caminho_arquivo).write_bytes(b"%PDF-1.4 fake pdf content for test")
         db.add(
             AnexoAtendimento(
                 atendimento_id=atendimento_item.id,
@@ -71,7 +76,7 @@ class AtendimentoObservacoesPortalPreservadasTest(unittest.TestCase):
                 nome_original="hemograma.pdf",
                 tamanho=1024,
                 mime_type="application/pdf",
-                caminho_arquivo="/tmp/hemograma.pdf",
+                caminho_arquivo=caminho_arquivo,
                 origem="upload",
             )
         )
@@ -82,7 +87,7 @@ class AtendimentoObservacoesPortalPreservadasTest(unittest.TestCase):
         tmpdir, db, engine = self._build_session()
         try:
             texto_original = "Coleta dificultada, paciente agitado; repetir se resultado inconsistente."
-            exame = self._seed_exam(db, texto_original)
+            exame = self._seed_exam(db, texto_original, tmpdir)
             user = SimpleNamespace(id=99, nome="Dr Teste")
 
             with patch.object(atendimento, "_auditar_transicao_exame_portal"):
@@ -106,7 +111,7 @@ class AtendimentoObservacoesPortalPreservadasTest(unittest.TestCase):
     def test_revogar_com_observacoes_originais_vazias_restaura_vazio(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
-            exame = self._seed_exam(db, "")
+            exame = self._seed_exam(db, "", tmpdir)
             user = SimpleNamespace(id=99, nome="Dr Teste")
 
             with patch.object(atendimento, "_auditar_transicao_exame_portal"):
@@ -129,7 +134,7 @@ class AtendimentoObservacoesPortalPreservadasTest(unittest.TestCase):
         tmpdir, db, engine = self._build_session()
         try:
             texto_original = "Coleta dificultada, paciente agitado; repetir se resultado inconsistente."
-            exame = self._seed_exam(db, texto_original)
+            exame = self._seed_exam(db, texto_original, tmpdir)
             atendimento_item = db.query(AtendimentoClinico).filter_by(id=exame.atendimento_id).first()
             user = SimpleNamespace(id=99, nome="Dr Teste")
 
@@ -165,7 +170,7 @@ class AtendimentoObservacoesPortalPreservadasTest(unittest.TestCase):
         tmpdir, db, engine = self._build_session()
         try:
             texto_original = "Texto original importante do exame."
-            exame = self._seed_exam(db, texto_original)
+            exame = self._seed_exam(db, texto_original, tmpdir)
             user = SimpleNamespace(id=99, nome="Dr Teste")
 
             with patch.object(atendimento, "_auditar_transicao_exame_portal"):

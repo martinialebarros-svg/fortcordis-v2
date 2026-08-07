@@ -41,7 +41,7 @@ class AtendimentoPortalExamReleaseTest(unittest.TestCase):
         session_factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
         return tmpdir, session_factory(), engine
 
-    def _seed_exam(self, db, *, clinic_id=8, tipo_exame="ECG", pdf=True):
+    def _seed_exam(self, db, tmpdir=None, *, clinic_id=8, tipo_exame="ECG", pdf=True):
         atendimento_item = AtendimentoClinico(
             paciente_id=182,
             tutor_id=44,
@@ -71,6 +71,13 @@ class AtendimentoPortalExamReleaseTest(unittest.TestCase):
         db.flush()
 
         if pdf:
+            # achado #20 da auditoria: liberar no portal agora exige que o
+            # anexo tenha uma fonte de download REAL (attachment_has_download_source),
+            # nao so metadado batendo com "parece PDF" - o arquivo precisa
+            # existir de fato no caminho declarado.
+            caminho_arquivo = str(Path(tmpdir.name) / "ecg-luke.pdf") if tmpdir else "/tmp/ecg-luke.pdf"
+            if tmpdir:
+                Path(caminho_arquivo).write_bytes(b"%PDF-1.4 fake pdf content for test")
             db.add(
                 AnexoAtendimento(
                     atendimento_id=atendimento_item.id,
@@ -81,7 +88,7 @@ class AtendimentoPortalExamReleaseTest(unittest.TestCase):
                     nome_original="ecg-luke.pdf",
                     tamanho=1024,
                     mime_type="application/pdf",
-                    caminho_arquivo="/tmp/ecg-luke.pdf",
+                    caminho_arquivo=caminho_arquivo,
                     origem="upload",
                 )
             )
@@ -91,7 +98,7 @@ class AtendimentoPortalExamReleaseTest(unittest.TestCase):
     def test_liberar_ecg_importado_normaliza_tipo_e_publica_exame(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
-            _, exame = self._seed_exam(db, tipo_exame="ECG", pdf=True)
+            _, exame = self._seed_exam(db, tmpdir, tipo_exame="ECG", pdf=True)
             user = SimpleNamespace(id=99, nome="Dr Teste")
 
             # A auditoria abre sessao propria contra o banco real; manter o teste

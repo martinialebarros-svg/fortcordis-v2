@@ -117,7 +117,10 @@ from app.services.atendimento_upload_service import (
     store_atendimento_attachment_file,
     remove_atendimento_attachment_file,
 )
-from app.services.attachment_download_service import build_attachment_download_response
+from app.services.attachment_download_service import (
+    attachment_has_download_source,
+    build_attachment_download_response,
+)
 from app.services.upload_dedupe_cleanup_service import (
     UploadDedupeCleanupBusyError,
     UploadDedupeCleanupExecutionError,
@@ -1787,15 +1790,15 @@ def _map_prescricao_item(item: PrescricaoItem) -> dict:
 
 
 def _obter_nome_medicamento(
-    db: Session,
     medicamento_id: Optional[int],
     medicamento_nome: Optional[str],
+    medicamentos_por_id: Dict[int, "Medicamento"],
 ) -> str:
     nome_limpo = (medicamento_nome or "").strip()
     if nome_limpo:
         return nome_limpo
     if medicamento_id:
-        medicamento = db.query(Medicamento).filter(Medicamento.id == medicamento_id).first()
+        medicamento = medicamentos_por_id.get(medicamento_id)
         if medicamento:
             return medicamento.nome
     raise HTTPException(status_code=422, detail="Informe o nome do medicamento.")
@@ -1813,6 +1816,23 @@ def _sync_exames(
     }
     anexos_por_exame = _contar_anexos_por_exame(db, atendimento.id)
     excluir_ids: list[int] = []
+
+    # Uma query por id distinto para todo o payload, em vez de uma por item
+    # (o mesmo id de catalogo/painel se repete em todo autosave, ja que o
+    # cliente reenvia os campos denormalizados a cada PUT independente do
+    # que de fato mudou - buildAtendimentoPayload sempre inclui `exames`).
+    catalogo_ids = {item.catalogo_exame_id for item in exames_payload if item.catalogo_exame_id}
+    catalogos_por_id = (
+        {c.id: c for c in db.query(CatalogoExame).filter(CatalogoExame.id.in_(catalogo_ids)).all()}
+        if catalogo_ids
+        else {}
+    )
+    painel_ids = {item.painel_exame_id for item in exames_payload if item.painel_exame_id}
+    paineis_por_id = (
+        {p.id: p for p in db.query(PainelExame).filter(PainelExame.id.in_(painel_ids)).all()}
+        if painel_ids
+        else {}
+    )
 
     for payload in exames_payload:
         if payload.destroy:
@@ -1848,13 +1868,8 @@ def _sync_exames(
             )
             db.add(exame)
 
-        catalogo_exame = None
-        if payload.catalogo_exame_id:
-            catalogo_exame = db.query(CatalogoExame).filter(CatalogoExame.id == payload.catalogo_exame_id).first()
-
-        painel_exame = None
-        if payload.painel_exame_id:
-            painel_exame = db.query(PainelExame).filter(PainelExame.id == payload.painel_exame_id).first()
+        catalogo_exame = catalogos_por_id.get(payload.catalogo_exame_id) if payload.catalogo_exame_id else None
+        painel_exame = paineis_por_id.get(payload.painel_exame_id) if payload.painel_exame_id else None
 
         exame.atendimento_id = atendimento.id
         exame.paciente_id = atendimento.paciente_id
@@ -1885,15 +1900,16 @@ def _sync_exames(
             resultado=payload.resultado,
             total_anexos=anexos_por_exame.get(payload.id or 0, 0),
         )
-        exame.resultado = (payload.resultado or "").strip() or None
-        exame.valor_referencia = (payload.valor_referencia or "").strip() or None
-        exame.unidade = (payload.unidade or "").strip() or None
         if not is_portal_released_status(exame.status):
             # Mesmo cuidado que _derivar_status_exame ja tem com o status:
-            # enquanto o exame esta liberado no portal, exame.observacoes
-            # guarda a mensagem fixa (o texto clinico original fica em
-            # observacoes_pre_portal) - um save/autosave nesse meio tempo nao
-            # pode sobrescrever a mensagem fixa nem perder o backup.
+            # enquanto o exame esta liberado no portal, o conteudo que a
+            # clinica parceira/tutor ja visualizou (resultado, referencia,
+            # unidade, observacoes) nao pode ser sobrescrito por um
+            # save/autosave sem trilha nem nova notificacao - so a acao
+            # explicita de revogar reabre esses campos para edicao.
+            exame.resultado = (payload.resultado or "").strip() or None
+            exame.valor_referencia = (payload.valor_referencia or "").strip() or None
+            exame.unidade = (payload.unidade or "").strip() or None
             exame.observacoes = (
                 (payload.observacoes or "").strip()
                 or (catalogo_exame.observacoes_padrao if catalogo_exame else "")
@@ -1974,6 +1990,20 @@ def _sync_prescricao(
     }
     itens_recebidos_ids: set[int] = set()
 
+    # Uma query para todos os medicamentos referenciados sem nome no payload,
+    # em vez de uma por item de prescricao (mesmo motivo do batching de
+    # catalogo/painel em _sync_exames).
+    medicamento_ids_sem_nome = {
+        item_payload.medicamento_id
+        for item_payload in prescricao_payload.itens
+        if item_payload.medicamento_id and not (item_payload.medicamento_nome or "").strip()
+    }
+    medicamentos_por_id = (
+        {m.id: m for m in db.query(Medicamento).filter(Medicamento.id.in_(medicamento_ids_sem_nome)).all()}
+        if medicamento_ids_sem_nome
+        else {}
+    )
+
     for index, item_payload in enumerate(prescricao_payload.itens):
         item = None
         if item_payload.id and item_payload.id in itens_existentes:
@@ -2000,9 +2030,9 @@ def _sync_prescricao(
         item.prescricao_id = prescricao.id
         item.medicamento_id = item_payload.medicamento_id
         item.medicamento_nome = _obter_nome_medicamento(
-            db,
             item_payload.medicamento_id,
             item_payload.medicamento_nome,
+            medicamentos_por_id,
         )
         item.apresentacao_selecionada = item_payload.apresentacao_selecionada or ""
         item.dose = item_payload.dose or ""
@@ -2640,10 +2670,10 @@ def atualizar_documento_atendimento(
     atendimento_id: int,
     documento_id: int,
     payload: DocumentoAtendimentoUpdatePayload,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _ = current_user
     atendimento = db.query(AtendimentoClinico).filter(AtendimentoClinico.id == atendimento_id).first()
     if not atendimento:
         raise HTTPException(status_code=404, detail="Atendimento nao encontrado.")
@@ -2653,6 +2683,8 @@ def atualizar_documento_atendimento(
         atendimento_id,
         documento_id,
         payload,
+        current_user=current_user,
+        request=request,
     )
 
 
@@ -2660,11 +2692,13 @@ def atualizar_documento_atendimento(
 def excluir_documento_atendimento(
     atendimento_id: int,
     documento_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _ = current_user
-    return excluir_documento_atendimento_service(db, atendimento_id, documento_id)
+    return excluir_documento_atendimento_service(
+        db, atendimento_id, documento_id, current_user=current_user, request=request
+    )
 
 
 @router.get("/contexto")
@@ -4301,7 +4335,14 @@ def liberar_exame_no_portal(
         .order_by(AnexoAtendimento.created_at.desc(), AnexoAtendimento.id.desc())
         .all()
     )
-    if not any(_anexo_eh_pdf(anexo) for anexo in anexos):
+    # _anexo_eh_pdf sozinho so confere mime_type/extensao - campos que o
+    # cliente controla ao criar um anexo "externo" (POST /{id}/anexos, sem
+    # upload real). attachment_has_download_source confirma que existe de
+    # fato algo baixavel (arquivo local ou URL remota valida) antes de
+    # liberar o exame como "resultado disponivel" para o portal externo.
+    if not any(
+        _anexo_eh_pdf(anexo) and attachment_has_download_source(anexo) for anexo in anexos
+    ):
         raise HTTPException(status_code=422, detail="Anexe o PDF do resultado antes de liberar no portal.")
 
     released_at = datetime.utcnow()
@@ -4858,11 +4899,28 @@ def _resumir_texto_timeline(value: Optional[str], fallback: str) -> str:
     return compact[:140]
 
 
-def _montar_timeline_paciente(db: Session, paciente_id: int) -> List[dict]:
+def _montar_timeline_paciente(
+    db: Session,
+    paciente_id: int,
+    *,
+    limite: int = 12,
+    atendimentos_paciente: Optional[List[AtendimentoClinico]] = None,
+) -> List[dict]:
+    """Limitada ao historico mais recente do paciente - sem isso, um paciente
+    cronico com anos de acompanhamento faz esta funcao escanear TODO o
+    historico (atendimentos, exames, laudos) a cada chamada, custo que so
+    cresce com o tempo de uso do sistema. `atendimentos_paciente` permite
+    reaproveitar uma lista ja buscada pelo chamador (historico_paciente ja
+    consulta AtendimentoClinico com o mesmo limite) em vez de reconsultar a
+    mesma tabela. A ordem de `atendimentos` nao importa para o resultado: os
+    eventos de todas as categorias sao reordenados por data ao final."""
     atendimentos = (
-        db.query(AtendimentoClinico)
+        atendimentos_paciente
+        if atendimentos_paciente is not None
+        else db.query(AtendimentoClinico)
         .filter(AtendimentoClinico.paciente_id == paciente_id)
-        .order_by(AtendimentoClinico.data_atendimento.asc(), AtendimentoClinico.id.asc())
+        .order_by(AtendimentoClinico.data_atendimento.desc(), AtendimentoClinico.id.desc())
+        .limit(limite)
         .all()
     )
     atendimento_ids = [item.id for item in atendimentos if item.id]
@@ -4886,13 +4944,15 @@ def _montar_timeline_paciente(db: Session, paciente_id: int) -> List[dict]:
     exames = (
         db.query(Exame)
         .filter(Exame.paciente_id == paciente_id)
-        .order_by(Exame.data_solicitacao.asc(), Exame.id.asc())
+        .order_by(Exame.data_solicitacao.desc(), Exame.id.desc())
+        .limit(limite)
         .all()
     )
     laudos = (
         db.query(Laudo)
         .filter(Laudo.paciente_id == paciente_id)
-        .order_by(Laudo.data_laudo.asc(), Laudo.id.asc())
+        .order_by(Laudo.data_laudo.desc(), Laudo.id.desc())
+        .limit(limite)
         .all()
     )
 
@@ -5133,13 +5193,14 @@ def historico_paciente(
             for a in atendimentos
             if a.peso is not None
         ],
-        "timeline": _montar_timeline_paciente(db, paciente_id),
+        "timeline": _montar_timeline_paciente(db, paciente_id, limite=limite, atendimentos_paciente=atendimentos),
     }
 
 
 @router.get("/paciente/{paciente_id}/timeline")
 def timeline_paciente(
     paciente_id: int,
+    limite: int = 12,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -5155,5 +5216,5 @@ def timeline_paciente(
             "especie": paciente.especie or "",
             "raca": paciente.raca or "",
         },
-        "timeline": _montar_timeline_paciente(db, paciente_id),
+        "timeline": _montar_timeline_paciente(db, paciente_id, limite=limite),
     }
