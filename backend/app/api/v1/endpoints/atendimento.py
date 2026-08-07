@@ -1912,6 +1912,15 @@ def _sync_exames(
                 .first()
             )
             exame.laudo_id = payload.laudo_id if laudo_valido else exame.laudo_id
+        elif not payload.laudo_id and exame.laudo_id:
+            # Payload vazio para um exame que ja tem laudo vinculado no banco:
+            # o atendimento nunca oferece um jeito de desvincular por aqui (o
+            # vinculo so e criado por laudos.py) - um payload vazio aqui e
+            # sempre um snapshot desatualizado do cliente (o vinculo foi
+            # criado por outra aba/sessao enquanto este atendimento estava
+            # aberto), nunca uma intencao real de desvincular. Mesmo cuidado
+            # que _derivar_status_exame ja tem com o status.
+            pass
         else:
             exame.laudo_id = payload.laudo_id
         exame.data_solicitacao = exame.data_solicitacao or datetime.now()
