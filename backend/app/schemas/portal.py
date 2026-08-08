@@ -141,6 +141,31 @@ class PortalClinicaAgendamentoCancelResponse(BaseModel):
     message: str
 
 
+class PortalClinicaOrdemServicoItemResponse(BaseModel):
+    id: int
+    numero_os: str
+    status: str
+    valor: float
+    data_atendimento: Optional[datetime] = None
+    paciente_nome: Optional[str] = None
+    servico_nome: Optional[str] = None
+
+
+class PortalClinicaFinanceiroSummaryResponse(BaseModel):
+    total_pendente: float = 0
+    total_pago: float = 0
+    quantidade_pendente: int = 0
+    quantidade_pago: int = 0
+
+
+class PortalClinicaFinanceiroResponse(BaseModel):
+    clinica_id: int
+    clinica_nome: str
+    summary: PortalClinicaFinanceiroSummaryResponse
+    pendentes: list[PortalClinicaOrdemServicoItemResponse] = Field(default_factory=list)
+    pagas: list[PortalClinicaOrdemServicoItemResponse] = Field(default_factory=list)
+
+
 class PortalDownloadLinkItemResponse(BaseModel):
     anexo_id: int
     nome_original: str

@@ -33,9 +33,11 @@ from app.models.agendamento import Agendamento
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
 from app.models.clinica import Clinica
 from app.models.laudo import Exame, Laudo
+from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.portal_access import PortalAccessChallenge
 from app.models.portal_partner import PortalPartnerProfile, PortalPartnerReleaseTarget
+from app.models.servico import Servico
 from app.models.tutor import Tutor
 from app.schemas.portal import (
     PortalChallengeResponse,
@@ -44,6 +46,9 @@ from app.schemas.portal import (
     PortalClinicaAgendamentoCancelResponse,
     PortalClinicaAgendamentoItemResponse,
     PortalClinicaAgendamentoListResponse,
+    PortalClinicaFinanceiroResponse,
+    PortalClinicaFinanceiroSummaryResponse,
+    PortalClinicaOrdemServicoItemResponse,
     PortalClinicaSessionLinkRequest,
     PortalCodeVerifyRequest,
     PortalDownloadLinkItemResponse,
@@ -1312,6 +1317,81 @@ def cancelar_agendamento_clinica_portal(
     return PortalClinicaAgendamentoCancelResponse(
         item=_build_portal_agendamento_item(agendamento),
         message="Agendamento cancelado com sucesso.",
+    )
+
+
+FINANCEIRO_PORTAL_PENDENTES_LIMIT = 200
+FINANCEIRO_PORTAL_PAGAS_LIMIT = 50
+
+
+def _build_portal_os_item(
+    ordem: OrdemServico,
+    paciente_nome: str | None,
+    servico_nome: str | None,
+) -> PortalClinicaOrdemServicoItemResponse:
+    return PortalClinicaOrdemServicoItemResponse(
+        id=ordem.id,
+        numero_os=ordem.numero_os,
+        status=str(ordem.status or ""),
+        valor=float(ordem.valor_final or 0),
+        data_atendimento=ordem.data_atendimento,
+        paciente_nome=paciente_nome,
+        servico_nome=servico_nome,
+    )
+
+
+@router.get("/clinicas/financeiro", response_model=PortalClinicaFinanceiroResponse)
+def obter_financeiro_clinica_portal(
+    db: Session = Depends(get_db),
+    portal_session: PortalSessionContext = Depends(get_current_portal_session),
+):
+    clinica = _exigir_sessao_clinica_portal(db, portal_session)
+
+    base_query = (
+        db.query(OrdemServico, Paciente.nome, Servico.nome)
+        .outerjoin(Paciente, Paciente.id == OrdemServico.paciente_id)
+        .outerjoin(Servico, Servico.id == OrdemServico.servico_id)
+        .filter(OrdemServico.clinica_id == clinica.id)
+    )
+
+    pendentes_rows = (
+        base_query.filter(OrdemServico.status == "Pendente")
+        .order_by(OrdemServico.id.desc())
+        .limit(FINANCEIRO_PORTAL_PENDENTES_LIMIT)
+        .all()
+    )
+    pagas_rows = (
+        base_query.filter(OrdemServico.status == "Pago")
+        .order_by(OrdemServico.id.desc())
+        .limit(FINANCEIRO_PORTAL_PAGAS_LIMIT)
+        .all()
+    )
+
+    def _agregados(status_os: str) -> tuple[float, int]:
+        total, quantidade = (
+            db.query(
+                func.coalesce(func.sum(OrdemServico.valor_final), 0),
+                func.count(OrdemServico.id),
+            )
+            .filter(OrdemServico.clinica_id == clinica.id, OrdemServico.status == status_os)
+            .one()
+        )
+        return float(total or 0), int(quantidade or 0)
+
+    total_pendente, quantidade_pendente = _agregados("Pendente")
+    total_pago, quantidade_pago = _agregados("Pago")
+
+    return PortalClinicaFinanceiroResponse(
+        clinica_id=clinica.id,
+        clinica_nome=clinica.nome,
+        summary=PortalClinicaFinanceiroSummaryResponse(
+            total_pendente=total_pendente,
+            total_pago=total_pago,
+            quantidade_pendente=quantidade_pendente,
+            quantidade_pago=quantidade_pago,
+        ),
+        pendentes=[_build_portal_os_item(o, nome_p, nome_s) for o, nome_p, nome_s in pendentes_rows],
+        pagas=[_build_portal_os_item(o, nome_p, nome_s) for o, nome_p, nome_s in pagas_rows],
     )
 
 

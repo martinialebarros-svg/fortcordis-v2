@@ -922,6 +922,43 @@ export async function cancelPortalClinicAgendamento(
   );
 }
 
+export type PortalClinicaOrdemServicoItem = {
+  id: number;
+  numero_os: string;
+  status: string;
+  valor: number;
+  data_atendimento: string | null;
+  paciente_nome: string | null;
+  servico_nome: string | null;
+};
+
+export type PortalClinicaFinanceiroSummary = {
+  total_pendente: number;
+  total_pago: number;
+  quantidade_pendente: number;
+  quantidade_pago: number;
+};
+
+export type PortalClinicaFinanceiroResponse = {
+  clinica_id: number;
+  clinica_nome: string;
+  summary: PortalClinicaFinanceiroSummary;
+  pendentes: PortalClinicaOrdemServicoItem[];
+  pagas: PortalClinicaOrdemServicoItem[];
+};
+
+export async function getPortalClinicFinanceiro(token: string): Promise<PortalClinicaFinanceiroResponse> {
+  return portalFetchJson<PortalClinicaFinanceiroResponse>(
+    "/api/v1/portal/clinicas/financeiro",
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+    "Nao foi possivel carregar o financeiro da clinica.",
+  );
+}
+
 export async function listPortalPartnerExams(
   filters: PortalClinicExamFilters,
   token: string,

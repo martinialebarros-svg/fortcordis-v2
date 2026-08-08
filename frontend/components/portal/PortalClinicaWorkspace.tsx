@@ -22,6 +22,7 @@ import {
   SlidersHorizontal,
   Stethoscope,
   Users,
+  Wallet,
   XCircle,
 } from "lucide-react";
 
@@ -31,6 +32,7 @@ import {
   clearPortalSession,
   createPortalExamDownloadUrls,
   downloadPortalAttachment,
+  getPortalClinicFinanceiro,
   listPortalAdminClinicMirrorExams,
   listPortalClinicAgendamentos,
   listPortalClinicExams,
@@ -43,6 +45,7 @@ import {
   verifyClinicPortalMfa,
   type PortalClinicAuthResponse,
   type PortalClinicaAgendamentoItem,
+  type PortalClinicaFinanceiroResponse,
   type PortalClinicExamFilters,
   type PortalClinicOperationalItem,
   type PortalClinicOperationalSummary,
@@ -116,6 +119,10 @@ function operationalStatusClasses(statusKey: string): string {
     default:
       return "bg-slate-100 text-slate-700";
   }
+}
+
+function formatCurrencyBRL(value: number): string {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 }
 
 function formatFileSize(value: number | null): string {
@@ -208,6 +215,9 @@ export default function PortalClinicaWorkspace({
   const [agendamentosMessage, setAgendamentosMessage] = useState("");
   const [confirmandoCancelamentoId, setConfirmandoCancelamentoId] = useState<number | null>(null);
   const [cancelandoId, setCancelandoId] = useState<number | null>(null);
+  const [financeiro, setFinanceiro] = useState<PortalClinicaFinanceiroResponse | null>(null);
+  const [financeiroLoading, setFinanceiroLoading] = useState(false);
+  const [financeiroError, setFinanceiroError] = useState("");
   const [clinicName, setClinicName] = useState<string | null>(null);
   const [totalAvailable, setTotalAvailable] = useState(0);
   const [dashboardLoaded, setDashboardLoaded] = useState(false);
@@ -379,6 +389,28 @@ export default function PortalClinicaWorkspace({
     }
   }
 
+  async function loadFinanceiro(currentSession: PortalSessionResponse | null = session) {
+    if (isAdminPreview || !currentSession) {
+      return;
+    }
+
+    setFinanceiroLoading(true);
+    setFinanceiroError("");
+
+    try {
+      const usableSession = await ensureClinicSession(currentSession);
+      const response = await getPortalClinicFinanceiro(usableSession.access_token);
+      setFinanceiro(response);
+    } catch (err) {
+      setFinanceiro(null);
+      setFinanceiroError(
+        err instanceof Error ? err.message : "Não foi possível carregar o financeiro da clínica.",
+      );
+    } finally {
+      setFinanceiroLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (isAdminPreview) {
       setBootstrapping(false);
@@ -412,6 +444,7 @@ export default function PortalClinicaWorkspace({
     if (session) {
       void loadDashboard(filters, session);
       void loadAgendamentos(session);
+      void loadFinanceiro(session);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdminPreview, previewClinicId, session?.access_token]);
@@ -973,6 +1006,123 @@ export default function PortalClinicaWorkspace({
                           ) : null}
                         </div>
                       </article>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+          ) : null}
+
+          {!isAdminPreview ? (
+            <section className="mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="inline-flex items-center gap-2 text-sm font-bold text-slate-950">
+                    <Wallet className="h-4 w-4" />
+                    Financeiro da unidade
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Ordens de serviço pendentes e pagas geradas para esta clínica.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadFinanceiro(session)}
+                  disabled={financeiroLoading}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {financeiroLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCcw className="h-4 w-4" />
+                  )}
+                  Atualizar
+                </button>
+              </div>
+
+              {financeiroError ? (
+                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {financeiroError}
+                </div>
+              ) : null}
+
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-amber-700">Pendente</p>
+                  <p className="mt-2 text-2xl font-bold text-amber-900">
+                    {formatCurrencyBRL(financeiro?.summary.total_pendente ?? 0)}
+                  </p>
+                  <p className="mt-1 text-sm text-amber-700">
+                    {financeiro?.summary.quantidade_pendente ?? 0} ordem(ns) de serviço
+                  </p>
+                </div>
+                <div className="rounded-lg border border-teal-200 bg-teal-50 p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-teal-700">Pago</p>
+                  <p className="mt-2 text-2xl font-bold text-teal-900">
+                    {formatCurrencyBRL(financeiro?.summary.total_pago ?? 0)}
+                  </p>
+                  <p className="mt-1 text-sm text-teal-700">
+                    {financeiro?.summary.quantidade_pago ?? 0} ordem(ns) de serviço
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6">
+                <p className="text-sm font-bold text-slate-950">Pendentes</p>
+                {!financeiro || financeiro.pendentes.length === 0 ? (
+                  <div className="mt-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+                    Nenhuma ordem de serviço pendente para esta unidade.
+                  </div>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {financeiro.pendentes.map((os) => (
+                      <div
+                        key={os.id}
+                        className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div>
+                          <p className="font-bold text-slate-900">{os.numero_os}</p>
+                          <p className="text-slate-500">
+                            {os.servico_nome || "Serviço"} · {os.paciente_nome || "Pet não informado"}
+                            {os.data_atendimento ? ` · ${formatCalendarDate(os.data_atendimento)}` : ""}
+                          </p>
+                        </div>
+                        <p className="font-bold text-amber-700">{formatCurrencyBRL(os.valor)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-6">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-bold text-slate-950">Pagas (mais recentes)</p>
+                  {financeiro && financeiro.summary.quantidade_pago > financeiro.pagas.length ? (
+                    <p className="text-xs text-slate-500">
+                      Mostrando {financeiro.pagas.length} de {financeiro.summary.quantidade_pago}
+                    </p>
+                  ) : null}
+                </div>
+                {!financeiro || financeiro.pagas.length === 0 ? (
+                  <div className="mt-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+                    Nenhuma ordem de serviço paga registrada ainda.
+                  </div>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {financeiro.pagas.map((os) => (
+                      <div
+                        key={os.id}
+                        className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div>
+                          <p className="font-bold text-slate-900">{os.numero_os}</p>
+                          <p className="text-slate-500">
+                            {os.servico_nome || "Serviço"} · {os.paciente_nome || "Pet não informado"}
+                            {os.data_atendimento ? ` · ${formatCalendarDate(os.data_atendimento)}` : ""}
+                          </p>
+                        </div>
+                        <p className="font-bold text-teal-700">{formatCurrencyBRL(os.valor)}</p>
+                      </div>
                     ))}
                   </div>
                 )}
