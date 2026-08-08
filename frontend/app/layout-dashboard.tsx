@@ -48,6 +48,10 @@ const DashboardPushSnoozeHandler = dynamic(
   () => import("@/components/layout/DashboardPushSnoozeHandler"),
   { ssr: false }
 );
+const AlertasInternosBell = dynamic(
+  () => import("@/components/layout/AlertasInternosBell"),
+  { ssr: false }
+);
 
 type MenuItem = {
   href: string;
@@ -377,6 +381,7 @@ export default function DashboardLayout({
         <PushNotificationsBootstrap enabled={authChecked && Boolean(user)} />
         <DashboardPushSnoozeHandler enabled={authChecked && Boolean(user)} />
         <DashboardOverlayCleanup />
+        <AlertasInternosBell />
         {/* Header mobile */}
         <div className="fc-mobile-header flex items-center justify-between lg:hidden">
           <div className="flex items-center gap-2 min-w-0">
