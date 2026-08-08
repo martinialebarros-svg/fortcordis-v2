@@ -302,10 +302,41 @@ interface FormDataAgenda {
 interface MensagemAgendaPosCriacao {
   tipo: "reserva" | "agendamento";
   destinatarioTipo: ReservaManualDestinatario;
+  destinatarioId: string;
   destinatarioNome: string;
   telefones: string[];
+  telefoneSugerido: string;
   prazoLabel?: string;
   mensagem: string;
+}
+
+const ULTIMO_WHATSAPP_STORAGE_PREFIX = "fortcordis:agenda:ultimo-whatsapp:v1";
+
+function obterUltimoWhatsappStorageKey(tipo: ReservaManualDestinatario, id: string): string | null {
+  if (!id) return null;
+  return `${ULTIMO_WHATSAPP_STORAGE_PREFIX}:${tipo}:${id}`;
+}
+
+function lerUltimoWhatsappSelecionado(tipo: ReservaManualDestinatario, id: string): string {
+  if (typeof window === "undefined") return "";
+  const key = obterUltimoWhatsappStorageKey(tipo, id);
+  if (!key) return "";
+  try {
+    return window.localStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+function salvarUltimoWhatsappSelecionado(tipo: ReservaManualDestinatario, id: string, telefone: string): void {
+  if (typeof window === "undefined" || !telefone) return;
+  const key = obterUltimoWhatsappStorageKey(tipo, id);
+  if (!key) return;
+  try {
+    window.localStorage.setItem(key, telefone);
+  } catch {
+    // localStorage indisponivel (modo privado, quota, etc.) - segue sem lembrar.
+  }
 }
 
 interface NovoTutorForm {
@@ -2528,12 +2559,17 @@ export default function NovoAgendamentoModal({
   const construirMensagemAgendaPosCriacao = (): MensagemAgendaPosCriacao => {
     const tipo = formData.marcar_como_reserva ? "reserva" : "agendamento";
     const destinatarioTipo = formData.reserva_destinatario_manual;
+    const destinatarioId = destinatarioTipo === "clinica" ? formData.clinica_id : formData.tutor_id;
     const destinatarioNome = destinatarioTipo === "clinica"
       ? nomeClinicaReservaManual
       : nomeTutorReservaManual;
     const telefones = destinatarioTipo === "clinica"
       ? telefonesClinicaMensagem
       : (telefoneTutorReservaManual ? [telefoneTutorReservaManual] : []);
+    const telefoneLembrado = lerUltimoWhatsappSelecionado(destinatarioTipo, destinatarioId);
+    const telefoneSugerido = telefoneLembrado && telefones.includes(telefoneLembrado)
+      ? telefoneLembrado
+      : (telefones[0] || "");
     const mensagem = montarMensagemAgendaManual({
       tipo,
       data: formData.data,
@@ -2549,8 +2585,10 @@ export default function NovoAgendamentoModal({
     return {
       tipo,
       destinatarioTipo,
+      destinatarioId,
       destinatarioNome,
       telefones,
+      telefoneSugerido,
       prazoLabel: tipo === "reserva"
         ? formatarPrazoReserva(formData.reserva_prazo_confirmacao)
         : undefined,
@@ -2562,6 +2600,11 @@ export default function NovoAgendamentoModal({
     if (!mensagemAgendaCriada) return;
     const url = montarLinkWhatsAppReserva(whatsappMensagemSelecionado, mensagemAgendaCriada.mensagem);
     window.open(url, "_blank", "noopener,noreferrer");
+    salvarUltimoWhatsappSelecionado(
+      mensagemAgendaCriada.destinatarioTipo,
+      mensagemAgendaCriada.destinatarioId,
+      whatsappMensagemSelecionado,
+    );
     setFeedbackMensagemAgenda(
       whatsappMensagemSelecionado
         ? "WhatsApp aberto com o destinatario e a mensagem preenchidos. Revise e envie manualmente."
@@ -2576,6 +2619,11 @@ export default function NovoAgendamentoModal({
         throw new Error("Clipboard indisponivel");
       }
       await navigator.clipboard.writeText(mensagemAgendaCriada.mensagem);
+      salvarUltimoWhatsappSelecionado(
+        mensagemAgendaCriada.destinatarioTipo,
+        mensagemAgendaCriada.destinatarioId,
+        whatsappMensagemSelecionado,
+      );
       setFeedbackMensagemAgenda("Mensagem copiada.");
     } catch (_error) {
       setFeedbackMensagemAgenda("Nao foi possivel copiar automaticamente. Selecione o texto e copie manualmente.");
@@ -2585,7 +2633,7 @@ export default function NovoAgendamentoModal({
   const gerarMensagemManualEdicao = () => {
     const construida = construirMensagemAgendaPosCriacao();
     setMensagemAgendaCriada(construida);
-    setWhatsappMensagemSelecionado(construida.telefones[0] || "");
+    setWhatsappMensagemSelecionado(construida.telefoneSugerido);
     setFeedbackMensagemAgenda("");
   };
 
@@ -3011,7 +3059,7 @@ export default function NovoAgendamentoModal({
 
       if (entregaMensagemAgenda) {
         setMensagemAgendaCriada(entregaMensagemAgenda);
-        setWhatsappMensagemSelecionado(entregaMensagemAgenda.telefones[0] || "");
+        setWhatsappMensagemSelecionado(entregaMensagemAgenda.telefoneSugerido);
         setFeedbackMensagemAgenda("");
         await onSuccess(response?.data, { manterModalAberto: true });
         return;
