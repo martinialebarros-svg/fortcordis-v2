@@ -2896,24 +2896,24 @@ export default function NovoAgendamentoModal({
       };
 
       const servicoOriginalId = String(agendamento?.servico_id ?? "");
-      const dataOriginalAgendamento = String(
-        agendamento?.data || String(agendamento?.inicio || "").slice(0, 10)
-      );
+      const inicioOriginalAgendamento = parseAgendamentoInicio(agendamento);
+      const atendimentoJaIniciado =
+        !!inicioOriginalAgendamento && inicioOriginalAgendamento.getTime() <= Date.now();
       const alterandoServicoDeHoje =
         isEditando &&
         servicoOriginalId !== String(formData.servico_id || "") &&
-        dataOriginalAgendamento === hojeLocalIso();
+        atendimentoJaIniciado;
 
       if (alterandoServicoDeHoje) {
         if (!isAdmin) {
           throw new Error(
-            "Somente administradores podem alterar o servico de um agendamento de hoje."
+            "Somente administradores podem alterar o servico de um atendimento ja iniciado."
           );
         }
         const confirmouAlteracao = await fortinho.confirm({
           title: "Confirmar alteração do serviço",
           message:
-            "Este agendamento é de hoje. Deseja confirmar a troca administrativa do serviço? Se o atendimento já tiver iniciado, o horário original será preservado.",
+            "Este atendimento já foi iniciado. Deseja confirmar a troca administrativa do serviço? O horário original será preservado.",
           mood: "alert",
           gesture: "open-arms",
           confirmLabel: "Confirmar alteração",

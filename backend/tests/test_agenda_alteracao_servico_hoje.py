@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import tempfile
@@ -40,6 +41,11 @@ class AgendaAlteracaoServicoHojeTest(unittest.TestCase):
         self._session_factory = sessionmaker(bind=self._engine, autocommit=False, autoflush=False)
 
         with self._session_factory() as db:
+            agenda_semanal_aberta = {
+                dia: {"ativo": True, "inicio": "00:00", "fim": "23:59"}
+                for dia in ("1", "2", "3", "4", "5", "6", "7")
+            }
+            configuracao = Configuracao(agenda_semanal=json.dumps(agenda_semanal_aberta))
             clinica = Clinica(
                 nome="Clinica Hoje",
                 ativo=True,
@@ -48,7 +54,7 @@ class AgendaAlteracaoServicoHojeTest(unittest.TestCase):
             )
             servico_original = Servico(nome="Consulta", duracao_minutos=30, ativo=True)
             servico_novo = Servico(nome="Consulta + Eco", duracao_minutos=60, ativo=True)
-            db.add_all([clinica, servico_original, servico_novo])
+            db.add_all([configuracao, clinica, servico_original, servico_novo])
             db.commit()
             db.refresh(clinica)
             db.refresh(servico_original)
@@ -79,6 +85,21 @@ class AgendaAlteracaoServicoHojeTest(unittest.TestCase):
             self.inicio_original = inicio
             self.fim_original = inicio + timedelta(minutes=30)
 
+            inicio_futuro = agora_local + timedelta(hours=2)
+            agendamento_futuro = Agendamento(
+                clinica_id=clinica.id,
+                servico_id=servico_original.id,
+                inicio=inicio_futuro,
+                fim=inicio_futuro + timedelta(minutes=30),
+                data=inicio_futuro.date().isoformat(),
+                hora=inicio_futuro.strftime("%H:%M"),
+                status="Agendado",
+            )
+            db.add(agendamento_futuro)
+            db.commit()
+            db.refresh(agendamento_futuro)
+            self.agendamento_futuro_id = int(agendamento_futuro.id)
+
     def tearDown(self) -> None:
         self._engine.dispose()
         self._tmpdir.cleanup()
@@ -91,7 +112,7 @@ class AgendaAlteracaoServicoHojeTest(unittest.TestCase):
             tem_papel=lambda papel: admin and papel == "admin",
         )
 
-    def _atualizar(self, *, admin: bool, confirmar: bool):
+    def _atualizar(self, *, admin: bool, confirmar: bool, agendamento_id=None):
         with self._session_factory() as db, patch.object(
             agenda, "registrar_auditoria", return_value=None
         ), patch.object(
@@ -100,7 +121,7 @@ class AgendaAlteracaoServicoHojeTest(unittest.TestCase):
             agenda, "_validar_deslocamento_agendamento", return_value=None
         ):
             return agenda.atualizar_agendamento(
-                agendamento_id=self.agendamento_id,
+                agendamento_id=agendamento_id or self.agendamento_id,
                 agendamento=agenda.AgendamentoUpdate(
                     servico_id=self.servico_novo_id,
                     confirmar_alteracao_servico_hoje=confirmar,
@@ -125,6 +146,16 @@ class AgendaAlteracaoServicoHojeTest(unittest.TestCase):
             self._atualizar(admin=False, confirmar=True)
 
         self.assertEqual(contexto.exception.status_code, 403)
+
+    def test_nao_admin_troca_servico_de_atendimento_ainda_nao_iniciado(self) -> None:
+        resposta = self._atualizar(
+            admin=False, confirmar=False, agendamento_id=self.agendamento_futuro_id
+        )
+
+        self.assertEqual(resposta["servico_id"], self.servico_novo_id)
+        with self._session_factory() as db:
+            atualizado = db.query(Agendamento).filter_by(id=self.agendamento_futuro_id).one()
+            self.assertEqual(atualizado.servico_id, self.servico_novo_id)
 
     def test_admin_confirmado_troca_servico_e_preserva_intervalo_iniciado(self) -> None:
         resposta = self._atualizar(admin=True, confirmar=True)
