@@ -66,6 +66,7 @@ from app.schemas.portal import (
     PortalTokenResponse,
     PortalTutorSessionLinkRequest,
 )
+from app.services.alerta_interno_service import criar_alerta_interno
 from app.services.attachment_download_service import (
     attachment_has_download_source,
     build_attachment_download_response,
@@ -1302,6 +1303,34 @@ def cancelar_agendamento_clinica_portal(
     observacoes_atuais = str(agendamento.observacoes or "").strip()
     agendamento.observacoes = "\n".join(filter(None, [observacoes_atuais, nota_portal]))
     agendamento.status = "Cancelado"
+
+    detalhes_agendamento = " | ".join(
+        filter(
+            None,
+            [
+                f"Data: {agendamento.data} {agendamento.hora}".strip() if agendamento.data else None,
+                f"Paciente: {agendamento.paciente}" if agendamento.paciente else None,
+                f"Servico: {agendamento.servico}" if agendamento.servico else None,
+            ],
+        )
+    )
+    criar_alerta_interno(
+        db,
+        tipo="agendamento_cancelado_portal",
+        nivel="aviso",
+        titulo=f"Cancelamento pelo portal: {clinica.nome}",
+        mensagem=(
+            f"A clinica {clinica.nome} cancelou o agendamento #{agendamento.id} pelo portal."
+            + (f" {detalhes_agendamento}." if detalhes_agendamento else "")
+        ),
+        entidade_tipo="agendamento",
+        entidade_id=agendamento.id,
+        clinica_id=clinica.id,
+    )
+
+    # O alerta interno e criado na MESMA transacao do cancelamento (ver
+    # alerta_interno_service.criar_alerta_interno) para garantir que nunca exista um
+    # cancelamento "bem-sucedido" sem o aviso correspondente para a equipe.
     db.commit()
     db.refresh(agendamento)
 

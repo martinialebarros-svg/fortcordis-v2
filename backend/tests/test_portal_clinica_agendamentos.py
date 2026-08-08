@@ -20,6 +20,7 @@ os.environ.setdefault("SECRET_KEY", "portal-clinica-agendamentos-test-secret-key
 from app.api.v1.endpoints import portal
 from app.core.portal_security import PortalSessionContext
 from app.models.agendamento import Agendamento
+from app.models.alerta_interno import AlertaInterno
 from app.models.clinica import Clinica
 
 
@@ -42,7 +43,7 @@ class PortalClinicaAgendamentosTest(unittest.TestCase):
         tmpdir = tempfile.TemporaryDirectory()
         db_path = Path(tmpdir.name) / "portal-clinica-agendamentos.db"
         engine = create_engine(f"sqlite:///{db_path}")
-        for table in (Clinica.__table__, Agendamento.__table__):
+        for table in (Clinica.__table__, Agendamento.__table__, AlertaInterno.__table__):
             table.create(engine, checkfirst=True)
         session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()
         return tmpdir, session, engine
@@ -174,6 +175,33 @@ class PortalClinicaAgendamentosTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_cancelamento_cria_alerta_interno_explicito(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            clinica_a, clinica_b, agendado_a, *_ = self._seed(db)
+
+            with patch.object(portal, "registrar_auditoria", return_value=None):
+                portal.cancelar_agendamento_clinica_portal(
+                    agendado_a.id,
+                    request=None,
+                    db=db,
+                    portal_session=_portal_session(clinica_id=clinica_a.id),
+                )
+
+            alertas = db.query(AlertaInterno).all()
+            self.assertEqual(len(alertas), 1)
+            alerta = alertas[0]
+            self.assertEqual(alerta.tipo, "agendamento_cancelado_portal")
+            self.assertEqual(alerta.entidade_tipo, "agendamento")
+            self.assertEqual(alerta.entidade_id, agendado_a.id)
+            self.assertEqual(alerta.clinica_id, clinica_a.id)
+            self.assertFalse(alerta.lido)
+            self.assertIn(clinica_a.nome, alerta.titulo)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_nao_cancela_agendamento_de_outra_clinica(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
@@ -191,6 +219,7 @@ class PortalClinicaAgendamentosTest(unittest.TestCase):
 
             db.refresh(agendado_a)
             self.assertEqual(agendado_a.status, "Agendado")
+            self.assertEqual(db.query(AlertaInterno).count(), 0)
         finally:
             db.close()
             engine.dispose()
@@ -213,6 +242,7 @@ class PortalClinicaAgendamentosTest(unittest.TestCase):
 
             db.refresh(realizado_a)
             self.assertEqual(realizado_a.status, "Realizado")
+            self.assertEqual(db.query(AlertaInterno).count(), 0)
         finally:
             db.close()
             engine.dispose()

@@ -13,6 +13,7 @@ from app.api.v1.endpoints import (
     admin,
     agenda,
     ai_echo,
+    alertas_internos,
     assistente_ia,
     atendimento,
     auth,
@@ -398,6 +399,7 @@ async def monitor_runtime_http_status(request: Request, call_next):
 # Rotas REST
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+app.include_router(alertas_internos.router, prefix="/api/v1/alertas-internos", tags=["alertas_internos"])
 app.include_router(
     assistente_ia.router,
     prefix="/api/v1/assistente-ia",
