@@ -59,7 +59,26 @@ Resumo dos resultados:
      aparece nas observacoes do agendamento.
   5. Confirmar que um agendamento "Em atendimento" aparece na lista sem botao de cancelar.
 
-## 4) Regressao e riscos residuais
+## 4) QA em stage (2026-08-08) - achado e correcao
+
+Ao testar em stage (clinica real, portal logado), o bloco "Exames liberados" (pre-existente,
+`listar_exames_clinica_portal`) passou a retornar "Internal Server Error" intermitente. Nao foi
+possivel reproduzir localmente (testado em SQLite e Postgres real, com e sem exame/laudo liberado
+seedado) - a consulta sempre funcionou isoladamente. Hipotese mais provavel: o stage roda SQLite
+(`backend/fortcordis.db`, confirmado no log de deploy) sem modo WAL, e esta entrega passou a
+disparar 3 requisicoes simultaneas ao backend no carregamento da pagina do portal
+(`loadDashboard` + `loadAgendamentos` + `loadFinanceiro`, antes era so a primeira) - um cenario
+classico de "database is locked" sob concorrencia em SQLite.
+
+Mitigacao aplicada: as 3 chamadas agora rodam em sequencia (nao mais `Promise.all`/disparo
+paralelo) em `PortalClinicaWorkspace.tsx`, reduzindo a carga concorrente que esta entrega
+introduziu. Isso nao foi confirmado como a causa raiz exata (sem acesso ao log do backend em
+stage para ver o traceback) - fica como item a confirmar/revisitar se o erro persistir. Se
+confirmado "database is locked", a correcao mais robusta seria habilitar modo WAL no SQLite
+(`PRAGMA journal_mode=WAL`) em `app/db/database.py` - mudanca maior, fora do escopo desta
+correcao pontual.
+
+## 5) Regressao e riscos residuais
 
 - Risco residual 1: nao ha, no seed de teste atual, um agendamento com status "Em atendimento"
   exercitando o caminho `pode_cancelar=false` end-to-end (a logica e testada indiretamente pelo
