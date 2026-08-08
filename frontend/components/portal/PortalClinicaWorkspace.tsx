@@ -463,9 +463,14 @@ export default function PortalClinicaWorkspace({
     }
 
     if (session) {
-      void loadDashboard(filters, session);
-      void loadAgendamentos(session);
-      void loadFinanceiro(session);
+      // Sequencial (nao Promise.all) de proposito: evita 3 requisicoes simultaneas
+      // ao backend no primeiro carregamento da pagina do portal, que ja causou
+      // contencao (erro 500 intermitente) no banco SQLite de stage.
+      void (async () => {
+        await loadDashboard(filters, session);
+        await loadAgendamentos(session);
+        await loadFinanceiro(session);
+      })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdminPreview, previewClinicId, session?.access_token]);
