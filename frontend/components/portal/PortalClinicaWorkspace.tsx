@@ -32,6 +32,7 @@ import {
   clearPortalSession,
   createPortalExamDownloadUrls,
   downloadPortalAttachment,
+  downloadPortalClinicOSRecibo,
   getPortalClinicFinanceiro,
   listPortalAdminClinicMirrorExams,
   listPortalClinicAgendamentos,
@@ -46,6 +47,7 @@ import {
   type PortalClinicAuthResponse,
   type PortalClinicaAgendamentoItem,
   type PortalClinicaFinanceiroResponse,
+  type PortalClinicaOrdemServicoItem,
   type PortalClinicExamFilters,
   type PortalClinicOperationalItem,
   type PortalClinicOperationalSummary,
@@ -218,6 +220,7 @@ export default function PortalClinicaWorkspace({
   const [financeiro, setFinanceiro] = useState<PortalClinicaFinanceiroResponse | null>(null);
   const [financeiroLoading, setFinanceiroLoading] = useState(false);
   const [financeiroError, setFinanceiroError] = useState("");
+  const [baixandoReciboId, setBaixandoReciboId] = useState<number | null>(null);
   const [clinicName, setClinicName] = useState<string | null>(null);
   const [totalAvailable, setTotalAvailable] = useState(0);
   const [dashboardLoaded, setDashboardLoaded] = useState(false);
@@ -408,6 +411,24 @@ export default function PortalClinicaWorkspace({
       );
     } finally {
       setFinanceiroLoading(false);
+    }
+  }
+
+  async function handleBaixarRecibo(os: PortalClinicaOrdemServicoItem) {
+    if (!session) {
+      return;
+    }
+
+    setBaixandoReciboId(os.id);
+    setFinanceiroError("");
+
+    try {
+      const usableSession = await ensureClinicSession(session);
+      await downloadPortalClinicOSRecibo(os.id, usableSession.access_token, `recibo_${os.numero_os}.pdf`);
+    } catch (err) {
+      setFinanceiroError(err instanceof Error ? err.message : "Não foi possível baixar o recibo.");
+    } finally {
+      setBaixandoReciboId(null);
     }
   }
 
@@ -1112,7 +1133,7 @@ export default function PortalClinicaWorkspace({
                     {financeiro.pagas.map((os) => (
                       <div
                         key={os.id}
-                        className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                        className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
                       >
                         <div>
                           <p className="font-bold text-slate-900">{os.numero_os}</p>
@@ -1121,7 +1142,22 @@ export default function PortalClinicaWorkspace({
                             {os.data_atendimento ? ` · ${formatCalendarDate(os.data_atendimento)}` : ""}
                           </p>
                         </div>
-                        <p className="font-bold text-teal-700">{formatCurrencyBRL(os.valor)}</p>
+                        <div className="flex items-center gap-3">
+                          <p className="font-bold text-teal-700">{formatCurrencyBRL(os.valor)}</p>
+                          <button
+                            type="button"
+                            onClick={() => void handleBaixarRecibo(os)}
+                            disabled={baixandoReciboId === os.id}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-teal-300 bg-white px-3 py-1.5 text-xs font-bold text-teal-700 transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {baixandoReciboId === os.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Download className="h-3.5 w-3.5" />
+                            )}
+                            Recibo
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>

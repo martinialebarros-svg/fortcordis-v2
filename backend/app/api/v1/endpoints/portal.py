@@ -6,9 +6,11 @@ import logging
 import re
 import secrets
 from datetime import date, datetime, timedelta, timezone
+from io import BytesIO
 from typing import Any, Iterable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -28,6 +30,11 @@ from app.core.portal_release import (
     is_portal_released_status,
 )
 from app.api.v1.endpoints.agenda import _adquirir_lock_escrita_agenda
+from app.api.v1.endpoints.ordens_servico import (
+    _carregar_dados_emissor_recibo_empresa,
+    _gerar_pdf_recibos_ordens,
+    _montar_recibos_os,
+)
 from app.db.database import get_db
 from app.models.agendamento import Agendamento
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
@@ -1392,6 +1399,51 @@ def obter_financeiro_clinica_portal(
         ),
         pendentes=[_build_portal_os_item(o, nome_p, nome_s) for o, nome_p, nome_s in pendentes_rows],
         pagas=[_build_portal_os_item(o, nome_p, nome_s) for o, nome_p, nome_s in pagas_rows],
+    )
+
+
+@router.get("/clinicas/ordens-servico/{ordem_servico_id}/recibo")
+def baixar_recibo_os_clinica_portal(
+    ordem_servico_id: int,
+    db: Session = Depends(get_db),
+    portal_session: PortalSessionContext = Depends(get_current_portal_session),
+):
+    clinica = _exigir_sessao_clinica_portal(db, portal_session)
+
+    ordem_existe = (
+        db.query(OrdemServico.id)
+        .filter(
+            OrdemServico.id == ordem_servico_id,
+            OrdemServico.clinica_id == clinica.id,
+            OrdemServico.status == "Pago",
+        )
+        .first()
+    )
+    if not ordem_existe:
+        raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada.")
+
+    recibos = _montar_recibos_os(db, [ordem_servico_id])
+    if not recibos:
+        raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada.")
+
+    dados_empresa = _carregar_dados_emissor_recibo_empresa(db)
+    pdf_bytes = _gerar_pdf_recibos_ordens(
+        recibos=recibos,
+        nome_empresa=dados_empresa["nome_empresa"],
+        contato_empresa=dados_empresa["contato_empresa"],
+        texto_rodape=dados_empresa["texto_rodape"],
+        agrupar=False,
+        nome_emitente=dados_empresa["nome_empresa"],
+        crmv_emitente="",
+        assinatura_emitente_dados=dados_empresa["assinatura_emitente"],
+        logomarca_dados=dados_empresa["logomarca"],
+    )
+
+    filename = f"recibo_os_{recibos[0]['numero_os']}.pdf"
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

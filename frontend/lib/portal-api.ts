@@ -959,6 +959,32 @@ export async function getPortalClinicFinanceiro(token: string): Promise<PortalCl
   );
 }
 
+export async function downloadPortalClinicOSRecibo(
+  ordemServicoId: number,
+  token: string,
+  filenameFallback = "recibo.pdf",
+): Promise<void> {
+  const response = await fetch(`/api/v1/portal/clinicas/ordens-servico/${ordemServicoId}/recibo`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "Nao foi possivel baixar o recibo."));
+  }
+
+  const blob = await response.blob();
+  const blobUrl = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = blobUrl;
+  anchor.download = filenameFallback;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(blobUrl);
+}
+
 export async function listPortalPartnerExams(
   filters: PortalClinicExamFilters,
   token: string,
