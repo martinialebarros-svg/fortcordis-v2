@@ -924,6 +924,21 @@ export default function NovoAgendamentoModal({
     return toInputDate(agora);
   };
 
+  const agoraFortalezaIso = (): string => {
+    const partes = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Fortaleza",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date());
+    const valor = Object.fromEntries(partes.map((parte) => [parte.type, parte.value]));
+    return `${valor.year}-${valor.month}-${valor.day}T${valor.hour}:${valor.minute}:${valor.second}`;
+  };
+
   const toBrDate = (isoDate?: string): string => {
     const match = String(isoDate || "")
       .trim()
@@ -2896,9 +2911,18 @@ export default function NovoAgendamentoModal({
       };
 
       const servicoOriginalId = String(agendamento?.servico_id ?? "");
-      const inicioOriginalAgendamento = parseAgendamentoInicio(agendamento);
+      const dataOriginalAgendamento = String(
+        agendamento?.data || String(agendamento?.inicio || "").slice(0, 10)
+      );
+      const horaOriginalAgendamento = String(
+        agendamento?.hora || String(agendamento?.inicio || "").slice(11, 16)
+      );
+      const inicioOriginalIso =
+        dataOriginalAgendamento && horaOriginalAgendamento
+          ? `${dataOriginalAgendamento}T${horaOriginalAgendamento.padEnd(8, ":00")}`
+          : null;
       const atendimentoJaIniciado =
-        !!inicioOriginalAgendamento && inicioOriginalAgendamento.getTime() <= Date.now();
+        !!inicioOriginalIso && inicioOriginalIso <= agoraFortalezaIso();
       const alterandoServicoDeHoje =
         isEditando &&
         servicoOriginalId !== String(formData.servico_id || "") &&
