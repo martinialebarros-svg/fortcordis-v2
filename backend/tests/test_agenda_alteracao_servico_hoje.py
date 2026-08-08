@@ -85,7 +85,12 @@ class AgendaAlteracaoServicoHojeTest(unittest.TestCase):
             self.inicio_original = inicio
             self.fim_original = inicio + timedelta(minutes=30)
 
-            inicio_futuro = agora_local + timedelta(hours=2)
+            # Fixo no dia seguinte as 10h para nunca atravessar a virada do dia
+            # ao recalcular a duracao do novo servico (60 min), independente do
+            # horario em que a suite for executada.
+            inicio_futuro = (agora_local + timedelta(days=1)).replace(
+                hour=10, minute=0, second=0, microsecond=0
+            )
             agendamento_futuro = Agendamento(
                 clinica_id=clinica.id,
                 servico_id=servico_original.id,
