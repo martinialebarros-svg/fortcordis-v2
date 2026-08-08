@@ -45,6 +45,10 @@ modo de espelho administrativo (`admin_preview`).
   pelas escritas internas de agenda) antes de validar/alterar o status.
 - NFR-004 (auditoria): toda chamada de cancelamento bem-sucedida gera evento de auditoria
   (best-effort, nao bloqueia a resposta se a auditoria falhar).
+- NFR-005 (carga no banco): o carregamento inicial da pagina do portal (exames, agendamentos
+  ativos, financeiro) roda em sequencia, nao em paralelo — o backend de stage roda SQLite sem
+  modo WAL, e disparar as 3 buscas simultaneamente causou erro 500 intermitente no bloco de
+  exames (achado em QA manual em 2026-08-08). Ver `verify.md` secao 4 para o achado completo.
 
 ## 4) Contratos tecnicos
 
