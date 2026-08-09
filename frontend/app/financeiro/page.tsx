@@ -400,6 +400,12 @@ export default function FinanceiroPage() {
   const [osHighlightId, setOsHighlightId] = useState<number | null>(null);
   const [osHighlightUntil, setOsHighlightUntil] = useState<number>(0);
   const [osSelecionadasRecibo, setOsSelecionadasRecibo] = useState<number[]>([]);
+  const [osSelecionadasRecebimento, setOsSelecionadasRecebimento] = useState<number[]>([]);
+  const [modalReceberLote, setModalReceberLote] = useState<OrdemServico[] | null>(null);
+  const [formaPagamentoLote, setFormaPagamentoLote] = useState<string>(FORMA_PAGAMENTO_PADRAO);
+  const [dataRecebimentoLote, setDataRecebimentoLote] = useState("");
+  const [processandoLote, setProcessandoLote] = useState(false);
+  const [progressoLote, setProgressoLote] = useState<{ total: number; concluidas: number } | null>(null);
   const [modalCompartilharRecibo, setModalCompartilharRecibo] = useState<CompartilhamentoReciboState | null>(null);
   const [enviandoCompartilhamentoRecibo, setEnviandoCompartilhamentoRecibo] = useState(false);
   const [previewRecibo, setPreviewRecibo] = useState<PreviewReciboState | null>(null);
@@ -1015,6 +1021,114 @@ export default function FinanceiroPage() {
     }
   };
 
+  const pendentesDoGrupo = (grupo: GrupoCobrancaDestinatario) =>
+    grupo.ordens.filter((os) => os.status === "Pendente");
+
+  const selecaoDoGrupo = (grupo: GrupoCobrancaDestinatario) =>
+    pendentesDoGrupo(grupo).filter((os) => osSelecionadasRecebimento.includes(os.id));
+
+  const totalSelecaoDoGrupo = (grupo: GrupoCobrancaDestinatario) =>
+    selecaoDoGrupo(grupo).reduce((acc, os) => acc + Number(os.valor_final || 0), 0);
+
+  const grupoTotalmenteSelecionado = (grupo: GrupoCobrancaDestinatario) => {
+    const pendentes = pendentesDoGrupo(grupo);
+    return pendentes.length > 0 && pendentes.every((os) => osSelecionadasRecebimento.includes(os.id));
+  };
+
+  const toggleSelecaoRecebimentoOS = (osId: number) => {
+    setOsSelecionadasRecebimento((prev) =>
+      prev.includes(osId) ? prev.filter((id) => id !== osId) : [...prev, osId]
+    );
+  };
+
+  const toggleSelecaoGrupoInteiro = (grupo: GrupoCobrancaDestinatario) => {
+    const idsPendentes = pendentesDoGrupo(grupo).map((os) => os.id);
+    const todasSelecionadas = grupoTotalmenteSelecionado(grupo);
+    setOsSelecionadasRecebimento((prev) => {
+      if (todasSelecionadas) {
+        return prev.filter((id) => !idsPendentes.includes(id));
+      }
+      return Array.from(new Set([...prev, ...idsPendentes]));
+    });
+  };
+
+  const abrirModalReceberLote = (ids: number[]) => {
+    const selecionadas = ordensServico.filter((os) => ids.includes(os.id) && os.status === "Pendente");
+    if (selecionadas.length === 0) {
+      alert("Selecione ao menos uma OS pendente para receber em lote.");
+      return;
+    }
+    setModalReceberLote(selecionadas);
+    const formaPadrao =
+      formasPagamentoDisponiveis.find(
+        (forma) => normalizarCodigoFormaPagamento(forma.codigo) === FORMA_PAGAMENTO_PADRAO
+      ) || formasPagamentoDisponiveis[0];
+    setFormaPagamentoLote(normalizarCodigoFormaPagamento(formaPadrao?.codigo || FORMA_PAGAMENTO_PADRAO));
+    setDataRecebimentoLote(hojeLocalISO());
+    setProgressoLote(null);
+  };
+
+  const fecharModalReceberLote = () => {
+    if (processandoLote) return;
+    setModalReceberLote(null);
+    setProgressoLote(null);
+  };
+
+  const confirmarRecebimentoLote = async () => {
+    if (!modalReceberLote || modalReceberLote.length === 0) return;
+
+    const formaSelecionada = formasPagamentoDisponiveis.find(
+      (forma) => normalizarCodigoFormaPagamento(forma.codigo) === normalizarCodigoFormaPagamento(formaPagamentoLote)
+    );
+
+    setProcessandoLote(true);
+    setProgressoLote({ total: modalReceberLote.length, concluidas: 0 });
+
+    const sucesso: number[] = [];
+    const falhas: { os: OrdemServico; erro: string }[] = [];
+
+    for (const os of modalReceberLote) {
+      try {
+        await api.patch(`/ordens-servico/${os.id}/receber`, {
+          pagamentos: [
+            {
+              forma_pagamento: normalizarCodigoFormaPagamento(formaPagamentoLote),
+              forma_pagamento_config_id: formaSelecionada?.id,
+              valor: Number(Number(os.valor_final || 0).toFixed(2)),
+            },
+          ],
+          data_recebimento: dataRecebimentoLote || null,
+          valor_credito_utilizado: 0,
+          destino_credito_excedente: "cliente",
+        });
+        sucesso.push(os.id);
+      } catch (error: any) {
+        console.error(`Erro ao receber OS ${os.numero_os} em lote:`, error);
+        falhas.push({
+          os,
+          erro: error.response?.data?.detail || error.message || "Erro desconhecido",
+        });
+      }
+      setProgressoLote((prev) => (prev ? { ...prev, concluidas: prev.concluidas + 1 } : prev));
+    }
+
+    setProcessandoLote(false);
+    setModalReceberLote(null);
+    setProgressoLote(null);
+    setOsSelecionadasRecebimento((prev) => prev.filter((id) => !sucesso.includes(id)));
+
+    if (falhas.length === 0) {
+      alert(`Recebimento em lote registrado com sucesso! ${sucesso.length} OS quitada(s).`);
+    } else {
+      const detalheFalhas = falhas.map(({ os, erro }) => `OS ${os.numero_os}: ${erro}`).join("\n");
+      alert(
+        `Recebimento em lote concluido com pendencias.\nSucesso: ${sucesso.length} | Falhas: ${falhas.length}\n\n${detalheFalhas}`
+      );
+    }
+
+    carregarDados();
+  };
+
   const handleDesfazerRecebimentoOS = async (os: OrdemServico) => {
     if (!confirm(`Desfazer o recebimento da OS ${os.numero_os}?`)) return;
     try {
@@ -1119,6 +1233,11 @@ export default function FinanceiroPage() {
   useEffect(() => {
     const idsRecebidas = new Set(ordensServico.filter((os) => os.status === "Pago").map((os) => os.id));
     setOsSelecionadasRecibo((prev) => prev.filter((id) => idsRecebidas.has(id)));
+  }, [ordensServico]);
+
+  useEffect(() => {
+    const idsPendentes = new Set(ordensServico.filter((os) => os.status === "Pendente").map((os) => os.id));
+    setOsSelecionadasRecebimento((prev) => prev.filter((id) => idsPendentes.has(id)));
   }, [ordensServico]);
 
   useEffect(() => {
@@ -2406,12 +2525,52 @@ export default function FinanceiroPage() {
                     </div>
                     </div>
 
+                    {grupo.quantidade_os > 0 && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 border-b border-amber-100 bg-amber-50/60">
+                        <label className="flex items-center gap-2 text-sm text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={grupoTotalmenteSelecionado(grupo)}
+                            onChange={() => toggleSelecaoGrupoInteiro(grupo)}
+                            className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                          />
+                          Selecionar todas as pendentes ({grupo.quantidade_os})
+                        </label>
+                        <div className="flex items-center gap-3">
+                          {selecaoDoGrupo(grupo).length > 0 && (
+                            <span className="text-xs text-gray-600">
+                              {selecaoDoGrupo(grupo).length} selecionada(s) · {formatarValor(totalSelecaoDoGrupo(grupo))}
+                            </span>
+                          )}
+                          <button
+                            onClick={() => abrirModalReceberLote(selecaoDoGrupo(grupo).map((item) => item.id))}
+                            disabled={selecaoDoGrupo(grupo).length === 0}
+                            className="px-3 py-1.5 text-sm bg-green-600 text-white hover:bg-green-700 rounded-lg flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <CheckCircle className="w-4 h-4" />
+                            Receber selecionadas em lote
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="divide-y bg-white">
                       {grupo.ordens.map((os) => (
                         <div key={os.id} className="p-4">
                           <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-                            <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-blue-100">
-                              <FileText className="w-5 h-5 text-blue-600" />
+                            <div className="flex items-center gap-3">
+                              {os.status === "Pendente" && (
+                                <input
+                                  type="checkbox"
+                                  checked={osSelecionadasRecebimento.includes(os.id)}
+                                  onChange={() => toggleSelecaoRecebimentoOS(os.id)}
+                                  className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                                  title="Selecionar para receber em lote"
+                                />
+                              )}
+                              <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-blue-100">
+                                <FileText className="w-5 h-5 text-blue-600" />
+                              </div>
                             </div>
                             <div className="flex-1 min-w-0 space-y-2">
                               <div className="flex flex-wrap items-center gap-2">
@@ -3329,6 +3488,104 @@ export default function FinanceiroPage() {
 	              >
 	                <CheckCircle className="w-4 h-4" />
 	                Confirmar Recebimento
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Receber em Lote */}
+      {modalReceberLote && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40 p-4">
+          <div className="bg-white rounded-lg w-full max-w-lg">
+            <div className="p-6 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Receber em Lote</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                {modalReceberLote.length} ordem(ns) de servico selecionada(s)
+              </p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="max-h-56 overflow-y-auto rounded-lg border border-gray-200 divide-y">
+                {modalReceberLote.map((os) => (
+                  <div key={os.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-900 truncate">
+                        OS #{os.numero_os} - {os.paciente}
+                      </p>
+                      <p className="text-xs text-gray-500 truncate">
+                        {os.clinica} · {os.servico}
+                      </p>
+                    </div>
+                    <span className="font-semibold text-gray-900 ml-3 flex-shrink-0">
+                      {formatarValor(os.valor_final)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="bg-gray-50 p-4 rounded-lg flex justify-between text-sm">
+                <span className="text-gray-600">Total a receber:</span>
+                <span className="font-semibold text-gray-900">
+                  {formatarValor(modalReceberLote.reduce((acc, os) => acc + Number(os.valor_final || 0), 0))}
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Forma de pagamento</label>
+                <select
+                  value={formaPagamentoLote}
+                  onChange={(e) => setFormaPagamentoLote(e.target.value)}
+                  disabled={processandoLote}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:opacity-60"
+                >
+                  {formasPagamentoDisponiveis.map((forma) => {
+                    const codigo = normalizarCodigoFormaPagamento(forma.codigo);
+                    return (
+                      <option key={`${codigo}-${forma.id ?? "fallback"}`} value={codigo}>
+                        {descricaoFormaPagamentoConfig(forma)}
+                      </option>
+                    );
+                  })}
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  Cada OS sera quitada pelo seu valor integral usando esta forma de pagamento.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Data do Recebimento</label>
+                <input
+                  type="date"
+                  value={dataRecebimentoLote}
+                  onChange={(e) => setDataRecebimentoLote(e.target.value)}
+                  disabled={processandoLote}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:opacity-60"
+                />
+              </div>
+
+              {progressoLote && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                  Processando {progressoLote.concluidas} de {progressoLote.total}...
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t flex justify-end gap-3">
+              <button
+                onClick={fecharModalReceberLote}
+                disabled={processandoLote}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg border disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarRecebimentoLote}
+                disabled={processandoLote}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60"
+              >
+                <CheckCircle className="w-4 h-4" />
+                {processandoLote ? "Processando..." : `Confirmar Recebimento (${modalReceberLote.length})`}
               </button>
             </div>
           </div>
