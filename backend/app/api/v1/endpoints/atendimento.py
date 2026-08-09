@@ -119,6 +119,7 @@ from app.services.atendimento_upload_service import (
 )
 from app.services.attachment_download_service import (
     attachment_has_download_source,
+    attachment_is_verified_pdf,
     build_attachment_download_response,
 )
 from app.services.upload_dedupe_cleanup_service import (
@@ -4340,8 +4341,13 @@ def liberar_exame_no_portal(
     # upload real). attachment_has_download_source confirma que existe de
     # fato algo baixavel (arquivo local ou URL remota valida) antes de
     # liberar o exame como "resultado disponivel" para o portal externo.
+    # attachment_is_verified_pdf vai alem: confirma os bytes magicos "%PDF-"
+    # no CONTEUDO real (nao so que existe algo baixavel) - um arquivo
+    # renomeado para .pdf sem ser um PDF de verdade nao passa por essa
+    # checagem extra.
     if not any(
-        _anexo_eh_pdf(anexo) and attachment_has_download_source(anexo) for anexo in anexos
+        _anexo_eh_pdf(anexo) and attachment_has_download_source(anexo) and attachment_is_verified_pdf(anexo)
+        for anexo in anexos
     ):
         raise HTTPException(status_code=422, detail="Anexe o PDF do resultado antes de liberar no portal.")
 
