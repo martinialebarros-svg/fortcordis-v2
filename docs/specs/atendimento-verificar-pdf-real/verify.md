@@ -83,5 +83,6 @@ exame liberado, em vez de permitir+auditar).
 
 ## 7) Decisao de release
 
-- [ ] Aprovado para stage.
+- [x] Aprovado para stage - `634789ba`, deploy-stage concluido com sucesso
+  (sdd-guardrail + quality-gate + deploy-stage), sem drift com origin/stage.
 - [ ] Aprovado para producao.
