@@ -866,6 +866,125 @@ export async function listPortalClinicExams(
   );
 }
 
+export type PortalClinicaAgendamentoItem = {
+  id: number;
+  data: string | null;
+  hora: string | null;
+  inicio: string | null;
+  fim: string | null;
+  status: string;
+  paciente_nome: string | null;
+  tutor_nome: string | null;
+  servico_nome: string | null;
+  pode_cancelar: boolean;
+};
+
+export type PortalClinicaAgendamentoListResponse = {
+  total: number;
+  clinica_id: number;
+  clinica_nome: string;
+  items: PortalClinicaAgendamentoItem[];
+};
+
+export type PortalClinicaAgendamentoCancelResponse = {
+  item: PortalClinicaAgendamentoItem;
+  message: string;
+};
+
+export async function listPortalClinicAgendamentos(
+  token: string,
+): Promise<PortalClinicaAgendamentoListResponse> {
+  return portalFetchJson<PortalClinicaAgendamentoListResponse>(
+    "/api/v1/portal/clinicas/agendamentos",
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+    "Nao foi possivel carregar os agendamentos da clinica.",
+  );
+}
+
+export async function cancelPortalClinicAgendamento(
+  agendamentoId: number,
+  token: string,
+): Promise<PortalClinicaAgendamentoCancelResponse> {
+  return portalFetchJson<PortalClinicaAgendamentoCancelResponse>(
+    `/api/v1/portal/clinicas/agendamentos/${agendamentoId}/cancelar`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({}),
+    },
+    "Nao foi possivel cancelar o agendamento.",
+  );
+}
+
+export type PortalClinicaOrdemServicoItem = {
+  id: number;
+  numero_os: string;
+  status: string;
+  valor: number;
+  data_atendimento: string | null;
+  paciente_nome: string | null;
+  servico_nome: string | null;
+};
+
+export type PortalClinicaFinanceiroSummary = {
+  total_pendente: number;
+  total_pago: number;
+  quantidade_pendente: number;
+  quantidade_pago: number;
+};
+
+export type PortalClinicaFinanceiroResponse = {
+  clinica_id: number;
+  clinica_nome: string;
+  summary: PortalClinicaFinanceiroSummary;
+  pendentes: PortalClinicaOrdemServicoItem[];
+  pagas: PortalClinicaOrdemServicoItem[];
+};
+
+export async function getPortalClinicFinanceiro(token: string): Promise<PortalClinicaFinanceiroResponse> {
+  return portalFetchJson<PortalClinicaFinanceiroResponse>(
+    "/api/v1/portal/clinicas/financeiro",
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+    "Nao foi possivel carregar o financeiro da clinica.",
+  );
+}
+
+export async function downloadPortalClinicOSRecibo(
+  ordemServicoId: number,
+  token: string,
+  filenameFallback = "recibo.pdf",
+): Promise<void> {
+  const response = await fetch(`/api/v1/portal/clinicas/ordens-servico/${ordemServicoId}/recibo`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "Nao foi possivel baixar o recibo."));
+  }
+
+  const blob = await response.blob();
+  const blobUrl = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = blobUrl;
+  anchor.download = filenameFallback;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(blobUrl);
+}
+
 export async function listPortalPartnerExams(
   filters: PortalClinicExamFilters,
   token: string,

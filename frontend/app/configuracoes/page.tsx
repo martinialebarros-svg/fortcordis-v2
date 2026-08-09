@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
@@ -311,6 +311,7 @@ export default function ConfiguracoesPage() {
   const [filtroAuditoriaBusca, setFiltroAuditoriaBusca] = useState("");
   const [filtroAuditoriaDataInicio, setFiltroAuditoriaDataInicio] = useState("");
   const [filtroAuditoriaDataFim, setFiltroAuditoriaDataFim] = useState("");
+  const [auditoriaExpandida, setAuditoriaExpandida] = useState<Record<number, boolean>>({});
   const [modoEdicaoUsuario, setModoEdicaoUsuario] = useState(false);
   const [novoFeriadoData, setNovoFeriadoData] = useState("");
   const [novoFeriadoTipo, setNovoFeriadoTipo] = useState<"local" | "nacional">("local");
@@ -617,6 +618,55 @@ export default function ConfiguracoesPage() {
     const data = new Date(valor);
     if (Number.isNaN(data.getTime())) return "-";
     return data.toLocaleString("pt-BR");
+  };
+
+  const formatarValorAuditoria = (valor: unknown): string => {
+    if (valor === null || valor === undefined || valor === "") return "(vazio)";
+    if (typeof valor === "object") return JSON.stringify(valor);
+    return String(valor);
+  };
+
+  // registrar_auditoria segue 2 formatos: {alteracoes: {campo: {antes, depois}}}
+  // para updates, ou chave-valor simples para criacao/exclusao/estado pontual.
+  const renderizarDetalhesAuditoria = (detalhes?: Record<string, any>) => {
+    if (!detalhes || Object.keys(detalhes).length === 0) return null;
+    const { alteracoes, ...outrosCampos } = detalhes;
+    const temAlteracoes = alteracoes && typeof alteracoes === "object" && !Array.isArray(alteracoes);
+
+    return (
+      <div className="space-y-3">
+        {temAlteracoes ? (
+          <table className="min-w-full text-xs border border-gray-200 rounded-lg overflow-hidden">
+            <thead className="bg-gray-100 text-gray-500">
+              <tr>
+                <th className="text-left px-2 py-1 font-medium">Campo</th>
+                <th className="text-left px-2 py-1 font-medium">Antes</th>
+                <th className="text-left px-2 py-1 font-medium">Depois</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(alteracoes as Record<string, any>).map(([campo, valores]) => (
+                <tr key={campo} className="border-t border-gray-200">
+                  <td className="px-2 py-1 font-medium text-gray-700">{campo}</td>
+                  <td className="px-2 py-1 text-gray-500">{formatarValorAuditoria((valores as any)?.antes)}</td>
+                  <td className="px-2 py-1 text-gray-700">{formatarValorAuditoria((valores as any)?.depois)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : null}
+        {Object.keys(outrosCampos).length > 0 ? (
+          <div className="space-y-1 text-xs">
+            {Object.entries(outrosCampos).map(([chave, valor]) => (
+              <div key={chave} className="flex gap-2">
+                <span className="font-medium text-gray-500">{chave}:</span>
+                <span className="text-gray-700 break-all">{formatarValorAuditoria(valor)}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
   };
 
   const limparFormularioUsuario = () => {
@@ -3105,38 +3155,69 @@ export default function ConfiguracoesPage() {
                         <th className="text-left px-3 py-2 font-medium">Acao</th>
                         <th className="text-left px-3 py-2 font-medium">Modulo</th>
                         <th className="text-left px-3 py-2 font-medium">Descricao</th>
+                        <th className="text-left px-3 py-2 font-medium">Detalhes</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {auditoriaItens.map((item) => (
-                        <tr key={item.id} className="border-t border-gray-100">
-                          <td className="px-3 py-2 text-gray-700">{formatarDataHora(item.created_at)}</td>
-                          <td className="px-3 py-2 text-gray-700">
-                            <div className="font-medium text-gray-900">{item.usuario_nome || "-"}</div>
-                            <div className="text-xs text-gray-500">{item.usuario_email || "-"}</div>
-                          </td>
-                          <td className="px-3 py-2">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
-                              {item.acao}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-gray-700">
-                            <div>{item.modulo}</div>
-                            <div className="text-xs text-gray-500">
-                              {item.entidade}
-                              {item.entidade_id ? ` #${item.entidade_id}` : ""}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 text-gray-700">
-                            <div>{item.descricao || "-"}</div>
-                            {item.rota ? (
-                              <div className="text-xs text-gray-500">
-                                {item.metodo || "-"} {item.rota}
-                              </div>
+                      {auditoriaItens.map((item) => {
+                        const temDetalhes = !!item.detalhes && Object.keys(item.detalhes).length > 0;
+                        const expandido = !!auditoriaExpandida[item.id];
+                        return (
+                          <Fragment key={item.id}>
+                            <tr className="border-t border-gray-100">
+                              <td className="px-3 py-2 text-gray-700">{formatarDataHora(item.created_at)}</td>
+                              <td className="px-3 py-2 text-gray-700">
+                                <div className="font-medium text-gray-900">{item.usuario_nome || "-"}</div>
+                                <div className="text-xs text-gray-500">{item.usuario_email || "-"}</div>
+                              </td>
+                              <td className="px-3 py-2">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
+                                  {item.acao}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-gray-700">
+                                <div>{item.modulo}</div>
+                                <div className="text-xs text-gray-500">
+                                  {item.entidade}
+                                  {item.entidade_id ? ` #${item.entidade_id}` : ""}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-gray-700">
+                                <div>{item.descricao || "-"}</div>
+                                {item.rota ? (
+                                  <div className="text-xs text-gray-500">
+                                    {item.metodo || "-"} {item.rota}
+                                  </div>
+                                ) : null}
+                              </td>
+                              <td className="px-3 py-2">
+                                {temDetalhes ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setAuditoriaExpandida((atual) => ({ ...atual, [item.id]: !atual[item.id] }))
+                                    }
+                                    className="text-xs font-medium text-blue-600 hover:underline"
+                                  >
+                                    {expandido ? "Ocultar" : "Ver detalhes"}
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-gray-400">-</span>
+                                )}
+                              </td>
+                            </tr>
+                            {temDetalhes && expandido ? (
+                              <tr className="border-t border-gray-100 bg-gray-50">
+                                <td colSpan={6} className="py-3">
+                                  <div className="sticky left-0 w-fit max-w-[90vw] px-3">
+                                    {renderizarDetalhesAuditoria(item.detalhes)}
+                                  </div>
+                                </td>
+                              </tr>
                             ) : null}
-                          </td>
-                        </tr>
-                      ))}
+                          </Fragment>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

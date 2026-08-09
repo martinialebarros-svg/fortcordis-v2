@@ -302,10 +302,41 @@ interface FormDataAgenda {
 interface MensagemAgendaPosCriacao {
   tipo: "reserva" | "agendamento";
   destinatarioTipo: ReservaManualDestinatario;
+  destinatarioId: string;
   destinatarioNome: string;
   telefones: string[];
+  telefoneSugerido: string;
   prazoLabel?: string;
   mensagem: string;
+}
+
+const ULTIMO_WHATSAPP_STORAGE_PREFIX = "fortcordis:agenda:ultimo-whatsapp:v1";
+
+function obterUltimoWhatsappStorageKey(tipo: ReservaManualDestinatario, id: string): string | null {
+  if (!id) return null;
+  return `${ULTIMO_WHATSAPP_STORAGE_PREFIX}:${tipo}:${id}`;
+}
+
+function lerUltimoWhatsappSelecionado(tipo: ReservaManualDestinatario, id: string): string {
+  if (typeof window === "undefined") return "";
+  const key = obterUltimoWhatsappStorageKey(tipo, id);
+  if (!key) return "";
+  try {
+    return window.localStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+function salvarUltimoWhatsappSelecionado(tipo: ReservaManualDestinatario, id: string, telefone: string): void {
+  if (typeof window === "undefined" || !telefone) return;
+  const key = obterUltimoWhatsappStorageKey(tipo, id);
+  if (!key) return;
+  try {
+    window.localStorage.setItem(key, telefone);
+  } catch {
+    // localStorage indisponivel (modo privado, quota, etc.) - segue sem lembrar.
+  }
 }
 
 interface NovoTutorForm {
@@ -2528,12 +2559,17 @@ export default function NovoAgendamentoModal({
   const construirMensagemAgendaPosCriacao = (): MensagemAgendaPosCriacao => {
     const tipo = formData.marcar_como_reserva ? "reserva" : "agendamento";
     const destinatarioTipo = formData.reserva_destinatario_manual;
+    const destinatarioId = destinatarioTipo === "clinica" ? formData.clinica_id : formData.tutor_id;
     const destinatarioNome = destinatarioTipo === "clinica"
       ? nomeClinicaReservaManual
       : nomeTutorReservaManual;
     const telefones = destinatarioTipo === "clinica"
       ? telefonesClinicaMensagem
       : (telefoneTutorReservaManual ? [telefoneTutorReservaManual] : []);
+    const telefoneLembrado = lerUltimoWhatsappSelecionado(destinatarioTipo, destinatarioId);
+    const telefoneSugerido = telefoneLembrado && telefones.includes(telefoneLembrado)
+      ? telefoneLembrado
+      : (telefones[0] || "");
     const mensagem = montarMensagemAgendaManual({
       tipo,
       data: formData.data,
@@ -2549,8 +2585,10 @@ export default function NovoAgendamentoModal({
     return {
       tipo,
       destinatarioTipo,
+      destinatarioId,
       destinatarioNome,
       telefones,
+      telefoneSugerido,
       prazoLabel: tipo === "reserva"
         ? formatarPrazoReserva(formData.reserva_prazo_confirmacao)
         : undefined,
@@ -2562,6 +2600,11 @@ export default function NovoAgendamentoModal({
     if (!mensagemAgendaCriada) return;
     const url = montarLinkWhatsAppReserva(whatsappMensagemSelecionado, mensagemAgendaCriada.mensagem);
     window.open(url, "_blank", "noopener,noreferrer");
+    salvarUltimoWhatsappSelecionado(
+      mensagemAgendaCriada.destinatarioTipo,
+      mensagemAgendaCriada.destinatarioId,
+      whatsappMensagemSelecionado,
+    );
     setFeedbackMensagemAgenda(
       whatsappMensagemSelecionado
         ? "WhatsApp aberto com o destinatario e a mensagem preenchidos. Revise e envie manualmente."
@@ -2576,10 +2619,22 @@ export default function NovoAgendamentoModal({
         throw new Error("Clipboard indisponivel");
       }
       await navigator.clipboard.writeText(mensagemAgendaCriada.mensagem);
+      salvarUltimoWhatsappSelecionado(
+        mensagemAgendaCriada.destinatarioTipo,
+        mensagemAgendaCriada.destinatarioId,
+        whatsappMensagemSelecionado,
+      );
       setFeedbackMensagemAgenda("Mensagem copiada.");
     } catch (_error) {
       setFeedbackMensagemAgenda("Nao foi possivel copiar automaticamente. Selecione o texto e copie manualmente.");
     }
+  };
+
+  const gerarMensagemManualEdicao = () => {
+    const construida = construirMensagemAgendaPosCriacao();
+    setMensagemAgendaCriada(construida);
+    setWhatsappMensagemSelecionado(construida.telefoneSugerido);
+    setFeedbackMensagemAgenda("");
   };
 
   const iniciarEdicaoWhatsappDestinatario = () => {
@@ -3004,7 +3059,7 @@ export default function NovoAgendamentoModal({
 
       if (entregaMensagemAgenda) {
         setMensagemAgendaCriada(entregaMensagemAgenda);
-        setWhatsappMensagemSelecionado(entregaMensagemAgenda.telefones[0] || "");
+        setWhatsappMensagemSelecionado(entregaMensagemAgenda.telefoneSugerido);
         setFeedbackMensagemAgenda("");
         await onSuccess(response?.data, { manterModalAberto: true });
         return;
@@ -3112,7 +3167,7 @@ export default function NovoAgendamentoModal({
             </div>
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => (isEditando ? setMensagemAgendaCriada(null) : onClose())}
               className="rounded-full p-2 text-gray-500 transition hover:bg-white hover:text-gray-700"
               aria-label="Fechar mensagem da agenda"
               title="Fechar"
@@ -3181,6 +3236,13 @@ export default function NovoAgendamentoModal({
               estiver em análise, revise e envie esta mensagem manualmente.
             </div>
 
+            {isEditando ? (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                Esta mensagem foi gerada com os dados atuais do formulário. Se você alterou paciente, tutor ou
+                outro campo, clique em <strong>Salvar Alterações</strong> depois de voltar para confirmar.
+              </div>
+            ) : null}
+
             {!possuiTelefone ? (
               <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
                 O WhatsApp será aberto sem destinatário. Escolha o contato correto antes de enviar.
@@ -3197,10 +3259,10 @@ export default function NovoAgendamentoModal({
           <div className="flex flex-col-reverse gap-2 border-t border-gray-200 bg-gray-50 px-5 py-4 sm:flex-row sm:justify-end">
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => (isEditando ? setMensagemAgendaCriada(null) : onClose())}
               className="fc-appointment-button-secondary"
             >
-              Concluir
+              {isEditando ? "Voltar ao formulário" : "Concluir"}
             </button>
             <button
               type="button"
@@ -3843,34 +3905,36 @@ export default function NovoAgendamentoModal({
             )}
           </div>
 
-          {!isEditando && (
+          {(!isEditando || formData.marcar_como_reserva) && (
             <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
-              <label className="flex items-start gap-2">
-                <input
-                  type="checkbox"
-                  checked={formData.marcar_como_reserva}
-                  onChange={(event) => {
-                    const marcada = event.target.checked;
-                    setFormData((prev) => ({
-                      ...prev,
-                      marcar_como_reserva: marcada,
-                      reserva_prazo_horas: marcada ? "3" : prev.reserva_prazo_horas,
-                      reserva_prazo_confirmacao: marcada
-                        ? criarPrazoPadraoReserva()
-                        : prev.reserva_prazo_confirmacao,
-                    }));
-                  }}
-                  className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
-                />
-                <span>
-                  Marcar como <strong>reserva de horário</strong> (bloqueia o slot como pendente de confirmação).
-                </span>
-              </label>
+              {!isEditando && (
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={formData.marcar_como_reserva}
+                    onChange={(event) => {
+                      const marcada = event.target.checked;
+                      setFormData((prev) => ({
+                        ...prev,
+                        marcar_como_reserva: marcada,
+                        reserva_prazo_horas: marcada ? "3" : prev.reserva_prazo_horas,
+                        reserva_prazo_confirmacao: marcada
+                          ? criarPrazoPadraoReserva()
+                          : prev.reserva_prazo_confirmacao,
+                      }));
+                    }}
+                    className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                  />
+                  <span>
+                    Marcar como <strong>reserva de horário</strong> (bloqueia o slot como pendente de confirmação).
+                  </span>
+                </label>
+              )}
 
-              <div className="space-y-3 border-t border-amber-200 pt-3">
+              <div className={isEditando ? "space-y-3" : "space-y-3 border-t border-amber-200 pt-3"}>
                 <div>
                   <div className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-800">
-                    Mensagem após salvar
+                    Mensagem {isEditando ? "de confirmação" : "após salvar"}
                   </div>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <label
@@ -3923,60 +3987,62 @@ export default function NovoAgendamentoModal({
                   </div>
                 </div>
 
-                {formData.marcar_como_reserva ? (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div>
-                      <label htmlFor="fc-reserva-prazo-horas" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-800">
-                        Prazo para confirmação
-                      </label>
-                      <div className="flex max-w-xs overflow-hidden rounded-lg border border-amber-300 bg-white focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-200">
-                        <input
-                          id="fc-reserva-prazo-horas"
-                          type="number"
-                          required
-                          min="0.5"
-                          max="72"
-                          step="0.5"
-                          inputMode="decimal"
-                          value={formData.reserva_prazo_horas}
-                          onChange={(event) => {
-                            const valor = event.target.value;
-                            const horas = Number(valor);
-                            setFormData((prev) => ({
-                              ...prev,
-                              reserva_prazo_horas: valor,
-                              reserva_prazo_confirmacao:
-                                Number.isFinite(horas) && horas >= 0.5 && horas <= 72
-                                  ? criarPrazoReservaPorHoras(horas)
-                                  : prev.reserva_prazo_confirmacao,
-                            }));
-                          }}
-                          className="min-w-0 flex-1 border-0 px-3 py-2 text-gray-900 outline-none"
-                        />
-                        <span className="flex items-center border-l border-amber-200 bg-amber-50 px-3 font-medium text-amber-800">
-                          horas
-                        </span>
+                {!isEditando && (
+                  formData.marcar_como_reserva ? (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label htmlFor="fc-reserva-prazo-horas" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-800">
+                          Prazo para confirmação
+                        </label>
+                        <div className="flex max-w-xs overflow-hidden rounded-lg border border-amber-300 bg-white focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-200">
+                          <input
+                            id="fc-reserva-prazo-horas"
+                            type="number"
+                            required
+                            min="0.5"
+                            max="72"
+                            step="0.5"
+                            inputMode="decimal"
+                            value={formData.reserva_prazo_horas}
+                            onChange={(event) => {
+                              const valor = event.target.value;
+                              const horas = Number(valor);
+                              setFormData((prev) => ({
+                                ...prev,
+                                reserva_prazo_horas: valor,
+                                reserva_prazo_confirmacao:
+                                  Number.isFinite(horas) && horas >= 0.5 && horas <= 72
+                                    ? criarPrazoReservaPorHoras(horas)
+                                    : prev.reserva_prazo_confirmacao,
+                              }));
+                            }}
+                            className="min-w-0 flex-1 border-0 px-3 py-2 text-gray-900 outline-none"
+                          />
+                          <span className="flex items-center border-l border-amber-200 bg-amber-50 px-3 font-medium text-amber-800">
+                            horas
+                          </span>
+                        </div>
+                        <div className="mt-1 text-xs text-amber-800">
+                          O padrão é 3 horas; ajuste conforme o combinado com o cliente.
+                        </div>
                       </div>
-                      <div className="mt-1 text-xs text-amber-800">
-                        O padrão é 3 horas; ajuste conforme o combinado com o cliente.
+                      <div>
+                        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-800">
+                          Confirmar até
+                        </div>
+                        <div className="rounded-lg border border-amber-200 bg-white/80 px-3 py-2 font-medium text-gray-900">
+                          {formatarPrazoReserva(formData.reserva_prazo_confirmacao)}
+                        </div>
+                        <div className="mt-1 text-xs text-amber-800">
+                          O prazo precisa ser anterior ao horário reservado.
+                        </div>
                       </div>
                     </div>
-                    <div>
-                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-800">
-                        Confirmar até
-                      </div>
-                      <div className="rounded-lg border border-amber-200 bg-white/80 px-3 py-2 font-medium text-gray-900">
-                        {formatarPrazoReserva(formData.reserva_prazo_confirmacao)}
-                      </div>
-                      <div className="mt-1 text-xs text-amber-800">
-                        O prazo precisa ser anterior ao horário reservado.
-                      </div>
+                  ) : (
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                      Depois de salvar, o sistema mostrará o botão para avisar que o horário solicitado foi agendado.
                     </div>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                    Depois de salvar, o sistema mostrará o botão para avisar que o horário solicitado foi agendado.
-                  </div>
+                  )
                 )}
 
                 <div className="rounded-lg border border-amber-200 bg-white/70 px-3 py-3 text-xs text-amber-900">
@@ -4072,6 +4138,19 @@ export default function NovoAgendamentoModal({
                     A alteração fica salva no cadastro. Se houver mais de um WhatsApp, você escolherá o número antes de abrir a conversa. O envio continua manual enquanto a Meta analisa a empresa.
                   </div>
                 </div>
+
+                {isEditando && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={gerarMensagemManualEdicao}
+                      className="inline-flex items-center gap-2 rounded-md bg-amber-700 px-3 py-1.5 font-semibold text-white transition hover:bg-amber-800"
+                    >
+                      <MessageCircle className="h-3.5 w-3.5" />
+                      Gerar mensagem de confirmação
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
