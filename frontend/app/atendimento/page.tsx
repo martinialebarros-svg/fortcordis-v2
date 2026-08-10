@@ -6371,7 +6371,7 @@ export default function AtendimentoPage() {
         <div className={`fc-care-layout ${showCaseSidebar ? "grid grid-cols-1 gap-6 xl:grid-cols-12" : "grid grid-cols-1 gap-6"}`}>
           {showCaseSidebar ? (
           <div className="fc-care-sidebar self-start xl:col-span-3">
-            <div className="space-y-6 xl:sticky xl:top-6">
+            <div className="space-y-6 xl:sticky xl:top-[500px]">
               <section className="fc-care-case-panel">
                 <div className="flex items-center justify-between">
                   <div>
@@ -6943,8 +6943,8 @@ export default function AtendimentoPage() {
 
               {(isPrescricaoWorkspace || (isExamesWorkspace && temAlertasCriticos) || showClinicalRadarAside) ? (
                 <aside
-                  className={`fc-care-aside self-start space-y-6 xl:sticky xl:max-h-[calc(100vh-2rem)] xl:overflow-auto xl:pr-1 ${
-                    isPrescricaoWorkspace && prescricaoModoFoco ? "xl:top-3" : "xl:top-6"
+                  className={`fc-care-aside self-start space-y-6 xl:sticky xl:max-h-[calc(100vh-516px)] xl:overflow-auto xl:pr-1 ${
+                    isPrescricaoWorkspace && prescricaoModoFoco ? "xl:top-[488px]" : "xl:top-[500px]"
                   }`}
                 >
                   {isPrescricaoWorkspace || isExamesWorkspace ? (
