@@ -6676,7 +6676,7 @@ body {
   }
 
   .fc-care-header {
-    @apply relative overflow-hidden rounded-lg border border-ink-900/20 p-5 text-white shadow-fort-card sm:p-6;
+    @apply relative overflow-hidden rounded-lg border border-ink-900/20 p-5 text-white shadow-fort-card sm:p-6 xl:sticky xl:top-0 xl:z-20;
     background: linear-gradient(112deg, rgba(76, 5, 25, 0.98) 0%, rgba(23, 32, 29, 0.98) 54%, rgba(15, 118, 110, 0.94) 100%);
   }
 
