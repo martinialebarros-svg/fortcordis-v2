@@ -110,10 +110,17 @@ export default function AtendimentoConsultaEditorSection(props: AtendimentoConsu
                 </select>
               </div>
 
-              <div className="rounded-[20px] border border-slate-200 bg-white px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500">Cobertura do prontuario</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-900">{clinicalSummary.completeness}%</p>
-                <p className="mt-1 text-sm text-slate-600">do editor clinico preenchido</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-[20px] border border-slate-200 bg-white px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500">Pronto para concluir</p>
+                  <p className="mt-2 text-2xl font-semibold text-slate-900">{clinicalSummary.coberturaMinima.percentual}%</p>
+                  <p className="mt-1 text-xs text-slate-600">minimo exigido para concluir o atendimento</p>
+                </div>
+                <div className="rounded-[20px] border border-slate-200 bg-white px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500">Detalhamento</p>
+                  <p className="mt-2 text-2xl font-semibold text-slate-900">{clinicalSummary.completeness}%</p>
+                  <p className="mt-1 text-xs text-slate-600">do editor clinico preenchido</p>
+                </div>
               </div>
 
               {clinicalSummary.pending.length > 0 ? (
