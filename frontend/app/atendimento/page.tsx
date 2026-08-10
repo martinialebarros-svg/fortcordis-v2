@@ -6700,6 +6700,7 @@ export default function AtendimentoPage() {
                 {isConsultaWorkspace ? (
                   <AtendimentoTriagemSection
                     ESCALA_ECC={ESCALA_ECC}
+                    especieExibicao={especieExibicao}
                     form={form}
                     HIDRATACAO={HIDRATACAO}
                     MUCOSAS={MUCOSAS}
