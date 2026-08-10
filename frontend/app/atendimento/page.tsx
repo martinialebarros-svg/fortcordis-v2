@@ -85,6 +85,7 @@ import {
   X,
 } from "lucide-react";
 
+const AtendimentoAlertasCriticosCard = dynamic(() => import("./components/AtendimentoAlertasCriticosCard"));
 const AtendimentoBibliotecasSection = dynamic(() => import("./components/AtendimentoBibliotecasSection"));
 const AtendimentoCadastroComplementarSection = dynamic(() => import("./components/AtendimentoCadastroComplementarSection"));
 const AtendimentoConsultaOverviewSection = dynamic(() => import("./components/AtendimentoConsultaOverviewSection"));
@@ -5475,15 +5476,6 @@ export default function AtendimentoPage() {
     () => consultaEditorCamposVisiveis.findIndex((item) => item.key === consultaCampoAtivo),
     [consultaCampoAtivo, consultaEditorCamposVisiveis]
   );
-  const workspaceGridClass = isBibliotecasWorkspace
-    ? "grid gap-6 grid-cols-1"
-    : isExamesWorkspace
-      ? "grid gap-6 grid-cols-1"
-    : isPrescricaoWorkspace
-      ? prescricaoModoFoco
-        ? "grid gap-6 xl:grid-cols-[minmax(0,1fr),340px] 2xl:grid-cols-[minmax(0,1fr),360px]"
-        : "grid gap-6 xl:grid-cols-[minmax(0,1fr),380px] 2xl:grid-cols-[minmax(0,1fr),400px]"
-      : "grid gap-6 xl:grid-cols-[minmax(0,1fr),380px] 2xl:grid-cols-[minmax(0,1fr),400px]";
   const goToConsultaCampoAnterior = () => {
     if (consultaCampoAtivoIndex <= 0) return;
     setConsultaCampoAtivo(consultaEditorCamposVisiveis[consultaCampoAtivoIndex - 1].key);
@@ -5629,6 +5621,20 @@ export default function AtendimentoPage() {
   const atendimentosVisiveis = filtered;
   const timelineGrupos = historicoPaciente?.timeline || [];
   const alertasAtivos = historicoPaciente?.alertas || [];
+  const temAlertasCriticos = alertasAtivos.some((alerta: any) =>
+    ["critica", "alta"].includes((alerta.gravidade || "").toLowerCase())
+  );
+  const workspaceGridClass = isBibliotecasWorkspace
+    ? "grid gap-6 grid-cols-1"
+    : isExamesWorkspace
+      ? temAlertasCriticos
+        ? "grid gap-6 xl:grid-cols-[minmax(0,1fr),380px] 2xl:grid-cols-[minmax(0,1fr),400px]"
+        : "grid gap-6 grid-cols-1"
+    : isPrescricaoWorkspace
+      ? prescricaoModoFoco
+        ? "grid gap-6 xl:grid-cols-[minmax(0,1fr),340px] 2xl:grid-cols-[minmax(0,1fr),360px]"
+        : "grid gap-6 xl:grid-cols-[minmax(0,1fr),380px] 2xl:grid-cols-[minmax(0,1fr),400px]"
+      : "grid gap-6 xl:grid-cols-[minmax(0,1fr),380px] 2xl:grid-cols-[minmax(0,1fr),400px]";
   const medicamentosCardiologicos = medicamentosCardiologiaLista.length;
   const itensPrescricaoAtivos = form.prescricao_itens.filter((item) => item.medicamento_id || (item.medicamento_nome || "").trim());
   const autosaveLabel = useMemo(() => {
@@ -6934,12 +6940,24 @@ export default function AtendimentoPage() {
                 />
               )}
 
-              {(isPrescricaoWorkspace || showClinicalRadarAside) ? (
+              {(isPrescricaoWorkspace || (isExamesWorkspace && temAlertasCriticos) || showClinicalRadarAside) ? (
                 <aside
                   className={`fc-care-aside self-start space-y-6 xl:sticky xl:max-h-[calc(100vh-2rem)] xl:overflow-auto xl:pr-1 ${
                     isPrescricaoWorkspace && prescricaoModoFoco ? "xl:top-3" : "xl:top-6"
                   }`}
                 >
+                  {isPrescricaoWorkspace || isExamesWorkspace ? (
+                    // O radar clinico completo (AtendimentoClinicalRadarAside) so aparece em
+                    // Consulta/Documentos - sem isso, alertas de gravidade alta/critica (ex.:
+                    // alergia a medicamento) ficavam invisiveis justamente nas abas de maior
+                    // risco de erro (prescrever, solicitar exame). Card compacto, so os mais
+                    // graves, independente da aba.
+                    <AtendimentoAlertasCriticosCard
+                      alertasAtivos={alertasAtivos}
+                      getGravidadeClass={getGravidadeClass}
+                    />
+                  ) : null}
+
                   {showClinicalRadarAside ? (
                     <AtendimentoClinicalRadarAside
                       alertasAtivos={alertasAtivos}
