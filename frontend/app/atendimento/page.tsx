@@ -5009,7 +5009,8 @@ export default function AtendimentoPage() {
       duracao_padrao: "",
       observacoes,
     });
-    setSucesso("");
+    setWorkspacePainel("bibliotecas");
+    setSucesso("Formula pronta para revisao em Bibliotecas clinicas.");
     setErro("");
   };
 
