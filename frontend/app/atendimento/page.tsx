@@ -4844,6 +4844,15 @@ export default function AtendimentoPage() {
     }
     if (!documentoParaPdf?.id) return;
 
+    if (
+      documentoParaPdf.status === "emitido" &&
+      !window.confirm(
+        `O documento "${documentoParaPdf.titulo}" ja foi emitido anteriormente. Gerar um novo PDF agora cria uma nova versao oficial com o conteudo atual. Continuar?`
+      )
+    ) {
+      return;
+    }
+
     try {
       setGerandoDocumentoPdfId(documentoParaPdf.id);
       const response = await api.get(
