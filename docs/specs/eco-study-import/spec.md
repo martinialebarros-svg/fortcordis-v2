@@ -34,6 +34,9 @@
 - RF-022: quando o importador detectar somente uma tecnica do VE, a aplicacao das
   sugestoes deve registrar automaticamente `VE_tecnica_relatorio`; a escolha
   manual continua obrigatoria apenas quando Modo M e Modo 2D coexistirem.
+- RF-023: a analise de referencias deve incluir FE de Teicholz e Delta D/FS do
+  Modo 2D, reutilizando respectivamente os mesmos intervalos `ef` e `fs` do
+  Modo M, sem criar uma segunda tabela clinica para a mesma medida.
 
 ## Requisitos nao funcionais
 
@@ -114,3 +117,6 @@
 - CA-022: importacao exclusivamente 2D aplica a serie e o seletor `2d` no mesmo
   evento, sem depender de um efeito posterior do formulario; o mesmo vale para
   uma serie exclusivamente Modo M.
+- CA-023: com FE 2D e Delta D/FS 2D preenchidos, a aba de referencias exibe as
+  duas comparacoes com os limites `ef_min`/`ef_max` e `fs_min`/`fs_max` da
+  tabela correspondente ao paciente.
