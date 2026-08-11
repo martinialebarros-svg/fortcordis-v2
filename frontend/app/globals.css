@@ -6804,6 +6804,14 @@ body {
     @apply bg-vital-600 text-white;
   }
 
+  .fc-care-tab-badge-alert {
+    @apply bg-amber-500 text-white;
+  }
+
+  .fc-care-tab-active .fc-care-tab-badge-alert {
+    @apply bg-amber-500 text-white;
+  }
+
   .fc-care-layout {
     @apply min-w-0;
   }
