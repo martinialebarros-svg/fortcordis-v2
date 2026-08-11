@@ -4919,7 +4919,8 @@ def _montar_timeline_paciente(
     reaproveitar uma lista ja buscada pelo chamador (historico_paciente ja
     consulta AtendimentoClinico com o mesmo limite) em vez de reconsultar a
     mesma tabela. A ordem de `atendimentos` nao importa para o resultado: os
-    eventos de todas as categorias sao reordenados por data ao final."""
+    eventos de todas as categorias sao reordenados por data ao final, do
+    mais recente para o mais antigo (anos e eventos dentro do ano)."""
     atendimentos = (
         atendimentos_paciente
         if atendimentos_paciente is not None
@@ -5070,7 +5071,7 @@ def _montar_timeline_paciente(
         )
 
     grouped: Dict[str, List[dict]] = defaultdict(list)
-    for event in sorted(events, key=lambda item: item.get("data") or ""):
+    for event in sorted(events, key=lambda item: item.get("data") or "", reverse=True):
         year = "Sem data"
         if event.get("data"):
             parsed = _parse_datetime(event["data"])
@@ -5078,7 +5079,8 @@ def _montar_timeline_paciente(
                 year = str(parsed.year)
         grouped[year].append(event)
 
-    ordered_years = sorted(grouped.keys(), key=lambda value: (value == "Sem data", value))
+    anos_reais = sorted((year for year in grouped if year != "Sem data"), reverse=True)
+    ordered_years = anos_reais + (["Sem data"] if "Sem data" in grouped else [])
     return [{"ano": year, "eventos": grouped[year]} for year in ordered_years]
 
 
