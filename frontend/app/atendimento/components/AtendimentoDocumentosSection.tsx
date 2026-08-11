@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import {
+  AlertTriangle,
   Download,
   Edit3,
   Eye,
@@ -164,10 +165,18 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                       className="w-full text-left"
                     >
                       <p className="text-sm font-semibold text-slate-900">{documento.titulo}</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {documento.status || "rascunho"}
-                        {documento.updated_at ? ` · ${formatDate(documento.updated_at)}` : ""}
-                      </p>
+                      <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                            documento.status === "emitido"
+                              ? "bg-amber-100 text-amber-800"
+                              : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {documento.status === "emitido" ? "Emitido" : "Rascunho"}
+                        </span>
+                        {documento.updated_at ? <span>{formatDate(documento.updated_at)}</span> : null}
+                      </div>
                     </button>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button
@@ -208,6 +217,15 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
 
           <div className="rounded-[20px] border border-slate-200 bg-white p-4">
             <div className="grid grid-cols-1 gap-3">
+              {documentoClinicoForm.status === "emitido" ? (
+                <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    Este documento ja foi emitido (PDF gerado e entregue). Alteracoes aqui nao mudam o PDF
+                    ja entregue - so um novo PDF gerado reflete essas mudancas.
+                  </span>
+                </div>
+              ) : null}
               <input
                 value={documentoClinicoForm.titulo}
                 onChange={(event) => setDocumentoClinicoForm({ ...documentoClinicoForm, titulo: event.target.value })}
