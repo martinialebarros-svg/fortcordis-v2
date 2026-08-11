@@ -480,18 +480,20 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
                         </span>
                       </button>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={() => removerExame(index)}
-                      title={
-                        exame.id
-                          ? "Excluir este exame do prontuario"
-                          : "Remover este exame da solicitacao"
-                      }
-                      className="self-start rounded-xl bg-red-100 px-3 py-2 text-red-700 hover:bg-red-200"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="ml-1 flex items-center self-start border-l border-slate-200 pl-3">
+                      <button
+                        type="button"
+                        onClick={() => removerExame(index)}
+                        title={
+                          exame.id
+                            ? "Excluir este exame do prontuario"
+                            : "Remover este exame da solicitacao"
+                        }
+                        className="rounded-xl bg-red-100 px-3 py-2 text-red-700 hover:bg-red-200"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
 
