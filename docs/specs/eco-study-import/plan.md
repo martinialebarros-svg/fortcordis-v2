@@ -8,3 +8,5 @@
 6. Validar Python, testes focados, ESLint e TypeScript.
 7. Calibrar aliases, regioes e confianca com amostras anonimizadas de aparelhos reais.
 8. Provisionar Tesseract em stage e expor seu estado nos checks de runtime.
+9. Mapear FE e Delta D/FS do Modo 2D para os mesmos intervalos de referencia
+   configurados para o Modo M e cobrir a comparacao com regressao automatizada.
