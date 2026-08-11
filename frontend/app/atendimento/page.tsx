@@ -5414,7 +5414,14 @@ export default function AtendimentoPage() {
   const totalPrescricaoItens = form.prescricao_itens.filter((item) => item.medicamento_id || item.medicamento_nome.trim()).length;
   const totalAnexosExame = form.exames.reduce((acc, exame) => acc + (exame.anexos_resultado?.length || 0), 0);
   const totalAnexosDocumento = anexosGerais.length + totalAnexosExame + form.documentos.length;
-  const workspaceCards: Array<{ key: Exclude<WorkspacePainel, "bibliotecas">; titulo: string; resumo: string; badge: string }> = [
+  const examesPendentesCount = resumoExamesFluxo.aguardando_arquivo + resumoExamesFluxo.arquivo_anexado;
+  const workspaceCards: Array<{
+    key: Exclude<WorkspacePainel, "bibliotecas">;
+    titulo: string;
+    resumo: string;
+    badge: string;
+    pendente?: boolean;
+  }> = [
     {
       key: "consulta",
       titulo: "Consulta",
@@ -5426,12 +5433,14 @@ export default function AtendimentoPage() {
       titulo: "Exames",
       resumo: "Solicitacao e resultados",
       badge: `${totalExamesSolicitados}`,
+      pendente: examesPendentesCount > 0,
     },
     {
       key: "prescricao",
       titulo: "Prescricao",
       resumo: "Receituario assistido",
       badge: `${totalPrescricaoItens}`,
+      pendente: prescricaoValidacaoAtual.total > 0,
     },
     {
       key: "documentos",
@@ -6368,7 +6377,10 @@ export default function AtendimentoPage() {
                     <p className="text-sm font-semibold text-slate-900">{item.titulo}</p>
                     <p className="mt-1 text-xs text-slate-500">{item.resumo}</p>
                   </div>
-                  <span className="fc-care-tab-badge">
+                  <span
+                    className={`fc-care-tab-badge ${item.pendente ? "fc-care-tab-badge-alert" : ""}`}
+                    title={item.pendente ? "Ha pendencia real nesta area" : undefined}
+                  >
                     {item.badge}
                   </span>
                 </div>
