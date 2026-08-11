@@ -158,6 +158,25 @@ class AtendimentoTimelineLimitadaTest(unittest.TestCase):
         eventos_atendimento = [e for e in eventos if e["tipo"] == "atendimento"]
         self.assertLessEqual(len(eventos_atendimento), 3)
 
+    def test_anos_e_eventos_em_ordem_decrescente(self) -> None:
+        """Achado #48 da auditoria: a timeline vinha em ordem cronologica
+        crescente (mais antigo primeiro), tanto para os anos quanto para os
+        eventos dentro de cada ano - o evento mais recente ficava no fim,
+        exigindo rolagem. Agora deve vir do mais recente para o mais antigo
+        em ambos os niveis."""
+        resultado = atendimento._montar_timeline_paciente(self.db, self.paciente.id, limite=30)
+
+        anos = [grupo["ano"] for grupo in resultado]
+        self.assertEqual(anos, sorted(anos, reverse=True), msg="anos deveriam vir do mais recente para o mais antigo")
+
+        for grupo in resultado:
+            datas = [evento["data"] for evento in grupo["eventos"] if evento.get("data")]
+            self.assertEqual(
+                datas,
+                sorted(datas, reverse=True),
+                msg=f"eventos do ano {grupo['ano']} deveriam vir do mais recente para o mais antigo",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

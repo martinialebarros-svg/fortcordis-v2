@@ -586,6 +586,54 @@ const EXAME_STATUS_META: Record<ExameFluxoStatus, { label: string; chipClass: st
   },
 };
 
+const TIMELINE_EVENTO_META: Record<
+  string,
+  { label: string; icon: typeof ClipboardPlus; dotClass: string; badgeClass: string }
+> = {
+  atendimento: {
+    label: "Atendimento",
+    icon: ClipboardPlus,
+    dotClass: "border-teal-100 bg-teal-500",
+    badgeClass: "bg-teal-100 text-teal-700",
+  },
+  evolucao: {
+    label: "Evolucao",
+    icon: Clock3,
+    dotClass: "border-sky-100 bg-sky-500",
+    badgeClass: "bg-sky-100 text-sky-700",
+  },
+  exame_solicitado: {
+    label: "Exame solicitado",
+    icon: FileUp,
+    dotClass: "border-amber-100 bg-amber-500",
+    badgeClass: "bg-amber-100 text-amber-700",
+  },
+  exame_resultado: {
+    label: "Resultado de exame",
+    icon: CheckCircle2,
+    dotClass: "border-emerald-100 bg-emerald-500",
+    badgeClass: "bg-emerald-100 text-emerald-700",
+  },
+  anexo: {
+    label: "Anexo",
+    icon: Paperclip,
+    dotClass: "border-violet-100 bg-violet-500",
+    badgeClass: "bg-violet-100 text-violet-700",
+  },
+  laudo: {
+    label: "Laudo",
+    icon: FileText,
+    dotClass: "border-rose-100 bg-rose-500",
+    badgeClass: "bg-rose-100 text-rose-700",
+  },
+};
+const TIMELINE_EVENTO_META_PADRAO = {
+  label: "Evento",
+  icon: History,
+  dotClass: "border-slate-100 bg-slate-400",
+  badgeClass: "bg-slate-100 text-slate-600",
+};
+
 const CONSULTA_EDITOR_ETAPAS: Array<{
   key: ConsultaEditorEtapa;
   titulo: string;
@@ -6549,19 +6597,30 @@ export default function AtendimentoPage() {
                         <div className="absolute left-0 top-1 h-5 w-5 rounded-full border-4 border-teal-100 bg-teal-500" />
                         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-teal-700">{grupo.ano}</p>
                         <div className="mt-3 space-y-3">
-                          {grupo.eventos.map((evento) => (
-                            <div key={`${grupo.ano}-${evento.tipo}-${evento.referencia_id}`} className="rounded-[20px] border border-slate-200 bg-slate-50 p-3">
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <p className="text-sm font-medium text-slate-900">{evento.titulo}</p>
-                                  <p className="text-[11px] uppercase tracking-[0.25em] text-slate-500">{evento.tipo}</p>
+                          {grupo.eventos.map((evento) => {
+                            const eventoMeta = TIMELINE_EVENTO_META[evento.tipo] || TIMELINE_EVENTO_META_PADRAO;
+                            const EventoIcon = eventoMeta.icon;
+                            return (
+                              <div key={`${grupo.ano}-${evento.tipo}-${evento.referencia_id}`} className="rounded-[20px] border border-slate-200 bg-slate-50 p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex items-start gap-2">
+                                    <span className={`mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 ${eventoMeta.dotClass}`}>
+                                      <EventoIcon className="h-3.5 w-3.5 text-white" />
+                                    </span>
+                                    <div>
+                                      <p className="text-sm font-medium text-slate-900">{evento.titulo}</p>
+                                      <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] ${eventoMeta.badgeClass}`}>
+                                        {eventoMeta.label}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <span className="shrink-0 text-[11px] text-slate-500">{formatDate(evento.data)}</span>
                                 </div>
-                                <span className="text-[11px] text-slate-500">{formatDate(evento.data)}</span>
+                                <p className="mt-2 text-sm text-slate-700">{evento.descricao}</p>
+                                {evento.status ? <p className="mt-2 text-xs text-slate-500">Status: {evento.status}</p> : null}
                               </div>
-                              <p className="mt-2 text-sm text-slate-700">{evento.descricao}</p>
-                              {evento.status ? <p className="mt-2 text-xs text-slate-500">Status: {evento.status}</p> : null}
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     ))}
