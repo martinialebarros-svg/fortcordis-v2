@@ -712,6 +712,12 @@ def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
+def _to_local_naive(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None or value.tzinfo is None:
+        return value
+    return value.astimezone(ATENDIMENTO_LOCAL_TZ).replace(tzinfo=None)
+
+
 def _to_iso(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -1942,7 +1948,7 @@ def _sync_exames(
         else:
             exame.laudo_id = payload.laudo_id
         exame.data_solicitacao = exame.data_solicitacao or datetime.now()
-        exame.data_resultado = _parse_datetime(payload.data_resultado) if payload.data_resultado else exame.data_resultado
+        exame.data_resultado = _to_local_naive(_parse_datetime(payload.data_resultado)) if payload.data_resultado else exame.data_resultado
         if _status_exame_concluido(exame.status) and exame.data_resultado is None:
             exame.data_resultado = datetime.now()
 
@@ -4367,7 +4373,7 @@ def liberar_exame_no_portal(
     ):
         raise HTTPException(status_code=422, detail="Anexe o PDF do resultado antes de liberar no portal.")
 
-    released_at = datetime.utcnow()
+    released_at = datetime.now()
     status_anterior = exame.status or ""
     exame.tipo_exame = _normalizar_tipo_exame_portal_externo(exame.tipo_exame)
     if exame.tipo_exame == "Eletrocardiograma" and not (exame.categoria_exame or "").strip():
