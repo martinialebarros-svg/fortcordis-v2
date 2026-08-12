@@ -6466,7 +6466,7 @@ export default function AtendimentoPage() {
 
         <div className={`fc-care-layout ${showCaseSidebar ? "grid grid-cols-1 gap-6 xl:grid-cols-12" : "grid grid-cols-1 gap-6"}`}>
           {showCaseSidebar ? (
-          <div className="fc-care-sidebar self-start xl:col-span-3">
+          <div className="fc-care-sidebar order-2 self-start xl:order-none xl:col-span-3">
             <div className="space-y-6 xl:sticky xl:top-[500px]">
               <section className="fc-care-case-panel">
                 <div className="flex items-center justify-between">
@@ -6750,7 +6750,7 @@ export default function AtendimentoPage() {
           </div>
           ) : null}
 
-          <div className={`fc-care-workspace ${showCaseSidebar ? "xl:col-span-9" : ""}`}>
+          <div className={`fc-care-workspace order-1 xl:order-none ${showCaseSidebar ? "xl:col-span-9" : ""}`}>
             <div className={workspaceGridClass}>
               <div className="space-y-6">
                 {isConsultaWorkspace ? (
