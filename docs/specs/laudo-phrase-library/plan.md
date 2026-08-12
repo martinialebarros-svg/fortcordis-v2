@@ -65,7 +65,7 @@ Status: done
 - [x] T6.1 Aplicar `get_current_user` como dependencia do router estruturado de frases de ecocardiograma.
 - [x] T6.2 Preservar os contratos do frontend e a matriz existente: GET usa `visualizar`, POST/PUT usam `editar` e DELETE usa `excluir`.
 - [x] T6.3 Cobrir todas as rotas com regressao HTTP de acesso anonimo e provar leitura autenticada.
-- [ ] T6.4 Validar em stage que leitura e mutacao anonimas retornam `401` sem alterar o store.
+- [x] T6.4 Validar em stage que leitura e mutacao anonimas retornam `401` sem alterar o store.
 - Criterio de conclusao: nenhuma rota da biblioteca estruturada responde anonimamente e usuarios autorizados continuam usando o cliente existente.
 - Risco: papel sem permissao no modulo `frases` passar a receber `403`, conforme a matriz configurada.
 - Rollback: reverter a dependencia do router; nenhuma migracao ou alteracao do JSON e necessaria.

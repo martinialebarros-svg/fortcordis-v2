@@ -35,7 +35,7 @@ Status: done
 | NFR-009 | seguranca | router depende de `get_current_user`; regressao cobre 12 chamadas anonimas e confirma modulo/acoes da matriz `frases`. | ok local |
 | CA-018 | aceitacao | cabecalho e `shrink-0`; lista usa `min-h-0`, `flex-1` e `overflow-y-auto`, mantendo o final rolavel dentro da altura calculada. | ok |
 | CA-019 | aceitacao | listeners de resize/scroll reposicionam o painel; eventos de scroll originados dentro do proprio painel nao recalculam a ancora. | ok |
-| CA-020 | seguranca | `test_todas_as_rotas_exigem_autenticacao`, `test_usuario_autenticado_consegue_carregar_payload` e smoke anonimo em stage. | pendente stage |
+| CA-020 | seguranca | `test_todas_as_rotas_exigem_autenticacao`, `test_usuario_autenticado_consegue_carregar_payload` e smoke anonimo em stage. | ok |
 
 ## 2) Testes automatizados executados
 
@@ -61,7 +61,7 @@ Resumo dos resultados:
 - Frontend do seletor de Conclusao: ESLint direcionado dos dois componentes passou; TypeScript sem emissao passou; o novo build de producao compilou, validou tipos e gerou 39 paginas.
 - Hotfix de viewport do seletor: ESLint direcionado passou; TypeScript sem emissao passou; build de producao compilou e gerou 39 paginas.
 - Store runtime de stage: 15 titulos renomeados para `DMVM`, 6 referencias de presets sincronizadas, 112 titulos unicos e zero referencias quebradas; producao permaneceu com o hash anterior.
-- Seguranca da API: 15 testes direcionados passaram (3 de autenticacao/autorizacao, 11 do servico e 1 de importacao); a mesma execucao da esteira (`pytest tests`) passou com 711 testes; smoke de stage pendente.
+- Seguranca da API: 15 testes direcionados passaram (3 de autenticacao/autorizacao, 11 do servico e 1 de importacao); a mesma execucao da esteira (`pytest tests`) passou com 711 testes; CI, deploy e Migration CI de stage passaram no SHA `2a16925c`.
 
 ## 3) Testes manuais
 
@@ -85,6 +85,8 @@ Resumo dos resultados:
 Resultado operacional ja confirmado para o cenario 8: arquivo runtime e API publica de stage retornam zero titulos legados e 112 conclusoes integras. Os cenarios 6 e 7 serao repetidos no frontend publicado apos o workflow de deploy.
 
 Os cenarios 9 a 12 dependem do primeiro deploy desta iteracao em stage e serao repetidos no frontend servido antes de qualquer promocao para producao.
+
+O smoke de seguranca em stage confirmou `401 Credenciais invalidas` tanto no GET do payload quanto no POST com payload invalido. As rotas `/` e `/laudos/novo` retornaram `200` nos hosts `stage.fortcordis.com.br` e `app.stage.fortcordis.com.br`. Nenhuma mutacao clinica foi usada no smoke vivo.
 
 ## 4) Regressao e riscos residuais
 
