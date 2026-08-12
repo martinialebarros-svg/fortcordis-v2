@@ -1,6 +1,6 @@
 # Plan - laudo-phrase-library
 
-Data: 2026-05-03  
+Data: 2026-08-11
 Responsavel: Codex  
 Status: done
 
@@ -11,6 +11,7 @@ Status: done
 - Fase 3 (frontend): criar aba Biblioteca e cliente API compartilhado.
 - Fase 4 (validacao): executar testes backend, TypeScript e guardrail SDD.
 - Fase 5 (seletor de conclusao): substituir a lista nativa extensa por seletor pesquisavel e agrupado por patologia na aba Qualitativa.
+- Fase 6 (seguranca da API): exigir autenticacao e aplicar a matriz existente do modulo `frases` em todas as rotas.
 
 ## 2) Tarefas por fase
 
@@ -59,10 +60,21 @@ Status: done
 - Risco: painel customizado ultrapassar a viewport ou perder fechamento por teclado/clique externo.
 - Rollback: restaurar o `select` nativo apenas para Conclusao, sem alterar o banco ou as frases.
 
+### Fase 6
+
+- [x] T6.1 Aplicar `get_current_user` como dependencia do router estruturado de frases de ecocardiograma.
+- [x] T6.2 Preservar os contratos do frontend e a matriz existente: GET usa `visualizar`, POST/PUT usam `editar` e DELETE usa `excluir`.
+- [x] T6.3 Cobrir todas as rotas com regressao HTTP de acesso anonimo e provar leitura autenticada.
+- [ ] T6.4 Validar em stage que leitura e mutacao anonimas retornam `401` sem alterar o store.
+- Criterio de conclusao: nenhuma rota da biblioteca estruturada responde anonimamente e usuarios autorizados continuam usando o cliente existente.
+- Risco: papel sem permissao no modulo `frases` passar a receber `403`, conforme a matriz configurada.
+- Rollback: reverter a dependencia do router; nenhuma migracao ou alteracao do JSON e necessaria.
+
 ## 3) Plano de testes
 
 - Testes unitarios: `python3 -m unittest backend/tests/test_frases_ecocardiograma_estruturado_teste_service.py`.
 - Testes de integracao: `python3 -m py_compile` nos endpoints/servico alterados.
+- Testes de seguranca: `python -m pytest backend/tests/test_frases_ecocardiograma_estruturado_auth.py` e smoke anonimo de GET/POST em stage.
 - Testes frontend: ESLint direcionado dos componentes, `cd frontend && npx tsc --noEmit --incremental false` e `npm run build`.
 - Testes manuais: abrir stage, acessar novo/editar laudo, usar aba Biblioteca, editar frase, pesquisar/expandir grupos de Conclusao e aplicar uma frase na Qualitativa.
 
