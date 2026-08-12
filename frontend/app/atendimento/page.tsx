@@ -6288,15 +6288,17 @@ export default function AtendimentoPage() {
                     {autosaveLabel}
                   </span>
                 </div>
-                <button
-                  onClick={() => (form.paciente_id ? iniciarNovoAtendimentoPaciente() : novoAtendimento())}
-                  className="fc-care-button-secondary"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <Plus className="h-4 w-4" />
-                    {form.paciente_id ? "Novo atendimento deste paciente" : "Novo atendimento"}
-                  </span>
-                </button>
+                {selecionado ? null : (
+                  <button
+                    onClick={() => (form.paciente_id ? iniciarNovoAtendimentoPaciente() : novoAtendimento())}
+                    className="fc-care-button-secondary"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <Plus className="h-4 w-4" />
+                      {form.paciente_id ? "Novo atendimento deste paciente" : "Novo atendimento"}
+                    </span>
+                  </button>
+                )}
                 <button
                   onClick={() =>
                     goLaudo({
