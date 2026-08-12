@@ -1,7 +1,7 @@
 # Spec - alertas-internos-cancelamento-portal
 
 Data: 2026-08-08
-Status: draft (implementado; aguardando QA)
+Status: atualizado para correcao mobile
 
 ## 1) Escopo funcional
 
@@ -25,6 +25,9 @@ produtor de alertas: cancelamento de agendamento pelo portal da clinica.
   nao lidos sobre o icone; abre um dropdown com a lista ao clicar; fecha ao clicar fora.
 - RF-006: O sino aparece em qualquer pagina que usa `DashboardLayout` (equipe interna); nao aparece
   no portal externo (`clinica-parceira`), que nao usa esse layout.
+- RF-007: No mobile, o sino participa da mesma faixa do cabecalho e fica imediatamente a esquerda
+  do botao de abrir/fechar menu, sem sobrepor seu alvo de toque. Em desktop, ele permanece no canto
+  superior direito.
 
 ## 3) Requisitos nao funcionais (NFR)
 
@@ -81,6 +84,8 @@ produtor de alertas: cancelamento de agendamento pelo portal da clinica.
   `incluir_lidos=true`.
 - CA-005: Marcar todos como lidos zera `total_nao_lidos`.
 - CA-006: Tentar marcar como lido um alerta inexistente retorna 404.
+- CA-007: Em 360px de largura, sino e menu aparecem como controles distintos, lado a lado e com
+  alvos de toque independentes; em desktop, o sino continua no canto superior direito.
 
 ## 7) Casos de borda
 

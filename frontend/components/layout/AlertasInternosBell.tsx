@@ -22,6 +22,10 @@ interface AlertaInternoListResponse {
   items: AlertaInternoItem[];
 }
 
+interface AlertasInternosBellProps {
+  containerClassName?: string;
+}
+
 function nivelClasses(nivel: string): string {
   switch (nivel) {
     case "critico":
@@ -41,7 +45,9 @@ function formatarDataHora(valor: string): string {
   }
 }
 
-export default function AlertasInternosBell() {
+export default function AlertasInternosBell({
+  containerClassName = "fixed right-3 top-3 z-[70]",
+}: AlertasInternosBellProps) {
   const [aberto, setAberto] = useState(false);
   const [carregandoTodos, setCarregandoTodos] = useState(false);
   const [alertas, setAlertas] = useState<AlertaInternoItem[]>([]);
@@ -106,7 +112,7 @@ export default function AlertasInternosBell() {
   }
 
   return (
-    <div ref={containerRef} className="fixed right-3 top-3 z-[70]">
+    <div ref={containerRef} className={containerClassName}>
       <button
         type="button"
         onClick={() => setAberto((atual) => !atual)}
