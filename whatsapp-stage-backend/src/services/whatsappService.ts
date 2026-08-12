@@ -1,7 +1,7 @@
 import axios, { AxiosError } from "axios";
 import { logger } from "../utils/logger";
 
-const graphApiVersion = process.env.WHATSAPP_GRAPH_API_VERSION || "v25.0";
+const graphApiVersion = process.env.WHATSAPP_GRAPH_API_VERSION || "v26.0";
 const GRAPH_API_BASE_URL = `https://graph.facebook.com/${graphApiVersion}`;
 const DEFAULT_TIMEOUT_MS = 10000;
 

@@ -17,6 +17,8 @@
   - Mitigacao: deploy oficial deve ocorrer pelo workflow GitHub Actions com secrets.
 - Novo criterio operacional validado em codigo: `deploy_prod_vps.sh` agora trata placeholders legados como configuracao invalida e aplica defaults seguros automaticamente.
 - Robustez adicional: `deploy_prod_vps.sh` agora auto-corrige placeholders legados exatos (`stage_access_token_placeholder`, `stage_phone_number_id`, `stage_verify_token`, `stage_app_secret`) antes da etapa generica de fallback.
+- Workflow atualizado para validar os tres GitHub Secrets Meta de stage, transmiti-los por stdin, atualizar somente as chaves correspondentes e manter o `.env` do servico com permissao `0600`.
+- Runtime Graph API alinhado a `v26.0`.
 
 ## Status dos criterios de aceitacao
 
@@ -25,6 +27,7 @@
 - CA-003: atendido.
 - CA-004: atendido.
 - CA-005: atendido em script/documentacao; execucao completa depende de deploy do commit no stage.
+- CA-006: atendido em codigo; execucao remota pendente do workflow desta alteracao.
 
 ## Pendencia operacional
 

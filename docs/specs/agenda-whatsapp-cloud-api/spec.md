@@ -2,7 +2,7 @@
 
 Data: 2026-08-11
 Responsavel: Martiniano + Codex
-Status: implemented-local-validation
+Status: stage-credential-deployment
 
 ## 1) Requisitos funcionais
 
@@ -28,6 +28,8 @@ Status: implemented-local-validation
 - NFR-007 (timezone): data e prazo exibidos usam UTC-3 independentemente do timezone do servidor.
 - NFR-008 (deploy seguro): stage falha fechado se access token, App Secret, verify token ou IDs publicos Meta estiverem ausentes, com placeholder ou em formato inconsistente; logs exibem apenas o nome da variavel.
 - NFR-009 (quality gate): o pipeline de stage compila e testa o servico WhatsApp, incluindo template, retry, autorizacao, redacao de logs e auditoria de dependencias, antes do deploy.
+- NFR-010 (segredos por ambiente): o workflow injeta access token, App Secret e verify token somente no `.env` do servico WhatsApp de stage, a partir de GitHub Secrets dedicados, sem registrar valores nos logs.
+- NFR-011 (versao Graph): o servico e o runtime de stage usam Graph API `v26.0`, alinhada a configuracao corrente do app FortZap.
 
 ## 3) Contratos
 
@@ -64,6 +66,7 @@ Status: implemented-local-validation
 - Node: `WHATSAPP_ACCESS_TOKEN`, `PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_INTERNAL_API_TOKEN`, `WHATSAPP_GRAPH_API_VERSION`, `WHATSAPP_RESERVATION_TEMPLATE_NAME`, `WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE`.
 - IDs publicos esperados para esta conta: App `975334532125008`, WABA `1369494994627980`, telefone `1279142515283484`.
 - Segredos nunca sao armazenados em Git, documentacao ou mensagens de suporte.
+- Em stage, os nomes dos segredos de CI sao `WHATSAPP_ACCESS_TOKEN_STAGE`, `WHATSAPP_APP_SECRET_STAGE` e `WHATSAPP_VERIFY_TOKEN_STAGE`; somente os nomes podem aparecer em logs e documentacao.
 
 ## 6) Criterios de aceitacao
 
@@ -77,6 +80,8 @@ Status: implemented-local-validation
 - CA-008: TypeScript, lint, testes focados, migracoes e preflight passam antes de habilitar o webhook na Meta.
 - CA-009: um App Secret legado gerado como placeholder ou um access token incompleto interrompem o deploy antes de reiniciar o servico.
 - CA-010: o workflow de stage nao executa o deploy se qualquer teste obrigatorio do servico WhatsApp falhar.
+- CA-011: o workflow de stage falha antes do deploy se qualquer segredo Meta estiver ausente ou fora do formato esperado e, quando valido, atualiza o `.env` remoto com permissao `0600`.
+- CA-012: chamadas Graph do servico usam `v26.0` quando o ambiente nao define outra versao valida.
 
 ## 7) Fora de escopo
 

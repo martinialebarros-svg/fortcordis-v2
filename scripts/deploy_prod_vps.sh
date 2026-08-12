@@ -452,7 +452,7 @@ WHATSAPP_ACCESS_TOKEN=${default_access_token}
 PHONE_NUMBER_ID=${default_phone_number_id}
 WHATSAPP_VERIFY_TOKEN=${generated_verify_token}
 WHATSAPP_APP_SECRET=${default_app_secret}
-WHATSAPP_GRAPH_API_VERSION=v25.0
+WHATSAPP_GRAPH_API_VERSION=v26.0
 META_APP_ID=975334532125008
 WHATSAPP_BUSINESS_ACCOUNT_ID=1369494994627980
 WHATSAPP_RESERVATION_TEMPLATE_NAME=reserva_de_agendamento
@@ -485,7 +485,7 @@ EOF
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "PHONE_NUMBER_ID" "${default_phone_number_id}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "${generated_verify_token}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "${default_app_secret}"
-  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_GRAPH_API_VERSION" "v25.0"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_GRAPH_API_VERSION" "v26.0"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "META_APP_ID" "975334532125008"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_BUSINESS_ACCOUNT_ID" "1369494994627980"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_RESERVATION_TEMPLATE_NAME" "reserva_de_agendamento"
