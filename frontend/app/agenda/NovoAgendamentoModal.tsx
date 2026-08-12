@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check, Copy, MessageCircle, Pencil, Plus, Trash2 } from "lucide-react";
+import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check, Copy, MessageCircle, Pencil, Plus, Trash2, Send, Loader2 } from "lucide-react";
 import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import {
@@ -300,6 +300,7 @@ interface FormDataAgenda {
 }
 
 interface MensagemAgendaPosCriacao {
+  agendamentoId: number | null;
   tipo: "reserva" | "agendamento";
   destinatarioTipo: ReservaManualDestinatario;
   destinatarioId: string;
@@ -877,6 +878,8 @@ export default function NovoAgendamentoModal({
   const [mensagemAgendaCriada, setMensagemAgendaCriada] = useState<MensagemAgendaPosCriacao | null>(null);
   const [feedbackMensagemAgenda, setFeedbackMensagemAgenda] = useState("");
   const [whatsappMensagemSelecionado, setWhatsappMensagemSelecionado] = useState("");
+  const [envioAutomaticoStatus, setEnvioAutomaticoStatus] = useState<"idle" | "sending" | "sent">("idle");
+  const envioAutomaticoIdempotencyRef = useRef("");
   const [editandoWhatsappDestinatario, setEditandoWhatsappDestinatario] = useState(false);
   const [whatsappsDestinatarioEdicao, setWhatsappsDestinatarioEdicao] = useState<string[]>([""]);
   const [salvandoWhatsappDestinatario, setSalvandoWhatsappDestinatario] = useState(false);
@@ -2583,6 +2586,7 @@ export default function NovoAgendamentoModal({
     });
 
     return {
+      agendamentoId: isEditando && agendamento?.id ? Number(agendamento.id) : null,
       tipo,
       destinatarioTipo,
       destinatarioId,
@@ -2630,11 +2634,56 @@ export default function NovoAgendamentoModal({
     }
   };
 
+  const enviarReservaPeloFortCordis = async () => {
+    if (
+      !mensagemAgendaCriada?.agendamentoId ||
+      mensagemAgendaCriada.tipo !== "reserva" ||
+      !whatsappMensagemSelecionado ||
+      envioAutomaticoStatus === "sending" ||
+      envioAutomaticoStatus === "sent"
+    ) {
+      return;
+    }
+
+    if (!envioAutomaticoIdempotencyRef.current) {
+      envioAutomaticoIdempotencyRef.current = typeof globalThis.crypto?.randomUUID === "function"
+        ? globalThis.crypto.randomUUID()
+        : `agenda-${mensagemAgendaCriada.agendamentoId}-${Date.now()}`;
+    }
+
+    setEnvioAutomaticoStatus("sending");
+    setFeedbackMensagemAgenda("Enviando o modelo aprovado pela Meta...");
+    try {
+      await api.post(`/agenda/${mensagemAgendaCriada.agendamentoId}/whatsapp/reserva`, {
+        destination: whatsappMensagemSelecionado,
+        recipient_type: mensagemAgendaCriada.destinatarioTipo,
+        idempotency_key: envioAutomaticoIdempotencyRef.current,
+      });
+      salvarUltimoWhatsappSelecionado(
+        mensagemAgendaCriada.destinatarioTipo,
+        mensagemAgendaCriada.destinatarioId,
+        whatsappMensagemSelecionado,
+      );
+      setEnvioAutomaticoStatus("sent");
+      setFeedbackMensagemAgenda(
+        "Reserva enviada pelo FortCordis. Os botoes Confirmar e Solicitar alteracao ja estao vinculados a este agendamento."
+      );
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail ?? error?.message;
+      setEnvioAutomaticoStatus("idle");
+      setFeedbackMensagemAgenda(
+        extrairMensagemErro(detail, "Nao foi possivel enviar automaticamente. Use Abrir WhatsApp como alternativa.")
+      );
+    }
+  };
+
   const gerarMensagemManualEdicao = () => {
     const construida = construirMensagemAgendaPosCriacao();
     setMensagemAgendaCriada(construida);
     setWhatsappMensagemSelecionado(construida.telefoneSugerido);
     setFeedbackMensagemAgenda("");
+    setEnvioAutomaticoStatus("idle");
+    envioAutomaticoIdempotencyRef.current = "";
   };
 
   const iniciarEdicaoWhatsappDestinatario = () => {
@@ -3058,9 +3107,14 @@ export default function NovoAgendamentoModal({
       }
 
       if (entregaMensagemAgenda) {
-        setMensagemAgendaCriada(entregaMensagemAgenda);
+        setMensagemAgendaCriada({
+          ...entregaMensagemAgenda,
+          agendamentoId: Number(response?.data?.id) || null,
+        });
         setWhatsappMensagemSelecionado(entregaMensagemAgenda.telefoneSugerido);
         setFeedbackMensagemAgenda("");
+        setEnvioAutomaticoStatus("idle");
+        envioAutomaticoIdempotencyRef.current = "";
         await onSuccess(response?.data, { manterModalAberto: true });
         return;
       }
@@ -3191,7 +3245,12 @@ export default function NovoAgendamentoModal({
                     <select
                       id="fc-whatsapp-destino"
                       value={whatsappMensagemSelecionado}
-                      onChange={(event) => setWhatsappMensagemSelecionado(event.target.value)}
+                      onChange={(event) => {
+                        setWhatsappMensagemSelecionado(event.target.value);
+                        setEnvioAutomaticoStatus("idle");
+                        envioAutomaticoIdempotencyRef.current = "";
+                        setFeedbackMensagemAgenda("");
+                      }}
                       className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
                     >
                       {mensagemAgendaCriada.telefones.map((telefone, indice) => (
@@ -3232,8 +3291,8 @@ export default function NovoAgendamentoModal({
             </div>
 
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              {ehReserva ? "A reserva já foi salva." : "O agendamento já foi salvo."} Enquanto a conta da Meta
-              estiver em análise, revise e envie esta mensagem manualmente.
+              {ehReserva ? "A reserva já foi salva." : "O agendamento já foi salvo."} O envio automático usa o
+              modelo aprovado; Abrir WhatsApp e Copiar mensagem continuam disponíveis como alternativa manual.
             </div>
 
             {isEditando ? (
@@ -3272,6 +3331,27 @@ export default function NovoAgendamentoModal({
               <Copy className="h-4 w-4" />
               Copiar mensagem
             </button>
+            {ehReserva && !isEditando ? (
+              <button
+                type="button"
+                onClick={() => void enviarReservaPeloFortCordis()}
+                disabled={!possuiTelefone || !mensagemAgendaCriada.agendamentoId || envioAutomaticoStatus !== "idle"}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {envioAutomaticoStatus === "sending" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : envioAutomaticoStatus === "sent" ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+                {envioAutomaticoStatus === "sending"
+                  ? "Enviando..."
+                  : envioAutomaticoStatus === "sent"
+                    ? "Enviado pelo FortCordis"
+                    : "Enviar pelo FortCordis"}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={abrirWhatsAppMensagemAgenda}

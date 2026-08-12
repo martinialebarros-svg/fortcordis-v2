@@ -1454,6 +1454,13 @@ export default function AtendimentoPage() {
   // podem deixar a resposta do clique mais antigo sobrescrever o prontuario
   // do clique mais recente.
   const abrirAtendimentoRequestIdRef = useRef(0);
+  // Id do atendimento sendo aberto no momento (ou null) - feedback visual
+  // (Loader2 no card clicado + demais itens desabilitados) enquanto
+  // abrirAtendimento esta em voo. So a chamada cujo requestId ainda for o
+  // mais recente pode limpar este estado (mesma logica de invalidacao do
+  // ref acima), senao uma resposta antiga que chega apos ser superada
+  // apagaria o loading de um clique mais novo ainda em andamento.
+  const [abrindoAtendimentoId, setAbrindoAtendimentoId] = useState<number | null>(null);
   // Save manual e autosave nao podem ter dois PUT/POST em voo ao mesmo tempo
   // para o mesmo atendimento: sem isso, se o PUT do autosave (payload mais
   // antigo) commitar depois do PUT manual (mais novo), o registro final fica
@@ -2715,6 +2722,7 @@ export default function AtendimentoPage() {
       return;
     }
     const requestId = ++abrirAtendimentoRequestIdRef.current;
+    setAbrindoAtendimentoId(id);
     try {
       const response = await api.get(`/atendimentos/${id}`);
       if (requestId !== abrirAtendimentoRequestIdRef.current) return;
@@ -2804,6 +2812,10 @@ export default function AtendimentoPage() {
     } catch (e: any) {
       if (requestId !== abrirAtendimentoRequestIdRef.current) return;
       setErro(extractApiErrorMessageSync(e, "Erro ao abrir atendimento."));
+    } finally {
+      if (requestId === abrirAtendimentoRequestIdRef.current) {
+        setAbrindoAtendimentoId(null);
+      }
     }
   };
 
@@ -6699,39 +6711,65 @@ export default function AtendimentoPage() {
                 </div>
 
                 <div className="mt-4 max-h-[380px] space-y-3 overflow-auto pr-1">
-                  {atendimentosVisiveis.map((item) => (
-                    <div key={item.id} className={`rounded-[22px] border p-4 transition ${selecionado === item.id ? "border-teal-300 bg-teal-50" : "border-slate-200 bg-slate-50/80 hover:bg-white"}`}>
-                      <button onClick={() => abrirAtendimento(item.id)} className="w-full text-left">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-900">#{item.id} - {item.paciente_nome || "Paciente"}</p>
-                            <p className="mt-1 text-xs text-slate-500">{item.tutor_nome || "Tutor nao informado"}</p>
+                  {atendimentosVisiveis.map((item) => {
+                    const abrindoEsteItem = abrindoAtendimentoId === item.id;
+                    const carregandoOutroItem = abrindoAtendimentoId !== null && !abrindoEsteItem;
+                    return (
+                      <div
+                        key={item.id}
+                        className={`rounded-[22px] border p-4 transition ${selecionado === item.id ? "border-teal-300 bg-teal-50" : "border-slate-200 bg-slate-50/80 hover:bg-white"} ${carregandoOutroItem ? "pointer-events-none opacity-60" : ""}`}
+                      >
+                        <button
+                          onClick={() => abrirAtendimento(item.id)}
+                          disabled={abrindoAtendimentoId !== null}
+                          className="w-full text-left disabled:cursor-not-allowed"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">#{item.id} - {item.paciente_nome || "Paciente"}</p>
+                              <p className="mt-1 text-xs text-slate-500">{item.tutor_nome || "Tutor nao informado"}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {abrindoEsteItem ? <Loader2 className="h-4 w-4 animate-spin text-teal-600" /> : null}
+                              <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${getBadgeStatusClass(item.status)}`}>{item.status}</span>
+                            </div>
                           </div>
-                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${getBadgeStatusClass(item.status)}`}>{item.status}</span>
+                          <p className="mt-3 text-xs text-slate-500">{formatDate(item.data_atendimento)}</p>
+                          <p className="mt-1 text-sm text-slate-700">{item.diagnostico || item.queixa_principal || "Sem resumo clinico"}</p>
+                          <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-medium">
+                            <span className="rounded-full bg-white px-2.5 py-1 text-slate-600">{item.total_exames || 0} exame(s)</span>
+                            {item.tem_prescricao ? (
+                              <span className="rounded-full bg-violet-100 px-2.5 py-1 text-violet-700">Receita salva</span>
+                            ) : null}
+                            {item.documentacao_pendencias && item.documentacao_pendencias.length > 0 ? (
+                              <span
+                                className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-800"
+                                title={`Faltam: ${item.documentacao_pendencias.join("; ")}`}
+                              >
+                                Documentacao incompleta
+                              </span>
+                            ) : null}
+                          </div>
+                        </button>
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            onClick={() => goLaudo({ ...item, atendimento_id: item.id })}
+                            disabled={abrindoAtendimentoId !== null}
+                            className="rounded-xl bg-sky-100 px-3 py-1.5 text-xs font-medium text-sky-700 transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Laudar
+                          </button>
+                          <button
+                            onClick={() => deleteAtendimento(item.id)}
+                            disabled={abrindoAtendimentoId !== null}
+                            className="rounded-xl bg-red-100 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Excluir
+                          </button>
                         </div>
-                        <p className="mt-3 text-xs text-slate-500">{formatDate(item.data_atendimento)}</p>
-                        <p className="mt-1 text-sm text-slate-700">{item.diagnostico || item.queixa_principal || "Sem resumo clinico"}</p>
-                        <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-medium">
-                          <span className="rounded-full bg-white px-2.5 py-1 text-slate-600">{item.total_exames || 0} exame(s)</span>
-                          {item.tem_prescricao ? (
-                            <span className="rounded-full bg-violet-100 px-2.5 py-1 text-violet-700">Receita salva</span>
-                          ) : null}
-                          {item.documentacao_pendencias && item.documentacao_pendencias.length > 0 ? (
-                            <span
-                              className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-800"
-                              title={`Faltam: ${item.documentacao_pendencias.join("; ")}`}
-                            >
-                              Documentacao incompleta
-                            </span>
-                          ) : null}
-                        </div>
-                      </button>
-                      <div className="mt-3 flex gap-2">
-                        <button onClick={() => goLaudo({ ...item, atendimento_id: item.id })} className="rounded-xl bg-sky-100 px-3 py-1.5 text-xs font-medium text-sky-700 transition hover:bg-sky-200">Laudar</button>
-                        <button onClick={() => deleteAtendimento(item.id)} className="rounded-xl bg-red-100 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-200">Excluir</button>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {atendimentosVisiveis.length === 0 ? <div className="rounded-[22px] border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">Nenhum atendimento encontrado.</div> : null}
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2">
@@ -7131,6 +7169,7 @@ export default function AtendimentoPage() {
                 {isPrescricaoWorkspace ? (
                   <>
                     <AtendimentoPrescricaoHistorySection
+                      abrindoAtendimentoId={abrindoAtendimentoId}
                       abrirAtendimento={abrirAtendimento}
                       formatDate={formatDate}
                       herdarAtendimentoAnterior={herdarAtendimentoAnterior}

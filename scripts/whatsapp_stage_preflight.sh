@@ -3,6 +3,7 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/var/www/fortcordis-stage}"
 WHATSAPP_ENV_FILE="${WHATSAPP_ENV_FILE:-${APP_DIR}/whatsapp-stage-backend/.env}"
+CORE_ENV_FILE="${CORE_ENV_FILE:-${APP_DIR}/backend/.env}"
 WHATSAPP_BACKEND_DIR="${WHATSAPP_BACKEND_DIR:-${APP_DIR}/whatsapp-stage-backend}"
 WHATSAPP_BACKEND_PORT="${WHATSAPP_BACKEND_PORT:-3010}"
 CORE_BACKEND_PORT="${CORE_BACKEND_PORT:-8001}"
@@ -73,6 +74,9 @@ is_placeholder_value() {
     *placeholder*)
       return 0
       ;;
+    *not_configured*|000000000000000)
+      return 0
+      ;;
     stage_access_token_placeholder|stage_phone_number_id|stage_verify_token|stage_app_secret)
       return 0
       ;;
@@ -125,6 +129,45 @@ assert_env_equals() {
   fi
 
   ok "Variavel ${key} = ${expected}"
+}
+
+assert_secret_format() {
+  local key="$1"
+  local kind="$2"
+  local value
+  value="$(read_env_file_value "$WHATSAPP_ENV_FILE" "$key" "")"
+
+  if is_placeholder_value "$value"; then
+    fail "Variavel ${key} ausente ou ainda esta com placeholder"
+    return
+  fi
+
+  case "$kind" in
+    access_token)
+      if [[ "$value" != EAA* || "${#value}" -lt 64 ]]; then
+        fail "Variavel ${key} fora do formato esperado"
+        return
+      fi
+      ;;
+    app_secret)
+      if [[ ! "$value" =~ ^[[:xdigit:]]{32}$ ]]; then
+        fail "Variavel ${key} fora do formato esperado"
+        return
+      fi
+      ;;
+    verify_token)
+      if [[ "${#value}" -lt 16 ]]; then
+        fail "Variavel ${key} deve ter pelo menos 16 caracteres"
+        return
+      fi
+      ;;
+    *)
+      fail "Tipo de validacao desconhecido para ${key}"
+      return
+      ;;
+  esac
+
+  ok "Formato valido sem exposicao do segredo: ${key}"
 }
 
 assert_roles_value() {
@@ -201,6 +244,19 @@ assert_required_key_non_placeholder "WHATSAPP_ACCESS_TOKEN"
 assert_required_key_non_placeholder "PHONE_NUMBER_ID"
 assert_required_key_non_placeholder "WHATSAPP_VERIFY_TOKEN"
 assert_required_key_non_placeholder "WHATSAPP_APP_SECRET"
+assert_required_key_non_placeholder "WHATSAPP_GRAPH_API_VERSION"
+assert_required_key_non_placeholder "META_APP_ID"
+assert_required_key_non_placeholder "WHATSAPP_BUSINESS_ACCOUNT_ID"
+assert_required_key_non_placeholder "WHATSAPP_RESERVATION_TEMPLATE_NAME"
+assert_required_key_non_placeholder "WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE"
+assert_secret_format "WHATSAPP_ACCESS_TOKEN" "access_token"
+assert_secret_format "WHATSAPP_APP_SECRET" "app_secret"
+assert_secret_format "WHATSAPP_VERIFY_TOKEN" "verify_token"
+assert_env_equals "PHONE_NUMBER_ID" "1279142515283484"
+assert_env_equals "META_APP_ID" "975334532125008"
+assert_env_equals "WHATSAPP_BUSINESS_ACCOUNT_ID" "1369494994627980"
+assert_env_equals "WHATSAPP_RESERVATION_TEMPLATE_NAME" "reserva_de_agendamento"
+assert_env_equals "WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE" "pt_BR"
 
 assert_required_key_present "API_BACKEND_URL"
 assert_env_equals "WHATSAPP_API_AUTH_ENABLED" "true"
@@ -214,6 +270,20 @@ assert_required_key_non_placeholder "WHATSAPP_INTERNAL_API_TOKEN"
 WHATSAPP_VERIFY_TOKEN_VALUE="$(read_env_file_value "$WHATSAPP_ENV_FILE" "WHATSAPP_VERIFY_TOKEN" "")"
 WHATSAPP_APP_SECRET_VALUE="$(read_env_file_value "$WHATSAPP_ENV_FILE" "WHATSAPP_APP_SECRET" "")"
 WHATSAPP_INTERNAL_API_TOKEN_VALUE="$(read_env_file_value "$WHATSAPP_ENV_FILE" "WHATSAPP_INTERNAL_API_TOKEN" "")"
+
+if [[ ! -f "$CORE_ENV_FILE" ]]; then
+  fail "Arquivo .env do backend principal nao encontrado: ${CORE_ENV_FILE}"
+else
+  CORE_WHATSAPP_TOKEN="$(read_env_file_value "$CORE_ENV_FILE" "WHATSAPP_AGENDA_INTERNAL_TOKEN" "")"
+  CORE_WHATSAPP_ENABLED="$(read_env_file_value "$CORE_ENV_FILE" "WHATSAPP_AGENDA_ENABLED" "false")"
+  if [[ "$CORE_WHATSAPP_ENABLED" != "true" ]]; then
+    fail "WHATSAPP_AGENDA_ENABLED deve ser true no backend principal"
+  elif [[ -z "$CORE_WHATSAPP_TOKEN" || "$CORE_WHATSAPP_TOKEN" != "$WHATSAPP_INTERNAL_API_TOKEN_VALUE" ]]; then
+    fail "Token interno do backend principal nao corresponde ao servico WhatsApp"
+  else
+    ok "Backend principal e servico WhatsApp usam a mesma credencial interna"
+  fi
+fi
 
 if [[ "$SKIP_SERVICE_CHECKS" != "1" ]]; then
   if command -v systemctl >/dev/null 2>&1; then

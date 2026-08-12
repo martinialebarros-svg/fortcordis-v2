@@ -1,7 +1,7 @@
 import axios, { AxiosError } from "axios";
 import { logger } from "../utils/logger";
 
-const graphApiVersion = process.env.WHATSAPP_GRAPH_API_VERSION || "v17.0";
+const graphApiVersion = process.env.WHATSAPP_GRAPH_API_VERSION || "v25.0";
 const GRAPH_API_BASE_URL = `https://graph.facebook.com/${graphApiVersion}`;
 const DEFAULT_TIMEOUT_MS = 10000;
 
@@ -126,33 +126,30 @@ interface GraphMessageResponse {
   [key: string]: unknown;
 }
 
-export async function sendWhatsAppMessageWithRetry(
-  params: SendTextMessageParams
-): Promise<GraphMessageResponse> {
-  const { phoneNumberId, accessToken, to, body, type = "text" } = params;
+export interface ReservationTemplateParams {
+  phoneNumberId: string;
+  accessToken: string;
+  to: string;
+  templateName: string;
+  languageCode: string;
+  bodyParameters: [string, string, string, string, string];
+  confirmPayload: string;
+  changePayload: string;
+}
 
-  if (type !== "text") {
-    throw new Error(`Message type '${type}' is not supported yet. Use 'text'.`);
-  }
-
-  const payload = {
-    messaging_product: "whatsapp",
-    recipient_type: "individual",
-    to,
-    type: "text",
-    text: {
-      body
-    }
-  };
-
-  const url = `${GRAPH_API_BASE_URL}/${phoneNumberId}/messages`;
+async function sendPayloadWithRetry(params: {
+  phoneNumberId: string;
+  accessToken: string;
+  payload: Record<string, unknown>;
+}): Promise<GraphMessageResponse> {
+  const url = `${GRAPH_API_BASE_URL}/${params.phoneNumberId}/messages`;
   const maxAttempts = 3;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      const response = await axios.post<GraphMessageResponse>(url, payload, {
+      const response = await axios.post<GraphMessageResponse>(url, params.payload, {
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${params.accessToken}`,
           "Content-Type": "application/json"
         },
         timeout: DEFAULT_TIMEOUT_MS
@@ -181,4 +178,65 @@ export async function sendWhatsAppMessageWithRetry(
   }
 
   throw new Error("Unexpected WhatsApp Graph API retry flow termination");
+}
+
+export async function sendWhatsAppMessageWithRetry(
+  params: SendTextMessageParams
+): Promise<GraphMessageResponse> {
+  const { phoneNumberId, accessToken, to, body, type = "text" } = params;
+
+  if (type !== "text") {
+    throw new Error(`Message type '${type}' is not supported yet. Use 'text'.`);
+  }
+
+  const payload = {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to,
+    type: "text",
+    text: {
+      body
+    }
+  };
+
+  return sendPayloadWithRetry({ phoneNumberId, accessToken, payload });
+}
+
+export async function sendWhatsAppReservationTemplateWithRetry(
+  params: ReservationTemplateParams
+): Promise<GraphMessageResponse> {
+  const payload = {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: params.to,
+    type: "template",
+    template: {
+      name: params.templateName,
+      language: { code: params.languageCode },
+      components: [
+        {
+          type: "body",
+          parameters: params.bodyParameters.map((text) => ({ type: "text", text }))
+        },
+        {
+          type: "button",
+          sub_type: "quick_reply",
+          index: "0",
+          parameters: [{ type: "payload", payload: params.confirmPayload }]
+        },
+        {
+          type: "button",
+          sub_type: "quick_reply",
+          index: "1",
+          parameters: [{ type: "payload", payload: params.changePayload }]
+        }
+      ]
+    }
+  };
+
+  return sendPayloadWithRetry({
+    phoneNumberId: params.phoneNumberId,
+    accessToken: params.accessToken,
+    payload
+  });
 }
