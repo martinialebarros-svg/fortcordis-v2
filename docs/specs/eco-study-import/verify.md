@@ -8,9 +8,14 @@ Primeira entrega vertical publicada em stage; perfis GE LOGIQ e e GE Vivid IQ ca
 
 - A comparacao de `FE_Teicholz_2D` usa `ef_min`/`ef_max`, e a de
   `DeltaD_FS_2D` usa `fs_min`/`fs_max`, os mesmos intervalos clinicos do Modo M.
+- A aba Referencias completa somente a visualizacao com FE e Delta D/FS quando
+  esses campos nao vierem do equipamento, calculando-os a partir de VDF/VSF e
+  DIVEd/DIVES da mesma tecnica. O calculo nao altera o formulario nem o payload
+  do laudo, e valores fornecidos pelo equipamento tem precedencia.
 - `./node_modules/.bin/vitest run app/laudos/hooks/useReferenciaEco.test.ts`: a regressao
-  cobre os dois campos com FE 2D = 43% e Delta D/FS 2D = 21%, classificando-os
-  abaixo dos intervalos 55-80% e 28-42%, respectivamente.
+  cobre os dois campos calculados com FE 2D = 43% e Delta D/FS 2D = 21%,
+  classificando-os abaixo dos intervalos 55-80% e 28-42%, respectivamente, e
+  confirma que valores fornecidos pelo equipamento nao sao substituidos.
 
 ## Evidencias automatizadas
 

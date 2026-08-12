@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { compararMedidasComReferencia } from "./useReferenciaEco";
+import { deriveLeftVentricularFunctionForReference } from "@/lib/echo-derived-measurements";
 import type { ReferenciaEco } from "../types/referencia-eco";
 
 const referenciaCanina: ReferenciaEco = {
@@ -13,11 +14,17 @@ const referenciaCanina: ReferenciaEco = {
 };
 
 describe("compararMedidasComReferencia", () => {
-  it("aplica a FE e ao encurtamento 2D os mesmos intervalos de referencia do modo M", () => {
+  it("interpreta FE e encurtamento 2D calculados a partir das medidas do VE", () => {
+    const medidas2D = {
+      VDF_2D: "82",
+      VSF_2D: "47",
+      DIVEd_2D: "42.78",
+      DIVES_2D: "33.81",
+    };
     const comparacoes = compararMedidasComReferencia(
       {
-        FE_Teicholz_2D: "43",
-        DeltaD_FS_2D: "21",
+        ...medidas2D,
+        ...deriveLeftVentricularFunctionForReference(medidas2D),
       },
       referenciaCanina
     );
@@ -34,5 +41,18 @@ describe("compararMedidasComReferencia", () => {
       status: "diminuido",
       categoria: "funcao",
     });
+  });
+
+  it("preserva FE e encurtamento 2D informados pelo equipamento", () => {
+    expect(
+      deriveLeftVentricularFunctionForReference({
+        VDF_2D: "82",
+        VSF_2D: "47",
+        DIVEd_2D: "42.78",
+        DIVES_2D: "33.81",
+        FE_Teicholz_2D: "44",
+        DeltaD_FS_2D: "22",
+      })
+    ).toEqual({});
   });
 });

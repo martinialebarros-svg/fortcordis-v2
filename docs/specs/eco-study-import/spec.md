@@ -37,6 +37,10 @@
 - RF-023: a analise de referencias deve incluir FE de Teicholz e Delta D/FS do
   Modo 2D, reutilizando respectivamente os mesmos intervalos `ef` e `fs` do
   Modo M, sem criar uma segunda tabela clinica para a mesma medida.
+- RF-024: na aba Referencias, quando FE ou Delta D/FS do VE nao vierem como
+  campo proprio, calcular esses valores a partir de VDF/VSF e DIVEd/DIVES da
+  mesma tecnica apenas para a comparacao, sem modificar o laudo salvo; um valor
+  informado pelo equipamento sempre prevalece.
 
 ## Requisitos nao funcionais
 
@@ -120,3 +124,7 @@
 - CA-023: com FE 2D e Delta D/FS 2D preenchidos, a aba de referencias exibe as
   duas comparacoes com os limites `ef_min`/`ef_max` e `fs_min`/`fs_max` da
   tabela correspondente ao paciente.
+- CA-024: com VDF 2D = 82 mL, VSF 2D = 47 mL, DIVEd 2D = 42,78 mm e DIVEs 2D
+  = 33,81 mm, a aba Referencias exibe FE 2D = 43% e Delta D/FS 2D = 21% e os
+  interpreta pelas faixas `ef` e `fs`; valores de FE/FS que ja vierem do
+  equipamento nao sao substituidos.
