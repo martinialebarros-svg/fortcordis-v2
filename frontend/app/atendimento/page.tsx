@@ -49,6 +49,7 @@ import {
   buildClinicalFieldValues,
   hasMeaningfulDraft,
   insertSnippetIntoText,
+  type ClinicalFieldConfig,
   type ClinicalFieldKey,
   type ClinicalPhraseRecord,
 } from "@/lib/atendimento-clinical-notes";
@@ -1339,6 +1340,7 @@ export default function AtendimentoPage() {
   const [workspacePainel, setWorkspacePainel] = useState<WorkspacePainel>("consulta");
   const [consultaEditorEtapa, setConsultaEditorEtapa] = useState<ConsultaEditorEtapa>("anamnese");
   const [consultaCampoAtivo, setConsultaCampoAtivo] = useState<ClinicalFieldKey>("queixa_principal");
+  const [consultaVerTodosCampos, setConsultaVerTodosCampos] = useState(false);
   const [prescricaoModoFoco, setPrescricaoModoFoco] = useState(true);
   const [protocoloPrescricaoSelecionado, setProtocoloPrescricaoSelecionado] = useState("");
   const [protocoloPrescricaoDecididoPara, setProtocoloPrescricaoDecididoPara] = useState<string | null>(null);
@@ -5690,6 +5692,15 @@ export default function AtendimentoPage() {
     const camposPermitidos = new Set(etapaAtiva.campos);
     return clinicalFieldConfigs.filter((config) => camposPermitidos.has(config.key));
   }, [consultaEditorEtapa, clinicalFieldConfigs]);
+  const consultaEditorGruposConsolidados = useMemo(() => {
+    const configPorChave = new Map(clinicalFieldConfigs.map((config) => [config.key, config]));
+    return CONSULTA_EDITOR_ETAPAS.map((etapa) => ({
+      ...etapa,
+      configs: etapa.campos
+        .map((key) => configPorChave.get(key))
+        .filter((config): config is ClinicalFieldConfig => Boolean(config)),
+    }));
+  }, [clinicalFieldConfigs]);
   const consultaCampoAtivoConfig = useMemo(
     () =>
       consultaEditorCamposVisiveis.find((config) => config.key === consultaCampoAtivo) ||
@@ -5729,7 +5740,7 @@ export default function AtendimentoPage() {
   }, [consultaCampoAtivo, consultaEditorCamposVisiveis]);
 
   useEffect(() => {
-    if (!isConsultaWorkspace || !consultaCampoAtivoConfig) return;
+    if (!isConsultaWorkspace || !consultaCampoAtivoConfig || consultaVerTodosCampos) return;
     if (typeof window === "undefined") return;
     window.requestAnimationFrame(() => {
       const target = clinicalTextareaRefs.current[consultaCampoAtivoConfig.key];
@@ -5738,10 +5749,10 @@ export default function AtendimentoPage() {
       const cursor = target.value.length;
       target.setSelectionRange(cursor, cursor);
     });
-  }, [isConsultaWorkspace, consultaCampoAtivoConfig]);
+  }, [isConsultaWorkspace, consultaCampoAtivoConfig, consultaVerTodosCampos]);
 
   useEffect(() => {
-    if (!isConsultaWorkspace) return;
+    if (!isConsultaWorkspace || consultaVerTodosCampos) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.altKey && event.shiftKey)) return;
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -5754,7 +5765,7 @@ export default function AtendimentoPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [goToConsultaCampoAnterior, goToConsultaCampoProximo, isConsultaWorkspace]);
+  }, [goToConsultaCampoAnterior, goToConsultaCampoProximo, isConsultaWorkspace, consultaVerTodosCampos]);
 
   const examesChavesAtuaisRaw = form.exames.map((exame) => getExameStateKey(exame)).join(",");
   useEffect(() => {
@@ -6963,7 +6974,9 @@ export default function AtendimentoPage() {
                     consultaEditorCamposVisiveis={consultaEditorCamposVisiveis}
                     consultaEditorEtapa={consultaEditorEtapa}
                     consultaEditorEtapas={consultaEditorEtapas}
+                    consultaEditorGruposConsolidados={consultaEditorGruposConsolidados}
                     consultaEtapasCompletas={consultaEtapasCompletas}
+                    consultaVerTodosCampos={consultaVerTodosCampos}
                     dadosClinicosOrigem={dadosClinicosOrigem}
                     form={form}
                     formatDate={formatDate}
@@ -6977,6 +6990,7 @@ export default function AtendimentoPage() {
                     setClinicalFieldValue={setClinicalFieldValue}
                     setConsultaCampoAtivo={setConsultaCampoAtivo}
                     setConsultaEditorEtapa={setConsultaEditorEtapa}
+                    setConsultaVerTodosCampos={setConsultaVerTodosCampos}
                     setField={setField}
                   />
                 ) : null}
