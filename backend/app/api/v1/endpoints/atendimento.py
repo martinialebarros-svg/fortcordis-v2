@@ -97,6 +97,7 @@ from app.services.atendimento.document_crud_service import (
 from app.services.atendimento.document_context_service import (
     atualizar_documento_template_se_contexto_mudou as atualizar_documento_template_se_contexto_mudou_service,
     carregar_contexto_entidades_documento as carregar_contexto_entidades_documento_service,
+    identificar_variaveis_vazias as identificar_variaveis_vazias_service,
     montar_contexto_template_documento as montar_contexto_template_documento_service,
     renderizar_template_documento as renderizar_template_documento_service,
 )
@@ -2648,6 +2649,18 @@ def criar_documento_atendimento(
     if not titulo or not corpo:
         raise HTTPException(status_code=422, detail="Informe um template ativo ou preencha titulo e corpo do documento.")
 
+    variaveis_vazias: List[str] = []
+    if template and titulo == titulo_base and corpo == corpo_base:
+        # So reporta "vazias" quando o documento salvo e realmente o texto
+        # renderizado do template sem sobrescrita pelo chamador - senao a
+        # analise descreveria placeholders que nem estao no texto final.
+        variaveis_vazias = sorted(
+            set(
+                identificar_variaveis_vazias_service(template.titulo_padrao or "", contexto)
+                + identificar_variaveis_vazias_service(template.corpo_template or "", contexto)
+            )
+        )
+
     documento = DocumentoAtendimento(
         atendimento_id=atendimento.id,
         template_id=template.id if template else None,
@@ -2663,7 +2676,10 @@ def criar_documento_atendimento(
     atendimento.updated_at = datetime.now()
     db.commit()
     db.refresh(documento)
-    return serializar_documento_atendimento_service(documento)
+    resultado = serializar_documento_atendimento_service(documento)
+    if variaveis_vazias:
+        resultado["variaveis_vazias"] = variaveis_vazias
+    return resultado
 
 
 @router.put("/{atendimento_id}/documentos/{documento_id}")
