@@ -16,6 +16,7 @@ import {
   WebhookPayload,
   WebhookStatusEvent
 } from "../types/whatsapp";
+import { handleAgendaButtonReply } from "../services/agendaButtonService";
 
 interface WebhookEventRow {
   id: string;
@@ -281,6 +282,7 @@ async function handleInboundMessages(value: WebhookChangeValue, client: PoolClie
     });
 
     if (inserted) {
+      await handleAgendaButtonReply(client, message);
       await touchConversation(conversation.id, client);
     }
   }
@@ -347,6 +349,15 @@ async function processWebhookPayload(payload: WebhookPayload, client: PoolClient
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
       if (change.field !== "messages" || !change.value) {
+        continue;
+      }
+
+      const configuredPhoneNumberId = String(process.env.PHONE_NUMBER_ID || "").trim();
+      const eventPhoneNumberId = String(change.value.metadata?.phone_number_id || "").trim();
+      if (configuredPhoneNumberId && eventPhoneNumberId && configuredPhoneNumberId !== eventPhoneNumberId) {
+        logger.warn("Ignoring webhook event for an unexpected phone_number_id", {
+          phoneNumberId: eventPhoneNumberId
+        });
         continue;
       }
 

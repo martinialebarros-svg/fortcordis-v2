@@ -38,6 +38,7 @@ from app.api.v1.endpoints import (
     servicos,
     tabelas_preco,
     tutores,
+    whatsapp_agenda,
     xml_import,
 )
 from app.core.runtime_checks import build_runtime_report, validate_startup_or_raise
@@ -411,6 +412,7 @@ app.include_router(
     tags=["ai_echo"],
 )
 app.include_router(agenda.router, prefix="/api/v1/agenda", tags=["agenda"])
+app.include_router(whatsapp_agenda.router, prefix="/api/v1", tags=["whatsapp_agenda"])
 app.include_router(pacientes.router, prefix="/api/v1/pacientes", tags=["pacientes"])
 app.include_router(clinicas.router, prefix="/api/v1/clinicas", tags=["clinicas"])
 app.include_router(servicos.router, prefix="/api/v1/servicos", tags=["servicos"])

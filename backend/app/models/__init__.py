@@ -1,6 +1,7 @@
 from app.models.user import User
 from app.models.papel import Papel
 from app.models.agendamento import Agendamento
+from app.models.whatsapp_agenda_resposta import WhatsappAgendaResposta
 from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.models.clinica import Clinica
