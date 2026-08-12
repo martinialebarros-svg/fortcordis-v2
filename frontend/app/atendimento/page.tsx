@@ -100,6 +100,7 @@ const AtendimentoPrescricaoWorkspace = dynamic(() => import("./components/Atendi
 const AtendimentoTriagemSection = dynamic(() => import("./components/AtendimentoTriagemSection"));
 const AttachmentPreviewModal = dynamic(() => import("./components/AttachmentPreviewModal"), { ssr: false });
 const PainelExamesModal = dynamic(() => import("./components/PainelExamesModal"), { ssr: false });
+const ConfirmDialog = dynamic(() => import("./components/ConfirmDialog"), { ssr: false });
 
 // === TIPOS ===
 
@@ -203,6 +204,20 @@ type PendingExamUpload = {
   file: File;
   previewUrl: string | null;
   kind: "image" | "pdf" | "other";
+};
+
+type ConfirmDialogVariant = "default" | "destructive";
+
+type ConfirmDialogOptions = {
+  titulo: string;
+  descricao: string;
+  variante?: ConfirmDialogVariant;
+  confirmLabel?: string;
+  cancelLabel?: string;
+};
+
+type ConfirmDialogState = ConfirmDialogOptions & {
+  resolve: (value: boolean) => void;
 };
 
 type ExameFluxoStatus = "aguardando_arquivo" | "arquivo_anexado" | "interpretado" | "liberado_portal";
@@ -1395,6 +1410,7 @@ export default function AtendimentoPage() {
   const [uploadingAttachmentKey, setUploadingAttachmentKey] = useState<string | null>(null);
   const [uploadProgressByKey, setUploadProgressByKey] = useState<Record<string, number | null>>({});
   const [openingAttachmentId, setOpeningAttachmentId] = useState<number | null>(null);
+  const [confirmDialogState, setConfirmDialogState] = useState<ConfirmDialogState | null>(null);
   const [attachmentPreview, setAttachmentPreview] = useState<AttachmentPreview | null>(null);
   const [attachmentImageZoom, setAttachmentImageZoom] = useState(1);
   const [attachmentImageOffset, setAttachmentImageOffset] = useState({ x: 0, y: 0 });
@@ -2654,12 +2670,36 @@ export default function AtendimentoPage() {
     void carregarCadastroComplementar(form.paciente_id);
   }, [form.paciente_id]);
 
+  const confirmarAcao = useCallback((opcoes: ConfirmDialogOptions): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setConfirmDialogState((atual) => {
+        // Resolve qualquer dialogo pendente como cancelado antes de abrir o
+        // proximo - evita uma Promise anterior ficar presa para sempre caso
+        // duas acoes disparem confirmarAcao antes da primeira ser resolvida
+        // (ex.: componente ainda carregando via dynamic import).
+        atual?.resolve(false);
+        return { ...opcoes, resolve };
+      });
+    });
+  }, []);
+
+  const resolverConfirmDialog = useCallback((valor: boolean) => {
+    setConfirmDialogState((atual) => {
+      atual?.resolve(valor);
+      return null;
+    });
+  }, []);
+
   const abrirAtendimento = async (id: number) => {
     if (
       !selecionado &&
       hasEncounterContent(formRef.current) &&
       typeof window !== "undefined" &&
-      !window.confirm("Abrir o registro historico e substituir o rascunho atual? As alteracoes ainda nao salvas serao descartadas.")
+      !(await confirmarAcao({
+        titulo: "Substituir rascunho atual?",
+        descricao:
+          "Abrir o registro historico e substituir o rascunho atual? As alteracoes ainda nao salvas serao descartadas.",
+      }))
     ) {
       return;
     }
@@ -2833,7 +2873,10 @@ export default function AtendimentoPage() {
       !selecionadoRef.current &&
       hasEncounterContent(atual) &&
       typeof window !== "undefined" &&
-      !window.confirm("Substituir o rascunho atual por um novo atendimento deste paciente?")
+      !(await confirmarAcao({
+        titulo: "Substituir rascunho atual?",
+        descricao: "Substituir o rascunho atual por um novo atendimento deste paciente?",
+      }))
     ) {
       return;
     }
@@ -2919,11 +2962,14 @@ export default function AtendimentoPage() {
     }
     if (
       typeof window !== "undefined" &&
-      !window.confirm(
-        "Iniciar um novo atendimento herdando queixa principal, anamnese, exame fisico, " +
+      !(await confirmarAcao({
+        titulo: "Herdar dados do atendimento anterior?",
+        descricao:
+          "Iniciar um novo atendimento herdando queixa principal, anamnese, exame fisico, " +
           "dados clinicos e a receita (se houver) do atendimento selecionado? Diagnostico, " +
-          "plano terapeutico e triagem nao sao copiados - revise e preencha novamente."
-      )
+          "plano terapeutico e triagem nao sao copiados - revise e preencha novamente.",
+        confirmLabel: "Herdar dados",
+      }))
     ) {
       return;
     }
@@ -3648,7 +3694,16 @@ export default function AtendimentoPage() {
   };
 
   const excluirPainelExame = async (painelId: number) => {
-    if (!confirm("Tem certeza que deseja excluir este painel?")) return;
+    if (
+      !(await confirmarAcao({
+        titulo: "Excluir painel de exames?",
+        descricao: "Tem certeza que deseja excluir este painel? Esta acao nao pode ser desfeita.",
+        variante: "destructive",
+        confirmLabel: "Excluir",
+      }))
+    ) {
+      return;
+    }
     try {
       await api.delete(`/atendimentos/paineis/${painelId}`);
       setSucesso("Painel removido com sucesso.");
@@ -3864,7 +3919,7 @@ export default function AtendimentoPage() {
     }
   };
 
-  const removerExame = (index: number) => {
+  const removerExame = async (index: number) => {
     const exame = form.exames[index];
     if (!exame) return;
 
@@ -3877,9 +3932,12 @@ export default function AtendimentoPage() {
     if (exame.id) {
       const nome = (exame.tipo_exame || "").trim() || "sem nome";
       if (
-        !window.confirm(
-          `Excluir o exame "${nome}" do prontuario? A exclusao e aplicada no proximo salvamento.`
-        )
+        !(await confirmarAcao({
+          titulo: "Excluir exame do prontuario?",
+          descricao: `Excluir o exame "${nome}" do prontuario? A exclusao e aplicada no proximo salvamento.`,
+          variante: "destructive",
+          confirmLabel: "Excluir",
+        }))
       ) {
         return;
       }
@@ -3916,9 +3974,11 @@ export default function AtendimentoPage() {
     if (!exame.id) return;
     if (
       acao === "revogar" &&
-      !window.confirm(
-        "Revogar a liberacao deste exame? A clinica parceira perde o acesso no portal."
-      )
+      !(await confirmarAcao({
+        titulo: "Revogar liberacao no portal?",
+        descricao: "Revogar a liberacao deste exame? A clinica parceira perde o acesso no portal.",
+        confirmLabel: "Revogar",
+      }))
     ) {
       return;
     }
@@ -4235,7 +4295,12 @@ export default function AtendimentoPage() {
 
       if (precisaConfirmar) {
         setFinalizando(false);
-        if (window.confirm(String(detalhe.mensagem || "Concluir mesmo com pendencias?"))) {
+        const confirmado = await confirmarAcao({
+          titulo: "Concluir com pendencias?",
+          descricao: String(detalhe.mensagem || "Concluir mesmo com pendencias?"),
+          confirmLabel: "Concluir",
+        });
+        if (confirmado) {
           await finalizarAtendimento(true);
         }
         return;
@@ -4303,7 +4368,16 @@ export default function AtendimentoPage() {
   }, [clinicalFieldValues, contextoAplicado, form, loading, selecionado]);
 
   const deleteAtendimento = async (id: number) => {
-    if (!confirm(`Excluir atendimento #${id}?`)) return;
+    if (
+      !(await confirmarAcao({
+        titulo: "Excluir atendimento?",
+        descricao: `Excluir o atendimento #${id}? Esta acao nao pode ser desfeita.`,
+        variante: "destructive",
+        confirmLabel: "Excluir",
+      }))
+    ) {
+      return;
+    }
     try {
       await api.delete(`/atendimentos/${id}`);
       if (selecionado === id) novoAtendimento();
@@ -4749,7 +4823,12 @@ export default function AtendimentoPage() {
   const excluirAnexo = async (anexo: Anexo) => {
     if (
       typeof window !== "undefined" &&
-      !window.confirm("Excluir este anexo definitivamente? O arquivo original nao podera ser recuperado.")
+      !(await confirmarAcao({
+        titulo: "Excluir anexo?",
+        descricao: "Excluir este anexo definitivamente? O arquivo original nao podera ser recuperado.",
+        variante: "destructive",
+        confirmLabel: "Excluir",
+      }))
     ) {
       return;
     }
@@ -4911,18 +4990,22 @@ export default function AtendimentoPage() {
     );
     if (
       variaveisNaoResolvidasPdf.length > 0 &&
-      !window.confirm(
-        `O documento "${documentoParaPdf.titulo}" ainda tem ${variaveisNaoResolvidasPdf.length} variavel(is) nao reconhecida(s) (${variaveisNaoResolvidasPdf.join(", ")}). Gerar o PDF assim mesmo?`
-      )
+      !(await confirmarAcao({
+        titulo: "Variaveis nao reconhecidas no documento",
+        descricao: `O documento "${documentoParaPdf.titulo}" ainda tem ${variaveisNaoResolvidasPdf.length} variavel(is) nao reconhecida(s) (${variaveisNaoResolvidasPdf.join(", ")}). Gerar o PDF assim mesmo?`,
+        confirmLabel: "Gerar assim mesmo",
+      }))
     ) {
       return;
     }
 
     if (
       documentoParaPdf.status === "emitido" &&
-      !window.confirm(
-        `O documento "${documentoParaPdf.titulo}" ja foi emitido anteriormente. Gerar um novo PDF agora cria uma nova versao oficial com o conteudo atual. Continuar?`
-      )
+      !(await confirmarAcao({
+        titulo: "Documento ja emitido",
+        descricao: `O documento "${documentoParaPdf.titulo}" ja foi emitido anteriormente. Gerar um novo PDF agora cria uma nova versao oficial com o conteudo atual. Continuar?`,
+        confirmLabel: "Gerar nova versao",
+      }))
     ) {
       return;
     }
@@ -4971,7 +5054,16 @@ export default function AtendimentoPage() {
   };
 
   const excluirDocumentoClinico = async (documento: DocumentoAtendimento) => {
-    if (!confirm(`Remover o documento "${documento.titulo}"?`)) return;
+    if (
+      !(await confirmarAcao({
+        titulo: "Remover documento?",
+        descricao: `Remover o documento "${documento.titulo}"? Esta acao nao pode ser desfeita.`,
+        variante: "destructive",
+        confirmLabel: "Remover",
+      }))
+    ) {
+      return;
+    }
     try {
       await api.delete(`/atendimentos/${documento.atendimento_id}/documentos/${documento.id}`);
       await recarregarDocumentosAtendimento(documento.atendimento_id);
@@ -7169,6 +7261,18 @@ export default function AtendimentoPage() {
           setAttachmentPdfZoom={setAttachmentPdfZoom}
           zoomInAttachmentImage={zoomInAttachmentImage}
           zoomOutAttachmentImage={zoomOutAttachmentImage}
+        />
+      ) : null}
+      {confirmDialogState ? (
+        <ConfirmDialog
+          aberto
+          titulo={confirmDialogState.titulo}
+          descricao={confirmDialogState.descricao}
+          variante={confirmDialogState.variante}
+          confirmLabel={confirmDialogState.confirmLabel}
+          cancelLabel={confirmDialogState.cancelLabel}
+          onConfirm={() => resolverConfirmDialog(true)}
+          onCancel={() => resolverConfirmDialog(false)}
         />
       ) : null}
       </div>
