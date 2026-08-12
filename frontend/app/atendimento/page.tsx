@@ -6232,7 +6232,7 @@ export default function AtendimentoPage() {
   return (
     <DashboardLayout>
       <div className="fc-care-page">
-        <div className="fixed right-4 top-4 z-[90] flex max-w-md flex-col gap-2">
+        <div className="fixed right-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[90] flex max-w-md flex-col gap-2 lg:top-4">
           {erroPopup ? (
             <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-xl">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />

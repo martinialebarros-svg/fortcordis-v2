@@ -1891,7 +1891,7 @@ export default function AgendaPage() {
     <DashboardLayout>
       <div className="fc-agenda-page">
         {toastRealtime && (
-          <div className="fixed right-4 top-4 z-[70]">
+          <div className="fixed right-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[70] lg:top-4">
             <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-xs shadow-lg ${toastRealtime.classe}`}>
               <span className="font-medium">{toastRealtime.texto}</span>
               {typeof toastRealtime.agendamentoId === "number" && (
