@@ -1341,6 +1341,7 @@ export default function AtendimentoPage() {
   const [consultaCampoAtivo, setConsultaCampoAtivo] = useState<ClinicalFieldKey>("queixa_principal");
   const [prescricaoModoFoco, setPrescricaoModoFoco] = useState(true);
   const [protocoloPrescricaoSelecionado, setProtocoloPrescricaoSelecionado] = useState("");
+  const [protocoloPrescricaoDecididoPara, setProtocoloPrescricaoDecididoPara] = useState<string | null>(null);
   const [triagemExpandida, setTriagemExpandida] = useState(false);
   const [cadastroComplementarExpandido, setCadastroComplementarExpandido] = useState(false);
   const [painelCasosAberto, setPainelCasosAberto] = useState(false);
@@ -2469,6 +2470,14 @@ export default function AtendimentoPage() {
       PROTOCOLOS_PRESCRICAO.find((protocolo) => protocolo.key === protocoloPrescricaoSelecionado) || null,
     [protocoloPrescricaoSelecionado]
   );
+  const protocoloPrescricaoSelecionadoGatilho = useMemo(() => {
+    if (!protocoloPrescricaoSelecionadoDetalhe) return null;
+    return (
+      protocoloPrescricaoSelecionadoDetalhe.gatilhos.find((gatilho) =>
+        diagnosticoTextoConsolidado.includes(normalizarTokenPrescricao(gatilho))
+      ) || null
+    );
+  }, [protocoloPrescricaoSelecionadoDetalhe, diagnosticoTextoConsolidado]);
   const prescricaoErrosCount = useMemo(
     () =>
       Object.values(prescricaoValidationErrors).reduce(
@@ -2759,6 +2768,7 @@ export default function AtendimentoPage() {
       hydratingFormRef.current = true;
       setForm(formParaAplicar);
       setProtocoloPrescricaoSelecionado("");
+      setProtocoloPrescricaoDecididoPara(null);
       setPrescricaoEditorManualAberto(false);
       setPrescricaoEntradaModo(null);
       setPrescricaoBuscaRapida("");
@@ -2809,6 +2819,7 @@ export default function AtendimentoPage() {
     setExameBusca("");
     setPainelExameSelecionado("");
     setProtocoloPrescricaoSelecionado("");
+    setProtocoloPrescricaoDecididoPara(null);
     setPrescricaoEditorManualAberto(false);
     setPrescricaoEntradaModo(null);
     setPrescricaoBuscaRapida("");
@@ -2916,6 +2927,7 @@ export default function AtendimentoPage() {
     setExameBusca("");
     setPainelExameSelecionado("");
     setProtocoloPrescricaoSelecionado("");
+    setProtocoloPrescricaoDecididoPara(null);
     setPrescricaoEditorManualAberto(itensCopiados.length > 0);
     setPrescricaoEntradaModo(null);
     setPrescricaoBuscaRapida("");
@@ -3587,11 +3599,39 @@ export default function AtendimentoPage() {
     setErro("");
   };
 
+  const protocoloPrescricaoSelecionadoItensPreview = protocoloPrescricaoSelecionadoDetalhe
+    ? protocoloPrescricaoSelecionadoDetalhe.itens.map(montarItemDeProtocoloPrescricao)
+    : [];
+
+  const fecharPreviaProtocoloPrescricao = (protocoloKey: string) => {
+    // So marca a recomendacao como "decidida" para o diagnostico atual quando
+    // o protocolo fechado e o recomendado - descartar um protocolo escolhido
+    // manualmente nao deve suprimir a recomendacao automatica.
+    if (protocoloPrescricaoRecomendado?.key === protocoloKey) {
+      setProtocoloPrescricaoDecididoPara(diagnosticoTextoConsolidado);
+    }
+    setProtocoloPrescricaoSelecionado("");
+  };
+
+  const selecionarProtocoloPrescricao = (protocoloKey: string) => {
+    if (protocoloPrescricaoSelecionado === protocoloKey) {
+      fecharPreviaProtocoloPrescricao(protocoloKey);
+      return;
+    }
+    setProtocoloPrescricaoSelecionado(protocoloKey);
+  };
+
   const aplicarProtocoloSelecionado = () => {
     if (!protocoloPrescricaoSelecionado) return;
     const protocolo = PROTOCOLOS_PRESCRICAO.find((item) => item.key === protocoloPrescricaoSelecionado);
     if (!protocolo) return;
     aplicarProtocoloPrescricao(protocolo);
+    fecharPreviaProtocoloPrescricao(protocolo.key);
+  };
+
+  const descartarProtocoloSelecionado = () => {
+    if (!protocoloPrescricaoSelecionado) return;
+    fecharPreviaProtocoloPrescricao(protocoloPrescricaoSelecionado);
   };
 
   const buildExamFromCatalog = (item: CatalogoExame, painel?: PainelExame | null): ExameSolicitacao => ({
@@ -5751,8 +5791,11 @@ export default function AtendimentoPage() {
   useEffect(() => {
     if (protocoloPrescricaoSelecionado) return;
     if (!protocoloPrescricaoRecomendado) return;
+    // Nao reabre a previa automaticamente se o vet ja aplicou ou descartou o
+    // protocolo recomendado para o texto de diagnostico atual.
+    if (protocoloPrescricaoDecididoPara === diagnosticoTextoConsolidado) return;
     setProtocoloPrescricaoSelecionado(protocoloPrescricaoRecomendado.key);
-  }, [protocoloPrescricaoRecomendado, protocoloPrescricaoSelecionado]);
+  }, [protocoloPrescricaoRecomendado, protocoloPrescricaoSelecionado, protocoloPrescricaoDecididoPara, diagnosticoTextoConsolidado]);
 
   useEffect(() => {
     if (prescricaoValidacaoAtual.total === 0 && prescricaoErrosCount > 0) {
@@ -7085,11 +7128,12 @@ export default function AtendimentoPage() {
                       abrirMedicamentoBuscaRapida={abrirMedicamentoBuscaRapida}
                     adicionarItemPrescricaoEmBranco={adicionarItemPrescricaoEmBranco}
                     aplicarPresetPrescricao={aplicarPresetPrescricao}
-                    aplicarProtocoloPrescricao={aplicarProtocoloPrescricao}
+                    aplicarProtocoloSelecionado={aplicarProtocoloSelecionado}
                     autosaveBadgeClass={autosaveBadgeClass}
                     autosaveLabel={autosaveLabel}
                     cancelarEdicaoPresetPrescricao={cancelarEdicaoPresetPrescricao}
                     classificarAlertaPrescricao={classificarAlertaPrescricao}
+                    descartarProtocoloSelecionado={descartarProtocoloSelecionado}
                     editarPresetPrescricao={editarPresetPrescricao}
                     especieRacaExibicao={especieRacaExibicao}
                     form={form}
@@ -7116,10 +7160,13 @@ export default function AtendimentoPage() {
                     protocoloPrescricaoRecomendado={protocoloPrescricaoRecomendado}
                     protocoloPrescricaoSelecionado={protocoloPrescricaoSelecionado}
                     protocoloPrescricaoSelecionadoDetalhe={protocoloPrescricaoSelecionadoDetalhe}
+                    protocoloPrescricaoSelecionadoGatilho={protocoloPrescricaoSelecionadoGatilho}
+                    protocoloPrescricaoSelecionadoItensPreview={protocoloPrescricaoSelecionadoItensPreview}
                     removerPresetPrescricao={removerPresetPrescricao}
                     renderPrescricaoItemCard={renderPrescricaoItemCard}
                     salvarPresetPrescricaoAtual={salvarPresetPrescricaoAtual}
                     selecionarMedicamentoBuscaRapida={selecionarMedicamentoBuscaRapida}
+                    selecionarProtocoloPrescricao={selecionarProtocoloPrescricao}
                     setField={setField}
                     setNomeNovoPresetPrescricao={setNomeNovoPresetPrescricao}
                     setPrescricaoBuscaRapida={setPrescricaoBuscaRapida}
