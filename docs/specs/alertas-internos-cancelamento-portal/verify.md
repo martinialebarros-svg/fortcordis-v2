@@ -1,7 +1,7 @@
 # Verify - alertas-internos-cancelamento-portal
 
-Data: 2026-08-08
-Status: in-progress
+Data: 2026-08-12
+Status: validado localmente; aguardando QA visual em stage
 
 ## 1) Matriz de rastreabilidade
 
@@ -13,6 +13,7 @@ Status: in-progress
 | CA-004 | aceitacao | `test_marcar_lido_remove_da_lista_de_nao_lidos` | ok |
 | CA-005 | aceitacao | `test_marcar_todos_lidos` | ok |
 | CA-006 | aceitacao | `test_marcar_lido_de_alerta_inexistente_retorna_404` | ok |
+| CA-007 | aceitacao | `AlertasInternosBell` recebe posicionamento externo; no `DashboardLayout`, mobile usa container relativo ao lado do menu e desktop conserva `lg:fixed lg:right-3 lg:top-3`. `npm run lint`, `tsc`, testes e build passaram. | ok (validacao estrutural) |
 | NFR-001 | nao funcional | Leitura de codigo: `criar_alerta_interno(db, ...)` chamado antes de `db.commit()` em `cancelar_agendamento_clinica_portal`, sem commit intermediario — mesma transacao. | ok |
 | NFR-002 | nao funcional | `listar_alertas_internos` nao filtra por papel, so por `Depends(get_current_user)`. | ok |
 | NFR-003 | nao funcional | `AlertasInternosBell.tsx`: todos os `catch` de rede sao silenciosos (comentado no codigo). Sem teste de componente (nao ha suite de componente neste repo para telas internas). | parcial |
@@ -31,6 +32,12 @@ python -m unittest tests.test_migration_ci_cycle -v
 # frontend
 npx tsc --noEmit -p tsconfig.json
 npx eslint components/layout/AlertasInternosBell.tsx app/layout-dashboard.tsx
+
+# correcao mobile de 2026-08-12
+npm run lint
+npx tsc --noEmit
+npm test
+npm run build
 ```
 
 Resumo dos resultados:
@@ -40,6 +47,8 @@ Resumo dos resultados:
 - Migracoes: `test_migration_ci_cycle` (ciclo up/down/up completo com as 65 migracoes, incluindo a
   nova) passou.
 - Frontend: `tsc --noEmit` sem erros; `eslint` sem erros/avisos.
+- Correcao mobile: `npm run lint`, `npx tsc --noEmit`, `npm test` (24 testes Vitest e 9 testes
+  Node) e `npm run build` passaram; o build gerou as 40 paginas estaticas sem erro.
 - Boot do `next dev` local: `/dashboard`, `/agenda`, `/financeiro` (paginas internas, usam
   `DashboardLayout`) e `/clinica-parceira` (portal externo, nao usa esse layout) todos retornaram
   200 com compilacao limpa.
@@ -57,15 +66,14 @@ Resumo dos resultados:
      disponiveis).
   3. Marcar como lido e confirmar que desaparece da lista e a contagem cai.
   4. Repetir gerando 2+ alertas e usar "Marcar tudo como lido".
-  5. Confirmar visualmente, em mobile e desktop, que o sino nao fica escondido atras de outro
-     elemento (posicionamento fixed no canto superior direito).
+  5. Confirmar visualmente, em mobile, que sino e menu ficam lado a lado, sem sobreposicao; em
+     desktop, confirmar o sino no canto superior direito.
   6. Confirmar que o sino NAO aparece no portal da clinica parceira.
 
 ## 4) Regressao e riscos residuais
 
-- Risco residual 1: posicionamento do sino (`fixed`) nao foi validado visualmente em viewport
-  mobile real — risco de sobreposicao com o cabecalho mobile existente
-  (`fc-mobile-header`) em telas muito estreitas. Verificar no item 5 do roteiro manual.
+- Risco residual 1: a composicao mobile foi corrigida no layout, mas a confirmacao em aparelho
+  fisico permanece recomendada para conferir barra de status e area segura do navegador.
 - Risco residual 2: sem teste automatizado de componente para `AlertasInternosBell.tsx` (mesma
   limitacao registrada nas entregas anteriores desta sessao para telas React).
 - Risco residual 3: alertas nao lidos acumulam indefinidamente se a equipe nao marcar como lido
