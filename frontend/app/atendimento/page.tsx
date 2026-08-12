@@ -170,6 +170,7 @@ type DocumentoAtendimento = {
   emitido_at?: string | null;
   created_at?: string;
   updated_at?: string;
+  variaveis_vazias?: string[];
 };
 
 type DocumentoAtendimentoForm = {
@@ -633,6 +634,9 @@ const TIMELINE_EVENTO_META_PADRAO = {
   dotClass: "border-slate-100 bg-slate-400",
   badgeClass: "bg-slate-100 text-slate-600",
 };
+
+const extrairVariaveisNaoResolvidas = (texto: string): string[] =>
+  Array.from(new Set((texto.match(/\{\{\s*[A-Za-z0-9_]+\s*\}\}/g) || []).map((match) => match.trim())));
 
 const CONSULTA_EDITOR_ETAPAS: Array<{
   key: ConsultaEditorEtapa;
@@ -4808,6 +4812,11 @@ export default function AtendimentoPage() {
     setErro("");
   };
 
+  const documentoVariaveisNaoResolvidas = useMemo(
+    () => extrairVariaveisNaoResolvidas(`${documentoClinicoForm.titulo} ${documentoClinicoForm.corpo}`),
+    [documentoClinicoForm.titulo, documentoClinicoForm.corpo]
+  );
+
   const criarDocumentoClinicoDeTemplate = async () => {
     if (!documentoTemplateSelecionado) {
       setErro("Selecione um template de documento.");
@@ -4829,7 +4838,12 @@ export default function AtendimentoPage() {
       const documentosAtualizados = await recarregarDocumentosAtendimento(atendimentoId);
       const documentoPersistido = documentosAtualizados.find((item) => item.id === documento.id) || documento;
       setDocumentoClinicoForm(hydrateDocumentoForm(documentoPersistido));
-      setSucesso("Documento criado a partir do template.");
+      const variaveisVazias = documento.variaveis_vazias || [];
+      setSucesso(
+        variaveisVazias.length
+          ? `Documento criado a partir do template. Atencao: ${variaveisVazias.join(", ")} estava(m) vazio(s) no cadastro - revise o texto antes de gerar o PDF.`
+          : "Documento criado a partir do template."
+      );
       setErro("");
       return documentoPersistido;
     } catch (e: any) {
@@ -4891,6 +4905,18 @@ export default function AtendimentoPage() {
       documentoParaPdf = await salvarDocumentoClinico({ quiet: true });
     }
     if (!documentoParaPdf?.id) return;
+
+    const variaveisNaoResolvidasPdf = extrairVariaveisNaoResolvidas(
+      `${documentoParaPdf.titulo} ${documentoParaPdf.corpo}`
+    );
+    if (
+      variaveisNaoResolvidasPdf.length > 0 &&
+      !window.confirm(
+        `O documento "${documentoParaPdf.titulo}" ainda tem ${variaveisNaoResolvidasPdf.length} variavel(is) nao reconhecida(s) (${variaveisNaoResolvidasPdf.join(", ")}). Gerar o PDF assim mesmo?`
+      )
+    ) {
+      return;
+    }
 
     if (
       documentoParaPdf.status === "emitido" &&
@@ -6206,7 +6232,7 @@ export default function AtendimentoPage() {
   return (
     <DashboardLayout>
       <div className="fc-care-page">
-        <div className="fixed right-4 top-4 z-[90] flex max-w-md flex-col gap-2">
+        <div className="fixed right-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[90] flex max-w-md flex-col gap-2 lg:top-4">
           {erroPopup ? (
             <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-xl">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -6915,6 +6941,7 @@ export default function AtendimentoPage() {
                     documentoClinicoForm={documentoClinicoForm}
                     documentoTemplateForm={documentoTemplateForm}
                     documentoTemplateSelecionado={documentoTemplateSelecionado}
+                    documentoVariaveisNaoResolvidas={documentoVariaveisNaoResolvidas}
                     editarDocumentoTemplate={editarDocumentoTemplate}
                     evolucaoForm={evolucaoForm}
                     excluirDocumentoClinico={excluirDocumentoClinico}

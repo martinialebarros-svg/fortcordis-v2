@@ -38,6 +38,7 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
     documentoClinicoForm,
     documentoTemplateForm,
     documentoTemplateSelecionado,
+    documentoVariaveisNaoResolvidas,
     editarDocumentoTemplate,
     evolucaoForm,
     excluirDocumentoClinico,
@@ -223,6 +224,15 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                   <span>
                     Este documento ja foi emitido (PDF gerado e entregue). Alteracoes aqui nao mudam o PDF
                     ja entregue - so um novo PDF gerado reflete essas mudancas.
+                  </span>
+                </div>
+              ) : null}
+              {documentoVariaveisNaoResolvidas && documentoVariaveisNaoResolvidas.length > 0 ? (
+                <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    {documentoVariaveisNaoResolvidas.length} campo(s) do template nao {documentoVariaveisNaoResolvidas.length === 1 ? "foi reconhecido" : "foram reconhecidos"}:{" "}
+                    {documentoVariaveisNaoResolvidas.join(", ")} - revise o texto antes de gerar o PDF.
                   </span>
                 </div>
               ) : null}
