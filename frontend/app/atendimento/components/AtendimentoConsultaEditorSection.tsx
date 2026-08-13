@@ -224,10 +224,15 @@ export default function AtendimentoConsultaEditorSection(props: AtendimentoConsu
                   : consultaCampoAtivoConfig?.title || "Selecione um campo"}
               </p>
               {!consultaVerTodosCampos ? (
-                <p className="mt-1 text-xs text-slate-500">
-                  Atalhos: Alt + Shift + esquerda/direita para navegar e Ctrl/Cmd + Enter para avancar. Campo com texto
-                  = concluido automaticamente.
-                </p>
+                <>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Atalhos: Alt + Shift + esquerda/direita para navegar e Ctrl/Cmd + Enter para avancar. Campo com texto
+                    = concluido automaticamente.
+                  </p>
+                  <p className="sr-only" aria-live="polite">
+                    {consultaCampoAtivoConfig ? `Campo ativo: ${consultaCampoAtivoConfig.title}` : ""}
+                  </p>
+                </>
               ) : null}
             </div>
             <div className="flex items-center gap-2">
