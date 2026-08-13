@@ -6384,7 +6384,44 @@ export default function AtendimentoPage() {
   };
 
   if (loading) {
-    return <DashboardLayout><div className="fc-care-loading">Carregando modulo de atendimento...</div></DashboardLayout>;
+    return (
+      <DashboardLayout>
+        <div className="fc-care-page" role="status" aria-live="polite">
+          <span className="sr-only">Carregando modulo de atendimento...</span>
+          <section className="fc-care-header animate-pulse" aria-hidden="true">
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="max-w-2xl space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="h-12 w-12 rounded-2xl bg-white/15" />
+                    <div className="space-y-2">
+                      <div className="h-3 w-32 rounded bg-white/15" />
+                      <div className="h-5 w-48 rounded bg-white/20" />
+                    </div>
+                  </div>
+                  <div className="h-3 w-80 max-w-full rounded bg-white/10" />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <div className="h-10 w-32 rounded-2xl bg-white/10" />
+                  <div className="h-10 w-28 rounded-2xl bg-white/10" />
+                  <div className="h-10 w-40 rounded-2xl bg-white/15" />
+                </div>
+              </div>
+            </div>
+          </section>
+          <div className="fc-care-layout grid grid-cols-1 gap-6 xl:grid-cols-12" aria-hidden="true">
+            <div className="fc-care-sidebar order-2 space-y-4 xl:order-none xl:col-span-3">
+              <div className="h-40 animate-pulse rounded-[22px] border border-slate-200 bg-slate-100" />
+              <div className="h-56 animate-pulse rounded-[22px] border border-slate-200 bg-slate-100" />
+            </div>
+            <div className="fc-care-workspace order-1 space-y-4 xl:order-none xl:col-span-9">
+              <div className="h-48 animate-pulse rounded-[26px] border border-slate-200 bg-slate-100" />
+              <div className="h-72 animate-pulse rounded-[26px] border border-slate-200 bg-slate-100" />
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
   }
 
   return (

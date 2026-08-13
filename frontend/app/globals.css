@@ -6655,8 +6655,8 @@ body {
     }
   }
 
-  .fc-care-page,
-  .fc-care-loading {
+  .fc-care-page {
+    @apply min-h-screen space-y-4 p-4 sm:p-5 lg:p-6;
     max-width: 1680px;
     margin: 0 auto;
     background:
@@ -6665,14 +6665,6 @@ body {
       linear-gradient(rgba(23, 32, 29, 0.022) 1px, transparent 1px),
       linear-gradient(180deg, #fbfdfc 0%, #f1f6f3 55%, #fbfdfc 100%);
     background-size: auto, 64px 64px, 64px 64px, auto;
-  }
-
-  .fc-care-page {
-    @apply min-h-screen space-y-4 p-4 sm:p-5 lg:p-6;
-  }
-
-  .fc-care-loading {
-    @apply min-h-screen p-6 text-sm font-medium text-ink-500;
   }
 
   .fc-care-header {
