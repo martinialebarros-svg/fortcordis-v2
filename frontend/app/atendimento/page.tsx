@@ -1356,6 +1356,7 @@ export default function AtendimentoPage() {
   const [autosaveAt, setAutosaveAt] = useState("");
 
   const [lista, setLista] = useState<AtendimentoResumo[]>([]);
+  const [clinicaFiltroAplicado, setClinicaFiltroAplicado] = useState("");
   const [pacientes, setPacientes] = useState<PacienteResumo[]>([]);
   const [clinicas, setClinicas] = useState<ClinicaResumo[]>([]);
   const [medicamentos, setMedicamentos] = useState<Medicamento[]>([]);
@@ -2095,6 +2096,7 @@ export default function AtendimentoPage() {
       setLista(response.data?.items || []);
       setTotalLista(Number(response.data?.total || 0));
       setPaginaLista(safePage);
+      setClinicaFiltroAplicado(clinicaAtual);
     } catch (e: any) {
       setErro(extractApiErrorMessageSync(e, "Erro ao listar atendimentos."));
     }
@@ -6774,6 +6776,9 @@ export default function AtendimentoPage() {
                           <p className="mt-3 text-xs text-slate-500">{formatDate(item.data_atendimento)}</p>
                           <p className="mt-1 text-sm text-slate-700">{item.diagnostico || item.queixa_principal || "Sem resumo clinico"}</p>
                           <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-medium">
+                            {clinicaFiltroAplicado === "" && item.clinica_nome ? (
+                              <span className="rounded-full bg-slate-200 px-2.5 py-1 text-slate-700">{item.clinica_nome}</span>
+                            ) : null}
                             <span className="rounded-full bg-white px-2.5 py-1 text-slate-600">{item.total_exames || 0} exame(s)</span>
                             {item.tem_prescricao ? (
                               <span className="rounded-full bg-violet-100 px-2.5 py-1 text-violet-700">Receita salva</span>
