@@ -17,6 +17,8 @@ Status: local-validation-passed
 | CA-008 | rotas importadas, Node compilado, frontend TypeScript/ESLint/build | passou |
 | CA-009 | `deploy_prod_vps.sh` e preflight validam formato dos segredos sem registrar seus valores | passou por inspecao + sintaxe |
 | CA-010 | `deploy-stage.yml` instala, compila, testa e audita `whatsapp-stage-backend` no quality gate | passou por inspecao; execucao remota pendente |
+| CA-011 | workflow valida e transmite por stdin os tres GitHub Secrets de stage, atualiza o `.env` remoto e aplica `0600` sem imprimir valores | passou por inspecao; execucao remota pendente |
+| CA-012 | fallback do cliente Graph e default do deploy usam `v26.0` | passou por inspecao; execucao remota pendente |
 
 ## Comandos executados
 
@@ -51,11 +53,12 @@ bash scripts/whatsapp_stage_preflight.sh  # fixtures valida e invalida, sem serv
 - Preflight com fixture completa passou; fixture com App Secret placeholder foi recusada sem expor valores.
 - Quality gate de stage agora cobre build, template, retry, autorizacao, redacao de logs e auditoria do servico WhatsApp.
 - `git diff --check`: passou.
+- GitHub Secrets de stage cadastrados sem exposicao: `WHATSAPP_ACCESS_TOKEN_STAGE`, `WHATSAPP_APP_SECRET_STAGE` e `WHATSAPP_VERIFY_TOKEN_STAGE`.
+- App FortZap usa configuracao de webhook Graph API `v26.0`; defaults do servico e do deploy foram alinhados.
 
 ## Pendencias externas para prova real
 
-- access token permanente de usuario do sistema configurado diretamente no servidor;
-- App Secret e verify token configurados diretamente no servidor;
+- confirmar no workflow terminal que os tres GitHub Secrets foram instalados no runtime de stage;
 - callback HTTPS publicado e inscricao do campo `messages` ativada no WABA;
 - smoke real com o numero `+55 85 8828-1436` e verificacao dos dois botoes;
 - confirmacao do modo publicado/permissoes do app antes da promocao para producao.
