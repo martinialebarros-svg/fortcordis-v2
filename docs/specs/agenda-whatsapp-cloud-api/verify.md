@@ -2,7 +2,7 @@
 
 Data: 2026-08-11
 Responsavel: Martiniano + Codex
-Status: local-validation-passed
+Status: stage-integration-passed-template-review-pending
 
 ## Matriz
 
@@ -16,9 +16,9 @@ Status: local-validation-passed
 | CA-007 | validacao de destino no core e de remetente no webhook | leitura + tipos passaram |
 | CA-008 | rotas importadas, Node compilado, frontend TypeScript/ESLint/build | passou |
 | CA-009 | `deploy_prod_vps.sh` e preflight validam formato dos segredos sem registrar seus valores | passou por inspecao + sintaxe |
-| CA-010 | `deploy-stage.yml` instala, compila, testa e audita `whatsapp-stage-backend` no quality gate | passou por inspecao; execucao remota pendente |
-| CA-011 | workflow valida e transmite por stdin os tres GitHub Secrets de stage, atualiza o `.env` remoto e aplica `0600` sem imprimir valores | passou por inspecao; execucao remota pendente |
-| CA-012 | fallback do cliente Graph e default do deploy usam `v26.0` | passou por inspecao; execucao remota pendente |
+| CA-010 | `deploy-stage.yml` instala, compila, testa e audita `whatsapp-stage-backend` no quality gate | passou no run `31652774238` |
+| CA-011 | workflow valida e transmite por stdin os tres GitHub Secrets de stage, atualiza o `.env` remoto e aplica `0600` sem imprimir valores | passou no run `31652774238` |
+| CA-012 | fallback do cliente Graph e default do deploy usam `v26.0` | passou no deploy e no callback real de stage |
 
 ## Comandos executados
 
@@ -55,10 +55,16 @@ bash scripts/whatsapp_stage_preflight.sh  # fixtures valida e invalida, sem serv
 - `git diff --check`: passou.
 - GitHub Secrets de stage cadastrados sem exposicao: `WHATSAPP_ACCESS_TOKEN_STAGE`, `WHATSAPP_APP_SECRET_STAGE` e `WHATSAPP_VERIFY_TOKEN_STAGE`.
 - App FortZap usa configuracao de webhook Graph API `v26.0`; defaults do servico e do deploy foram alinhados.
+- Deploy de stage `31652774238` e Migration CI `31652774196` terminaram com sucesso no commit `95d94a69`.
+- O smoke executado no VPS validou verificacao GET, rejeicao de assinatura invalida, idempotencia de payload duplicado, concorrencia de mensagens, retry da Graph API e canario autenticado.
+- Callback HTTPS `https://app.stage.fortcordis.com.br/whatsapp/webhook` aceitou a verificacao com o token real e devolveu o challenge esperado; token incorreto retornou `403`.
+- O campo `messages` esta inscrito no app e a assinatura de webhooks da WABA `1369494994627980` foi ativada.
+- Health check do servico retornou `200`; `/whatsapp/agents` anonimo retornou `401`.
+- O app Meta `975334532125008` foi publicado e esta disponivel ao publico.
+- O template `reserva_de_agendamento` em `pt_BR`, com cinco variaveis e os quick replies `Confirmar` e `Solicitar alteracao`, foi criado na WABA correta com ID `1850190569695780`; a revisao da Meta permanece pendente.
 
 ## Pendencias externas para prova real
 
-- confirmar no workflow terminal que os tres GitHub Secrets foram instalados no runtime de stage;
-- callback HTTPS publicado e inscricao do campo `messages` ativada no WABA;
-- smoke real com o numero `+55 85 8828-1436` e verificacao dos dois botoes;
-- confirmacao do modo publicado/permissoes do app antes da promocao para producao.
+- aguardar a Meta alterar o template `reserva_de_agendamento` de `Em analise` para `Ativo`;
+- enviar o template para um numero destinatario diferente do remetente registrado `+55 85 8828-1436` e guardar o message ID;
+- responder pelos dois botoes em uma reserva de teste controlada para confirmar entrega do webhook real e idempotencia antes da promocao para producao.
