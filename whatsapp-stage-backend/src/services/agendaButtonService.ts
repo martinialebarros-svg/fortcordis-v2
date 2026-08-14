@@ -3,6 +3,10 @@ import { PoolClient } from "pg";
 import { queryWithClient } from "./dbService";
 import { WebhookMessage } from "../types/whatsapp";
 import { logger } from "../utils/logger";
+import {
+  areEquivalentWhatsAppNumbers,
+  canonicalWhatsAppIdentity
+} from "../utils/phoneNumber";
 
 interface ReservationBinding {
   id: string;
@@ -10,10 +14,6 @@ interface ReservationBinding {
   destination: string;
   wa_message_id: string | null;
   action: "confirmar" | "solicitar_alteracao";
-}
-
-function digits(value: unknown): string {
-  return String(value ?? "").replace(/\D+/g, "");
 }
 
 export async function handleAgendaButtonReply(
@@ -59,14 +59,14 @@ export async function handleAgendaButtonReply(
       ON CONFLICT (provider_message_id) DO NOTHING
       RETURNING id
     `,
-    [message.id, binding.id, binding.action, digits(message.from)]
+    [message.id, binding.id, binding.action, canonicalWhatsAppIdentity(message.from)]
   );
   if (!eventInsert.rows[0]) {
     return;
   }
 
   const eventId = eventInsert.rows[0].id;
-  if (digits(binding.destination) !== digits(message.from)) {
+  if (!areEquivalentWhatsAppNumbers(binding.destination, message.from)) {
     await queryWithClient(
       client,
       `
@@ -98,7 +98,7 @@ export async function handleAgendaButtonReply(
       outbound_message_id: binding.wa_message_id,
       agendamento_id: Number(binding.reservation_id),
       action: binding.action,
-      from_phone: digits(message.from)
+      from_phone: canonicalWhatsAppIdentity(message.from)
     },
     {
       headers: {

@@ -14,6 +14,7 @@
     "smoke": "bash scripts/smoke-tests.sh",
     "test:whatsapp-retry": "ts-node scripts/test-whatsapp-retry.ts",
     "test:reservation-template": "ts-node scripts/test-reservation-template.ts",
+    "test:phone-number": "ts-node scripts/test-phone-number.ts",
     "test:auth-policy": "ts-node --transpile-only scripts/test-auth-policy.ts",
     "test:webhook-cleanup-config": "DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fortcordis_stage ts-node --transpile-only scripts/test-webhook-cleanup-config.ts",
     "test:log-redaction": "ts-node --transpile-only scripts/test-log-redaction.ts"
