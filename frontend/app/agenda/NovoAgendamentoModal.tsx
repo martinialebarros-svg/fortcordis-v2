@@ -32,6 +32,19 @@ import {
   obterWhatsappsClinica,
   prepararWhatsappsFormulario,
 } from "@/lib/clinica-whatsapp";
+import {
+  addRacaCustomPorEspecie,
+  editarRacaCatalogo,
+  excluirRacaCatalogo,
+  getRacaOptions,
+  getRacasCatalogo,
+  loadAjustesRacasPorEspecie,
+  loadRacasCustomPorEspecie,
+  saveAjustesRacasPorEspecie,
+  saveRacasCustomPorEspecie,
+  type AjustesRacasPorEspecie,
+  type RacasCustomPorEspecie,
+} from "@/lib/racas";
 
 const LIMITE_MINUTOS_PROXIMIDADE = 25;
 const LIMITE_ESTENDIDO_EXTRA_MIN = 15;
@@ -867,6 +880,13 @@ export default function NovoAgendamentoModal({
   const [salvandoAnimal, setSalvandoAnimal] = useState(false);
   const [novoTutor, setNovoTutor] = useState<NovoTutorForm>(buildInitialTutorForm());
   const [novoAnimal, setNovoAnimal] = useState<NovoAnimalForm>(buildInitialAnimalForm());
+  const [novaRaca, setNovaRaca] = useState("");
+  const [racasCustomPorEspecie, setRacasCustomPorEspecie] = useState<RacasCustomPorEspecie>({});
+  const [ajustesRacasPorEspecie, setAjustesRacasPorEspecie] = useState<AjustesRacasPorEspecie>({});
+  const [racasLoaded, setRacasLoaded] = useState(false);
+  const [gestaoRacasAberta, setGestaoRacasAberta] = useState(false);
+  const [racaEmEdicaoId, setRacaEmEdicaoId] = useState("");
+  const [nomeRacaEmEdicao, setNomeRacaEmEdicao] = useState("");
   const [consultandoCepTutor, setConsultandoCepTutor] = useState(false);
   const [geocodificandoTutor, setGeocodificandoTutor] = useState(false);
   const [statusEnderecoTutor, setStatusEnderecoTutor] = useState("");
@@ -889,6 +909,21 @@ export default function NovoAgendamentoModal({
 
   const [formData, setFormData] = useState<FormDataAgenda>(
     buildInitialFormData(defaultDate, defaultTime)
+  );
+
+  const racasCatalogo = getRacasCatalogo(
+    novoAnimal.especie,
+    racasCustomPorEspecie[novoAnimal.especie] || [],
+    ajustesRacasPorEspecie,
+  );
+  const opcoesRacaAnimal = getRacaOptions(
+    novoAnimal.especie,
+    novoAnimal.raca,
+    racasCustomPorEspecie[novoAnimal.especie] || [],
+    ajustesRacasPorEspecie,
+  );
+  const racaSelecionadaNoCatalogo = racasCatalogo.find(
+    (raca) => raca.nome === novoAnimal.raca,
   );
 
   const isEditando = !!agendamento;
@@ -1016,6 +1051,22 @@ export default function NovoAgendamentoModal({
     return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
   };
 
+  useEffect(() => {
+    setRacasCustomPorEspecie(loadRacasCustomPorEspecie());
+    setAjustesRacasPorEspecie(loadAjustesRacasPorEspecie());
+    setRacasLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!racasLoaded) return;
+    saveRacasCustomPorEspecie(racasCustomPorEspecie);
+  }, [racasCustomPorEspecie, racasLoaded]);
+
+  useEffect(() => {
+    if (!racasLoaded) return;
+    saveAjustesRacasPorEspecie(ajustesRacasPorEspecie);
+  }, [ajustesRacasPorEspecie, racasLoaded]);
+
   // Inicializa formulario ao abrir no modo "novo" sem resetar quando pacientes/tutores atualizam.
   useEffect(() => {
     if (!isOpen || isEditando) return;
@@ -1110,6 +1161,10 @@ export default function NovoAgendamentoModal({
     setSalvandoAnimal(false);
     setNovoTutor(buildInitialTutorForm());
     setNovoAnimal(buildInitialAnimalForm());
+    setNovaRaca("");
+    setGestaoRacasAberta(false);
+    setRacaEmEdicaoId("");
+    setNomeRacaEmEdicao("");
     setTutorPanorama(null);
     setCarregandoTutorPanorama(false);
     setGeocodificandoTutor(false);
@@ -2352,7 +2407,102 @@ export default function NovoAgendamentoModal({
 
   const abrirModalAnimal = () => {
     setNovoAnimal(buildInitialAnimalForm(formData.tutor_id));
+    setNovaRaca("");
+    setGestaoRacasAberta(false);
+    setRacaEmEdicaoId("");
+    setNomeRacaEmEdicao("");
     setModalAnimalAberto(true);
+  };
+
+  const nomesDeRacaIguais = (primeira: string, segunda: string): boolean =>
+    primeira.localeCompare(segunda, "pt-BR", { sensitivity: "base" }) === 0;
+
+  const cadastrarRacaAnimal = () => {
+    const nome = novaRaca.trim();
+    if (!nome) return;
+
+    const racaExistente = racasCatalogo.find((raca) => nomesDeRacaIguais(raca.nome, nome));
+    if (racaExistente) {
+      setNovoAnimal((prev) => ({ ...prev, raca: racaExistente.nome }));
+      setNovaRaca("");
+      fortinho.notify({
+        title: "Raça já cadastrada",
+        message: `${racaExistente.nome} já está disponível para ${novoAnimal.especie.toLowerCase()}.`,
+        mood: "happy",
+        gesture: "idle",
+      });
+      return;
+    }
+
+    setRacasCustomPorEspecie((prev) => addRacaCustomPorEspecie(prev, novoAnimal.especie, nome));
+    setNovoAnimal((prev) => ({ ...prev, raca: nome }));
+    setNovaRaca("");
+  };
+
+  const iniciarEdicaoRacaAnimal = () => {
+    if (!racaSelecionadaNoCatalogo) return;
+    setRacaEmEdicaoId(racaSelecionadaNoCatalogo.id);
+    setNomeRacaEmEdicao(racaSelecionadaNoCatalogo.nome);
+  };
+
+  const salvarEdicaoRacaAnimal = () => {
+    const nome = nomeRacaEmEdicao.trim();
+    const racaEmEdicao = racasCatalogo.find((raca) => raca.id === racaEmEdicaoId);
+    if (!nome || !racaEmEdicao) return;
+
+    const duplicada = racasCatalogo.some(
+      (raca) => raca.id !== racaEmEdicao.id && nomesDeRacaIguais(raca.nome, nome),
+    );
+    if (duplicada) {
+      fortinho.notify({
+        title: "Raça já cadastrada",
+        message: "Escolha um nome diferente para a raça.",
+        mood: "alert",
+        gesture: "idle",
+      });
+      return;
+    }
+
+    const atualizado = editarRacaCatalogo(
+      racasCustomPorEspecie,
+      ajustesRacasPorEspecie,
+      novoAnimal.especie,
+      racaEmEdicao,
+      nome,
+    );
+    setRacasCustomPorEspecie(atualizado.racasCustomPorEspecie);
+    setAjustesRacasPorEspecie(atualizado.ajustesPorEspecie);
+    setNovoAnimal((prev) => ({ ...prev, raca: nome }));
+    setRacaEmEdicaoId("");
+    setNomeRacaEmEdicao("");
+  };
+
+  const excluirRacaAnimal = async () => {
+    if (!racaSelecionadaNoCatalogo) return;
+
+    const confirmou = await fortinho.confirm({
+      title: "Excluir raça do catálogo",
+      message:
+        `Deseja excluir ${racaSelecionadaNoCatalogo.nome} das opções de ${novoAnimal.especie.toLowerCase()}? ` +
+        "Os animais já cadastrados não serão alterados.",
+      mood: "alert",
+      gesture: "idle",
+      confirmLabel: "Excluir raça",
+      cancelLabel: "Cancelar",
+    });
+    if (!confirmou) return;
+
+    const atualizado = excluirRacaCatalogo(
+      racasCustomPorEspecie,
+      ajustesRacasPorEspecie,
+      novoAnimal.especie,
+      racaSelecionadaNoCatalogo,
+    );
+    setRacasCustomPorEspecie(atualizado.racasCustomPorEspecie);
+    setAjustesRacasPorEspecie(atualizado.ajustesPorEspecie);
+    setNovoAnimal((prev) => ({ ...prev, raca: "" }));
+    setRacaEmEdicaoId("");
+    setNomeRacaEmEdicao("");
   };
 
   const salvarNovoTutor = async (confirmarReativacao = false) => {
@@ -4596,7 +4746,12 @@ export default function NovoAgendamentoModal({
                   <label className="block text-sm font-medium text-gray-700 mb-1">Especie</label>
                   <select
                     value={novoAnimal.especie}
-                    onChange={(e) => setNovoAnimal((prev) => ({ ...prev, especie: e.target.value }))}
+                    onChange={(e) => {
+                      setNovoAnimal((prev) => ({ ...prev, especie: e.target.value, raca: "" }));
+                      setNovaRaca("");
+                      setRacaEmEdicaoId("");
+                      setNomeRacaEmEdicao("");
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   >
                     {["Canina", "Felina", "Equina", "Outra"].map((especie) => (
@@ -4610,14 +4765,132 @@ export default function NovoAgendamentoModal({
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Raca</label>
-                  <input
-                    type="text"
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Raça</label>
+                  <select
                     value={novoAnimal.raca}
                     onChange={(e) => setNovoAnimal((prev) => ({ ...prev, raca: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="Raca"
-                  />
+                  >
+                    <option value="">Selecione...</option>
+                    {opcoesRacaAnimal.map((raca) => (
+                      <option key={raca} value={raca}>
+                        {raca}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setGestaoRacasAberta((aberta) => !aberta)}
+                    className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-900"
+                    aria-expanded={gestaoRacasAberta}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    {gestaoRacasAberta ? "Fechar gestão de raças" : "Cadastrar ou gerenciar raças"}
+                  </button>
+
+                  {gestaoRacasAberta && (
+                    <div className="mt-2 space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs text-slate-600">
+                        Catálogo de raças {novoAnimal.especie.toLowerCase()}, em ordem alfabética.
+                      </p>
+
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={novaRaca}
+                          onChange={(e) => setNovaRaca(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              cadastrarRacaAnimal();
+                            }
+                          }}
+                          className="min-w-0 flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          placeholder="Nova raça"
+                        />
+                        <button
+                          type="button"
+                          onClick={cadastrarRacaAnimal}
+                          disabled={!novaRaca.trim()}
+                          className="inline-flex items-center gap-1 rounded-lg border border-blue-200 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Cadastrar
+                        </button>
+                      </div>
+
+                      {racaEmEdicaoId ? (
+                        <div className="space-y-2 rounded-md border border-blue-100 bg-white p-2">
+                          <label className="block text-xs font-medium text-slate-700" htmlFor="fc-raca-em-edicao">
+                            Editar raça
+                          </label>
+                          <div className="flex gap-2">
+                            <input
+                              id="fc-raca-em-edicao"
+                              type="text"
+                              value={nomeRacaEmEdicao}
+                              onChange={(e) => setNomeRacaEmEdicao(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  salvarEdicaoRacaAnimal();
+                                }
+                              }}
+                              className="min-w-0 flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={salvarEdicaoRacaAnimal}
+                              disabled={!nomeRacaEmEdicao.trim()}
+                              className="rounded-lg bg-blue-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Salvar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRacaEmEdicaoId("");
+                                setNomeRacaEmEdicao("");
+                              }}
+                              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="mr-auto text-xs text-slate-600">
+                            {racaSelecionadaNoCatalogo
+                              ? `Selecionada: ${racaSelecionadaNoCatalogo.nome}`
+                              : "Selecione uma raça acima para editar ou excluir."}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={iniciarEdicaoRacaAnimal}
+                            disabled={!racaSelecionadaNoCatalogo}
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void excluirRacaAnimal()}
+                            disabled={!racaSelecionadaNoCatalogo}
+                            className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Excluir
+                          </button>
+                        </div>
+                      )}
+
+                      <p className="text-xs text-slate-500">
+                        Alterações no catálogo não modificam a raça de animais já cadastrados.
+                      </p>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Sexo</label>
