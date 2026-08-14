@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../layout-dashboard";
-import { Filter, MessageSquare, MessagesSquare, Send, UserCheck, Users } from "lucide-react";
+import { Filter, MessageSquare, MessagesSquare, RefreshCw, Send, UserCheck, Users } from "lucide-react";
 
 type AssignedFilter = "all" | "assigned" | "unassigned";
 
@@ -67,6 +67,13 @@ interface MessagesResponse {
 interface AgentsResponse {
   data: Agent[];
 }
+
+interface LoadMessagesOptions {
+  isCurrent?: () => boolean;
+  silent?: boolean;
+}
+
+const MESSAGE_STATUS_REFRESH_INTERVAL_MS = 5_000;
 
 function getAuthHeaders(): Record<string, string> {
   if (typeof window === "undefined") {
@@ -238,8 +245,16 @@ export default function WhatsAppStagePage() {
     }
   };
 
-  const loadMessages = async (conversationId: string, page = 1): Promise<void> => {
-    setLoadingMessages(true);
+  const loadMessages = async (
+    conversationId: string,
+    page = 1,
+    options: LoadMessagesOptions = {}
+  ): Promise<void> => {
+    const { isCurrent, silent = false } = options;
+
+    if (!silent) {
+      setLoadingMessages(true);
+    }
     setErrorMessage(null);
 
     try {
@@ -256,13 +271,19 @@ export default function WhatsAppStagePage() {
         throw new Error(result.errorText || `Falha ao carregar mensagens (HTTP ${result.status})`);
       }
 
-      setMessages(result.data.data);
-      setMessagesPagination(result.data.pagination);
+      if (!isCurrent || isCurrent()) {
+        setMessages(result.data.data);
+        setMessagesPagination(result.data.pagination);
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Erro ao carregar mensagens";
-      setErrorMessage(message);
+      if (!isCurrent || isCurrent()) {
+        const message = error instanceof Error ? error.message : "Erro ao carregar mensagens";
+        setErrorMessage(message);
+      }
     } finally {
-      setLoadingMessages(false);
+      if (!silent && (!isCurrent || isCurrent())) {
+        setLoadingMessages(false);
+      }
     }
   };
 
@@ -404,7 +425,35 @@ export default function WhatsAppStagePage() {
       return;
     }
 
-    void loadMessages(selectedConversationId, 1);
+    let active = true;
+    let refreshInProgress = false;
+
+    const refreshMessages = async (silent: boolean): Promise<void> => {
+      if (refreshInProgress) {
+        return;
+      }
+
+      refreshInProgress = true;
+      try {
+        await loadMessages(selectedConversationId, 1, {
+          isCurrent: () => active,
+          silent,
+        });
+      } finally {
+        refreshInProgress = false;
+      }
+    };
+
+    void refreshMessages(false);
+    const intervalId = window.setInterval(
+      () => void refreshMessages(true),
+      MESSAGE_STATUS_REFRESH_INTERVAL_MS
+    );
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedConversationId]);
 
@@ -537,13 +586,28 @@ export default function WhatsAppStagePage() {
 
           <div className="space-y-4">
             <div className="fc-wa-chat">
-              <div className="fc-wa-panel-heading">
-                <h2>Mensagens</h2>
-                <p className="text-xs text-gray-500">
-                  {selectedConversation
-                    ? `Conversa #${selectedConversation.id} · ${selectedConversation.wa_phone_number}`
-                    : "Selecione uma conversa"}
-                </p>
+              <div className="fc-wa-panel-heading flex items-center justify-between gap-3">
+                <div>
+                  <h2>Mensagens</h2>
+                  <p className="text-xs text-gray-500">
+                    {selectedConversation
+                      ? `Conversa #${selectedConversation.id} · ${selectedConversation.wa_phone_number}`
+                      : "Selecione uma conversa"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedConversationId) {
+                      void loadMessages(selectedConversationId, 1);
+                    }
+                  }}
+                  disabled={!selectedConversationId || loadingMessages}
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${loadingMessages ? "animate-spin" : ""}`} />
+                  Atualizar
+                </button>
               </div>
 
               <div className="fc-wa-message-stream">
