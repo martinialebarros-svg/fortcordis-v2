@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -105,6 +106,8 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
     uploadProgressByKey,
   } = props;
 
+  const [exameBuscaFoco, setExameBuscaFoco] = useState(false);
+
   return (
     <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm space-y-3">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -202,16 +205,27 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
             <input
               value={exameBusca}
               onChange={(e) => setExameBusca(e.target.value)}
+              onFocus={() => setExameBuscaFoco(true)}
+              onBlur={() => setExameBuscaFoco(false)}
               placeholder="Buscar exame por nome, categoria ou sinonimo..."
               className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-11 pr-3 text-sm text-slate-900"
             />
-            {exameBusca.trim() && examesCatalogoFiltrados.length > 0 ? (
+            {(exameBusca.trim() || exameBuscaFoco) && examesCatalogoFiltrados.length > 0 ? (
               <div className="absolute z-10 mt-2 max-h-72 w-full overflow-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                {!exameBusca.trim() ? (
+                  <p className="px-3 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Sugestoes
+                  </p>
+                ) : null}
                 {examesCatalogoFiltrados.map((item: AtendimentoExamesSectionProps) => (
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => adicionarExameDoCatalogo(item)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setExameBuscaFoco(false);
+                      adicionarExameDoCatalogo(item);
+                    }}
                     className="w-full rounded-2xl px-3 py-3 text-left transition hover:bg-sky-50"
                   >
                     <div className="flex items-start justify-between gap-3">
