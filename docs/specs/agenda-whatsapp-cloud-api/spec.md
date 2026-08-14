@@ -1,8 +1,8 @@
 # Spec - agenda-whatsapp-cloud-api
 
-Data: 2026-08-11
+Data: 2026-08-14
 Responsavel: Martiniano + Codex
-Status: stage-credential-deployment
+Status: stage-br-phone-alias-fix
 
 ## 1) Requisitos funcionais
 
@@ -16,6 +16,7 @@ Status: stage-credential-deployment
 - RF-008: `Solicitar alteracao` preserva data, hora e status e cria alerta interno para a equipe.
 - RF-009: respostas repetidas com o mesmo `provider_message_id` retornam o resultado ja persistido.
 - RF-010: o modal preserva `Abrir WhatsApp` e `Copiar mensagem` como alternativa manual.
+- RF-011: mensagens de uma linha brasileira identificada pela Meta com ou sem o nono digito usam a mesma conversa interna.
 
 ## 2) Requisitos nao funcionais
 
@@ -23,7 +24,7 @@ Status: stage-credential-deployment
 - NFR-002 (minimo privilegio): a rota de envio exige usuario FortCordis autenticado; a rota de callback aceita somente a credencial interna.
 - NFR-003 (privacidade): o modelo nao inclui diagnostico, laudo ou informacao clinica; logs nao registram tokens nem payloads aleatorios dos botoes.
 - NFR-004 (idempotencia): o envio usa `idempotency_key` e o callback usa o ID de mensagem da Meta como chave unica.
-- NFR-005 (integridade): remetente do clique deve ser o mesmo numero destinatario do envio.
+- NFR-005 (integridade): remetente do clique deve ser o mesmo numero destinatario do envio; para numeros brasileiros, aceita-se somente a equivalencia exata causada pela inclusao ou omissao do nono digito depois de `55 + DDD`.
 - NFR-006 (fail closed): envio que fica em estado ambiguo nao e repetido automaticamente; exige revisao operacional.
 - NFR-007 (timezone): data e prazo exibidos usam UTC-3 independentemente do timezone do servidor.
 - NFR-008 (deploy seguro): stage falha fechado se access token, App Secret, verify token ou IDs publicos Meta estiverem ausentes, com placeholder ou em formato inconsistente; logs exibem apenas o nome da variavel.
@@ -59,6 +60,7 @@ Status: stage-credential-deployment
 - Core migration `20260811_66`: `whatsapp_agenda_respostas`, unica por `provider_message_id`.
 - Node migration: `agenda_reservation_messages` e `agenda_reservation_button_events`.
 - Mensagem outbound continua registrada em `messages`; status da Meta continua em `message_status_events`.
+- Novas mensagens inbound e outbound usam uma chave interna canonica para unificar as variantes brasileiras com e sem nono digito; o numero original continua preservado no payload do webhook e no envio Graph.
 
 ## 5) Configuracao
 
@@ -82,6 +84,8 @@ Status: stage-credential-deployment
 - CA-010: o workflow de stage nao executa o deploy se qualquer teste obrigatorio do servico WhatsApp falhar.
 - CA-011: o workflow de stage falha antes do deploy se qualquer segredo Meta estiver ausente ou fora do formato esperado e, quando valido, atualiza o `.env` remoto com permissao `0600`.
 - CA-012: chamadas Graph do servico usam `v26.0` quando o ambiente nao define outra versao valida.
+- CA-013: `5585988018899` e `558588018899` sao aceitos como a mesma identidade; mudanca no DDD ou no restante do numero permanece rejeitada.
+- CA-014: novas mensagens enviadas e recebidas pelas duas variantes brasileiras sao vinculadas a mesma chave de conversa.
 
 ## 7) Fora de escopo
 

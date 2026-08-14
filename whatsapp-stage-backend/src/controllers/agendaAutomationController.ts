@@ -11,6 +11,7 @@ import {
   WhatsAppGraphApiError
 } from "../services/whatsappService";
 import { logger } from "../utils/logger";
+import { canonicalWhatsAppIdentity } from "../utils/phoneNumber";
 
 interface ReservationParameters {
   recipient_name: string;
@@ -175,7 +176,7 @@ async function persistSentMessage(
         DO UPDATE SET updated_at = now(), last_activity_at = now()
         RETURNING id
       `,
-      [payload.destination]
+      [canonicalWhatsAppIdentity(payload.destination)]
     );
     await queryWithClient(
       client,

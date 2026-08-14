@@ -1,8 +1,8 @@
 # Verify - agenda-whatsapp-cloud-api
 
-Data: 2026-08-11
+Data: 2026-08-14
 Responsavel: Martiniano + Codex
-Status: stage-integration-passed-template-review-pending
+Status: local-br-phone-alias-fix-passed-stage-pending
 
 ## Matriz
 
@@ -19,12 +19,15 @@ Status: stage-integration-passed-template-review-pending
 | CA-010 | `deploy-stage.yml` instala, compila, testa e audita `whatsapp-stage-backend` no quality gate | passou no run `31652774238` |
 | CA-011 | workflow valida e transmite por stdin os tres GitHub Secrets de stage, atualiza o `.env` remoto e aplica `0600` sem imprimir valores | passou no run `31652774238` |
 | CA-012 | fallback do cliente Graph e default do deploy usam `v26.0` | passou no deploy e no callback real de stage |
+| CA-013 | `test-phone-number.ts` cobre equivalencia com/sem nono digito e rejeita DDD/sufixo diferentes | passou localmente |
+| CA-014 | controllers inbound/outbound usam `canonicalWhatsAppIdentity` como chave de conversa | build + inspecao passaram localmente |
 
 ## Comandos executados
 
 ```bash
 cd whatsapp-stage-backend && npm run build
 cd whatsapp-stage-backend && npm run test:reservation-template
+cd whatsapp-stage-backend && npm run test:phone-number
 cd whatsapp-stage-backend && npm run test:whatsapp-retry
 cd whatsapp-stage-backend && npm run test:auth-policy
 cd whatsapp-stage-backend && npm run test:log-redaction
@@ -42,13 +45,14 @@ bash scripts/whatsapp_stage_preflight.sh  # fixtures valida e invalida, sem serv
 
 - Node/TypeScript: compilou.
 - Payload do template: passou.
+- Identidade telefonica: equivalencia brasileira restrita passou; DDD, sufixo e numeros internacionais distintos continuaram rejeitados.
 - Retry da Graph API: passou.
 - Auditoria de dependencias do servico WhatsApp: 0 vulnerabilidades apos atualizar Axios/Express.
 - Backend focado: 6 testes de servico/contrato passaram; migracao e ciclo de migracao tambem passaram.
-- Suite backend completa com `TZ=UTC`: 718 testes passaram.
+- Suite backend completa com `TZ=UTC`: 718 testes passaram novamente em 14/08/2026.
 - Importacao das duas novas rotas FastAPI: passou.
 - Frontend TypeScript e ESLint: passaram sem erros ou avisos.
-- Build Next.js 15.5.23: passou, com 40 paginas estaticas geradas.
+- Build Next.js 15.5.14: passou, com 43 paginas estaticas geradas.
 - Scripts de deploy/preflight: `bash -n` passou.
 - Preflight com fixture completa passou; fixture com App Secret placeholder foi recusada sem expor valores.
 - Quality gate de stage agora cobre build, template, retry, autorizacao, redacao de logs e auditoria do servico WhatsApp.
@@ -61,10 +65,13 @@ bash scripts/whatsapp_stage_preflight.sh  # fixtures valida e invalida, sem serv
 - O campo `messages` esta inscrito no app e a assinatura de webhooks da WABA `1369494994627980` foi ativada.
 - Health check do servico retornou `200`; `/whatsapp/agents` anonimo retornou `401`.
 - O app Meta `975334532125008` foi publicado e esta disponivel ao publico.
-- O template `reserva_de_agendamento` em `pt_BR`, com cinco variaveis e os quick replies `Confirmar` e `Solicitar alteracao`, foi criado na WABA correta com ID `1850190569695780`; a revisao da Meta permanece pendente.
+- O template `reserva_de_agendamento` em `pt_BR`, com cinco variaveis e os quick replies `Confirmar` e `Solicitar alteracao`, foi criado na WABA correta com ID `1850190569695780` e aparece como ativo no WhatsApp Manager.
+- O primeiro teste real enviou para `5585988018899`, mas a Meta devolveu o clique de botao como `558588018899`; a comparacao literal rejeitou o evento e manteve a reserva como `Reservado`.
+- A correcao local agora usa a representacao sem o nono digito apenas como chave interna e para auditoria do callback; o numero original continua sendo enviado para a Graph API.
 
-## Pendencias externas para prova real
+## Pendencias para nova prova real
 
-- aguardar a Meta alterar o template `reserva_de_agendamento` de `Em analise` para `Ativo`;
-- enviar o template para um numero destinatario diferente do remetente registrado `+55 85 8828-1436` e guardar o message ID;
-- responder pelos dois botoes em uma reserva de teste controlada para confirmar entrega do webhook real e idempotencia antes da promocao para producao.
+- publicar este snapshot em stage e aguardar os workflows terminais;
+- criar uma nova reserva controlada, enviar o template e clicar em `Confirmar` antes do prazo;
+- comprovar no FortCordis que o status mudou para `Confirmado` e que as novas mensagens ficaram na mesma conversa;
+- testar `Solicitar alteracao` em outra reserva controlada e comprovar o alerta interno antes de qualquer promocao para producao.

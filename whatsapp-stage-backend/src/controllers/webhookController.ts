@@ -17,6 +17,7 @@ import {
   WebhookStatusEvent
 } from "../types/whatsapp";
 import { handleAgendaButtonReply } from "../services/agendaButtonService";
+import { canonicalWhatsAppIdentity } from "../utils/phoneNumber";
 
 interface WebhookEventRow {
   id: string;
@@ -225,7 +226,13 @@ async function handleContacts(value: WebhookChangeValue, client: PoolClient): Pr
       continue;
     }
 
-    const conversation = await upsertConversation(client, waId, waId, contact.profile?.name ?? null);
+    const identity = canonicalWhatsAppIdentity(waId);
+    const conversation = await upsertConversation(
+      client,
+      identity,
+      identity,
+      contact.profile?.name ?? null
+    );
 
     await queryWithClient(
       client,
@@ -251,7 +258,7 @@ async function handleInboundMessages(value: WebhookChangeValue, client: PoolClie
 
   for (const contact of value.contacts ?? []) {
     if (contact.wa_id) {
-      contactsByWaId.set(contact.wa_id, contact);
+      contactsByWaId.set(canonicalWhatsAppIdentity(contact.wa_id), contact);
     }
   }
 
@@ -261,11 +268,12 @@ async function handleInboundMessages(value: WebhookChangeValue, client: PoolClie
       continue;
     }
 
-    const contact = contactsByWaId.get(from);
+    const identity = canonicalWhatsAppIdentity(from);
+    const contact = contactsByWaId.get(identity);
     const conversation = await upsertConversation(
       client,
-      from,
-      contact?.wa_id ?? null,
+      identity,
+      contact?.wa_id ? canonicalWhatsAppIdentity(contact.wa_id) : identity,
       contact?.profile?.name ?? null
     );
 

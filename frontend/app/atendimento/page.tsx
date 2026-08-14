@@ -798,6 +798,16 @@ const emptyExam = (): ExameSolicitacao => ({
   _localId: gerarExameLocalId(),
 });
 
+const reindexarAposRemocaoDeItem = <T,>(registro: Record<number, T>, idxRemovido: number): Record<number, T> => {
+  const proximo: Record<number, T> = {};
+  Object.entries(registro).forEach(([chave, valor]) => {
+    const numero = Number(chave);
+    if (numero < idxRemovido) proximo[numero] = valor;
+    else if (numero > idxRemovido) proximo[numero - 1] = valor;
+  });
+  return proximo;
+};
+
 const emptyPrescriptionItem = (): PrescricaoItem => ({
   medicamento_id: null,
   medicamento_nome: "",
@@ -1496,6 +1506,8 @@ export default function AtendimentoPage() {
   const [prescricaoEntradaModo, setPrescricaoEntradaModo] = useState<"industrializado" | "manipulado" | null>(null);
   const [prescricaoEditorManualAberto, setPrescricaoEditorManualAberto] = useState(false);
   const [prescricaoBuscaRapida, setPrescricaoBuscaRapida] = useState("");
+  const [medicamentoBuscaPorItem, setMedicamentoBuscaPorItem] = useState<Record<number, string>>({});
+  const [medicamentoFocoPorItem, setMedicamentoFocoPorItem] = useState<Record<number, boolean>>({});
   const [prescricaoPreviewAtivo, setPrescricaoPreviewAtivo] = useState(false);
   const [prescricaoPreviewPdf, setPrescricaoPreviewPdf] = useState<string | null>(null);
   const [prescricaoPreviewLoading, setPrescricaoPreviewLoading] = useState(false);
@@ -5931,11 +5943,15 @@ export default function AtendimentoPage() {
       // Limpa o unico item em vez de remover
       setPrescricaoEditorManualAberto(false);
       setField("prescricao_itens", [emptyPrescriptionItem()]);
+      setMedicamentoBuscaPorItem({});
+      setMedicamentoFocoPorItem({});
     } else {
       setField(
         "prescricao_itens",
         form.prescricao_itens.filter((_, itemIndex) => itemIndex !== idx)
       );
+      setMedicamentoBuscaPorItem((prev) => reindexarAposRemocaoDeItem(prev, idx));
+      setMedicamentoFocoPorItem((prev) => reindexarAposRemocaoDeItem(prev, idx));
     }
   };
   const prescricaoTemRascunhoInicial =
@@ -5951,6 +5967,27 @@ export default function AtendimentoPage() {
       item.medicamento_id != null
         ? medicamentos.find((entry) => entry.id === item.medicamento_id) || null
         : null;
+    const medicamentoBuscaAtual = medicamentoBuscaPorItem[idx] || "";
+    const medicamentoResultados = (() => {
+      const term = medicamentoBuscaAtual.trim();
+      if (!term) return [];
+      if (!medicamentosFuse) {
+        const normalizedTerm = term.toLowerCase();
+        return medicamentos
+          .filter((med) =>
+            [med.nome, med.principio_ativo, med.categoria, med.classe_terapeutica].some((value) =>
+              String(value || "").toLowerCase().includes(normalizedTerm)
+            )
+          )
+          .slice(0, 8);
+      }
+      return medicamentosFuse.search(term).map((entry) => entry.item).slice(0, 8);
+    })();
+    const selecionarMedicamentoDoItem = (medId: number | null) => {
+      setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: false }));
+      setMedicamentoBuscaPorItem((prev) => ({ ...prev, [idx]: "" }));
+      aplicarMedicamentoNaPrescricao(idx, medId);
+    };
     const apresentacoesDisponiveis = sugestao?.apresentacoes || [];
     const sugestaoApresentacao = sugestao?.sugestaoApresentacao || null;
     const alertasItem = (sugestao?.alertas || []).map((alerta) => alerta.trim()).filter((alerta) => alerta.length > 0);
@@ -6022,22 +6059,62 @@ export default function AtendimentoPage() {
         <div className="grid gap-6 p-5 xl:grid-cols-[minmax(0,1.7fr),320px]">
           <div className="space-y-5">
             <div className="grid gap-3 lg:grid-cols-2">
-              <div className="lg:col-span-2">
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Medicamento da biblioteca
+              <div className="lg:col-span-2 relative">
+                <label className="mb-1.5 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                  <span>Medicamento da biblioteca</span>
+                  {medicamentoSelecionado ? (
+                    <button
+                      type="button"
+                      onClick={() => selecionarMedicamentoDoItem(null)}
+                      className="text-[10px] font-medium normal-case tracking-normal text-slate-400 transition hover:text-rose-600"
+                    >
+                      Limpar selecao
+                    </button>
+                  ) : null}
                 </label>
-                <select
-                  value={item.medicamento_id || ""}
-                  onChange={(e) => aplicarMedicamentoNaPrescricao(idx, e.target.value ? Number(e.target.value) : null)}
+                <input
+                  value={medicamentoBuscaAtual}
+                  onChange={(e) => {
+                    const valor = e.target.value;
+                    setMedicamentoBuscaPorItem((prev) => ({ ...prev, [idx]: valor }));
+                    setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: true }));
+                  }}
+                  onFocus={() => setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: true }))}
+                  onBlur={() => setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: false }))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && medicamentoResultados.length > 0) {
+                      e.preventDefault();
+                      selecionarMedicamentoDoItem(medicamentoResultados[0].id);
+                    } else if (e.key === "Escape") {
+                      setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: false }));
+                    }
+                  }}
+                  placeholder={
+                    medicamentoSelecionado
+                      ? medicamentoSelecionado.nome
+                      : "Buscar medicamento por nome, principio ativo ou classe..."
+                  }
                   className={inputClass("medicamento_nome")}
-                >
-                  <option value="">Selecionar medicamento</option>
-                  {medicamentos.map((med) => (
-                    <option key={med.id} value={med.id}>
-                      {med.nome}
-                    </option>
-                  ))}
-                </select>
+                />
+                {medicamentoFocoPorItem[idx] && medicamentoResultados.length > 0 ? (
+                  <div className="absolute z-10 mt-2 max-h-72 w-full overflow-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                    {medicamentoResultados.map((med) => (
+                      <button
+                        key={med.id}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => selecionarMedicamentoDoItem(med.id)}
+                        className="w-full rounded-xl px-3 py-2 text-left transition hover:bg-sky-50"
+                      >
+                        <p className="text-sm font-medium text-slate-900">{med.nome}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {med.classe_terapeutica || med.categoria || "Sem classificacao"}
+                          {med.principio_ativo ? ` - ${med.principio_ativo}` : ""}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               <div className="lg:col-span-2">
