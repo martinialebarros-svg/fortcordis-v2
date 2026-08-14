@@ -1,6 +1,7 @@
 import assert from "assert";
 import axios from "axios";
 import { sendWhatsAppReservationTemplateWithRetry } from "../src/services/whatsappService";
+import { renderReservationTemplateBody } from "../src/utils/reservationTemplate";
 
 async function run(): Promise<void> {
   const originalPost = axios.post;
@@ -50,6 +51,18 @@ async function run(): Promise<void> {
       index: "1",
       parameters: [{ type: "payload", payload: "random-change-payload" }]
     });
+    assert.strictEqual(
+      renderReservationTemplateBody({
+        recipient_name: "Animal Care",
+        pet_name: "gamora",
+        appointment_date: "15/08/2026",
+        appointment_time: "09:00",
+        confirmation_deadline: "14/08/2026 às 21:02"
+      }),
+      "Olá, Animal Care. A Fort Cordis reservou o atendimento de gamora para 15/08/2026, às 09:00. " +
+        "Confirme até 14/08/2026 às 21:02. Após esse prazo, o horário poderá ser disponibilizado " +
+        "para outros clientes automaticamente."
+    );
     assert.strictEqual(response.messages?.[0]?.id, "wamid.template.success");
     console.log("Reservation template payload test passed.");
   } finally {

@@ -24,3 +24,4 @@ o callback foi rejeitado pela comparacao textual do remetente.
 - alternativa manual preservada caso a Meta ou o servico esteja indisponivel.
 - equivalencia restrita do nono digito brasileiro, sem relaxar a rejeicao de remetentes distintos;
 - uma unica identidade interna de conversa para as duas representacoes devolvidas pela Meta.
+- mensagem explicita de que, depois do prazo, o horario podera ser disponibilizado para outros clientes automaticamente.

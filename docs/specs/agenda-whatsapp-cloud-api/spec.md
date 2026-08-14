@@ -2,7 +2,7 @@
 
 Data: 2026-08-14
 Responsavel: Martiniano + Codex
-Status: stage-br-phone-alias-fix
+Status: copy-update-pending-meta-review
 
 ## 1) Requisitos funcionais
 
@@ -17,6 +17,7 @@ Status: stage-br-phone-alias-fix
 - RF-009: respostas repetidas com o mesmo `provider_message_id` retornam o resultado ja persistido.
 - RF-010: o modal preserva `Abrir WhatsApp` e `Copiar mensagem` como alternativa manual.
 - RF-011: mensagens de uma linha brasileira identificada pela Meta com ou sem o nono digito usam a mesma conversa interna.
+- RF-012: o corpo informa explicitamente: `Apos esse prazo, o horario podera ser disponibilizado para outros clientes automaticamente.`
 
 ## 2) Requisitos nao funcionais
 
@@ -72,7 +73,7 @@ Status: stage-br-phone-alias-fix
 
 ## 6) Criterios de aceitacao
 
-- CA-001: o payload Graph usa modelo/idioma corretos, cinco variaveis e dois quick replies.
+- CA-001: o payload Graph usa modelo/idioma corretos, cinco variaveis e dois quick replies; o corpo renderizado preserva acentos e termina com o aviso de disponibilizacao automatica para outros clientes.
 - CA-002: repetir a mesma chave de envio retorna o mesmo `message_id`; conteudo diferente com a mesma chave falha.
 - CA-003: confirmar reserva ativa e completa resulta em `Confirmado` com origem `WhatsApp Fort Cordis`.
 - CA-004: repetir o callback nao cria segunda alteracao nem segundo alerta.

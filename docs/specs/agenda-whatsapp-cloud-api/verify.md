@@ -2,13 +2,13 @@
 
 Data: 2026-08-14
 Responsavel: Martiniano + Codex
-Status: local-br-phone-alias-fix-passed-stage-pending
+Status: copy-update-local-pending-meta-review
 
 ## Matriz
 
 | Criterio | Evidencia | Status |
 | --- | --- | --- |
-| CA-001 | `test-reservation-template.ts` inspeciona modelo, idioma, cinco textos e dois quick replies | passou |
+| CA-001 | `test-reservation-template.ts` inspeciona modelo, idioma, cinco textos, dois quick replies e o texto completo armazenado na conversa | passou |
 | CA-002 | constraints e estado de `agenda_reservation_messages`; envio ambiguo falha fechado | leitura + build passaram |
 | CA-003/CA-004 | `test_confirm_is_idempotent_and_updates_active_reservation` | passou |
 | CA-005 | `test_late_confirmation_does_not_reactivate_and_creates_alert` | passou |
@@ -67,11 +67,13 @@ bash scripts/whatsapp_stage_preflight.sh  # fixtures valida e invalida, sem serv
 - O app Meta `975334532125008` foi publicado e esta disponivel ao publico.
 - O template `reserva_de_agendamento` em `pt_BR`, com cinco variaveis e os quick replies `Confirmar` e `Solicitar alteracao`, foi criado na WABA correta com ID `1850190569695780` e aparece como ativo no WhatsApp Manager.
 - O primeiro teste real enviou para `5585988018899`, mas a Meta devolveu o clique de botao como `558588018899`; a comparacao literal rejeitou o evento e manteve a reserva como `Reservado`.
-- A correcao local agora usa a representacao sem o nono digito apenas como chave interna e para auditoria do callback; o numero original continua sendo enviado para a Graph API.
+- A correcao publicada usa a representacao sem o nono digito apenas como chave interna e para auditoria do callback; o numero original continua sendo enviado para a Graph API.
+- O teste real repetido apos a correcao entregou a mensagem e atualizou automaticamente a reserva para `Confirmado` quando o destinatario clicou no celular.
+- A copia solicitada agora termina com `Apos esse prazo, o horario podera ser disponibilizado para outros clientes automaticamente.`; o teste unitario exige a versao acentuada exata armazenada na conversa.
 
-## Pendencias para nova prova real
+## Pendencias da atualizacao de copia
 
-- publicar este snapshot em stage e aguardar os workflows terminais;
-- criar uma nova reserva controlada, enviar o template e clicar em `Confirmar` antes do prazo;
-- comprovar no FortCordis que o status mudou para `Confirmado` e que as novas mensagens ficaram na mesma conversa;
-- testar `Solicitar alteracao` em outra reserva controlada e comprovar o alerta interno antes de qualquer promocao para producao.
+- o corpo do modelo `reserva_de_agendamento` foi editado na WABA correta sem alterar as cinco variaveis nem os dois quick replies;
+- a Meta confirmou o envio para analise e o modelo aparece como `Em analise`; aguardar o novo conteudo ficar ativo;
+- publicar o corpo persistido em stage e repetir uma reserva controlada antes de qualquer promocao para producao;
+- testar `Solicitar alteracao` em outra reserva controlada e comprovar o alerta interno.
