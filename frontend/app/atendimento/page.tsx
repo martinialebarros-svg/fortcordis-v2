@@ -61,8 +61,10 @@ import {
   ChevronLeft,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   ClipboardPlus,
   Clock3,
+  Copy,
   Download,
   Eye,
   FileUp,
@@ -805,6 +807,27 @@ const reindexarAposRemocaoDeItem = <T,>(registro: Record<number, T>, idxRemovido
     if (numero < idxRemovido) proximo[numero] = valor;
     else if (numero > idxRemovido) proximo[numero - 1] = valor;
   });
+  return proximo;
+};
+
+const reindexarAposInsercaoDeItem = <T,>(registro: Record<number, T>, idxInserido: number): Record<number, T> => {
+  const proximo: Record<number, T> = {};
+  Object.entries(registro).forEach(([chave, valor]) => {
+    const numero = Number(chave);
+    if (numero < idxInserido) proximo[numero] = valor;
+    else proximo[numero + 1] = valor;
+  });
+  return proximo;
+};
+
+const trocarIndicesAposMover = <T,>(registro: Record<number, T>, a: number, b: number): Record<number, T> => {
+  const proximo = { ...registro };
+  const valorA = registro[a];
+  const valorB = registro[b];
+  if (valorB === undefined) delete proximo[a];
+  else proximo[a] = valorB;
+  if (valorA === undefined) delete proximo[b];
+  else proximo[b] = valorA;
   return proximo;
 };
 
@@ -5954,6 +5977,27 @@ export default function AtendimentoPage() {
       setMedicamentoFocoPorItem((prev) => reindexarAposRemocaoDeItem(prev, idx));
     }
   };
+  const moverItemPrescricao = (idx: number, direcao: -1 | 1) => {
+    const destino = idx + direcao;
+    if (destino < 0 || destino >= form.prescricao_itens.length) return;
+    const itens = [...form.prescricao_itens];
+    [itens[idx], itens[destino]] = [itens[destino], itens[idx]];
+    setField("prescricao_itens", itens);
+    setMedicamentoBuscaPorItem((prev) => trocarIndicesAposMover(prev, idx, destino));
+    setMedicamentoFocoPorItem((prev) => trocarIndicesAposMover(prev, idx, destino));
+  };
+  const duplicarItemPrescricao = (idx: number) => {
+    const copia: PrescricaoItem = {
+      ...hydratePrescriptionItem(form.prescricao_itens[idx]),
+      id: undefined,
+      historico_ajustes: [],
+    };
+    const itens = [...form.prescricao_itens];
+    itens.splice(idx + 1, 0, copia);
+    setField("prescricao_itens", itens);
+    setMedicamentoBuscaPorItem((prev) => reindexarAposInsercaoDeItem(prev, idx + 1));
+    setMedicamentoFocoPorItem((prev) => reindexarAposInsercaoDeItem(prev, idx + 1));
+  };
   const prescricaoTemRascunhoInicial =
     !prescricaoEditorManualAberto &&
     form.prescricao_itens.length === 1 &&
@@ -6045,6 +6089,39 @@ export default function AtendimentoPage() {
                 {ativo ? "Pronto para revisar" : "Aguardando definicao"}
               </span>
             )}
+            {!isUnico ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => moverItemPrescricao(idx, -1)}
+                  disabled={idx === 0}
+                  title="Mover para cima"
+                  aria-label="Mover item para cima"
+                  className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moverItemPrescricao(idx, 1)}
+                  disabled={idx === form.prescricao_itens.length - 1}
+                  title="Mover para baixo"
+                  aria-label="Mover item para baixo"
+                  className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => duplicarItemPrescricao(idx)}
+              title="Duplicar item"
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+            >
+              <Copy className="h-4 w-4" />
+              Duplicar
+            </button>
             <button
               type="button"
               onClick={() => removerItemPrescricao(idx)}
