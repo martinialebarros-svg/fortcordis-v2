@@ -77,6 +77,12 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
   const templateEditorFormRef = useRef<HTMLDivElement | null>(null);
   const [buscaDocumento, setBuscaDocumento] = useState("");
   const templatesAtivos = (documentTemplates || []).filter((template: AtendimentoDocumentosSectionProps) => Number(template.ativo ?? 1) === 1);
+  const templatesPorTipo = templatesAtivos.reduce((grupos: Record<string, AtendimentoDocumentosSectionProps[]>, template: AtendimentoDocumentosSectionProps) => {
+    const chave = template.tipo || "Outros";
+    grupos[chave] = grupos[chave] || [];
+    grupos[chave].push(template);
+    return grupos;
+  }, {});
   const documentosAtendimento = form.documentos || [];
   const templateEmEdicao = Boolean(documentoTemplateForm.id);
 
@@ -198,10 +204,14 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                   className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                 >
                   <option value="">Selecionar...</option>
-                  {templatesAtivos.map((template: AtendimentoDocumentosSectionProps) => (
-                    <option key={template.id} value={template.id}>
-                      {template.nome}
-                    </option>
+                  {Object.entries(templatesPorTipo).map(([tipo, templates]) => (
+                    <optgroup key={tipo} label={tipo}>
+                      {(templates as AtendimentoDocumentosSectionProps[]).map((template: AtendimentoDocumentosSectionProps) => (
+                        <option key={template.id} value={template.id}>
+                          {template.nome}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
                 <button
