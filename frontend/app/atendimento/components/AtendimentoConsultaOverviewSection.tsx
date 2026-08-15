@@ -1,6 +1,6 @@
 "use client";
 
-import { Heart, PencilLine, Search, User } from "lucide-react";
+import { PencilLine, Search, User } from "lucide-react";
 import type { LooseAtendimentoComponentProps } from "./component-props";
 
 type AtendimentoConsultaOverviewSectionProps = LooseAtendimentoComponentProps;
@@ -9,7 +9,6 @@ export default function AtendimentoConsultaOverviewSection(props: AtendimentoCon
   const {
     abrirCadastroComplementar,
     clinicas,
-    fluxoClinico,
     form,
     getBadgeStatusClass,
     pacienteBusca,
@@ -21,7 +20,6 @@ export default function AtendimentoConsultaOverviewSection(props: AtendimentoCon
     setField,
     setMostrarPacientes,
     setPacienteBusca,
-    setWorkspacePainel,
     STATUS_ATENDIMENTO,
     especieRacaExibicao,
     sexoPacienteExibicao,
@@ -210,43 +208,6 @@ export default function AtendimentoConsultaOverviewSection(props: AtendimentoCon
               Alteracoes salvas no cadastro serao usadas ao imprimir ou reimprimir receitas e solicitacoes de exame.
             </p>
           ) : null}
-        </div>
-      </section>
-
-      <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="rounded-2xl bg-rose-50 p-3">
-            <Heart className="h-5 w-5 text-rose-500" />
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Fluxo clinico</p>
-            <h2 className="text-lg font-semibold text-slate-900">Jornada do atendimento</h2>
-          </div>
-        </div>
-        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {fluxoClinico.map((etapa: any, index: number) => (
-            <button
-              key={etapa.id}
-              type="button"
-              onClick={() => setWorkspacePainel(etapa.id === "exames" ? "exames" : etapa.id === "prescricao" ? "prescricao" : "consulta")}
-              className={`rounded-[22px] border px-4 py-4 text-left transition ${
-                etapa.concluido ? "border-emerald-200 bg-emerald-50 hover:bg-emerald-100" : "border-slate-200 bg-slate-50 hover:bg-white"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">Etapa {index + 1}</span>
-                <span
-                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-                    etapa.concluido ? "bg-emerald-200 text-emerald-800" : "bg-slate-200 text-slate-700"
-                  }`}
-                >
-                  {etapa.concluido ? "Concluida" : "Em aberto"}
-                </span>
-              </div>
-              <p className="mt-3 text-base font-semibold text-slate-900">{etapa.titulo}</p>
-              <p className="mt-1 text-sm text-slate-600">{etapa.descricao}</p>
-            </button>
-          ))}
         </div>
       </section>
     </>

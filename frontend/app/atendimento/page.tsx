@@ -5405,42 +5405,23 @@ export default function AtendimentoPage() {
     return "border-slate-200 bg-slate-50 text-slate-700";
   };
 
-  const fluxoClinico = [
-    {
-      id: "triagem",
-      titulo: "Triagem",
-      descricao: "Sinais vitais e estabilidade",
-      concluido: form.triagem_concluida === 1,
-    },
-    {
-      id: "consulta",
-      titulo: "Consulta",
-      descricao: "Anamnese, exame fisico e plano",
-      concluido: form.consulta_concluida === 1,
-    },
-    {
-      id: "exames",
-      titulo: "Exames",
-      descricao: `${form.exames.filter((item) => (item.tipo_exame || "").trim()).length} solicitacao(oes)`,
-      concluido: form.exames.some((item) => (item.tipo_exame || "").trim()),
-    },
-    {
-      id: "prescricao",
-      titulo: "Prescricao",
-      descricao: `${form.prescricao_itens.filter((item) => item.medicamento_id || item.medicamento_nome.trim()).length} item(ns)`,
-      concluido: form.prescricao_itens.some((item) => item.medicamento_id || item.medicamento_nome.trim()),
-    },
-  ];
   const totalExamesSolicitados = form.exames.filter((item) => (item.tipo_exame || "").trim()).length;
   const totalPrescricaoItens = form.prescricao_itens.filter((item) => item.medicamento_id || item.medicamento_nome.trim()).length;
   const totalAnexosExame = form.exames.reduce((acc, exame) => acc + (exame.anexos_resultado?.length || 0), 0);
   const totalAnexosDocumento = anexosGerais.length + totalAnexosExame + form.documentos.length;
-  const workspaceCards: Array<{ key: Exclude<WorkspacePainel, "bibliotecas">; titulo: string; resumo: string; badge: string }> = [
+  const workspaceCards: Array<{
+    key: Exclude<WorkspacePainel, "bibliotecas">;
+    titulo: string;
+    resumo: string;
+    badge: string;
+    triagemConcluida?: boolean;
+  }> = [
     {
       key: "consulta",
       titulo: "Consulta",
       resumo: "Triagem + editor clinico",
       badge: `${clinicalSummary.completeness}%`,
+      triagemConcluida: form.triagem_concluida === 1,
     },
     {
       key: "exames",
@@ -6396,6 +6377,12 @@ export default function AtendimentoPage() {
                   <div>
                     <p className="text-sm font-semibold text-slate-900">{item.titulo}</p>
                     <p className="mt-1 text-xs text-slate-500">{item.resumo}</p>
+                    {item.triagemConcluida ? (
+                      <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Triagem concluida
+                      </span>
+                    ) : null}
                   </div>
                   <span className="fc-care-tab-badge">
                     {item.badge}
@@ -6688,7 +6675,6 @@ export default function AtendimentoPage() {
                   <AtendimentoConsultaOverviewSection
                     abrirCadastroComplementar={abrirCadastroComplementar}
                     clinicas={clinicas}
-                    fluxoClinico={fluxoClinico}
                     form={form}
                     getBadgeStatusClass={getBadgeStatusClass}
                     pacienteBusca={pacienteBusca}
@@ -6700,7 +6686,6 @@ export default function AtendimentoPage() {
                     setField={setField}
                     setMostrarPacientes={setMostrarPacientes}
                     setPacienteBusca={setPacienteBusca}
-                    setWorkspacePainel={setWorkspacePainel}
                     STATUS_ATENDIMENTO={STATUS_ATENDIMENTO}
                     especieRacaExibicao={especieRacaExibicao}
                     sexoPacienteExibicao={sexoPacienteExibicao}
