@@ -57,6 +57,7 @@ import { buildPrescriptionSupport, suggestMedicationPresentation } from "@/lib/c
 import {
   AlertTriangle,
   ArrowRight,
+  ArrowUpRight,
   CheckCircle2,
   ChevronLeft,
   ChevronDown,
@@ -6720,6 +6721,7 @@ export default function AtendimentoPage() {
                     </span>
                   </button>
                 )}
+                <span aria-hidden="true" className="hidden h-8 w-px self-center bg-white/15 sm:block" />
                 <button
                   onClick={() =>
                     goLaudo({
@@ -6729,9 +6731,14 @@ export default function AtendimentoPage() {
                       agendamento_id: form.agendamento_id ? Number(form.agendamento_id) : null,
                     })
                   }
+                  title="Abre o modulo de Laudos em outra tela"
                   className="fc-care-button-laudo"
                 >
-                  <span className="inline-flex items-center gap-2"><FileText className="h-4 w-4" />Laudar</span>
+                  <span className="inline-flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    Laudar
+                    <ArrowUpRight className="h-3.5 w-3.5 opacity-70" />
+                  </span>
                 </button>
                 <button
                   onClick={() => void saveAtendimento()}
@@ -7042,7 +7049,18 @@ export default function AtendimentoPage() {
                       </div>
                     );
                   })}
-                  {atendimentosVisiveis.length === 0 ? <div className="rounded-[22px] border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">Nenhum atendimento encontrado.</div> : null}
+                  {atendimentosVisiveis.length === 0 ? (
+                    <div className="rounded-[22px] border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">
+                      <p>Nenhum atendimento encontrado para os filtros atuais.</p>
+                      <button
+                        type="button"
+                        onClick={() => void limparFiltrosLista()}
+                        className="mt-3 rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-200"
+                      >
+                        Limpar filtros
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <button

@@ -245,7 +245,14 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                 </div>
               ) : documentosFiltrados.length === 0 ? (
                 <div className="rounded-[18px] border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">
-                  Nenhum documento encontrado para &quot;{buscaDocumento.trim()}&quot;.
+                  <p>Nenhum documento encontrado para &quot;{buscaDocumento.trim()}&quot;.</p>
+                  <button
+                    type="button"
+                    onClick={() => setBuscaDocumento("")}
+                    className="mt-3 rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-200"
+                  >
+                    Limpar busca
+                  </button>
                 </div>
               ) : (
                 <>
