@@ -3,12 +3,15 @@
 import { useRef, useState } from "react";
 import {
   AlertTriangle,
+  Bold,
   Download,
   Edit3,
   Eye,
   FileText,
   FileUp,
+  Italic,
   Link2,
+  List,
   Loader2,
   Paperclip,
   Plus,
@@ -23,6 +26,44 @@ import {
 import type { LooseAtendimentoComponentProps } from "./component-props";
 
 type AtendimentoDocumentosSectionProps = LooseAtendimentoComponentProps;
+
+export type FormatoMarkdownDocumento = "negrito" | "italico" | "lista";
+
+/**
+ * Insere marcacao markdown-lite (**negrito**, *italico*, "- item") ao redor
+ * da selecao atual do textarea. O PDF do documento (backend) interpreta essa
+ * mesma marcacao - ver _texto_pdf_html_documento em atendimento.py.
+ */
+export function aplicarFormatacaoMarkdownDocumento(
+  textarea: HTMLTextAreaElement | null,
+  valorAtual: string,
+  formato: FormatoMarkdownDocumento
+): { valor: string; selecaoInicio: number; selecaoFim: number } | null {
+  if (!textarea) return null;
+  const inicio = textarea.selectionStart ?? valorAtual.length;
+  const fim = textarea.selectionEnd ?? valorAtual.length;
+  const selecionado = valorAtual.slice(inicio, fim);
+  const antes = valorAtual.slice(0, inicio);
+  const depois = valorAtual.slice(fim);
+
+  if (formato === "lista") {
+    const textoBase = selecionado || "Item da lista";
+    const linhasFormatadas = textoBase
+      .split("\n")
+      .map((linha) => (linha.trimStart().startsWith("- ") ? linha : `- ${linha}`))
+      .join("\n");
+    const valor = `${antes}${linhasFormatadas}${depois}`;
+    return { valor, selecaoInicio: antes.length, selecaoFim: antes.length + linhasFormatadas.length };
+  }
+
+  const marcador = formato === "negrito" ? "**" : "*";
+  const textoBase = selecionado || (formato === "negrito" ? "texto em negrito" : "texto em italico");
+  const inserido = `${marcador}${textoBase}${marcador}`;
+  const valor = `${antes}${inserido}${depois}`;
+  const selecaoInicio = antes.length + marcador.length;
+  const selecaoFim = selecaoInicio + textoBase.length;
+  return { valor, selecaoInicio, selecaoFim };
+}
 
 export default function AtendimentoDocumentosSection(props: AtendimentoDocumentosSectionProps) {
   const {
@@ -75,7 +116,33 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
   } = props;
 
   const templateEditorFormRef = useRef<HTMLDivElement | null>(null);
+  const documentoCorpoRef = useRef<HTMLTextAreaElement | null>(null);
+  const templateCorpoRef = useRef<HTMLTextAreaElement | null>(null);
   const [buscaDocumento, setBuscaDocumento] = useState("");
+
+  const formatarDocumentoCorpo = (formato: FormatoMarkdownDocumento) => {
+    const resultado = aplicarFormatacaoMarkdownDocumento(documentoCorpoRef.current, documentoClinicoForm.corpo, formato);
+    if (!resultado) return;
+    setDocumentoClinicoForm({ ...documentoClinicoForm, corpo: resultado.valor });
+    requestAnimationFrame(() => {
+      documentoCorpoRef.current?.focus();
+      documentoCorpoRef.current?.setSelectionRange(resultado.selecaoInicio, resultado.selecaoFim);
+    });
+  };
+
+  const formatarTemplateCorpo = (formato: FormatoMarkdownDocumento) => {
+    const resultado = aplicarFormatacaoMarkdownDocumento(
+      templateCorpoRef.current,
+      documentoTemplateForm.corpo_template,
+      formato
+    );
+    if (!resultado) return;
+    setDocumentoTemplateForm({ ...documentoTemplateForm, corpo_template: resultado.valor });
+    requestAnimationFrame(() => {
+      templateCorpoRef.current?.focus();
+      templateCorpoRef.current?.setSelectionRange(resultado.selecaoInicio, resultado.selecaoFim);
+    });
+  };
   const templatesAtivos = (documentTemplates || []).filter((template: AtendimentoDocumentosSectionProps) => Number(template.ativo ?? 1) === 1);
   const templatesPorTipo = templatesAtivos.reduce((grupos: Record<string, AtendimentoDocumentosSectionProps[]>, template: AtendimentoDocumentosSectionProps) => {
     const chave = template.tipo || "Outros";
@@ -307,13 +374,42 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                 placeholder="Titulo do documento"
                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium"
               />
-              <textarea
-                value={documentoClinicoForm.corpo}
-                onChange={(event) => setDocumentoClinicoForm({ ...documentoClinicoForm, corpo: event.target.value })}
-                placeholder="Texto do documento..."
-                rows={12}
-                className="min-h-[280px] rounded-xl border border-slate-200 px-3 py-2 text-sm leading-6"
-              />
+              <div>
+                <div className="flex flex-wrap gap-1 rounded-t-xl border border-b-0 border-slate-200 bg-slate-50 p-1">
+                  <button
+                    type="button"
+                    title="Negrito (**texto**)"
+                    onClick={() => formatarDocumentoCorpo("negrito")}
+                    className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-200"
+                  >
+                    <Bold className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Italico (*texto*)"
+                    onClick={() => formatarDocumentoCorpo("italico")}
+                    className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-200"
+                  >
+                    <Italic className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Lista (- item)"
+                    onClick={() => formatarDocumentoCorpo("lista")}
+                    className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-200"
+                  >
+                    <List className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <textarea
+                  ref={documentoCorpoRef}
+                  value={documentoClinicoForm.corpo}
+                  onChange={(event) => setDocumentoClinicoForm({ ...documentoClinicoForm, corpo: event.target.value })}
+                  placeholder="Texto do documento..."
+                  rows={12}
+                  className="min-h-[280px] w-full rounded-b-xl rounded-t-none border border-slate-200 px-3 py-2 text-sm leading-6"
+                />
+              </div>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -412,13 +508,42 @@ export default function AtendimentoDocumentosSection(props: AtendimentoDocumento
                   placeholder="Titulo padrao"
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                 />
-                <textarea
-                  value={documentoTemplateForm.corpo_template}
-                  onChange={(event) => setDocumentoTemplateForm({ ...documentoTemplateForm, corpo_template: event.target.value })}
-                  placeholder="Corpo do template com variaveis como {{paciente_nome}}, {{tutor_nome}}, {{veterinario_nome}}, {{crmv}}..."
-                  rows={9}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm leading-6"
-                />
+                <div>
+                  <div className="flex flex-wrap gap-1 rounded-t-xl border border-b-0 border-slate-200 bg-slate-50 p-1">
+                    <button
+                      type="button"
+                      title="Negrito (**texto**)"
+                      onClick={() => formatarTemplateCorpo("negrito")}
+                      className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-200"
+                    >
+                      <Bold className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Italico (*texto*)"
+                      onClick={() => formatarTemplateCorpo("italico")}
+                      className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-200"
+                    >
+                      <Italic className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Lista (- item)"
+                      onClick={() => formatarTemplateCorpo("lista")}
+                      className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-200"
+                    >
+                      <List className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <textarea
+                    ref={templateCorpoRef}
+                    value={documentoTemplateForm.corpo_template}
+                    onChange={(event) => setDocumentoTemplateForm({ ...documentoTemplateForm, corpo_template: event.target.value })}
+                    placeholder="Corpo do template com variaveis como {{paciente_nome}}, {{tutor_nome}}, {{veterinario_nome}}, {{crmv}}..."
+                    rows={9}
+                    className="w-full rounded-b-xl rounded-t-none border border-slate-200 px-3 py-2 text-sm leading-6"
+                  />
+                </div>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input
                     type="checkbox"
