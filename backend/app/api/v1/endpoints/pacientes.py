@@ -3,7 +3,7 @@ import re
 import unicodedata
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import String, cast, func, inspect, or_, text
 from sqlalchemy.exc import IntegrityError
@@ -11,12 +11,22 @@ from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
 from app.db.database import get_db
+from app.models.atendimento_clinico import AlertaClinico, AtendimentoClinico
+from app.models.laudo import Laudo
 from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.models.user import User
 from app.utils.paciente_helpers import extrair_idade_paciente, normalizar_sexo_paciente
 
 router = APIRouter()
+
+LAUDO_STATUSES_CONCLUIDOS = (
+    "arquivado",
+    "concluido",
+    "concluído",
+    "finalizado",
+    "liberado no portal",
+)
 
 
 def _gerar_nome_key(nome: Optional[str]) -> str:
@@ -33,6 +43,14 @@ def _gerar_nome_key(nome: Optional[str]) -> str:
 
 def _legacy_now_dt() -> datetime:
     return datetime.utcnow()
+
+
+def _to_iso(value) -> Optional[str]:
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
 
 
 def _filtro_paciente_ativo():
@@ -63,10 +81,23 @@ def _ensure_tutores_timestamp_columns(db: Session) -> None:
     colunas = {col["name"] for col in insp.get_columns("tutores")}
     alteracoes: list[str] = []
 
-    if "created_at" not in colunas:
-        alteracoes.append('ALTER TABLE "tutores" ADD COLUMN created_at DATETIME')
-    if "updated_at" not in colunas:
-        alteracoes.append('ALTER TABLE "tutores" ADD COLUMN updated_at DATETIME')
+    colunas_texto = {
+        "created_at": 'ALTER TABLE "tutores" ADD COLUMN created_at DATETIME',
+        "updated_at": 'ALTER TABLE "tutores" ADD COLUMN updated_at DATETIME',
+        "place_id": 'ALTER TABLE "tutores" ADD COLUMN place_id TEXT',
+        "endereco_normalizado": 'ALTER TABLE "tutores" ADD COLUMN endereco_normalizado TEXT',
+    }
+    colunas_float = {
+        "latitude": 'ALTER TABLE "tutores" ADD COLUMN latitude FLOAT',
+        "longitude": 'ALTER TABLE "tutores" ADD COLUMN longitude FLOAT',
+    }
+
+    for nome_coluna, sql in colunas_texto.items():
+        if nome_coluna not in colunas:
+            alteracoes.append(sql)
+    for nome_coluna, sql in colunas_float.items():
+        if nome_coluna not in colunas:
+            alteracoes.append(sql)
 
     if not alteracoes:
         return
@@ -76,9 +107,114 @@ def _ensure_tutores_timestamp_columns(db: Session) -> None:
     db.commit()
 
 
-def _obter_ou_criar_tutor(db: Session, tutor_nome_raw: Optional[str]) -> Optional[int]:
+def _clean_optional_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    return str(value).strip()
+
+
+def _paciente_tem_payload_tutor(paciente: BaseModel) -> bool:
+    campos = (
+        "tutor_id",
+        "tutor",
+        "tutor_email",
+        "tutor_telefone",
+        "tutor_whatsapp",
+        "tutor_cpf",
+        "tutor_cep",
+        "tutor_endereco",
+        "tutor_numero",
+        "tutor_complemento",
+        "tutor_bairro",
+        "tutor_cidade",
+        "tutor_estado",
+    )
+    campos_enviados = getattr(paciente, "model_fields_set", set())
+    return any(campo in campos_enviados for campo in campos) or any(
+        getattr(paciente, campo, None) not in (None, "") for campo in campos
+    )
+
+
+def _aplicar_dados_tutor(tutor: Tutor, paciente: BaseModel) -> None:
+    campos_enviados = getattr(paciente, "model_fields_set", set())
+    nome = _clean_optional_text(paciente.tutor)
+    if "tutor" in campos_enviados and not nome:
+        tutor.nome = ""
+        tutor.nome_key = ""
+    elif nome:
+        tutor.nome = nome
+        tutor.nome_key = _gerar_nome_key(nome)
+
+    mapping = {
+        "telefone": "tutor_telefone",
+        "whatsapp": "tutor_whatsapp",
+        "email": "tutor_email",
+        "cpf": "tutor_cpf",
+        "cep": "tutor_cep",
+        "endereco": "tutor_endereco",
+        "numero": "tutor_numero",
+        "complemento": "tutor_complemento",
+        "bairro": "tutor_bairro",
+        "cidade": "tutor_cidade",
+        "estado": "tutor_estado",
+    }
+    for attr, payload_attr in mapping.items():
+        value = _clean_optional_text(getattr(paciente, payload_attr, None))
+        if payload_attr in campos_enviados:
+            setattr(tutor, attr, value or "")
+        elif value:
+            setattr(tutor, attr, value)
+
+    if not _clean_optional_text(tutor.whatsapp) and _clean_optional_text(tutor.telefone):
+        tutor.whatsapp = _clean_optional_text(tutor.telefone)
+
+    tutor.ativo = 1
+    tutor.updated_at = _legacy_now_dt()
+
+
+def _serialize_tutor_fields(tutor: Tutor | None) -> dict[str, Optional[str] | Optional[int]]:
+    return {
+        "tutor_id": tutor.id if tutor else None,
+        "tutor": tutor.nome if tutor and tutor.nome else "",
+        "tutor_email": tutor.email if tutor else None,
+        "tutor_telefone": tutor.telefone if tutor else None,
+        "tutor_whatsapp": tutor.whatsapp if tutor else None,
+        "tutor_cpf": tutor.cpf if tutor else None,
+        "tutor_cep": tutor.cep if tutor else None,
+        "tutor_endereco": tutor.endereco if tutor else None,
+        "tutor_numero": tutor.numero if tutor else None,
+        "tutor_complemento": tutor.complemento if tutor else None,
+        "tutor_bairro": tutor.bairro if tutor else None,
+        "tutor_cidade": tutor.cidade if tutor else None,
+        "tutor_estado": tutor.estado if tutor else None,
+        "tutor_latitude": float(tutor.latitude) if tutor and tutor.latitude is not None else None,
+        "tutor_longitude": float(tutor.longitude) if tutor and tutor.longitude is not None else None,
+        "tutor_place_id": tutor.place_id if tutor else None,
+        "tutor_endereco_normalizado": tutor.endereco_normalizado if tutor else None,
+    }
+
+
+def _obter_ou_criar_tutor(
+    db: Session,
+    paciente: BaseModel,
+    *,
+    tutor_id_padrao: Optional[int] = None,
+    commit_changes: bool = True,
+) -> Optional[int]:
     _ensure_tutores_timestamp_columns(db)
 
+    tutor_id = int(getattr(paciente, "tutor_id", None) or tutor_id_padrao or 0)
+    if tutor_id > 0:
+        tutor = db.query(Tutor).filter(Tutor.id == tutor_id).first()
+        if tutor:
+            _aplicar_dados_tutor(tutor, paciente)
+            if commit_changes:
+                db.commit()
+            else:
+                db.flush()
+            return tutor.id
+
+    tutor_nome_raw = paciente.tutor
     if not tutor_nome_raw:
         return None
 
@@ -92,21 +228,42 @@ def _obter_ou_criar_tutor(db: Session, tutor_nome_raw: Optional[str]) -> Optiona
         tutor = db.query(Tutor).filter(Tutor.nome.ilike(tutor_nome)).first()
 
     if tutor:
+        _aplicar_dados_tutor(tutor, paciente)
+        if commit_changes:
+            db.commit()
+        else:
+            db.flush()
         return tutor.id
 
     tutor = Tutor(
         nome=tutor_nome,
         nome_key=tutor_nome_key,
-        email="",
-        telefone="",
+        email=_clean_optional_text(paciente.tutor_email) or "",
+        telefone=_clean_optional_text(paciente.tutor_telefone) or "",
+        whatsapp=(
+            _clean_optional_text(paciente.tutor_whatsapp)
+            or _clean_optional_text(paciente.tutor_telefone)
+            or ""
+        ),
+        cpf=_clean_optional_text(paciente.tutor_cpf) or "",
+        cep=_clean_optional_text(paciente.tutor_cep) or "",
+        endereco=_clean_optional_text(paciente.tutor_endereco) or "",
+        numero=_clean_optional_text(paciente.tutor_numero) or "",
+        complemento=_clean_optional_text(paciente.tutor_complemento) or "",
+        bairro=_clean_optional_text(paciente.tutor_bairro) or "",
+        cidade=_clean_optional_text(paciente.tutor_cidade) or "",
+        estado=_clean_optional_text(paciente.tutor_estado) or "",
         ativo=1,
         created_at=_legacy_now_dt(),
     )
     db.add(tutor)
 
     try:
-        db.commit()
-        db.refresh(tutor)
+        if commit_changes:
+            db.commit()
+            db.refresh(tutor)
+        else:
+            db.flush()
         return tutor.id
     except IntegrityError:
         db.rollback()
@@ -115,6 +272,11 @@ def _obter_ou_criar_tutor(db: Session, tutor_nome_raw: Optional[str]) -> Optiona
             tutor = db.query(Tutor).filter(Tutor.nome.ilike(tutor_nome)).first()
         if not tutor:
             raise
+        _aplicar_dados_tutor(tutor, paciente)
+        if commit_changes:
+            db.commit()
+        else:
+            db.flush()
         return tutor.id
 
 
@@ -165,7 +327,19 @@ def _contar_referencias_paciente(db: Session, paciente_id: int) -> dict[str, int
 # Schemas
 class PacienteCreate(BaseModel):
     nome: str
+    tutor_id: Optional[int] = None
     tutor: Optional[str] = None
+    tutor_email: Optional[str] = None
+    tutor_telefone: Optional[str] = None
+    tutor_whatsapp: Optional[str] = None
+    tutor_cpf: Optional[str] = None
+    tutor_cep: Optional[str] = None
+    tutor_endereco: Optional[str] = None
+    tutor_numero: Optional[str] = None
+    tutor_complemento: Optional[str] = None
+    tutor_bairro: Optional[str] = None
+    tutor_cidade: Optional[str] = None
+    tutor_estado: Optional[str] = None
     especie: Optional[str] = "Canina"
     raca: Optional[str] = ""
     sexo: Optional[str] = "Macho"
@@ -175,10 +349,38 @@ class PacienteCreate(BaseModel):
     observacoes: Optional[str] = ""
 
 
+class PacienteUpdate(BaseModel):
+    nome: Optional[str] = None
+    tutor_id: Optional[int] = None
+    tutor: Optional[str] = None
+    tutor_email: Optional[str] = None
+    tutor_telefone: Optional[str] = None
+    tutor_whatsapp: Optional[str] = None
+    tutor_cpf: Optional[str] = None
+    tutor_cep: Optional[str] = None
+    tutor_endereco: Optional[str] = None
+    tutor_numero: Optional[str] = None
+    tutor_complemento: Optional[str] = None
+    tutor_bairro: Optional[str] = None
+    tutor_cidade: Optional[str] = None
+    tutor_estado: Optional[str] = None
+    especie: Optional[str] = None
+    raca: Optional[str] = None
+    sexo: Optional[str] = None
+    peso_kg: Optional[float] = None
+    data_nascimento: Optional[str] = None
+    microchip: Optional[str] = None
+    observacoes: Optional[str] = None
+
+
 class PacienteResponse(BaseModel):
     id: int
     nome: str
+    tutor_id: Optional[int] = None
     tutor: str
+    tutor_email: Optional[str] = None
+    tutor_telefone: Optional[str] = None
+    tutor_whatsapp: Optional[str] = None
     especie: Optional[str] = None
     raca: Optional[str] = None
     sexo: Optional[str] = None
@@ -202,6 +404,9 @@ def listar_pacientes(
             Paciente.especie,
             Paciente.raca,
             Tutor.nome.label("tutor_nome"),
+            Tutor.email.label("tutor_email"),
+            Tutor.telefone.label("tutor_telefone"),
+            Tutor.whatsapp.label("tutor_whatsapp"),
         )
         .outerjoin(Tutor, Paciente.tutor_id == Tutor.id)
         .filter(_filtro_paciente_ativo())
@@ -232,6 +437,9 @@ def listar_pacientes(
             "nome": p.nome,
             "tutor_id": p.tutor_id,
             "tutor": p.tutor_nome or "",
+            "tutor_email": p.tutor_email or "",
+            "tutor_telefone": p.tutor_telefone or "",
+            "tutor_whatsapp": p.tutor_whatsapp or "",
             "especie": (p.especie or "").strip() or "",
             "raca": (p.raca or "").strip() or "",
         }
@@ -256,10 +464,11 @@ def criar_paciente(
     especie = (paciente.especie or "Canina").strip() or "Canina"
 
     try:
-        tutor_id = _obter_ou_criar_tutor(db, paciente.tutor)
+        tutor_id = _obter_ou_criar_tutor(db, paciente)
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Erro ao resolver tutor: {str(e)}")
+    tutor = db.query(Tutor).filter(Tutor.id == tutor_id).first() if tutor_id else None
 
     paciente_existente = _buscar_paciente_por_chave(
         db,
@@ -272,7 +481,7 @@ def criar_paciente(
             return {
                 "id": paciente_existente.id,
                 "nome": paciente_existente.nome,
-                "tutor": paciente.tutor or "",
+                **_serialize_tutor_fields(tutor),
                 "especie": paciente_existente.especie,
                 "raca": paciente_existente.raca,
                 "sexo": normalizar_sexo_paciente(paciente_existente.sexo),
@@ -299,7 +508,7 @@ def criar_paciente(
         return {
             "id": paciente_existente.id,
             "nome": paciente_existente.nome,
-            "tutor": paciente.tutor or "",
+            **_serialize_tutor_fields(tutor),
             "especie": paciente_existente.especie,
             "raca": paciente_existente.raca,
             "sexo": normalizar_sexo_paciente(paciente_existente.sexo),
@@ -330,7 +539,7 @@ def criar_paciente(
         return {
             "id": db_paciente.id,
             "nome": db_paciente.nome,
-            "tutor": paciente.tutor or "",
+            **_serialize_tutor_fields(tutor),
             "especie": db_paciente.especie,
             "raca": db_paciente.raca,
             "sexo": normalizar_sexo_paciente(db_paciente.sexo),
@@ -349,7 +558,7 @@ def obter_paciente(
 ):
     """Obtem detalhes de um paciente."""
     paciente = (
-        db.query(Paciente, Tutor.nome.label("tutor_nome"))
+        db.query(Paciente, Tutor)
         .outerjoin(Tutor, Paciente.tutor_id == Tutor.id)
         .filter(Paciente.id == paciente_id)
         .first()
@@ -358,12 +567,12 @@ def obter_paciente(
     if not paciente:
         raise HTTPException(status_code=404, detail="Paciente nao encontrado")
 
-    p, tutor_nome = paciente
+    p, tutor = paciente
 
     return {
         "id": p.id,
         "nome": p.nome,
-        "tutor": tutor_nome or "",
+        **_serialize_tutor_fields(tutor),
         "especie": p.especie,
         "raca": p.raca,
         "sexo": normalizar_sexo_paciente(p.sexo),
@@ -375,10 +584,105 @@ def obter_paciente(
     }
 
 
+@router.get("/{paciente_id}/resumo-clinico")
+def obter_resumo_clinico_paciente(
+    paciente_id: int,
+    limite: int = Query(default=4, ge=1, le=10),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Retorna uma leitura curta do prontuario para a carteira do paciente."""
+    _ = current_user
+    paciente = db.query(Paciente).filter(Paciente.id == paciente_id).first()
+    if not paciente:
+        raise HTTPException(status_code=404, detail="Paciente nao encontrado")
+
+    atendimentos_query = db.query(AtendimentoClinico).filter(
+        AtendimentoClinico.paciente_id == paciente_id
+    )
+    total_atendimentos = atendimentos_query.count()
+    atendimentos_recentes = (
+        atendimentos_query.order_by(
+            AtendimentoClinico.data_atendimento.desc(),
+            AtendimentoClinico.id.desc(),
+        )
+        .limit(limite)
+        .all()
+    )
+
+    laudos_concluidos_query = db.query(Laudo).filter(
+        Laudo.paciente_id == paciente_id,
+        func.lower(func.trim(func.coalesce(Laudo.status, ""))).in_(LAUDO_STATUSES_CONCLUIDOS),
+    )
+    total_laudos_concluidos = laudos_concluidos_query.count()
+    laudos_recentes = (
+        laudos_concluidos_query.order_by(
+            func.coalesce(Laudo.data_exame, Laudo.data_laudo, Laudo.created_at).desc(),
+            Laudo.id.desc(),
+        )
+        .limit(limite)
+        .all()
+    )
+
+    alertas_query = db.query(AlertaClinico).filter(
+        AlertaClinico.paciente_id == paciente_id,
+        AlertaClinico.ativo == 1,
+    )
+    total_alertas_ativos = alertas_query.count()
+    alertas_ativos = (
+        alertas_query.order_by(
+            AlertaClinico.data_inicio.desc(),
+            AlertaClinico.id.desc(),
+        )
+        .limit(limite)
+        .all()
+    )
+
+    return {
+        "paciente_id": paciente.id,
+        "totais": {
+            "atendimentos": total_atendimentos,
+            "laudos_concluidos": total_laudos_concluidos,
+            "alertas_ativos": total_alertas_ativos,
+        },
+        "atendimentos_recentes": [
+            {
+                "id": atendimento.id,
+                "data_atendimento": _to_iso(atendimento.data_atendimento),
+                "status": atendimento.status or "",
+                "queixa_principal": atendimento.queixa_principal or "",
+                "diagnostico_principal": atendimento.diagnostico_principal or "",
+                "veterinario": atendimento.criado_por_nome or "",
+            }
+            for atendimento in atendimentos_recentes
+        ],
+        "laudos_recentes": [
+            {
+                "id": laudo.id,
+                "tipo": laudo.tipo or "",
+                "titulo": laudo.titulo or laudo.tipo or "Laudo",
+                "status": laudo.status or "",
+                "data_exame": _to_iso(laudo.data_exame),
+                "data_laudo": _to_iso(laudo.data_laudo or laudo.created_at),
+            }
+            for laudo in laudos_recentes
+        ],
+        "alertas_ativos": [
+            {
+                "id": alerta.id,
+                "titulo": alerta.titulo,
+                "descricao": alerta.descricao or "",
+                "gravidade": alerta.gravidade or "media",
+            }
+            for alerta in alertas_ativos
+        ],
+    }
+
+
 @router.put("/{paciente_id}")
 def atualizar_paciente(
     paciente_id: int,
-    paciente: PacienteCreate,
+    paciente: PacienteUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -388,30 +692,59 @@ def atualizar_paciente(
     if not db_paciente:
         raise HTTPException(status_code=404, detail="Paciente nao encontrado")
 
-    if paciente.tutor:
+    campos_enviados = paciente.model_fields_set
+    nome_atualizado: Optional[str] = None
+    if "nome" in campos_enviados:
+        nome_atualizado = (paciente.nome or "").strip()
+        if not nome_atualizado:
+            raise HTTPException(status_code=400, detail="Nome do paciente e obrigatorio")
+
+    if _paciente_tem_payload_tutor(paciente):
         try:
-            db_paciente.tutor_id = _obter_ou_criar_tutor(db, paciente.tutor)
+            db_paciente.tutor_id = _obter_ou_criar_tutor(
+                db,
+                paciente,
+                tutor_id_padrao=db_paciente.tutor_id,
+                commit_changes=False,
+            )
         except Exception as e:
             db.rollback()
             raise HTTPException(status_code=500, detail=f"Erro ao resolver tutor: {str(e)}")
 
-    db_paciente.nome = paciente.nome
-    db_paciente.nome_key = _gerar_nome_key(paciente.nome)
-    db_paciente.especie = paciente.especie
-    db_paciente.raca = paciente.raca
-    db_paciente.sexo = normalizar_sexo_paciente(paciente.sexo)
-    db_paciente.peso_kg = paciente.peso_kg
-    db_paciente.nascimento = paciente.data_nascimento
-    db_paciente.microchip = paciente.microchip
-    db_paciente.observacoes = paciente.observacoes
+    if nome_atualizado is not None:
+        db_paciente.nome = nome_atualizado
+        db_paciente.nome_key = _gerar_nome_key(nome_atualizado)
+    if "especie" in campos_enviados:
+        db_paciente.especie = paciente.especie
+    if "raca" in campos_enviados:
+        db_paciente.raca = paciente.raca
+    if "sexo" in campos_enviados:
+        db_paciente.sexo = normalizar_sexo_paciente(paciente.sexo)
+    if "peso_kg" in campos_enviados:
+        db_paciente.peso_kg = paciente.peso_kg
+    if "data_nascimento" in campos_enviados:
+        db_paciente.nascimento = paciente.data_nascimento
+    if "microchip" in campos_enviados:
+        db_paciente.microchip = paciente.microchip
+    if "observacoes" in campos_enviados:
+        db_paciente.observacoes = paciente.observacoes
     db_paciente.updated_at = _legacy_now_dt()
 
     db.commit()
     db.refresh(db_paciente)
+    tutor = db.query(Tutor).filter(Tutor.id == db_paciente.tutor_id).first() if db_paciente.tutor_id else None
 
     return {
         "id": db_paciente.id,
         "nome": db_paciente.nome,
+        **_serialize_tutor_fields(tutor),
+        "especie": db_paciente.especie,
+        "raca": db_paciente.raca,
+        "sexo": normalizar_sexo_paciente(db_paciente.sexo),
+        "peso_kg": db_paciente.peso_kg,
+        "data_nascimento": db_paciente.nascimento,
+        "microchip": db_paciente.microchip,
+        "observacoes": db_paciente.observacoes,
         "message": "Paciente atualizado com sucesso",
     }
 

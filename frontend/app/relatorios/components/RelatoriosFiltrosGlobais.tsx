@@ -1,4 +1,4 @@
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, SlidersHorizontal } from "lucide-react";
 
 import { PERFIS_DESLOCAMENTO } from "../constants";
 import { ClinicaOption, PerfilDeslocamento, ProfissionalOption, ServicoOption } from "../types";
@@ -57,10 +57,11 @@ export default function RelatoriosFiltrosGlobais({
   onAtualizar,
 }: RelatoriosFiltrosGlobaisProps) {
   return (
-    <div className="bg-white border rounded-xl p-4">
+    <div className="fc-reports-filters">
+      <div className="fc-reports-panel-title"><SlidersHorizontal className="h-5 w-5" /><div><span>Período e escopo</span><h2>Filtros globais</h2></div></div>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Data inicio</label>
+          <label className="block text-xs text-gray-600 mb-1">Data inicial</label>
           <input
             type="date"
             value={periodoInicio}
@@ -70,7 +71,7 @@ export default function RelatoriosFiltrosGlobais({
         </div>
 
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Data fim</label>
+          <label className="block text-xs text-gray-600 mb-1">Data final</label>
           <input
             type="date"
             value={periodoFim}
@@ -80,7 +81,7 @@ export default function RelatoriosFiltrosGlobais({
         </div>
 
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Data referencia</label>
+          <label className="block text-xs text-gray-600 mb-1">Data de referência</label>
           <input
             type="date"
             value={dataReferencia}
@@ -105,13 +106,13 @@ export default function RelatoriosFiltrosGlobais({
         </div>
 
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Clinica base</label>
+          <label className="block text-xs text-gray-600 mb-1">Clínica base</label>
           <select
             value={clinicaBaseId}
             onChange={(e) => setClinicaBaseId(e.target.value)}
             className="w-full px-3 py-2 border rounded-lg"
           >
-            <option value="">Selecao automatica</option>
+            <option value="">Seleção automática</option>
             {clinicas.map((clinica) => (
               <option key={clinica.id} value={String(clinica.id)}>
                 {clinica.nome}
@@ -121,7 +122,7 @@ export default function RelatoriosFiltrosGlobais({
         </div>
 
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Clinica</label>
+          <label className="block text-xs text-gray-600 mb-1">Clínica</label>
           <select
             value={clinicaId}
             onChange={(e) => setClinicaId(e.target.value)}
@@ -137,7 +138,7 @@ export default function RelatoriosFiltrosGlobais({
         </div>
 
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Servico</label>
+          <label className="block text-xs text-gray-600 mb-1">Serviço</label>
           <select
             value={servicoId}
             onChange={(e) => setServicoId(e.target.value)}
@@ -169,7 +170,7 @@ export default function RelatoriosFiltrosGlobais({
         </div>
 
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Regiao</label>
+          <label className="block text-xs text-gray-600 mb-1">Região</label>
           <select
             value={regiao}
             onChange={(e) => setRegiao(e.target.value)}
@@ -189,7 +190,7 @@ export default function RelatoriosFiltrosGlobais({
             type="button"
             onClick={onAtualizar}
             disabled={loading}
-            className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60"
+            className="fc-reports-primary"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
             Atualizar
@@ -199,4 +200,3 @@ export default function RelatoriosFiltrosGlobais({
     </div>
   );
 }
-

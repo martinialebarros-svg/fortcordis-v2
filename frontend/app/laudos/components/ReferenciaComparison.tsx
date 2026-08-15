@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { CheckCircle, AlertCircle, AlertTriangle, ArrowUp, ArrowDown, Minus } from "lucide-react";
 import { useReferenciaEco } from "../hooks/useReferenciaEco";
 import { ComparacaoMedida } from "../types/referencia-eco";
+import { deriveLeftVentricularFunctionForReference } from "@/lib/echo-derived-measurements";
 
 interface ReferenciaComparisonProps {
   especie?: "Canina" | "Felina" | string;
@@ -22,29 +23,44 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
   const { buscarReferencia, compararMedidas, loading } = useReferenciaEco();
   const [referencia, setReferencia] = useState<any>(null);
   const [comparacoes, setComparacoes] = useState<Record<string, ComparacaoMedida>>({});
+  const medidasDerivadasParaReferencia = useMemo(
+    () => deriveLeftVentricularFunctionForReference(medidas),
+    [medidas]
+  );
+  const medidasParaReferencia = useMemo(
+    () => ({ ...medidas, ...medidasDerivadasParaReferencia }),
+    [medidas, medidasDerivadasParaReferencia]
+  );
 
   useEffect(() => {
     const pesoValido = typeof peso === "number" && Number.isFinite(peso) && peso > 0;
+    let ativo = true;
 
     async function carregarReferencia() {
       if (especie && pesoValido) {
+        setReferencia(null);
         const ref = await buscarReferencia(especie, peso);
-        setReferencia(ref);
+        if (ativo) setReferencia(ref);
         return;
       }
 
       setReferencia(null);
     }
 
-    carregarReferencia();
+    void carregarReferencia();
+    return () => {
+      ativo = false;
+    };
   }, [especie, peso, buscarReferencia]);
 
   useEffect(() => {
     if (referencia) {
-      const comps = compararMedidas(medidas, referencia);
+      const comps = compararMedidas(medidasParaReferencia, referencia);
       setComparacoes(comps);
+      return;
     }
-  }, [medidas, referencia]);
+    setComparacoes({});
+  }, [medidasParaReferencia, referencia, compararMedidas]);
 
   if (loading) {
     return (
@@ -130,6 +146,11 @@ export function ReferenciaComparison({ especie, peso, medidas }: ReferenciaCompa
           <p className="text-sm text-teal-700">
             Valores de referência aplicados às medidas do paciente
           </p>
+          {Object.keys(medidasDerivadasParaReferencia).length > 0 && (
+            <p className="text-xs text-teal-700 mt-1">
+              FE e/ou encurtamento foram calculados a partir das medidas do VE apenas para esta comparação.
+            </p>
+          )}
         </div>
       </div>
 

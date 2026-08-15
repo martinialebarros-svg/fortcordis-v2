@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -89,7 +90,210 @@ class TutorComplementarPersistenciaTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_criar_multiplos_pets_reusa_tutor_com_dados_de_portal(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            primeiro = pacientes.criar_paciente(
+                pacientes.PacienteCreate(
+                    nome="Luna",
+                    tutor="Maria Silva",
+                    tutor_email="maria@example.com",
+                    tutor_telefone="85999990000",
+                    tutor_whatsapp="85999990001",
+                    especie="Canina",
+                    raca="SRD",
+                ),
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+
+            segundo = pacientes.criar_paciente(
+                pacientes.PacienteCreate(
+                    nome="Theo",
+                    tutor_id=primeiro["tutor_id"],
+                    tutor="Maria Silva",
+                    tutor_email="maria@example.com",
+                    especie="Felina",
+                    raca="SRD",
+                ),
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+
+            self.assertIsNotNone(primeiro["tutor_id"])
+            self.assertEqual(primeiro["tutor_id"], segundo["tutor_id"])
+
+            tutor = db.query(Tutor).filter(Tutor.id == primeiro["tutor_id"]).first()
+            self.assertIsNotNone(tutor)
+            self.assertEqual(tutor.email, "maria@example.com")
+            self.assertEqual(tutor.whatsapp, "85999990001")
+
+            luna = pacientes.obter_paciente(
+                primeiro["id"],
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+            self.assertEqual(luna["tutor_email"], "maria@example.com")
+            self.assertEqual(luna["tutor_id"], primeiro["tutor_id"])
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_atualizacao_parcial_nao_redefine_sexo_omitido(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            tutor = Tutor(nome="Maria Original", nome_key="maria original", ativo=1)
+            db.add(tutor)
+            db.flush()
+            paciente = Paciente(
+                nome="Luna",
+                nome_key="luna",
+                tutor_id=tutor.id,
+                especie="Canina",
+                raca="SRD",
+                sexo="Fêmea",
+                ativo=1,
+            )
+            db.add(paciente)
+            db.commit()
+            db.refresh(paciente)
+
+            pacientes.atualizar_paciente(
+                paciente.id,
+                pacientes.PacienteUpdate(nome="Luna Corrigida"),
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+
+            db.refresh(paciente)
+            self.assertEqual(paciente.nome, "Luna Corrigida")
+            self.assertEqual(paciente.sexo, "Fêmea")
+            self.assertEqual(paciente.raca, "SRD")
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_atualiza_paciente_e_tutor_no_mesmo_payload_clinico(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            tutor = Tutor(nome="Nome Antigo", nome_key="nome antigo", ativo=1)
+            db.add(tutor)
+            db.flush()
+            paciente = Paciente(
+                nome="Faísca",
+                nome_key="faisca",
+                tutor_id=tutor.id,
+                especie="Canina",
+                raca="SRD",
+                sexo="Macho",
+                ativo=1,
+            )
+            db.add(paciente)
+            db.commit()
+            db.refresh(paciente)
+
+            response = pacientes.atualizar_paciente(
+                paciente.id,
+                pacientes.PacienteUpdate(
+                    nome="Faísca",
+                    tutor_id=tutor.id,
+                    tutor="João Felipe Corrigido",
+                    tutor_whatsapp="85999990001",
+                    especie="Canina",
+                    raca="SRD",
+                    sexo="Fêmea",
+                ),
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+
+            db.refresh(paciente)
+            db.refresh(tutor)
+            self.assertEqual(paciente.sexo, "Fêmea")
+            self.assertEqual(tutor.nome, "João Felipe Corrigido")
+            self.assertEqual(tutor.whatsapp, "85999990001")
+            self.assertEqual(response["sexo"], "Fêmea")
+            self.assertEqual(response["tutor"], "João Felipe Corrigido")
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_atualiza_campo_do_tutor_sem_exigir_tutor_id_no_payload(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            tutor = Tutor(nome="Maria Original", nome_key="maria original", ativo=1)
+            db.add(tutor)
+            db.flush()
+            paciente = Paciente(
+                nome="Luna",
+                nome_key="luna",
+                tutor_id=tutor.id,
+                especie="Canina",
+                sexo="Fêmea",
+                ativo=1,
+            )
+            db.add(paciente)
+            db.commit()
+            db.refresh(paciente)
+
+            pacientes.atualizar_paciente(
+                paciente.id,
+                pacientes.PacienteUpdate(tutor_whatsapp="85999990002"),
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+
+            db.refresh(paciente)
+            db.refresh(tutor)
+            self.assertEqual(paciente.tutor_id, tutor.id)
+            self.assertEqual(tutor.whatsapp, "85999990002")
+            self.assertEqual(tutor.nome, "Maria Original")
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_nome_invalido_nao_persiste_edicao_parcial_do_tutor(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            tutor = Tutor(nome="Nome Preservado", nome_key="nome preservado", ativo=1)
+            db.add(tutor)
+            db.flush()
+            paciente = Paciente(
+                nome="Luna",
+                nome_key="luna",
+                tutor_id=tutor.id,
+                especie="Canina",
+                sexo="Fêmea",
+                ativo=1,
+            )
+            db.add(paciente)
+            db.commit()
+
+            with self.assertRaises(HTTPException) as context:
+                pacientes.atualizar_paciente(
+                    paciente.id,
+                    pacientes.PacienteUpdate(
+                        nome=" ",
+                        tutor_id=tutor.id,
+                        tutor="Nome que nao deve persistir",
+                    ),
+                    db=db,
+                    current_user=SimpleNamespace(id=1),
+                )
+
+            self.assertEqual(context.exception.detail, "Nome do paciente e obrigatorio")
+            db.expire_all()
+            tutor_preservado = db.query(Tutor).filter(Tutor.id == tutor.id).first()
+            self.assertEqual(tutor_preservado.nome, "Nome Preservado")
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()
-

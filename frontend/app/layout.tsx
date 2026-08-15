@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { APP_BASE_URL, APP_PREVIEW_IMAGE, buildPortalMetadata } from "@/lib/portal-metadata";
 import "./globals.css";
 
 const inter = Inter({
@@ -8,8 +9,28 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "FortCordis",
-  description: "Sistema de gestao para clinicas veterinarias",
+  ...buildPortalMetadata({
+    title: "Fort Cordis",
+    description: "Cardiologia veterinaria integrada, com portal seguro para tutores e clinicas parceiras.",
+  }),
+  metadataBase: new URL(APP_BASE_URL),
+  applicationName: "Fort Cordis",
+  icons: {
+    icon: [
+      {
+        url: APP_PREVIEW_IMAGE,
+        type: "image/png",
+        sizes: "1563x1563",
+      },
+    ],
+    apple: [
+      {
+        url: APP_PREVIEW_IMAGE,
+        sizes: "1563x1563",
+      },
+    ],
+    shortcut: [APP_PREVIEW_IMAGE],
+  },
   other: {
     google: "notranslate",
   },

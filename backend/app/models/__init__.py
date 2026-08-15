@@ -1,6 +1,7 @@
 from app.models.user import User
 from app.models.papel import Papel
 from app.models.agendamento import Agendamento
+from app.models.whatsapp_agenda_resposta import WhatsappAgendaResposta
 from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.models.clinica import Clinica
@@ -24,6 +25,7 @@ from app.models.frase import FraseQualitativa, FraseQualitativaHistorico
 from app.models.imagem_laudo import ImagemLaudo, ImagemTemporaria
 from app.models.laudo_pdf_job import LaudoPdfJob
 from app.models.xml_import_job import XmlImportJob
+from app.models.eco_study_import_job import EcoStudyImportJob
 from app.models.tabela_preco import TabelaPreco, PrecoServico, PrecoServicoClinica
 from app.models.ordem_servico import OrdemServico
 from app.models.referencia_eco import ReferenciaEco
@@ -49,3 +51,47 @@ from app.models.frase_atendimento_clinico import FraseAtendimentoClinico
 from app.models.push_subscription import PushSubscription
 from app.models.push_scheduled_notification import PushScheduledNotification
 from app.models.google_maps_usage_metrica import GoogleMapsUsageMetrica
+from app.models.portal_access import PortalAccessChallenge
+from app.models.portal_clinic_auth import (
+    PortalAuthChallenge,
+    PortalClinicAccount,
+    PortalClinicInvite,
+    PortalClinicSession,
+    PortalPasswordResetToken,
+)
+from app.models.portal_partner import PortalPartnerProfile, PortalPartnerReleaseTarget
+from app.models.portal_partner_auth import (
+    PortalPartnerAccount,
+    PortalPartnerAuthChallenge,
+    PortalPartnerInvite,
+    PortalPartnerPasswordResetToken,
+    PortalPartnerSession,
+)
+from app.models.assistente_ia import (
+    AssistenteIAAcaoPendente,
+    AssistenteIAAprendizado,
+    AssistenteIAConhecimentoDocumento,
+    AssistenteIAConhecimentoTrecho,
+    AssistenteIAConversa,
+    AssistenteIAExecucao,
+    AssistenteIAFeedback,
+    AssistenteIAMemoria,
+    AssistenteIAMemoriaVersao,
+    AssistenteIAMensagem,
+    AssistenteIAMissao,
+    AssistenteIARegressaoCaso,
+    AssistenteIARascunhoClinico,
+)
+from app.models.agenda_bloqueio import AgendaBloqueio
+from app.models.ai_echo import (
+    AIEchoApplication,
+    AIEchoAudioAsset,
+    AIEchoClinicalWarning,
+    AIEchoFeedback,
+    AIEchoFieldSuggestion,
+    AIEchoMeasurement,
+    AIEchoPhrasePreference,
+    AIEchoSession,
+    AIEchoTranscript,
+    AIEchoVocabulary,
+)

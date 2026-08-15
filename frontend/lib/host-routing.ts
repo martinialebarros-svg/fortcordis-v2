@@ -1,4 +1,6 @@
 const INSTITUTIONAL_HOSTS = new Set([
+  "fortcordis.com",
+  "www.fortcordis.com",
   "fortcordis.com.br",
   "www.fortcordis.com.br",
   "stage.fortcordis.com.br",
@@ -6,6 +8,8 @@ const INSTITUTIONAL_HOSTS = new Set([
 ]);
 
 const APP_HOST_BY_INSTITUTIONAL_HOST: Record<string, string> = {
+  "fortcordis.com": "app.fortcordis.com.br",
+  "www.fortcordis.com": "app.fortcordis.com.br",
   "fortcordis.com.br": "app.fortcordis.com.br",
   "www.fortcordis.com.br": "app.fortcordis.com.br",
   "stage.fortcordis.com.br": "app.stage.fortcordis.com.br",

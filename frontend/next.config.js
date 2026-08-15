@@ -20,6 +20,7 @@ const appContentSecurityPolicy = [
 ].join('; ')
 
 const nextConfig = {
+  devIndicators: false,
   outputFileTracingRoot: path.resolve(__dirname),
   async headers() {
     return [

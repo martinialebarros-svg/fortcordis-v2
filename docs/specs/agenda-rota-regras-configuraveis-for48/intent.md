@@ -45,3 +45,9 @@ Permitir configuracao visual e persistente das regras de roteirizacao (base, lim
 - [x] Escopo e nao escopo estao explicitos.
 - [x] Restricoes estao registradas.
 - [x] Riscos iniciais estao mapeados.
+
+## 9) Ajuste de seguranca operacional — 2026-08-04
+
+O clique administrativo em um slot fechado alterava a configuracao global da agenda antes de existir um agendamento concreto. Isso podia abrir uma janela para outros agendamentos e nao atendia ao fluxo de confirmacao exibido ao administrador no momento de salvar.
+
+O ajuste deve permitir somente ao `admin` confirmar um agendamento individual fora do funcionamento, sem modificar a configuracao da agenda e com trilha de auditoria do motivo que fechou o horario.

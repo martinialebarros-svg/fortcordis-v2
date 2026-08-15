@@ -1,0 +1,69 @@
+name: Provision Institutional Host (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      enable_tls:
+        description: "Emitir/atualizar certificado TLS agora"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      certbot_email:
+        description: "Email para Let''s Encrypt (obrigatorio se enable_tls=true)"
+        required: false
+        default: "martiniano@fortcordis.com"
+
+concurrency:
+  group: fortcordis-vps-deploy
+  cancel-in-progress: false
+
+jobs:
+  provision-prod-host:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup SSH key
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s' "$VPS_SSH_KEY" > ~/.ssh/id_vps
+          chmod 600 ~/.ssh/id_vps
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Copy provisioning script to VPS
+        run: |
+          scp -i ~/.ssh/id_vps -o IdentitiesOnly=yes scripts/provision_institutional_nginx.sh \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/provision_institutional_nginx.sh
+
+      - name: Provision nginx for fortcordis.com
+        env:
+          ENABLE_TLS: ${{ inputs.enable_tls }}
+          CERTBOT_EMAIL: ${{ inputs.certbot_email }}
+        run: |
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "export ENABLE_TLS='${ENABLE_TLS}' CERTBOT_EMAIL='${CERTBOT_EMAIL}' SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' EXPECTED_PUBLIC_IP='${{ secrets.VPS_HOST }}'; bash -s" <<'EOF'
+            set -euo pipefail
+            chmod +x /tmp/provision_institutional_nginx.sh
+            SITE_NAME="fortcordis-www" \
+            DOMAIN_PRIMARY="fortcordis.com" \
+            DOMAIN_WWW="www.fortcordis.com" \
+            FRONTEND_PORT="3000" \
+            BACKEND_PORT="8000" \
+            /tmp/provision_institutional_nginx.sh
+          EOF
+
+      - name: Cleanup remote temp script
+        if: always()
+        run: |
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            'rm -f /tmp/provision_institutional_nginx.sh'

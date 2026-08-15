@@ -44,6 +44,7 @@ from app.services.push_scheduler_service import cancel_pending_os_payment_remind
 router = APIRouter()
 
 OS_STATUSES = {"Pendente", "Pago", "Cancelado"}
+ORIGENS_ATENDIMENTO_OS = {"clinica_parceira", "domiciliar"}
 
 
 class OrdemServicoUpdate(BaseModel):
@@ -93,6 +94,25 @@ def _to_decimal(value, default: Decimal = Decimal("0.00")) -> Decimal:
 
 def _normalizar_codigo_pagamento(valor: Optional[str]) -> str:
     return str(valor or "").strip().lower().replace(" ", "_")
+
+
+def _normalizar_origem_atendimento_os(valor: Optional[str]) -> Optional[str]:
+    raw = str(valor or "").strip().lower()
+    if not raw or raw == "todos":
+        return None
+    aliases = {
+        "clinica": "clinica_parceira",
+        "clinica_parceira": "clinica_parceira",
+        "parceira": "clinica_parceira",
+        "domiciliar": "domiciliar",
+    }
+    origem = aliases.get(raw, raw)
+    if origem not in ORIGENS_ATENDIMENTO_OS:
+        raise HTTPException(
+            status_code=400,
+            detail="Origem de atendimento invalida. Use clinica_parceira ou domiciliar.",
+        )
+    return origem
 
 
 def _resolve_forma_pagamento_config(
@@ -164,10 +184,37 @@ def _calcular_valores_pagamento(
 def _serialize_os(
     os_data: OrdemServico,
     paciente_nome: Optional[str] = None,
+    tutor_id: Optional[int] = None,
     tutor_nome: Optional[str] = None,
+    tutor_telefone: Optional[str] = None,
+    tutor_whatsapp: Optional[str] = None,
+    tutor_email: Optional[str] = None,
     clinica_nome: Optional[str] = None,
+    clinica_telefone: Optional[str] = None,
+    clinica_email: Optional[str] = None,
     servico_nome: Optional[str] = None,
 ) -> dict:
+    origem_atendimento = str(getattr(os_data, "origem_atendimento", None) or "clinica_parceira").strip() or "clinica_parceira"
+    clinica_label = (clinica_nome or "").strip()
+    if not clinica_label and origem_atendimento == "domiciliar":
+        clinica_label = "Atendimento domiciliar"
+    tutor_nome_limpo = str(tutor_nome or "").strip()
+    tutor_telefone_limpo = str(tutor_whatsapp or tutor_telefone or "").strip()
+    tutor_email_limpo = str(tutor_email or "").strip()
+    clinica_telefone_limpo = str(clinica_telefone or "").strip()
+    clinica_email_limpo = str(clinica_email or "").strip()
+
+    if origem_atendimento == "domiciliar":
+        destinatario_tipo = "tutor"
+        destinatario_nome = tutor_nome_limpo or "Tutor nao informado"
+        destinatario_telefone = tutor_telefone_limpo
+        destinatario_email = tutor_email_limpo
+    else:
+        destinatario_tipo = "clinica"
+        destinatario_nome = clinica_label or "Clinica nao informada"
+        destinatario_telefone = clinica_telefone_limpo
+        destinatario_email = clinica_email_limpo
+
     return {
         "id": os_data.id,
         "numero_os": os_data.numero_os,
@@ -175,9 +222,20 @@ def _serialize_os(
         "paciente_id": os_data.paciente_id,
         "clinica_id": os_data.clinica_id,
         "servico_id": os_data.servico_id,
+        "origem_atendimento": origem_atendimento,
         "paciente": paciente_nome or "",
-        "tutor": tutor_nome or "",
-        "clinica": clinica_nome or "",
+        "tutor_id": tutor_id,
+        "tutor": tutor_nome_limpo,
+        "tutor_telefone": str(tutor_telefone or "").strip(),
+        "tutor_whatsapp": str(tutor_whatsapp or "").strip(),
+        "tutor_email": tutor_email_limpo,
+        "clinica": clinica_label,
+        "clinica_telefone": clinica_telefone_limpo,
+        "clinica_email": clinica_email_limpo,
+        "destinatario_tipo": destinatario_tipo,
+        "destinatario_nome": destinatario_nome,
+        "destinatario_telefone": destinatario_telefone,
+        "destinatario_email": destinatario_email,
         "servico": servico_nome or "",
         "data_atendimento": str(os_data.data_atendimento) if os_data.data_atendimento else None,
         "tipo_horario": os_data.tipo_horario,
@@ -192,9 +250,10 @@ def _serialize_os(
 
 def _calcular_valor_servico(
     db: Session,
-    clinica_id: int,
+    clinica_id: Optional[int],
     servico_id: int,
     tipo_horario: str,
+    origem_atendimento: Optional[str] = None,
 ) -> Decimal:
     return calcular_preco_servico(
         db=db,
@@ -202,6 +261,7 @@ def _calcular_valor_servico(
         servico_id=servico_id,
         tipo_horario=tipo_horario,
         usar_preco_clinica=True,
+        origem_atendimento=origem_atendimento,
     )
 
 
@@ -210,8 +270,14 @@ def _find_os_with_names(db: Session, os_id: int):
         db.query(
             OrdemServico,
             Paciente.nome.label("paciente_nome"),
+            Tutor.id.label("tutor_id"),
             Tutor.nome.label("tutor_nome"),
+            Tutor.telefone.label("tutor_telefone"),
+            Tutor.whatsapp.label("tutor_whatsapp"),
+            Tutor.email.label("tutor_email"),
             Clinica.nome.label("clinica_nome"),
+            Clinica.telefone.label("clinica_telefone"),
+            Clinica.email.label("clinica_email"),
             Servico.nome.label("servico_nome"),
         )
         .outerjoin(Paciente, OrdemServico.paciente_id == Paciente.id)
@@ -220,6 +286,35 @@ def _find_os_with_names(db: Session, os_id: int):
         .outerjoin(Servico, OrdemServico.servico_id == Servico.id)
         .filter(OrdemServico.id == os_id)
         .first()
+    )
+
+
+def _serialize_os_row(row: Any) -> dict:
+    (
+        os_data,
+        paciente_nome,
+        tutor_id,
+        tutor_nome,
+        tutor_telefone,
+        tutor_whatsapp,
+        tutor_email,
+        clinica_nome,
+        clinica_telefone,
+        clinica_email,
+        servico_nome,
+    ) = row
+    return _serialize_os(
+        os_data,
+        paciente_nome=paciente_nome,
+        tutor_id=tutor_id,
+        tutor_nome=tutor_nome,
+        tutor_telefone=tutor_telefone,
+        tutor_whatsapp=tutor_whatsapp,
+        tutor_email=tutor_email,
+        clinica_nome=clinica_nome,
+        clinica_telefone=clinica_telefone,
+        clinica_email=clinica_email,
+        servico_nome=servico_nome,
     )
 
 
@@ -418,8 +513,10 @@ def _gerar_pdf_cobranca_pendencias(
         grupo = grupos.get(chave)
         if not grupo:
             grupo = {
-                "clinica_nome": item["clinica_nome"],
-                "clinica_telefone": item["clinica_telefone"],
+                "destinatario_tipo": item["destinatario_tipo"],
+                "destinatario_nome": item["destinatario_nome"],
+                "destinatario_telefone": item["destinatario_telefone"],
+                "destinatario_email": item["destinatario_email"],
                 "ordens": [],
                 "total": 0.0,
             }
@@ -429,15 +526,28 @@ def _gerar_pdf_cobranca_pendencias(
         grupo["total"] += float(item["valor_final"] or 0)
 
     total_geral = 0.0
-    for grupo in grupos.values():
+    grupos_ordenados = sorted(
+        grupos.values(),
+        key=lambda grupo: str(grupo["destinatario_nome"] or "").lower(),
+    )
+    for grupo in grupos_ordenados:
+        rotulo_destinatario = "Tutor responsavel" if grupo["destinatario_tipo"] == "tutor" else "Clinica"
         story.append(Spacer(1, 3 * mm))
-        story.append(Paragraph(f"Clinica: {_texto_pdf(grupo['clinica_nome'], 'Nao informada')}", style_secao))
         story.append(
             Paragraph(
-                f"Telefone: {_texto_pdf(grupo['clinica_telefone'], 'nao informado')}",
-                style_normal,
+                f"{rotulo_destinatario}: {_texto_pdf(grupo['destinatario_nome'], 'Nao informado')}",
+                style_secao,
             )
         )
+        contatos_grupo = []
+        if grupo["destinatario_tipo"] == "tutor":
+            contatos_grupo.append("Origem: Atendimento domiciliar")
+        contatos_grupo.append(
+            f"Telefone: {_texto_pdf(grupo['destinatario_telefone'], 'nao informado')}"
+        )
+        if grupo["destinatario_email"]:
+            contatos_grupo.append(f"E-mail: {_texto_pdf(grupo['destinatario_email'], '')}")
+        story.append(Paragraph(" | ".join(contatos_grupo), style_normal))
 
         linhas_tabela = [["OS", "Data", "Paciente", "Tutor", "Servico", "Valor"]]
         for ordem in grupo["ordens"]:
@@ -939,6 +1049,7 @@ def _carregar_configuracao_usuario_recibo(
 @router.get("")
 def listar_ordens(
     status: Optional[str] = None,
+    origem_atendimento: Optional[str] = None,
     clinica_id: Optional[int] = None,
     servico_id: Optional[int] = None,
     tipo_horario: Optional[str] = Query(None, pattern="^(comercial|plantao)$"),
@@ -954,8 +1065,14 @@ def listar_ordens(
         db.query(
             OrdemServico,
             Paciente.nome.label("paciente_nome"),
+            Tutor.id.label("tutor_id"),
             Tutor.nome.label("tutor_nome"),
+            Tutor.telefone.label("tutor_telefone"),
+            Tutor.whatsapp.label("tutor_whatsapp"),
+            Tutor.email.label("tutor_email"),
             Clinica.nome.label("clinica_nome"),
+            Clinica.telefone.label("clinica_telefone"),
+            Clinica.email.label("clinica_email"),
             Servico.nome.label("servico_nome"),
         )
         .outerjoin(Paciente, OrdemServico.paciente_id == Paciente.id)
@@ -964,8 +1081,11 @@ def listar_ordens(
         .outerjoin(Servico, OrdemServico.servico_id == Servico.id)
     )
 
+    origem_atendimento_norm = _normalizar_origem_atendimento_os(origem_atendimento)
     if status:
         query = query.filter(OrdemServico.status == status)
+    if origem_atendimento_norm:
+        query = query.filter(OrdemServico.origem_atendimento == origem_atendimento_norm)
     if clinica_id:
         query = query.filter(OrdemServico.clinica_id == clinica_id)
     if servico_id:
@@ -985,16 +1105,7 @@ def listar_ordens(
         .all()
     )
 
-    items = [
-        _serialize_os(
-            os_data,
-            paciente_nome=paciente_nome,
-            tutor_nome=tutor_nome,
-            clinica_nome=clinica_nome,
-            servico_nome=servico_nome,
-        )
-        for os_data, paciente_nome, tutor_nome, clinica_nome, servico_nome in results
-    ]
+    items = [_serialize_os_row(row) for row in results]
 
     return {"total": total, "items": items}
 
@@ -1002,8 +1113,11 @@ def listar_ordens(
 @router.get("/relatorios/pendencias/pdf")
 def gerar_relatorio_pendencias_pdf(
     status: Optional[str] = Query("Pendente"),
+    origem_atendimento: Optional[str] = None,
     clinica_id: Optional[int] = None,
     clinica_nome: Optional[str] = None,
+    tutor_id: Optional[int] = None,
+    tutor_nome: Optional[str] = None,
     servico_id: Optional[int] = None,
     tipo_horario: Optional[str] = Query(None, pattern="^(comercial|plantao)$"),
     data_inicio: Optional[str] = None,
@@ -1018,9 +1132,14 @@ def gerar_relatorio_pendencias_pdf(
         db.query(
             OrdemServico,
             Paciente.nome.label("paciente_nome"),
+            Tutor.id.label("tutor_id"),
             Tutor.nome.label("tutor_nome"),
+            Tutor.telefone.label("tutor_telefone"),
+            Tutor.whatsapp.label("tutor_whatsapp"),
+            Tutor.email.label("tutor_email"),
             Clinica.nome.label("clinica_nome"),
             Clinica.telefone.label("clinica_telefone"),
+            Clinica.email.label("clinica_email"),
             Servico.nome.label("servico_nome"),
         )
         .outerjoin(Paciente, OrdemServico.paciente_id == Paciente.id)
@@ -1029,13 +1148,33 @@ def gerar_relatorio_pendencias_pdf(
         .outerjoin(Servico, OrdemServico.servico_id == Servico.id)
     )
 
+    origem_atendimento_norm = _normalizar_origem_atendimento_os(origem_atendimento)
     if status and status != "todos":
         query = query.filter(OrdemServico.status == status)
-    if clinica_id:
+    if origem_atendimento_norm:
+        query = query.filter(OrdemServico.origem_atendimento == origem_atendimento_norm)
+    if tutor_id:
+        query = query.filter(
+            OrdemServico.origem_atendimento == "domiciliar",
+            Tutor.id == tutor_id,
+        )
+    elif tutor_nome:
+        nome_tutor_limpo = tutor_nome.strip().lower()
+        query = query.filter(OrdemServico.origem_atendimento == "domiciliar")
+        if nome_tutor_limpo == "tutor nao informado":
+            query = query.filter(or_(Tutor.id.is_(None), func.trim(func.coalesce(Tutor.nome, "")) == ""))
+        else:
+            query = query.filter(func.lower(func.trim(Tutor.nome)) == nome_tutor_limpo)
+    elif clinica_id:
         query = query.filter(OrdemServico.clinica_id == clinica_id)
     elif clinica_nome:
         nome_limpo = clinica_nome.strip().lower()
-        if nome_limpo == "clinica nao informada":
+        if nome_limpo == "atendimento domiciliar":
+            query = query.filter(
+                OrdemServico.clinica_id.is_(None),
+                OrdemServico.origem_atendimento == "domiciliar",
+            )
+        elif nome_limpo == "clinica nao informada":
             query = query.filter(OrdemServico.clinica_id.is_(None))
         else:
             query = query.filter(func.lower(Clinica.nome) == nome_limpo)
@@ -1059,7 +1198,7 @@ def gerar_relatorio_pendencias_pdf(
             )
         )
 
-    resultados = query.order_by(Clinica.nome.asc(), OrdemServico.data_atendimento.asc(), OrdemServico.id.asc()).all()
+    resultados = query.order_by(OrdemServico.data_atendimento.asc(), OrdemServico.id.asc()).all()
     if not resultados:
         raise HTTPException(
             status_code=404,
@@ -1067,17 +1206,51 @@ def gerar_relatorio_pendencias_pdf(
         )
 
     itens_relatorio: List[Dict[str, Any]] = []
-    for os_data, paciente_nome, tutor_nome, clinica_nome, clinica_telefone, servico_nome in resultados:
-        nome_clinica = (clinica_nome or "Clinica nao informada").strip()
-        chave = f"id:{os_data.clinica_id}" if os_data.clinica_id else f"nome:{nome_clinica.lower()}"
+    for row in resultados:
+        (
+            os_data,
+            paciente_nome,
+            tutor_id_row,
+            tutor_nome_row,
+            tutor_telefone_row,
+            tutor_whatsapp_row,
+            tutor_email_row,
+            clinica_nome_row,
+            clinica_telefone_row,
+            clinica_email_row,
+            servico_nome,
+        ) = row
+        payload_os = _serialize_os(
+            os_data,
+            paciente_nome=paciente_nome,
+            tutor_id=tutor_id_row,
+            tutor_nome=tutor_nome_row,
+            tutor_telefone=tutor_telefone_row,
+            tutor_whatsapp=tutor_whatsapp_row,
+            tutor_email=tutor_email_row,
+            clinica_nome=clinica_nome_row,
+            clinica_telefone=clinica_telefone_row,
+            clinica_email=clinica_email_row,
+            servico_nome=servico_nome,
+        )
         itens_relatorio.append(
             {
-                "chave": chave,
+                "chave": (
+                    f"tutor:{tutor_id_row}"
+                    if payload_os["destinatario_tipo"] == "tutor" and tutor_id_row
+                    else f"tutor-nome:{payload_os['destinatario_nome'].lower()}"
+                    if payload_os["destinatario_tipo"] == "tutor"
+                    else f"clinica:{os_data.clinica_id}"
+                    if os_data.clinica_id
+                    else f"clinica-nome:{payload_os['destinatario_nome'].lower()}"
+                ),
                 "numero_os": os_data.numero_os or "",
                 "paciente": paciente_nome or "",
-                "tutor": tutor_nome or "",
-                "clinica_nome": nome_clinica,
-                "clinica_telefone": (clinica_telefone or "").strip(),
+                "tutor": tutor_nome_row or "",
+                "destinatario_tipo": payload_os["destinatario_tipo"],
+                "destinatario_nome": payload_os["destinatario_nome"],
+                "destinatario_telefone": payload_os["destinatario_telefone"],
+                "destinatario_email": payload_os["destinatario_email"],
                 "servico": servico_nome or "",
                 "data_atendimento": os_data.data_atendimento,
                 "valor_final": float(os_data.valor_final or 0),
@@ -1112,7 +1285,14 @@ def gerar_relatorio_pendencias_pdf(
     filtros_aplicados: List[str] = []
     if status and status != "todos":
         filtros_aplicados.append(f"status={status}")
-    if clinica_id:
+    if origem_atendimento_norm:
+        filtros_aplicados.append(f"origem={origem_atendimento_norm}")
+    if tutor_id:
+        tutor_ref = db.query(Tutor).filter(Tutor.id == tutor_id).first()
+        filtros_aplicados.append(f"tutor={tutor_ref.nome if tutor_ref and tutor_ref.nome else tutor_id}")
+    elif tutor_nome:
+        filtros_aplicados.append(f"tutor={tutor_nome}")
+    elif clinica_id:
         clinica_ref = db.query(Clinica).filter(Clinica.id == clinica_id).first()
         filtros_aplicados.append(f"clinica={clinica_ref.nome if clinica_ref else clinica_id}")
     elif clinica_nome:
@@ -1155,16 +1335,8 @@ def gerar_relatorio_pendencias_pdf(
     )
 
 
-@router.get("/relatorios/recibos/pdf")
-def gerar_recibos_os_pdf(
-    os_ids: str,
-    agrupar: bool = Query(False),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Gera recibo PDF para OS recebidas, individual ou agrupado."""
-    ids = _parse_os_ids_param(os_ids)
-
+def _montar_recibos_os(db: Session, ids: List[int]) -> List[Dict[str, Any]]:
+    """Monta os dicionarios de recibo para as OS informadas (somente as ja Pagas sao incluidas)."""
     resultados = (
         db.query(
             OrdemServico,
@@ -1181,17 +1353,6 @@ def gerar_recibos_os_pdf(
         .order_by(OrdemServico.data_atendimento.asc(), OrdemServico.id.asc())
         .all()
     )
-
-    encontrados_ids = {item[0].id for item in resultados}
-    faltantes = [os_id for os_id in ids if os_id not in encontrados_ids]
-    if faltantes:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Algumas OS informadas nao foram encontradas ou ainda nao estao recebidas: "
-                + ", ".join(str(item) for item in faltantes)
-            ),
-        )
 
     pagamentos_rows = (
         db.query(OrdemServicoPagamento)
@@ -1247,7 +1408,13 @@ def gerar_recibos_os_pdf(
                 "numero_os": os_data.numero_os,
                 "paciente": paciente_nome or "",
                 "tutor": tutor_nome or "",
-                "clinica": clinica_nome or "",
+                "clinica": _serialize_os(
+                    os_data,
+                    paciente_nome=paciente_nome,
+                    tutor_nome=tutor_nome,
+                    clinica_nome=clinica_nome,
+                    servico_nome=servico_nome,
+                ).get("clinica", ""),
                 "servico": servico_nome or "",
                 "data_atendimento": os_data.data_atendimento,
                 "data_recebimento": max(datas_recebimento) if datas_recebimento else os_data.updated_at or os_data.created_at,
@@ -1263,8 +1430,12 @@ def gerar_recibos_os_pdf(
             }
         )
 
+    return recibos
+
+
+def _carregar_dados_emissor_recibo_empresa(db: Session) -> Dict[str, Any]:
+    """Dados de identidade/contato da empresa para o cabecalho do recibo (sem dados de usuario)."""
     configuracao = db.query(Configuracao).first()
-    configuracao_usuario = _carregar_configuracao_usuario_recibo(db, current_user.id)
     nome_empresa = (
         (configuracao.nome_empresa or "").strip()
         if configuracao and configuracao.nome_empresa
@@ -1286,13 +1457,48 @@ def gerar_recibos_os_pdf(
     logomarca = None
     texto_rodape = ""
     assinatura_emitente = None
-    crmv_emitente = ""
     if configuracao:
         if configuracao.mostrar_logomarca and configuracao.logomarca_dados:
             logomarca = configuracao.logomarca_dados
         texto_rodape = (configuracao.texto_rodape_laudo or "").strip()
         if configuracao.mostrar_assinatura and configuracao.assinatura_dados:
             assinatura_emitente = configuracao.assinatura_dados
+
+    return {
+        "nome_empresa": nome_empresa,
+        "contato_empresa": contato_empresa,
+        "logomarca": logomarca,
+        "texto_rodape": texto_rodape,
+        "assinatura_emitente": assinatura_emitente,
+    }
+
+
+@router.get("/relatorios/recibos/pdf")
+def gerar_recibos_os_pdf(
+    os_ids: str,
+    agrupar: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Gera recibo PDF para OS recebidas, individual ou agrupado."""
+    ids = _parse_os_ids_param(os_ids)
+
+    recibos = _montar_recibos_os(db, ids)
+    encontrados_ids = {item["id"] for item in recibos}
+    faltantes = [os_id for os_id in ids if os_id not in encontrados_ids]
+    if faltantes:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Algumas OS informadas nao foram encontradas ou ainda nao estao recebidas: "
+                + ", ".join(str(item) for item in faltantes)
+            ),
+        )
+
+    dados_empresa = _carregar_dados_emissor_recibo_empresa(db)
+    configuracao_usuario = _carregar_configuracao_usuario_recibo(db, current_user.id)
+    assinatura_emitente = dados_empresa["assinatura_emitente"]
+    crmv_emitente = ""
     if configuracao_usuario:
         if configuracao_usuario.assinatura_dados:
             assinatura_emitente = configuracao_usuario.assinatura_dados
@@ -1300,14 +1506,14 @@ def gerar_recibos_os_pdf(
 
     pdf_bytes = _gerar_pdf_recibos_ordens(
         recibos=recibos,
-        nome_empresa=nome_empresa,
-        contato_empresa=contato_empresa,
-        texto_rodape=texto_rodape,
+        nome_empresa=dados_empresa["nome_empresa"],
+        contato_empresa=dados_empresa["contato_empresa"],
+        texto_rodape=dados_empresa["texto_rodape"],
         agrupar=agrupar,
         nome_emitente=str(current_user.nome or "").strip() or "Usuario emissor",
         crmv_emitente=crmv_emitente,
         assinatura_emitente_dados=assinatura_emitente,
-        logomarca_dados=logomarca,
+        logomarca_dados=dados_empresa["logomarca"],
     )
 
     if agrupar:
@@ -1334,14 +1540,7 @@ def obter_ordem(
     if not os_row:
         raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada")
 
-    os_data, paciente_nome, tutor_nome, clinica_nome, servico_nome = os_row
-    return _serialize_os(
-        os_data,
-        paciente_nome=paciente_nome,
-        tutor_nome=tutor_nome,
-        clinica_nome=clinica_nome,
-        servico_nome=servico_nome,
-    )
+    return _serialize_os_row(os_row)
 
 
 @router.put("/{os_id}")
@@ -1413,6 +1612,7 @@ def atualizar_ordem(
             clinica_id=os_data.clinica_id,
             servico_id=os_data.servico_id,
             tipo_horario=os_data.tipo_horario or "comercial",
+            origem_atendimento=getattr(os_data, "origem_atendimento", None),
         )
 
     if dados.valor_servico is not None:
@@ -1432,14 +1632,8 @@ def atualizar_ordem(
     db.commit()
 
     os_row = _find_os_with_names(db, os_id)
-    os_updated, paciente_nome, tutor_nome, clinica_nome, servico_nome = os_row
-    payload = _serialize_os(
-        os_updated,
-        paciente_nome=paciente_nome,
-        tutor_nome=tutor_nome,
-        clinica_nome=clinica_nome,
-        servico_nome=servico_nome,
-    )
+    payload = _serialize_os_row(os_row)
+    os_updated = os_row[0]
     payload["mensagem"] = "Ordem de servico atualizada com sucesso"
 
     acao_log = "ORDEM_SERVICO_ATUALIZADA"
@@ -1479,7 +1673,19 @@ def receber_ordem(
     if not os_row:
         raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada")
 
-    os_data, paciente_nome, _tutor_nome, clinica_nome, servico_nome = os_row
+    (
+        os_data,
+        paciente_nome,
+        _tutor_id,
+        _tutor_nome,
+        _tutor_telefone,
+        _tutor_whatsapp,
+        _tutor_email,
+        clinica_nome,
+        _clinica_telefone,
+        _clinica_email,
+        servico_nome,
+    ) = os_row
     if os_data.status == "Pago":
         raise HTTPException(status_code=400, detail="OS ja esta com status Pago.")
     if os_data.status == "Cancelado":
@@ -1800,6 +2006,13 @@ def receber_ordem(
         formas_recebimento.append("credito")
 
     try:
+        clinica_label = _serialize_os(
+            os_data,
+            paciente_nome=paciente_nome,
+            tutor_nome=_tutor_nome,
+            clinica_nome=clinica_nome,
+            servico_nome=servico_nome,
+        ).get("clinica")
         send_financeiro_push_notification(
             db,
             action="payment_received",
@@ -1807,7 +2020,7 @@ def receber_ordem(
             data={
                 "numero_os": os_data.numero_os,
                 "paciente_nome": paciente_nome,
-                "clinica_nome": clinica_nome,
+                "clinica_nome": clinica_label,
                 "servico_nome": servico_nome,
                 "valor_final": f"{round(total_liquido + valor_credito_utilizado, 2):.2f}",
                 "forma_pagamento": ", ".join(formas_recebimento),

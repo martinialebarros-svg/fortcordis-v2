@@ -4,13 +4,78 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
+import {
+  formatarCepVisual,
+  formatarCpfVisual,
+  formatarTelefoneVisual,
+  normalizarCep,
+  normalizarCpf,
+  normalizarTelefone,
+} from "@/lib/atendimento-cadastro";
 import {
   addRacaCustomPorEspecie,
   getRacaOptions,
   loadRacasCustomPorEspecie,
   saveRacasCustomPorEspecie,
 } from "@/lib/racas";
-import { Save, ArrowLeft, Dog, Trash2, AlertTriangle } from "lucide-react";
+import { getLaudoViewPath, getTipoLaudoLabel } from "@/lib/laudos";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowLeft,
+  ChevronRight,
+  FileCheck2,
+  History,
+  PawPrint,
+  RefreshCw,
+  Save,
+  ShieldAlert,
+  Stethoscope,
+  Trash2,
+  UserRound,
+} from "lucide-react";
+
+type AtendimentoResumoClinico = {
+  id: number;
+  data_atendimento?: string | null;
+  status: string;
+  queixa_principal: string;
+  diagnostico_principal: string;
+  veterinario: string;
+};
+
+type LaudoResumoClinico = {
+  id: number;
+  tipo: string;
+  titulo: string;
+  status: string;
+  data_exame?: string | null;
+  data_laudo?: string | null;
+};
+
+type AlertaResumoClinico = {
+  id: number;
+  titulo: string;
+  descricao: string;
+  gravidade: string;
+};
+
+type ResumoClinicoPaciente = {
+  paciente_id: number;
+  totais: {
+    atendimentos: number;
+    laudos_concluidos: number;
+    alertas_ativos: number;
+  };
+  atendimentos_recentes: AtendimentoResumoClinico[];
+  laudos_recentes: LaudoResumoClinico[];
+  alertas_ativos: AlertaResumoClinico[];
+};
+
+const formatarDataClinica = (value?: string | null) => {
+  return formatOperationalDate(value, "Data não informada");
+};
 
 export default function EditarPacientePage() {
   const router = useRouter();
@@ -20,9 +85,24 @@ export default function EditarPacientePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [resumoClinico, setResumoClinico] = useState<ResumoClinicoPaciente | null>(null);
+  const [resumoClinicoLoading, setResumoClinicoLoading] = useState(true);
+  const [resumoClinicoError, setResumoClinicoError] = useState("");
   const [paciente, setPaciente] = useState({
+    tutor_id: "",
     nome: "",
     tutor: "",
+    tutor_email: "",
+    tutor_telefone: "",
+    tutor_whatsapp: "",
+    tutor_cpf: "",
+    tutor_cep: "",
+    tutor_endereco: "",
+    tutor_numero: "",
+    tutor_complemento: "",
+    tutor_bairro: "",
+    tutor_cidade: "",
+    tutor_estado: "CE",
     especie: "Canina",
     raca: "",
     sexo: "Macho",
@@ -69,6 +149,7 @@ export default function EditarPacientePage() {
       return;
     }
     carregarPaciente();
+    carregarResumoClinico();
   }, [router, pacienteId]);
 
   const carregarPaciente = async () => {
@@ -76,8 +157,20 @@ export default function EditarPacientePage() {
       const response = await api.get(`/pacientes/${pacienteId}`);
       const data = response.data;
       setPaciente({
+        tutor_id: data.tutor_id ? String(data.tutor_id) : "",
         nome: data.nome || "",
         tutor: data.tutor || "",
+        tutor_email: data.tutor_email || "",
+        tutor_telefone: formatarTelefoneVisual(data.tutor_telefone || ""),
+        tutor_whatsapp: formatarTelefoneVisual(data.tutor_whatsapp || ""),
+        tutor_cpf: formatarCpfVisual(data.tutor_cpf || ""),
+        tutor_cep: formatarCepVisual(data.tutor_cep || ""),
+        tutor_endereco: data.tutor_endereco || "",
+        tutor_numero: data.tutor_numero || "",
+        tutor_complemento: data.tutor_complemento || "",
+        tutor_bairro: data.tutor_bairro || "",
+        tutor_cidade: data.tutor_cidade || "",
+        tutor_estado: data.tutor_estado || "CE",
         especie: data.especie || "Canina",
         raca: data.raca || "",
         sexo: data.sexo || "Macho",
@@ -95,11 +188,31 @@ export default function EditarPacientePage() {
     }
   };
 
+  const carregarResumoClinico = async () => {
+    setResumoClinicoLoading(true);
+    setResumoClinicoError("");
+    try {
+      const response = await api.get(`/pacientes/${pacienteId}/resumo-clinico?limite=4`);
+      setResumoClinico(response.data);
+    } catch (error) {
+      console.error("Erro ao carregar resumo clínico do paciente:", error);
+      setResumoClinico(null);
+      setResumoClinicoError("Não foi possível carregar o histórico resumido agora.");
+    } finally {
+      setResumoClinicoLoading(false);
+    }
+  };
+
   const handleSalvar = async () => {
     setSaving(true);
     try {
       const payload = {
         ...paciente,
+        tutor_id: paciente.tutor_id ? Number(paciente.tutor_id) : null,
+        tutor_telefone: normalizarTelefone(paciente.tutor_telefone),
+        tutor_whatsapp: normalizarTelefone(paciente.tutor_whatsapp),
+        tutor_cpf: normalizarCpf(paciente.tutor_cpf),
+        tutor_cep: normalizarCep(paciente.tutor_cep),
         peso_kg: paciente.peso_kg ? parseFloat(paciente.peso_kg) : null,
       };
       
@@ -128,8 +241,11 @@ export default function EditarPacientePage() {
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="p-6 flex items-center justify-center min-h-[400px]">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="fc-patient-form-page">
+          <div className="fc-patient-form-loading">
+            <span aria-hidden="true" />
+            Carregando paciente...
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -137,32 +253,427 @@ export default function EditarPacientePage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
+      <div className="fc-patient-form-page">
+        <header className="fc-patient-form-header">
+          <div className="fc-patient-form-heading">
             <button
+              type="button"
               onClick={() => router.push("/pacientes")}
-              className="p-2 hover:bg-gray-100 rounded-lg"
+              className="fc-patient-form-back"
+              aria-label="Voltar para pacientes"
             >
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
+              <ArrowLeft className="h-5 w-5" />
             </button>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Editar Paciente</h1>
-              <p className="text-gray-500">Atualize os dados do paciente</p>
+              <span className="fc-patient-form-kicker">
+                <PawPrint className="h-4 w-4" />
+                Carteira clínica
+              </span>
+              <h1>Editar paciente</h1>
+              <p>Atualize o tutor e os dados clínicos de {paciente.nome || "este paciente"}.</p>
             </div>
           </div>
-          <button
-            onClick={() => setShowDeleteModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
-          >
-            <Trash2 className="w-4 h-4" />
-            Excluir
-          </button>
-        </div>
+          <div className="fc-patient-form-header-actions">
+            <div className="fc-patient-form-context">
+              <span>Registro</span>
+              <strong>Paciente #{pacienteId}</strong>
+            </div>
+            <button
+              type="button"
+              onClick={() => router.push(`/atendimento?paciente_id=${encodeURIComponent(pacienteId)}`)}
+              className="fc-patient-form-start-care"
+            >
+              <Stethoscope className="h-4 w-4" />
+              Iniciar atendimento
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowDeleteModal(true)}
+              className="fc-patient-form-delete"
+            >
+              <Trash2 className="w-4 h-4" />
+              Excluir
+            </button>
+          </div>
+        </header>
 
-        <div className="bg-white rounded-lg shadow-sm border p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <section className="fc-patient-summary-panel" aria-labelledby="patient-summary-title">
+          <div className="fc-patient-summary-header">
+            <div className="fc-patient-summary-heading">
+              <Activity className="h-5 w-5" />
+              <div>
+                <span>Prontuário longitudinal</span>
+                <h2 id="patient-summary-title">
+                  Histórico resumido de {paciente.nome || "este paciente"}
+                </h2>
+                <p>Consulte rapidamente os registros relevantes antes de editar ou atender.</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void carregarResumoClinico()}
+              disabled={resumoClinicoLoading}
+              className="fc-patient-summary-refresh"
+            >
+              <RefreshCw className={`h-4 w-4 ${resumoClinicoLoading ? "animate-spin" : ""}`} />
+              Atualizar
+            </button>
+          </div>
+
+          {resumoClinicoLoading ? (
+            <div className="fc-patient-summary-loading" role="status">
+              <span aria-hidden="true" />
+              Carregando histórico clínico...
+            </div>
+          ) : resumoClinicoError ? (
+            <div className="fc-patient-summary-error" role="alert">
+              <AlertTriangle className="h-5 w-5" />
+              <div>
+                <strong>Histórico indisponível</strong>
+                <p>{resumoClinicoError}</p>
+              </div>
+              <button type="button" onClick={() => void carregarResumoClinico()}>
+                Tentar novamente
+              </button>
+            </div>
+          ) : resumoClinico ? (
+            <>
+              <div className="fc-patient-summary-metrics">
+                <article className="fc-patient-summary-metric fc-patient-summary-metric-care">
+                  <History className="h-5 w-5" />
+                  <div>
+                    <span>Atendimentos</span>
+                    <strong>{resumoClinico.totais.atendimentos}</strong>
+                    <small>Total registrado</small>
+                  </div>
+                </article>
+                <article className="fc-patient-summary-metric fc-patient-summary-metric-report">
+                  <FileCheck2 className="h-5 w-5" />
+                  <div>
+                    <span>Exames laudados</span>
+                    <strong>{resumoClinico.totais.laudos_concluidos}</strong>
+                    <small>Finalizados ou liberados</small>
+                  </div>
+                </article>
+                <article className="fc-patient-summary-metric fc-patient-summary-metric-alert">
+                  <ShieldAlert className="h-5 w-5" />
+                  <div>
+                    <span>Alertas clínicos</span>
+                    <strong>{resumoClinico.totais.alertas_ativos}</strong>
+                    <small>Ativos no prontuário</small>
+                  </div>
+                </article>
+              </div>
+
+              <div className="fc-patient-summary-content">
+                <article className="fc-patient-summary-card">
+                  <div className="fc-patient-summary-card-header">
+                    <div>
+                      <span>Consulta clínica</span>
+                      <h3>Atendimentos anteriores</h3>
+                    </div>
+                    <History className="h-5 w-5" />
+                  </div>
+                  {resumoClinico.atendimentos_recentes.length > 0 ? (
+                    <div className="fc-patient-summary-list">
+                      {resumoClinico.atendimentos_recentes.map((atendimento) => (
+                        <button
+                          key={atendimento.id}
+                          type="button"
+                          onClick={() => router.push(`/atendimento?atendimento_id=${atendimento.id}`)}
+                          className="fc-patient-summary-item"
+                        >
+                          <div>
+                            <div className="fc-patient-summary-item-title">
+                              <strong>
+                                {atendimento.diagnostico_principal ||
+                                  atendimento.queixa_principal ||
+                                  "Atendimento clínico"}
+                              </strong>
+                              <span>{atendimento.status || "Sem status"}</span>
+                            </div>
+                            <p>
+                              {formatarDataClinica(atendimento.data_atendimento)}
+                              {atendimento.veterinario ? ` · ${atendimento.veterinario}` : ""}
+                            </p>
+                          </div>
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="fc-patient-summary-empty">
+                      <History className="h-5 w-5" />
+                      Nenhum atendimento anterior registrado.
+                    </div>
+                  )}
+                </article>
+
+                <article className="fc-patient-summary-card">
+                  <div className="fc-patient-summary-card-header">
+                    <div>
+                      <span>Documentos concluídos</span>
+                      <h3>Exames laudados</h3>
+                    </div>
+                    <FileCheck2 className="h-5 w-5" />
+                  </div>
+                  {resumoClinico.laudos_recentes.length > 0 ? (
+                    <div className="fc-patient-summary-list">
+                      {resumoClinico.laudos_recentes.map((laudo) => (
+                        <button
+                          key={laudo.id}
+                          type="button"
+                          onClick={() => router.push(getLaudoViewPath(laudo.id, laudo.tipo))}
+                          className="fc-patient-summary-item"
+                        >
+                          <div>
+                            <div className="fc-patient-summary-item-title">
+                              <strong>{laudo.titulo || getTipoLaudoLabel(laudo.tipo)}</strong>
+                              <span>{laudo.status}</span>
+                            </div>
+                            <p>
+                              {getTipoLaudoLabel(laudo.tipo)} ·{" "}
+                              {laudo.data_exame
+                                ? formatCalendarDate(laudo.data_exame)
+                                : formatarDataClinica(laudo.data_laudo)}
+                            </p>
+                          </div>
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="fc-patient-summary-empty">
+                      <FileCheck2 className="h-5 w-5" />
+                      Nenhum exame laudado registrado.
+                    </div>
+                  )}
+                </article>
+              </div>
+
+              {resumoClinico.alertas_ativos.length > 0 ? (
+                <div className="fc-patient-summary-alerts">
+                  <div>
+                    <ShieldAlert className="h-5 w-5" />
+                    <strong>Atenção clínica</strong>
+                  </div>
+                  <div className="fc-patient-summary-alert-list">
+                    {resumoClinico.alertas_ativos.map((alerta) => (
+                      <span key={alerta.id}>
+                        {alerta.titulo}
+                        {alerta.gravidade ? ` · ${alerta.gravidade}` : ""}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </section>
+
+        <main className="fc-patient-form-panel">
+          <div className="fc-patient-form-section-header fc-patient-form-section-tutor">
+            <UserRound className="h-5 w-5" />
+            <div>
+              <span>Responsável</span>
+              <h2>Dados do tutor</h2>
+            </div>
+          </div>
+
+          <div className="fc-patient-form-grid">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                ID do tutor
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_id || "Sem ID vinculado"}
+                readOnly
+                className="w-full px-3 py-2 border border-gray-200 bg-gray-50 rounded-lg text-gray-700"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Nome do tutor *
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor}
+                onChange={(e) => setPaciente({...paciente, tutor: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Ex: João Silva"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                E-mail do tutor
+              </label>
+              <input
+                type="email"
+                value={paciente.tutor_email}
+                onChange={(e) => setPaciente({...paciente, tutor_email: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="email@tutor.com"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Telefone
+              </label>
+              <input
+                type="tel"
+                value={paciente.tutor_telefone}
+                onChange={(e) => setPaciente({...paciente, tutor_telefone: formatarTelefoneVisual(e.target.value)})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="(00) 00000-0000"
+                inputMode="tel"
+                autoComplete="tel"
+                maxLength={15}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                WhatsApp
+              </label>
+              <input
+                type="tel"
+                value={paciente.tutor_whatsapp}
+                onChange={(e) => setPaciente({...paciente, tutor_whatsapp: formatarTelefoneVisual(e.target.value)})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="(00) 00000-0000"
+                inputMode="tel"
+                autoComplete="tel"
+                maxLength={15}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                CPF
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_cpf}
+                onChange={(e) => setPaciente({...paciente, tutor_cpf: formatarCpfVisual(e.target.value)})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="000.000.000-00"
+                inputMode="numeric"
+                maxLength={14}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                CEP
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_cep}
+                onChange={(e) => setPaciente({...paciente, tutor_cep: formatarCepVisual(e.target.value)})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="00000-000"
+                inputMode="numeric"
+                autoComplete="postal-code"
+                maxLength={9}
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Endereço
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_endereco}
+                onChange={(e) => setPaciente({...paciente, tutor_endereco: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Rua / Avenida"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Número
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_numero}
+                onChange={(e) => setPaciente({...paciente, tutor_numero: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="123"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Complemento
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_complemento}
+                onChange={(e) => setPaciente({...paciente, tutor_complemento: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Apto, bloco, sala"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Bairro
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_bairro}
+                onChange={(e) => setPaciente({...paciente, tutor_bairro: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Bairro"
+              />
+            </div>
+
+            <div className="grid grid-cols-[1fr_96px] gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Cidade
+                </label>
+                <input
+                  type="text"
+                  value={paciente.tutor_cidade}
+                  onChange={(e) => setPaciente({...paciente, tutor_cidade: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Cidade"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  UF
+                </label>
+                <input
+                  type="text"
+                  value={paciente.tutor_estado}
+                  onChange={(e) => setPaciente({...paciente, tutor_estado: e.target.value.toUpperCase().slice(0, 2)})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="CE"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="fc-patient-form-section-header fc-patient-form-section-pet">
+            <PawPrint className="h-5 w-5" />
+            <div>
+              <span>Identificação clínica</span>
+              <h2>Dados do pet</h2>
+            </div>
+            <strong className="fc-patient-form-id">
+              ID do pet: {pacienteId}
+            </strong>
+          </div>
+
+          <div className="fc-patient-form-grid">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Nome do Paciente *
@@ -175,20 +686,7 @@ export default function EditarPacientePage() {
                 placeholder="Ex: Rex"
               />
             </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Tutor/Proprietário *
-              </label>
-              <input
-                type="text"
-                value={paciente.tutor}
-                onChange={(e) => setPaciente({...paciente, tutor: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                placeholder="Ex: João Silva"
-              />
-            </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Espécie
@@ -315,34 +813,36 @@ export default function EditarPacientePage() {
             </div>
           </div>
           
-          <div className="flex justify-end gap-3 mt-6 pt-6 border-t">
+          <div className="fc-patient-form-actions">
             <button
+              type="button"
               onClick={() => router.push("/pacientes")}
-              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+              className="fc-patient-form-cancel"
             >
               Cancelar
             </button>
             <button
+              type="button"
               onClick={handleSalvar}
               disabled={saving || !paciente.nome || !paciente.tutor}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              className="fc-patient-form-primary"
             >
               <Save className="w-4 h-4" />
               {saving ? "Salvando..." : "Salvar Alterações"}
             </button>
           </div>
-        </div>
+        </main>
 
         {/* Modal de Confirmação de Exclusão */}
         {showDeleteModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+          <div className="fc-patient-form-modal-backdrop" role="presentation">
+            <div className="fc-patient-form-modal" role="dialog" aria-modal="true" aria-labelledby="patient-delete-title">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                <div className="fc-patient-form-modal-icon">
                   <AlertTriangle className="w-6 h-6 text-red-600" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Confirmar Exclusão</h3>
+                  <h3 id="patient-delete-title" className="text-lg font-semibold text-gray-900">Confirmar exclusão</h3>
                   <p className="text-sm text-gray-500">
                     Tem certeza que deseja excluir este paciente? Esta ação não pode ser desfeita.
                   </p>
@@ -351,17 +851,19 @@ export default function EditarPacientePage() {
               
               <div className="flex justify-end gap-3 mt-6">
                 <button
+                  type="button"
                   onClick={() => setShowDeleteModal(false)}
-                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+                  className="fc-patient-form-cancel"
                 >
                   Cancelar
                 </button>
                 <button
+                  type="button"
                   onClick={handleExcluir}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  className="fc-patient-form-delete-confirm"
                 >
                   <Trash2 className="w-4 h-4" />
-                  Sim, Excluir
+                  Sim, excluir
                 </button>
               </div>
             </div>

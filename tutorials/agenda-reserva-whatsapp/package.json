@@ -1,0 +1,26 @@
+{
+  "name": "fortcordis-tutorial-agenda-reserva-whatsapp",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "preview": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts TutorialReservaWhatsapp output/tutorial-reserva-whatsapp.mp4 --codec=h264 --crf=22",
+    "render:compact": "remotion render src/index.ts TutorialReservaWhatsapp output/tutorial-reserva-whatsapp-compacto.mp4 --codec=h264 --crf=29 --scale=0.75",
+    "render:voice": "remotion render src/index.ts TutorialReservaWhatsapp output/tutorial-reserva-whatsapp-com-voz.mp4 --codec=h264 --crf=22",
+    "render:voice:compact": "remotion render src/index.ts TutorialReservaWhatsapp output/tutorial-reserva-whatsapp-com-voz-compacto.mp4 --codec=h264 --crf=29 --scale=0.75",
+    "still": "remotion still src/index.ts CapaTutorial output/capa-tutorial-reserva.png"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.494",
+    "@remotion/google-fonts": "4.0.494",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.494"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.28",
+    "@types/react-dom": "18.3.7",
+    "typescript": "5.9.3"
+  }
+}

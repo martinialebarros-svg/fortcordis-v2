@@ -5,6 +5,10 @@ on:
     branches:
       - stage
 
+concurrency:
+  group: fortcordis-vps-deploy
+  cancel-in-progress: false
+
 jobs:
   quality-gate:
     runs-on: ubuntu-latest
@@ -38,7 +42,9 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: |
+            frontend/package-lock.json
+            whatsapp-stage-backend/package-lock.json
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -51,6 +57,24 @@ jobs:
       - name: Run frontend build
         working-directory: frontend
         run: npm run build
+
+      - name: Install WhatsApp backend dependencies
+        working-directory: whatsapp-stage-backend
+        run: npm ci
+
+      - name: Build WhatsApp backend
+        working-directory: whatsapp-stage-backend
+        run: npm run build
+
+      - name: Test WhatsApp backend
+        working-directory: whatsapp-stage-backend
+        run: |
+          npm run test:reservation-template
+          npm run test:phone-number
+          npm run test:whatsapp-retry
+          npm run test:auth-policy
+          npm run test:log-redaction
+          npm audit --omit=dev
 
   sdd-guardrail:
     runs-on: ubuntu-latest
@@ -104,6 +128,179 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
+      - name: Configure OpenAI secret on Stage VPS
+        env:
+          OPENAI_API_KEY_STAGE: ${{ secrets.OPENAI_API_KEY_STAGE }}
+        run: |
+          if [ -z "$OPENAI_API_KEY_STAGE" ]; then
+            echo "OPENAI_API_KEY_STAGE is not configured."
+            exit 1
+          fi
+
+          printf '%s\n' "$OPENAI_API_KEY_STAGE" | \
+            ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+              set -euo pipefail
+              umask 077
+              IFS= read -r openai_api_key
+              if [ -z "$openai_api_key" ]; then
+                echo "Received an empty OpenAI API key."
+                exit 1
+              fi
+
+              env_file="/var/www/fortcordis-stage/backend/.env"
+              if [ ! -f "$env_file" ]; then
+                echo "Stage backend env file not found."
+                exit 1
+              fi
+
+              temp_file="${env_file}.openai.$$"
+              trap "rm -f \"$temp_file\"" EXIT
+              found=0
+              : > "$temp_file"
+              while IFS= read -r line || [ -n "$line" ]; do
+                case "$line" in
+                  OPENAI_API_KEY=*)
+                    printf "OPENAI_API_KEY=%s\n" "$openai_api_key" >> "$temp_file"
+                    found=1
+                    ;;
+                  *)
+                    printf "%s\n" "$line" >> "$temp_file"
+                    ;;
+                esac
+              done < "$env_file"
+              if [ "$found" -eq 0 ]; then
+                printf "OPENAI_API_KEY=%s\n" "$openai_api_key" >> "$temp_file"
+              fi
+
+              chmod --reference="$env_file" "$temp_file"
+              mv "$temp_file" "$env_file"
+              trap - EXIT
+              unset openai_api_key
+              echo "Stage backend OpenAI secret configured."
+            '
+
+      - name: Configure echo voice assistant on Stage VPS
+        run: |
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            set -euo pipefail
+            env_file="/var/www/fortcordis-stage/backend/.env"
+            if [ ! -f "$env_file" ]; then
+              echo "Stage backend env file not found."
+              exit 1
+            fi
+
+            upsert_env() {
+              key="$1"
+              value="$2"
+              temp_file="${env_file}.${key}.$$"
+              awk -v key="$key" -v value="$value" '
+                BEGIN { found = 0 }
+                index($0, key "=") == 1 {
+                  print key "=" value
+                  found = 1
+                  next
+                }
+                { print }
+                END {
+                  if (!found) print key "=" value
+                }
+              ' "$env_file" > "$temp_file"
+              chmod --reference="$env_file" "$temp_file"
+              mv "$temp_file" "$env_file"
+            }
+
+            upsert_env AI_ECHO_ASSISTANT_ENABLED true
+            upsert_env AI_PROVIDER openai
+            upsert_env AI_TRANSCRIPTION_MODEL gpt-4o-transcribe
+            upsert_env AI_STRUCTURING_MODEL gpt-5.6-sol
+            upsert_env AI_ECHO_REASONING_EFFORT low
+            upsert_env AI_ECHO_MAX_OUTPUT_TOKENS 8000
+            upsert_env AI_AUDIO_RETENTION_HOURS 2
+            upsert_env AI_ECHO_AUDIO_MAX_BYTES 20971520
+            upsert_env AI_ECHO_AUDIO_MAX_SECONDS 600
+            upsert_env AI_ECHO_MAX_ATTEMPTS 3
+            upsert_env AI_ECHO_MONTHLY_SESSION_LIMIT 100
+            echo "Stage echo voice assistant configuration updated."
+          EOF
+
+      - name: Configure WhatsApp Cloud API secrets on Stage VPS
+        env:
+          WHATSAPP_ACCESS_TOKEN_STAGE: ${{ secrets.WHATSAPP_ACCESS_TOKEN_STAGE }}
+          WHATSAPP_APP_SECRET_STAGE: ${{ secrets.WHATSAPP_APP_SECRET_STAGE }}
+          WHATSAPP_VERIFY_TOKEN_STAGE: ${{ secrets.WHATSAPP_VERIFY_TOKEN_STAGE }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$WHATSAPP_ACCESS_TOKEN_STAGE" || "$WHATSAPP_ACCESS_TOKEN_STAGE" != EAA* || ${#WHATSAPP_ACCESS_TOKEN_STAGE} -lt 64 ]]; then
+            echo "WHATSAPP_ACCESS_TOKEN_STAGE is missing or invalid."
+            exit 1
+          fi
+          if [[ ! "$WHATSAPP_APP_SECRET_STAGE" =~ ^[[:xdigit:]]{32}$ ]]; then
+            echo "WHATSAPP_APP_SECRET_STAGE is missing or invalid."
+            exit 1
+          fi
+          if [[ -z "$WHATSAPP_VERIFY_TOKEN_STAGE" || ${#WHATSAPP_VERIFY_TOKEN_STAGE} -lt 16 ]]; then
+            echo "WHATSAPP_VERIFY_TOKEN_STAGE is missing or invalid."
+            exit 1
+          fi
+
+          printf '%s\n%s\n%s\n' \
+            "$WHATSAPP_ACCESS_TOKEN_STAGE" \
+            "$WHATSAPP_APP_SECRET_STAGE" \
+            "$WHATSAPP_VERIFY_TOKEN_STAGE" | \
+            ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+              set -euo pipefail
+              umask 077
+
+              IFS= read -r whatsapp_access_token
+              IFS= read -r whatsapp_app_secret
+              IFS= read -r whatsapp_verify_token
+
+              if [ -z "$whatsapp_access_token" ] || [ -z "$whatsapp_app_secret" ] || [ -z "$whatsapp_verify_token" ]; then
+                echo "Received an empty WhatsApp secret."
+                exit 1
+              fi
+
+              env_file="/var/www/fortcordis-stage/whatsapp-stage-backend/.env"
+              if [ ! -f "$env_file" ]; then
+                echo "Stage WhatsApp env file not found. Run the bootstrap deploy before configuring Meta secrets."
+                exit 1
+              fi
+
+              upsert_env() {
+                key="$1"
+                value="$2"
+                temp_file="${env_file}.${key}.$$"
+                found=0
+                : > "$temp_file"
+                while IFS= read -r line || [ -n "$line" ]; do
+                  case "$line" in
+                    "$key="*)
+                      printf "%s=%s\n" "$key" "$value" >> "$temp_file"
+                      found=1
+                      ;;
+                    *)
+                      printf "%s\n" "$line" >> "$temp_file"
+                      ;;
+                  esac
+                done < "$env_file"
+                if [ "$found" -eq 0 ]; then
+                  printf "%s=%s\n" "$key" "$value" >> "$temp_file"
+                fi
+                chmod 600 "$temp_file"
+                mv "$temp_file" "$env_file"
+              }
+
+              upsert_env WHATSAPP_ACCESS_TOKEN "$whatsapp_access_token"
+              upsert_env WHATSAPP_APP_SECRET "$whatsapp_app_secret"
+              upsert_env WHATSAPP_VERIFY_TOKEN "$whatsapp_verify_token"
+              upsert_env WHATSAPP_GRAPH_API_VERSION "v26.0"
+              chmod 600 "$env_file"
+
+              unset whatsapp_access_token whatsapp_app_secret whatsapp_verify_token
+              echo "Stage WhatsApp Cloud API secrets configured."
+            '
+
       - name: Deploy to Stage (VPS)
         run: |
           ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
@@ -119,4 +316,16 @@ jobs:
             cd "$APP_DIR"
             echo "Running standardized stage deploy script..."
             SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' APP_DIR="$APP_DIR" BRANCH="$BRANCH" bash scripts/deploy_stage_vps.sh
+          EOF
+
+      - name: Run one-shot AI echo canary on Stage
+        if: contains(github.event.head_commit.message, '[ai-echo-canary]')
+        run: |
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            set -euo pipefail
+            cd /var/www/fortcordis-stage
+            backend/venv/bin/python scripts/ai_echo_stage_canary.py \
+              --base-url http://127.0.0.1:8001 \
+              --backend-dir /var/www/fortcordis-stage/backend \
+              --audio-file /var/www/fortcordis-stage/backend/evals/ai_echo_canary_pt_br.m4a
           EOF

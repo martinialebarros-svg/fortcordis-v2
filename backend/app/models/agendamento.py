@@ -14,8 +14,10 @@ class Agendamento(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     paciente_id = Column(Integer, nullable=True)
+    tutor_id = Column(Integer, nullable=True)
     clinica_id = Column(Integer, nullable=True)
     servico_id = Column(Integer, nullable=True)
+    origem_atendimento = Column(String, default="clinica_parceira")
     
     # Data/hora
     inicio = Column(DateTime(timezone=True), nullable=False)
@@ -23,8 +25,9 @@ class Agendamento(Base):
     data = Column(String)
     hora = Column(String)
     
-    # Status: Agendado, Confirmado, Em atendimento, Concluido, Cancelado, Faltou
+    # Status: Agendado, Reservado, Confirmado, Em atendimento, Realizado, Cancelado, Faltou, Expirado
     status = Column(String, default='Agendado')
+    reserva_expira_em = Column(DateTime(timezone=True), nullable=True)
     observacoes = Column(Text)
     
     # Campos denormalizados (legado)

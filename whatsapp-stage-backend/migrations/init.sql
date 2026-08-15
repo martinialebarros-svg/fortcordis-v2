@@ -98,6 +98,47 @@ CREATE TABLE IF NOT EXISTS webhook_event_cleanup_runs (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Reservation templates sent by FortCordis. The random button payloads bind
+-- Meta callbacks to one reservation without exposing its numeric id.
+CREATE TABLE IF NOT EXISTS agenda_reservation_messages (
+  id BIGSERIAL PRIMARY KEY,
+  reservation_id BIGINT NOT NULL,
+  destination VARCHAR(32) NOT NULL,
+  idempotency_key VARCHAR(128) NOT NULL,
+  request_hash VARCHAR(64) NOT NULL,
+  template_name VARCHAR(128) NOT NULL,
+  language_code VARCHAR(20) NOT NULL,
+  confirm_payload VARCHAR(128) NOT NULL,
+  change_payload VARCHAR(128) NOT NULL,
+  wa_message_id VARCHAR(160),
+  processing_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  processing_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_at TIMESTAMPTZ,
+  CONSTRAINT agenda_reservation_messages_idempotency_key UNIQUE (idempotency_key),
+  CONSTRAINT agenda_reservation_messages_confirm_payload_key UNIQUE (confirm_payload),
+  CONSTRAINT agenda_reservation_messages_change_payload_key UNIQUE (change_payload),
+  CONSTRAINT agenda_reservation_messages_wa_message_id_key UNIQUE (wa_message_id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_agenda_reservation_messages_reservation
+  ON agenda_reservation_messages (reservation_id, created_at);
+
+CREATE TABLE IF NOT EXISTS agenda_reservation_button_events (
+  id BIGSERIAL PRIMARY KEY,
+  provider_message_id VARCHAR(160) NOT NULL,
+  reservation_message_id BIGINT NOT NULL REFERENCES agenda_reservation_messages(id) ON DELETE CASCADE,
+  action VARCHAR(40) NOT NULL,
+  from_phone VARCHAR(32) NOT NULL,
+  processing_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  response_payload JSONB,
+  processing_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  processed_at TIMESTAMPTZ,
+  CONSTRAINT agenda_reservation_button_events_provider_message_id_key UNIQUE (provider_message_id)
+);
+
 -- normalize duplicated conversations by phone (preserve oldest row)
 WITH ranked_phone AS (
   SELECT

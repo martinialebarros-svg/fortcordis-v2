@@ -4,10 +4,17 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
-import { getLaudoEditPath, getLaudoViewPath, getTipoLaudoLabel } from "@/lib/laudos";
-import { baixarLaudoPdf } from "@/lib/laudo-pdf";
+import {
+  getLaudoEditPath,
+  getLaudoViewPath,
+  getTipoLaudoLabel,
+  TIPO_LAUDO_ELETROCARDIOGRAMA,
+} from "@/lib/laudos";
+import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
+import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
 import {
   Calendar,
+  ChevronDown,
   Clock,
   Download,
   Edit,
@@ -16,6 +23,7 @@ import {
   FileText,
   Plus,
   Search,
+  Send,
   Trash2,
   User,
 } from "lucide-react";
@@ -26,11 +34,21 @@ interface Laudo {
   paciente_nome?: string;
   paciente_tutor?: string;
   clinica?: string;
+  clinic_id?: number | null;
+  veterinario_parceiro_id?: number | null;
+  veterinario_parceiro_nome?: string;
   tipo: string;
   titulo: string;
   status: string;
   data_laudo: string;
   data_exame?: string;
+  tem_pdf_externo?: boolean;
+  portal_clinica_disponivel?: boolean;
+  portal_clinica_liberado?: boolean;
+  portal_veterinario_disponivel?: boolean;
+  portal_veterinario_liberado?: boolean;
+  portal_destinos_pendentes?: string[];
+  portal_pode_liberar?: boolean;
 }
 
 interface Exame {
@@ -43,6 +61,59 @@ interface Exame {
 }
 
 const LAUDOS_PAGE_SIZE = 100;
+const PORTAL_RELEASE_STATUS = "Liberado no portal";
+
+function isPortalReleased(status?: string) {
+  return status === PORTAL_RELEASE_STATUS;
+}
+
+function isLaudoPdfExterno(laudo: Laudo) {
+  return laudo.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA || Boolean(laudo.tem_pdf_externo);
+}
+
+function getPortalPendingDestinations(laudo: Laudo) {
+  if (Array.isArray(laudo.portal_destinos_pendentes)) {
+    return laudo.portal_destinos_pendentes;
+  }
+
+  const pending: string[] = [];
+  if (laudo.clinic_id && !isPortalReleased(laudo.status)) {
+    pending.push("clinica");
+  }
+  if (laudo.veterinario_parceiro_id && !laudo.portal_veterinario_liberado) {
+    pending.push("veterinario_parceiro");
+  }
+  return pending;
+}
+
+function canReleasePortal(laudo: Laudo) {
+  return getPortalPendingDestinations(laudo).length > 0;
+}
+
+function getPortalConfirmMessage(laudo: Laudo) {
+  const pending = getPortalPendingDestinations(laudo);
+  if (pending.includes("clinica") && pending.includes("veterinario_parceiro")) {
+    return "Liberar este laudo no portal da clinica parceira e do veterinario parceiro?";
+  }
+  if (pending.includes("clinica")) {
+    return "Liberar este laudo para o portal da clinica parceira?";
+  }
+  return "Liberar este laudo para o portal do veterinario parceiro?";
+}
+
+function getPortalButtonTitle(laudo: Laudo) {
+  const pending = getPortalPendingDestinations(laudo);
+  if (!pending.length) {
+    return "Laudo ja liberado para todos os destinos vinculados";
+  }
+  if (pending.includes("clinica") && pending.includes("veterinario_parceiro")) {
+    return "Liberar no portal da clinica e do veterinario parceiro";
+  }
+  if (pending.includes("clinica")) {
+    return "Liberar no portal da clinica";
+  }
+  return "Liberar no portal do veterinario parceiro";
+}
 
 function getResponseTotal(payload: { total?: number } | undefined, fallback: number) {
   return typeof payload?.total === "number" ? payload.total : fallback;
@@ -56,6 +127,7 @@ function getStatusColor(status: string) {
     Solicitado: "bg-yellow-100 text-yellow-800",
     "Em andamento": "bg-blue-100 text-blue-800",
     Concluido: "bg-green-100 text-green-800",
+    [PORTAL_RELEASE_STATUS]: "bg-teal-100 text-teal-800",
   };
   return colors[status] || "bg-gray-100 text-gray-800";
 }
@@ -72,7 +144,10 @@ export default function LaudosPage() {
   const [loadingLaudos, setLoadingLaudos] = useState(true);
   const [loadingExames, setLoadingExames] = useState(true);
   const [loadingMoreLaudos, setLoadingMoreLaudos] = useState(false);
+  const [liberandoLaudoId, setLiberandoLaudoId] = useState<number | null>(null);
   const laudosRequestIdRef = useRef(0);
+  const novoLaudoMenuRef = useRef<HTMLDivElement | null>(null);
+  const [novoLaudoMenuAberto, setNovoLaudoMenuAberto] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -82,6 +157,36 @@ export default function LaudosPage() {
 
     return () => window.clearTimeout(timeoutId);
   }, [busca]);
+
+  useEffect(() => {
+    if (!novoLaudoMenuAberto) {
+      return;
+    }
+
+    const handleClickFora = (event: MouseEvent) => {
+      if (!novoLaudoMenuRef.current) {
+        return;
+      }
+
+      if (!novoLaudoMenuRef.current.contains(event.target as Node)) {
+        setNovoLaudoMenuAberto(false);
+      }
+    };
+
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setNovoLaudoMenuAberto(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickFora);
+    document.addEventListener("keydown", handleEsc);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickFora);
+      document.removeEventListener("keydown", handleEsc);
+    };
+  }, [novoLaudoMenuAberto]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -204,9 +309,54 @@ export default function LaudosPage() {
 
   const downloadPDF = async (laudoId: number, titulo: string) => {
     try {
-      await baixarLaudoPdf(laudoId, `${titulo.replace(/\s+/g, "_")}.pdf`);
+      const laudo = laudos.find((item) => item.id === laudoId);
+      const filename = `${titulo.replace(/\s+/g, "_")}.pdf`;
+      if (laudo && isLaudoPdfExterno(laudo)) {
+        await baixarLaudoPdfOriginal(laudoId, filename);
+        return;
+      }
+      await baixarLaudoPdf(laudoId, filename);
     } catch (error) {
       alert("Erro ao gerar PDF. Tente novamente.");
+    }
+  };
+
+  const liberarNoPortalClinica = async (laudo: Laudo) => {
+    if (!canReleasePortal(laudo)) {
+      return;
+    }
+    if (!laudo.clinic_id && !laudo.veterinario_parceiro_id) {
+      alert("Vincule uma clinica ou um veterinario parceiro ao laudo antes de liberar no portal.");
+      return;
+    }
+    if (!confirm(getPortalConfirmMessage(laudo))) {
+      return;
+    }
+
+    setLiberandoLaudoId(laudo.id);
+    try {
+      const response = await api.post(`/laudos/${laudo.id}/portal/liberar`);
+      const novoStatus = response.data?.status || PORTAL_RELEASE_STATUS;
+      setLaudos((prev) =>
+        prev.map((item) =>
+          item.id === laudo.id
+            ? {
+                ...item,
+                status: novoStatus,
+                portal_clinica_liberado: response.data?.portal_clinica_liberado,
+                portal_veterinario_liberado: response.data?.portal_veterinario_liberado,
+                portal_destinos_pendentes: response.data?.portal_destinos_pendentes || [],
+                portal_pode_liberar: response.data?.portal_pode_liberar,
+              }
+            : item
+        )
+      );
+      alert(response.data?.message || "Laudo liberado no portal.");
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      alert(detail || "Erro ao liberar laudo no portal. Tente novamente.");
+    } finally {
+      setLiberandoLaudoId(null);
     }
   };
 
@@ -288,74 +438,120 @@ export default function LaudosPage() {
     }
   };
 
+  const atalhosNovoLaudo = [
+    {
+      titulo: "Laudo estruturado",
+      descricao: "Ecocardiograma e pressao arterial",
+      href: "/laudos/novo",
+    },
+    {
+      titulo: "Upload de eletrocardiograma",
+      descricao: "PDF externo com fluxo de telemedicina",
+      href: "/laudos/eletrocardiograma/upload",
+    },
+  ];
+
+  const abrirNovoLaudo = (href: string) => {
+    setNovoLaudoMenuAberto(false);
+    router.push(href);
+  };
+
   return (
     <DashboardLayout>
-      <div className="p-6">
-        <div className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-center sm:justify-between">
+      <div className="fc-clinical-page">
+        <header className="fc-clinical-header">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Laudos e Exames</h1>
-            <p className="text-gray-500">Gerencie laudos medicos e exames</p>
+            <span className="fc-clinical-kicker">
+              <FileCheck className="h-4 w-4" />
+              Documentação clínica
+            </span>
+            <h1>Central de laudos</h1>
+            <p>Exames, documentos e liberações para o portal organizados por paciente.</p>
           </div>
-          <button
-            onClick={() => router.push("/laudos/novo")}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Novo Laudo
-          </button>
-        </div>
+          <div className="fc-clinical-primary-menu" ref={novoLaudoMenuRef}>
+            <button
+              type="button"
+              onClick={() => setNovoLaudoMenuAberto((aberto) => !aberto)}
+              className="fc-clinical-primary"
+              aria-haspopup="menu"
+              aria-expanded={novoLaudoMenuAberto}
+            >
+              <Plus className="w-4 h-4" />
+              Novo Laudo
+              <ChevronDown className={`h-4 w-4 transition ${novoLaudoMenuAberto ? "rotate-180" : ""}`} />
+            </button>
 
-        <div className="flex gap-2 mb-6">
+            {novoLaudoMenuAberto && (
+              <div className="fc-clinical-primary-menu-panel" role="menu" aria-label="Escolher fluxo de laudo">
+                <div className="fc-clinical-primary-menu-header">
+                  <strong>Escolha o fluxo</strong>
+                  <span>Eletrocardiograma e telemedicina agora aparecem aqui.</span>
+                </div>
+
+                <div className="fc-clinical-primary-menu-list">
+                  {atalhosNovoLaudo.map((atalho) => (
+                    <button
+                      key={atalho.href}
+                      type="button"
+                      className="fc-clinical-primary-menu-item"
+                      role="menuitem"
+                      onClick={() => abrirNovoLaudo(atalho.href)}
+                    >
+                      <span>{atalho.titulo}</span>
+                      <small>{atalho.descricao}</small>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </header>
+
+        <div className="fc-clinical-tabs" role="tablist" aria-label="Tipo de documento">
           <button
             onClick={() => setTab("laudos")}
-            className={`px-4 py-2 rounded-lg font-medium ${
-              tab === "laudos"
-                ? "bg-teal-100 text-teal-700"
-                : "bg-white text-gray-600 hover:bg-gray-100"
-            }`}
+            className={`fc-clinical-tab ${tab === "laudos" ? "fc-clinical-tab-active" : ""}`}
+            role="tab"
+            aria-selected={tab === "laudos"}
           >
-            <FileText className="w-4 h-4 inline mr-2" />
+            <FileText className="h-4 w-4" />
             Laudos ({totalLaudos})
           </button>
           <button
             onClick={() => setTab("exames")}
-            className={`px-4 py-2 rounded-lg font-medium ${
-              tab === "exames"
-                ? "bg-teal-100 text-teal-700"
-                : "bg-white text-gray-600 hover:bg-gray-100"
-            }`}
+            className={`fc-clinical-tab ${tab === "exames" ? "fc-clinical-tab-active" : ""}`}
+            role="tab"
+            aria-selected={tab === "exames"}
           >
-            <FileCheck className="w-4 h-4 inline mr-2" />
+            <FileCheck className="h-4 w-4" />
             Exames ({totalExames})
           </button>
         </div>
 
-        <div className="bg-white p-4 rounded-lg shadow-sm border mb-6">
+        <div className="fc-clinical-filters">
           <div className="flex flex-col gap-3 lg:flex-row">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <div className="fc-clinical-control flex-1">
+              <Search className="h-5 w-5" />
               <input
                 type="text"
                 placeholder={
                   tab === "laudos"
-                    ? "Buscar por animal, tutor ou clinica"
+                    ? "Buscar por animal, tutor, clinica ou parceiro"
                     : "Buscar exames por tipo, status ou paciente"
                 }
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
               />
             </div>
 
             {tab === "laudos" && (
               <>
-                <div className="relative lg:w-56">
-                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <div className="fc-clinical-control lg:w-56">
+                  <Calendar className="h-5 w-5" />
                   <input
                     type="date"
                     value={dataFiltro}
                     onChange={(e) => setDataFiltro(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                     aria-label="Filtrar laudos por data"
                   />
                 </div>
@@ -364,7 +560,7 @@ export default function LaudosPage() {
                   <button
                     type="button"
                     onClick={limparFiltrosLaudos}
-                    className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50"
+                    className="fc-clinical-secondary"
                   >
                     Limpar filtros
                   </button>
@@ -374,14 +570,14 @@ export default function LaudosPage() {
           </div>
 
           {tab === "laudos" && (
-            <p className="mt-3 text-xs text-gray-500">
+            <p className="fc-clinical-filter-note">
               A busca consulta toda a base. A lista abre mostrando apenas os {LAUDOS_PAGE_SIZE} laudos mais recentes.
             </p>
           )}
         </div>
 
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-          <div className="px-4 py-3 border-b bg-gray-50 text-sm text-gray-600">
+        <div className="fc-clinical-list">
+          <div className="fc-clinical-list-summary">
             {tab === "laudos"
               ? resumoLaudos
               : `Mostrando ${examesFiltrados.length} de ${totalExames} exame(s)`}
@@ -389,26 +585,29 @@ export default function LaudosPage() {
 
           {tab === "laudos" ? (
             loadingLaudos ? (
-              <div className="p-8 text-center text-gray-500">Carregando...</div>
+              <div className="fc-registry-loading" aria-label="Carregando laudos">
+                {[0, 1, 2].map((item) => <span key={item} />)}
+              </div>
             ) : laudos.length === 0 ? (
-              <div className="p-12 text-center">
-                <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500">Nenhum laudo encontrado</p>
+              <div className="fc-registry-empty">
+                <div><FileText className="h-6 w-6" /></div>
+                <span>Arquivo clínico vazio</span>
+                <p>Nenhum laudo encontrado</p>
               </div>
             ) : (
               <>
-                <div className="divide-y">
+                <div className="divide-y divide-ink-100">
                   {laudos.map((laudo) => (
-                    <div key={laudo.id} className="p-4 hover:bg-gray-50">
-                      <div className="flex items-start gap-4">
-                        <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center">
-                          <FileText className="w-5 h-5 text-teal-600" />
+                    <div key={laudo.id} className="fc-clinical-row">
+                      <div className="fc-clinical-row-layout">
+                        <div className="fc-clinical-row-icon">
+                          <FileText className="h-5 w-5" />
                         </div>
-                        <div className="flex-1">
-                          <h3 className="font-medium text-gray-900">
+                        <div className="fc-clinical-row-main">
+                          <h3>
                             {laudo.paciente_nome || `Paciente #${laudo.paciente_id}`}
                           </h3>
-                          <div className="flex flex-wrap gap-4 text-sm text-gray-500 mt-1">
+                          <div>
                             <span className="flex items-center gap-1">
                               <User className="w-3 h-3" />
                               {laudo.paciente_tutor || "Sem tutor"}
@@ -419,44 +618,69 @@ export default function LaudosPage() {
                                 {laudo.clinica}
                               </span>
                             )}
+                            {laudo.veterinario_parceiro_nome && (
+                              <span className="flex items-center gap-1">
+                                <User className="w-3 h-3" />
+                                Vet parceiro: {laudo.veterinario_parceiro_nome}
+                              </span>
+                            )}
                             <span className="flex items-center gap-1">
                               <Calendar className="w-3 h-3" />
-                              {new Date(laudo.data_exame || laudo.data_laudo).toLocaleDateString("pt-BR")}
+                              {laudo.data_exame
+                                ? formatCalendarDate(laudo.data_exame)
+                                : formatOperationalDate(laudo.data_laudo)}
                             </span>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="fc-clinical-actions">
                           <span className="px-2 py-1 rounded-full text-xs bg-indigo-100 text-indigo-800">
                             {getTipoLaudoLabel(laudo.tipo)}
                           </span>
                           <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(laudo.status)}`}>
                             {laudo.status}
                           </span>
+                          {canReleasePortal(laudo) && (
+                            <button
+                              onClick={() => liberarNoPortalClinica(laudo)}
+                              disabled={liberandoLaudoId === laudo.id}
+                              className="fc-clinical-action"
+                              title={getPortalButtonTitle(laudo)}
+                              aria-label={`Liberar laudo de ${laudo.paciente_nome || `paciente ${laudo.paciente_id}`} no portal`}
+                            >
+                              <Send className="w-4 h-4" />
+                            </button>
+                          )}
                           <button
                             onClick={() => router.push(getLaudoViewPath(laudo.id, laudo.tipo))}
-                            className="p-2 text-gray-600 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                            className="fc-clinical-action"
                             title="Visualizar"
+                            aria-label={`Visualizar laudo de ${laudo.paciente_nome || `paciente ${laudo.paciente_id}`}`}
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => router.push(getLaudoEditPath(laudo.id, laudo.tipo))}
-                            className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="Editar"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
+                          {!isLaudoPdfExterno(laudo) && (
+                            <button
+                              onClick={() => router.push(getLaudoEditPath(laudo.id, laudo.tipo))}
+                              className="fc-clinical-action"
+                              title="Editar"
+                              aria-label={`Editar laudo de ${laudo.paciente_nome || `paciente ${laudo.paciente_id}`}`}
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                          )}
                           <button
                             onClick={() => downloadPDF(laudo.id, laudo.titulo)}
-                            className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            className="fc-clinical-action"
                             title="Baixar PDF"
+                            aria-label={`Baixar PDF do laudo de ${laudo.paciente_nome || `paciente ${laudo.paciente_id}`}`}
                           >
                             <Download className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => deletarLaudo(laudo.id)}
-                            className="p-2 text-gray-600 hover:text-red-700 hover:bg-red-100 rounded-lg transition-colors"
+                            className="fc-clinical-action fc-clinical-action-danger"
                             title="Excluir"
+                            aria-label={`Excluir laudo de ${laudo.paciente_nome || `paciente ${laudo.paciente_id}`}`}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -467,12 +691,12 @@ export default function LaudosPage() {
                 </div>
 
                 {haMaisLaudos && (
-                  <div className="p-4 border-t bg-gray-50 flex justify-center">
+                  <div className="fc-clinical-load-more">
                     <button
                       type="button"
                       onClick={carregarMaisLaudos}
                       disabled={loadingMoreLaudos}
-                      className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-white disabled:opacity-60"
+                      className="fc-clinical-secondary"
                     >
                       {loadingMoreLaudos ? "Carregando..." : "Carregar mais laudos"}
                     </button>
@@ -481,35 +705,39 @@ export default function LaudosPage() {
               </>
             )
           ) : loadingExames ? (
-            <div className="p-8 text-center text-gray-500">Carregando...</div>
+            <div className="fc-registry-loading" aria-label="Carregando exames">
+              {[0, 1, 2].map((item) => <span key={item} />)}
+            </div>
           ) : examesFiltrados.length === 0 ? (
-            <div className="p-12 text-center">
-              <FileCheck className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500">Nenhum exame encontrado</p>
+            <div className="fc-registry-empty">
+              <div><FileCheck className="h-6 w-6" /></div>
+              <span>Fila de exames vazia</span>
+              <p>Nenhum exame encontrado</p>
             </div>
           ) : (
-            <div className="divide-y">
+            <div className="divide-y divide-ink-100">
               {examesFiltrados.map((exame) => (
-                <div key={exame.id} className="p-4 hover:bg-gray-50">
-                  <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                      <Clock className="w-5 h-5 text-blue-600" />
+                <div key={exame.id} className="fc-clinical-row">
+                  <div className="fc-clinical-row-layout">
+                    <div className="fc-clinical-row-icon fc-clinical-row-icon-exam">
+                      <Clock className="h-5 w-5" />
                     </div>
-                    <div className="flex-1">
-                      <h3 className="font-medium text-gray-900">{exame.tipo_exame}</h3>
-                      <div className="flex gap-4 text-sm text-gray-500 mt-1">
+                    <div className="fc-clinical-row-main">
+                      <h3>{exame.tipo_exame}</h3>
+                      <div>
                         <span>Paciente #{exame.paciente_id}</span>
                         <span>R$ {exame.valor?.toFixed(2)}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="fc-clinical-actions">
                       <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(exame.status)}`}>
                         {exame.status}
                       </span>
                       <button
                         onClick={() => deletarExame(exame.id)}
-                        className="p-2 text-gray-600 hover:text-red-700 hover:bg-red-100 rounded-lg transition-colors"
+                        className="fc-clinical-action fc-clinical-action-danger"
                         title="Excluir"
+                        aria-label={`Excluir exame ${exame.tipo_exame}`}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

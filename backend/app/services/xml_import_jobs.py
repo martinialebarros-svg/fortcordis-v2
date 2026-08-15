@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.database import SessionLocal
 from app.models.xml_import_job import XmlImportJob
-from app.utils.xml_parser import parse_xml_eco
 
 JOB_STATUS_PENDING = "pending"
 JOB_STATUS_PROCESSING = "processing"
@@ -88,6 +87,8 @@ def decode_xml_import_base64(content_b64: str) -> bytes:
 def parse_xml_import_content(filename: str | None, content: bytes) -> dict[str, Any]:
     validate_xml_import_filename(filename)
     validate_xml_import_size(content)
+    from app.utils.xml_parser import parse_xml_eco
+
     return parse_xml_eco(content)
 
 

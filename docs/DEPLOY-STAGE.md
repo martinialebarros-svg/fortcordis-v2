@@ -64,7 +64,7 @@ After=network.target
 [Service]
 User=www-data
 WorkingDirectory=/var/www/fortcordis-stage/backend
-Environment="PATH=/var/www/fortcordis-stage/backend/venv/bin"
+Environment="PATH=/var/www/fortcordis-stage/backend/venv/bin:/usr/local/bin:/usr/bin:/bin"
 ExecStart=/var/www/fortcordis-stage/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001
 Restart=always
 

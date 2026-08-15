@@ -2,14 +2,10 @@
 import csv
 import io
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
-from zoneinfo import ZoneInfo
 
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -33,11 +29,21 @@ REGIME_DESCRICOES = {
     4: "Lucro Real",
 }
 
-EXPORT_TIMEZONE = ZoneInfo("America/Fortaleza")
+# Fortaleza permanece em UTC-3 sem horario de verao, entao o offset fixo
+# evita depender de zoneinfo no import deste modulo.
+EXPORT_TIMEZONE = timezone(timedelta(hours=-3))
 
 
 def _now_local() -> datetime:
     return datetime.now(EXPORT_TIMEZONE)
+
+
+def _load_openpyxl_exports():
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    return Workbook, Alignment, Font, PatternFill, get_column_letter
 
 
 def _get_configuracao(db_session) -> dict:
@@ -369,6 +375,7 @@ def exportar_xlsx(notas: list[NotaFiscal], db_session) -> tuple[bytes, str]:
     """
     Gera um arquivo Excel com os dados das notas fiscais.
     """
+    Workbook, Alignment, Font, PatternFill, get_column_letter = _load_openpyxl_exports()
     config = _get_configuracao(db_session)
     wb = Workbook()
 
@@ -494,6 +501,7 @@ def exportar_os_xlsx(
     dados_tomador: Optional[dict[str, Any]] = None,
 ) -> tuple[bytes, str]:
     """Exporta dados consolidados por clinica para contabilidade (XLSX)."""
+    Workbook, Alignment, Font, PatternFill, get_column_letter = _load_openpyxl_exports()
     config = _get_configuracao(db_session)
     rows = _build_consolidated_export_rows(os_items, config, dados_tomador=dados_tomador)
     wb = Workbook()

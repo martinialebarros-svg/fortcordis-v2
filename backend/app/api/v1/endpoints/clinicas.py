@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from decimal import Decimal
 from datetime import datetime
 
@@ -26,12 +26,35 @@ from app.services.geocoding_service import (
 router = APIRouter()
 
 
+def _normalizar_whatsapps(valores) -> List[str]:
+    if valores is None:
+        return []
+    if isinstance(valores, str):
+        valores = [valores]
+    if not isinstance(valores, (list, tuple)):
+        raise ValueError("WhatsApps devem ser informados em uma lista.")
+
+    normalizados: List[str] = []
+    for valor in valores:
+        digitos = "".join(char for char in str(valor or "") if char.isdigit()).lstrip("0")
+        if not digitos:
+            continue
+        if len(digitos) > 15:
+            raise ValueError("Numero de WhatsApp invalido.")
+        if digitos not in normalizados:
+            normalizados.append(digitos)
+        if len(normalizados) > 10:
+            raise ValueError("Informe no maximo 10 numeros de WhatsApp por clinica.")
+    return normalizados
+
+
 # Schemas
 class ClinicaBase(BaseModel):
     nome: str = Field(..., min_length=2, max_length=255)
     razao_social: Optional[str] = ""
     cnpj: Optional[str] = ""
     telefone: Optional[str] = ""
+    whatsapps: List[str] = Field(default_factory=list)
     email: Optional[str] = ""
     atividade_cnae: Optional[str] = ""
     endereco: Optional[str] = ""
@@ -49,6 +72,10 @@ class ClinicaBase(BaseModel):
     bairro_manual: bool = False
     observacoes: Optional[str] = ""
 
+    @validator("whatsapps", pre=True)
+    def validar_whatsapps(cls, valor):
+        return _normalizar_whatsapps(valor)
+
 
 class ClinicaCreate(ClinicaBase):
     tabela_preco_id: Optional[int] = 1
@@ -58,10 +85,19 @@ class ClinicaCreate(ClinicaBase):
 
 
 class ClinicaUpdate(ClinicaBase):
+    whatsapps: Optional[List[str]] = None
     tabela_preco_id: Optional[int] = None
     preco_personalizado_km: Optional[float] = None
     preco_personalizado_base: Optional[float] = None
     observacoes_preco: Optional[str] = None
+
+
+class ClinicaWhatsappsUpdate(BaseModel):
+    whatsapps: List[str] = Field(default_factory=list)
+
+    @validator("whatsapps", pre=True)
+    def validar_whatsapps(cls, valor):
+        return _normalizar_whatsapps(valor)
 
 
 class ClinicaResponse(BaseModel):
@@ -70,6 +106,7 @@ class ClinicaResponse(BaseModel):
     razao_social: Optional[str] = None
     cnpj: Optional[str] = None
     telefone: Optional[str] = None
+    whatsapps: List[str] = Field(default_factory=list)
     email: Optional[str] = None
     atividade_cnae: Optional[str] = None
     endereco: Optional[str] = None
@@ -195,12 +232,16 @@ def _buscar_bairro_aprendizado(db: Session, cep: Optional[str]) -> Optional[CepB
 
 
 def _serialize_clinica(clinica: Clinica) -> dict:
+    whatsapps = _normalizar_whatsapps(getattr(clinica, "whatsapps", None))
+    if not whatsapps and clinica.telefone:
+        whatsapps = _normalizar_whatsapps([clinica.telefone])
     return {
         "id": clinica.id,
         "nome": clinica.nome,
         "razao_social": clinica.razao_social,
         "cnpj": clinica.cnpj,
         "telefone": clinica.telefone,
+        "whatsapps": whatsapps,
         "email": clinica.email,
         "atividade_cnae": clinica.atividade_cnae,
         "endereco": clinica.endereco,
@@ -365,6 +406,7 @@ def criar_clinica(
             razao_social=clinica.razao_social,
             cnpj=clinica.cnpj,
             telefone=clinica.telefone,
+            whatsapps=clinica.whatsapps,
             email=clinica.email,
             atividade_cnae=clinica.atividade_cnae,
             endereco=clinica.endereco,
@@ -555,6 +597,36 @@ def salvar_precos_servicos_clinica(
     }
 
 
+@router.put("/{clinica_id}/whatsapps")
+def atualizar_whatsapps_clinica(
+    clinica_id: int,
+    payload: ClinicaWhatsappsUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Atualiza somente os WhatsApps da clinica sem alterar os demais dados cadastrais."""
+    db_clinica = db.query(Clinica).filter(
+        Clinica.id == clinica_id,
+        Clinica.ativo == True,
+    ).first()
+
+    if not db_clinica:
+        raise HTTPException(status_code=404, detail="Clinica nao encontrada")
+
+    try:
+        db_clinica.whatsapps = payload.whatsapps
+        db.commit()
+        db.refresh(db_clinica)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao atualizar WhatsApps da clinica: {str(exc)}",
+        ) from exc
+
+    return _serialize_clinica(db_clinica)
+
+
 @router.put("/{clinica_id}")
 def atualizar_clinica(
     clinica_id: int,
@@ -580,6 +652,8 @@ def atualizar_clinica(
             db_clinica.cnpj = clinica.cnpj
         if clinica.telefone is not None:
             db_clinica.telefone = clinica.telefone
+        if clinica.whatsapps is not None:
+            db_clinica.whatsapps = clinica.whatsapps
         if clinica.email is not None:
             db_clinica.email = clinica.email
         if clinica.atividade_cnae is not None:

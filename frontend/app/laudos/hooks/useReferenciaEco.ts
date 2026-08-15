@@ -17,12 +17,20 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
   DIVES: { campo: "lvid_s", nome: "DIVÉs (Diâmetro interno VE sístole)", categoria: "estrutural" },
   SIVs: { campo: "ivs_s", nome: "SIVs (Septo interventricular sístole)", categoria: "estrutural" },
   PLVES: { campo: "lvpw_s", nome: "PLVÉs (Parede livre VE sístole)", categoria: "estrutural" },
+  DIVEd_2D: { campo: "lvid_d", nome: "DIVEd 2D (Diâmetro interno VE diástole)", categoria: "estrutural" },
+  SIVd_2D: { campo: "ivs_d", nome: "SIVd 2D (Septo interventricular diástole)", categoria: "estrutural" },
+  PLVEd_2D: { campo: "lvpw_d", nome: "PLVEd 2D (Parede livre VE diástole)", categoria: "estrutural" },
+  DIVES_2D: { campo: "lvid_s", nome: "DIVEs 2D (Diâmetro interno VE sístole)", categoria: "estrutural" },
+  SIVs_2D: { campo: "ivs_s", nome: "SIVs 2D (Septo interventricular sístole)", categoria: "estrutural" },
+  PLVES_2D: { campo: "lvpw_s", nome: "PLVEs 2D (Parede livre VE sístole)", categoria: "estrutural" },
   
   // === VOLUMES E FUNÇÃO ===
   VDF: { campo: "edv", nome: "VDF (Volume diastólico final)", categoria: "funcao" },
   VSF: { campo: "esv", nome: "VSF (Volume sistólico final)", categoria: "funcao" },
   FE_Teicholz: { campo: "ef", nome: "FE (Fração de ejeção - Teicholz)", categoria: "funcao" },
   DeltaD_FS: { campo: "fs", nome: "Delta D / %FS (Encurtamento)", categoria: "funcao" },
+  FE_Teicholz_2D: { campo: "ef", nome: "FE 2D (Fração de ejeção - Teicholz)", categoria: "funcao" },
+  DeltaD_FS_2D: { campo: "fs", nome: "Delta D / %FS 2D (Encurtamento)", categoria: "funcao" },
   TAPSE: { campo: "tapse", nome: "TAPSE", categoria: "funcao" },
   MAPSE: { campo: "mapse", nome: "MAPSE", categoria: "funcao" },
   
@@ -41,8 +49,8 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
   E_A: { campo: "mv_ea", nome: "E/A", categoria: "doppler" },
   TD: { campo: "mv_dt", nome: "TD (Tempo desaceleração)", categoria: "doppler" },
   TRIV: { campo: "ivrt", nome: "TRIV", categoria: "doppler" },
-  e_doppler: { campo: "tdi_e", nome: "e' (Doppler tecidual)", categoria: "doppler" },
-  a_doppler: { campo: "tdi_a", nome: "a' (Doppler tecidual)", categoria: "doppler" },
+  e_doppler: { campo: "tdi_e", nome: "e' (Doppler tecidual, m/s)", categoria: "doppler" },
+  a_doppler: { campo: "tdi_a", nome: "a' (Doppler tecidual, m/s)", categoria: "doppler" },
   E_E_linha: { campo: "e_e_linha", nome: "E/E'", categoria: "doppler" },
   
   // === DOPPLER - SAÍDAS ===
@@ -78,6 +86,78 @@ function normalizarEspecie(especie: string): string {
   if (valor.startsWith("fel") || valor.includes("gato") || valor.includes("cat")) return "Felina";
   if (valor.startsWith("can") || valor.includes("cao") || valor.includes("dog")) return "Canina";
   return especie || "Canina";
+}
+
+export function compararMedidasComReferencia(
+  medidas: Record<string, string>,
+  referencia: ReferenciaEco
+): Record<string, ComparacaoMedida> {
+  const comparacoes: Record<string, ComparacaoMedida> = {};
+
+  Object.entries(medidas).forEach(([key, valor]) => {
+    if (!valor || valor.trim() === "") return;
+
+    const mapeamento = MAPEAMENTO_PARAMETROS[key];
+    if (!mapeamento) return;
+
+    const valorNumerico = parseFloat(valor.replace(",", "."));
+    if (isNaN(valorNumerico)) return;
+
+    const minKey = `${mapeamento.campo}_min` as keyof ReferenciaEco;
+    const maxKey = `${mapeamento.campo}_max` as keyof ReferenciaEco;
+
+    const refMinRaw = referencia[minKey] as number | null | undefined;
+    const refMaxRaw = referencia[maxKey] as number | null | undefined;
+    let refMin = typeof refMinRaw === "number" ? refMinRaw : null;
+    let refMax = typeof refMaxRaw === "number" ? refMaxRaw : null;
+    if (key === "e_doppler" || key === "a_doppler") {
+      refMin = refMin === null ? null : refMin / 100;
+      refMax = refMax === null ? null : refMax / 100;
+    }
+
+    if (
+      refMin === null ||
+      refMax === null ||
+      (refMin === 0 && refMax === 0)
+    ) {
+      comparacoes[key] = {
+        nome: mapeamento.nome,
+        valor_medido: valor,
+        referencia_min: refMin,
+        referencia_max: refMax,
+        status: "nao_avaliado",
+        interpretacao: "Sem referencia definida",
+        categoria: mapeamento.categoria,
+      };
+      return;
+    }
+
+    let status: ComparacaoMedida["status"];
+    let interpretacao: string;
+
+    if (valorNumerico < refMin) {
+      status = "diminuido";
+      interpretacao = `Abaixo do esperado (< ${refMin})`;
+    } else if (valorNumerico > refMax) {
+      status = "aumentado";
+      interpretacao = `Acima do esperado (> ${refMax})`;
+    } else {
+      status = "normal";
+      interpretacao = "Dentro da faixa normal";
+    }
+
+    comparacoes[key] = {
+      nome: mapeamento.nome,
+      valor_medido: valor,
+      referencia_min: refMin,
+      referencia_max: refMax,
+      status,
+      interpretacao,
+      categoria: mapeamento.categoria,
+    };
+  });
+
+  return comparacoes;
 }
 
 export function useReferenciaEco() {
@@ -123,74 +203,7 @@ export function useReferenciaEco() {
     }
   }, []);
 
-  const compararMedidas = useCallback((
-    medidas: Record<string, string>,
-    referencia: ReferenciaEco
-  ): Record<string, ComparacaoMedida> => {
-    const comparacoes: Record<string, ComparacaoMedida> = {};
-
-    Object.entries(medidas).forEach(([key, valor]) => {
-      if (!valor || valor.trim() === "") return;
-
-      const mapeamento = MAPEAMENTO_PARAMETROS[key];
-      if (!mapeamento) return;
-
-      const valorNumerico = parseFloat(valor.replace(",", "."));
-      if (isNaN(valorNumerico)) return;
-
-      const minKey = `${mapeamento.campo}_min` as keyof ReferenciaEco;
-      const maxKey = `${mapeamento.campo}_max` as keyof ReferenciaEco;
-
-      const refMinRaw = referencia[minKey] as number | null | undefined;
-      const refMaxRaw = referencia[maxKey] as number | null | undefined;
-      const refMin = typeof refMinRaw === "number" ? refMinRaw : null;
-      const refMax = typeof refMaxRaw === "number" ? refMaxRaw : null;
-
-      const semReferenciaDefinida =
-        refMin === null ||
-        refMax === null ||
-        (refMin === 0 && refMax === 0);
-
-      if (semReferenciaDefinida) {
-        comparacoes[key] = {
-          nome: mapeamento.nome,
-          valor_medido: valor,
-          referencia_min: refMin,
-          referencia_max: refMax,
-          status: "nao_avaliado",
-          interpretacao: "Sem referencia definida",
-          categoria: mapeamento.categoria,
-        };
-        return;
-      }
-
-      let status: ComparacaoMedida["status"];
-      let interpretacao: string;
-
-      if (valorNumerico < refMin) {
-        status = "diminuido";
-        interpretacao = `Abaixo do esperado (< ${refMin})`;
-      } else if (valorNumerico > refMax) {
-        status = "aumentado";
-        interpretacao = `Acima do esperado (> ${refMax})`;
-      } else {
-        status = "normal";
-        interpretacao = "Dentro da faixa normal";
-      }
-
-      comparacoes[key] = {
-        nome: mapeamento.nome,
-        valor_medido: valor,
-        referencia_min: refMin,
-        referencia_max: refMax,
-        status,
-        interpretacao,
-        categoria: mapeamento.categoria,
-      };
-    });
-
-    return comparacoes;
-  }, []);
+  const compararMedidas = useCallback(compararMedidasComReferencia, []);
 
   return {
     buscarReferencia,
@@ -284,6 +297,8 @@ export const mapeamentoParametros: Record<string, string> = {
   "VSF": "esv",
   "FE_Teicholz": "ef",
   "DeltaD_FS": "fs",
+  "FE_Teicholz_2D": "ef",
+  "DeltaD_FS_2D": "fs",
   "Aorta": "ao",
   "Atrio_esquerdo": "la",
   "AE_Ao": "la_ao",

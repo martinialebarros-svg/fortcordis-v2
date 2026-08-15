@@ -32,7 +32,8 @@ class Laudo(Base):
     
     # Clínica
     clinic_id = Column(Integer, nullable=True)  # ID da clínica vinculada
-    
+    veterinario_parceiro_id = Column(Integer, nullable=True, index=True)  # Parceiro externo que encaminhou o caso
+
     # Dados adicionais
     data_exame = Column(DateTime(timezone=True))  # Data do exame
     medico_solicitante = Column(String)  # Médico solicitante
@@ -74,10 +75,14 @@ class Exame(Base):
     
     # Valor
     valor = Column(Float, default=0)
-    
+
     # Observações
     observacoes = Column(Text)
-    
+    # Backup do texto de `observacoes` de antes da liberacao no portal (que
+    # sobrescreve o campo com uma mensagem fixa) - usado para restaurar ao
+    # revogar a liberacao.
+    observacoes_pre_portal = Column(Text)
+
     # Auditoria
     created_at = Column(DateTime(timezone=True), default=func.now())
     criado_por_id = Column(Integer)

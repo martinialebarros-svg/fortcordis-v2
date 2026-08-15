@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import TransacaoModal from "./TransacaoModal";
+import { calendarDateInput, formatCalendarDate, operationalTodayDateInput } from "@/lib/calendar-date";
 import {
   FORMA_PAGAMENTO_FALLBACK,
   FORMA_PAGAMENTO_PADRAO,
@@ -44,9 +45,20 @@ interface OrdemServico {
   paciente_id?: number | null;
   clinica_id?: number | null;
   servico_id?: number | null;
+  origem_atendimento?: "clinica_parceira" | "domiciliar" | string | null;
   paciente: string;
+  tutor_id?: number | null;
   tutor?: string;
+  tutor_telefone?: string | null;
+  tutor_whatsapp?: string | null;
+  tutor_email?: string | null;
   clinica: string;
+  clinica_telefone?: string | null;
+  clinica_email?: string | null;
+  destinatario_tipo?: "clinica" | "tutor" | string | null;
+  destinatario_nome?: string | null;
+  destinatario_telefone?: string | null;
+  destinatario_email?: string | null;
   servico: string;
   data_atendimento: string;
   tipo_horario: string;
@@ -100,19 +112,19 @@ const CATEGORIAS_TRANSACAO = [
 ];
 
 const MODELO_MENSAGEM_COBRANCA_PADRAO = [
-  "Ola, equipe da clinica ________.",
-  "Segue resumo das ordens de servico pendentes ate ___/___/___:",
+  "Ola, {{destinatario}}.",
+  "Segue resumo das ordens de servico pendentes ate {{data}}:",
   "",
-  "1. OS numero da os | nome do paciente | data do servico | R$ valor do servico",
+  "{{lista_os}}",
   "",
-  "Total pendente: R$ valor total das OS pendentes.",
+  "Total pendente: {{total_pendente}}.",
   "Favor confirmar a previsao de pagamento. Obrigado!",
 ].join("\n");
 
 const MODELO_MENSAGEM_RECIBO_INDIVIDUAL_PADRAO = [
   "Ola, segue o recibo da OS {{os_numero}}.",
   "Paciente: {{paciente}}.",
-  "Clinica: {{clinica}}.",
+  "Destinatario: {{destinatario}}.",
   "Valor recebido: {{valor_recebido}}.",
   "Data de emissao: {{data}}.",
   "",
@@ -121,7 +133,7 @@ const MODELO_MENSAGEM_RECIBO_INDIVIDUAL_PADRAO = [
 
 const MODELO_MENSAGEM_RECIBO_AGRUPADO_PADRAO = [
   "Ola, segue o recibo consolidado das ordens de servico recebidas.",
-  "Clinica: {{clinica}}.",
+  "Destinatario: {{destinatario}}.",
   "Quantidade de OS: {{quantidade_os}}.",
   "Total recebido: {{total_recebido}}.",
   "Data de emissao: {{data}}.",
@@ -132,14 +144,14 @@ const MODELO_MENSAGEM_RECIBO_AGRUPADO_PADRAO = [
 ].join("\n");
 
 const PLACEHOLDERS_MENSAGEM_COBRANCA = [
-  { label: "Clinica", valor: "{{clinica}}" },
+  { label: "Destinatario", valor: "{{destinatario}}" },
   { label: "Data", valor: "{{data}}" },
   { label: "Lista OS", valor: "{{lista_os}}" },
   { label: "Total pendente", valor: "{{total_pendente}}" },
 ];
 
 const PLACEHOLDERS_MENSAGEM_RECIBO = [
-  { label: "Clinica", valor: "{{clinica}}" },
+  { label: "Destinatario", valor: "{{destinatario}}" },
   { label: "Data", valor: "{{data}}" },
   { label: "OS", valor: "{{os_numero}}" },
   { label: "Paciente", valor: "{{paciente}}" },
@@ -161,11 +173,17 @@ interface Resumo {
   creditos_gerados: number;
 }
 
-interface GrupoCobrancaClinica {
+interface ContatoDestinatario {
   chave: string;
+  tipo_destinatario: "clinica" | "tutor";
+  nome_destinatario: string;
+  telefone_destinatario: string;
+  email_destinatario: string;
   clinica_id?: number | null;
-  clinica_nome: string;
-  telefone_clinica: string;
+  tutor_id?: number | null;
+}
+
+interface GrupoCobrancaDestinatario extends ContatoDestinatario {
   total_pendente: number;
   quantidade_os: number;
   quantidade_total: number;
@@ -338,6 +356,7 @@ export default function FinanceiroPage() {
   const [filtroFormaPagamento, setFiltroFormaPagamento] = useState<string>("todos");
   const [filtroStatusTransacao, setFiltroStatusTransacao] = useState<string>("todos");
   const [filtroStatusOS, setFiltroStatusOS] = useState<string>("todos");
+  const [filtroOrigemAtendimentoOS, setFiltroOrigemAtendimentoOS] = useState<string>("todos");
   const [filtroClinicaOS, setFiltroClinicaOS] = useState<string>("todos");
   const [filtroServicoOS, setFiltroServicoOS] = useState<string>("todos");
   const [filtroTipoHorarioOS, setFiltroTipoHorarioOS] = useState<string>("todos");
@@ -414,6 +433,7 @@ export default function FinanceiroPage() {
     filtroFormaPagamento,
     filtroStatusTransacao,
     filtroStatusOS,
+    filtroOrigemAtendimentoOS,
     filtroClinicaOS,
     filtroServicoOS,
     filtroTipoHorarioOS,
@@ -433,6 +453,7 @@ export default function FinanceiroPage() {
     if (Number.isFinite(osIdParam) && osIdParam > 0) {
       setAbaAtiva("ordens");
       setFiltroStatusOS("todos");
+      setFiltroOrigemAtendimentoOS("todos");
       setFiltroClinicaOS("todos");
       setFiltroServicoOS("todos");
       setFiltroTipoHorarioOS("todos");
@@ -512,6 +533,7 @@ export default function FinanceiroPage() {
       const queryOS = montarQueryString({
         limit: 500,
         status: filtroStatusOS !== "todos" ? filtroStatusOS : undefined,
+        origem_atendimento: filtroOrigemAtendimentoOS !== "todos" ? filtroOrigemAtendimentoOS : undefined,
         clinica_id: filtroClinicaOS !== "todos" ? filtroClinicaOS : undefined,
         servico_id: filtroServicoOS !== "todos" ? filtroServicoOS : undefined,
         tipo_horario: filtroTipoHorarioOS !== "todos" ? filtroTipoHorarioOS : undefined,
@@ -584,8 +606,7 @@ export default function FinanceiroPage() {
   };
 
   const formatarData = (data: string) => {
-    if (!data) return "-";
-    return new Date(data).toLocaleDateString('pt-BR');
+    return formatCalendarDate(data);
   };
 
   const formatarDataHoraCurta = (data: string) => {
@@ -599,16 +620,11 @@ export default function FinanceiroPage() {
   };
 
   const hojeLocalISO = () => {
-    const agora = new Date();
-    const local = new Date(agora.getTime() - agora.getTimezoneOffset() * 60000);
-    return local.toISOString().slice(0, 10);
+    return operationalTodayDateInput();
   };
 
   const normalizarDataISO = (valor?: string | null) => {
-    if (!valor) return "";
-    const data = new Date(valor);
-    if (Number.isNaN(data.getTime())) return "";
-    return data.toISOString().slice(0, 10);
+    return calendarDateInput(valor);
   };
 
   const estaNoPeriodo = (valor?: string | null) => {
@@ -627,6 +643,7 @@ export default function FinanceiroPage() {
     setFiltroFormaPagamento("todos");
     setFiltroStatusTransacao("todos");
     setFiltroStatusOS("todos");
+    setFiltroOrigemAtendimentoOS("todos");
     setFiltroClinicaOS("todos");
     setFiltroServicoOS("todos");
     setFiltroTipoHorarioOS("todos");
@@ -1186,21 +1203,29 @@ export default function FinanceiroPage() {
 
   const salvarEdicaoOS = async () => {
     if (!modalEditarOS) return;
-    if (!formEditarOS.clinica_id || !formEditarOS.servico_id) {
-      alert("Selecione clinica e servico para atualizar a OS.");
+    const osDomiciliar = modalEditarOS.origem_atendimento === "domiciliar";
+    if ((!osDomiciliar && !formEditarOS.clinica_id) || !formEditarOS.servico_id) {
+      alert(
+        osDomiciliar
+          ? "Selecione o servico para atualizar a OS domiciliar."
+          : "Selecione clinica e servico para atualizar a OS."
+      );
       return;
     }
 
     try {
       setSalvandoOS(true);
-      await api.put(`/ordens-servico/${modalEditarOS.id}`, {
-        clinica_id: Number(formEditarOS.clinica_id),
+      const payload: Record<string, unknown> = {
         servico_id: Number(formEditarOS.servico_id),
         tipo_horario: formEditarOS.tipo_horario,
         desconto: Number(formEditarOS.desconto || 0),
         observacoes: formEditarOS.observacoes,
         recalcular_preco: true,
-      });
+      };
+      if (!osDomiciliar && formEditarOS.clinica_id) {
+        payload.clinica_id = Number(formEditarOS.clinica_id);
+      }
+      await api.put(`/ordens-servico/${modalEditarOS.id}`, payload);
       setModalEditarOS(null);
       alert("OS atualizada com sucesso!");
       carregarDados();
@@ -1243,6 +1268,9 @@ export default function FinanceiroPage() {
   // Filtrar OS
   const osFiltradas = ordensServico.filter((os) => {
     const matchStatus = filtroStatusOS === "todos" || os.status === filtroStatusOS;
+    const origemAtual = String(os.origem_atendimento || "clinica_parceira").trim() || "clinica_parceira";
+    const matchOrigem =
+      filtroOrigemAtendimentoOS === "todos" || origemAtual === filtroOrigemAtendimentoOS;
     const matchClinica = filtroClinicaOS === "todos" || String(os.clinica_id || "") === filtroClinicaOS;
     const matchServico = filtroServicoOS === "todos" || String(os.servico_id || "") === filtroServicoOS;
     const matchTipoHorario = filtroTipoHorarioOS === "todos" || os.tipo_horario === filtroTipoHorarioOS;
@@ -1254,7 +1282,7 @@ export default function FinanceiroPage() {
       os.tutor?.toLowerCase().includes(termo) ||
       os.servico?.toLowerCase().includes(termo) ||
       os.clinica?.toLowerCase().includes(termo);
-    return matchStatus && matchClinica && matchServico && matchTipoHorario && matchData && matchBusca;
+    return matchStatus && matchOrigem && matchClinica && matchServico && matchTipoHorario && matchData && matchBusca;
   });
 
   const osRecebidasFiltradas = useMemo(
@@ -1303,14 +1331,11 @@ export default function FinanceiroPage() {
     row.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [abaAtiva, osFiltradas, osHighlightId]);
 
-  const clinicaTelefonePorId = useMemo(() => {
-    const mapa = new Map<number, string>();
+  const clinicaContatoPorId = useMemo(() => {
+    const mapa = new Map<number, ClinicaOption>();
     for (const clinica of clinicas) {
       if (!clinica?.id) continue;
-      const telefone = String(clinica.telefone || "").trim();
-      if (telefone) {
-        mapa.set(clinica.id, telefone);
-      }
+      mapa.set(clinica.id, clinica);
     }
     return mapa;
   }, [clinicas]);
@@ -1320,20 +1345,57 @@ export default function FinanceiroPage() {
     [osFiltradas]
   );
 
-  const gruposCobrancaClinica = useMemo<GrupoCobrancaClinica[]>(() => {
-    const mapa = new Map<string, GrupoCobrancaClinica>();
+  const obterContatoDestinatarioDaOS = useCallback((os: OrdemServico): ContatoDestinatario => {
+    const tipoDestinatario =
+      os.destinatario_tipo === "tutor" || os.origem_atendimento === "domiciliar" ? "tutor" : "clinica";
+    const clinicaCadastro =
+      os.clinica_id != null ? clinicaContatoPorId.get(os.clinica_id) || null : null;
+    const nomeDestinatario = String(
+      os.destinatario_nome ||
+        (tipoDestinatario === "tutor" ? os.tutor : os.clinica) ||
+        (tipoDestinatario === "tutor" ? "Tutor nao informado" : "Clinica nao informada")
+    ).trim();
+    const telefoneDestinatario = String(
+      os.destinatario_telefone ||
+        (tipoDestinatario === "tutor"
+          ? os.tutor_whatsapp || os.tutor_telefone
+          : os.clinica_telefone || clinicaCadastro?.telefone) ||
+        ""
+    ).trim();
+    const emailDestinatario = String(
+      os.destinatario_email ||
+        (tipoDestinatario === "tutor" ? os.tutor_email : os.clinica_email || clinicaCadastro?.email) ||
+        ""
+    ).trim();
+    const chave =
+      tipoDestinatario === "tutor"
+        ? os.tutor_id != null
+          ? `tutor:${os.tutor_id}`
+          : `tutor-nome:${nomeDestinatario.toLowerCase()}`
+        : os.clinica_id != null
+          ? `clinica:${os.clinica_id}`
+          : `clinica-nome:${nomeDestinatario.toLowerCase()}`;
+
+    return {
+      chave,
+      tipo_destinatario: tipoDestinatario,
+      nome_destinatario: nomeDestinatario || (tipoDestinatario === "tutor" ? "Tutor nao informado" : "Clinica nao informada"),
+      telefone_destinatario: telefoneDestinatario,
+      email_destinatario: emailDestinatario,
+      clinica_id: os.clinica_id ?? null,
+      tutor_id: os.tutor_id ?? null,
+    };
+  }, [clinicaContatoPorId]);
+
+  const gruposCobrancaDestinatario = useMemo<GrupoCobrancaDestinatario[]>(() => {
+    const mapa = new Map<string, GrupoCobrancaDestinatario>();
 
     for (const os of osCobrancaFiltradas) {
-      const clinicaNome = (os.clinica || "Clinica nao informada").trim();
-      const chave = os.clinica_id ? `id:${os.clinica_id}` : `nome:${clinicaNome.toLowerCase()}`;
-      const telefoneClinica = os.clinica_id ? (clinicaTelefonePorId.get(os.clinica_id) || "") : "";
+      const destinatario = obterContatoDestinatarioDaOS(os);
 
-      if (!mapa.has(chave)) {
-        mapa.set(chave, {
-          chave,
-          clinica_id: os.clinica_id,
-          clinica_nome: clinicaNome,
-          telefone_clinica: telefoneClinica,
+      if (!mapa.has(destinatario.chave)) {
+        mapa.set(destinatario.chave, {
+          ...destinatario,
           total_pendente: 0,
           quantidade_os: 0,
           quantidade_total: 0,
@@ -1341,7 +1403,7 @@ export default function FinanceiroPage() {
         });
       }
 
-      const grupo = mapa.get(chave)!;
+      const grupo = mapa.get(destinatario.chave)!;
       if (os.status === "Pendente") {
         grupo.total_pendente += Number(os.valor_final || 0);
         grupo.quantidade_os += 1;
@@ -1360,9 +1422,9 @@ export default function FinanceiroPage() {
         }),
       }))
       .sort((a, b) => b.total_pendente - a.total_pendente);
-  }, [osCobrancaFiltradas, clinicaTelefonePorId]);
+  }, [obterContatoDestinatarioDaOS, osCobrancaFiltradas]);
 
-  const totalPendenteAgrupado = gruposCobrancaClinica.reduce(
+  const totalPendenteAgrupado = gruposCobrancaDestinatario.reduce(
     (acc, grupo) => acc + grupo.total_pendente,
     0
   );
@@ -1378,21 +1440,18 @@ export default function FinanceiroPage() {
     return digitos;
   };
 
-  const formatarDataArquivo = () => new Date().toISOString().slice(0, 10);
-
-  const obterClinicaDaOS = (os: OrdemServico) => {
-    if (!os.clinica_id) return null;
-    return clinicas.find((clinica) => clinica.id === os.clinica_id) || null;
-  };
+  const formatarDataArquivo = () => operationalTodayDateInput();
 
   const obterContatoCompartilhamento = (ids: number[]) => {
     const selecionadas = ordensServico.filter((os) => ids.includes(os.id));
-    const clinicasSelecionadas = selecionadas
-      .map((os) => obterClinicaDaOS(os))
-      .filter((item): item is ClinicaOption => Boolean(item));
-    const clinicasUnicas = Array.from(new Map(clinicasSelecionadas.map((item) => [item.id, item])).values());
-    if (clinicasUnicas.length === 1) {
-      return clinicasUnicas[0];
+    const contatosUnicos = Array.from(
+      new Map(selecionadas.map((os) => {
+        const contato = obterContatoDestinatarioDaOS(os);
+        return [contato.chave, contato] as const;
+      })).values()
+    );
+    if (contatosUnicos.length === 1) {
+      return contatosUnicos[0];
     }
     return null;
   };
@@ -1401,12 +1460,19 @@ export default function FinanceiroPage() {
     const selecionadas = ordensServico.filter((os) => ids.includes(os.id));
     const total = selecionadas.reduce((acc, item) => acc + Number(item.valor_final || 0), 0);
     const primeiraOS = selecionadas[0];
-    const clinicas = Array.from(
-      new Set(selecionadas.map((item) => String(item.clinica || "").trim()).filter(Boolean))
+    const destinatarios = Array.from(
+      new Map(selecionadas.map((os) => {
+        const contato = obterContatoDestinatarioDaOS(os);
+        return [contato.chave, contato] as const;
+      })).values()
     );
-    const clinicaTexto =
-      clinicas.length === 1 ? clinicas[0] : clinicas.length > 1 ? "Multiplas clinicas" : "Clinica nao informada";
-    const dataHoje = new Date().toLocaleDateString("pt-BR");
+    const destinatarioTexto =
+      destinatarios.length === 1
+        ? destinatarios[0].nome_destinatario
+        : destinatarios.length > 1
+          ? "Multiplos destinatarios"
+          : "Nao informado";
+    const dataHoje = formatCalendarDate(operationalTodayDateInput());
     const listaOS = selecionadas
       .map(
         (os, index) =>
@@ -1420,7 +1486,8 @@ export default function FinanceiroPage() {
         : mensagemReciboIndividualModelo || MODELO_MENSAGEM_RECIBO_INDIVIDUAL_PADRAO;
 
     modelo = modelo
-      .replace(/{{\s*clinica\s*}}/gi, clinicaTexto)
+      .replace(/{{\s*destinatario\s*}}/gi, destinatarioTexto)
+      .replace(/{{\s*clinica\s*}}/gi, destinatarioTexto)
       .replace(/{{\s*data\s*}}/gi, dataHoje)
       .replace(/{{\s*os_numero\s*}}/gi, primeiraOS?.numero_os || "-")
       .replace(/{{\s*paciente\s*}}/gi, primeiraOS?.paciente || "Nao informado")
@@ -1574,12 +1641,12 @@ export default function FinanceiroPage() {
       agrupar,
       mensagem: montarMensagemCompartilhamentoRecibo(ids, agrupar),
       assunto: montarAssuntoCompartilhamentoRecibo(ids, agrupar),
-      telefone: String(contato?.telefone || ""),
-      email: String(contato?.email || ""),
+      telefone: String(contato?.telefone_destinatario || ""),
+      email: String(contato?.email_destinatario || ""),
     });
   };
 
-  const montarLinhasPendentes = (grupo: GrupoCobrancaClinica) => {
+  const montarLinhasPendentes = (grupo: GrupoCobrancaDestinatario) => {
     const ordensPendentes = grupo.ordens.filter((os) => os.status === "Pendente");
     return ordensPendentes.map(
       (os, index) =>
@@ -1589,21 +1656,22 @@ export default function FinanceiroPage() {
     );
   };
 
-  const preencherMensagemCobranca = (grupo: GrupoCobrancaClinica) => {
-    const hoje = new Date().toLocaleDateString("pt-BR");
+  const preencherMensagemCobranca = (grupo: GrupoCobrancaDestinatario) => {
+    const hoje = formatCalendarDate(operationalTodayDateInput());
     const linhasOS = montarLinhasPendentes(grupo);
     const listaOS = linhasOS.length > 0 ? linhasOS.join("\n") : "1. Nenhuma OS pendente.";
 
     let mensagem = (mensagemCobrancaModelo || "").trim() || MODELO_MENSAGEM_COBRANCA_PADRAO;
 
     mensagem = mensagem
-      .replace(/{{\s*clinica\s*}}/gi, grupo.clinica_nome)
+      .replace(/{{\s*destinatario\s*}}/gi, grupo.nome_destinatario)
+      .replace(/{{\s*clinica\s*}}/gi, grupo.nome_destinatario)
       .replace(/{{\s*data\s*}}/gi, hoje)
       .replace(/{{\s*lista_os\s*}}/gi, listaOS)
       .replace(/{{\s*total_pendente\s*}}/gi, formatarValor(grupo.total_pendente));
 
     if (mensagem.includes("________")) {
-      mensagem = mensagem.replace(/________/g, grupo.clinica_nome);
+      mensagem = mensagem.replace(/________/g, grupo.nome_destinatario);
     }
     if (mensagem.includes("___/___/___")) {
       mensagem = mensagem.replace(/___\/___\/___/g, hoje);
@@ -1648,10 +1716,11 @@ export default function FinanceiroPage() {
     });
   };
 
-  const enviarCobrancaWhatsApp = (grupo: GrupoCobrancaClinica) => {
-    const telefone = normalizarTelefoneWhatsApp(grupo.telefone_clinica || "");
+  const enviarCobrancaWhatsApp = (grupo: GrupoCobrancaDestinatario) => {
+    const telefone = normalizarTelefoneWhatsApp(grupo.telefone_destinatario || "");
     if (!telefone) {
-      alert(`A clinica ${grupo.clinica_nome} nao possui telefone cadastrado.`);
+      const alvo = grupo.tipo_destinatario === "tutor" ? "tutor" : "clinica";
+      alert(`O ${alvo} ${grupo.nome_destinatario} nao possui telefone cadastrado para cobranca.`);
       return;
     }
 
@@ -1660,34 +1729,45 @@ export default function FinanceiroPage() {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  const copiarMensagemCobranca = async (grupo: GrupoCobrancaClinica) => {
+  const copiarMensagemCobranca = async (grupo: GrupoCobrancaDestinatario) => {
     const mensagem = preencherMensagemCobranca(grupo);
     try {
       await navigator.clipboard.writeText(mensagem);
-      alert(`Mensagem de cobranca copiada para a clinica ${grupo.clinica_nome}.`);
+      alert(`Mensagem de cobranca copiada para ${grupo.nome_destinatario}.`);
     } catch (_err) {
       alert("Nao foi possivel copiar automaticamente. Tente novamente.");
     }
   };
-  const baixarRelatorioPendenciasPDF = async (grupo?: GrupoCobrancaClinica) => {
-    if (gruposCobrancaClinica.length === 0) {
+  const baixarRelatorioPendenciasPDF = async (grupo?: GrupoCobrancaDestinatario) => {
+    if (gruposCobrancaDestinatario.length === 0) {
       alert("Nao ha pendencias para gerar relatorio.");
       return;
     }
 
     try {
+      const tutorRelatorio =
+        grupo?.tipo_destinatario === "tutor" && grupo.tutor_id != null
+          ? String(grupo.tutor_id)
+          : undefined;
+      const tutorNomeRelatorio =
+        !tutorRelatorio && grupo?.tipo_destinatario === "tutor" ? grupo.nome_destinatario : undefined;
       const clinicaRelatorio =
-        grupo?.clinica_id != null
+        grupo?.tipo_destinatario !== "tutor" && grupo?.clinica_id != null
           ? String(grupo.clinica_id)
           : filtroClinicaOS !== "todos"
             ? filtroClinicaOS
             : undefined;
       const clinicaNomeRelatorio =
-        !clinicaRelatorio && grupo?.clinica_nome ? grupo.clinica_nome : undefined;
+        !clinicaRelatorio && grupo?.tipo_destinatario !== "tutor" && grupo?.nome_destinatario
+          ? grupo.nome_destinatario
+          : undefined;
       const mensagemRelatorio = grupo ? preencherMensagemCobranca(grupo) : undefined;
 
       const query = montarQueryString({
         status: filtroStatusOS !== "todos" ? filtroStatusOS : "Pendente",
+        origem_atendimento: filtroOrigemAtendimentoOS !== "todos" ? filtroOrigemAtendimentoOS : undefined,
+        tutor_id: tutorRelatorio,
+        tutor_nome: tutorNomeRelatorio,
         clinica_id: clinicaRelatorio,
         clinica_nome: clinicaNomeRelatorio,
         servico_id: filtroServicoOS !== "todos" ? filtroServicoOS : undefined,
@@ -1706,14 +1786,14 @@ export default function FinanceiroPage() {
       const link = document.createElement("a");
       const disposition = response.headers?.["content-disposition"] as string | undefined;
       const match = disposition?.match(/filename=\"?([^\";]+)\"?/i);
-      const sufixoClinica = (grupo?.clinica_nome || "")
+      const sufixoClinica = (grupo?.nome_destinatario || "")
         .toLowerCase()
         .replace(/\s+/g, "_")
         .replace(/[^a-z0-9_]/g, "")
         .slice(0, 40);
       const fallback = sufixoClinica
-        ? `relatorio_cobranca_${sufixoClinica}_${new Date().toISOString().slice(0, 10)}.pdf`
-        : `relatorio_cobranca_pendencias_${new Date().toISOString().slice(0, 10)}.pdf`;
+        ? `relatorio_cobranca_${sufixoClinica}_${operationalTodayDateInput()}.pdf`
+        : `relatorio_cobranca_pendencias_${operationalTodayDateInput()}.pdf`;
       link.href = url;
       link.download = match?.[1] || fallback;
       document.body.appendChild(link);
@@ -1776,8 +1856,8 @@ export default function FinanceiroPage() {
         ids.length === 1
           ? `recibo_os_${ids[0]}.pdf`
           : agrupar
-            ? `recibo_os_agrupado_${new Date().toISOString().slice(0, 10)}.pdf`
-            : `recibos_os_${new Date().toISOString().slice(0, 10)}.pdf`;
+            ? `recibo_os_agrupado_${operationalTodayDateInput()}.pdf`
+            : `recibos_os_${operationalTodayDateInput()}.pdf`;
       return { blob, filename: match?.[1] || filename };
     } catch (error: any) {
       console.error("Erro ao gerar recibo PDF:", error);
@@ -1841,7 +1921,7 @@ export default function FinanceiroPage() {
     const contato = obterContatoCompartilhamento(ids);
     const subject = String(overrides?.assunto || montarAssuntoCompartilhamentoRecibo(ids, agrupar)).trim();
     const body = String(overrides?.mensagem || montarMensagemCompartilhamentoRecibo(ids, agrupar)).trim();
-    const emailDestino = String(overrides?.email || contato?.email || "").trim();
+    const emailDestino = String(overrides?.email || contato?.email_destinatario || "").trim();
     const textoFallback = `${body}\n\nCaso o anexo nao seja compartilhado automaticamente, o PDF foi baixado neste dispositivo para envio manual.`;
     const compartilhado = await compartilharArquivoSeDisponivel(arquivo.blob, arquivo.filename, subject, textoFallback);
     if (compartilhado) return;
@@ -1860,7 +1940,7 @@ export default function FinanceiroPage() {
     const contato = obterContatoCompartilhamento(ids);
     const title =
       montarAssuntoCompartilhamentoRecibo(ids, agrupar);
-    const telefoneDestino = String(overrides?.telefone || contato?.telefone || "").trim();
+    const telefoneDestino = String(overrides?.telefone || contato?.telefone_destinatario || "").trim();
     const mensagem = String(overrides?.mensagem || montarMensagemCompartilhamentoRecibo(ids, agrupar)).trim();
     const textoFallback = `${mensagem}\n\nSe o PDF nao seguir automaticamente, ele foi baixado neste dispositivo para anexar na conversa.`;
     const compartilhado = await compartilharArquivoSeDisponivel(arquivo.blob, arquivo.filename, title, textoFallback);
@@ -1899,35 +1979,35 @@ export default function FinanceiroPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6">
+      <div className="fc-finance-page">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+        <header className="fc-finance-header">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Financeiro</h1>
-            <p className="text-gray-500">Controle financeiro completo</p>
+            <span className="fc-finance-kicker">
+              <DollarSign className="h-4 w-4" />
+              Gestão financeira
+            </span>
+            <h1>Central financeira</h1>
+            <p>Movimentações, recebimentos e ordens de serviço em uma visão comparável.</p>
           </div>
-          <div className="flex gap-2">
+          <div>
             <button 
               onClick={handleNova}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              className="fc-finance-primary"
             >
               <Plus className="w-4 h-4" />
               Nova Transacao
             </button>
           </div>
-        </div>
+        </header>
 
         {/* Periodo */}
-        <div className="flex gap-2 mb-6">
+        <div className="fc-finance-periods" aria-label="Período do resumo">
           {['dia', 'semana', 'mes', 'ano'].map((p) => (
             <button
               key={p}
               onClick={() => setPeriodo(p)}
-              className={`px-4 py-2 rounded-lg font-medium capitalize ${
-                periodo === p
-                  ? "bg-green-100 text-green-700"
-                  : "bg-white text-gray-600 hover:bg-gray-100 border"
-              }`}
+              className={`fc-finance-period ${periodo === p ? "fc-finance-period-active" : ""}`}
             >
               {p === 'mes' ? 'Mes' : p}
             </button>
@@ -1935,8 +2015,8 @@ export default function FinanceiroPage() {
         </div>
 
         {/* Cards Resumo */}
-	        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white p-5 rounded-xl shadow-sm border">
+	        <div className="fc-finance-metrics">
+          <div className="fc-finance-metric fc-finance-metric-income">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Entradas</p>
@@ -1953,7 +2033,7 @@ export default function FinanceiroPage() {
             )}
           </div>
 
-          <div className="bg-white p-5 rounded-xl shadow-sm border">
+          <div className="fc-finance-metric fc-finance-metric-expense">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Saidas</p>
@@ -1970,7 +2050,7 @@ export default function FinanceiroPage() {
             )}
           </div>
 
-          <div className="bg-white p-5 rounded-xl shadow-sm border">
+          <div className="fc-finance-metric fc-finance-metric-balance">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Saldo</p>
@@ -1984,7 +2064,7 @@ export default function FinanceiroPage() {
             </div>
           </div>
 
-	          <div className="bg-white p-5 rounded-xl shadow-sm border">
+	          <div className="fc-finance-metric fc-finance-metric-pending">
 	            <div className="flex items-center justify-between">
 	              <div>
 	                <p className="text-sm text-gray-500">OS Pendentes</p>
@@ -1999,7 +2079,7 @@ export default function FinanceiroPage() {
 	            </p>
 	          </div>
 
-	          <div className="bg-white p-5 rounded-xl shadow-sm border">
+	          <div className="fc-finance-metric fc-finance-metric-fee">
 	            <div className="flex items-center justify-between">
 	              <div>
 	                <p className="text-sm text-gray-500">Taxas de pagamento</p>
@@ -2011,7 +2091,7 @@ export default function FinanceiroPage() {
 	            </div>
 	          </div>
 
-	          <div className="bg-white p-5 rounded-xl shadow-sm border">
+	          <div className="fc-finance-metric fc-finance-metric-credit">
 	            <div className="flex items-center justify-between">
 	              <div>
 	                <p className="text-sm text-gray-500">Creditos gerados</p>
@@ -2024,7 +2104,7 @@ export default function FinanceiroPage() {
 	          </div>
 	        </div>
 
-	        <div className="bg-white p-4 rounded-xl shadow-sm border mb-6">
+	        <div className="fc-finance-panel">
 	          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 	            <div>
 	              <h2 className="text-base font-semibold text-gray-900">Cadastro de meios de pagamento</h2>
@@ -2035,20 +2115,20 @@ export default function FinanceiroPage() {
 	            <div className="flex gap-2">
 	              <button
 	                onClick={cadastrarBandeiraRapido}
-	                className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+	                className="fc-finance-secondary"
 	              >
 	                Nova bandeira
 	              </button>
 	              <button
 	                onClick={cadastrarFormaPagamentoRapido}
-	                className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+	                className="fc-finance-primary"
 	              >
 	                Nova forma
 	              </button>
 	            </div>
 	          </div>
 	          <div className="mt-3 overflow-x-auto">
-	            <table className="w-full text-sm">
+	            <table className="fc-finance-table">
 	              <thead className="bg-gray-50 text-gray-600">
 	                <tr>
 	                  <th className="text-left px-3 py-2">Forma</th>
@@ -2108,53 +2188,47 @@ export default function FinanceiroPage() {
 	        </div>
 
 	        {/* Abas */}
-	        <div className="flex gap-2 mb-6 border-b">
+	        <div className="fc-finance-tabs" role="tablist" aria-label="Área financeira">
           <button
             onClick={() => setAbaAtiva("transacoes")}
-            className={`flex items-center gap-2 px-4 py-3 font-medium border-b-2 transition-colors ${
-              abaAtiva === "transacoes"
-                ? "border-green-500 text-green-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
+            className={`fc-finance-tab ${abaAtiva === "transacoes" ? "fc-finance-tab-active" : ""}`}
+            role="tab"
+            aria-selected={abaAtiva === "transacoes"}
           >
             <Receipt className="w-4 h-4" />
             Transacoes
-            <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">
+            <span className="fc-finance-tab-count">
               {transacoes.length}
             </span>
           </button>
           <button
             onClick={() => setAbaAtiva("cobrancas")}
-            className={`flex items-center gap-2 px-4 py-3 font-medium border-b-2 transition-colors ${
-              abaAtiva === "cobrancas"
-                ? "border-green-500 text-green-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
+            className={`fc-finance-tab ${abaAtiva === "cobrancas" ? "fc-finance-tab-active" : ""}`}
+            role="tab"
+            aria-selected={abaAtiva === "cobrancas"}
           >
             <MessageCircle className="w-4 h-4" />
             Cobrancas
-            <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-xs">
-              {gruposCobrancaClinica.length} clinica(s)
+            <span className="fc-finance-tab-count fc-finance-tab-count-amber">
+              {gruposCobrancaDestinatario.length} destinatario(s)
             </span>
           </button>
           <button
             onClick={() => setAbaAtiva("ordens")}
-            className={`flex items-center gap-2 px-4 py-3 font-medium border-b-2 transition-colors ${
-              abaAtiva === "ordens"
-                ? "border-green-500 text-green-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
+            className={`fc-finance-tab ${abaAtiva === "ordens" ? "fc-finance-tab-active" : ""}`}
+            role="tab"
+            aria-selected={abaAtiva === "ordens"}
           >
             <FileText className="w-4 h-4" />
             Ordens de Servico
-            <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full text-xs">
+            <span className="fc-finance-tab-count fc-finance-tab-count-amber">
               {osFiltradas.length}
             </span>
           </button>
         </div>
 
         {/* Filtros */}
-        <div className="bg-white p-4 rounded-xl shadow-sm border mb-6">
+        <div className="fc-finance-filters">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="relative md:col-span-2 lg:col-span-2">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -2164,7 +2238,7 @@ export default function FinanceiroPage() {
                   abaAtiva === "transacoes"
                     ? "Buscar transacao..."
                     : abaAtiva === "cobrancas"
-                      ? "Buscar clinica, paciente ou OS..."
+                      ? "Buscar destinatario, paciente ou OS..."
                       : "Buscar OS..."
                 }
                 value={busca}
@@ -2267,6 +2341,16 @@ export default function FinanceiroPage() {
                 </select>
 
                 <select
+                  value={filtroOrigemAtendimentoOS}
+                  onChange={(e) => setFiltroOrigemAtendimentoOS(e.target.value)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                >
+                  <option value="todos">Todas origens</option>
+                  <option value="clinica_parceira">Clinica parceira</option>
+                  <option value="domiciliar">Atendimento domiciliar</option>
+                </select>
+
+                <select
                   value={filtroServicoOS}
                   onChange={(e) => setFiltroServicoOS(e.target.value)}
                   className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
@@ -2295,13 +2379,13 @@ export default function FinanceiroPage() {
           <div className="flex flex-wrap gap-2 mt-3">
             <button
               onClick={carregarDados}
-              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+              className="fc-finance-secondary"
             >
               Atualizar
             </button>
             <button
               onClick={limparFiltros}
-              className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+              className="fc-finance-secondary"
             >
               Limpar filtros
             </button>
@@ -2310,7 +2394,7 @@ export default function FinanceiroPage() {
 
         {/* Conteudo - Transacoes */}
         {abaAtiva === "transacoes" && (
-          <div className="bg-white rounded-xl shadow-sm border">
+          <div className="fc-finance-content">
             <div className="p-5 border-b flex justify-between items-center">
               <h2 className="text-lg font-semibold text-gray-900">
                 Transacoes 
@@ -2414,13 +2498,13 @@ export default function FinanceiroPage() {
 
         {/* Conteudo - Cobrancas */}
         {abaAtiva === "cobrancas" && (
-          <div className="bg-white rounded-xl shadow-sm border">
+          <div className="fc-finance-content">
             <div className="p-5 border-b flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">
-                  Cobrancas por Clinica
+                  Cobrancas por Destinatario
                   <span className="text-sm font-normal text-gray-500 ml-2">
-                    ({gruposCobrancaClinica.length})
+                    ({gruposCobrancaDestinatario.length})
                   </span>
                 </h2>
                 <p className="text-xs text-amber-700 mt-1">
@@ -2456,7 +2540,8 @@ export default function FinanceiroPage() {
                 </button>
               </div>
               <p className="text-xs text-gray-500 mb-2">
-                Campos automaticos: `________` clinica, `___/___/___` data, linha com `OS numero da os` para lista, e `R$ valor total das OS pendentes` para o total.
+                Campos automaticos: <code>{"{{destinatario}}"}</code> ou <code>________</code> destinatario,{" "}
+                <code>{"{{data}}"}</code>, <code>{"{{lista_os}}"}</code> e <code>{"{{total_pendente}}"}</code>.
               </p>
               <div className="flex flex-wrap gap-2 mb-2">
                 {PLACEHOLDERS_MENSAGEM_COBRANCA.map((item) => (
@@ -2482,26 +2567,31 @@ export default function FinanceiroPage() {
 
             {loading ? (
               <div className="p-8 text-center text-gray-500">Carregando...</div>
-            ) : gruposCobrancaClinica.length === 0 ? (
+            ) : gruposCobrancaDestinatario.length === 0 ? (
               <div className="p-12 text-center">
                 <MessageCircle className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                 <p className="text-gray-500">Nenhuma cobranca encontrada para os filtros atuais</p>
               </div>
             ) : (
               <div className="p-4 space-y-4">
-                {gruposCobrancaClinica.map((grupo) => (
+                {gruposCobrancaDestinatario.map((grupo) => (
                   <div key={grupo.chave} className="border border-amber-200 rounded-xl overflow-hidden bg-amber-50/30">
                     <div className="p-4 border-b border-amber-100 bg-white">
                       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                         <div>
-                          <p className="font-semibold text-gray-900">{grupo.clinica_nome}</p>
+                          <p className="font-semibold text-gray-900">{grupo.nome_destinatario}</p>
+                          <p className="text-xs text-gray-500">
+                            {grupo.tipo_destinatario === "tutor" ? "Atendimento domiciliar" : "Clinica parceira"}
+                          </p>
                           <p className="text-xs text-gray-600">
                             {grupo.quantidade_os} pendente(s) de {grupo.quantidade_total} OS listada(s)
                           </p>
                           <p className="text-xs text-gray-600">
                             Total pendente: <span className="font-semibold">{formatarValor(grupo.total_pendente)}</span>
                           </p>
-                          <p className="text-xs text-gray-500">Telefone: {grupo.telefone_clinica || "nao informado"}</p>
+                          <p className="text-xs text-gray-500">
+                            Contato: {grupo.telefone_destinatario || grupo.email_destinatario || "nao informado"}
+                          </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <button
@@ -2638,7 +2728,7 @@ export default function FinanceiroPage() {
 
         {/* Conteudo - Ordens de Servico */}
         {abaAtiva === "ordens" && (
-          <div className="bg-white rounded-xl shadow-sm border">
+          <div className="fc-finance-content">
             <div className="p-5 border-b flex flex-col lg:flex-row lg:justify-between lg:items-center gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">
@@ -3039,21 +3129,30 @@ export default function FinanceiroPage() {
 
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Clinica</label>
-                  <select
-                    value={formEditarOS.clinica_id}
-                    onChange={(e) => setFormEditarOS((prev) => ({ ...prev, clinica_id: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  >
-                    <option value="">Selecione...</option>
-                    {clinicas.map((c) => (
-                      <option key={c.id} value={String(c.id)}>
-                        {c.nome}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {modalEditarOS.origem_atendimento !== "domiciliar" ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Clinica</label>
+                    <select
+                      value={formEditarOS.clinica_id}
+                      onChange={(e) => setFormEditarOS((prev) => ({ ...prev, clinica_id: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    >
+                      <option value="">Selecione...</option>
+                      {clinicas.map((c) => (
+                        <option key={c.id} value={String(c.id)}>
+                          {c.nome}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Origem</label>
+                    <div className="w-full rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                      Atendimento domiciliar
+                    </div>
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Servico</label>
                   <select
@@ -3070,6 +3169,12 @@ export default function FinanceiroPage() {
                   </select>
                 </div>
               </div>
+
+              {modalEditarOS.origem_atendimento === "domiciliar" && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                  O recálculo desta OS usa o preço domiciliar do serviço conforme o tipo de horário selecionado.
+                </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>

@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { normalizarCoordenadaOpcional } from "@/lib/coordinates";
 import { montarToastAgendaRealtime } from "@/lib/agenda-realtime-toast";
 import { useAgendaRealtime, type AgendaRealtimePayload } from "@/lib/useAgendaRealtime";
 import {
@@ -22,15 +23,19 @@ import {
 import {
   getLaudoEditPath,
   TIPO_LAUDO_ECOCARDIOGRAMA,
+  TIPO_LAUDO_ELETROCARDIOGRAMA,
+  TIPO_LAUDO_PRESSAO_ARTERIAL,
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
-import { baixarLaudoPdf as baixarLaudoPdfUtil } from "@/lib/laudo-pdf";
+import { baixarLaudoPdf as baixarLaudoPdfUtil, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
 import {
   AGENDA_STATUS_LIST,
   FORMA_PAGAMENTO_FALLBACK,
   FORMA_PAGAMENTO_PADRAO,
   descricaoFormaPagamentoConfig,
   normalizarCodigoFormaPagamento,
+  obterOrigemAtendimentoMeta,
+  obterTituloAgendamentoPorOrigem,
   type AgendaStatus,
   type FormaPagamentoConfig,
   obterProximosStatus,
@@ -42,19 +47,27 @@ import {
   type AgendaRotaRenderingPolicyConfig,
 } from "@/lib/agenda-route-rules";
 import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
-import { montarGoogleMapsDestinoClinica, montarWazeDestinoClinica } from "@/lib/waze";
+import {
+  montarGoogleMapsDestinoLocal,
+  montarWazeDestinoLocal,
+  type WazeDestinoLocal,
+} from "@/lib/waze";
 import { 
   Calendar, Clock, User, Building, Plus, RefreshCw, X, Trash2,
   CheckCircle2, PlayCircle, CheckCircle, XCircle, AlertCircle,
   Search, ChevronDown, ChevronLeft, ChevronRight, Sun, Moon, FileText, Download, Stethoscope, Undo2, DollarSign, MapPin, Wallet
 } from "lucide-react";
 import NovoAgendamentoModal from "./NovoAgendamentoModal";
+import ClienteInfoModal from "./ClienteInfoModal";
+import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 
 interface Agendamento {
   id: number;
   paciente_id?: number | null;
+  tutor_id?: number | null;
   clinica_id?: number | null;
   servico_id?: number | null;
+  origem_atendimento?: "clinica_parceira" | "domiciliar" | string | null;
   paciente: string | null;
   tutor: string | null;
   clinica: string | null;
@@ -62,6 +75,7 @@ interface Agendamento {
   inicio: string;
   fim: string | null;
   status: string;
+  reserva_expira_em?: string | null;
   observacoes: string | null;
   telefone: string | null;
   data: string;
@@ -100,6 +114,8 @@ interface ClinicaEndereco {
   longitude?: number | null;
   endereco_normalizado?: string | null;
 }
+
+type TutorEndereco = ClinicaEndereco;
 
 interface FiltroOption {
   id: number;
@@ -162,17 +178,6 @@ const toTimeInput = (date: Date) => {
   const hora = String(date.getHours()).padStart(2, "0");
   const minuto = String(date.getMinutes()).padStart(2, "0");
   return `${hora}:${minuto}`;
-};
-
-const somarMinutosHHMM = (hora: string, minutosAdicionar: number): string => {
-  const [hhRaw = "0", mmRaw = "0"] = String(hora || "00:00").split(":");
-  const hh = Number.parseInt(hhRaw, 10);
-  const mm = Number.parseInt(mmRaw, 10);
-  const base = (Number.isFinite(hh) ? hh : 0) * 60 + (Number.isFinite(mm) ? mm : 0);
-  const total = Math.max(0, Math.min((24 * 60) - 1, base + Math.max(1, minutosAdicionar)));
-  const h = Math.floor(total / 60);
-  const m = total % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 };
 
 const parseApiDateTime = (value?: string | null): Date | null => {
@@ -293,6 +298,41 @@ const isModoVisualizacaoValido = (value?: string | null): value is ModoVisualiza
   return value === "lista" || value === "panoramica-dia" || value === "panoramica-semana";
 };
 
+interface ReservaPrazoEstado {
+  minutosRestantes: number;
+  label: string;
+  emAlerta: boolean;
+  critico: boolean;
+  vencido: boolean;
+}
+
+const obterEstadoPrazoReserva = (
+  agendamento: Agendamento,
+  agoraMs: number
+): ReservaPrazoEstado | null => {
+  if (agendamento.status !== "Reservado" || !agendamento.reserva_expira_em) {
+    return null;
+  }
+  const prazoMs = new Date(agendamento.reserva_expira_em).getTime();
+  if (!Number.isFinite(prazoMs)) return null;
+
+  const minutosRestantes = Math.ceil((prazoMs - agoraMs) / 60_000);
+  const vencido = minutosRestantes <= 0;
+  const critico = minutosRestantes <= 15;
+  const emAlerta = minutosRestantes <= 60;
+  let label = "";
+  if (vencido) {
+    label = "prazo vencido agora";
+  } else if (minutosRestantes >= 60) {
+    const horas = Math.floor(minutosRestantes / 60);
+    const minutos = minutosRestantes % 60;
+    label = `expira em ${horas}h${minutos ? ` ${minutos}min` : ""}`;
+  } else {
+    label = `expira em ${minutosRestantes} min`;
+  }
+  return { minutosRestantes, label, emAlerta, critico, vencido };
+};
+
 const gerarPagamentoId = () => {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 };
@@ -313,6 +353,7 @@ const SLOT_INTERVALO_PADRAO_MIN = DEFAULT_AGENDA_ROTA_REGRAS.rendering_policy.sl
 
 export default function AgendaPage() {
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
+  const [agoraReservas, setAgoraReservas] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState("");
   const [modoVisualizacao, setModoVisualizacao] = useState<ModoVisualizacao>("lista");
@@ -322,6 +363,7 @@ export default function AgendaPage() {
   const [filtroPeriodoFim, setFiltroPeriodoFim] = useState<string>(() => hojeLocal());
   const [filtroPacienteNome, setFiltroPacienteNome] = useState("");
   const [filtroTutorNome, setFiltroTutorNome] = useState("");
+  const [filtroOrigemAtendimento, setFiltroOrigemAtendimento] = useState<string>("todos");
   const [filtroClinicaId, setFiltroClinicaId] = useState<string>("todos");
   const [filtroServicoId, setFiltroServicoId] = useState<string>("todos");
   const [busca, setBusca] = useState("");
@@ -329,6 +371,7 @@ export default function AgendaPage() {
   const [agendamentoEditando, setAgendamentoEditando] = useState<Agendamento | null>(null);
   const [slotSelecionado, setSlotSelecionado] = useState<{ data: string; hora: string } | null>(null);
   const [confirmando, setConfirmando] = useState<{ id: number; acao: string } | null>(null);
+  const [clienteModalAlvo, setClienteModalAlvo] = useState<{ pacienteId?: number; tutorId?: number } | null>(null);
   const [atualizandoStatus, setAtualizandoStatus] = useState<number | null>(null);
   const [modalTipoHorario, setModalTipoHorario] = useState<{ id: number; status: StatusType } | null>(null);
   const [tipoHorario, setTipoHorario] = useState<"comercial" | "plantao">("comercial");
@@ -350,6 +393,7 @@ export default function AgendaPage() {
   const [valorCreditoUtilizadoPagamento, setValorCreditoUtilizadoPagamento] = useState("0.00");
   const [descontoPagamento, setDescontoPagamento] = useState("0.00");
   const [clinicasEndereco, setClinicasEndereco] = useState<Record<number, ClinicaEndereco>>({});
+  const [tutoresEndereco, setTutoresEndereco] = useState<Record<number, TutorEndereco>>({});
   const [agendaSemanal, setAgendaSemanal] = useState<AgendaSemanalConfig>(() =>
     normalizarAgendaSemanal(DEFAULT_AGENDA_SEMANAL)
   );
@@ -370,7 +414,15 @@ export default function AgendaPage() {
   const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastRealtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
+  const fortinho = useFortinho();
   const filtrosIniciaisAplicadosRef = useRef(false);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setAgoraReservas(Date.now());
+    }, 30_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   useEffect(() => {
     if (filtrosIniciaisAplicadosRef.current) return;
@@ -380,6 +432,7 @@ export default function AgendaPage() {
     const dataQuery = urlParams.get("data");
     const visaoQuery = urlParams.get("visao");
     const statusQuery = urlParams.get("status");
+    const origemQuery = urlParams.get("origem_atendimento") || urlParams.get("origem");
 
     if (isDateInputValida(dataQuery)) {
       setFiltroData(dataQuery);
@@ -397,6 +450,14 @@ export default function AgendaPage() {
       if (statusEhValido) {
         setFiltroStatus(statusNormalizado);
       }
+    }
+
+    if (
+      origemQuery === "todos" ||
+      origemQuery === "clinica_parceira" ||
+      origemQuery === "domiciliar"
+    ) {
+      setFiltroOrigemAtendimento(origemQuery);
     }
 
     filtrosIniciaisAplicadosRef.current = true;
@@ -500,8 +561,11 @@ export default function AgendaPage() {
     if (filtroStatus !== "todos") {
       params.set("status", filtroStatus);
     }
+    if (filtroOrigemAtendimento !== "todos") {
+      params.set("origem_atendimento", filtroOrigemAtendimento);
+    }
     router.push(`/agenda/fullcalendar?${params.toString()}`);
-  }, [filtroData, filtroPeriodoInicio, filtroStatus, modoVisualizacao, router]);
+  }, [filtroData, filtroOrigemAtendimento, filtroPeriodoInicio, filtroStatus, modoVisualizacao, router]);
 
   const periodoConsulta = useMemo(() => {
     const dataBase = filtroData || hojeLocal();
@@ -705,6 +769,7 @@ export default function AgendaPage() {
     modoVisualizacao,
     periodoConsulta.inicio,
     periodoConsulta.fim,
+    filtroOrigemAtendimento,
     filtroClinicaId,
     filtroServicoId,
     filtroPacienteNome,
@@ -737,6 +802,9 @@ export default function AgendaPage() {
       }
       if (filtroClinicaId !== "todos") {
         params.append("clinica_id", filtroClinicaId);
+      }
+      if (filtroOrigemAtendimento !== "todos") {
+        params.append("origem_atendimento", filtroOrigemAtendimento);
       }
       if (filtroServicoId !== "todos") {
         params.append("servico_id", filtroServicoId);
@@ -771,6 +839,7 @@ export default function AgendaPage() {
           carregarLaudosVinculados(items),
           carregarOrdensServicoVinculadas(items),
           carregarClinicasComEndereco(items),
+          carregarTutoresComEndereco(items),
         ]);
       }
       if (includeResumo) {
@@ -1017,8 +1086,8 @@ export default function AgendaPage() {
           cidade: clinica?.cidade || null,
           estado: clinica?.estado || null,
           cep: clinica?.cep || null,
-          latitude: Number.isFinite(Number(clinica?.latitude)) ? Number(clinica.latitude) : null,
-          longitude: Number.isFinite(Number(clinica?.longitude)) ? Number(clinica.longitude) : null,
+          latitude: normalizarCoordenadaOpcional(clinica?.latitude),
+          longitude: normalizarCoordenadaOpcional(clinica?.longitude),
           endereco_normalizado: clinica?.endereco_normalizado || null,
         };
       }
@@ -1027,6 +1096,53 @@ export default function AgendaPage() {
     } catch (error) {
       console.error("Erro ao carregar enderecos das clinicas:", error);
       setClinicasEndereco({});
+    }
+  };
+
+  const carregarTutoresComEndereco = async (items: Agendamento[]) => {
+    const idsTutor = Array.from(
+      new Set(
+        items
+          .map((item) => Number(item.tutor_id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      )
+    );
+
+    if (idsTutor.length === 0) {
+      setTutoresEndereco({});
+      return;
+    }
+
+    try {
+      const respTutores = await api.get("/tutores?limit=2000");
+      const listaTutores = Array.isArray(respTutores.data?.items) ? respTutores.data.items : [];
+
+      const mapa: Record<number, TutorEndereco> = {};
+      for (const tutor of listaTutores) {
+        const tutorId = Number(tutor?.id);
+        if (!Number.isFinite(tutorId) || !idsTutor.includes(tutorId)) {
+          continue;
+        }
+
+        mapa[tutorId] = {
+          id: tutorId,
+          nome: tutor?.nome || null,
+          endereco: tutor?.endereco || null,
+          numero: tutor?.numero || null,
+          bairro: tutor?.bairro || null,
+          cidade: tutor?.cidade || null,
+          estado: tutor?.estado || null,
+          cep: tutor?.cep || null,
+          latitude: normalizarCoordenadaOpcional(tutor?.latitude),
+          longitude: normalizarCoordenadaOpcional(tutor?.longitude),
+          endereco_normalizado: tutor?.endereco_normalizado || null,
+        };
+      }
+
+      setTutoresEndereco(mapa);
+    } catch (error) {
+      console.error("Erro ao carregar enderecos dos tutores:", error);
+      setTutoresEndereco({});
     }
   };
 
@@ -1048,6 +1164,9 @@ export default function AgendaPage() {
       params.append("data_fim", fim);
       if (filtroClinicaId !== "todos") {
         params.append("clinica_id", filtroClinicaId);
+      }
+      if (filtroOrigemAtendimento !== "todos") {
+        params.append("origem_atendimento", filtroOrigemAtendimento);
       }
       if (filtroServicoId !== "todos") {
         params.append("servico_id", filtroServicoId);
@@ -1075,10 +1194,10 @@ export default function AgendaPage() {
     }
   };
 
-  const abrirWazeParaClinica = (clinica: ClinicaEndereco | null | undefined, nomeClinica?: string | null) => {
-    const destino = montarWazeDestinoClinica(clinica);
+  const abrirWazeParaDestino = (destinoLocal: WazeDestinoLocal | null | undefined, nomeDestino?: string | null) => {
+    const destino = montarWazeDestinoLocal(destinoLocal);
     if (!destino) {
-      alert(`A clinica ${nomeClinica || ""} nao possui endereco ou coordenadas cadastradas.`);
+      alert(`Nao ha endereco ou coordenadas cadastradas para ${nomeDestino || "este destino"}.`);
       return;
     }
 
@@ -1101,13 +1220,13 @@ export default function AgendaPage() {
     window.open(destino.webUrl, "_blank", "noopener,noreferrer");
   };
 
-  const abrirGoogleMapsParaClinica = (
-    clinica: ClinicaEndereco | null | undefined,
-    nomeClinica?: string | null
+  const abrirGoogleMapsParaDestino = (
+    destinoLocal: WazeDestinoLocal | null | undefined,
+    nomeDestino?: string | null
   ) => {
-    const destino = montarGoogleMapsDestinoClinica(clinica);
+    const destino = montarGoogleMapsDestinoLocal(destinoLocal);
     if (!destino) {
-      alert(`A clinica ${nomeClinica || ""} nao possui endereco ou coordenadas cadastradas.`);
+      alert(`Nao ha endereco ou coordenadas cadastradas para ${nomeDestino || "este destino"}.`);
       return;
     }
 
@@ -1324,15 +1443,69 @@ export default function AgendaPage() {
       return;
     }
 
+    const agendamentoAtual = agendamentos.find((item) => item.id === id);
+    if (
+      agendamentoAtual?.status === "Expirado" &&
+      novoStatus === "Agendado" &&
+      (!agendamentoAtual.paciente_id || !agendamentoAtual.tutor_id)
+    ) {
+      setErro(
+        "Antes de confirmar tardiamente, abra a reserva e preencha os dados do tutor e do pet. Depois use 'Agendar após confirmação tardia'."
+      );
+      return;
+    }
+
     setAtualizandoStatus(id);
     try {
-      const params = new URLSearchParams();
-      params.append("status", novoStatus);
-      if (tipoHorarioParam) {
-        params.append("tipo_horario", tipoHorarioParam);
+      const enviarAtualizacaoStatus = (confirmarReservaExpirada = false) => {
+        const params = new URLSearchParams();
+        params.append("status", novoStatus);
+        if (tipoHorarioParam) {
+          params.append("tipo_horario", tipoHorarioParam);
+        }
+        if (confirmarReservaExpirada) {
+          params.append("confirmar_slot_reserva_expirada", "true");
+        }
+        return api.patch(`/agenda/${id}/status?${params.toString()}`);
+      };
+
+      let response;
+      try {
+        response = await enviarAtualizacaoStatus(false);
+      } catch (errorInicial: any) {
+        const detail = errorInicial?.response?.data?.detail;
+        if (
+          errorInicial?.response?.status !== 409 ||
+          ![
+            "CONFIRMACAO_SLOT_RESERVA_EXPIRADA",
+            "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA",
+          ].includes(detail?.codigo)
+        ) {
+          throw errorInicial;
+        }
+        const confirmou = await fortinho.confirm({
+          title:
+            detail?.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+              ? "Confirmação recebida após o prazo"
+              : "ATENÇÃO: este horário teve uma reserva expirada",
+          message:
+            detail?.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+              ? "Confirme somente se este mesmo cliente respondeu depois do vencimento. O sistema verificará se o horário ainda está livre antes de mudar o status para Agendado."
+              : "Antes de reativar este horário, volte às mensagens do WhatsApp e confira se a clínica enviou os dados do tutor ou do pet após o prazo. Só continue se não houver resposta.",
+          mood: "alert",
+          gesture: "open-arms",
+          confirmLabel:
+            detail?.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+              ? "Cliente confirmou; agendar"
+              : "Revisei as mensagens e quero continuar",
+          cancelLabel:
+            detail?.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+              ? "Cancelar"
+              : "Voltar e verificar WhatsApp",
+        });
+        if (!confirmou) return;
+        response = await enviarAtualizacaoStatus(true);
       }
-      
-      const response = await api.patch(`/agenda/${id}/status?${params.toString()}`);
       await carregarAgendamentos();
       
       // Se gerou OS, mostra o modal
@@ -1346,7 +1519,16 @@ export default function AgendaPage() {
         typeof detail === "string"
           ? detail
           : (typeof detail?.mensagem === "string" ? detail.mensagem : error.message);
-      setErro("Erro ao atualizar status: " + detailTexto);
+      const mensagemErro = String(detailTexto || "Falha inesperada.");
+      const exigeFinalizacaoClinica =
+        novoStatus === "Realizado" &&
+        error?.response?.status === 409 &&
+        mensagemErro.includes("Finalize pelo modulo Atendimento");
+      if (exigeFinalizacaoClinica) {
+        router.push(`/atendimento?agendamento_id=${id}`);
+        return;
+      }
+      setErro("Erro ao atualizar status: " + mensagemErro);
     } finally {
       setAtualizandoStatus(null);
     }
@@ -1388,7 +1570,7 @@ export default function AgendaPage() {
     } catch (error: any) {
       console.error("Erro ao excluir:", error);
       if (error.response?.status === 403) {
-        setErro("Apenas administradores podem excluir agendamentos");
+        setErro("Apenas administradores e a equipe de recepção podem excluir agendamentos");
       } else {
         setErro("Erro ao excluir agendamento");
       }
@@ -1396,6 +1578,12 @@ export default function AgendaPage() {
   };
 
   const getRotaNovoLaudo = (tipo: string, agendamentoId: number) => {
+    if (tipo === TIPO_LAUDO_ELETROCARDIOGRAMA) {
+      return `/laudos/eletrocardiograma/upload?agendamento_id=${agendamentoId}`;
+    }
+    if (tipo === TIPO_LAUDO_PRESSAO_ARTERIAL) {
+      return `/laudos/novo?agendamento_id=${agendamentoId}&tipo=${TIPO_LAUDO_PRESSAO_ARTERIAL}`;
+    }
     const basePath =
       tipo === TIPO_LAUDO_ULTRASSOM_ABDOMINAL ? "/ultrassonografia-abdominal/novo" : "/laudos/novo";
     return `${basePath}?agendamento_id=${agendamentoId}`;
@@ -1424,6 +1612,10 @@ export default function AgendaPage() {
     if (!laudoVinculado?.id) return;
 
     try {
+      if (laudoVinculado.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA) {
+        await baixarLaudoPdfOriginal(laudoVinculado.id, `eletrocardiograma_agendamento_${ag.id}.pdf`);
+        return;
+      }
       await baixarLaudoPdfUtil(laudoVinculado.id, `laudo_agendamento_${ag.id}.pdf`);
     } catch (error) {
       console.error("Erro ao baixar PDF do laudo:", error);
@@ -1440,6 +1632,7 @@ export default function AgendaPage() {
       'Realizado': 'bg-emerald-100 text-emerald-800 border-emerald-200',
       'Cancelado': 'bg-red-100 text-red-800 border-red-200',
       'Faltou': 'bg-orange-100 text-orange-800 border-orange-200',
+      'Expirado': 'bg-slate-100 text-slate-700 border-slate-300',
     };
     return colors[status] || 'bg-gray-100 text-gray-800 border-gray-200';
   };
@@ -1453,6 +1646,7 @@ export default function AgendaPage() {
       'Realizado': CheckCircle,
       'Cancelado': XCircle,
       'Faltou': AlertCircle,
+      'Expirado': AlertCircle,
     };
     return icons[status] || Calendar;
   };
@@ -1466,13 +1660,16 @@ export default function AgendaPage() {
   const agendamentosFiltrados = [...agendamentos]
     .filter((a) => {
       const matchStatus = filtroStatus === "todos" || a.status === filtroStatus;
+      const origemAtual = String(a.origem_atendimento || "clinica_parceira").trim() || "clinica_parceira";
+      const matchOrigem =
+        filtroOrigemAtendimento === "todos" || origemAtual === filtroOrigemAtendimento;
       const termo = busca.toLowerCase();
       const matchBusca = !busca ||
         (a.paciente?.toLowerCase().includes(termo)) ||
         (a.tutor?.toLowerCase().includes(termo)) ||
         (a.clinica?.toLowerCase().includes(termo)) ||
         (a.servico?.toLowerCase().includes(termo));
-      return matchStatus && matchBusca;
+      return matchStatus && matchOrigem && matchBusca;
     })
     .sort((a, b) => {
       const diff = getOrdenacaoTimestamp(a) - getOrdenacaoTimestamp(b);
@@ -1548,8 +1745,8 @@ export default function AgendaPage() {
     const mapa = new Map<string, Agendamento[]>();
 
     for (const ag of agendamentosFiltrados) {
-      // Cancelado não deve ocupar slot na panorâmica.
-      if ((ag.status || "").trim().toLowerCase() === "cancelado") continue;
+      // Cancelado ou expirado não deve ocupar slot na panorâmica.
+      if (["cancelado", "expirado"].includes((ag.status || "").trim().toLowerCase())) continue;
 
       const inicio = parseAgendamentoInicioLocal(ag);
       if (!inicio) continue;
@@ -1577,61 +1774,9 @@ export default function AgendaPage() {
     return dt.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
   };
 
-  const abrirExcecaoNoSlotAdmin = async (data: string, hora: string) => {
-    if (!isAdmin) {
-      setErro("Apenas administradores podem abrir excecao de agenda.");
-      return false;
-    }
-
-    const confirmado = window.confirm(
-      `Abrir excecao de agenda em ${data} às ${hora} para permitir agendamento?`
-    );
-    if (!confirmado) {
-      return false;
-    }
-
-    const fim = somarMinutosHHMM(hora, intervaloSlotMinutos);
-    const excecaoExistente = agendaExcecoes.find((item) => item.data === data);
-
-    let inicioExcecao = hora;
-    let fimExcecao = fim;
-    if (excecaoExistente?.ativo) {
-      inicioExcecao = excecaoExistente.inicio < hora ? excecaoExistente.inicio : hora;
-      fimExcecao = excecaoExistente.fim > fim ? excecaoExistente.fim : fim;
-    }
-
-    const payloadExcecoes = normalizarAgendaExcecoes([
-      ...agendaExcecoes.filter((item) => item.data !== data),
-      {
-        data,
-        ativo: true,
-        inicio: inicioExcecao,
-        fim: fimExcecao,
-        motivo: "Abertura rapida via slot da agenda",
-      },
-    ]);
-
-    try {
-      setLoading(true);
-      await api.put("/configuracoes", { agenda_excecoes: payloadExcecoes });
-      setAgendaExcecoes(payloadExcecoes);
-      setErro("");
-      return true;
-    } catch (error: any) {
-      if (error?.response?.status === 403) {
-        setErro("Sem permissao para abrir excecao de agenda.");
-      } else {
-        setErro("Nao foi possivel abrir excecao para este horario.");
-      }
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const abrirNovoNoHorario = (data: string, hora: string) => {
     const jornada = jornadaPanoramicaPorDia.get(data);
-    if (!jornada || !slotDentroDaJornada(hora, jornada)) {
+    if ((!jornada || !slotDentroDaJornada(hora, jornada)) && !isAdmin) {
       setErro(jornada?.motivo || "Agenda fechada para este horario.");
       return;
     }
@@ -1650,6 +1795,18 @@ export default function AgendaPage() {
     realizado: agendamentos.filter(a => a.status === 'Realizado').length,
     cancelado: agendamentos.filter(a => a.status === 'Cancelado').length,
   };
+
+  const reservasEmAlerta = agendamentos
+    .map((agendamento) => ({
+      agendamento,
+      prazo: obterEstadoPrazoReserva(agendamento, agoraReservas),
+    }))
+    .filter(
+      (item): item is { agendamento: Agendamento; prazo: ReservaPrazoEstado } =>
+        Boolean(item.prazo?.emAlerta)
+    )
+    .sort((a, b) => a.prazo.minutosRestantes - b.prazo.minutosRestantes);
+  const existeReservaCritica = reservasEmAlerta.some((item) => item.prazo.critico);
 
   const formatarDataHora = (dataIso: string) => {
     if (!dataIso) return "-";
@@ -1686,6 +1843,7 @@ export default function AgendaPage() {
     setBusca("");
     setFiltroPacienteNome("");
     setFiltroTutorNome("");
+    setFiltroOrigemAtendimento("todos");
     setFiltroClinicaId("todos");
     setFiltroServicoId("todos");
     setFiltroPeriodoInicio(hoje);
@@ -1731,9 +1889,9 @@ export default function AgendaPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6">
+      <div className="fc-agenda-page">
         {toastRealtime && (
-          <div className="fixed right-4 top-4 z-[70]">
+          <div className="fixed right-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[70] lg:top-4">
             <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-xs shadow-lg ${toastRealtime.classe}`}>
               <span className="font-medium">{toastRealtime.texto}</span>
               {typeof toastRealtime.agendamentoId === "number" && (
@@ -1750,19 +1908,23 @@ export default function AgendaPage() {
         )}
 
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+        <div className="fc-agenda-header">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Agenda</h1>
-            <p className="text-gray-500">Gerencie os agendamentos</p>
+            <span className="fc-agenda-kicker">
+              <Calendar className="h-4 w-4" />
+              Central de agenda
+            </span>
+            <h1>Fluxo clínico</h1>
+            <p>Organize horários, deslocamentos e etapas do atendimento em uma única visão.</p>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="fc-agenda-header-actions">
             <button
               type="button"
               onClick={abrirAgendaFullCalendar}
-              className="flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-700 transition-colors hover:bg-gray-50"
+              className="fc-agenda-button-secondary"
             >
               <Calendar className="h-4 w-4" />
-              Ver FullCalendar
+              Calendário completo
             </button>
             <button
               onClick={() => {
@@ -1770,7 +1932,7 @@ export default function AgendaPage() {
                 setSlotSelecionado(null);
                 setModalAberto(true);
               }}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="fc-agenda-button-primary"
             >
               <Plus className="w-4 h-4" />
               Novo Agendamento
@@ -1779,52 +1941,53 @@ export default function AgendaPage() {
         </div>
 
         <div
-          className={`mb-4 rounded-lg border px-4 py-2 text-xs ${
+          className={`fc-agenda-livebar ${
             realtimeConectado
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : "border-amber-200 bg-amber-50 text-amber-800"
+              ? "fc-agenda-livebar-online"
+              : "fc-agenda-livebar-warning"
           }`}
         >
+          <span className="fc-agenda-live-dot" />
           Tempo real: {realtimeConectado ? "conectado" : "reconectando..."}
           {realtimeUltimoEvento ? ` | Ultimo evento: ${realtimeUltimoEvento}` : ""}
           {mensagemRealtime ? ` | ${mensagemRealtime}` : ""}
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-7 gap-3 mb-6">
-          <div className="bg-white p-3 rounded-lg shadow-sm border">
-            <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
-            <div className="text-xs text-gray-500">Total</div>
+        <div className="fc-agenda-stats">
+          <div className="fc-agenda-stat fc-agenda-stat-ink">
+            <div className="fc-agenda-stat-value">{stats.total}</div>
+            <div className="fc-agenda-stat-label">Total</div>
           </div>
-          <div className="bg-white p-3 rounded-lg shadow-sm border">
-            <div className="text-2xl font-bold text-blue-600">{stats.agendado}</div>
-            <div className="text-xs text-gray-500">Agendados</div>
+          <div className="fc-agenda-stat fc-agenda-stat-sky">
+            <div className="fc-agenda-stat-value">{stats.agendado}</div>
+            <div className="fc-agenda-stat-label">Agendados</div>
           </div>
-          <div className="bg-white p-3 rounded-lg shadow-sm border">
-            <div className="text-2xl font-bold text-amber-600">{stats.reservado}</div>
-            <div className="text-xs text-gray-500">Reservados</div>
+          <div className="fc-agenda-stat fc-agenda-stat-amber">
+            <div className="fc-agenda-stat-value">{stats.reservado}</div>
+            <div className="fc-agenda-stat-label">Reservados</div>
           </div>
-          <div className="bg-white p-3 rounded-lg shadow-sm border">
-            <div className="text-2xl font-bold text-green-600">{stats.confirmado}</div>
-            <div className="text-xs text-gray-500">Confirmados</div>
+          <div className="fc-agenda-stat fc-agenda-stat-vital">
+            <div className="fc-agenda-stat-value">{stats.confirmado}</div>
+            <div className="fc-agenda-stat-label">Confirmados</div>
           </div>
-          <div className="bg-white p-3 rounded-lg shadow-sm border">
-            <div className="text-2xl font-bold text-yellow-600">{stats.emAtendimento}</div>
-            <div className="text-xs text-gray-500">Em Atend.</div>
+          <div className="fc-agenda-stat fc-agenda-stat-gold">
+            <div className="fc-agenda-stat-value">{stats.emAtendimento}</div>
+            <div className="fc-agenda-stat-label">Em atendimento</div>
           </div>
-          <div className="bg-white p-3 rounded-lg shadow-sm border">
-            <div className="text-2xl font-bold text-emerald-600">{stats.realizado}</div>
-            <div className="text-xs text-gray-500">Realizados</div>
+          <div className="fc-agenda-stat fc-agenda-stat-emerald">
+            <div className="fc-agenda-stat-value">{stats.realizado}</div>
+            <div className="fc-agenda-stat-label">Realizados</div>
           </div>
-          <div className="bg-white p-3 rounded-lg shadow-sm border">
-            <div className="text-2xl font-bold text-red-600">{stats.cancelado}</div>
-            <div className="text-xs text-gray-500">Cancelados</div>
+          <div className="fc-agenda-stat fc-agenda-stat-cordis">
+            <div className="fc-agenda-stat-value">{stats.cancelado}</div>
+            <div className="fc-agenda-stat-label">Cancelados</div>
           </div>
         </div>
 
         {isAdmin && modoVisualizacao === "lista" && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <div className="bg-white p-4 rounded-lg border shadow-sm">
+            <div className="fc-agenda-finance-card fc-agenda-finance-card-vital">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-500">
@@ -1849,7 +2012,7 @@ export default function AgendaPage() {
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-lg border shadow-sm">
+            <div className="fc-agenda-finance-card fc-agenda-finance-card-sky">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-500">
@@ -1886,25 +2049,91 @@ export default function AgendaPage() {
           </div>
         )}
 
-        <div className="bg-white p-4 rounded-lg shadow-sm border mb-6">
+        {reservasEmAlerta.length > 0 && (
+          <div
+            className={`mb-5 rounded-2xl border-2 p-4 shadow-sm ${
+              existeReservaCritica
+                ? "border-red-500 bg-red-50 text-red-950"
+                : "border-amber-400 bg-amber-50 text-amber-950"
+            }`}
+            role="alert"
+            aria-live="assertive"
+          >
+            <div className="flex items-start gap-3">
+              <AlertCircle
+                className={`mt-0.5 h-7 w-7 shrink-0 ${
+                  existeReservaCritica ? "text-red-600 animate-pulse" : "text-amber-600"
+                }`}
+              />
+              <div className="min-w-0 flex-1">
+                <h2 className="text-lg font-black uppercase tracking-wide">
+                  Ação necessária: {reservasEmAlerta.length} reserva(s) perto de expirar
+                </h2>
+                <p className="mt-1 font-semibold">
+                  Reforce agora com a clínica a necessidade de enviar os dados do tutor e do pet.
+                  Se o prazo vencer, o horário voltará a ficar disponível.
+                </p>
+                <div className="mt-3 grid gap-2">
+                  {reservasEmAlerta.slice(0, 5).map(({ agendamento, prazo }) => (
+                    <div
+                      key={agendamento.id}
+                      className="flex flex-col gap-2 rounded-xl border border-current/20 bg-white/70 p-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div>
+                        <div className="font-bold">
+                          {agendamento.clinica || "Clínica não informada"} — {formatarDataHoraAgendamento(agendamento)}
+                        </div>
+                        <div className="text-sm">
+                          Pet: {agendamento.paciente || "Pendente"} | Tutor: {agendamento.tutor || "Pendente"}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`rounded-full px-3 py-1 text-sm font-black uppercase ${
+                            prazo.critico ? "bg-red-600 text-white animate-pulse" : "bg-amber-500 text-white"
+                          }`}
+                        >
+                          {prazo.label}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAgendamentoEditando(agendamento);
+                            setSlotSelecionado(null);
+                            setModalAberto(true);
+                          }}
+                          className="rounded-lg border border-current px-3 py-1 text-sm font-bold hover:bg-white"
+                        >
+                          Abrir reserva
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="fc-agenda-filters">
           <div className="flex flex-col gap-4">
-            <div className="flex flex-col xl:flex-row gap-3 xl:items-center">
-            <div className="flex items-center bg-gray-100 rounded-lg p-1">
+            <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center">
+            <div className="fc-agenda-view-tabs">
               <button
                 onClick={() => setModoVisualizacao("lista")}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${modoVisualizacao === "lista" ? "bg-white text-gray-900 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+                className={`fc-agenda-view-tab ${modoVisualizacao === "lista" ? "fc-agenda-view-tab-active" : ""}`}
               >
                 Lista
               </button>
               <button
                 onClick={() => setModoVisualizacao("panoramica-dia")}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${modoVisualizacao === "panoramica-dia" ? "bg-white text-gray-900 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+                className={`fc-agenda-view-tab ${modoVisualizacao === "panoramica-dia" ? "fc-agenda-view-tab-active" : ""}`}
               >
                 Panoramica Dia
               </button>
               <button
                 onClick={() => setModoVisualizacao("panoramica-semana")}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${modoVisualizacao === "panoramica-semana" ? "bg-white text-gray-900 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+                className={`fc-agenda-view-tab ${modoVisualizacao === "panoramica-semana" ? "fc-agenda-view-tab-active" : ""}`}
               >
                 Panoramica Semana
               </button>
@@ -1978,6 +2207,16 @@ export default function AgendaPage() {
               >
                 <option value="todos">Todos os status</option>
                 {AGENDA_STATUS_LIST.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+
+              <select
+                value={filtroOrigemAtendimento}
+                onChange={(e) => setFiltroOrigemAtendimento(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="todos">Todas as origens</option>
+                <option value="clinica_parceira">Clinica parceira</option>
+                <option value="domiciliar">Atendimento domiciliar</option>
               </select>
 
               <button
@@ -2100,14 +2339,14 @@ export default function AgendaPage() {
           </div>
 
           {/* Chips de status */}
-          <div className="flex gap-2 mt-4 overflow-x-auto pb-1">
+          <div className="fc-agenda-status-strip">
             {AGENDA_STATUS_LIST.map((status) => {
               const count = agendamentos.filter(a => a.status === status).length;
               return (
                 <button
                   key={status}
                   onClick={() => setFiltroStatus(filtroStatus === status ? "todos" : status)}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap border ${
+                  className={`fc-agenda-status-chip ${
                     filtroStatus === status
                       ? getStatusColor(status)
                       : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
@@ -2121,17 +2360,21 @@ export default function AgendaPage() {
         </div>
 
         {modoVisualizacao === "lista" ? (
-        <div className="bg-white shadow rounded-lg overflow-hidden border">
+        <div className="fc-agenda-list">
           {agendamentosFiltrados.length === 0 ? (
-            <div className="p-12 text-center">
-              <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500 text-lg">
+            <div className="fc-agenda-empty">
+              <div className="fc-agenda-empty-icon">
+                <Calendar className="h-6 w-6" />
+              </div>
+              <span>Agenda em repouso</span>
+              <p>
                 {busca ? "Nenhum agendamento encontrado para a busca" : "Nenhum agendamento para esta data"}
               </p>
               <button
                 onClick={() => { setAgendamentoEditando(null); setSlotSelecionado(null); setModalAberto(true); }}
-                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                className="fc-agenda-button-primary mt-5"
               >
+                <Plus className="h-4 w-4" />
                 Criar Agendamento
               </button>
             </div>
@@ -2143,23 +2386,52 @@ export default function AgendaPage() {
                 const laudoVinculado = obterUltimoLaudoVinculado(ag.id);
                 const laudoPronto = podeBaixarLaudo(laudoVinculado?.status);
                 const laudoEco = obterLaudoVinculado(ag.id, TIPO_LAUDO_ECOCARDIOGRAMA);
-                const laudoUltrassom = obterLaudoVinculado(ag.id, TIPO_LAUDO_ULTRASSOM_ABDOMINAL);
+                const laudoEletro = obterLaudoVinculado(ag.id, TIPO_LAUDO_ELETROCARDIOGRAMA);
                 const osVinculada = ordensServicoPorAgendamento[ag.id];
                 const osPaga = osEstaPaga(osVinculada?.status);
-                const clinicaComEndereco = ag.clinica_id ? clinicasEndereco[ag.clinica_id] : undefined;
-                const podeAbrirWaze = Boolean(montarWazeDestinoClinica(clinicaComEndereco));
-                const podeAbrirGoogleMaps = Boolean(montarGoogleMapsDestinoClinica(clinicaComEndereco));
-                
+                const origemMeta = obterOrigemAtendimentoMeta(ag.origem_atendimento);
+                const tituloAgendamento = obterTituloAgendamentoPorOrigem(ag.origem_atendimento, ag.clinica);
+                const atendimentoDomiciliar =
+                  String(ag.origem_atendimento || "").trim().toLowerCase() === "domiciliar";
+                const destinoNavegacao = atendimentoDomiciliar
+                  ? (ag.tutor_id ? tutoresEndereco[ag.tutor_id] : undefined)
+                  : (ag.clinica_id ? clinicasEndereco[ag.clinica_id] : undefined);
+                const nomeDestinoNavegacao = atendimentoDomiciliar
+                  ? (ag.tutor || "atendimento domiciliar")
+                  : (ag.clinica || "clinica");
+                const podeAbrirWaze = Boolean(montarWazeDestinoLocal(destinoNavegacao));
+                const podeAbrirGoogleMaps = Boolean(montarGoogleMapsDestinoLocal(destinoNavegacao));
+                const prazoReserva = obterEstadoPrazoReserva(ag, agoraReservas);
+                const reservaEmAlerta = Boolean(prazoReserva?.emAlerta);
+                const podeAbrirClienteModal = Boolean(ag.paciente_id || ag.tutor_id);
+                const abrirClienteModal = () => {
+                  if (ag.paciente_id) {
+                    setClienteModalAlvo({ pacienteId: ag.paciente_id });
+                  } else if (ag.tutor_id) {
+                    setClienteModalAlvo({ tutorId: ag.tutor_id });
+                  }
+                };
+
                 return (
-                  <div key={ag.id} className="p-5 hover:bg-gray-50 transition-colors">
+                  <div
+                    key={ag.id}
+                    className={`fc-agenda-list-row ${
+                      reservaEmAlerta
+                        ? prazoReserva?.critico
+                          ? "ring-2 ring-red-500 bg-red-50/70"
+                          : "ring-2 ring-amber-400 bg-amber-50/70"
+                        : ""
+                    }`}
+                  >
                     <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
                       {/* Info Principal */}
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-1 flex-wrap">
                           <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                             <Building className="w-4 h-4 text-gray-400" />
-                            {ag.clinica || "Clinica nao informada"}
+                            {tituloAgendamento}
                           </h3>
+                          <span className={origemMeta.badgeClassName}>{origemMeta.descricao}</span>
                           <span className={`px-3 py-1 rounded-full text-xs font-medium border flex items-center gap-1 ${getStatusColor(ag.status)}`}>
                             <StatusIcon className="w-3 h-3" />
                             {ag.status}
@@ -2175,14 +2447,61 @@ export default function AgendaPage() {
                           )}
                         </div>
 
+                        {reservaEmAlerta && prazoReserva && (
+                          <div
+                            className={`mb-3 flex items-start gap-2 rounded-xl border-2 p-3 font-bold ${
+                              prazoReserva.critico
+                                ? "border-red-500 bg-red-100 text-red-900"
+                                : "border-amber-400 bg-amber-100 text-amber-900"
+                            }`}
+                            role="alert"
+                          >
+                            <AlertCircle
+                              className={`mt-0.5 h-5 w-5 shrink-0 ${
+                                prazoReserva.critico ? "animate-pulse" : ""
+                              }`}
+                            />
+                            <div>
+                              <div className="uppercase">
+                                Atenção: esta reserva {prazoReserva.label}
+                              </div>
+                              <div className="text-sm font-semibold">
+                                Reforce agora o envio dos dados do tutor e do pet para evitar a perda do horário.
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                         <div className="text-base font-semibold text-gray-900 mb-2">
-                          {ag.paciente || "Animal nao informado"}
+                          {podeAbrirClienteModal ? (
+                            <button
+                              type="button"
+                              onClick={abrirClienteModal}
+                              className="text-left hover:text-blue-700 hover:underline"
+                              title="Ver e editar dados do cliente"
+                            >
+                              {ag.paciente || "Animal nao informado"}
+                            </button>
+                          ) : (
+                            ag.paciente || "Animal nao informado"
+                          )}
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm text-gray-600">
                           <div className="flex items-center gap-2">
                             <User className="w-4 h-4 text-gray-400" />
-                            <span>{ag.tutor || "Tutor nao informado"}</span>
+                            {podeAbrirClienteModal ? (
+                              <button
+                                type="button"
+                                onClick={abrirClienteModal}
+                                className="hover:text-blue-700 hover:underline"
+                                title="Ver e editar dados do cliente"
+                              >
+                                {ag.tutor || "Tutor nao informado"}
+                              </button>
+                            ) : (
+                              <span>{ag.tutor || "Tutor nao informado"}</span>
+                            )}
                           </div>
                           <div className="flex items-center gap-2">
                             <Clock className="w-4 h-4 text-gray-400" />
@@ -2203,10 +2522,11 @@ export default function AgendaPage() {
                       </div>
 
                       {/* Ações */}
-                      <div className="flex flex-wrap gap-2 lg:justify-end">
+                      <div className="flex flex-wrap gap-2 lg:flex-[1.5_1_0%] lg:justify-end">
                         {/* Botões de mudança de status */}
                         {proximosStatus.map((novoStatus) => {
                           const desfazerRealizado = ag.status === 'Realizado' && novoStatus === 'Em atendimento';
+                          const confirmarAposExpiracao = ag.status === 'Expirado' && novoStatus === 'Agendado';
                           const icons: Record<string, any> = {
                             'Confirmado': CheckCircle2,
                             'Em atendimento': PlayCircle,
@@ -2226,7 +2546,11 @@ export default function AgendaPage() {
                             'Agendado': 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200',
                             'Reservado': 'bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200',
                           };
-                          const actionLabel = desfazerRealizado ? "Desfazer realizado" : novoStatus;
+                          const actionLabel = desfazerRealizado
+                            ? "Desfazer realizado"
+                            : confirmarAposExpiracao
+                              ? "Agendar após confirmação tardia"
+                              : novoStatus;
                           const actionColor = desfazerRealizado
                             ? 'bg-sky-50 text-sky-700 hover:bg-sky-100 border-sky-200'
                             : colors[novoStatus];
@@ -2293,7 +2617,7 @@ export default function AgendaPage() {
                         </button>
 
                         <button
-                          onClick={() => abrirWazeParaClinica(clinicaComEndereco, ag.clinica)}
+                          onClick={() => abrirWazeParaDestino(destinoNavegacao, nomeDestinoNavegacao)}
                           disabled={!podeAbrirWaze}
                           className={`px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center gap-1 ${
                             podeAbrirWaze
@@ -2302,8 +2626,8 @@ export default function AgendaPage() {
                           }`}
                           title={
                             podeAbrirWaze
-                              ? `Abrir Waze para ${ag.clinica || "clinica"}`
-                              : "Clinica sem endereco cadastrado"
+                              ? `Abrir Waze para ${nomeDestinoNavegacao || "destino"}`
+                              : "Destino sem endereco cadastrado"
                           }
                         >
                           <img
@@ -2316,7 +2640,7 @@ export default function AgendaPage() {
                         </button>
 
                         <button
-                          onClick={() => abrirGoogleMapsParaClinica(clinicaComEndereco, ag.clinica)}
+                          onClick={() => abrirGoogleMapsParaDestino(destinoNavegacao, nomeDestinoNavegacao)}
                           disabled={!podeAbrirGoogleMaps}
                           className={`px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center gap-1 ${
                             podeAbrirGoogleMaps
@@ -2325,8 +2649,8 @@ export default function AgendaPage() {
                           }`}
                           title={
                             podeAbrirGoogleMaps
-                              ? `Abrir Google Maps para ${ag.clinica || "clinica"}`
-                              : "Clinica sem endereco cadastrado"
+                              ? `Abrir Google Maps para ${nomeDestinoNavegacao || "destino"}`
+                              : "Destino sem endereco cadastrado"
                           }
                         >
                           <MapPin className="h-4 w-4" />
@@ -2355,12 +2679,22 @@ export default function AgendaPage() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => abrirFluxoLaudo(ag, TIPO_LAUDO_ULTRASSOM_ABDOMINAL)}
+                              onClick={() => abrirFluxoLaudo(ag, TIPO_LAUDO_ELETROCARDIOGRAMA)}
                               className="flex w-full items-center justify-between gap-3 border-t px-4 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
                             >
-                              <span>US abdominal</span>
+                              <span>Eletrocardiograma</span>
                               <span className="text-xs text-gray-500">
-                                {laudoUltrassom ? "Editar existente" : "Novo laudo"}
+                                {laudoEletro ? "Ver existente" : "Upload PDF"}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => abrirFluxoLaudo(ag, TIPO_LAUDO_PRESSAO_ARTERIAL)}
+                              className="flex w-full items-center justify-between gap-3 border-t px-4 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
+                            >
+                              <span>Pressao arterial</span>
+                              <span className="text-xs text-gray-500">
+                                {obterLaudoVinculado(ag.id, TIPO_LAUDO_PRESSAO_ARTERIAL) ? "Editar existente" : "Novo laudo"}
                               </span>
                             </button>
                           </div>
@@ -2448,18 +2782,12 @@ export default function AgendaPage() {
                           <button
                             key={chave}
                             type="button"
-                            onClick={async () => {
-                              const abriu = await abrirExcecaoNoSlotAdmin(dia, slot);
-                              if (!abriu) return;
-                              setAgendamentoEditando(null);
-                              setSlotSelecionado({ data: dia, hora: slot });
-                              setModalAberto(true);
-                            }}
+                            onClick={() => abrirNovoNoHorario(dia, slot)}
                             className="border-b border-r px-2 py-2 text-left bg-amber-50 hover:bg-amber-100 text-amber-700 transition-colors"
                             title={jornadaDia?.motivo || "Agenda fechada"}
                           >
                             <div className="text-xs font-semibold">Agenda fechada</div>
-                            <div className="text-[11px]">Abrir excecao</div>
+                            <div className="text-[11px]">Agendar com confirmação</div>
                           </button>
                         );
                       }
@@ -2490,8 +2818,32 @@ export default function AgendaPage() {
 
                     const primeiro = itens[0];
                     const statusPrimeiro = String(primeiro.status || "");
+                    const origemPrimeiro = obterOrigemAtendimentoMeta(primeiro.origem_atendimento);
+                    const tituloPrimeiro = obterTituloAgendamentoPorOrigem(primeiro.origem_atendimento, primeiro.clinica);
                     const slotReservado = statusPrimeiro === "Reservado";
-                    const slotClasses = slotReservado
+                    const prazoReservaPrimeiro = obterEstadoPrazoReserva(primeiro, agoraReservas);
+                    const reservaEmAlerta = Boolean(prazoReservaPrimeiro?.emAlerta);
+                    const slotClasses = slotReservado && reservaEmAlerta
+                      ? {
+                          container: `border-b border-r px-2 py-2 text-left transition-colors ${
+                            prazoReservaPrimeiro?.critico
+                              ? "bg-red-100 hover:bg-red-200 ring-2 ring-inset ring-red-500"
+                              : "bg-amber-100 hover:bg-amber-200 ring-2 ring-inset ring-amber-400"
+                          }`,
+                          titulo: prazoReservaPrimeiro?.critico
+                            ? "text-xs font-black text-red-900 truncate"
+                            : "text-xs font-black text-amber-900 truncate",
+                          texto: prazoReservaPrimeiro?.critico
+                            ? "text-[11px] text-red-800 truncate"
+                            : "text-[11px] text-amber-800 truncate",
+                          extra: prazoReservaPrimeiro?.critico
+                            ? "text-[11px] text-red-700"
+                            : "text-[11px] text-amber-700",
+                          badge: prazoReservaPrimeiro?.critico
+                            ? "inline-flex items-center rounded-full border border-red-600 bg-red-600 px-2 py-0.5 text-[10px] font-bold text-white animate-pulse"
+                            : "inline-flex items-center rounded-full border border-amber-500 bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white",
+                        }
+                      : slotReservado
                       ? {
                           container: "border-b border-r px-2 py-2 text-left bg-amber-50 hover:bg-amber-100 transition-colors",
                           titulo: "text-xs font-bold text-amber-800 truncate",
@@ -2513,11 +2865,17 @@ export default function AgendaPage() {
                         className={slotClasses.container}
                       >
                         <div className={slotClasses.titulo}>
-                          {primeiro.clinica || "Clinica nao informada"}
+                          {tituloPrimeiro}
                         </div>
-                        <div className="mt-1 mb-1">
+                        <div className="mt-1 mb-1 flex flex-wrap gap-1">
+                          <span className={origemPrimeiro.compactBadgeClassName}>{origemPrimeiro.label}</span>
                           <span className={slotClasses.badge}>{statusPrimeiro || "Agendado"}</span>
                         </div>
+                        {reservaEmAlerta && prazoReservaPrimeiro && (
+                          <div className={`${slotClasses.extra} mb-1 font-black uppercase`}>
+                            Atenção: {prazoReservaPrimeiro.label}
+                          </div>
+                        )}
                         <div className={slotClasses.texto}>
                           {primeiro.paciente || "Animal nao informado"}
                         </div>
@@ -2979,6 +3337,15 @@ export default function AgendaPage() {
           intervaloSlotMinutos={intervaloSlotMinutos}
           isAdmin={isAdmin}
         />
+
+        {clienteModalAlvo && (
+          <ClienteInfoModal
+            pacienteId={clienteModalAlvo.pacienteId}
+            tutorId={clienteModalAlvo.tutorId}
+            onClose={() => setClienteModalAlvo(null)}
+            onSaved={() => { void carregarAgendamentos(); }}
+          />
+        )}
       </div>
     </DashboardLayout>
   );

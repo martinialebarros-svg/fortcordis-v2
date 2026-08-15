@@ -1,4 +1,4 @@
-export interface WazeDestinoClinica {
+export interface WazeDestinoLocal {
   latitude?: number | string | null;
   longitude?: number | string | null;
   endereco_normalizado?: string | null;
@@ -9,6 +9,8 @@ export interface WazeDestinoClinica {
   estado?: string | null;
   cep?: string | null;
 }
+
+export type WazeDestinoClinica = WazeDestinoLocal;
 
 interface Coordenadas {
   lat: number;
@@ -23,9 +25,9 @@ export interface WazeDestinoUrl {
 
 const texto = (valor?: string | number | null) => String(valor ?? "").trim();
 
-const coordenadasValidas = (clinica?: WazeDestinoClinica | null): Coordenadas | null => {
-  const lat = Number(clinica?.latitude);
-  const lng = Number(clinica?.longitude);
+const coordenadasValidas = (destino?: WazeDestinoLocal | null): Coordenadas | null => {
+  const lat = Number(destino?.latitude);
+  const lng = Number(destino?.longitude);
 
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
@@ -36,29 +38,29 @@ const coordenadasValidas = (clinica?: WazeDestinoClinica | null): Coordenadas | 
 
 const formatarCoordenada = (valor: number) => valor.toFixed(7);
 
-export const montarEnderecoClinicaWaze = (clinica?: WazeDestinoClinica | null): string => {
-  const enderecoNormalizado = texto(clinica?.endereco_normalizado);
+export const montarEnderecoDestinoWaze = (destino?: WazeDestinoLocal | null): string => {
+  const enderecoNormalizado = texto(destino?.endereco_normalizado);
   if (enderecoNormalizado) return enderecoNormalizado;
 
-  const endereco = texto(clinica?.endereco);
-  const numero = texto(clinica?.numero);
+  const endereco = texto(destino?.endereco);
+  const numero = texto(destino?.numero);
   const linhaEndereco = [endereco, numero].filter(Boolean).join(", ");
 
   return [
     linhaEndereco,
-    texto(clinica?.bairro),
-    texto(clinica?.cidade),
-    texto(clinica?.estado),
-    texto(clinica?.cep),
+    texto(destino?.bairro),
+    texto(destino?.cidade),
+    texto(destino?.estado),
+    texto(destino?.cep),
   ]
     .filter(Boolean)
     .join(", ");
 };
 
-export const montarWazeDestinoClinica = (
-  clinica?: WazeDestinoClinica | null
+export const montarWazeDestinoLocal = (
+  destino?: WazeDestinoLocal | null
 ): WazeDestinoUrl | null => {
-  const coordenadas = coordenadasValidas(clinica);
+  const coordenadas = coordenadasValidas(destino);
   if (coordenadas) {
     const ll = `${formatarCoordenada(coordenadas.lat)},${formatarCoordenada(coordenadas.lng)}`;
     return {
@@ -68,7 +70,7 @@ export const montarWazeDestinoClinica = (
     };
   }
 
-  const endereco = montarEnderecoClinicaWaze(clinica);
+  const endereco = montarEnderecoDestinoWaze(destino);
   if (!endereco) return null;
 
   const query = encodeURIComponent(endereco);
@@ -79,17 +81,29 @@ export const montarWazeDestinoClinica = (
   };
 };
 
-export const montarGoogleMapsDestinoClinica = (
-  clinica?: WazeDestinoClinica | null
+export const montarGoogleMapsDestinoLocal = (
+  destino?: WazeDestinoLocal | null
 ): string | null => {
-  const coordenadas = coordenadasValidas(clinica);
+  const coordenadas = coordenadasValidas(destino);
   if (coordenadas) {
     const destino = `${formatarCoordenada(coordenadas.lat)},${formatarCoordenada(coordenadas.lng)}`;
     return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destino)}`;
   }
 
-  const endereco = montarEnderecoClinicaWaze(clinica);
+  const endereco = montarEnderecoDestinoWaze(destino);
   if (!endereco) return null;
 
   return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(endereco)}`;
+};
+
+export const montarEnderecoClinicaWaze = (clinica?: WazeDestinoClinica | null): string => {
+  return montarEnderecoDestinoWaze(clinica);
+};
+
+export const montarWazeDestinoClinica = (clinica?: WazeDestinoClinica | null): WazeDestinoUrl | null => {
+  return montarWazeDestinoLocal(clinica);
+};
+
+export const montarGoogleMapsDestinoClinica = (clinica?: WazeDestinoClinica | null): string | null => {
+  return montarGoogleMapsDestinoLocal(clinica);
 };

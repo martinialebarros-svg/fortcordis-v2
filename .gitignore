@@ -3,11 +3,14 @@ __pycache__/
 *.pyc
 backend/venv/
 backend/.venv/
+backend/.venv-http/
 .env
+.env.local
 backend/private_key.pem
 backend/public_key.pem
 backend/uploads/
 backend/data/runtime_backups/
+backend/tmp/
 
 # Next.js
 frontend/node_modules/

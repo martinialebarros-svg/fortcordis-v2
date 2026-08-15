@@ -6,15 +6,18 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
 import { extractApiErrorMessage, extractApiErrorMessageSync } from "@/lib/api-error";
-import { extrairIdadePaciente } from "@/lib/paciente";
+import { buildExamMergeKey, mergeAutoSavedFormState } from "@/lib/atendimento-form-merge";
+import { extrairIdadePaciente, normalizarSexoPaciente } from "@/lib/paciente";
 import {
   ATENDIMENTOS_LIST_LIMIT,
   PRESCRICAO_PRESETS_STORAGE_KEY,
   calcularDataNascimentoEstimadaPorIdade,
   formatarCepVisual,
   formatarCpfVisual,
+  formatarTelefoneVisual,
   normalizarCep,
   normalizarCpf,
+  normalizarTelefone,
 } from "@/lib/atendimento-cadastro";
 import {
   PROTOCOLOS_PRESCRICAO,
@@ -26,6 +29,7 @@ import {
   formatDate,
   isoToLocalInput,
   isoToOptionalLocalInput,
+  localInputToOperationalIso,
   normalizePeso,
   nowLocalInput,
   parseDecimalInput,
@@ -45,6 +49,7 @@ import {
   buildClinicalFieldValues,
   hasMeaningfulDraft,
   insertSnippetIntoText,
+  type ClinicalFieldConfig,
   type ClinicalFieldKey,
   type ClinicalPhraseRecord,
 } from "@/lib/atendimento-clinical-notes";
@@ -56,8 +61,10 @@ import {
   ChevronLeft,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   ClipboardPlus,
   Clock3,
+  Copy,
   Download,
   Eye,
   FileUp,
@@ -81,6 +88,7 @@ import {
   X,
 } from "lucide-react";
 
+const AtendimentoAlertasCriticosCard = dynamic(() => import("./components/AtendimentoAlertasCriticosCard"));
 const AtendimentoBibliotecasSection = dynamic(() => import("./components/AtendimentoBibliotecasSection"));
 const AtendimentoCadastroComplementarSection = dynamic(() => import("./components/AtendimentoCadastroComplementarSection"));
 const AtendimentoConsultaOverviewSection = dynamic(() => import("./components/AtendimentoConsultaOverviewSection"));
@@ -89,11 +97,13 @@ const AtendimentoClinicalRadarAside = dynamic(() => import("./components/Atendim
 const AtendimentoDocumentosSection = dynamic(() => import("./components/AtendimentoDocumentosSection"));
 const AtendimentoExamesSection = dynamic(() => import("./components/AtendimentoExamesSection"));
 const AtendimentoPrescricaoAside = dynamic(() => import("./components/AtendimentoPrescricaoAside"));
+const AtendimentoPrescricaoHistorySection = dynamic(() => import("./components/AtendimentoPrescricaoHistorySection"));
 const AtendimentoPrescricaoPreview = dynamic(() => import("./components/AtendimentoPrescricaoPreview"));
 const AtendimentoPrescricaoWorkspace = dynamic(() => import("./components/AtendimentoPrescricaoWorkspace"));
 const AtendimentoTriagemSection = dynamic(() => import("./components/AtendimentoTriagemSection"));
 const AttachmentPreviewModal = dynamic(() => import("./components/AttachmentPreviewModal"), { ssr: false });
 const PainelExamesModal = dynamic(() => import("./components/PainelExamesModal"), { ssr: false });
+const ConfirmDialog = dynamic(() => import("./components/ConfirmDialog"), { ssr: false });
 
 // === TIPOS ===
 
@@ -164,6 +174,7 @@ type DocumentoAtendimento = {
   emitido_at?: string | null;
   created_at?: string;
   updated_at?: string;
+  variaveis_vazias?: string[];
 };
 
 type DocumentoAtendimentoForm = {
@@ -198,7 +209,21 @@ type PendingExamUpload = {
   kind: "image" | "pdf" | "other";
 };
 
-type ExameFluxoStatus = "aguardando_arquivo" | "arquivo_anexado" | "interpretado";
+type ConfirmDialogVariant = "default" | "destructive";
+
+type ConfirmDialogOptions = {
+  titulo: string;
+  descricao: string;
+  variante?: ConfirmDialogVariant;
+  confirmLabel?: string;
+  cancelLabel?: string;
+};
+
+type ConfirmDialogState = ConfirmDialogOptions & {
+  resolve: (value: boolean) => void;
+};
+
+type ExameFluxoStatus = "aguardando_arquivo" | "arquivo_anexado" | "interpretado" | "liberado_portal";
 type ExameFiltroRapido = "todos" | ExameFluxoStatus;
 
 type Alerta = {
@@ -229,6 +254,33 @@ type PesoHistorico = {
   peso: number;
 };
 
+type PrescricaoHistorica = {
+  id: number;
+  orientacoes_gerais: string;
+  retorno_dias?: number | null;
+  total_itens: number;
+  itens: PrescricaoItem[];
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+type AtendimentoHistorico = {
+  id: number;
+  data_atendimento: string;
+  status: string;
+  queixa_principal: string;
+  diagnostico_principal: string;
+  veterinario: string;
+  peso?: number | null;
+  tem_prescricao?: boolean;
+  prescricao?: PrescricaoHistorica | null;
+};
+
+type PrescricaoOrigem = {
+  atendimento_id: number;
+  data_atendimento: string;
+};
+
 type HistoricoPaciente = {
   paciente: {
     id: number;
@@ -239,20 +291,12 @@ type HistoricoPaciente = {
     nascimento?: string | null;
   };
   alertas: Alerta[];
-  atendimentos: {
-    id: number;
-    data_atendimento: string;
-    status: string;
-    queixa_principal: string;
-    diagnostico_principal: string;
-    veterinario: string;
-    peso?: number | null;
-  }[];
+  atendimentos: AtendimentoHistorico[];
   pesos?: PesoHistorico[];
   timeline: TimelineGrupo[];
 };
 
-type ExameSolicitacao = {
+export type ExameSolicitacao = {
   id?: number;
   catalogo_exame_id?: number | null;
   painel_exame_id?: number | null;
@@ -271,6 +315,10 @@ type ExameSolicitacao = {
   data_solicitacao?: string;
   data_resultado?: string;
   anexos_resultado?: Anexo[];
+  /** Marcacao explicita de exclusao. Omitir um exame do payload nao apaga nada. */
+  _destroy?: boolean;
+  /** Identificador local estavel para exames ainda nao persistidos (nunca enviado ao backend). */
+  _localId?: string;
 };
 
 type CatalogoExame = {
@@ -316,7 +364,7 @@ type WorkspacePainel = "consulta" | "exames" | "prescricao" | "documentos" | "bi
 type ConsultaEditorEtapa = "anamnese" | "diagnostico" | "plano";
 type PrescricaoCampoObrigatorio = "medicamento_nome" | "dose" | "frequencia" | "via";
 
-type PrescricaoItem = {
+export type PrescricaoItem = {
   id?: number;
   medicamento_id?: number | null;
   medicamento_nome: string;
@@ -411,6 +459,7 @@ type AtendimentoResumo = {
   queixa_principal?: string;
   total_exames?: number;
   tem_prescricao?: boolean;
+  documentacao_pendencias?: string[];
 };
 
 type Medicamento = {
@@ -484,7 +533,7 @@ type ClinicalPhraseForm = {
   ativo: number;
 };
 
-type AtendimentoForm = {
+export type AtendimentoForm = {
   id?: number;
   paciente_id: string;
   especie: string;
@@ -531,6 +580,7 @@ const EXAME_FILTRO_OPCOES: Array<{ key: ExameFiltroRapido; label: string }> = [
   { key: "aguardando_arquivo", label: "Sem arquivo" },
   { key: "arquivo_anexado", label: "Com arquivo" },
   { key: "interpretado", label: "Interpretados" },
+  { key: "liberado_portal", label: "No portal" },
 ];
 const EXAME_STATUS_META: Record<ExameFluxoStatus, { label: string; chipClass: string; cardClass: string }> = {
   aguardando_arquivo: {
@@ -548,7 +598,63 @@ const EXAME_STATUS_META: Record<ExameFluxoStatus, { label: string; chipClass: st
     chipClass: "bg-emerald-100 text-emerald-700",
     cardClass: "border-emerald-200 bg-emerald-50/50",
   },
+  liberado_portal: {
+    label: "Liberado no portal",
+    chipClass: "bg-violet-100 text-violet-700",
+    cardClass: "border-violet-200 bg-violet-50/50",
+  },
 };
+
+const TIMELINE_EVENTO_META: Record<
+  string,
+  { label: string; icon: typeof ClipboardPlus; dotClass: string; badgeClass: string }
+> = {
+  atendimento: {
+    label: "Atendimento",
+    icon: ClipboardPlus,
+    dotClass: "border-teal-100 bg-teal-500",
+    badgeClass: "bg-teal-100 text-teal-700",
+  },
+  evolucao: {
+    label: "Evolucao",
+    icon: Clock3,
+    dotClass: "border-sky-100 bg-sky-500",
+    badgeClass: "bg-sky-100 text-sky-700",
+  },
+  exame_solicitado: {
+    label: "Exame solicitado",
+    icon: FileUp,
+    dotClass: "border-amber-100 bg-amber-500",
+    badgeClass: "bg-amber-100 text-amber-700",
+  },
+  exame_resultado: {
+    label: "Resultado de exame",
+    icon: CheckCircle2,
+    dotClass: "border-emerald-100 bg-emerald-500",
+    badgeClass: "bg-emerald-100 text-emerald-700",
+  },
+  anexo: {
+    label: "Anexo",
+    icon: Paperclip,
+    dotClass: "border-violet-100 bg-violet-500",
+    badgeClass: "bg-violet-100 text-violet-700",
+  },
+  laudo: {
+    label: "Laudo",
+    icon: FileText,
+    dotClass: "border-rose-100 bg-rose-500",
+    badgeClass: "bg-rose-100 text-rose-700",
+  },
+};
+const TIMELINE_EVENTO_META_PADRAO = {
+  label: "Evento",
+  icon: History,
+  dotClass: "border-slate-100 bg-slate-400",
+  badgeClass: "bg-slate-100 text-slate-600",
+};
+
+const extrairVariaveisNaoResolvidas = (texto: string): string[] =>
+  Array.from(new Set((texto.match(/\{\{\s*[A-Za-z0-9_]+\s*\}\}/g) || []).map((match) => match.trim())));
 
 const CONSULTA_EDITOR_ETAPAS: Array<{
   key: ConsultaEditorEtapa;
@@ -631,11 +737,11 @@ const normalizeTutorDetalhe = (item?: Partial<TutorDetalhe> | null): TutorDetalh
   ...emptyTutorDetalhe(),
   ...(item || {}),
   nome: item?.nome || "",
-  telefone: item?.telefone || "",
-  whatsapp: item?.whatsapp || "",
+  telefone: formatarTelefoneVisual(item?.telefone || ""),
+  whatsapp: formatarTelefoneVisual(item?.whatsapp || ""),
   email: item?.email || "",
-  cpf: item?.cpf || "",
-  cep: item?.cep || "",
+  cpf: formatarCpfVisual(item?.cpf || ""),
+  cep: formatarCepVisual(item?.cep || ""),
   endereco: item?.endereco || "",
   numero: item?.numero || "",
   complemento: item?.complemento || "",
@@ -661,6 +767,18 @@ const persistLocalPresets = (storageKey: string, value: unknown) => {
   window.localStorage.setItem(storageKey, JSON.stringify(value));
 };
 
+let exameLocalIdCounter = 0;
+const gerarExameLocalId = (): string => {
+  exameLocalIdCounter += 1;
+  return `exame-local-${Date.now()}-${exameLocalIdCounter}`;
+};
+
+/** Chave estavel para os mapas de estado por exame (examesExpandidos/examUploadDrafts/examDropActive):
+ * `exame.id` quando ja persistido, senao o `_localId` gerado no client - nunca o indice no array,
+ * que desloca quando um exame do meio da lista e removido/inserido. */
+const getExameStateKey = (exame: Pick<ExameSolicitacao, "id" | "_localId">): string =>
+  exame.id != null ? String(exame.id) : exame._localId || "sem-id";
+
 const emptyExam = (): ExameSolicitacao => ({
   catalogo_exame_id: null,
   painel_exame_id: null,
@@ -679,7 +797,39 @@ const emptyExam = (): ExameSolicitacao => ({
   data_solicitacao: "",
   data_resultado: "",
   anexos_resultado: [],
+  _localId: gerarExameLocalId(),
 });
+
+const reindexarAposRemocaoDeItem = <T,>(registro: Record<number, T>, idxRemovido: number): Record<number, T> => {
+  const proximo: Record<number, T> = {};
+  Object.entries(registro).forEach(([chave, valor]) => {
+    const numero = Number(chave);
+    if (numero < idxRemovido) proximo[numero] = valor;
+    else if (numero > idxRemovido) proximo[numero - 1] = valor;
+  });
+  return proximo;
+};
+
+const reindexarAposInsercaoDeItem = <T,>(registro: Record<number, T>, idxInserido: number): Record<number, T> => {
+  const proximo: Record<number, T> = {};
+  Object.entries(registro).forEach(([chave, valor]) => {
+    const numero = Number(chave);
+    if (numero < idxInserido) proximo[numero] = valor;
+    else proximo[numero + 1] = valor;
+  });
+  return proximo;
+};
+
+const trocarIndicesAposMover = <T,>(registro: Record<number, T>, a: number, b: number): Record<number, T> => {
+  const proximo = { ...registro };
+  const valorA = registro[a];
+  const valorB = registro[b];
+  if (valorB === undefined) delete proximo[a];
+  else proximo[a] = valorB;
+  if (valorA === undefined) delete proximo[b];
+  else proximo[b] = valorA;
+  return proximo;
+};
 
 const emptyPrescriptionItem = (): PrescricaoItem => ({
   medicamento_id: null,
@@ -694,6 +844,21 @@ const emptyPrescriptionItem = (): PrescricaoItem => ({
   peso_referencia_kg: "",
   unidade_dose_calculo: "mg",
   concentracao_personalizada: "",
+});
+
+const cloneHistoricalPrescriptionItem = (item: PrescricaoItem): PrescricaoItem => ({
+  medicamento_id: item.medicamento_id || null,
+  medicamento_nome: item.medicamento_nome || "",
+  apresentacao_selecionada: item.apresentacao_selecionada || "",
+  dose: item.dose || "",
+  frequencia: item.frequencia || "",
+  duracao: item.duracao || "",
+  via: item.via || "Oral",
+  instrucoes: item.instrucoes || "",
+  dose_mg_kg: item.dose_mg_kg || "",
+  peso_referencia_kg: "",
+  unidade_dose_calculo: item.unidade_dose_calculo || "mg",
+  concentracao_personalizada: item.concentracao_personalizada || "",
 });
 
 const emptyDocumentoAtendimentoForm = (): DocumentoAtendimentoForm => ({
@@ -881,17 +1046,26 @@ const validarItensPrescricao = (itens: PrescricaoItem[]) => {
   return { total, errors };
 };
 
+// Valor exato que o Portal usa para autorizar acesso da clinica parceira
+// (backend/app/core/portal_release.py). Nao recalcular status de exame no
+// cliente: a liberacao e propriedade do servidor.
+const PORTAL_EXAME_STATUS_LIBERADO = "Liberado no portal";
+
+const isExamePortalLiberado = (exame: ExameSolicitacao): boolean =>
+  (exame.status || "").trim().toLowerCase() === PORTAL_EXAME_STATUS_LIBERADO.toLowerCase();
+
+const exameTemPdfAnexado = (anexos: Anexo[]): boolean =>
+  anexos.some((anexo) => {
+    const mime = (anexo.mime_type || "").trim().toLowerCase();
+    const nome = (anexo.nome_original || anexo.url || "").trim().toLowerCase();
+    return mime === "application/pdf" || nome.endsWith(".pdf");
+  });
+
 const resolveExamFlowStatus = (exame: ExameSolicitacao, anexosCount: number): ExameFluxoStatus => {
+  if (isExamePortalLiberado(exame)) return "liberado_portal";
   if ((exame.resultado || "").trim()) return "interpretado";
   if (anexosCount > 0) return "arquivo_anexado";
   return "aguardando_arquivo";
-};
-
-const resolveExamBackendStatus = (exame: ExameSolicitacao, anexosCount: number): string => {
-  const flow = resolveExamFlowStatus(exame, anexosCount);
-  if (flow === "interpretado") return "Concluido";
-  if (flow === "arquivo_anexado") return "Em andamento";
-  return "Solicitado";
 };
 
 const emptyTriagem = (): Triagem => ({
@@ -941,6 +1115,26 @@ const emptyForm = (): AtendimentoForm => ({
   anexos: [],
   documentos: [],
 });
+
+const hasEncounterContent = (form: AtendimentoForm) =>
+  Boolean(
+    form.queixa_principal.trim() ||
+      form.anamnese.trim() ||
+      form.exame_fisico.trim() ||
+      form.dados_clinicos.trim() ||
+      form.diagnostico.diagnostico_principal.trim() ||
+      form.diagnostico.diagnostico_secundario.trim() ||
+      form.diagnostico.diagnostico_diferencial.trim() ||
+      form.plano_terapeutico.trim() ||
+      form.retorno_recomendado.trim() ||
+      form.motivo_retorno.trim() ||
+      form.observacoes.trim() ||
+      form.triagem.peso != null ||
+      form.triagem.temperatura != null ||
+      form.triagem.pressao_arterial.trim() ||
+      form.exames.some((item) => (item.tipo_exame || "").trim()) ||
+      form.prescricao_itens.some((item) => item.medicamento_id || (item.medicamento_nome || "").trim())
+  );
 
 const emptyClinicalPhraseForm = (): ClinicalPhraseForm => ({
   secao: "anamnese",
@@ -1017,6 +1211,12 @@ const hydrateExam = (item: any): ExameSolicitacao => ({
 const ATENDIMENTO_DRAFT_KEY = "fortcordis:atendimento:draft:v1";
 const AUTOSAVE_DELAY_MS = 1800;
 
+/** Chave do backup local pos-primeiro-save: por atendimento_id, distinta da
+ * chave global usada antes do primeiro save (ATENDIMENTO_DRAFT_KEY), para
+ * nao misturar rascunhos de atendimentos diferentes ja persistidos. */
+const getAtendimentoDraftBackupKey = (atendimentoId: number | string) =>
+  `${ATENDIMENTO_DRAFT_KEY}:${atendimentoId}`;
+
 const hydrateFormFromDetail = (d: any): AtendimentoForm => ({
   id: d.id,
   paciente_id: String(d.paciente_id || ""),
@@ -1082,17 +1282,14 @@ const sanitizeDraftForm = (raw: Partial<AtendimentoForm> | null | undefined): At
 });
 
 const buildAtendimentoPayload = (form: AtendimentoForm) => {
-  const anexosPorExame = form.anexos.reduce<Record<number, number>>((acc, anexo) => {
-    if (!anexo.exame_id) return acc;
-    acc[anexo.exame_id] = (acc[anexo.exame_id] || 0) + 1;
-    return acc;
-  }, {});
-
   return {
     paciente_id: Number(form.paciente_id),
     clinica_id: form.clinica_id ? Number(form.clinica_id) : null,
-    agendamento_id: form.agendamento_id ? Number(form.agendamento_id) : null,
-    data_atendimento: form.data_atendimento ? new Date(form.data_atendimento).toISOString() : null,
+    // `agendamento_id` so entra no payload quando ha valor. Enviar `null` num
+    // PUT parcial desvincularia o prontuario da Agenda em qualquer hidratacao
+    // incompleta do formulario; desvincular e acao explicita, nao autosave.
+    ...(form.agendamento_id ? { agendamento_id: Number(form.agendamento_id) } : {}),
+    data_atendimento: localInputToOperationalIso(form.data_atendimento),
     status: form.status,
     triagem: form.triagem,
     triagem_concluida: form.triagem_concluida,
@@ -1107,9 +1304,14 @@ const buildAtendimentoPayload = (form: AtendimentoForm) => {
     motivo_retorno: form.motivo_retorno,
     observacoes: form.observacoes,
     exames: form.exames
-      .filter((item) => (item.tipo_exame || "").trim())
+      // Exame marcado para exclusao vai como `_destroy`. Exame sem nome fica de
+      // fora: omitir e um no-op no backend, entao um campo em branco durante a
+      // digitacao nao apaga nem invalida o save.
+      .filter((item) => item._destroy || (item.tipo_exame || "").trim())
       .map((item) => {
-        const anexosCount = item.id ? (anexosPorExame[item.id] || 0) : (item.anexos_resultado?.length || 0);
+        if (item._destroy) {
+          return { id: item.id, _destroy: true };
+        }
         return {
           id: item.id,
           catalogo_exame_id: item.catalogo_exame_id || null,
@@ -1119,14 +1321,15 @@ const buildAtendimentoPayload = (form: AtendimentoForm) => {
           categoria_exame: item.categoria_exame || "",
           preparo: item.preparo || "",
           prioridade: item.prioridade,
-          status: resolveExamBackendStatus(item, anexosCount),
+          // O backend deriva o status e preserva a liberacao no portal.
+          status: item.status,
           resultado: item.resultado || "",
           valor_referencia: item.valor_referencia || "",
           unidade: item.unidade || "",
           observacoes: item.observacoes || "",
           valor: Number(item.valor || 0),
           laudo_id: item.laudo_id || null,
-          data_resultado: item.data_resultado ? new Date(item.data_resultado).toISOString() : null,
+          data_resultado: localInputToOperationalIso(item.data_resultado),
         };
       }),
     prescricao: {
@@ -1144,6 +1347,10 @@ const buildAtendimentoPayload = (form: AtendimentoForm) => {
           via: item.via,
           instrucoes: item.instrucoes,
           ordem: index,
+          dose_mg_kg: item.dose_mg_kg || "",
+          peso_referencia_kg: item.peso_referencia_kg || "",
+          unidade_dose_calculo: item.unidade_dose_calculo || "mg",
+          concentracao_personalizada: item.concentracao_personalizada || "",
         }))
         .filter((item) => item.medicamento_id || (item.medicamento_nome || "").trim()),
     },
@@ -1151,90 +1358,6 @@ const buildAtendimentoPayload = (form: AtendimentoForm) => {
 };
 
 const serializeAtendimentoSnapshot = (form: AtendimentoForm) => JSON.stringify(buildAtendimentoPayload(form));
-
-const buildExamMergeKey = (item: ExameSolicitacao) =>
-  [
-    item.catalogo_exame_id || "",
-    (item.tipo_exame || "").trim().toLowerCase(),
-    item.painel_exame_id || "",
-    item.prioridade || "",
-    item.status || "",
-    (item.resultado || "").trim().toLowerCase(),
-    item.data_resultado || "",
-    Number(item.valor || 0),
-    (item.observacoes || "").trim().toLowerCase(),
-  ].join("|");
-
-const buildPrescriptionMergeKey = (item: PrescricaoItem) =>
-  [
-    item.medicamento_id || "",
-    (item.medicamento_nome || "").trim().toLowerCase(),
-    (item.apresentacao_selecionada || "").trim().toLowerCase(),
-    (item.dose || "").trim().toLowerCase(),
-    (item.frequencia || "").trim().toLowerCase(),
-    (item.duracao || "").trim().toLowerCase(),
-    (item.via || "").trim().toLowerCase(),
-  ].join("|");
-
-const mergeAutoSavedItems = <T extends { id?: number | null }>(
-  currentItems: T[],
-  persistedItems: T[],
-  getMergeKey: (item: T) => string,
-  applyPersisted: (currentItem: T, persistedItem: T) => T
-) => {
-  const pool = [...persistedItems];
-  return currentItems.map((currentItem) => {
-    if (currentItem.id) {
-      const byIdIndex = pool.findIndex((persistedItem) => persistedItem.id === currentItem.id);
-      if (byIdIndex >= 0) {
-        return applyPersisted(currentItem, pool.splice(byIdIndex, 1)[0]);
-      }
-    }
-
-    const mergeKey = getMergeKey(currentItem);
-    if (!mergeKey) return currentItem;
-
-    const bySignatureIndex = pool.findIndex((persistedItem) => getMergeKey(persistedItem) === mergeKey);
-    if (bySignatureIndex >= 0) {
-      return applyPersisted(currentItem, pool.splice(bySignatureIndex, 1)[0]);
-    }
-
-    return currentItem;
-  });
-};
-
-const mergeAutoSavedFormState = (current: AtendimentoForm, persisted: AtendimentoForm): AtendimentoForm => ({
-  ...current,
-  id: persisted.id || current.id,
-  exames: mergeAutoSavedItems(
-    current.exames,
-    persisted.exames,
-    buildExamMergeKey,
-    (currentItem, persistedItem) => ({
-      ...currentItem,
-      id: currentItem.id ?? persistedItem.id,
-      laudo_id: currentItem.laudo_id ?? persistedItem.laudo_id ?? null,
-      data_solicitacao: currentItem.data_solicitacao || persistedItem.data_solicitacao || "",
-      data_resultado: currentItem.data_resultado || persistedItem.data_resultado || "",
-      resultado: currentItem.resultado || persistedItem.resultado || "",
-      valor_referencia: currentItem.valor_referencia || persistedItem.valor_referencia || "",
-      unidade: currentItem.unidade || persistedItem.unidade || "",
-      anexos_resultado: persistedItem.anexos_resultado || currentItem.anexos_resultado || [],
-    })
-  ),
-  prescricao_itens: mergeAutoSavedItems(
-    current.prescricao_itens,
-    persisted.prescricao_itens,
-    buildPrescriptionMergeKey,
-    (currentItem, persistedItem) => ({
-      ...currentItem,
-      id: currentItem.id ?? persistedItem.id,
-      medicamento_nome: currentItem.medicamento_nome || persistedItem.medicamento_nome,
-      apresentacao_selecionada: currentItem.apresentacao_selecionada || persistedItem.apresentacao_selecionada || "",
-      historico_ajustes: persistedItem.historico_ajustes || currentItem.historico_ajustes,
-    })
-  ),
-});
 
 export default function AtendimentoPage() {
   const router = useRouter();
@@ -1245,25 +1368,37 @@ export default function AtendimentoPage() {
   const [sucesso, setSucesso] = useState("");
   const [sucessoPopup, setSucessoPopup] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
+  const [finalizando, setFinalizando] = useState(false);
+  const [tipoHorarioFinalizacao, setTipoHorarioFinalizacao] = useState<"comercial" | "plantao">("comercial");
   const [workspacePainel, setWorkspacePainel] = useState<WorkspacePainel>("consulta");
+  const [workspacePainelAnterior, setWorkspacePainelAnterior] =
+    useState<Exclude<WorkspacePainel, "bibliotecas">>("consulta");
   const [consultaEditorEtapa, setConsultaEditorEtapa] = useState<ConsultaEditorEtapa>("anamnese");
   const [consultaCampoAtivo, setConsultaCampoAtivo] = useState<ClinicalFieldKey>("queixa_principal");
+  const [consultaVerTodosCampos, setConsultaVerTodosCampos] = useState(false);
   const [prescricaoModoFoco, setPrescricaoModoFoco] = useState(true);
   const [protocoloPrescricaoSelecionado, setProtocoloPrescricaoSelecionado] = useState("");
-  const [triagemExpandida, setTriagemExpandida] = useState(true);
-  const [examesExpandidos, setExamesExpandidos] = useState<Record<number, boolean>>({});
+  const [protocoloPrescricaoDecididoPara, setProtocoloPrescricaoDecididoPara] = useState<string | null>(null);
+  const [triagemExpandida, setTriagemExpandida] = useState(false);
+  const [cadastroComplementarExpandido, setCadastroComplementarExpandido] = useState(false);
+  const [painelCasosAberto, setPainelCasosAberto] = useState(false);
+  const [prescricaoOrigem, setPrescricaoOrigem] = useState<PrescricaoOrigem | null>(null);
+  const [dadosClinicosOrigem, setDadosClinicosOrigem] = useState<PrescricaoOrigem | null>(null);
+  const [examesExpandidos, setExamesExpandidos] = useState<Record<string, boolean>>({});
   const [gerandoPdfTipo, setGerandoPdfTipo] = useState<"prescricao" | "exames" | null>(null);
   const [contextoAplicado, setContextoAplicado] = useState(false);
   const [autosaveState, setAutosaveState] = useState<"idle" | "local" | "dirty" | "saving" | "saved" | "error">("idle");
   const [autosaveAt, setAutosaveAt] = useState("");
 
   const [lista, setLista] = useState<AtendimentoResumo[]>([]);
+  const [clinicaFiltroAplicado, setClinicaFiltroAplicado] = useState("");
   const [pacientes, setPacientes] = useState<PacienteResumo[]>([]);
   const [clinicas, setClinicas] = useState<ClinicaResumo[]>([]);
   const [medicamentos, setMedicamentos] = useState<Medicamento[]>([]);
   const [catalogoExames, setCatalogoExames] = useState<CatalogoExame[]>([]);
   const [paineisExames, setPaineisExames] = useState<PainelExame[]>([]);
   const [clinicalPhrases, setClinicalPhrases] = useState<ClinicalPhraseRecord[]>([]);
+  const [savingQuickPhrase, setSavingQuickPhrase] = useState(false);
   const [documentTemplates, setDocumentTemplates] = useState<DocumentoAtendimentoTemplate[]>([]);
 
   const [busca, setBusca] = useState("");
@@ -1271,6 +1406,7 @@ export default function AtendimentoPage() {
   const [clinicaFiltro, setClinicaFiltro] = useState("");
   const [dataInicioFiltro, setDataInicioFiltro] = useState("");
   const [dataFimFiltro, setDataFimFiltro] = useState("");
+  const [documentacaoIncompletaFiltro, setDocumentacaoIncompletaFiltro] = useState(false);
   const [paginaLista, setPaginaLista] = useState(1);
   const [totalLista, setTotalLista] = useState(0);
   const [selecionado, setSelecionado] = useState<number | null>(null);
@@ -1314,14 +1450,16 @@ export default function AtendimentoPage() {
   const [uploadingAttachmentKey, setUploadingAttachmentKey] = useState<string | null>(null);
   const [uploadProgressByKey, setUploadProgressByKey] = useState<Record<string, number | null>>({});
   const [openingAttachmentId, setOpeningAttachmentId] = useState<number | null>(null);
+  const [confirmDialogState, setConfirmDialogState] = useState<ConfirmDialogState | null>(null);
   const [attachmentPreview, setAttachmentPreview] = useState<AttachmentPreview | null>(null);
   const [attachmentImageZoom, setAttachmentImageZoom] = useState(1);
   const [attachmentImageOffset, setAttachmentImageOffset] = useState({ x: 0, y: 0 });
   const [attachmentImageDragging, setAttachmentImageDragging] = useState(false);
   const [attachmentPdfPage, setAttachmentPdfPage] = useState(1);
   const [attachmentPdfZoom, setAttachmentPdfZoom] = useState(110);
-  const [examUploadDrafts, setExamUploadDrafts] = useState<Record<number, PendingExamUpload>>({});
-  const [examDropActive, setExamDropActive] = useState<Record<number, boolean>>({});
+  const [examUploadDrafts, setExamUploadDrafts] = useState<Record<string, PendingExamUpload>>({});
+  const [examDropActive, setExamDropActive] = useState<Record<string, boolean>>({});
+  const [portalExameAcaoId, setPortalExameAcaoId] = useState<number | null>(null);
   const [clinicalPhraseSearch, setClinicalPhraseSearch] = useState("");
   const [clinicalPhraseSectionFilter, setClinicalPhraseSectionFilter] = useState<ClinicalFieldKey | "">("");
   const [clinicalPhraseForm, setClinicalPhraseForm] = useState<ClinicalPhraseForm>(emptyClinicalPhraseForm());
@@ -1340,6 +1478,42 @@ export default function AtendimentoPage() {
   const lastPersistedSnapshotRef = useRef(serializeAtendimentoSnapshot(form));
   const hydratingFormRef = useRef(false);
   const draftRestoreRef = useRef(false);
+  const selecionadoRef = useRef<number | null>(null);
+  // Descartam respostas de historico/cadastro complementar que cheguem fora
+  // de ordem apos o usuario trocar de paciente rapidamente (so a chamada
+  // mais recente de cada uma pode aplicar setState / liberar o loading).
+  // Refs separados: as duas funcoes sao disparadas em sequencia sincrona no
+  // mesmo efeito, entao um contador compartilhado invalidaria a primeira
+  // chamada antes mesmo dela chegar a esperar a resposta.
+  const historicoPacienteRequestIdRef = useRef(0);
+  const cadastroComplementarRequestIdRef = useRef(0);
+  // Idem para abrirAtendimento: dois cliques rapidos na lista lateral nao
+  // podem deixar a resposta do clique mais antigo sobrescrever o prontuario
+  // do clique mais recente.
+  const abrirAtendimentoRequestIdRef = useRef(0);
+  // Id do atendimento sendo aberto no momento (ou null) - feedback visual
+  // (Loader2 no card clicado + demais itens desabilitados) enquanto
+  // abrirAtendimento esta em voo. So a chamada cujo requestId ainda for o
+  // mais recente pode limpar este estado (mesma logica de invalidacao do
+  // ref acima), senao uma resposta antiga que chega apos ser superada
+  // apagaria o loading de um clique mais novo ainda em andamento.
+  const [abrindoAtendimentoId, setAbrindoAtendimentoId] = useState<number | null>(null);
+  // Save manual e autosave nao podem ter dois PUT/POST em voo ao mesmo tempo
+  // para o mesmo atendimento: sem isso, se o PUT do autosave (payload mais
+  // antigo) commitar depois do PUT manual (mais novo), o registro final fica
+  // com o conteudo antigo - perda silenciosa de dado clinico. Uma chamada que
+  // chega enquanto outra esta em voo espera ela terminar e refaz com o
+  // formRef.current mais atual, em vez de disparar uma segunda requisicao
+  // concorrente.
+  const salvamentoAtendimentoEmVooRef = useRef<Promise<number | null> | null>(null);
+  const autosaveStateRef = useRef<"idle" | "local" | "dirty" | "saving" | "saved" | "error">("idle");
+  const criandoAtendimentoAutomaticoRef = useRef(false);
+  // Guard sincrono para criar/salvar documento clinico: setSalvandoDocumentoClinico
+  // so vira true DEPOIS do primeiro await (obterAtendimentoIdParaDocumento pode
+  // disparar um saveAtendimento("manual") inteiro) - nesse intervalo o botao
+  // continua habilitado e um duplo clique cria dois documentos. Um ref e
+  // sincrono: e verdadeiro imediatamente, sem esperar o proximo render.
+  const documentoClinicoEmVooRef = useRef(false);
   const clinicalTextareaRefs = useRef<Partial<Record<ClinicalFieldKey, HTMLTextAreaElement | null>>>({});
   const attachmentImagePanRef = useRef({
     pointerId: null as number | null,
@@ -1350,7 +1524,7 @@ export default function AtendimentoPage() {
   });
   const uploadAbortControllersRef = useRef<Record<string, AbortController>>({});
   const activeUploadSignaturesRef = useRef<Set<string>>(new Set());
-  const examUploadDraftsRef = useRef<Record<number, PendingExamUpload>>({});
+  const examUploadDraftsRef = useRef<Record<string, PendingExamUpload>>({});
   const pdfDownloadInFlightRef = useRef<"prescricao" | "exames" | null>(null);
 
   const [medBusca, setMedBusca] = useState("");
@@ -1358,6 +1532,8 @@ export default function AtendimentoPage() {
   const [prescricaoEntradaModo, setPrescricaoEntradaModo] = useState<"industrializado" | "manipulado" | null>(null);
   const [prescricaoEditorManualAberto, setPrescricaoEditorManualAberto] = useState(false);
   const [prescricaoBuscaRapida, setPrescricaoBuscaRapida] = useState("");
+  const [medicamentoBuscaPorItem, setMedicamentoBuscaPorItem] = useState<Record<number, string>>({});
+  const [medicamentoFocoPorItem, setMedicamentoFocoPorItem] = useState<Record<number, boolean>>({});
   const [prescricaoPreviewAtivo, setPrescricaoPreviewAtivo] = useState(false);
   const [prescricaoPreviewPdf, setPrescricaoPreviewPdf] = useState<string | null>(null);
   const [prescricaoPreviewLoading, setPrescricaoPreviewLoading] = useState(false);
@@ -1366,6 +1542,30 @@ export default function AtendimentoPage() {
   useEffect(() => {
     formRef.current = form;
   }, [form]);
+
+  useEffect(() => {
+    selecionadoRef.current = selecionado;
+  }, [selecionado]);
+
+  useEffect(() => {
+    autosaveStateRef.current = autosaveState;
+  }, [autosaveState]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      const estado = autosaveStateRef.current;
+      // "idle": nada digitado ainda. "saved": tudo persistido no servidor.
+      // Nenhum dos dois tem edicao em risco de se perder ao fechar a aba.
+      if (estado === "idle" || estado === "saved") return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, []);
 
   useEffect(() => {
     carregarCustomPaineis();
@@ -1524,9 +1724,12 @@ export default function AtendimentoPage() {
     attachmentImagePanRef.current.pointerId = null;
   }, [attachmentImageZoom]);
 
-  const clearDraftStorage = () => {
+  const clearDraftStorage = (atendimentoId?: number | string | null) => {
     if (typeof window === "undefined") return;
     localStorage.removeItem(ATENDIMENTO_DRAFT_KEY);
+    if (atendimentoId) {
+      localStorage.removeItem(getAtendimentoDraftBackupKey(atendimentoId));
+    }
   };
 
   const clearExamUploadDrafts = () => {
@@ -1554,9 +1757,10 @@ export default function AtendimentoPage() {
   };
 
   const carregarCadastroComplementar = async (pacienteId: string | number) => {
+    const requestId = ++cadastroComplementarRequestIdRef.current;
     const normalized = Number(pacienteId || 0);
     if (!Number.isFinite(normalized) || normalized <= 0) {
-      aplicarCadastroComplementar();
+      if (requestId === cadastroComplementarRequestIdRef.current) aplicarCadastroComplementar();
       return;
     }
 
@@ -1585,6 +1789,10 @@ export default function AtendimentoPage() {
           };
         }
       }
+      // Se o usuario ja trocou de paciente de novo, uma requisicao mais nova
+      // esta em voo (ou ja aplicou seu resultado) - aplicar esta agora
+      // sobrescreveria cadastroComplementar com dados do paciente errado.
+      if (requestId !== cadastroComplementarRequestIdRef.current) return;
       aplicarCadastroComplementar(
         {
           ...pacienteData,
@@ -1592,8 +1800,17 @@ export default function AtendimentoPage() {
         },
         tutorData
       );
+    } catch (e: any) {
+      // Sem isto, a excecao (rede instavel, sessao expirada, 500) se
+      // propagava como unhandled rejection: o spinner desligava no finally
+      // e a tela ficava sem os dados do cadastro complementar sem nenhum
+      // aviso - o vet podia concluir por engano que o paciente nao tem
+      // cadastro complementar.
+      if (requestId === cadastroComplementarRequestIdRef.current) {
+        setErro(extractApiErrorMessageSync(e, "Nao foi possivel carregar o cadastro complementar."));
+      }
     } finally {
-      setCarregandoCadastroComplementar(false);
+      if (requestId === cadastroComplementarRequestIdRef.current) setCarregandoCadastroComplementar(false);
     }
   };
 
@@ -1795,8 +2012,9 @@ export default function AtendimentoPage() {
           especie: contexto.especie || prev.especie,
           clinica_id: contexto.clinica_id ? String(contexto.clinica_id) : prev.clinica_id,
           agendamento_id: String(agendamentoId),
+          data_atendimento: contexto.inicio ? isoToLocalInput(contexto.inicio) : prev.data_atendimento,
         }));
-        aplicarCadastroComplementar(contexto.paciente, contexto.tutor);
+        void carregarCadastroComplementar(contexto.paciente_id);
         setContextoAplicado(true);
         return;
       }
@@ -1836,21 +2054,45 @@ export default function AtendimentoPage() {
   }, []);
 
   const carregarBase = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const [rp, rc, rm, re, rf] = await Promise.all([
+      // allSettled em vez de all: a falha de um recurso secundario (ex.:
+      // frases clinicas do autocomplete) nao pode derrubar pacientes/
+      // clinicas/medicamentos/catalogo, que sao essenciais para operar o
+      // atendimento.
+      const [rp, rc, rm, re, rf] = await Promise.allSettled([
         api.get("/pacientes?limit=1000"),
         api.get("/clinicas?limit=500"),
         api.get("/atendimentos/medicamentos/banco?limit=500"),
         api.get("/atendimentos/exames/catalogo"),
         api.get("/atendimentos/frases-clinicas?include_inactive=1&limit=1000"),
       ]);
-      setPacientes(rp.data?.items || []);
-      setClinicas(rc.data?.items || []);
-      setMedicamentos(rm.data?.items || []);
-      setCatalogoExames(re.data?.exames || []);
-      setPaineisExames(re.data?.paineis || []);
-      setClinicalPhrases(rf.data?.frases || []);
+      if (rp.status === "fulfilled") setPacientes(rp.value.data?.items || []);
+      if (rc.status === "fulfilled") setClinicas(rc.value.data?.items || []);
+      if (rm.status === "fulfilled") setMedicamentos(rm.value.data?.items || []);
+      if (re.status === "fulfilled") {
+        setCatalogoExames(re.value.data?.exames || []);
+        setPaineisExames(re.value.data?.paineis || []);
+      }
+      if (rf.status === "fulfilled") setClinicalPhrases(rf.value.data?.frases || []);
+
+      const recursosComFalha = (
+        [
+          [rp, "lista de pacientes"],
+          [rc, "lista de clinicas"],
+          [rm, "banco de medicamentos"],
+          [re, "catalogo de exames"],
+          [rf, "frases clinicas"],
+        ] as const
+      )
+        .filter(([resultado]) => resultado.status === "rejected")
+        .map(([, rotulo]) => rotulo);
+      if (recursosComFalha.length > 0) {
+        setErro(
+          `Nao foi possivel carregar: ${recursosComFalha.join(", ")}. Recarregue a pagina para tentar novamente.`
+        );
+      }
+
       await carregarLista(1);
     } catch (e: any) {
       setErro(extractApiErrorMessageSync(e, "Erro ao carregar dados de atendimento."));
@@ -1867,6 +2109,7 @@ export default function AtendimentoPage() {
       clinicaId?: string;
       dataInicio?: string;
       dataFim?: string;
+      documentacaoIncompleta?: boolean;
     }
   ) => {
     try {
@@ -1877,6 +2120,8 @@ export default function AtendimentoPage() {
       const clinicaAtual = filtrosOverride?.clinicaId ?? clinicaFiltro;
       const dataInicioAtual = filtrosOverride?.dataInicio ?? dataInicioFiltro;
       const dataFimAtual = filtrosOverride?.dataFim ?? dataFimFiltro;
+      const documentacaoIncompletaAtual =
+        filtrosOverride?.documentacaoIncompleta ?? documentacaoIncompletaFiltro;
       params.append("limit", String(ATENDIMENTOS_LIST_LIMIT));
       params.append("skip", String((safePage - 1) * ATENDIMENTOS_LIST_LIMIT));
       if (statusAtual) params.append("status", statusAtual);
@@ -1884,10 +2129,12 @@ export default function AtendimentoPage() {
       if (clinicaAtual) params.append("clinica_id", clinicaAtual);
       if (dataInicioAtual) params.append("data_inicio", `${dataInicioAtual}T00:00:00`);
       if (dataFimAtual) params.append("data_fim", `${dataFimAtual}T23:59:59`);
+      if (documentacaoIncompletaAtual) params.append("documentacao_incompleta", "true");
       const response = await api.get(`/atendimentos?${params.toString()}`);
       setLista(response.data?.items || []);
       setTotalLista(Number(response.data?.total || 0));
       setPaginaLista(safePage);
+      setClinicaFiltroAplicado(clinicaAtual);
     } catch (e: any) {
       setErro(extractApiErrorMessageSync(e, "Erro ao listar atendimentos."));
     }
@@ -1907,12 +2154,14 @@ export default function AtendimentoPage() {
     setClinicaFiltro(vazio);
     setDataInicioFiltro(vazio);
     setDataFimFiltro(vazio);
+    setDocumentacaoIncompletaFiltro(false);
     await carregarLista(1, {
       busca: vazio,
       status: vazio,
       clinicaId: vazio,
       dataInicio: vazio,
       dataFim: vazio,
+      documentacaoIncompleta: false,
     });
   };
 
@@ -2040,6 +2289,7 @@ export default function AtendimentoPage() {
 
   const pacienteNomeExibicao = cadastroComplementar.paciente.nome || pacienteSelecionado?.nome || "";
   const tutorNomeExibicao = cadastroComplementar.tutor.nome || pacienteSelecionado?.tutor || "";
+  const sexoPacienteExibicao = normalizarSexoPaciente(cadastroComplementar.paciente.sexo || "");
   const especieRacaExibicao = [
     cadastroComplementar.paciente.especie || especieExibicao || "",
     cadastroComplementar.paciente.raca || pacienteSelecionado?.raca || "",
@@ -2064,6 +2314,7 @@ export default function AtendimentoPage() {
     const pendencias: string[] = [];
     if (!cadastroComplementar.paciente.especie) pendencias.push("especie");
     if (!cadastroComplementar.paciente.raca) pendencias.push("raca");
+    if (!cadastroComplementar.paciente.sexo) pendencias.push("sexo");
     if (!cadastroComplementar.paciente.data_nascimento) pendencias.push("data de nascimento");
     if (cadastroComplementar.paciente.peso_kg == null) pendencias.push("peso cadastral");
     if (!cadastroComplementar.tutor.whatsapp) pendencias.push("whatsapp");
@@ -2113,8 +2364,10 @@ export default function AtendimentoPage() {
       aguardando_arquivo: 0,
       arquivo_anexado: 0,
       interpretado: 0,
+      liberado_portal: 0,
     };
     examesComContexto.forEach((item) => {
+      if (item.exame._destroy) return;
       if (!(item.exame.tipo_exame || "").trim()) return;
       base.solicitados += 1;
       base[item.flowStatus] += 1;
@@ -2124,6 +2377,9 @@ export default function AtendimentoPage() {
   const examesVisiveis = useMemo(
     () =>
       examesComContexto.filter((item) => {
+        // Exame marcado para exclusao sai da lista na hora, mas continua no
+        // payload como `_destroy` ate o save confirmar a exclusao.
+        if (item.exame._destroy) return false;
         const hasNome = (item.exame.tipo_exame || "").trim().length > 0;
         if (!hasNome) return exameFiltroRapido === "todos";
         if (exameFiltroRapido === "todos") return true;
@@ -2163,7 +2419,10 @@ export default function AtendimentoPage() {
     const pesoAtual = normalizePeso(form.triagem.peso);
     if (pesoAtual) {
       const atendimentoAtualId = Number(selecionado || 0);
-      const dataAtual = form.data_atendimento ? new Date(form.data_atendimento).toISOString() : new Date().toISOString();
+      const dataAtual =
+        localInputToOperationalIso(form.data_atendimento) ||
+        localInputToOperationalIso(nowLocalInput()) ||
+        new Date().toISOString();
       if (atendimentoAtualId) {
         pontosMap.set(atendimentoAtualId, {
           atendimento_id: atendimentoAtualId,
@@ -2260,6 +2519,14 @@ export default function AtendimentoPage() {
       PROTOCOLOS_PRESCRICAO.find((protocolo) => protocolo.key === protocoloPrescricaoSelecionado) || null,
     [protocoloPrescricaoSelecionado]
   );
+  const protocoloPrescricaoSelecionadoGatilho = useMemo(() => {
+    if (!protocoloPrescricaoSelecionadoDetalhe) return null;
+    return (
+      protocoloPrescricaoSelecionadoDetalhe.gatilhos.find((gatilho) =>
+        diagnosticoTextoConsolidado.includes(normalizarTokenPrescricao(gatilho))
+      ) || null
+    );
+  }, [protocoloPrescricaoSelecionadoDetalhe, diagnosticoTextoConsolidado]);
   const prescricaoErrosCount = useMemo(
     () =>
       Object.values(prescricaoValidationErrors).reduce(
@@ -2403,22 +2670,55 @@ export default function AtendimentoPage() {
     };
   }, [clinicalFieldValues, contextoAplicado, form.agendamento_id, form.clinica_id, form.exames, form.paciente_id, form.prescricao_itens, form.triagem.peso, form.triagem.pressao_arterial, form.triagem.temperatura, loading, selecionado]);
 
+  // Backup local silencioso pos-primeiro-save: se um autosave remoto falhar
+  // (autosaveState === "error"), a edicao ainda fica recuperavel aqui, numa
+  // chave por atendimento_id - sem interferir no autosaveState "dirty" /
+  // "saving" / "saved" / "error", que continua sendo dono exclusivo do efeito
+  // de autosave remoto.
+  useEffect(() => {
+    if (typeof window === "undefined" || loading || !contextoAplicado || !selecionado || hydratingFormRef.current) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      localStorage.setItem(
+        getAtendimentoDraftBackupKey(selecionado),
+        JSON.stringify({
+          form: formRef.current,
+          updated_at: new Date().toISOString(),
+        })
+      );
+    }, 700);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [contextoAplicado, form, loading, selecionado]);
+
   const carregarHistoricoPaciente = async (pacienteId: string | number, limite = 12) => {
+    const requestId = ++historicoPacienteRequestIdRef.current;
     const normalized = Number(pacienteId || 0);
     if (!Number.isFinite(normalized) || normalized <= 0) {
-      setHistoricoPaciente(null);
+      if (requestId === historicoPacienteRequestIdRef.current) setHistoricoPaciente(null);
       return;
     }
 
     try {
       const response = await api.get(`/atendimentos/paciente/${normalized}/historico?limite=${limite}`);
+      if (requestId !== historicoPacienteRequestIdRef.current) return;
       setHistoricoPaciente(response.data);
     } catch {
+      if (requestId !== historicoPacienteRequestIdRef.current) return;
       setHistoricoPaciente(null);
     }
   };
 
   useEffect(() => {
+    // hydratingFormRef.current: uma mudanca de paciente_id vinda de hidratacao
+    // (abrirAtendimento, finalizarAtendimento, save manual) ja tem seus proprios
+    // callers explicitos para historico/cadastro complementar - este efeito e
+    // so para mudanca de paciente feita pelo USUARIO (selecao manual).
+    if (hydratingFormRef.current) return;
     if (!form.paciente_id) {
       setHistoricoPaciente(null);
       aplicarCadastroComplementar();
@@ -2428,11 +2728,84 @@ export default function AtendimentoPage() {
     void carregarCadastroComplementar(form.paciente_id);
   }, [form.paciente_id]);
 
+  const confirmarAcao = useCallback((opcoes: ConfirmDialogOptions): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setConfirmDialogState((atual) => {
+        // Resolve qualquer dialogo pendente como cancelado antes de abrir o
+        // proximo - evita uma Promise anterior ficar presa para sempre caso
+        // duas acoes disparem confirmarAcao antes da primeira ser resolvida
+        // (ex.: componente ainda carregando via dynamic import).
+        atual?.resolve(false);
+        return { ...opcoes, resolve };
+      });
+    });
+  }, []);
+
+  const resolverConfirmDialog = useCallback((valor: boolean) => {
+    setConfirmDialogState((atual) => {
+      atual?.resolve(valor);
+      return null;
+    });
+  }, []);
+
   const abrirAtendimento = async (id: number) => {
+    if (
+      !selecionado &&
+      hasEncounterContent(formRef.current) &&
+      typeof window !== "undefined" &&
+      !(await confirmarAcao({
+        titulo: "Substituir rascunho atual?",
+        descricao:
+          "Abrir o registro historico e substituir o rascunho atual? As alteracoes ainda nao salvas serao descartadas.",
+      }))
+    ) {
+      return;
+    }
+    const requestId = ++abrirAtendimentoRequestIdRef.current;
+    setAbrindoAtendimentoId(id);
     try {
       const response = await api.get(`/atendimentos/${id}`);
+      if (requestId !== abrirAtendimentoRequestIdRef.current) return;
       const d = response.data;
       const hydrated = hydrateFormFromDetail(d);
+
+      // Se um autosave anterior falhou (aba fechada, rede fora do ar), pode
+      // existir um backup local mais recente do que o servidor - recuperar em
+      // vez de descartar silenciosamente.
+      let formParaAplicar = hydrated;
+      let recuperadoDoBackupLocal = false;
+      if (typeof window !== "undefined") {
+        const backupKey = getAtendimentoDraftBackupKey(id);
+        const rawBackup = localStorage.getItem(backupKey);
+        if (rawBackup) {
+          try {
+            const parsedBackup = JSON.parse(rawBackup) as { form?: Partial<AtendimentoForm> };
+            if (parsedBackup.form) {
+              // `especie`/`evolucoes`/`anexos`/`documentos` nao fazem parte de
+              // buildAtendimentoPayload - sao autoritativos do servidor e podem
+              // ter mudado nesse meio-tempo por uma acao diferente do autosave
+              // (ex.: registrar evolucao, upload de anexo). O backup local so
+              // deve substituir os campos que ele proprio protege (o payload);
+              // esses 4 sempre vem do `hydrated` (servidor), nunca do backup.
+              const {
+                especie: _especieBackup,
+                evolucoes: _evolucoesBackup,
+                anexos: _anexosBackup,
+                documentos: _documentosBackup,
+                ...backupSemCamposServidor
+              } = parsedBackup.form;
+              const candidato = { ...hydrated, ...backupSemCamposServidor, id: hydrated.id };
+              if (serializeAtendimentoSnapshot(candidato) !== serializeAtendimentoSnapshot(hydrated)) {
+                formParaAplicar = candidato;
+                recuperadoDoBackupLocal = true;
+              }
+            }
+          } catch {
+            localStorage.removeItem(backupKey);
+          }
+        }
+      }
+
       setSelecionado(id);
       clearDraftStorage();
       draftRestoreRef.current = true;
@@ -2441,19 +2814,34 @@ export default function AtendimentoPage() {
       if (d.paciente_id) {
         await carregarHistoricoPaciente(d.paciente_id);
       }
-      aplicarCadastroComplementar(d.paciente, d.tutor);
+      void carregarCadastroComplementar(d.paciente_id);
       hydratingFormRef.current = true;
-      setForm(hydrated);
+      setForm(formParaAplicar);
       setProtocoloPrescricaoSelecionado("");
+      setProtocoloPrescricaoDecididoPara(null);
       setPrescricaoEditorManualAberto(false);
       setPrescricaoEntradaModo(null);
       setPrescricaoBuscaRapida("");
+      setPrescricaoOrigem(null);
+      setDadosClinicosOrigem(null);
+      setCadastroComplementarExpandido(false);
+      setTriagemExpandida(false);
       setDocumentoTemplateSelecionado("");
       setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
       setAnexoArquivo(null);
       clearExamUploadDrafts();
+      // O snapshot "persistido" continua sendo o do servidor (nao o
+      // recuperado), para que o efeito de autosave detecte a diferenca e
+      // sincronize a edicao recuperada de volta automaticamente.
       lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(hydrated);
-      setAutosaveState("saved");
+      if (recuperadoDoBackupLocal) {
+        setAutosaveState("dirty");
+        setSucesso(
+          `Atendimento #${id}: recuperamos uma edicao local que ainda nao havia sido sincronizada com o servidor.`
+        );
+      } else {
+        setAutosaveState("saved");
+      }
       setAutosaveAt(d.updated_at || d.created_at || new Date().toISOString());
       if (typeof window !== "undefined") {
         window.requestAnimationFrame(() => {
@@ -2462,13 +2850,21 @@ export default function AtendimentoPage() {
       }
       setErro("");
     } catch (e: any) {
+      if (requestId !== abrirAtendimentoRequestIdRef.current) return;
       setErro(extractApiErrorMessageSync(e, "Erro ao abrir atendimento."));
+    } finally {
+      if (requestId === abrirAtendimentoRequestIdRef.current) {
+        setAbrindoAtendimentoId(null);
+      }
     }
   };
 
   const novoAtendimento = () => {
+    const atendimentoAnteriorId = selecionadoRef.current;
     const next = emptyForm();
     setSelecionado(null);
+    setWorkspacePainel("consulta");
+    setPainelCasosAberto(false);
     hydratingFormRef.current = true;
     setForm(next);
     lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(next);
@@ -2477,9 +2873,14 @@ export default function AtendimentoPage() {
     setExameBusca("");
     setPainelExameSelecionado("");
     setProtocoloPrescricaoSelecionado("");
+    setProtocoloPrescricaoDecididoPara(null);
     setPrescricaoEditorManualAberto(false);
     setPrescricaoEntradaModo(null);
     setPrescricaoBuscaRapida("");
+    setPrescricaoOrigem(null);
+    setDadosClinicosOrigem(null);
+    setCadastroComplementarExpandido(false);
+    setTriagemExpandida(false);
     setDocumentoTemplateSelecionado("");
     setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
     setAnexoArquivo(null);
@@ -2490,7 +2891,7 @@ export default function AtendimentoPage() {
     setStatusCepTutor("");
     setAutosaveState("idle");
     setAutosaveAt("");
-    clearDraftStorage();
+    clearDraftStorage(atendimentoAnteriorId);
     draftRestoreRef.current = false;
     if (typeof window !== "undefined") {
       window.requestAnimationFrame(() => {
@@ -2499,6 +2900,177 @@ export default function AtendimentoPage() {
     }
     setErro("");
     setSucesso("");
+  };
+
+  const iniciarNovoAtendimentoPaciente = async (
+    prescricao?: PrescricaoHistorica | null,
+    origem?: AtendimentoHistorico | null,
+    dadosClinicos?: {
+      queixa_principal?: string;
+      anamnese?: string;
+      exame_fisico?: string;
+      dados_clinicos?: string;
+    } | null
+  ) => {
+    const atual = formRef.current;
+    if (!atual.paciente_id) {
+      novoAtendimento();
+      setErro("Selecione um paciente antes de iniciar o atendimento.");
+      return;
+    }
+    // Le via refs (nao via closure de state) porque callers como
+    // herdarAtendimentoAnterior fazem um await (fetch de rede) antes de
+    // chegar aqui - o usuario pode ter continuado digitando nesse intervalo,
+    // e so a ref reflete o autosaveState/selecionado mais atual nesse caso.
+    if (autosaveStateRef.current === "saving") {
+      setErro("Aguarde a sincronizacao atual terminar antes de iniciar outro atendimento.");
+      return;
+    }
+    if (autosaveTimerRef.current && typeof window !== "undefined") {
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+    if (selecionadoRef.current && autosaveStateRef.current === "dirty") {
+      const savedId = await saveAtendimento("manual");
+      if (!savedId) return;
+    }
+    if (
+      !selecionadoRef.current &&
+      hasEncounterContent(atual) &&
+      typeof window !== "undefined" &&
+      !(await confirmarAcao({
+        titulo: "Substituir rascunho atual?",
+        descricao: "Substituir o rascunho atual por um novo atendimento deste paciente?",
+      }))
+    ) {
+      return;
+    }
+
+    const atendimentoAnteriorId = selecionadoRef.current;
+    const itensCopiados = (prescricao?.itens || []).map(cloneHistoricalPrescriptionItem);
+    const next: AtendimentoForm = {
+      ...emptyForm(),
+      paciente_id: atual.paciente_id,
+      especie: atual.especie || cadastroComplementar.paciente.especie || "",
+      clinica_id: atual.clinica_id,
+      // Diagnostico, plano terapeutico e triagem NUNCA sao herdados aqui -
+      // decisao clinica deliberada (ver intent.md do pacote
+      // atendimento-herdar-dados-anteriores): sao avaliacoes/medidas novas a
+      // cada consulta, nao um carry-over do atendimento anterior.
+      queixa_principal: dadosClinicos?.queixa_principal || "",
+      anamnese: dadosClinicos?.anamnese || "",
+      exame_fisico: dadosClinicos?.exame_fisico || "",
+      dados_clinicos: dadosClinicos?.dados_clinicos || "",
+      prescricao_orientacoes: prescricao?.orientacoes_gerais || "",
+      prescricao_retorno_dias: prescricao?.retorno_dias ? String(prescricao.retorno_dias) : "",
+      prescricao_itens: itensCopiados.length ? itensCopiados : [emptyPrescriptionItem()],
+    };
+
+    setSelecionado(null);
+    hydratingFormRef.current = true;
+    setForm(next);
+    lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(next);
+    setPacienteBusca(cadastroComplementar.paciente.nome || pacienteBusca);
+    setMostrarPacientes(false);
+    setWorkspacePainel(itensCopiados.length ? "prescricao" : "consulta");
+    setConsultaEditorEtapa("anamnese");
+    setConsultaCampoAtivo("queixa_principal");
+    setTriagemExpandida(false);
+    setCadastroComplementarExpandido(false);
+    setPainelCasosAberto(false);
+    setExameBusca("");
+    setPainelExameSelecionado("");
+    setProtocoloPrescricaoSelecionado("");
+    setProtocoloPrescricaoDecididoPara(null);
+    setPrescricaoEditorManualAberto(itensCopiados.length > 0);
+    setPrescricaoEntradaModo(null);
+    setPrescricaoBuscaRapida("");
+    setPrescricaoOrigem(
+      origem
+        ? { atendimento_id: origem.id, data_atendimento: origem.data_atendimento }
+        : null
+    );
+    setDadosClinicosOrigem(
+      dadosClinicos && origem
+        ? { atendimento_id: origem.id, data_atendimento: origem.data_atendimento }
+        : null
+    );
+    setDocumentoTemplateSelecionado("");
+    setDocumentoClinicoForm(emptyDocumentoAtendimentoForm());
+    setAnexoArquivo(null);
+    clearExamUploadDrafts();
+    setAutosaveState("idle");
+    setAutosaveAt("");
+    clearDraftStorage(atendimentoAnteriorId);
+    draftRestoreRef.current = false;
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        hydratingFormRef.current = false;
+      });
+    }
+    setErro("");
+    setSucesso(
+      itensCopiados.length && origem
+        ? `Novo atendimento iniciado com uma copia revisavel da receita do atendimento #${origem.id}. O registro anterior permanece preservado.`
+        : "Novo atendimento iniciado para o mesmo paciente. O prontuario anterior permanece preservado."
+    );
+  };
+
+  const herdarAtendimentoAnterior = async (atendimentoId: number) => {
+    const atual = formRef.current;
+    if (!atual.paciente_id) {
+      setErro("Selecione um paciente antes de iniciar o atendimento.");
+      return;
+    }
+    if (autosaveStateRef.current === "saving") {
+      setErro("Aguarde a sincronizacao atual terminar antes de iniciar outro atendimento.");
+      return;
+    }
+    if (
+      typeof window !== "undefined" &&
+      !(await confirmarAcao({
+        titulo: "Herdar dados do atendimento anterior?",
+        descricao:
+          "Iniciar um novo atendimento herdando queixa principal, anamnese, exame fisico, " +
+          "dados clinicos e a receita (se houver) do atendimento selecionado? Diagnostico, " +
+          "plano terapeutico e triagem nao sao copiados - revise e preencha novamente.",
+        confirmLabel: "Herdar dados",
+      }))
+    ) {
+      return;
+    }
+
+    try {
+      const response = await api.get(`/atendimentos/${atendimentoId}`);
+      const detalhe = response.data || {};
+      const itensHistoricos: PrescricaoItem[] = detalhe.prescricao?.itens || [];
+      const prescricaoHistorica: PrescricaoHistorica | null = detalhe.prescricao
+        ? {
+            id: detalhe.prescricao.id,
+            orientacoes_gerais: detalhe.prescricao.orientacoes_gerais || "",
+            retorno_dias: detalhe.prescricao.retorno_dias ?? null,
+            total_itens: itensHistoricos.length,
+            itens: itensHistoricos,
+          }
+        : null;
+      const origem: AtendimentoHistorico = {
+        id: detalhe.id,
+        data_atendimento: detalhe.data_atendimento,
+        status: detalhe.status,
+        queixa_principal: detalhe.queixa_principal || "",
+        diagnostico_principal: detalhe.diagnostico_principal || "",
+        veterinario: detalhe.criado_por_nome || "",
+        prescricao: prescricaoHistorica,
+      };
+      await iniciarNovoAtendimentoPaciente(prescricaoHistorica, origem, {
+        queixa_principal: detalhe.queixa_principal || "",
+        anamnese: detalhe.anamnese || "",
+        exame_fisico: detalhe.exame_fisico || "",
+        dados_clinicos: detalhe.dados_clinicos || "",
+      });
+    } catch (e: any) {
+      setErro(extractApiErrorMessageSync(e, "Erro ao carregar o atendimento anterior."));
+    }
   };
 
   const setField = (name: keyof AtendimentoForm, value: any) => setForm((prev) => ({ ...prev, [name]: value }));
@@ -2546,11 +3118,21 @@ export default function AtendimentoPage() {
   };
 
   const setCadastroTutorField = (field: keyof TutorDetalhe, value: string | number | null) => {
+    const rawValue = String(value ?? "");
+    const maskedValue =
+      field === "cpf"
+        ? formatarCpfVisual(rawValue)
+        : field === "cep"
+          ? formatarCepVisual(rawValue)
+          : field === "telefone" || field === "whatsapp"
+            ? formatarTelefoneVisual(rawValue)
+            : value;
+
     setCadastroComplementar((prev) => ({
       ...prev,
       tutor: {
         ...prev.tutor,
-        ...(field === "cpf" ? { cpf: formatarCpfVisual(String(value ?? "")) } : { [field]: value }),
+        [field]: maskedValue,
       },
     }));
   };
@@ -2628,48 +3210,33 @@ export default function AtendimentoPage() {
       const pacienteId = Number(form.paciente_id);
       const pacientePayload = {
         nome: cadastroComplementar.paciente.nome.trim(),
+        tutor_id: cadastroComplementar.tutor.id || cadastroComplementar.paciente.tutor_id || undefined,
         tutor: cadastroComplementar.tutor.nome.trim() || undefined,
+        tutor_telefone: normalizarTelefone(cadastroComplementar.tutor.telefone || ""),
+        tutor_whatsapp: normalizarTelefone(cadastroComplementar.tutor.whatsapp || ""),
+        tutor_email: cadastroComplementar.tutor.email || "",
+        tutor_cpf: normalizarCpf(cadastroComplementar.tutor.cpf || ""),
+        tutor_cep: normalizarCep(cadastroComplementar.tutor.cep || ""),
+        tutor_endereco: cadastroComplementar.tutor.endereco || "",
+        tutor_numero: cadastroComplementar.tutor.numero || "",
+        tutor_complemento: cadastroComplementar.tutor.complemento || "",
+        tutor_bairro: cadastroComplementar.tutor.bairro || "",
+        tutor_cidade: cadastroComplementar.tutor.cidade || "",
+        tutor_estado: cadastroComplementar.tutor.estado || "",
         especie: cadastroComplementar.paciente.especie || null,
         raca: cadastroComplementar.paciente.raca || null,
+        sexo: normalizarSexoPaciente(cadastroComplementar.paciente.sexo || "") || null,
         data_nascimento: cadastroComplementar.paciente.data_nascimento || null,
         peso_kg:
           cadastroComplementar.paciente.peso_kg == null || Number.isNaN(Number(cadastroComplementar.paciente.peso_kg))
             ? null
             : Number(cadastroComplementar.paciente.peso_kg),
+        microchip: cadastroComplementar.paciente.microchip || "",
+        observacoes: cadastroComplementar.paciente.observacoes || "",
       };
 
-      await api.put(`/pacientes/${pacienteId}`, pacientePayload);
-      const pacienteAtualizado = await api.get(`/pacientes/${pacienteId}`);
-      let tutorId = Number(pacienteAtualizado.data?.tutor_id || cadastroComplementar.tutor.id || 0);
-      if (!Number.isFinite(tutorId) || tutorId <= 0) {
-        try {
-          const tutorAtual = await api.get(`/pacientes/${pacienteId}/tutor`);
-          tutorId = Number(tutorAtual.data?.id || 0);
-        } catch {
-          tutorId = 0;
-        }
-      }
-
-      if (Number.isFinite(tutorId) && tutorId > 0) {
-        try {
-          await api.put(`/tutores/${tutorId}`, {
-            nome: cadastroComplementar.tutor.nome.trim() || undefined,
-            telefone: cadastroComplementar.tutor.telefone || "",
-            whatsapp: cadastroComplementar.tutor.whatsapp || "",
-            email: cadastroComplementar.tutor.email || "",
-            cpf: normalizarCpf(cadastroComplementar.tutor.cpf || ""),
-            cep: cadastroComplementar.tutor.cep || "",
-            endereco: cadastroComplementar.tutor.endereco || "",
-            numero: cadastroComplementar.tutor.numero || "",
-            complemento: cadastroComplementar.tutor.complemento || "",
-            bairro: cadastroComplementar.tutor.bairro || "",
-            cidade: cadastroComplementar.tutor.cidade || "",
-            estado: cadastroComplementar.tutor.estado || "",
-          });
-        } catch (tutorError) {
-          console.error("Falha ao atualizar tutor no cadastro complementar", tutorError);
-        }
-      }
+      const pacienteAtualizado = await api.put(`/pacientes/${pacienteId}`, pacientePayload);
+      const tutorId = Number(pacienteAtualizado.data?.tutor_id || cadastroComplementar.tutor.id || 0);
 
       await carregarCadastroComplementar(pacienteId);
       setField("especie", pacientePayload.especie || "");
@@ -2688,13 +3255,23 @@ export default function AtendimentoPage() {
             : item
         )
       );
-      setSucesso("Cadastro complementar salvo com sucesso.");
+      setSucesso("Cadastro atualizado. Receitas e solicitacoes de exame usarao estes dados nas proximas impressoes.");
       setErro("");
     } catch (e: any) {
       setErro(extractApiErrorMessageSync(e, "Erro ao salvar cadastro complementar."));
     } finally {
       setSalvandoCadastroComplementar(false);
     }
+  };
+
+  const abrirCadastroComplementar = () => {
+    setCadastroComplementarExpandido(true);
+    window.requestAnimationFrame(() => {
+      document.getElementById("atendimento-cadastro-complementar")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
   };
 
   const updatePrescricaoItem = (index: number, updates: Partial<PrescricaoItem>) => {
@@ -2863,7 +3440,7 @@ export default function AtendimentoPage() {
         paciente_idade: idadePacienteExibicao || "",
         tutor_nome: tutorNomeExibicao || "",
         veterinario_nome: "",
-        data_atendimento: form.data_atendimento || new Date().toISOString().split("T")[0],
+        data_atendimento: form.data_atendimento || nowLocalInput().slice(0, 10),
         orientacoes_gerais: form.prescricao_orientacoes || "",
         retorno_dias: form.prescricao_retorno_dias ? Number(form.prescricao_retorno_dias) : null,
         itens: form.prescricao_itens.map((item) => ({
@@ -2900,7 +3477,7 @@ export default function AtendimentoPage() {
 
   const abrirMedicamentoBuscaRapida = (med: Medicamento) => {
     editarMedicamento(med);
-    setWorkspacePainel("bibliotecas");
+    abrirBibliotecasClinicas();
   };
 
   const toggleFormulaManipuladaPrescricao = (idx: number) => {
@@ -3076,11 +3653,39 @@ export default function AtendimentoPage() {
     setErro("");
   };
 
+  const protocoloPrescricaoSelecionadoItensPreview = protocoloPrescricaoSelecionadoDetalhe
+    ? protocoloPrescricaoSelecionadoDetalhe.itens.map(montarItemDeProtocoloPrescricao)
+    : [];
+
+  const fecharPreviaProtocoloPrescricao = (protocoloKey: string) => {
+    // So marca a recomendacao como "decidida" para o diagnostico atual quando
+    // o protocolo fechado e o recomendado - descartar um protocolo escolhido
+    // manualmente nao deve suprimir a recomendacao automatica.
+    if (protocoloPrescricaoRecomendado?.key === protocoloKey) {
+      setProtocoloPrescricaoDecididoPara(diagnosticoTextoConsolidado);
+    }
+    setProtocoloPrescricaoSelecionado("");
+  };
+
+  const selecionarProtocoloPrescricao = (protocoloKey: string) => {
+    if (protocoloPrescricaoSelecionado === protocoloKey) {
+      fecharPreviaProtocoloPrescricao(protocoloKey);
+      return;
+    }
+    setProtocoloPrescricaoSelecionado(protocoloKey);
+  };
+
   const aplicarProtocoloSelecionado = () => {
     if (!protocoloPrescricaoSelecionado) return;
     const protocolo = PROTOCOLOS_PRESCRICAO.find((item) => item.key === protocoloPrescricaoSelecionado);
     if (!protocolo) return;
     aplicarProtocoloPrescricao(protocolo);
+    fecharPreviaProtocoloPrescricao(protocolo.key);
+  };
+
+  const descartarProtocoloSelecionado = () => {
+    if (!protocoloPrescricaoSelecionado) return;
+    fecharPreviaProtocoloPrescricao(protocoloPrescricaoSelecionado);
   };
 
   const buildExamFromCatalog = (item: CatalogoExame, painel?: PainelExame | null): ExameSolicitacao => ({
@@ -3096,16 +3701,19 @@ export default function AtendimentoPage() {
     valor: item.valor_padrao || 0,
   });
 
+  const expandirApenasPrimeiroExame = (exames: ExameSolicitacao[]) => {
+    setExamesExpandidos(exames.length ? { [getExameStateKey(exames[0])]: true } : {});
+  };
+
   const mergeExamesNoFormulario = (novosExames: ExameSolicitacao[]) => {
     if (!novosExames.length) return;
     const base = form.exames.length === 1 && !(form.exames[0].tipo_exame || "").trim() ? [] : form.exames;
     setField("exames", [...base, ...novosExames]);
     setExameFiltroRapido("todos");
-    const firstNewIndex = base.length;
     setExamesExpandidos((prev) => {
       const next = { ...prev };
-      novosExames.forEach((_, offset) => {
-        next[firstNewIndex + offset] = true;
+      novosExames.forEach((exame) => {
+        next[getExameStateKey(exame)] = true;
       });
       return next;
     });
@@ -3180,7 +3788,16 @@ export default function AtendimentoPage() {
   };
 
   const excluirPainelExame = async (painelId: number) => {
-    if (!confirm("Tem certeza que deseja excluir este painel?")) return;
+    if (
+      !(await confirmarAcao({
+        titulo: "Excluir painel de exames?",
+        descricao: "Tem certeza que deseja excluir este painel? Esta acao nao pode ser desfeita.",
+        variante: "destructive",
+        confirmLabel: "Excluir",
+      }))
+    ) {
+      return;
+    }
     try {
       await api.delete(`/atendimentos/paineis/${painelId}`);
       setSucesso("Painel removido com sucesso.");
@@ -3396,6 +4013,94 @@ export default function AtendimentoPage() {
     }
   };
 
+  const removerExame = async (index: number) => {
+    const exame = form.exames[index];
+    if (!exame) return;
+
+    const key = getExameStateKey(exame);
+    clearExamUploadDraft(key);
+    clearExamDropState(key);
+
+    // Exame ja persistido some do prontuario apenas por marcacao explicita, com
+    // confirmacao. Exame que nunca foi salvo sai so do estado local.
+    if (exame.id) {
+      const nome = (exame.tipo_exame || "").trim() || "sem nome";
+      if (
+        !(await confirmarAcao({
+          titulo: "Excluir exame do prontuario?",
+          descricao: `Excluir o exame "${nome}" do prontuario? A exclusao e aplicada no proximo salvamento.`,
+          variante: "destructive",
+          confirmLabel: "Excluir",
+        }))
+      ) {
+        return;
+      }
+      const atualizados = form.exames.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, _destroy: true } : item
+      );
+      setField("exames", atualizados);
+      expandirApenasPrimeiroExame(atualizados.filter((item) => !item._destroy));
+      setSucesso(`Exame "${nome}" marcado para exclusao.`);
+      setErro("");
+      return;
+    }
+
+    const restantes = form.exames.filter((_, itemIndex) => itemIndex !== index);
+    const proximosExames = restantes.length > 0 ? restantes : [emptyExam()];
+    setField("exames", proximosExames);
+    expandirApenasPrimeiroExame(proximosExames);
+  };
+
+  const aplicarExameAtualizado = (exameAtualizado: ExameSolicitacao | null | undefined) => {
+    if (!exameAtualizado?.id) return;
+    setForm((current) => ({
+      ...current,
+      exames: current.exames.map((item) =>
+        item.id === exameAtualizado.id ? { ...item, ...exameAtualizado } : item
+      ),
+    }));
+  };
+
+  const alternarLiberacaoExameNoPortal = async (
+    exame: ExameSolicitacao,
+    acao: "liberar" | "revogar"
+  ) => {
+    if (!exame.id) return;
+    if (
+      acao === "revogar" &&
+      !(await confirmarAcao({
+        titulo: "Revogar liberacao no portal?",
+        descricao: "Revogar a liberacao deste exame? A clinica parceira perde o acesso no portal.",
+        confirmLabel: "Revogar",
+      }))
+    ) {
+      return;
+    }
+
+    setPortalExameAcaoId(exame.id);
+    try {
+      const response = await api.post(`/atendimentos/exames/${exame.id}/portal/${acao}`);
+      aplicarExameAtualizado(response.data?.exame);
+      setSucesso(
+        acao === "liberar"
+          ? "Exame liberado no portal da clinica parceira."
+          : "Liberacao do exame no portal revogada."
+      );
+      setErro("");
+    } catch (e: unknown) {
+      setErro(
+        extractApiErrorMessageSync(
+          e,
+          acao === "liberar"
+            ? "Erro ao liberar o exame no portal."
+            : "Erro ao revogar a liberacao do exame."
+        )
+      );
+    } finally {
+      setPortalExameAcaoId(null);
+    }
+  };
+
   const atualizarExame = (index: number, updates: Partial<ExameSolicitacao>) => {
     setField(
       "exames",
@@ -3449,7 +4154,8 @@ export default function AtendimentoPage() {
     setSucesso(`Painel "${painelExameAtual.nome}" aplicado com ${novosExames.length} exame(s).`);
   };
 
-  const saveAtendimento = async (mode: "manual" | "autosave" = "manual") => {
+  const executarSaveAtendimento = async (mode: "manual" | "autosave" = "manual") => {
+    let criandoAutomaticamente = false;
     try {
       const currentForm = formRef.current;
       const isAutosave = mode === "autosave";
@@ -3467,6 +4173,26 @@ export default function AtendimentoPage() {
         setErro("Selecione um paciente.");
         return null;
       }
+      if (!isAutosave && !selecionadoRef.current && criandoAtendimentoAutomaticoRef.current) {
+        // Um autosave ja esta criando este atendimento automaticamente (POST
+        // em voo). Um clique manual em "Salvar" nesse intervalo nao pode
+        // disparar um segundo POST e duplicar o atendimento.
+        setErro("Aguarde a sincronizacao automatica terminar antes de salvar manualmente.");
+        return null;
+      }
+
+      // Criacao automatica em modo autosave: guarda de idempotencia para nao
+      // duplicar o atendimento se o debounce disparar de novo (ex.: usuario
+      // continua digitando) enquanto o primeiro POST ainda esta em voo.
+      // `criandoAutomaticamente` so vira true se ESTA chamada especifica
+      // adquirir a trava - uma chamada bloqueada pelo guard abaixo nunca deve
+      // liberar a trava de quem esta com o POST em voo.
+      if (isAutosave && !selecionadoRef.current) {
+        if (criandoAtendimentoAutomaticoRef.current) return;
+        criandoAtendimentoAutomaticoRef.current = true;
+        criandoAutomaticamente = true;
+      }
+
       if (!isAutosave) {
         setSalvando(true);
       } else {
@@ -3476,10 +4202,9 @@ export default function AtendimentoPage() {
       const payload = buildAtendimentoPayload(currentForm);
       let response;
 
-      if (selecionado) {
-        response = await api.put(`/atendimentos/${selecionado}`, payload);
+      if (selecionadoRef.current) {
+        response = await api.put(`/atendimentos/${selecionadoRef.current}`, payload);
       } else {
-        if (isAutosave) return;
         response = await api.post("/atendimentos", payload);
       }
       const hydrated = hydrateFormFromDetail(response.data || {});
@@ -3490,33 +4215,73 @@ export default function AtendimentoPage() {
           setSelecionado(response.data.id);
         }
         hydratingFormRef.current = true;
-        setForm(hydrated);
-        clearDraftStorage();
+        // Mesmo merge do autosave, nao uma substituicao incondicional: o
+        // payload enviado reflete o form de ANTES do await, entao uma edicao
+        // feita pelo usuario durante o round-trip (o PUT/POST manual pode
+        // levar segundos numa rede lenta, e nenhum campo de texto fica
+        // desabilitado enquanto isso) nao pode ser apagada pela resposta do
+        // servidor.
+        setForm((current) => {
+          const semExcluidos = current.exames.filter((item) => !item._destroy);
+          return mergeAutoSavedFormState(
+            { ...current, exames: semExcluidos.length > 0 ? semExcluidos : [emptyExam()] },
+            hydrated
+          );
+        });
+        clearDraftStorage(response.data?.id || selecionadoRef.current);
         draftRestoreRef.current = true;
         setAutosaveState("saved");
         setAutosaveAt(response.data?.updated_at || response.data?.created_at || new Date().toISOString());
+        setPrescricaoOrigem(null);
+        setDadosClinicosOrigem(null);
         if (typeof window !== "undefined") {
           window.requestAnimationFrame(() => {
             hydratingFormRef.current = false;
           });
         }
-        setSucesso(selecionado ? "Atendimento atualizado com sucesso." : "Atendimento criado com sucesso.");
+        setSucesso(selecionadoRef.current ? "Atendimento atualizado com sucesso." : "Atendimento criado com sucesso.");
         await carregarLista(paginaLista);
         if (hydrated.paciente_id) {
           await carregarHistoricoPaciente(hydrated.paciente_id);
         }
       } else {
         setForm((current) => {
-          return mergeAutoSavedFormState(current, hydrated);
+          // A exclusao foi aplicada no servidor: o marcador sai do estado local
+          // para nao voltar em todo save seguinte.
+          const semExcluidos = current.exames.filter((item) => !item._destroy);
+          return mergeAutoSavedFormState(
+            { ...current, exames: semExcluidos.length > 0 ? semExcluidos : [emptyExam()] },
+            hydrated
+          );
         });
+        if (criandoAutomaticamente && response.data?.id) {
+          // Primeiro POST automatico bem-sucedido: o atendimento passa a
+          // existir no servidor, entao os saves seguintes viram PUT.
+          setSelecionado(response.data.id);
+          clearDraftStorage(response.data.id);
+          draftRestoreRef.current = true;
+        }
         setAutosaveState("saved");
         setAutosaveAt(response.data?.updated_at || response.data?.created_at || new Date().toISOString());
       }
       setErro("");
-      return response.data?.id || selecionado || null;
+      return response.data?.id || selecionadoRef.current || null;
     } catch (e: any) {
+      // Nada foi aplicado: devolver os exames marcados para exclusao a lista,
+      // para nao deixar exame invisivel que continua existindo no prontuario.
+      setForm((current) =>
+        current.exames.some((item) => item._destroy)
+          ? {
+              ...current,
+              exames: current.exames.map((item) =>
+                item._destroy ? { ...item, _destroy: false } : item
+              ),
+            }
+          : current
+      );
       if (mode === "autosave") {
         setAutosaveState("error");
+        setErro(extractApiErrorMessageSync(e, "Nao foi possivel sincronizar o atendimento."));
       } else {
         setErro(extractApiErrorMessageSync(e, "Erro ao salvar atendimento."));
       }
@@ -3525,21 +4290,155 @@ export default function AtendimentoPage() {
       if (mode === "manual") {
         setSalvando(false);
       }
+      if (criandoAutomaticamente) {
+        criandoAtendimentoAutomaticoRef.current = false;
+      }
+    }
+  };
+
+  const saveAtendimento = async (mode: "manual" | "autosave" = "manual"): Promise<number | null> => {
+    const emVoo = salvamentoAtendimentoEmVooRef.current;
+    if (emVoo) {
+      // Nao dispara um segundo PUT/POST concorrente: espera o save em voo
+      // terminar (ignorando seu erro, se houver) e entao refaz com o estado
+      // mais atual do form, garantindo que a edicao mais recente sempre
+      // acabe persistida, sem nunca ter duas requisicoes simultaneas.
+      await emVoo.catch(() => null);
+      return saveAtendimento(mode);
+    }
+
+    const promise = executarSaveAtendimento(mode);
+    salvamentoAtendimentoEmVooRef.current = promise;
+    try {
+      return await promise;
+    } finally {
+      if (salvamentoAtendimentoEmVooRef.current === promise) {
+        salvamentoAtendimentoEmVooRef.current = null;
+      }
+    }
+  };
+
+  const saveAtendimentoRef = useRef(saveAtendimento);
+  useEffect(() => {
+    saveAtendimentoRef.current = saveAtendimento;
+  });
+
+  useEffect(() => {
+    return () => {
+      // Cleanup de deps [] roda so no unmount de verdade (sair de /atendimento),
+      // ao contrario do cleanup do efeito de debounce, que roda a cada
+      // keystroke. Se havia um autosave pendente, dispara o flush antes de
+      // desmontar, em vez de deixar a ultima edicao so no debounce perdido.
+      if (typeof window === "undefined" || !autosaveTimerRef.current) return;
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+      void saveAtendimentoRef.current("autosave");
+    };
+  }, []);
+
+  const finalizarAtendimento = async (confirmarConclusaoPendencias: boolean = false) => {
+    setFinalizando(true);
+    try {
+      const atendimentoId = await saveAtendimento("manual");
+      if (!atendimentoId) return;
+
+      const response = await api.post(`/atendimentos/${atendimentoId}/finalizar`, {
+        tipo_horario: tipoHorarioFinalizacao,
+        confirmar_conclusao_pendencias: confirmarConclusaoPendencias,
+      });
+      const detalhe = response.data?.atendimento || {};
+      const hydrated = hydrateFormFromDetail(detalhe);
+
+      hydratingFormRef.current = true;
+      setSelecionado(Number(atendimentoId));
+      // Mesmo merge do save manual (achado #18): o POST /finalizar reflete o
+      // form de ANTES do await, entao uma edicao feita pelo usuario durante o
+      // round-trip nao pode ser apagada pela resposta do servidor.
+      setForm((current) => {
+        const semExcluidos = current.exames.filter((item) => !item._destroy);
+        return mergeAutoSavedFormState(
+          { ...current, exames: semExcluidos.length > 0 ? semExcluidos : [emptyExam()] },
+          hydrated
+        );
+      });
+      lastPersistedSnapshotRef.current = serializeAtendimentoSnapshot(hydrated);
+      clearDraftStorage(atendimentoId);
+      draftRestoreRef.current = true;
+      setAutosaveState("saved");
+      setAutosaveAt(detalhe.updated_at || detalhe.created_at || new Date().toISOString());
+      if (typeof window !== "undefined") {
+        window.requestAnimationFrame(() => {
+          hydratingFormRef.current = false;
+        });
+      }
+
+      await carregarLista(paginaLista);
+      if (hydrated.paciente_id) {
+        await carregarHistoricoPaciente(hydrated.paciente_id);
+      }
+      setErro("");
+      setSucesso(response.data?.mensagem || "Atendimento finalizado com sucesso.");
+    } catch (e: any) {
+      const detalhe = e?.response?.data?.detail;
+      const precisaConfirmar =
+        !confirmarConclusaoPendencias &&
+        e?.response?.status === 409 &&
+        detalhe &&
+        typeof detalhe === "object" &&
+        detalhe.codigo === "CONFIRMACAO_CONCLUSAO_PENDENCIAS";
+
+      if (precisaConfirmar) {
+        setFinalizando(false);
+        const confirmado = await confirmarAcao({
+          titulo: "Concluir com pendencias?",
+          descricao: String(detalhe.mensagem || "Concluir mesmo com pendencias?"),
+          confirmLabel: "Concluir",
+        });
+        if (confirmado) {
+          await finalizarAtendimento(true);
+        }
+        return;
+      }
+
+      setErro(
+        extractApiErrorMessageSync(
+          e,
+          "Nao foi possivel finalizar. O atendimento, a Agenda e a OS foram preservados."
+        )
+      );
+    } finally {
+      setFinalizando(false);
     }
   };
 
   useEffect(() => {
-    if (typeof window === "undefined" || loading || !contextoAplicado || !selecionado || hydratingFormRef.current) {
+    if (typeof window === "undefined" || loading || !contextoAplicado || hydratingFormRef.current) {
       return;
     }
 
-    const currentSnapshot = serializeAtendimentoSnapshot(form);
-    if (currentSnapshot === lastPersistedSnapshotRef.current) {
-      if (autosaveState !== "saved") {
-        setAutosaveState("saved");
+    let deveAgendar: boolean;
+    if (selecionado) {
+      const currentSnapshot = serializeAtendimentoSnapshot(form);
+      if (currentSnapshot === lastPersistedSnapshotRef.current) {
+        if (autosaveState !== "saved") {
+          setAutosaveState("saved");
+        }
+        return;
       }
-      return;
+      deveAgendar = true;
+    } else {
+      // Atendimento ainda nao existe no servidor: so agenda a criacao
+      // automatica quando ja ha paciente + algum conteudo digitado (mesma
+      // checagem usada pelo rascunho local pre-save).
+      deveAgendar =
+        Boolean(form.paciente_id) &&
+        (hasMeaningfulDraft(clinicalFieldValues) ||
+          Boolean(form.triagem.peso || form.triagem.temperatura || form.triagem.pressao_arterial.trim()) ||
+          form.exames.some((item) => (item.tipo_exame || "").trim()) ||
+          form.prescricao_itens.some((item) => item.medicamento_id || (item.medicamento_nome || "").trim()));
     }
+
+    if (!deveAgendar) return;
 
     setAutosaveState("dirty");
     if (autosaveTimerRef.current) {
@@ -3547,6 +4446,11 @@ export default function AtendimentoPage() {
     }
 
     autosaveTimerRef.current = window.setTimeout(() => {
+      // Zera a ref ANTES de chamar saveAtendimento: o timer ja disparou (nao
+      // ha mais nada "pendente" no sentido do flush-no-unmount), e o proximo
+      // saveAtendimento pode, ele mesmo, mudar `form` (hidratacao) e reagendar
+      // um novo timer - zerar aqui evita confundir os dois.
+      autosaveTimerRef.current = null;
       void saveAtendimento("autosave");
     }, AUTOSAVE_DELAY_MS);
 
@@ -3555,10 +4459,19 @@ export default function AtendimentoPage() {
         window.clearTimeout(autosaveTimerRef.current);
       }
     };
-  }, [contextoAplicado, form, loading, selecionado]);
+  }, [clinicalFieldValues, contextoAplicado, form, loading, selecionado]);
 
   const deleteAtendimento = async (id: number) => {
-    if (!confirm(`Excluir atendimento #${id}?`)) return;
+    if (
+      !(await confirmarAcao({
+        titulo: "Excluir atendimento?",
+        descricao: `Excluir o atendimento #${id}? Esta acao nao pode ser desfeita.`,
+        variante: "destructive",
+        confirmLabel: "Excluir",
+      }))
+    ) {
+      return;
+    }
     try {
       await api.delete(`/atendimentos/${id}`);
       if (selecionado === id) novoAtendimento();
@@ -3688,36 +4601,36 @@ export default function AtendimentoPage() {
     };
   };
 
-  const clearExamUploadDraft = (index: number) => {
+  const clearExamUploadDraft = (key: string) => {
     setExamUploadDrafts((prev) => {
-      const current = prev[index];
+      const current = prev[key];
       if (current?.previewUrl) {
         window.URL.revokeObjectURL(current.previewUrl);
       }
       const next = { ...prev };
-      delete next[index];
+      delete next[key];
       return next;
     });
   };
 
-  const setExamUploadDraftFile = (index: number, file: File) => {
+  const setExamUploadDraftFile = (key: string, file: File) => {
     setExamUploadDrafts((prev) => {
-      const current = prev[index];
+      const current = prev[key];
       if (current?.previewUrl) {
         window.URL.revokeObjectURL(current.previewUrl);
       }
       return {
         ...prev,
-        [index]: buildPendingExamUpload(file),
+        [key]: buildPendingExamUpload(file),
       };
     });
   };
 
-  const clearExamDropState = (index: number) => {
+  const clearExamDropState = (key: string) => {
     setExamDropActive((prev) => {
-      if (!prev[index]) return prev;
+      if (!prev[key]) return prev;
       const next = { ...prev };
-      delete next[index];
+      delete next[key];
       return next;
     });
   };
@@ -3770,8 +4683,8 @@ export default function AtendimentoPage() {
       uploadKey,
     });
     if (uploadConcluido) {
-      clearExamUploadDraft(index);
-      clearExamDropState(index);
+      clearExamUploadDraft(getExameStateKey(examAtual));
+      clearExamDropState(getExameStateKey(examAtual));
     }
   };
 
@@ -3791,6 +4704,7 @@ export default function AtendimentoPage() {
       return;
     }
 
+    let enviados = 0;
     for (const file of arquivosValidos) {
       const uploadConcluido = await uploadAnexoArquivo(file, {
         exameId,
@@ -3801,9 +4715,23 @@ export default function AtendimentoPage() {
       if (!uploadConcluido) {
         break;
       }
+      enviados += 1;
     }
-    clearExamUploadDraft(index);
-    clearExamDropState(index);
+    clearExamUploadDraft(getExameStateKey(examAtual));
+    clearExamDropState(getExameStateKey(examAtual));
+
+    // uploadAnexoArquivo ja mostrou o motivo especifico do arquivo que
+    // interrompeu o lote (tamanho, extensao, rede) - sem isto, o vet ve so
+    // essa mensagem pontual e presume que apenas aquele arquivo ficou de
+    // fora, quando na verdade o lote parou ali e os demais nunca chegaram a
+    // ser tentados.
+    const naoTentados = arquivosValidos.length - enviados - 1;
+    if (naoTentados > 0) {
+      setErro(
+        (atual) =>
+          `${atual} (${naoTentados} de ${arquivosValidos.length} arquivo(s) do lote nao chegaram a ser enviados.)`
+      );
+    }
   };
 
   const cancelarUploadAnexo = (uploadKey: string) => {
@@ -3958,7 +4886,13 @@ export default function AtendimentoPage() {
           window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60_000);
         }
       } catch (e: any) {
-        setErro(extractApiErrorMessageSync(e, "Erro ao abrir anexo."));
+        // Versao async: numa resposta blob, error.response.data e um Blob (nao
+        // tem detail/message), e a versao sincrona nao sabe ler isso - cai
+        // para error.message, o texto tecnico generico do axios, perdendo o
+        // motivo real que o backend devolveu (ex.: "Arquivo nao encontrado no
+        // armazenamento."). Mesma versao ja usada nas outras chamadas blob
+        // deste arquivo (PDF de documento/receita/exames).
+        setErro(await extractApiErrorMessage(e, "Erro ao abrir anexo."));
       } finally {
         setOpeningAttachmentId(null);
       }
@@ -3981,6 +4915,17 @@ export default function AtendimentoPage() {
   };
 
   const excluirAnexo = async (anexo: Anexo) => {
+    if (
+      typeof window !== "undefined" &&
+      !(await confirmarAcao({
+        titulo: "Excluir anexo?",
+        descricao: "Excluir este anexo definitivamente? O arquivo original nao podera ser recuperado.",
+        variante: "destructive",
+        confirmLabel: "Excluir",
+      }))
+    ) {
+      return;
+    }
     try {
       await api.delete(`/atendimentos/anexos/${anexo.id}`);
       if (attachmentPreview?.anexo.id === anexo.id) {
@@ -4040,17 +4985,24 @@ export default function AtendimentoPage() {
     setErro("");
   };
 
+  const documentoVariaveisNaoResolvidas = useMemo(
+    () => extrairVariaveisNaoResolvidas(`${documentoClinicoForm.titulo} ${documentoClinicoForm.corpo}`),
+    [documentoClinicoForm.titulo, documentoClinicoForm.corpo]
+  );
+
   const criarDocumentoClinicoDeTemplate = async () => {
     if (!documentoTemplateSelecionado) {
       setErro("Selecione um template de documento.");
       return null;
     }
-
-    const atendimentoId = await obterAtendimentoIdParaDocumento();
-    if (!atendimentoId) return null;
+    if (documentoClinicoEmVooRef.current) return null;
+    documentoClinicoEmVooRef.current = true;
+    setSalvandoDocumentoClinico(true);
 
     try {
-      setSalvandoDocumentoClinico(true);
+      const atendimentoId = await obterAtendimentoIdParaDocumento();
+      if (!atendimentoId) return null;
+
       const response = await api.post(`/atendimentos/${atendimentoId}/documentos`, {
         template_id: Number(documentoTemplateSelecionado),
       });
@@ -4059,7 +5011,12 @@ export default function AtendimentoPage() {
       const documentosAtualizados = await recarregarDocumentosAtendimento(atendimentoId);
       const documentoPersistido = documentosAtualizados.find((item) => item.id === documento.id) || documento;
       setDocumentoClinicoForm(hydrateDocumentoForm(documentoPersistido));
-      setSucesso("Documento criado a partir do template.");
+      const variaveisVazias = documento.variaveis_vazias || [];
+      setSucesso(
+        variaveisVazias.length
+          ? `Documento criado a partir do template. Atencao: ${variaveisVazias.join(", ")} estava(m) vazio(s) no cadastro - revise o texto antes de gerar o PDF.`
+          : "Documento criado a partir do template."
+      );
       setErro("");
       return documentoPersistido;
     } catch (e: any) {
@@ -4067,6 +5024,7 @@ export default function AtendimentoPage() {
       return null;
     } finally {
       setSalvandoDocumentoClinico(false);
+      documentoClinicoEmVooRef.current = false;
     }
   };
 
@@ -4077,12 +5035,14 @@ export default function AtendimentoPage() {
       setErro("Preencha titulo e corpo do documento.");
       return null;
     }
-
-    const atendimentoId = await obterAtendimentoIdParaDocumento();
-    if (!atendimentoId) return null;
+    if (documentoClinicoEmVooRef.current) return null;
+    documentoClinicoEmVooRef.current = true;
+    setSalvandoDocumentoClinico(true);
 
     try {
-      setSalvandoDocumentoClinico(true);
+      const atendimentoId = await obterAtendimentoIdParaDocumento();
+      if (!atendimentoId) return null;
+
       const payload = {
         template_id: documentoClinicoForm.template_id || undefined,
         titulo,
@@ -4107,6 +5067,7 @@ export default function AtendimentoPage() {
       return null;
     } finally {
       setSalvandoDocumentoClinico(false);
+      documentoClinicoEmVooRef.current = false;
     }
   };
 
@@ -4118,11 +5079,39 @@ export default function AtendimentoPage() {
     }
     if (!documentoParaPdf?.id) return;
 
+    const variaveisNaoResolvidasPdf = extrairVariaveisNaoResolvidas(
+      `${documentoParaPdf.titulo} ${documentoParaPdf.corpo}`
+    );
+    if (
+      variaveisNaoResolvidasPdf.length > 0 &&
+      !(await confirmarAcao({
+        titulo: "Variaveis nao reconhecidas no documento",
+        descricao: `O documento "${documentoParaPdf.titulo}" ainda tem ${variaveisNaoResolvidasPdf.length} variavel(is) nao reconhecida(s) (${variaveisNaoResolvidasPdf.join(", ")}). Gerar o PDF assim mesmo?`,
+        confirmLabel: "Gerar assim mesmo",
+      }))
+    ) {
+      return;
+    }
+
+    if (
+      documentoParaPdf.status === "emitido" &&
+      !(await confirmarAcao({
+        titulo: "Documento ja emitido",
+        descricao: `O documento "${documentoParaPdf.titulo}" ja foi emitido anteriormente. Gerar um novo PDF agora cria uma nova versao oficial com o conteudo atual. Continuar?`,
+        confirmLabel: "Gerar nova versao",
+      }))
+    ) {
+      return;
+    }
+
     try {
       setGerandoDocumentoPdfId(documentoParaPdf.id);
       const response = await api.get(
         `/atendimentos/${documentoParaPdf.atendimento_id}/documentos/${documentoParaPdf.id}/pdf`,
-        { responseType: "blob" }
+        {
+          responseType: "blob",
+          params: { impressao: Date.now() },
+        }
       );
       const filename = parseDownloadFilename(
         response.headers?.["content-disposition"],
@@ -4159,7 +5148,16 @@ export default function AtendimentoPage() {
   };
 
   const excluirDocumentoClinico = async (documento: DocumentoAtendimento) => {
-    if (!confirm(`Remover o documento "${documento.titulo}"?`)) return;
+    if (
+      !(await confirmarAcao({
+        titulo: "Remover documento?",
+        descricao: `Remover o documento "${documento.titulo}"? Esta acao nao pode ser desfeita.`,
+        variante: "destructive",
+        confirmLabel: "Remover",
+      }))
+    ) {
+      return;
+    }
     try {
       await api.delete(`/atendimentos/${documento.atendimento_id}/documentos/${documento.id}`);
       await recarregarDocumentosAtendimento(documento.atendimento_id);
@@ -4271,7 +5269,8 @@ export default function AtendimentoPage() {
       duracao_padrao: "",
       observacoes,
     });
-    setSucesso("");
+    setWorkspacePainel("bibliotecas");
+    setSucesso("Formula pronta para revisao em Bibliotecas clinicas.");
     setErro("");
   };
 
@@ -4325,8 +5324,12 @@ export default function AtendimentoPage() {
   };
 
   const carregarFrasesClinicas = async () => {
-    const response = await api.get("/atendimentos/frases-clinicas?include_inactive=1&limit=1000");
-    setClinicalPhrases(response.data?.frases || []);
+    try {
+      const response = await api.get("/atendimentos/frases-clinicas?include_inactive=1&limit=1000");
+      setClinicalPhrases(response.data?.frases || []);
+    } catch (e: any) {
+      setErro(extractApiErrorMessageSync(e, "Erro ao atualizar banco de frases clinicas."));
+    }
   };
 
   const editarFraseClinica = (item: ClinicalPhraseRecord) => {
@@ -4391,6 +5394,34 @@ export default function AtendimentoPage() {
       setErro("");
     } catch (e: any) {
       setErro(extractApiErrorMessageSync(e, "Erro ao atualizar status da frase clinica."));
+    }
+  };
+
+  const salvarFraseRapida = async (secao: ClinicalFieldKey, titulo: string, texto: string) => {
+    const tituloLimpo = titulo.trim();
+    const textoLimpo = texto.trim();
+    if (!tituloLimpo || !textoLimpo) {
+      setErro("Preencha titulo e texto da frase rapida.");
+      return false;
+    }
+    try {
+      setSavingQuickPhrase(true);
+      await api.post("/atendimentos/frases-clinicas", {
+        secao,
+        titulo: tituloLimpo,
+        texto: textoLimpo,
+        ordem: 0,
+        ativo: 1,
+      });
+      await carregarFrasesClinicas();
+      setSucesso("Frase rapida salva. Ja disponivel como atalho nesta secao.");
+      setErro("");
+      return true;
+    } catch (e: any) {
+      setErro(extractApiErrorMessageSync(e, "Erro ao salvar frase rapida."));
+      return false;
+    } finally {
+      setSavingQuickPhrase(false);
     }
   };
 
@@ -4593,6 +5624,7 @@ export default function AtendimentoPage() {
 
       const response = await api.get(`/atendimentos/${atendimentoId}/${tipo}/pdf`, {
         responseType: "blob",
+        params: { impressao: Date.now() },
       });
 
       const fallbackFilename =
@@ -4641,54 +5673,39 @@ export default function AtendimentoPage() {
     return "border-slate-200 bg-slate-50 text-slate-700";
   };
 
-  const fluxoClinico = [
-    {
-      id: "triagem",
-      titulo: "Triagem",
-      descricao: "Sinais vitais e estabilidade",
-      concluido: form.triagem_concluida === 1,
-    },
-    {
-      id: "consulta",
-      titulo: "Consulta",
-      descricao: "Anamnese, exame fisico e plano",
-      concluido: form.consulta_concluida === 1,
-    },
-    {
-      id: "exames",
-      titulo: "Exames",
-      descricao: `${form.exames.filter((item) => (item.tipo_exame || "").trim()).length} solicitacao(oes)`,
-      concluido: form.exames.some((item) => (item.tipo_exame || "").trim()),
-    },
-    {
-      id: "prescricao",
-      titulo: "Prescricao",
-      descricao: `${form.prescricao_itens.filter((item) => item.medicamento_id || item.medicamento_nome.trim()).length} item(ns)`,
-      concluido: form.prescricao_itens.some((item) => item.medicamento_id || item.medicamento_nome.trim()),
-    },
-  ];
   const totalExamesSolicitados = form.exames.filter((item) => (item.tipo_exame || "").trim()).length;
   const totalPrescricaoItens = form.prescricao_itens.filter((item) => item.medicamento_id || item.medicamento_nome.trim()).length;
   const totalAnexosExame = form.exames.reduce((acc, exame) => acc + (exame.anexos_resultado?.length || 0), 0);
   const totalAnexosDocumento = anexosGerais.length + totalAnexosExame + form.documentos.length;
-  const workspaceCards: Array<{ key: WorkspacePainel; titulo: string; resumo: string; badge: string }> = [
+  const examesPendentesCount = resumoExamesFluxo.aguardando_arquivo + resumoExamesFluxo.arquivo_anexado;
+  const workspaceCards: Array<{
+    key: Exclude<WorkspacePainel, "bibliotecas">;
+    titulo: string;
+    resumo: string;
+    badge: string;
+    triagemConcluida?: boolean;
+    pendente?: boolean;
+  }> = [
     {
       key: "consulta",
       titulo: "Consulta",
       resumo: "Triagem + editor clinico",
       badge: `${clinicalSummary.completeness}%`,
+      triagemConcluida: form.triagem_concluida === 1,
     },
     {
       key: "exames",
       titulo: "Exames",
       resumo: "Solicitacao e resultados",
       badge: `${totalExamesSolicitados}`,
+      pendente: examesPendentesCount > 0,
     },
     {
       key: "prescricao",
       titulo: "Prescricao",
       resumo: "Receituario assistido",
       badge: `${totalPrescricaoItens}`,
+      pendente: prescricaoValidacaoAtual.total > 0,
     },
     {
       key: "documentos",
@@ -4696,18 +5713,26 @@ export default function AtendimentoPage() {
       resumo: "Modelos, evolucao e anexos",
       badge: `${totalAnexosDocumento}`,
     },
-    {
-      key: "bibliotecas",
-      titulo: "Bibliotecas",
-      resumo: "Frases e farmacos",
-      badge: `${clinicalPhrases.length + medicamentos.length}`,
-    },
   ];
   const isConsultaWorkspace = workspacePainel === "consulta";
   const isExamesWorkspace = workspacePainel === "exames";
   const isPrescricaoWorkspace = workspacePainel === "prescricao";
   const isDocumentosWorkspace = workspacePainel === "documentos";
   const isBibliotecasWorkspace = workspacePainel === "bibliotecas";
+  const showCaseSidebar = painelCasosAberto && !isPrescricaoWorkspace && !isBibliotecasWorkspace;
+  const labelWorkspacePainelAnterior =
+    workspaceCards.find((item) => item.key === workspacePainelAnterior)?.titulo || "Consulta";
+
+  const abrirBibliotecasClinicas = () => {
+    if (workspacePainel !== "bibliotecas") {
+      setWorkspacePainelAnterior(workspacePainel);
+    }
+    setWorkspacePainel("bibliotecas");
+  };
+
+  const fecharBibliotecasClinicas = () => {
+    setWorkspacePainel(workspacePainelAnterior);
+  };
   const uploadGeralEmAndamento = uploadingAttachmentKey === "geral";
   const progressoUploadGeral = uploadProgressByKey["geral"] ?? null;
   const showClinicalRadarAside = isConsultaWorkspace || isDocumentosWorkspace;
@@ -4736,6 +5761,15 @@ export default function AtendimentoPage() {
     const camposPermitidos = new Set(etapaAtiva.campos);
     return clinicalFieldConfigs.filter((config) => camposPermitidos.has(config.key));
   }, [consultaEditorEtapa, clinicalFieldConfigs]);
+  const consultaEditorGruposConsolidados = useMemo(() => {
+    const configPorChave = new Map(clinicalFieldConfigs.map((config) => [config.key, config]));
+    return CONSULTA_EDITOR_ETAPAS.map((etapa) => ({
+      ...etapa,
+      configs: etapa.campos
+        .map((key) => configPorChave.get(key))
+        .filter((config): config is ClinicalFieldConfig => Boolean(config)),
+    }));
+  }, [clinicalFieldConfigs]);
   const consultaCampoAtivoConfig = useMemo(
     () =>
       consultaEditorCamposVisiveis.find((config) => config.key === consultaCampoAtivo) ||
@@ -4747,15 +5781,6 @@ export default function AtendimentoPage() {
     () => consultaEditorCamposVisiveis.findIndex((item) => item.key === consultaCampoAtivo),
     [consultaCampoAtivo, consultaEditorCamposVisiveis]
   );
-  const workspaceGridClass = isBibliotecasWorkspace
-    ? "grid gap-6 grid-cols-1"
-    : isExamesWorkspace
-      ? "grid gap-6 grid-cols-1"
-    : isPrescricaoWorkspace
-      ? prescricaoModoFoco
-        ? "grid gap-6 xl:grid-cols-[minmax(0,1fr),340px] 2xl:grid-cols-[minmax(0,1fr),360px]"
-        : "grid gap-6 xl:grid-cols-[minmax(0,1fr),380px] 2xl:grid-cols-[minmax(0,1fr),400px]"
-      : "grid gap-6 xl:grid-cols-[minmax(0,1fr),380px] 2xl:grid-cols-[minmax(0,1fr),400px]";
   const goToConsultaCampoAnterior = () => {
     if (consultaCampoAtivoIndex <= 0) return;
     setConsultaCampoAtivo(consultaEditorCamposVisiveis[consultaCampoAtivoIndex - 1].key);
@@ -4784,12 +5809,7 @@ export default function AtendimentoPage() {
   }, [consultaCampoAtivo, consultaEditorCamposVisiveis]);
 
   useEffect(() => {
-    const valorEsperado = consultaEtapasCompletas ? 1 : 0;
-    setForm((prev) => (prev.consulta_concluida === valorEsperado ? prev : { ...prev, consulta_concluida: valorEsperado }));
-  }, [consultaEtapasCompletas]);
-
-  useEffect(() => {
-    if (!isConsultaWorkspace || !consultaCampoAtivoConfig) return;
+    if (!isConsultaWorkspace || !consultaCampoAtivoConfig || consultaVerTodosCampos) return;
     if (typeof window === "undefined") return;
     window.requestAnimationFrame(() => {
       const target = clinicalTextareaRefs.current[consultaCampoAtivoConfig.key];
@@ -4798,10 +5818,10 @@ export default function AtendimentoPage() {
       const cursor = target.value.length;
       target.setSelectionRange(cursor, cursor);
     });
-  }, [isConsultaWorkspace, consultaCampoAtivoConfig]);
+  }, [isConsultaWorkspace, consultaCampoAtivoConfig, consultaVerTodosCampos]);
 
   useEffect(() => {
-    if (!isConsultaWorkspace) return;
+    if (!isConsultaWorkspace || consultaVerTodosCampos) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.altKey && event.shiftKey)) return;
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -4814,23 +5834,33 @@ export default function AtendimentoPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [goToConsultaCampoAnterior, goToConsultaCampoProximo, isConsultaWorkspace]);
+  }, [goToConsultaCampoAnterior, goToConsultaCampoProximo, isConsultaWorkspace, consultaVerTodosCampos]);
 
+  const examesChavesAtuaisRaw = form.exames.map((exame) => getExameStateKey(exame)).join(",");
   useEffect(() => {
+    // So `examesChavesAtuaisRaw` (string derivada) na dependencia: ela so muda
+    // quando o CONJUNTO de chaves muda de verdade (exame adicionado/removido),
+    // nao a cada tecla digitada em algum campo de exame (que gera uma nova
+    // referencia de form.exames sem mudar nenhuma chave).
+    const chavesOrdenadas = examesChavesAtuaisRaw ? examesChavesAtuaisRaw.split(",") : [];
+    const chavesAtuais = new Set(chavesOrdenadas);
     setExamesExpandidos((prev) => {
-      const next: Record<number, boolean> = {};
+      const next: Record<string, boolean> = {};
+      let mudou = false;
       Object.entries(prev).forEach(([key, value]) => {
-        const index = Number(key);
-        if (Number.isFinite(index) && index >= 0 && index < form.exames.length) {
-          next[index] = value;
+        if (chavesAtuais.has(key)) {
+          next[key] = value;
+        } else {
+          mudou = true;
         }
       });
-      if (!Object.keys(next).length && form.exames.length > 0) {
-        next[0] = true;
+      if (!Object.keys(next).length && chavesOrdenadas.length > 0) {
+        next[chavesOrdenadas[0]] = true;
+        mudou = true;
       }
-      return next;
+      return mudou ? next : prev;
     });
-  }, [form.exames.length]);
+  }, [examesChavesAtuaisRaw]);
 
   useEffect(() => {
     if (workspacePainel === "prescricao") {
@@ -4841,8 +5871,11 @@ export default function AtendimentoPage() {
   useEffect(() => {
     if (protocoloPrescricaoSelecionado) return;
     if (!protocoloPrescricaoRecomendado) return;
+    // Nao reabre a previa automaticamente se o vet ja aplicou ou descartou o
+    // protocolo recomendado para o texto de diagnostico atual.
+    if (protocoloPrescricaoDecididoPara === diagnosticoTextoConsolidado) return;
     setProtocoloPrescricaoSelecionado(protocoloPrescricaoRecomendado.key);
-  }, [protocoloPrescricaoRecomendado, protocoloPrescricaoSelecionado]);
+  }, [protocoloPrescricaoRecomendado, protocoloPrescricaoSelecionado, protocoloPrescricaoDecididoPara, diagnosticoTextoConsolidado]);
 
   useEffect(() => {
     if (prescricaoValidacaoAtual.total === 0 && prescricaoErrosCount > 0) {
@@ -4856,23 +5889,23 @@ export default function AtendimentoPage() {
   }, [prescricaoErrosCount, prescricaoValidacaoAtual.errors]);
 
   const expandirTodosExames = () => {
-    const next = examesVisiveis.reduce<Record<number, boolean>>((acc, item) => {
-      acc[item.index] = true;
+    const next = examesVisiveis.reduce<Record<string, boolean>>((acc, item) => {
+      acc[getExameStateKey(item.exame)] = true;
       return acc;
     }, {});
     setExamesExpandidos(next);
   };
 
   const colapsarTodosExames = () => {
-    const next = examesVisiveis.reduce<Record<number, boolean>>((acc, item) => {
-      acc[item.index] = false;
+    const next = examesVisiveis.reduce<Record<string, boolean>>((acc, item) => {
+      acc[getExameStateKey(item.exame)] = false;
       return acc;
     }, {});
     setExamesExpandidos(next);
   };
 
   const removerExamesVazios = () => {
-    const next = form.exames.filter((item) => {
+    const temConteudo = (item: ExameSolicitacao) => {
       if ((item.tipo_exame || "").trim()) return true;
       if ((item.observacoes || "").trim()) return true;
       if ((item.resultado || "").trim()) return true;
@@ -4880,16 +5913,36 @@ export default function AtendimentoPage() {
       if (item.catalogo_exame_id || item.painel_exame_id) return true;
       if ((item.anexos_resultado || []).length > 0) return true;
       return false;
-    });
+    };
+    // Exame vazio ja persistido e marcado para exclusao; exame vazio que nunca
+    // foi salvo sai apenas do estado local.
+    const next = form.exames
+      .filter((item) => temConteudo(item) || Boolean(item.id))
+      .map((item) => (temConteudo(item) ? item : { ...item, _destroy: true }));
     clearExamUploadDrafts();
-    const finalList = next.length > 0 ? next : [emptyExam()];
-    setField("exames", finalList);
-    setExamesExpandidos({ 0: true });
+    const restantes = next.filter((item) => !item._destroy);
+    const proximosExames = restantes.length > 0 ? next : [...next, emptyExam()];
+    setField("exames", proximosExames);
+    expandirApenasPrimeiroExame(proximosExames.filter((item) => !item._destroy));
   };
 
   const atendimentosVisiveis = filtered;
   const timelineGrupos = historicoPaciente?.timeline || [];
   const alertasAtivos = historicoPaciente?.alertas || [];
+  const temAlertasCriticos = alertasAtivos.some((alerta: any) =>
+    ["critica", "alta"].includes((alerta.gravidade || "").toLowerCase())
+  );
+  const workspaceGridClass = isBibliotecasWorkspace
+    ? "grid gap-6 grid-cols-1"
+    : isExamesWorkspace
+      ? temAlertasCriticos
+        ? "grid gap-6 xl:grid-cols-[minmax(0,1fr),380px] 2xl:grid-cols-[minmax(0,1fr),400px]"
+        : "grid gap-6 grid-cols-1"
+    : isPrescricaoWorkspace
+      ? prescricaoModoFoco
+        ? "grid gap-6 xl:grid-cols-[minmax(0,1fr),340px] 2xl:grid-cols-[minmax(0,1fr),360px]"
+        : "grid gap-6 xl:grid-cols-[minmax(0,1fr),380px] 2xl:grid-cols-[minmax(0,1fr),400px]"
+      : "grid gap-6 xl:grid-cols-[minmax(0,1fr),380px] 2xl:grid-cols-[minmax(0,1fr),400px]";
   const medicamentosCardiologicos = medicamentosCardiologiaLista.length;
   const itensPrescricaoAtivos = form.prescricao_itens.filter((item) => item.medicamento_id || (item.medicamento_nome || "").trim());
   const autosaveLabel = useMemo(() => {
@@ -4902,7 +5955,7 @@ export default function AtendimentoPage() {
       return autosaveAt ? `Sincronizado - ${formatDate(autosaveAt)}` : "Sincronizado";
     }
     if (autosaveState === "error") return "Falha no autosave";
-    return selecionado ? "Aguardando edicao" : "Novo caso";
+    return selecionado ? "Aguardando edicao" : "Aguardando dados";
   }, [autosaveAt, autosaveState, selecionado]);
 
   const autosaveBadgeClass = useMemo(() => {
@@ -4933,12 +5986,37 @@ export default function AtendimentoPage() {
       // Limpa o unico item em vez de remover
       setPrescricaoEditorManualAberto(false);
       setField("prescricao_itens", [emptyPrescriptionItem()]);
+      setMedicamentoBuscaPorItem({});
+      setMedicamentoFocoPorItem({});
     } else {
       setField(
         "prescricao_itens",
         form.prescricao_itens.filter((_, itemIndex) => itemIndex !== idx)
       );
+      setMedicamentoBuscaPorItem((prev) => reindexarAposRemocaoDeItem(prev, idx));
+      setMedicamentoFocoPorItem((prev) => reindexarAposRemocaoDeItem(prev, idx));
     }
+  };
+  const moverItemPrescricao = (idx: number, direcao: -1 | 1) => {
+    const destino = idx + direcao;
+    if (destino < 0 || destino >= form.prescricao_itens.length) return;
+    const itens = [...form.prescricao_itens];
+    [itens[idx], itens[destino]] = [itens[destino], itens[idx]];
+    setField("prescricao_itens", itens);
+    setMedicamentoBuscaPorItem((prev) => trocarIndicesAposMover(prev, idx, destino));
+    setMedicamentoFocoPorItem((prev) => trocarIndicesAposMover(prev, idx, destino));
+  };
+  const duplicarItemPrescricao = (idx: number) => {
+    const copia: PrescricaoItem = {
+      ...hydratePrescriptionItem(form.prescricao_itens[idx]),
+      id: undefined,
+      historico_ajustes: [],
+    };
+    const itens = [...form.prescricao_itens];
+    itens.splice(idx + 1, 0, copia);
+    setField("prescricao_itens", itens);
+    setMedicamentoBuscaPorItem((prev) => reindexarAposInsercaoDeItem(prev, idx + 1));
+    setMedicamentoFocoPorItem((prev) => reindexarAposInsercaoDeItem(prev, idx + 1));
   };
   const prescricaoTemRascunhoInicial =
     !prescricaoEditorManualAberto &&
@@ -4953,6 +6031,27 @@ export default function AtendimentoPage() {
       item.medicamento_id != null
         ? medicamentos.find((entry) => entry.id === item.medicamento_id) || null
         : null;
+    const medicamentoBuscaAtual = medicamentoBuscaPorItem[idx] || "";
+    const medicamentoResultados = (() => {
+      const term = medicamentoBuscaAtual.trim();
+      if (!term) return [];
+      if (!medicamentosFuse) {
+        const normalizedTerm = term.toLowerCase();
+        return medicamentos
+          .filter((med) =>
+            [med.nome, med.principio_ativo, med.categoria, med.classe_terapeutica].some((value) =>
+              String(value || "").toLowerCase().includes(normalizedTerm)
+            )
+          )
+          .slice(0, 8);
+      }
+      return medicamentosFuse.search(term).map((entry) => entry.item).slice(0, 8);
+    })();
+    const selecionarMedicamentoDoItem = (medId: number | null) => {
+      setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: false }));
+      setMedicamentoBuscaPorItem((prev) => ({ ...prev, [idx]: "" }));
+      aplicarMedicamentoNaPrescricao(idx, medId);
+    };
     const apresentacoesDisponiveis = sugestao?.apresentacoes || [];
     const sugestaoApresentacao = sugestao?.sugestaoApresentacao || null;
     const alertasItem = (sugestao?.alertas || []).map((alerta) => alerta.trim()).filter((alerta) => alerta.length > 0);
@@ -5010,6 +6109,39 @@ export default function AtendimentoPage() {
                 {ativo ? "Pronto para revisar" : "Aguardando definicao"}
               </span>
             )}
+            {!isUnico ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => moverItemPrescricao(idx, -1)}
+                  disabled={idx === 0}
+                  title="Mover para cima"
+                  aria-label="Mover item para cima"
+                  className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moverItemPrescricao(idx, 1)}
+                  disabled={idx === form.prescricao_itens.length - 1}
+                  title="Mover para baixo"
+                  aria-label="Mover item para baixo"
+                  className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => duplicarItemPrescricao(idx)}
+              title="Duplicar item"
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+            >
+              <Copy className="h-4 w-4" />
+              Duplicar
+            </button>
             <button
               type="button"
               onClick={() => removerItemPrescricao(idx)}
@@ -5024,22 +6156,62 @@ export default function AtendimentoPage() {
         <div className="grid gap-6 p-5 xl:grid-cols-[minmax(0,1.7fr),320px]">
           <div className="space-y-5">
             <div className="grid gap-3 lg:grid-cols-2">
-              <div className="lg:col-span-2">
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Medicamento da biblioteca
+              <div className="lg:col-span-2 relative">
+                <label className="mb-1.5 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                  <span>Medicamento da biblioteca</span>
+                  {medicamentoSelecionado ? (
+                    <button
+                      type="button"
+                      onClick={() => selecionarMedicamentoDoItem(null)}
+                      className="text-[10px] font-medium normal-case tracking-normal text-slate-400 transition hover:text-rose-600"
+                    >
+                      Limpar selecao
+                    </button>
+                  ) : null}
                 </label>
-                <select
-                  value={item.medicamento_id || ""}
-                  onChange={(e) => aplicarMedicamentoNaPrescricao(idx, e.target.value ? Number(e.target.value) : null)}
+                <input
+                  value={medicamentoBuscaAtual}
+                  onChange={(e) => {
+                    const valor = e.target.value;
+                    setMedicamentoBuscaPorItem((prev) => ({ ...prev, [idx]: valor }));
+                    setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: true }));
+                  }}
+                  onFocus={() => setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: true }))}
+                  onBlur={() => setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: false }))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && medicamentoResultados.length > 0) {
+                      e.preventDefault();
+                      selecionarMedicamentoDoItem(medicamentoResultados[0].id);
+                    } else if (e.key === "Escape") {
+                      setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: false }));
+                    }
+                  }}
+                  placeholder={
+                    medicamentoSelecionado
+                      ? medicamentoSelecionado.nome
+                      : "Buscar medicamento por nome, principio ativo ou classe..."
+                  }
                   className={inputClass("medicamento_nome")}
-                >
-                  <option value="">Selecionar medicamento</option>
-                  {medicamentos.map((med) => (
-                    <option key={med.id} value={med.id}>
-                      {med.nome}
-                    </option>
-                  ))}
-                </select>
+                />
+                {medicamentoFocoPorItem[idx] && medicamentoResultados.length > 0 ? (
+                  <div className="absolute z-10 mt-2 max-h-72 w-full overflow-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                    {medicamentoResultados.map((med) => (
+                      <button
+                        key={med.id}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => selecionarMedicamentoDoItem(med.id)}
+                        className="w-full rounded-xl px-3 py-2 text-left transition hover:bg-sky-50"
+                      >
+                        <p className="text-sm font-medium text-slate-900">{med.nome}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {med.classe_terapeutica || med.categoria || "Sem classificacao"}
+                          {med.principio_ativo ? ` - ${med.principio_ativo}` : ""}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               <div className="lg:col-span-2">
@@ -5388,13 +6560,50 @@ export default function AtendimentoPage() {
   };
 
   if (loading) {
-    return <DashboardLayout><div className="p-6 text-gray-600">Carregando modulo de atendimento...</div></DashboardLayout>;
+    return (
+      <DashboardLayout>
+        <div className="fc-care-page" role="status" aria-live="polite">
+          <span className="sr-only">Carregando modulo de atendimento...</span>
+          <section className="fc-care-header animate-pulse" aria-hidden="true">
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="max-w-2xl space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="h-12 w-12 rounded-2xl bg-white/15" />
+                    <div className="space-y-2">
+                      <div className="h-3 w-32 rounded bg-white/15" />
+                      <div className="h-5 w-48 rounded bg-white/20" />
+                    </div>
+                  </div>
+                  <div className="h-3 w-80 max-w-full rounded bg-white/10" />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <div className="h-10 w-32 rounded-2xl bg-white/10" />
+                  <div className="h-10 w-28 rounded-2xl bg-white/10" />
+                  <div className="h-10 w-40 rounded-2xl bg-white/15" />
+                </div>
+              </div>
+            </div>
+          </section>
+          <div className="fc-care-layout grid grid-cols-1 gap-6 xl:grid-cols-12" aria-hidden="true">
+            <div className="fc-care-sidebar order-2 space-y-4 xl:order-none xl:col-span-3">
+              <div className="h-40 animate-pulse rounded-[22px] border border-slate-200 bg-slate-100" />
+              <div className="h-56 animate-pulse rounded-[22px] border border-slate-200 bg-slate-100" />
+            </div>
+            <div className="fc-care-workspace order-1 space-y-4 xl:order-none xl:col-span-9">
+              <div className="h-48 animate-pulse rounded-[26px] border border-slate-200 bg-slate-100" />
+              <div className="h-72 animate-pulse rounded-[26px] border border-slate-200 bg-slate-100" />
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
   }
 
   return (
     <DashboardLayout>
-      <div className="space-y-6 bg-slate-50 p-6">
-        <div className="fixed right-4 top-4 z-[90] flex max-w-md flex-col gap-2">
+      <div className="fc-care-page">
+        <div className="fixed right-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[90] flex max-w-md flex-col gap-2 lg:top-4">
           {erroPopup ? (
             <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-xl">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -5426,33 +6635,41 @@ export default function AtendimentoPage() {
           ) : null}
         </div>
 
-        <section className="overflow-visible rounded-[28px] border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-teal-900 px-6 py-6 text-white shadow-[0_30px_80px_-40px_rgba(15,23,42,0.95)]">
+        <section className="fc-care-header">
           <div className="flex flex-col gap-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="max-w-2xl space-y-2">
                 <div className="flex items-center gap-3">
-                  <div className="rounded-2xl bg-white/10 p-3 backdrop-blur">
+                  <div className="fc-care-header-icon">
                     <ClipboardPlus className="h-7 w-7 text-teal-200" />
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-[0.35em] text-teal-200/80">Prontuario FortCordis</p>
-                    <h1 className="text-3xl font-semibold tracking-tight">Atendimento Clinico</h1>
+                    <p className="fc-care-kicker">Prontuario FortCordis</p>
+                    <h1>Atendimento Clinico</h1>
                   </div>
                 </div>
-                <p className="text-sm text-slate-200/80">
+                <p>
                   Fluxo clinico continuo com contexto do paciente, timeline lateral e prescricao assistida em destaque.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <div className={`rounded-2xl border px-4 py-2 text-xs font-medium ${autosaveBadgeClass}`}>
+              <div className="fc-care-header-actions">
+                <div className={`fc-care-autosave ${autosaveBadgeClass}`}>
                   <span className="inline-flex items-center gap-2">
                     <Clock3 className="h-4 w-4" />
                     {autosaveLabel}
                   </span>
                 </div>
-                <button onClick={novoAtendimento} className="rounded-2xl bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20">
-                  <span className="inline-flex items-center gap-2"><Plus className="h-4 w-4" />Novo caso</span>
-                </button>
+                {selecionado ? null : (
+                  <button
+                    onClick={() => (form.paciente_id ? iniciarNovoAtendimentoPaciente() : novoAtendimento())}
+                    className="fc-care-button-secondary"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <Plus className="h-4 w-4" />
+                      {form.paciente_id ? "Novo atendimento deste paciente" : "Novo atendimento"}
+                    </span>
+                  </button>
+                )}
                 <button
                   onClick={() =>
                     goLaudo({
@@ -5462,34 +6679,72 @@ export default function AtendimentoPage() {
                       agendamento_id: form.agendamento_id ? Number(form.agendamento_id) : null,
                     })
                   }
-                  className="rounded-2xl bg-sky-400/20 px-4 py-2 text-sm font-medium text-sky-100 transition hover:bg-sky-400/30"
+                  className="fc-care-button-laudo"
                 >
                   <span className="inline-flex items-center gap-2"><FileText className="h-4 w-4" />Laudar</span>
                 </button>
                 <button
                   onClick={() => void saveAtendimento()}
-                  disabled={salvando}
-                  className="rounded-2xl bg-teal-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-teal-300 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={salvando || finalizando || (!selecionado && autosaveState === "saving")}
+                  className="fc-care-button-primary"
                 >
                   <span className="inline-flex items-center gap-2"><Save className="h-4 w-4" />{salvando ? "Salvando..." : "Salvar atendimento"}</span>
                 </button>
+                <div className="flex items-stretch overflow-hidden rounded-2xl border border-emerald-300 bg-emerald-50">
+                  {form.agendamento_id ? (
+                    <label className="flex flex-col justify-center border-r border-emerald-200 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-800">
+                      Horario da OS
+                      <select
+                        aria-label="Tipo de horario para a ordem de servico"
+                        value={tipoHorarioFinalizacao}
+                        onChange={(event) =>
+                          setTipoHorarioFinalizacao(event.target.value as "comercial" | "plantao")
+                        }
+                        disabled={salvando || finalizando}
+                        className="mt-0.5 bg-transparent text-xs font-medium normal-case tracking-normal text-emerald-950 outline-none"
+                      >
+                        <option value="comercial">Comercial</option>
+                        <option value="plantao">Plantao</option>
+                      </select>
+                    </label>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void finalizarAtendimento()}
+                    disabled={salvando || finalizando || !form.paciente_id}
+                    className="px-4 py-2 text-sm font-semibold text-emerald-900 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      {finalizando ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4" />
+                      )}
+                      {finalizando
+                        ? "Finalizando..."
+                        : form.status === "Concluido"
+                          ? "Confirmar sincronizacao"
+                          : "Finalizar atendimento"}
+                    </span>
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3 backdrop-blur">
+            <div className="fc-care-patient-strip">
+              <div className="fc-care-patient-cell">
                 <p className="text-[11px] uppercase tracking-[0.25em] text-slate-300">Paciente</p>
                 <p className="mt-2 text-sm font-medium text-white">{pacienteNomeExibicao || "Nao selecionado"}</p>
               </div>
-              <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3 backdrop-blur">
+              <div className="fc-care-patient-cell">
                 <p className="text-[11px] uppercase tracking-[0.25em] text-slate-300">Tutor</p>
                 <p className="mt-2 text-sm font-medium text-white">{tutorNomeExibicao || "Nao informado"}</p>
               </div>
-              <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3 backdrop-blur">
+              <div className="fc-care-patient-cell">
                 <p className="text-[11px] uppercase tracking-[0.25em] text-slate-300">Peso clinico</p>
                 <p className="mt-2 text-sm font-medium text-white">{form.triagem.peso ? `${form.triagem.peso} kg` : "Nao medido"}</p>
               </div>
-              <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3 backdrop-blur">
+              <div className="fc-care-patient-cell">
                 <p className="text-[11px] uppercase tracking-[0.25em] text-slate-300">Alertas ativos</p>
                 <p className="mt-2 text-sm font-medium text-white">{alertasAtivos.length}</p>
               </div>
@@ -5497,34 +6752,89 @@ export default function AtendimentoPage() {
           </div>
         </section>
 
-        <section className="rounded-[26px] border border-slate-200 bg-white p-4 shadow-sm">
+        {selecionado ? (
+          <section className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 shadow-sm">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-700">Registro historico #{selecionado}</p>
+                <p className="mt-1 text-sm text-amber-950">
+                  Voce esta editando um atendimento ja existente. Uma nova consulta ou receita deve ser aberta em outro atendimento para preservar este prontuario.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => iniciarNovoAtendimentoPaciente()}
+                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-amber-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-800"
+              >
+                <Plus className="h-4 w-4" />
+                Novo atendimento deste paciente
+              </button>
+            </div>
+          </section>
+        ) : form.paciente_id ? (
+          <section className="rounded-lg border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900 shadow-sm">
+            <span className="font-semibold">Novo atendimento.</span> Ao salvar, sera criado um novo registro sem alterar consultas ou receitas anteriores.
+          </section>
+        ) : null}
+
+        <section className="fc-care-navigation">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Navegacao do atendimento</p>
               <h2 className="mt-1 text-lg font-semibold text-slate-900">Fluxo por area clinica</h2>
             </div>
-            <p className="text-sm text-slate-500">Mostrando: <span className="font-semibold text-slate-700">{workspaceCards.find((item) => item.key === workspacePainel)?.titulo}</span></p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPainelCasosAberto((prev) => !prev)}
+                className={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-medium transition ${
+                  painelCasosAberto
+                    ? "border-teal-200 bg-teal-50 text-teal-700"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                <History className="h-4 w-4" />
+                {painelCasosAberto ? "Ocultar casos" : "Casos recentes"}
+              </button>
+              <button
+                type="button"
+                onClick={() => (isBibliotecasWorkspace ? fecharBibliotecasClinicas() : abrirBibliotecasClinicas())}
+                className={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-medium transition ${
+                  isBibliotecasWorkspace
+                    ? "border-violet-200 bg-violet-50 text-violet-700"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                <Pill className="h-4 w-4" />
+                {isBibliotecasWorkspace ? `Voltar para ${labelWorkspacePainelAnterior}` : "Bibliotecas clinicas"}
+              </button>
+            </div>
           </div>
-          <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
+          <div className="fc-care-tabs" role="tablist" aria-label="Areas do atendimento">
             {workspaceCards.map((item) => (
               <button
                 key={item.key}
                 type="button"
                 onClick={() => setWorkspacePainel(item.key)}
-                className={`rounded-[20px] border px-4 py-3 text-left transition ${
-                  workspacePainel === item.key
-                    ? "border-teal-300 bg-teal-50 shadow-sm"
-                    : "border-slate-200 bg-slate-50 hover:bg-white"
-                }`}
+                role="tab"
+                aria-selected={workspacePainel === item.key}
+                className={`fc-care-tab ${workspacePainel === item.key ? "fc-care-tab-active" : ""}`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">{item.titulo}</p>
                     <p className="mt-1 text-xs text-slate-500">{item.resumo}</p>
+                    {item.triagemConcluida ? (
+                      <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Triagem concluida
+                      </span>
+                    ) : null}
                   </div>
-                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                    workspacePainel === item.key ? "bg-teal-600 text-white" : "bg-slate-200 text-slate-700"
-                  }`}>
+                  <span
+                    className={`fc-care-tab-badge ${item.pendente ? "fc-care-tab-badge-alert" : ""}`}
+                    title={item.pendente ? "Ha pendencia real nesta area" : undefined}
+                  >
                     {item.badge}
                   </span>
                 </div>
@@ -5533,11 +6843,11 @@ export default function AtendimentoPage() {
           </div>
         </section>
 
-        <div className={isPrescricaoWorkspace || isBibliotecasWorkspace ? "grid grid-cols-1 gap-6" : "grid grid-cols-1 gap-6 xl:grid-cols-12"}>
-          {!isPrescricaoWorkspace && !isBibliotecasWorkspace ? (
-          <div className="self-start xl:col-span-3">
-            <div className="space-y-6 xl:sticky xl:top-6">
-              <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
+        <div className={`fc-care-layout ${showCaseSidebar ? "grid grid-cols-1 gap-6 xl:grid-cols-12" : "grid grid-cols-1 gap-6"}`}>
+          {showCaseSidebar ? (
+          <div className="fc-care-sidebar order-2 self-start xl:order-none xl:col-span-3">
+            <div className="space-y-6 xl:sticky xl:top-[500px]">
+              <section className="fc-care-case-panel">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Painel de casos</p>
@@ -5589,6 +6899,15 @@ export default function AtendimentoPage() {
                       {STATUS_ATENDIMENTO.map((status) => <option key={status} value={status}>{status}</option>)}
                     </select>
                   </div>
+                  <label className="flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    <input
+                      type="checkbox"
+                      checked={documentacaoIncompletaFiltro}
+                      onChange={(e) => setDocumentacaoIncompletaFiltro(e.target.checked)}
+                      className="h-4 w-4 rounded border-amber-300"
+                    />
+                    Concluidos com documentacao incompleta
+                  </label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
@@ -5611,25 +6930,68 @@ export default function AtendimentoPage() {
                 </div>
 
                 <div className="mt-4 max-h-[380px] space-y-3 overflow-auto pr-1">
-                  {atendimentosVisiveis.map((item) => (
-                    <div key={item.id} className={`rounded-[22px] border p-4 transition ${selecionado === item.id ? "border-teal-300 bg-teal-50" : "border-slate-200 bg-slate-50/80 hover:bg-white"}`}>
-                      <button onClick={() => abrirAtendimento(item.id)} className="w-full text-left">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-900">#{item.id} - {item.paciente_nome || "Paciente"}</p>
-                            <p className="mt-1 text-xs text-slate-500">{item.tutor_nome || "Tutor nao informado"}</p>
+                  {atendimentosVisiveis.map((item) => {
+                    const abrindoEsteItem = abrindoAtendimentoId === item.id;
+                    const carregandoOutroItem = abrindoAtendimentoId !== null && !abrindoEsteItem;
+                    return (
+                      <div
+                        key={item.id}
+                        className={`rounded-[22px] border p-4 transition ${selecionado === item.id ? "border-teal-300 bg-teal-50" : "border-slate-200 bg-slate-50/80 hover:bg-white"} ${carregandoOutroItem ? "pointer-events-none opacity-60" : ""}`}
+                      >
+                        <button
+                          onClick={() => abrirAtendimento(item.id)}
+                          disabled={abrindoAtendimentoId !== null}
+                          className="w-full text-left disabled:cursor-not-allowed"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">#{item.id} - {item.paciente_nome || "Paciente"}</p>
+                              <p className="mt-1 text-xs text-slate-500">{item.tutor_nome || "Tutor nao informado"}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {abrindoEsteItem ? <Loader2 className="h-4 w-4 animate-spin text-teal-600" /> : null}
+                              <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${getBadgeStatusClass(item.status)}`}>{item.status}</span>
+                            </div>
                           </div>
-                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${getBadgeStatusClass(item.status)}`}>{item.status}</span>
+                          <p className="mt-3 text-xs text-slate-500">{formatDate(item.data_atendimento)}</p>
+                          <p className="mt-1 text-sm text-slate-700">{item.diagnostico || item.queixa_principal || "Sem resumo clinico"}</p>
+                          <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-medium">
+                            {clinicaFiltroAplicado === "" && item.clinica_nome ? (
+                              <span className="rounded-full bg-slate-200 px-2.5 py-1 text-slate-700">{item.clinica_nome}</span>
+                            ) : null}
+                            <span className="rounded-full bg-white px-2.5 py-1 text-slate-600">{item.total_exames || 0} exame(s)</span>
+                            {item.tem_prescricao ? (
+                              <span className="rounded-full bg-violet-100 px-2.5 py-1 text-violet-700">Receita salva</span>
+                            ) : null}
+                            {item.documentacao_pendencias && item.documentacao_pendencias.length > 0 ? (
+                              <span
+                                className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-800"
+                                title={`Faltam: ${item.documentacao_pendencias.join("; ")}`}
+                              >
+                                Documentacao incompleta
+                              </span>
+                            ) : null}
+                          </div>
+                        </button>
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            onClick={() => goLaudo({ ...item, atendimento_id: item.id })}
+                            disabled={abrindoAtendimentoId !== null}
+                            className="rounded-xl bg-sky-100 px-3 py-1.5 text-xs font-medium text-sky-700 transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Laudar
+                          </button>
+                          <button
+                            onClick={() => deleteAtendimento(item.id)}
+                            disabled={abrindoAtendimentoId !== null}
+                            className="rounded-xl bg-red-100 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Excluir
+                          </button>
                         </div>
-                        <p className="mt-3 text-xs text-slate-500">{formatDate(item.data_atendimento)}</p>
-                        <p className="mt-1 text-sm text-slate-700">{item.diagnostico || item.queixa_principal || "Sem resumo clinico"}</p>
-                      </button>
-                      <div className="mt-3 flex gap-2">
-                        <button onClick={() => goLaudo({ ...item, atendimento_id: item.id })} className="rounded-xl bg-sky-100 px-3 py-1.5 text-xs font-medium text-sky-700 transition hover:bg-sky-200">Laudar</button>
-                        <button onClick={() => deleteAtendimento(item.id)} className="rounded-xl bg-red-100 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-200">Excluir</button>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {atendimentosVisiveis.length === 0 ? <div className="rounded-[22px] border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">Nenhum atendimento encontrado.</div> : null}
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2">
@@ -5653,7 +7015,7 @@ export default function AtendimentoPage() {
               </section>
 
               {isConsultaWorkspace || isDocumentosWorkspace ? (
-              <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
+              <section className="fc-care-side-panel">
                 <div className="flex items-center gap-2">
                   <History className="h-5 w-5 text-teal-600" />
                   <div>
@@ -5669,19 +7031,30 @@ export default function AtendimentoPage() {
                         <div className="absolute left-0 top-1 h-5 w-5 rounded-full border-4 border-teal-100 bg-teal-500" />
                         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-teal-700">{grupo.ano}</p>
                         <div className="mt-3 space-y-3">
-                          {grupo.eventos.map((evento) => (
-                            <div key={`${grupo.ano}-${evento.tipo}-${evento.referencia_id}`} className="rounded-[20px] border border-slate-200 bg-slate-50 p-3">
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <p className="text-sm font-medium text-slate-900">{evento.titulo}</p>
-                                  <p className="text-[11px] uppercase tracking-[0.25em] text-slate-500">{evento.tipo}</p>
+                          {grupo.eventos.map((evento) => {
+                            const eventoMeta = TIMELINE_EVENTO_META[evento.tipo] || TIMELINE_EVENTO_META_PADRAO;
+                            const EventoIcon = eventoMeta.icon;
+                            return (
+                              <div key={`${grupo.ano}-${evento.tipo}-${evento.referencia_id}`} className="rounded-[20px] border border-slate-200 bg-slate-50 p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex items-start gap-2">
+                                    <span className={`mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 ${eventoMeta.dotClass}`}>
+                                      <EventoIcon className="h-3.5 w-3.5 text-white" />
+                                    </span>
+                                    <div>
+                                      <p className="text-sm font-medium text-slate-900">{evento.titulo}</p>
+                                      <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] ${eventoMeta.badgeClass}`}>
+                                        {eventoMeta.label}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <span className="shrink-0 text-[11px] text-slate-500">{formatDate(evento.data)}</span>
                                 </div>
-                                <span className="text-[11px] text-slate-500">{formatDate(evento.data)}</span>
+                                <p className="mt-2 text-sm text-slate-700">{evento.descricao}</p>
+                                {evento.status ? <p className="mt-2 text-xs text-slate-500">Status: {evento.status}</p> : null}
                               </div>
-                              <p className="mt-2 text-sm text-slate-700">{evento.descricao}</p>
-                              {evento.status ? <p className="mt-2 text-xs text-slate-500">Status: {evento.status}</p> : null}
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     ))}
@@ -5694,7 +7067,7 @@ export default function AtendimentoPage() {
               </section>
               ) : null}
 
-              <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
+              <section className="fc-care-side-panel">
                 <div className="flex items-center gap-2">
                   <TrendingUp className="h-5 w-5 text-emerald-600" />
                   <div>
@@ -5785,13 +7158,13 @@ export default function AtendimentoPage() {
           </div>
           ) : null}
 
-          <div className={isPrescricaoWorkspace || isBibliotecasWorkspace ? "" : "xl:col-span-9"}>
+          <div className={`fc-care-workspace order-1 xl:order-none ${showCaseSidebar ? "xl:col-span-9" : ""}`}>
             <div className={workspaceGridClass}>
               <div className="space-y-6">
-                {!isPrescricaoWorkspace ? (
+                {isConsultaWorkspace ? (
                   <AtendimentoConsultaOverviewSection
+                    abrirCadastroComplementar={abrirCadastroComplementar}
                     clinicas={clinicas}
-                    fluxoClinico={fluxoClinico}
                     form={form}
                     getBadgeStatusClass={getBadgeStatusClass}
                     pacienteBusca={pacienteBusca}
@@ -5803,9 +7176,9 @@ export default function AtendimentoPage() {
                     setField={setField}
                     setMostrarPacientes={setMostrarPacientes}
                     setPacienteBusca={setPacienteBusca}
-                    setWorkspacePainel={setWorkspacePainel}
                     STATUS_ATENDIMENTO={STATUS_ATENDIMENTO}
                     especieRacaExibicao={especieRacaExibicao}
+                    sexoPacienteExibicao={sexoPacienteExibicao}
                     tutorNomeExibicao={tutorNomeExibicao}
                   />
                 ) : null}
@@ -5814,12 +7187,12 @@ export default function AtendimentoPage() {
                   <AtendimentoCadastroComplementarSection
                     buscandoCepTutor={buscandoCepTutor}
                     cadastroComplementar={cadastroComplementar}
+                    cadastroComplementarExpandido={cadastroComplementarExpandido}
                     cadastroComplementarPendencias={cadastroComplementarPendencias}
                     carregandoCadastroComplementar={carregandoCadastroComplementar}
                     especieCadastroAtual={especieCadastroAtual}
                     especieRacaExibicao={especieRacaExibicao}
                     form={form}
-                    formatarCepVisual={formatarCepVisual}
                     handleAdicionarRacaCadastro={handleAdicionarRacaCadastro}
                     idadePacienteExibicao={idadePacienteExibicao}
                     consultarCepTutor={consultarCepTutor}
@@ -5828,6 +7201,7 @@ export default function AtendimentoPage() {
                     salvandoCadastroComplementar={salvandoCadastroComplementar}
                     salvarCadastroComplementarAtual={salvarCadastroComplementarAtual}
                     setCadastroPacienteField={setCadastroPacienteField}
+                    setCadastroComplementarExpandido={setCadastroComplementarExpandido}
                     setCadastroTutorField={setCadastroTutorField}
                     setNovaRacaCadastro={setNovaRacaCadastro}
                     setStatusCepTutor={setStatusCepTutor}
@@ -5839,6 +7213,7 @@ export default function AtendimentoPage() {
                 {isConsultaWorkspace ? (
                   <AtendimentoTriagemSection
                     ESCALA_ECC={ESCALA_ECC}
+                    especieExibicao={especieExibicao}
                     form={form}
                     HIDRATACAO={HIDRATACAO}
                     MUCOSAS={MUCOSAS}
@@ -5857,8 +7232,12 @@ export default function AtendimentoPage() {
                     consultaEditorCamposVisiveis={consultaEditorCamposVisiveis}
                     consultaEditorEtapa={consultaEditorEtapa}
                     consultaEditorEtapas={consultaEditorEtapas}
+                    consultaEditorGruposConsolidados={consultaEditorGruposConsolidados}
                     consultaEtapasCompletas={consultaEtapasCompletas}
+                    consultaVerTodosCampos={consultaVerTodosCampos}
+                    dadosClinicosOrigem={dadosClinicosOrigem}
                     form={form}
+                    formatDate={formatDate}
                     getClinicalFieldValue={getClinicalFieldValue}
                     goToConsultaCampoAnterior={goToConsultaCampoAnterior}
                     goToConsultaCampoProximo={goToConsultaCampoProximo}
@@ -5866,9 +7245,12 @@ export default function AtendimentoPage() {
                     injectClinicalSnippet={injectClinicalSnippet}
                     PROGNOSTICO={PROGNOSTICO}
                     registerClinicalTextarea={registerClinicalTextarea}
+                    salvarFraseRapida={salvarFraseRapida}
+                    savingQuickPhrase={savingQuickPhrase}
                     setClinicalFieldValue={setClinicalFieldValue}
                     setConsultaCampoAtivo={setConsultaCampoAtivo}
                     setConsultaEditorEtapa={setConsultaEditorEtapa}
+                    setConsultaVerTodosCampos={setConsultaVerTodosCampos}
                     setField={setField}
                   />
                 ) : null}
@@ -5905,6 +7287,7 @@ export default function AtendimentoPage() {
                     formatBytes={formatBytes}
                     formatDate={formatDate}
                     gerandoPdfTipo={gerandoPdfTipo}
+                    getExameStateKey={getExameStateKey}
                     goLaudo={goLaudo}
                     hasExamRequest={hasExamRequest}
                     imprimirSolicitacaoExames={imprimirSolicitacaoExames}
@@ -5920,7 +7303,12 @@ export default function AtendimentoPage() {
                     painelModalMode={painelModalMode}
                     painelModalOpen={painelModalOpen}
                     paineisExames={paineisExames}
+                    removerExame={removerExame}
                     removerExamesVazios={removerExamesVazios}
+                    alternarLiberacaoExameNoPortal={alternarLiberacaoExameNoPortal}
+                    portalExameAcaoId={portalExameAcaoId}
+                    exameTemPdfAnexado={exameTemPdfAnexado}
+                    isExamePortalLiberado={isExamePortalLiberado}
                     resolvePreviewKind={resolvePreviewKind}
                     resumoExamesFluxo={resumoExamesFluxo}
                     salvando={salvando}
@@ -5964,6 +7352,7 @@ export default function AtendimentoPage() {
                     documentoClinicoForm={documentoClinicoForm}
                     documentoTemplateForm={documentoTemplateForm}
                     documentoTemplateSelecionado={documentoTemplateSelecionado}
+                    documentoVariaveisNaoResolvidas={documentoVariaveisNaoResolvidas}
                     editarDocumentoTemplate={editarDocumentoTemplate}
                     evolucaoForm={evolucaoForm}
                     excluirDocumentoClinico={excluirDocumentoClinico}
@@ -6000,15 +7389,26 @@ export default function AtendimentoPage() {
                 ) : null}
 
                 {isPrescricaoWorkspace ? (
-                  <AtendimentoPrescricaoWorkspace
-                    abrirMedicamentoBuscaRapida={abrirMedicamentoBuscaRapida}
+                  <>
+                    <AtendimentoPrescricaoHistorySection
+                      abrindoAtendimentoId={abrindoAtendimentoId}
+                      abrirAtendimento={abrirAtendimento}
+                      formatDate={formatDate}
+                      herdarAtendimentoAnterior={herdarAtendimentoAnterior}
+                      historicoPaciente={historicoPaciente}
+                      prescricaoOrigem={prescricaoOrigem}
+                      selecionado={selecionado}
+                    />
+                    <AtendimentoPrescricaoWorkspace
+                      abrirMedicamentoBuscaRapida={abrirMedicamentoBuscaRapida}
                     adicionarItemPrescricaoEmBranco={adicionarItemPrescricaoEmBranco}
                     aplicarPresetPrescricao={aplicarPresetPrescricao}
-                    aplicarProtocoloPrescricao={aplicarProtocoloPrescricao}
+                    aplicarProtocoloSelecionado={aplicarProtocoloSelecionado}
                     autosaveBadgeClass={autosaveBadgeClass}
                     autosaveLabel={autosaveLabel}
                     cancelarEdicaoPresetPrescricao={cancelarEdicaoPresetPrescricao}
                     classificarAlertaPrescricao={classificarAlertaPrescricao}
+                    descartarProtocoloSelecionado={descartarProtocoloSelecionado}
                     editarPresetPrescricao={editarPresetPrescricao}
                     especieRacaExibicao={especieRacaExibicao}
                     form={form}
@@ -6035,10 +7435,13 @@ export default function AtendimentoPage() {
                     protocoloPrescricaoRecomendado={protocoloPrescricaoRecomendado}
                     protocoloPrescricaoSelecionado={protocoloPrescricaoSelecionado}
                     protocoloPrescricaoSelecionadoDetalhe={protocoloPrescricaoSelecionadoDetalhe}
+                    protocoloPrescricaoSelecionadoGatilho={protocoloPrescricaoSelecionadoGatilho}
+                    protocoloPrescricaoSelecionadoItensPreview={protocoloPrescricaoSelecionadoItensPreview}
                     removerPresetPrescricao={removerPresetPrescricao}
                     renderPrescricaoItemCard={renderPrescricaoItemCard}
                     salvarPresetPrescricaoAtual={salvarPresetPrescricaoAtual}
                     selecionarMedicamentoBuscaRapida={selecionarMedicamentoBuscaRapida}
+                    selecionarProtocoloPrescricao={selecionarProtocoloPrescricao}
                     setField={setField}
                     setNomeNovoPresetPrescricao={setNomeNovoPresetPrescricao}
                     setPrescricaoBuscaRapida={setPrescricaoBuscaRapida}
@@ -6046,8 +7449,9 @@ export default function AtendimentoPage() {
                     setPrescricaoModoFoco={setPrescricaoModoFoco}
                     setPrescricaoPreviewAtivo={setPrescricaoPreviewAtivo}
                     setPrescricaoPreviewErro={setPrescricaoPreviewErro}
-                    setPrescricaoPreviewPdf={setPrescricaoPreviewPdf}
-                  />
+                      setPrescricaoPreviewPdf={setPrescricaoPreviewPdf}
+                    />
+                  </>
                 ) : null}
               </div>
 
@@ -6061,12 +7465,24 @@ export default function AtendimentoPage() {
                 />
               )}
 
-              {(isPrescricaoWorkspace || showClinicalRadarAside) ? (
+              {(isPrescricaoWorkspace || (isExamesWorkspace && temAlertasCriticos) || showClinicalRadarAside) ? (
                 <aside
-                  className={`self-start space-y-6 xl:sticky xl:max-h-[calc(100vh-2rem)] xl:overflow-auto xl:pr-1 ${
-                    isPrescricaoWorkspace && prescricaoModoFoco ? "xl:top-3" : "xl:top-6"
+                  className={`fc-care-aside self-start space-y-6 xl:sticky xl:max-h-[calc(100vh-516px)] xl:overflow-auto xl:pr-1 ${
+                    isPrescricaoWorkspace && prescricaoModoFoco ? "xl:top-[488px]" : "xl:top-[500px]"
                   }`}
                 >
+                  {isPrescricaoWorkspace || isExamesWorkspace ? (
+                    // O radar clinico completo (AtendimentoClinicalRadarAside) so aparece em
+                    // Consulta/Documentos - sem isso, alertas de gravidade alta/critica (ex.:
+                    // alergia a medicamento) ficavam invisiveis justamente nas abas de maior
+                    // risco de erro (prescrever, solicitar exame). Card compacto, so os mais
+                    // graves, independente da aba.
+                    <AtendimentoAlertasCriticosCard
+                      alertasAtivos={alertasAtivos}
+                      getGravidadeClass={getGravidadeClass}
+                    />
+                  ) : null}
+
                   {showClinicalRadarAside ? (
                     <AtendimentoClinicalRadarAside
                       alertasAtivos={alertasAtivos}
@@ -6076,6 +7492,7 @@ export default function AtendimentoPage() {
                       form={form}
                       getBadgeStatusClass={getBadgeStatusClass}
                       getGravidadeClass={getGravidadeClass}
+                      herdarAtendimentoAnterior={herdarAtendimentoAnterior}
                       historicoPaciente={historicoPaciente}
                       pacienteNomeExibicao={pacienteNomeExibicao}
                       preenchimentoConsultaLabel={preenchimentoConsultaLabel}
@@ -6166,6 +7583,18 @@ export default function AtendimentoPage() {
           setAttachmentPdfZoom={setAttachmentPdfZoom}
           zoomInAttachmentImage={zoomInAttachmentImage}
           zoomOutAttachmentImage={zoomOutAttachmentImage}
+        />
+      ) : null}
+      {confirmDialogState ? (
+        <ConfirmDialog
+          aberto
+          titulo={confirmDialogState.titulo}
+          descricao={confirmDialogState.descricao}
+          variante={confirmDialogState.variante}
+          confirmLabel={confirmDialogState.confirmLabel}
+          cancelLabel={confirmDialogState.cancelLabel}
+          onConfirm={() => resolverConfirmDialog(true)}
+          onCancel={() => resolverConfirmDialog(false)}
         />
       ) : null}
       </div>

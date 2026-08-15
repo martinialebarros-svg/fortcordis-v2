@@ -12,10 +12,14 @@ from sqlalchemy.orm import Session
 from app.api.v1.endpoints import (
     admin,
     agenda,
+    ai_echo,
+    alertas_internos,
+    assistente_ia,
     atendimento,
     auth,
     clinicas,
     configuracoes,
+    eco_study_import,
     financeiro,
     fiscal,
     frases_ecocardiograma_estruturado_teste,
@@ -25,11 +29,16 @@ from app.api.v1.endpoints import (
     logistica,
     ordens_servico,
     pacientes,
+    portal,
+    portal_clinic_auth,
+    portal_partner_auth,
+    portal_partners,
     relatorios,
     referencias_eco,
     servicos,
     tabelas_preco,
     tutores,
+    whatsapp_agenda,
     xml_import,
 )
 from app.core.runtime_checks import build_runtime_report, validate_startup_or_raise
@@ -56,10 +65,23 @@ from app.services.push_scheduler_service import (
     shutdown_push_scheduler_worker,
     start_push_scheduler_worker,
 )
+from app.services.assistente_ia_autonomy import (
+    shutdown_assistant_scheduler_worker,
+    start_assistant_scheduler_worker,
+)
 from app.services.runtime_observability import record_http_request
 from app.services.xml_import_jobs import (
     restart_incomplete_xml_import_jobs,
     shutdown_xml_import_jobs,
+)
+from app.services.eco_study_import_jobs import (
+    restart_incomplete_eco_study_import_jobs,
+    shutdown_eco_study_import_jobs,
+)
+from app.services.ai_echo_service import (
+    restart_incomplete_ai_echo_sessions,
+    shutdown_ai_echo_cleanup_worker,
+    start_ai_echo_cleanup_worker,
 )
 
 app = FastAPI(
@@ -139,9 +161,10 @@ def _ensure_financeiro_schema_compat() -> None:
             PushScheduledNotification.__table__.create(bind=conn, checkfirst=True)
 
             # Compat para módulo fiscal
-            from app.models.fiscal import FiscalNumeroSequencia, NotaFiscal
+            from app.models.fiscal import FiscalNumeroSequencia, NotaFiscal, RelatorioFiscalEmissao
             NotaFiscal.__table__.create(bind=conn, checkfirst=True)
             FiscalNumeroSequencia.__table__.create(bind=conn, checkfirst=True)
+            RelatorioFiscalEmissao.__table__.create(bind=conn, checkfirst=True)
 
             inspector = inspect(conn)
             if "configuracoes_usuario" in inspector.get_table_names():
@@ -377,13 +400,30 @@ async def monitor_runtime_http_status(request: Request, call_next):
 # Rotas REST
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+app.include_router(alertas_internos.router, prefix="/api/v1/alertas-internos", tags=["alertas_internos"])
+app.include_router(
+    assistente_ia.router,
+    prefix="/api/v1/assistente-ia",
+    tags=["assistente_ia"],
+)
+app.include_router(
+    ai_echo.router,
+    prefix="/api/v1/ai/echo-sessions",
+    tags=["ai_echo"],
+)
 app.include_router(agenda.router, prefix="/api/v1/agenda", tags=["agenda"])
+app.include_router(whatsapp_agenda.router, prefix="/api/v1", tags=["whatsapp_agenda"])
 app.include_router(pacientes.router, prefix="/api/v1/pacientes", tags=["pacientes"])
 app.include_router(clinicas.router, prefix="/api/v1/clinicas", tags=["clinicas"])
 app.include_router(servicos.router, prefix="/api/v1/servicos", tags=["servicos"])
 app.include_router(laudos.router, prefix="/api/v1", tags=["laudos"])
 app.include_router(financeiro.router, prefix="/api/v1/financeiro", tags=["financeiro"])
 app.include_router(xml_import.router, prefix="/api/v1/xml", tags=["xml_import"])
+app.include_router(
+    eco_study_import.router,
+    prefix="/api/v1/eco-study-import",
+    tags=["eco_study_import"],
+)
 app.include_router(
     frases_ecocardiograma_estruturado_teste.router,
     prefix="/api/v1/frases-ecocardiograma-estruturado-teste",
@@ -399,6 +439,10 @@ app.include_router(tabelas_preco.router, prefix="/api/v1/tabelas-preco", tags=["
 app.include_router(ordens_servico.router, prefix="/api/v1/ordens-servico", tags=["ordens_servico"])
 app.include_router(configuracoes.router, prefix="/api/v1", tags=["configuracoes"])
 app.include_router(tutores.router, prefix="/api/v1/tutores", tags=["tutores"])
+app.include_router(portal.router, prefix="/api/v1/portal", tags=["portal"])
+app.include_router(portal_clinic_auth.router, prefix="/api/v1/portal", tags=["portal"])
+app.include_router(portal_partner_auth.router, prefix="/api/v1/portal", tags=["portal"])
+app.include_router(portal_partners.router, prefix="/api/v1/portal", tags=["portal"])
 app.include_router(referencias_eco.router, prefix="/api/v1/referencias-eco", tags=["referencias_eco"])
 app.include_router(atendimento.router, prefix="/api/v1/atendimentos", tags=["atendimento"])
 app.include_router(logistica.router, prefix="/api/v1/logistica", tags=["logistica"])
@@ -412,16 +456,23 @@ def startup_schema_compatibility() -> None:
     validate_startup_or_raise()
     restart_incomplete_laudo_pdf_jobs()
     restart_incomplete_xml_import_jobs()
+    restart_incomplete_eco_study_import_jobs()
+    restart_incomplete_ai_echo_sessions()
     start_upload_dedupe_cleanup_worker()
     start_push_scheduler_worker()
+    start_assistant_scheduler_worker()
+    start_ai_echo_cleanup_worker()
 
 
 @app.on_event("shutdown")
 def shutdown_background_workers() -> None:
     shutdown_laudo_pdf_jobs()
     shutdown_xml_import_jobs()
+    shutdown_eco_study_import_jobs()
     shutdown_upload_dedupe_cleanup_worker()
     shutdown_push_scheduler_worker()
+    shutdown_assistant_scheduler_worker()
+    shutdown_ai_echo_cleanup_worker()
 
 
 # WebSocket endpoint
@@ -465,12 +516,14 @@ def _health_payload(report: dict) -> dict:
             "integrations": {
                 "google_maps_configured": report["integrations"].get("google_maps_configured"),
                 "web_push_configured": report["integrations"].get("web_push_configured"),
+                "eco_study_ocr": report["integrations"].get("eco_study_ocr"),
             },
             "observability": {
                 "http_5xx_monitor": report["observability"].get("http_5xx_monitor"),
                 "http_latency_monitor": report["observability"].get("http_latency_monitor"),
                 "upload_dedupe_cleanup_worker": report["observability"].get("upload_dedupe_cleanup_worker"),
                 "push_scheduler_worker": report["observability"].get("push_scheduler_worker"),
+                "assistant_scheduler_worker": report["observability"].get("assistant_scheduler_worker"),
             },
         },
         "compatibility_modes": report["compatibility_modes"],

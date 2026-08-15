@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
 from pydantic_settings import BaseSettings
 
@@ -17,7 +20,7 @@ class Settings(BaseSettings):
     AUTH_COOKIE_PATH: str = "/"
     AUTH_COOKIE_SAMESITE: str = "lax"
     AUTH_COOKIE_SECURE: bool = False
-    AUTH_COOKIE_DOMAIN: str | None = None
+    AUTH_COOKIE_DOMAIN: Optional[str] = None
     CSRF_PROTECTION_ENABLED: bool = True
     CSRF_COOKIE_NAME: str = "fortcordis_csrf"
     CSRF_HEADER_NAME: str = "x-csrf-token"
@@ -58,6 +61,85 @@ class Settings(BaseSettings):
     WEB_PUSH_PENDING_REMINDER_DEFAULT_HOURS: int = 6
     ASSISTENTE_AGENDA_TOKEN: str = ""
     ASSISTENTE_AGENDA_MAX_WINDOW_DAYS: int = 14
+    WHATSAPP_AGENDA_ENABLED: bool = False
+    WHATSAPP_AGENDA_SERVICE_URL: str = "http://127.0.0.1:3010"
+    WHATSAPP_AGENDA_INTERNAL_TOKEN: str = ""
+    WHATSAPP_AGENDA_TIMEOUT_SECONDS: int = 15
+    OPENAI_API_KEY: str = ""
+    ASSISTENTE_IA_ENABLED: bool = True
+    ASSISTENTE_IA_MODEL: str = "gpt-5.6-sol"
+    ASSISTENTE_IA_MAX_TOOL_LOOPS: int = 6
+    ASSISTENTE_IA_ACTION_TTL_MINUTES: int = 15
+    ASSISTENTE_IA_VOICE_TRANSCRIPTION_MODEL: str = "gpt-4o-transcribe"
+    ASSISTENTE_IA_VOICE_MAX_BYTES: int = 10 * 1024 * 1024
+    ASSISTENTE_IA_VOICE_MAX_SECONDS: int = 60
+    ASSISTENTE_IA_EMBEDDING_MODEL: str = "text-embedding-3-small"
+    ASSISTENTE_IA_SEMANTIC_SEARCH_ENABLED: bool = True
+    AI_ECHO_ASSISTANT_ENABLED: bool = False
+    AI_PROVIDER: str = "openai"
+    AI_TRANSCRIPTION_MODEL: str = "gpt-4o-transcribe"
+    AI_STRUCTURING_MODEL: str = "gpt-5.6-sol"
+    AI_AUDIO_RETENTION_HOURS: int = 2
+    AI_ECHO_AUDIO_MAX_BYTES: int = 20 * 1024 * 1024
+    AI_ECHO_AUDIO_MAX_SECONDS: int = 600
+    AI_ECHO_MAX_ATTEMPTS: int = 3
+    AI_ECHO_MONTHLY_SESSION_LIMIT: int = 100
+    AI_ECHO_PROVIDER_TIMEOUT_SECONDS: int = 90
+    AI_ECHO_REASONING_EFFORT: str = "low"
+    AI_ECHO_MAX_OUTPUT_TOKENS: int = 8000
+    AI_ECHO_CLEANUP_INTERVAL_MINUTES: int = 15
+    AI_ECHO_STRUCTURING_INPUT_COST_PER_MILLION: float = 0.0
+    AI_ECHO_STRUCTURING_OUTPUT_COST_PER_MILLION: float = 0.0
+    ASSISTENTE_IA_SCHEDULER_ENABLED: bool = True
+    ASSISTENTE_IA_SCHEDULER_POLL_SECONDS: int = 30
+    ASSISTENTE_IA_SCHEDULER_DISTRIBUTED_LOCK_ENABLED: bool = True
+    ASSISTENTE_IA_SCHEDULER_DISTRIBUTED_LOCK_KEY: int = 80433002
+    PORTAL_CHALLENGE_EXPIRE_MINUTES: int = 15
+    PORTAL_SESSION_TOKEN_EXPIRE_MINUTES: int = 30
+    PORTAL_DOWNLOAD_TOKEN_EXPIRE_MINUTES: int = 5
+    PORTAL_MAX_CHALLENGE_ATTEMPTS: int = 5
+    PORTAL_CLINIC_INVITE_AUTH_ENABLED: bool = True
+    PORTAL_CLINIC_PASSWORD_LOGIN_ENABLED: bool = True
+    PORTAL_CLINIC_LEGACY_CODE_LOGIN_ENABLED: bool = True
+    PORTAL_CLINIC_INVITE_EXPIRE_HOURS: int = 72
+    PORTAL_CLINIC_TRUSTED_SESSION_HOURS: int = 8
+    PORTAL_CLINIC_REFRESH_COOKIE_NAME: str = "fortcordis_portal_clinic_refresh"
+    PORTAL_CLINIC_REFRESH_COOKIE_PATH: str = "/"
+    PORTAL_CLINIC_REFRESH_COOKIE_SAMESITE: str = "lax"
+    PORTAL_CLINIC_REFRESH_COOKIE_SECURE: bool = False
+    PORTAL_CLINIC_REFRESH_COOKIE_DOMAIN: Optional[str] = None
+    PORTAL_CLINIC_EMAIL_CHALLENGE_EXPIRE_MINUTES: int = 15
+    PORTAL_CLINIC_MFA_EXPIRE_MINUTES: int = 10
+    PORTAL_CLINIC_PASSWORD_RESET_EXPIRE_MINUTES: int = 30
+    PORTAL_CLINIC_MAX_AUTH_ATTEMPTS: int = 5
+    PORTAL_CLINIC_RELEASE_SLA_HOURS: int = 48
+    PORTAL_PARTNER_INVITE_AUTH_ENABLED: bool = True
+    PORTAL_PARTNER_PASSWORD_LOGIN_ENABLED: bool = True
+    PORTAL_PARTNER_REFRESH_COOKIE_NAME: str = "fortcordis_portal_partner_refresh"
+    PORTAL_DEBUG_EXPOSE_CODE: bool = False
+    PORTAL_EMAIL_SMTP_HOST: str = ""
+    PORTAL_EMAIL_SMTP_PORT: int = 587
+    PORTAL_EMAIL_SMTP_USERNAME: str = ""
+    PORTAL_EMAIL_SMTP_PASSWORD: str = ""
+    PORTAL_EMAIL_SMTP_USE_TLS: bool = True
+    PORTAL_EMAIL_SMTP_USE_SSL: bool = False
+    PORTAL_EMAIL_FROM_EMAIL: str = "portal@fortcordis.local"
+    PORTAL_EMAIL_FROM_NAME: str = "Portal Fort Cordis"
+    PORTAL_EMAIL_SUBJECT: str = "Seu codigo de acesso - Portal Fort Cordis"
+    PORTAL_WHATSAPP_ENABLED: bool = False
+    PORTAL_WHATSAPP_WEBHOOK_URL: str = ""
+    PORTAL_WHATSAPP_WEBHOOK_METHOD: str = "POST"
+    PORTAL_WHATSAPP_WEBHOOK_AUTH_HEADER: str = "Authorization"
+    PORTAL_WHATSAPP_WEBHOOK_AUTH_TOKEN: str = ""
+    PORTAL_WHATSAPP_WEBHOOK_TIMEOUT_SECONDS: int = 10
+    PORTAL_REMOTE_STORAGE_AUTH_HEADER: str = "Authorization"
+    PORTAL_REMOTE_STORAGE_AUTH_TOKEN: str = ""
+    PORTAL_REMOTE_STORAGE_TIMEOUT_SECONDS: int = 20
+    # Hosts (dominio exato, separados por virgula) para os quais
+    # PORTAL_REMOTE_STORAGE_AUTH_TOKEN pode ser enviado. Anexos com URL livre
+    # (link externo colado pelo usuario) nunca devem receber esse header -
+    # so a URL do storage remoto legitimo, configurada aqui, recebe o token.
+    PORTAL_REMOTE_STORAGE_TRUSTED_HOSTS: str = ""
 
     class Config:
         env_file = str(ENV_FILE_PATH)

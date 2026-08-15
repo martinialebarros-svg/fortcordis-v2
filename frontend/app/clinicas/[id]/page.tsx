@@ -4,8 +4,22 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import {
+  formatarCepVisual,
+  formatarCnpjVisual,
+  formatarTelefoneVisual,
+  normalizarCep,
+  normalizarCnpj,
+  normalizarTelefone,
+} from "@/lib/atendimento-cadastro";
 import { Save, ArrowLeft, Building2, Trash2, AlertTriangle, MapPin, DollarSign, Calculator, Percent } from "lucide-react";
 import ManualPinModal from "../components/ManualPinModal";
+import ClinicaPortalAccessCard from "../components/ClinicaPortalAccessCard";
+import WhatsappNumbersField from "../components/WhatsappNumbersField";
+import {
+  normalizarWhatsappsParaApi,
+  prepararWhatsappsFormulario,
+} from "@/lib/clinica-whatsapp";
 
 const ESTADOS = [
   "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA",
@@ -51,6 +65,7 @@ export default function EditarClinicaPage() {
     razao_social: "",
     cnpj: "",
     telefone: "",
+    whatsapps: [""],
     email: "",
     endereco: "",
     numero: "",
@@ -93,13 +108,6 @@ export default function EditarClinicaPage() {
     if (loading) return;
     carregarPrecosServicos();
   }, [loading, clinicaId, clinica.tabela_preco_id]);
-
-  const normalizarCep = (valor: string) => valor.replace(/\D/g, "").slice(0, 8);
-  const formatarCepVisual = (valor: string) => {
-    const cep = normalizarCep(valor);
-    if (cep.length <= 5) return cep;
-    return `${cep.slice(0, 5)}-${cep.slice(5)}`;
-  };
 
   const assinaturaGeocode = (dados = clinica) =>
     [
@@ -268,8 +276,9 @@ export default function EditarClinicaPage() {
       const clinicaCarregada = {
         nome: data.nome || "",
         razao_social: data.razao_social || "",
-        cnpj: data.cnpj || "",
-        telefone: data.telefone || "",
+        cnpj: formatarCnpjVisual(data.cnpj || ""),
+        telefone: formatarTelefoneVisual(data.telefone || ""),
+        whatsapps: prepararWhatsappsFormulario(data.whatsapps, data.telefone),
         email: data.email || "",
         endereco: data.endereco || "",
         numero: data.numero || "",
@@ -391,6 +400,9 @@ export default function EditarClinicaPage() {
         ...clinica,
         nome: clinica.nome.trim(),
         razao_social: clinica.razao_social.trim(),
+        cnpj: normalizarCnpj(clinica.cnpj),
+        telefone: normalizarTelefone(clinica.telefone),
+        whatsapps: normalizarWhatsappsParaApi(clinica.whatsapps),
         cep: normalizarCep(clinica.cep),
         bairro_manual: bairroEditadoManual,
         tabela_preco_id: parseInt(clinica.tabela_preco_id.toString()),
@@ -445,8 +457,11 @@ export default function EditarClinicaPage() {
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="p-6 flex items-center justify-center min-h-[400px]">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+        <div className="fc-clinic-form-page">
+          <div className="fc-clinic-form-loading">
+            <span aria-hidden="true" />
+            Carregando clínica...
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -454,39 +469,61 @@ export default function EditarClinicaPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-5xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
+      <div className="fc-clinic-form-page">
+        <header className="fc-clinic-form-header">
+          <div className="fc-clinic-form-heading">
             <button
+              type="button"
               onClick={() => router.push("/clinicas")}
-              className="p-2 hover:bg-gray-100 rounded-lg"
+              className="fc-clinic-form-back"
+              aria-label="Voltar para clínicas"
             >
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
+              <ArrowLeft className="h-5 w-5" />
             </button>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Editar Clínica</h1>
-              <p className="text-gray-500">Atualize os dados da clínica</p>
+              <span className="fc-clinic-form-kicker">
+                <Building2 className="h-4 w-4" />
+                Rede assistida
+              </span>
+              <h1>Editar clínica</h1>
+              <p>Atualize cadastro, localização e condições de {clinica.nome || "esta unidade"}.</p>
             </div>
           </div>
-          <button
-            onClick={() => setShowDeleteModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
-          >
-            <Trash2 className="w-4 h-4" />
-            Excluir
-          </button>
-        </div>
+          <div className="fc-clinic-form-header-actions">
+            <div className="fc-clinic-form-context">
+              <span>Registro</span>
+              <strong>Clínica #{clinicaId}</strong>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowDeleteModal(true)}
+              className="fc-clinic-form-delete"
+            >
+              <Trash2 className="w-4 h-4" />
+              Excluir
+            </button>
+          </div>
+        </header>
 
-        <div className="space-y-6">
+        <div className="fc-clinic-form-content">
           {/* Informações Básicas */}
-          <div className="bg-white rounded-lg shadow-sm border p-6">
+          <section className="fc-clinic-form-card fc-clinic-form-card-profile">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <Building2 className="w-5 h-5 text-purple-600" />
               Informações Básicas
             </h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="md:col-span-2 rounded-lg border border-purple-100 bg-purple-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-purple-700">
+                  ID da clinica
+                </p>
+                <p className="mt-1 text-2xl font-bold text-purple-950">{clinicaId}</p>
+                <p className="mt-1 text-sm text-purple-800">
+                  Use este identificador para testar o portal da clinica parceira.
+                </p>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Nome Fantasia *
@@ -520,24 +557,34 @@ export default function EditarClinicaPage() {
                 <input
                   type="text"
                   value={clinica.cnpj}
-                  onChange={(e) => setClinica({...clinica, cnpj: e.target.value})}
+                  onChange={(e) => setClinica({...clinica, cnpj: formatarCnpjVisual(e.target.value)})}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   placeholder="00.000.000/0000-00"
+                  inputMode="numeric"
+                  maxLength={18}
                 />
               </div>
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Telefone
+                  Telefone geral
                 </label>
                 <input
-                  type="text"
+                  type="tel"
                   value={clinica.telefone}
-                  onChange={(e) => setClinica({...clinica, telefone: e.target.value})}
+                  onChange={(e) => setClinica({...clinica, telefone: formatarTelefoneVisual(e.target.value)})}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   placeholder="(00) 00000-0000"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  maxLength={15}
                 />
               </div>
+
+              <WhatsappNumbersField
+                value={clinica.whatsapps}
+                onChange={(whatsapps) => setClinica({ ...clinica, whatsapps })}
+              />
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -568,6 +615,9 @@ export default function EditarClinicaPage() {
                     onBlur={consultarCep}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     placeholder="00000-000"
+                    inputMode="numeric"
+                    autoComplete="postal-code"
+                    maxLength={9}
                   />
                   <button
                     type="button"
@@ -757,10 +807,10 @@ export default function EditarClinicaPage() {
                 />
               </div>
             </div>
-          </div>
+          </section>
 
           {/* Tabela de Preços */}
-          <div className="bg-white rounded-lg shadow-sm border p-6">
+          <section className="fc-clinic-form-card fc-clinic-form-card-pricing">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <DollarSign className="w-5 h-5 text-green-600" />
               Tabela de Preços
@@ -878,10 +928,10 @@ export default function EditarClinicaPage() {
                 )}
               </div>
             )}
-          </div>
+          </section>
 
           {/* Precos negociados por servico */}
-          <div className="bg-white rounded-lg shadow-sm border p-6">
+          <section className="fc-clinic-form-card fc-clinic-form-card-negotiated">
             <h2 className="text-lg font-semibold text-gray-900 mb-2 flex items-center gap-2">
               <Percent className="w-5 h-5 text-emerald-600" />
               Precos negociados por servico
@@ -944,10 +994,17 @@ export default function EditarClinicaPage() {
                 </table>
               </div>
             )}
-          </div>
+          </section>
+
+          <ClinicaPortalAccessCard
+            clinicaId={Number.parseInt(clinicaId, 10)}
+            clinicaNome={clinica.nome || "Clinica parceira"}
+            defaultWhatsapp={clinica.whatsapps.find((numero) => numero.trim()) || clinica.telefone || ""}
+            defaultEmail={clinica.email || ""}
+          />
 
           {/* Resumo */}
-          <div className="bg-gray-50 rounded-lg border p-4">
+          <aside className="fc-clinic-form-summary">
             <h3 className="text-sm font-medium text-gray-700 mb-2">Resumo da Configuração</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               <div>
@@ -961,20 +1018,22 @@ export default function EditarClinicaPage() {
                 <span className="ml-2 font-medium">{clinica.cidade || "Não informada"}</span>
               </div>
             </div>
-          </div>
+          </aside>
           
           {/* Botões */}
-          <div className="flex justify-end gap-3 pt-4">
+          <div className="fc-clinic-form-actions">
             <button
+              type="button"
               onClick={() => router.push("/clinicas")}
-              className="px-6 py-2 text-gray-700 hover:bg-gray-100 rounded-lg border"
+              className="fc-clinic-form-cancel"
             >
               Cancelar
             </button>
             <button
+              type="button"
               onClick={handleSalvar}
               disabled={saving || !clinica.nome}
-              className="flex items-center justify-center gap-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
+              className="fc-clinic-form-primary"
             >
               <Save className="w-4 h-4" />
               {saving ? "Salvando..." : "Salvar Alterações"}
@@ -993,14 +1052,14 @@ export default function EditarClinicaPage() {
 
         {/* Modal de Confirmação de Exclusão */}
         {showDeleteModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+          <div className="fc-clinic-form-modal-backdrop" role="presentation">
+            <div className="fc-clinic-form-modal" role="dialog" aria-modal="true" aria-labelledby="clinic-delete-title">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                <div className="fc-clinic-form-modal-icon">
                   <AlertTriangle className="w-6 h-6 text-red-600" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Confirmar Exclusão</h3>
+                  <h3 id="clinic-delete-title" className="text-lg font-semibold text-gray-900">Confirmar exclusão</h3>
                   <p className="text-sm text-gray-500">
                     Tem certeza que deseja excluir esta clínica? Esta ação não pode ser desfeita.
                   </p>
@@ -1009,17 +1068,19 @@ export default function EditarClinicaPage() {
               
               <div className="flex justify-end gap-3 mt-6">
                 <button
+                  type="button"
                   onClick={() => setShowDeleteModal(false)}
-                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+                  className="fc-clinic-form-cancel"
                 >
                   Cancelar
                 </button>
                 <button
+                  type="button"
                   onClick={handleExcluir}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  className="fc-clinic-form-delete-confirm"
                 >
                   <Trash2 className="w-4 h-4" />
-                  Sim, Excluir
+                  Sim, excluir
                 </button>
               </div>
             </div>

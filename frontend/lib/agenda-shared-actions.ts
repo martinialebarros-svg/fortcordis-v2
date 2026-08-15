@@ -5,7 +5,10 @@ export type AgendaStatus =
   | "Em atendimento"
   | "Realizado"
   | "Cancelado"
-  | "Faltou";
+  | "Faltou"
+  | "Expirado";
+
+export type OrigemAtendimentoAgenda = "clinica_parceira" | "domiciliar";
 
 export interface AgendaStatusAction {
   label: string;
@@ -22,6 +25,7 @@ export const AGENDA_STATUS_LIST: AgendaStatus[] = [
   "Realizado",
   "Cancelado",
   "Faltou",
+  "Expirado",
 ];
 
 export const AGENDA_STATUS_ACOES: AgendaStatusAction[] = [
@@ -42,6 +46,7 @@ const PROXIMOS_STATUS: Record<AgendaStatus, AgendaStatus[]> = {
   Realizado: ["Em atendimento"],
   Cancelado: ["Agendado"],
   Faltou: ["Agendado"],
+  Expirado: ["Agendado"],
 };
 
 export const obterProximosStatus = (statusAtual?: string): AgendaStatus[] => {
@@ -51,7 +56,14 @@ export const obterProximosStatus = (statusAtual?: string): AgendaStatus[] => {
 
 export const obterAcoesStatusPorFluxo = (statusAtual?: string): AgendaStatusAction[] => {
   const permitidos = new Set(obterProximosStatus(statusAtual));
-  return AGENDA_STATUS_ACOES.filter((acao) => permitidos.has(acao.status));
+  const status = String(statusAtual || "").trim();
+  return AGENDA_STATUS_ACOES
+    .filter((acao) => permitidos.has(acao.status))
+    .map((acao) =>
+      status === "Expirado" && acao.status === "Agendado"
+        ? { ...acao, label: "Agendar após confirmação tardia" }
+        : acao
+    );
 };
 
 export const FORMA_PAGAMENTO_OPCOES = [
@@ -105,4 +117,42 @@ export const descricaoFormaPagamentoConfig = (forma: FormaPagamentoConfig): stri
 
 export const osEstaPaga = (status?: string): boolean => {
   return String(status || "").trim().toLowerCase() === "pago";
+};
+
+export const normalizarOrigemAtendimentoAgenda = (valor?: string | null): OrigemAtendimentoAgenda => {
+  return String(valor || "").trim().toLowerCase() === "domiciliar" ? "domiciliar" : "clinica_parceira";
+};
+
+export const obterOrigemAtendimentoMeta = (valor?: string | null) => {
+  const codigo = normalizarOrigemAtendimentoAgenda(valor);
+  if (codigo === "domiciliar") {
+    return {
+      codigo,
+      label: "Domiciliar",
+      descricao: "Atendimento domiciliar",
+      badgeClassName:
+        "inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700",
+      compactBadgeClassName:
+        "inline-flex items-center rounded-full border border-white/80 bg-white/85 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800",
+    };
+  }
+
+  return {
+    codigo,
+    label: "Clinica parceira",
+    descricao: "Clinica parceira",
+    badgeClassName:
+      "inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700",
+    compactBadgeClassName:
+      "inline-flex items-center rounded-full border border-white/80 bg-white/85 px-1.5 py-0.5 text-[9px] font-semibold text-sky-800",
+  };
+};
+
+export const obterTituloAgendamentoPorOrigem = (origem?: string | null, clinica?: string | null): string => {
+  if (normalizarOrigemAtendimentoAgenda(origem) === "domiciliar") {
+    return "Atendimento domiciliar";
+  }
+
+  const nomeClinica = String(clinica || "").trim();
+  return nomeClinica || "Clinica nao informada";
 };

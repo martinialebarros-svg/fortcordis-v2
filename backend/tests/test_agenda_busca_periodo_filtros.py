@@ -86,6 +86,7 @@ class AgendaBuscaPeriodoFiltrosTest(unittest.TestCase):
         data: str,
         hora: str,
         status: str,
+        origem_atendimento: str = "clinica_parceira",
         paciente_id=None,
         clinica_id=None,
         servico_id=None,
@@ -104,6 +105,7 @@ class AgendaBuscaPeriodoFiltrosTest(unittest.TestCase):
             data=data,
             hora=hora,
             status=status,
+            origem_atendimento=origem_atendimento,
             paciente=paciente_nome,
             tutor=tutor_nome,
             clinica=clinica_nome,
@@ -219,6 +221,49 @@ class AgendaBuscaPeriodoFiltrosTest(unittest.TestCase):
             self.assertEqual(len(resultado["items"]), 1)
             self.assertEqual(resultado["items"][0]["id"], ag_match.id)
             self.assertEqual(resultado["items"][0]["status"], "Realizado")
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_filtro_por_origem_atendimento_distingue_domiciliar_e_clinica(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            base = self._seed_base(db)
+            ag_clinica = self._criar_agendamento(
+                db,
+                data="2026-07-21",
+                hora="09:00",
+                status="Agendado",
+                origem_atendimento="clinica_parceira",
+                paciente_id=base["paciente_1"].id,
+                clinica_id=base["clinica_1"].id,
+                servico_id=base["servico_1"].id,
+            )
+            ag_domiciliar = self._criar_agendamento(
+                db,
+                data="2026-07-21",
+                hora="11:00",
+                status="Agendado",
+                origem_atendimento="domiciliar",
+                paciente_id=base["paciente_2"].id,
+                clinica_id=None,
+                servico_id=base["servico_2"].id,
+            )
+
+            resultado = agenda.listar_agendamentos(
+                data_inicio="2026-07-01",
+                data_fim="2026-07-31",
+                origem_atendimento="domiciliar",
+                db=db,
+                current_user=SimpleNamespace(id=1),
+            )
+
+            self.assertEqual(resultado["total"], 1)
+            self.assertEqual(len(resultado["items"]), 1)
+            self.assertEqual(resultado["items"][0]["id"], ag_domiciliar.id)
+            self.assertEqual(resultado["items"][0]["origem_atendimento"], "domiciliar")
+            self.assertNotEqual(resultado["items"][0]["id"], ag_clinica.id)
         finally:
             db.close()
             engine.dispose()
@@ -343,7 +388,13 @@ class AgendaBuscaPeriodoFiltrosTest(unittest.TestCase):
             self.assertEqual(resultado["total"], 2)
             self.assertEqual(len(resultado["items"]), 2)
 
-            select_statements = [sql for sql in statements if "select" in sql]
+            select_statements = [
+                sql
+                for sql in statements
+                if "select" in sql
+                and "sqlite_master" not in sql
+                and not sql.lstrip().startswith("pragma ")
+            ]
             self.assertLessEqual(
                 len(select_statements),
                 6,

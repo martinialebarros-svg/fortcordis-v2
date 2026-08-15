@@ -1,23 +1,51 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check } from "lucide-react";
+import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check, Copy, MessageCircle, Pencil, Plus, Trash2, Send, Loader2 } from "lucide-react";
 import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
+import {
+  formatarCepVisual,
+  formatarCpfVisual,
+  formatarTelefoneVisual,
+  normalizarCep,
+} from "@/lib/atendimento-cadastro";
 import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
+import { coordenadasSaoConfiaveis, normalizarCoordenadaOpcional } from "@/lib/coordinates";
 import {
   AgendaExcecaoConfig,
   AgendaFeriadoConfig,
   AgendaSemanalConfig,
   validarHorarioAgendamento,
 } from "@/lib/agenda-config";
+import {
+  criarPrazoPadraoReserva,
+  criarPrazoReservaPorHoras,
+  formatarPrazoReserva,
+  montarLinkWhatsAppReserva,
+  montarMensagemAgendaManual,
+  type ReservaManualDestinatario,
+} from "@/lib/agenda-reserva-manual";
+import {
+  formatarWhatsAppVisual,
+  normalizarWhatsappsParaApi,
+  obterWhatsappsClinica,
+  prepararWhatsappsFormulario,
+} from "@/lib/clinica-whatsapp";
+import {
+  addRacaCustomPorEspecie,
+  editarRacaCatalogo,
+  excluirRacaCatalogo,
+  getRacaOptions,
+  getRacasCatalogo,
+  loadAjustesRacasPorEspecie,
+  loadRacasCustomPorEspecie,
+  saveAjustesRacasPorEspecie,
+  saveRacasCustomPorEspecie,
+  type AjustesRacasPorEspecie,
+  type RacasCustomPorEspecie,
+} from "@/lib/racas";
 
-const TABELA_PRECO_PADRAO = [
-  { id: 1, nome: "Fortaleza" },
-  { id: 2, nome: "Regiao Metropolitana" },
-  { id: 3, nome: "Domiciliar" },
-  { id: 4, nome: "Personalizado" },
-];
 const LIMITE_MINUTOS_PROXIMIDADE = 25;
 const LIMITE_ESTENDIDO_EXTRA_MIN = 15;
 const COOLDOWN_POPUP_PROXIMIDADE_MS = 60_000;
@@ -25,7 +53,10 @@ const COOLDOWN_POPUP_PROXIMIDADE_MS = 60_000;
 interface NovoAgendamentoModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (agendamentoCriado?: { data?: string | null }) => void | Promise<void>;
+  onSuccess: (
+    agendamentoCriado?: { data?: string | null },
+    opcoes?: { manterModalAberto?: boolean }
+  ) => void | Promise<void>;
   agendamento?: any;
   defaultDate?: string;
   defaultTime?: string;
@@ -38,7 +69,9 @@ interface NovoAgendamentoModalProps {
 
 interface SugestaoHorarioVizinho {
   agendamento_id: number;
-  clinica_id: number;
+  clinica_id?: number | null;
+  tutor_id?: number | null;
+  tipo?: OrigemAtendimento;
   clinica: string;
   inicio?: string;
   fim?: string;
@@ -55,6 +88,8 @@ interface SugestaoHorarioItem {
   risco: number;
   tempo_deslocamento_total_min: number;
   ociosidade_min: number;
+  destino_operacional?: string;
+  destino_operacional_tipo?: OrigemAtendimento;
   anterior: SugestaoHorarioVizinho | null;
   proximo: SugestaoHorarioVizinho | null;
 }
@@ -62,7 +97,10 @@ interface SugestaoHorarioItem {
 interface SugestoesHorarioResponse {
   ok: boolean;
   data: string;
-  clinica_id: number;
+  clinica_id?: number | null;
+  tutor_id?: number | null;
+  origem_atendimento?: OrigemAtendimento;
+  destino_operacional?: string;
   duracao_minutos: number;
   perfil_deslocamento: string;
   intervalo_minutos?: number;
@@ -84,7 +122,7 @@ const ETAPAS_WIZARD_NOVO: EtapaWizardNovo[] = [
   {
     id: "preparo",
     titulo: "Preparar dados",
-    descricao: "Selecionar clinica, servico e data.",
+    descricao: "Selecionar destino operacional, servico e data.",
   },
   {
     id: "ofertas",
@@ -121,10 +159,29 @@ interface ConflitoDeslocamentoDetail {
   limite_desvio_min?: number;
 }
 
+interface ReservaExpiradaDetail {
+  codigo?: string;
+  mensagem?: string;
+  confirmavel?: boolean;
+  reservas_expiradas?: Array<{
+    id: number;
+    clinica?: string | null;
+    paciente?: string | null;
+    tutor?: string | null;
+    inicio?: string | null;
+    fim?: string | null;
+    reserva_expira_em?: string | null;
+  }>;
+}
+
 interface SugestaoProximidadeResponse {
   ok: boolean;
   sugerir: boolean;
   mensagem: string;
+  clinica_id?: number | null;
+  tutor_id?: number | null;
+  origem_atendimento?: OrigemAtendimento;
+  destino_operacional?: string;
   limite_minutos?: number;
   acima_do_limite?: boolean;
   politica_oferta?: {
@@ -136,9 +193,12 @@ interface SugestaoProximidadeResponse {
   };
   item?: {
     agendamento_id: number;
-    clinica_id: number;
+    clinica_id?: number | null;
+    tutor_id?: number | null;
     clinica: string;
     clinica_destino?: string;
+    destino_operacional?: string;
+    destino_operacional_tipo?: OrigemAtendimento;
     clinica_anterior?: string | null;
     clinica_posterior?: string | null;
     ha_agendamento_anterior?: boolean;
@@ -158,7 +218,9 @@ interface SugestaoProximidadeResponse {
 
 interface AssistenteOfertaResponse {
   ok: boolean;
-  clinica_id: number;
+  clinica_id?: number | null;
+  tutor_id?: number | null;
+  origem_atendimento?: OrigemAtendimento;
   data_referencia: string;
   data_contato?: string;
   data_base: string;
@@ -173,6 +235,15 @@ interface TutorOption {
   id: number;
   nome: string;
   telefone?: string | null;
+  whatsapp?: string | null;
+  email?: string | null;
+  cidade?: string | null;
+  endereco_resumo?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  georreferenciado?: boolean;
+  pets?: Array<{ id: number; nome: string }>;
+  total_pets?: number;
 }
 
 interface PacienteOption {
@@ -187,6 +258,8 @@ interface PacienteOption {
 interface ClinicaOption {
   id: number;
   nome: string;
+  telefone?: string | null;
+  whatsapps?: string[] | null;
   endereco?: string | null;
   numero?: string | null;
   complemento?: string | null;
@@ -194,6 +267,8 @@ interface ClinicaOption {
   cidade?: string | null;
   estado?: string | null;
   cep?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 interface SearchableSelectOption {
@@ -213,9 +288,14 @@ interface SearchableSelectProps {
   clearLabel?: string;
   disabled?: boolean;
   showSelectedDescription?: boolean;
+  onSearchChange?: (value: string) => void;
+  isSearching?: boolean;
 }
 
+type OrigemAtendimento = "clinica_parceira" | "domiciliar";
+
 interface FormDataAgenda {
+  origem_atendimento: OrigemAtendimento;
   tutor_id: string;
   paciente_id: string;
   clinica_id: string;
@@ -226,14 +306,71 @@ interface FormDataAgenda {
   data: string;
   hora: string;
   marcar_como_reserva: boolean;
+  reserva_destinatario_manual: ReservaManualDestinatario;
+  reserva_prazo_horas: string;
+  reserva_prazo_confirmacao: string;
   observacoes: string;
 }
 
+interface MensagemAgendaPosCriacao {
+  agendamentoId: number | null;
+  tipo: "reserva" | "agendamento";
+  destinatarioTipo: ReservaManualDestinatario;
+  destinatarioId: string;
+  destinatarioNome: string;
+  telefones: string[];
+  telefoneSugerido: string;
+  prazoLabel?: string;
+  mensagem: string;
+}
+
+const ULTIMO_WHATSAPP_STORAGE_PREFIX = "fortcordis:agenda:ultimo-whatsapp:v1";
+
+function obterUltimoWhatsappStorageKey(tipo: ReservaManualDestinatario, id: string): string | null {
+  if (!id) return null;
+  return `${ULTIMO_WHATSAPP_STORAGE_PREFIX}:${tipo}:${id}`;
+}
+
+function lerUltimoWhatsappSelecionado(tipo: ReservaManualDestinatario, id: string): string {
+  if (typeof window === "undefined") return "";
+  const key = obterUltimoWhatsappStorageKey(tipo, id);
+  if (!key) return "";
+  try {
+    return window.localStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+function salvarUltimoWhatsappSelecionado(tipo: ReservaManualDestinatario, id: string, telefone: string): void {
+  if (typeof window === "undefined" || !telefone) return;
+  const key = obterUltimoWhatsappStorageKey(tipo, id);
+  if (!key) return;
+  try {
+    window.localStorage.setItem(key, telefone);
+  } catch {
+    // localStorage indisponivel (modo privado, quota, etc.) - segue sem lembrar.
+  }
+}
+
 interface NovoTutorForm {
+  id?: string;
   nome: string;
   telefone: string;
   whatsapp: string;
   email: string;
+  cpf: string;
+  cep: string;
+  endereco: string;
+  numero: string;
+  complemento: string;
+  bairro: string;
+  cidade: string;
+  estado: string;
+  latitude: number | null;
+  longitude: number | null;
+  place_id: string;
+  endereco_normalizado: string;
 }
 
 interface NovoAnimalForm {
@@ -248,7 +385,47 @@ interface NovoAnimalForm {
   observacoes: string;
 }
 
+interface TutorPanoramaPet {
+  id: number;
+  nome: string;
+  especie?: string | null;
+  raca?: string | null;
+  sexo?: string | null;
+  ativo?: string | number | boolean | null;
+}
+
+interface TutorPanoramaData {
+  tutor: {
+    id: number;
+    nome: string;
+    telefone?: string | null;
+    whatsapp?: string | null;
+    email?: string | null;
+    cpf?: string | null;
+    cep?: string | null;
+    endereco?: string | null;
+    numero?: string | null;
+    complemento?: string | null;
+    bairro?: string | null;
+    cidade?: string | null;
+    estado?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    place_id?: string | null;
+    endereco_normalizado?: string | null;
+    georreferenciado?: boolean;
+  };
+  pets: TutorPanoramaPet[];
+  resumo?: {
+    total_pets?: number;
+    pets_ativos?: number;
+    endereco_preenchido?: boolean;
+    georreferenciado?: boolean;
+  };
+}
+
 const buildInitialFormData = (defaultDate?: string, defaultTime?: string): FormDataAgenda => ({
+  origem_atendimento: "clinica_parceira",
   tutor_id: "",
   paciente_id: "",
   clinica_id: "",
@@ -259,14 +436,30 @@ const buildInitialFormData = (defaultDate?: string, defaultTime?: string): FormD
   data: defaultDate || "",
   hora: defaultTime || "",
   marcar_como_reserva: false,
+  reserva_destinatario_manual: "clinica",
+  reserva_prazo_horas: "3",
+  reserva_prazo_confirmacao: criarPrazoPadraoReserva(),
   observacoes: "",
 });
 
 const buildInitialTutorForm = (): NovoTutorForm => ({
+  id: "",
   nome: "",
   telefone: "",
   whatsapp: "",
   email: "",
+  cpf: "",
+  cep: "",
+  endereco: "",
+  numero: "",
+  complemento: "",
+  bairro: "",
+  cidade: "",
+  estado: "CE",
+  latitude: null,
+  longitude: null,
+  place_id: "",
+  endereco_normalizado: "",
 });
 
 const buildInitialAnimalForm = (tutorId = ""): NovoAnimalForm => ({
@@ -294,7 +487,14 @@ const matchesSearch = (value: string, query: string): boolean => {
 
   const normalizedValue = normalizeSearchText(value);
   const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
-  return tokens.every((token) => normalizedValue.includes(token));
+  const flexibleValue = normalizedValue.replace(/(.)\1+/g, "$1");
+  return tokens.every((token) => {
+    const flexibleToken = token.replace(/(.)\1+/g, "$1");
+    return (
+      normalizedValue.includes(token) ||
+      flexibleValue.includes(flexibleToken)
+    );
+  });
 };
 
 const formatarEnderecoClinica = (clinica?: ClinicaOption | null): string => {
@@ -331,6 +531,45 @@ const formatarResumoPaciente = (paciente: PacienteOption): string => {
   return detalhes.join(" - ");
 };
 
+const tutorTemGeorreferenciamento = (tutor?: {
+  latitude?: number | null;
+  longitude?: number | null;
+  georreferenciado?: boolean;
+} | null): boolean => {
+  if (!tutor) return false;
+  return coordenadasSaoConfiaveis(tutor.latitude, tutor.longitude);
+};
+
+const clinicaTemGeorreferenciamento = (clinica?: ClinicaOption | null): boolean =>
+  coordenadasSaoConfiaveis(clinica?.latitude, clinica?.longitude);
+
+const resumoEnderecoTutor = (tutor?: {
+  endereco?: string | null;
+  numero?: string | null;
+  complemento?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
+  cep?: string | null;
+} | null): string => {
+  if (!tutor) return "";
+
+  const linha1 = [tutor.endereco, tutor.numero, tutor.complemento]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join(", ");
+  const linha2 = [
+    tutor.bairro,
+    [tutor.cidade, tutor.estado].map((item) => String(item || "").trim()).filter(Boolean).join("/"),
+    tutor.cep,
+  ]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join(" - ");
+
+  return [linha1, linha2].filter(Boolean).join(" - ");
+};
+
 const formatarMoedaBRL = (valor: number): string => {
   return Number(valor || 0).toLocaleString("pt-BR", {
     style: "currency",
@@ -352,14 +591,14 @@ const rotularFonteDeslocamento = (fonte?: string | null): string => {
 
 const nomeClinicaLegivel = (nome?: string | null): string => {
   const valor = String(nome || "").trim();
-  return valor || "clinica nao informada";
+  return valor || "destino nao informado";
 };
 
 const fraseDeslocamentoEntreClinicas = (origem?: string | null, destino?: string | null, duracaoMin = 0): string => {
   const origemNome = nomeClinicaLegivel(origem);
   const destinoNome = nomeClinicaLegivel(destino);
   if (origemNome.toLocaleLowerCase("pt-BR") === destinoNome.toLocaleLowerCase("pt-BR")) {
-    return `Deslocamento dentro da clinica ${origemNome}: ${duracaoMin} min.`;
+    return `Deslocamento local em ${origemNome}: ${duracaoMin} min.`;
   }
   return `Deslocamento entre ${origemNome} e ${destinoNome} de ${duracaoMin} min.`;
 };
@@ -377,7 +616,7 @@ const detalharComposicaoDeslocamento = (
   const total = Number.isFinite(Number(totalMinutos)) ? Math.max(0, Number(totalMinutos)) : 0;
   const anterior = Number.isFinite(Number(anteriorMinutos)) ? Math.max(0, Number(anteriorMinutos)) : 0;
   const proximo = Number.isFinite(Number(proximoMinutos)) ? Math.max(0, Number(proximoMinutos)) : 0;
-  const destino = String(clinicaDestino || "").trim() || "clinica selecionada";
+  const destino = String(clinicaDestino || "").trim() || "destino selecionado";
   const partes: string[] = [];
 
   if (haAgendamentoAnterior) {
@@ -426,6 +665,8 @@ function SearchableSelect({
   clearLabel = "Selecione...",
   disabled = false,
   showSelectedDescription = false,
+  onSearchChange,
+  isSearching = false,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -478,12 +719,12 @@ function SearchableSelect({
   };
 
   return (
-    <div ref={wrapperRef} className="relative">
+    <div ref={wrapperRef} className="fc-appointment-select relative">
       <button
         type="button"
         disabled={disabled}
         onClick={() => setOpen((prev) => !prev)}
-        className={`flex w-full items-center justify-between gap-3 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left transition focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+        className={`fc-appointment-select-trigger flex w-full items-center justify-between gap-3 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left transition focus:outline-none ${
           disabled ? "cursor-not-allowed bg-gray-100 text-gray-400" : "hover:border-gray-400"
         }`}
         aria-expanded={open}
@@ -502,16 +743,20 @@ function SearchableSelect({
       </button>
 
       {open && (
-        <div className="absolute left-0 right-0 z-30 mt-1 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl">
+        <div className="fc-appointment-select-menu absolute left-0 right-0 z-30 mt-1 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl">
           <div className="border-b border-gray-100 p-2">
-            <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+            <div className="fc-appointment-select-search flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
               <Search className="h-4 w-4 shrink-0 text-gray-400" />
               <input
                 ref={inputRef}
                 type="text"
                 value={search}
                 autoComplete="off"
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => {
+                  const nextSearch = event.target.value;
+                  setSearch(nextSearch);
+                  onSearchChange?.(nextSearch);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Escape") {
                     event.preventDefault();
@@ -536,7 +781,7 @@ function SearchableSelect({
             <button
               type="button"
               onClick={() => selecionar("")}
-              className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition hover:bg-blue-50 ${
+              className={`fc-appointment-select-option flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition ${
                 !value ? "bg-blue-50 text-blue-700" : "text-gray-700"
               }`}
             >
@@ -545,7 +790,9 @@ function SearchableSelect({
             </button>
 
             {filteredOptions.length === 0 ? (
-              <div className="px-3 py-4 text-sm text-gray-500">{emptyText}</div>
+              <div className="px-3 py-4 text-sm text-gray-500">
+                {isSearching ? "Buscando tutores..." : emptyText}
+              </div>
             ) : (
               filteredOptions.map((option) => {
                 const isSelected = option.value === value;
@@ -555,7 +802,7 @@ function SearchableSelect({
                     key={option.value}
                     type="button"
                     onClick={() => selecionar(option.value)}
-                    className={`flex w-full items-start justify-between gap-3 px-3 py-2 text-left transition hover:bg-blue-50 ${
+                    className={`fc-appointment-select-option flex w-full items-start justify-between gap-3 px-3 py-2 text-left transition ${
                       isSelected ? "bg-blue-50 text-blue-700" : "text-gray-900"
                     }`}
                     title={option.description || option.label}
@@ -599,8 +846,11 @@ export default function NovoAgendamentoModal({
   const [tutores, setTutores] = useState<TutorOption[]>([]);
   const [clinicas, setClinicas] = useState<ClinicaOption[]>([]);
   const [servicos, setServicos] = useState<any[]>([]);
-  const [tabelasPreco, setTabelasPreco] = useState<{ id: number; nome: string }[]>(TABELA_PRECO_PADRAO);
   const [tutorSelecionado, setTutorSelecionado] = useState<string>("");
+  const [tutorPanorama, setTutorPanorama] = useState<TutorPanoramaData | null>(null);
+  const [carregandoTutorPanorama, setCarregandoTutorPanorama] = useState(false);
+  const [buscaTutorRemota, setBuscaTutorRemota] = useState("");
+  const [buscandoTutores, setBuscandoTutores] = useState(false);
   const [erroCarregamento, setErroCarregamento] = useState<string>("");
   const [carregandoSugestoes, setCarregandoSugestoes] = useState(false);
   const [sugestoesHorario, setSugestoesHorario] = useState<SugestaoHorarioItem[]>([]);
@@ -623,15 +873,36 @@ export default function NovoAgendamentoModal({
   });
   const popupProximidadeHistoricoRef = useRef<Record<string, number>>({});
   const sequenciaConsultaProximidadeRef = useRef(0);
+  const sequenciaBuscaTutorRef = useRef(0);
   const [modalTutorAberto, setModalTutorAberto] = useState(false);
   const [modalAnimalAberto, setModalAnimalAberto] = useState(false);
   const [salvandoTutor, setSalvandoTutor] = useState(false);
   const [salvandoAnimal, setSalvandoAnimal] = useState(false);
   const [novoTutor, setNovoTutor] = useState<NovoTutorForm>(buildInitialTutorForm());
   const [novoAnimal, setNovoAnimal] = useState<NovoAnimalForm>(buildInitialAnimalForm());
+  const [novaRaca, setNovaRaca] = useState("");
+  const [racasCustomPorEspecie, setRacasCustomPorEspecie] = useState<RacasCustomPorEspecie>({});
+  const [ajustesRacasPorEspecie, setAjustesRacasPorEspecie] = useState<AjustesRacasPorEspecie>({});
+  const [racasLoaded, setRacasLoaded] = useState(false);
+  const [gestaoRacasAberta, setGestaoRacasAberta] = useState(false);
+  const [racaEmEdicaoId, setRacaEmEdicaoId] = useState("");
+  const [nomeRacaEmEdicao, setNomeRacaEmEdicao] = useState("");
+  const [consultandoCepTutor, setConsultandoCepTutor] = useState(false);
+  const [geocodificandoTutor, setGeocodificandoTutor] = useState(false);
+  const [statusEnderecoTutor, setStatusEnderecoTutor] = useState("");
+  const ultimoCepConsultadoTutorRef = useRef("");
+  const consultaCepTutorSequenciaRef = useRef(0);
   const [saldoCreditoCliente, setSaldoCreditoCliente] = useState(0);
   const [carregandoCreditoCliente, setCarregandoCreditoCliente] = useState(false);
   const [erroCreditoCliente, setErroCreditoCliente] = useState("");
+  const [mensagemAgendaCriada, setMensagemAgendaCriada] = useState<MensagemAgendaPosCriacao | null>(null);
+  const [feedbackMensagemAgenda, setFeedbackMensagemAgenda] = useState("");
+  const [whatsappMensagemSelecionado, setWhatsappMensagemSelecionado] = useState("");
+  const [envioAutomaticoStatus, setEnvioAutomaticoStatus] = useState<"idle" | "sending" | "sent">("idle");
+  const envioAutomaticoIdempotencyRef = useRef("");
+  const [editandoWhatsappDestinatario, setEditandoWhatsappDestinatario] = useState(false);
+  const [whatsappsDestinatarioEdicao, setWhatsappsDestinatarioEdicao] = useState<string[]>([""]);
+  const [salvandoWhatsappDestinatario, setSalvandoWhatsappDestinatario] = useState(false);
   const intervaloSugestaoMinutos = Number.isFinite(intervaloSlotMinutos)
     ? Math.max(5, Math.min(120, Math.round(intervaloSlotMinutos)))
     : 30;
@@ -640,11 +911,27 @@ export default function NovoAgendamentoModal({
     buildInitialFormData(defaultDate, defaultTime)
   );
 
+  const racasCatalogo = getRacasCatalogo(
+    novoAnimal.especie,
+    racasCustomPorEspecie[novoAnimal.especie] || [],
+    ajustesRacasPorEspecie,
+  );
+  const opcoesRacaAnimal = getRacaOptions(
+    novoAnimal.especie,
+    novoAnimal.raca,
+    racasCustomPorEspecie[novoAnimal.especie] || [],
+    ajustesRacasPorEspecie,
+  );
+  const racaSelecionadaNoCatalogo = racasCatalogo.find(
+    (raca) => raca.nome === novoAnimal.raca,
+  );
+
   const isEditando = !!agendamento;
   const statusFormulario = isEditando
     ? (agendamento?.status || "Agendado")
     : (formData.marcar_como_reserva ? "Reservado" : "Agendado");
   const permiteSemPacienteTutor = statusFormulario === "Reservado";
+  const atendimentoDomiciliar = formData.origem_atendimento === "domiciliar";
 
   const parseApiDateTime = (value?: string): Date | null => {
     if (!value) return null;
@@ -764,6 +1051,22 @@ export default function NovoAgendamentoModal({
     return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
   };
 
+  useEffect(() => {
+    setRacasCustomPorEspecie(loadRacasCustomPorEspecie());
+    setAjustesRacasPorEspecie(loadAjustesRacasPorEspecie());
+    setRacasLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!racasLoaded) return;
+    saveRacasCustomPorEspecie(racasCustomPorEspecie);
+  }, [racasCustomPorEspecie, racasLoaded]);
+
+  useEffect(() => {
+    if (!racasLoaded) return;
+    saveAjustesRacasPorEspecie(ajustesRacasPorEspecie);
+  }, [ajustesRacasPorEspecie, racasLoaded]);
+
   // Inicializa formulario ao abrir no modo "novo" sem resetar quando pacientes/tutores atualizam.
   useEffect(() => {
     if (!isOpen || isEditando) return;
@@ -799,13 +1102,18 @@ export default function NovoAgendamentoModal({
       agendamento.paciente_id && agendamento.paciente_id > 0
         ? pacientes.find((p) => p.id === agendamento.paciente_id)
         : null;
+    const origemAtendimento: OrigemAtendimento =
+      agendamento?.origem_atendimento === "domiciliar" ? "domiciliar" : "clinica_parceira";
 
     setFormData({
+      origem_atendimento: origemAtendimento,
       tutor_id:
-        pacienteSelecionado?.tutor_id !== null &&
-        pacienteSelecionado?.tutor_id !== undefined
-          ? pacienteSelecionado.tutor_id.toString()
-          : "",
+        agendamento?.tutor_id
+          ? String(agendamento.tutor_id)
+          : pacienteSelecionado?.tutor_id !== null &&
+              pacienteSelecionado?.tutor_id !== undefined
+            ? pacienteSelecionado.tutor_id.toString()
+            : "",
       paciente_id:
         agendamento.paciente_id && agendamento.paciente_id > 0
           ? agendamento.paciente_id.toString()
@@ -818,10 +1126,13 @@ export default function NovoAgendamentoModal({
       data,
       hora,
       marcar_como_reserva: agendamento.status === "Reservado",
+      reserva_destinatario_manual: origemAtendimento === "domiciliar" ? "tutor" : "clinica",
+      reserva_prazo_horas: "3",
+      reserva_prazo_confirmacao: criarPrazoPadraoReserva(),
       observacoes: agendamento.observacoes || "",
     });
 
-    setTutorSelecionado(pacienteSelecionado?.tutor || "");
+    setTutorSelecionado(pacienteSelecionado?.tutor || agendamento?.tutor || "");
     setSugestoesHorario([]);
     setOfertasPanoramicasConsultadas(false);
     setIndiceSugestaoAtual(0);
@@ -850,6 +1161,14 @@ export default function NovoAgendamentoModal({
     setSalvandoAnimal(false);
     setNovoTutor(buildInitialTutorForm());
     setNovoAnimal(buildInitialAnimalForm());
+    setNovaRaca("");
+    setGestaoRacasAberta(false);
+    setRacaEmEdicaoId("");
+    setNomeRacaEmEdicao("");
+    setTutorPanorama(null);
+    setCarregandoTutorPanorama(false);
+    setGeocodificandoTutor(false);
+    setStatusEnderecoTutor("");
     setFormData(buildInitialFormData(defaultDate, defaultTime));
     setTutorSelecionado("");
     setSugestoesHorario([]);
@@ -868,6 +1187,12 @@ export default function NovoAgendamentoModal({
     setSaldoCreditoCliente(0);
     setCarregandoCreditoCliente(false);
     setErroCreditoCliente("");
+    setMensagemAgendaCriada(null);
+    setFeedbackMensagemAgenda("");
+    setWhatsappMensagemSelecionado("");
+    setEditandoWhatsappDestinatario(false);
+    setWhatsappsDestinatarioEdicao([""]);
+    setSalvandoWhatsappDestinatario(false);
     setInteracaoProximidade({ clinica: false, servico: false, data: false });
     popupProximidadeHistoricoRef.current = {};
     sequenciaConsultaProximidadeRef.current = 0;
@@ -921,6 +1246,15 @@ export default function NovoAgendamentoModal({
     };
   }, [formData.paciente_id, formData.tutor_id, isEditando, isOpen]);
 
+  useEffect(() => {
+    setEditandoWhatsappDestinatario(false);
+    setWhatsappsDestinatarioEdicao([""]);
+  }, [
+    formData.clinica_id,
+    formData.reserva_destinatario_manual,
+    formData.tutor_id,
+  ]);
+
   const carregarDados = async () => {
     const extrairItems = (payload: any): any[] => {
       if (Array.isArray(payload?.items)) return payload.items;
@@ -933,7 +1267,6 @@ export default function NovoAgendamentoModal({
       api.get("/pacientes?limit=1000"),
       api.get("/tutores?limit=1000"),
       api.get("/clinicas?limit=1000"),
-      api.get("/clinicas/tabelas-preco/opcoes"),
       api.get("/servicos?limit=1000"),
     ]);
 
@@ -963,20 +1296,7 @@ export default function NovoAgendamentoModal({
       falhas.push("clinicas");
     }
 
-    const tabelasResp = resultados[3];
-    if (tabelasResp.status === "fulfilled") {
-      const itens = extrairItems(tabelasResp.value?.data);
-      if (itens.length > 0) {
-        setTabelasPreco(itens);
-      } else {
-        setTabelasPreco(TABELA_PRECO_PADRAO);
-      }
-    } else {
-      setTabelasPreco(TABELA_PRECO_PADRAO);
-      falhas.push("tabelas de preco");
-    }
-
-    const servicosResp = resultados[4];
+    const servicosResp = resultados[3];
     if (servicosResp.status === "fulfilled") {
       setServicos(extrairItems(servicosResp.value?.data));
     } else {
@@ -990,6 +1310,213 @@ export default function NovoAgendamentoModal({
       );
     } else {
       setErroCarregamento("");
+    }
+  };
+
+  useEffect(() => {
+    const termo = buscaTutorRemota.trim();
+    if (!isOpen || termo.length < 2) {
+      sequenciaBuscaTutorRef.current += 1;
+      setBuscandoTutores(false);
+      return;
+    }
+
+    const sequencia = sequenciaBuscaTutorRef.current + 1;
+    sequenciaBuscaTutorRef.current = sequencia;
+    setBuscandoTutores(true);
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await api.get("/tutores", {
+          params: { busca: termo, limit: 50 },
+        });
+        if (sequencia !== sequenciaBuscaTutorRef.current) return;
+
+        const encontrados = Array.isArray(response?.data?.items)
+          ? (response.data.items as TutorOption[])
+          : [];
+        setTutores((atuais) => {
+          const porId = new Map(atuais.map((tutor) => [tutor.id, tutor]));
+          encontrados.forEach((tutor) => porId.set(tutor.id, tutor));
+          return Array.from(porId.values()).sort((a, b) =>
+            a.nome.localeCompare(b.nome, "pt-BR")
+          );
+        });
+      } catch (error) {
+        console.error("Erro ao buscar tutores:", error);
+      } finally {
+        if (sequencia === sequenciaBuscaTutorRef.current) {
+          setBuscandoTutores(false);
+        }
+      }
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [buscaTutorRemota, isOpen]);
+
+  const preencherModalTutor = (tutor?: TutorPanoramaData["tutor"] | null) => {
+    if (!tutor) {
+      setNovoTutor(buildInitialTutorForm());
+      setStatusEnderecoTutor("");
+      ultimoCepConsultadoTutorRef.current = "";
+      return;
+    }
+
+    setNovoTutor({
+      id: String(tutor.id || ""),
+      nome: String(tutor.nome || ""),
+      telefone: formatarTelefoneVisual(String(tutor.telefone || "")),
+      whatsapp: formatarTelefoneVisual(String(tutor.whatsapp || "")),
+      email: String(tutor.email || ""),
+      cpf: formatarCpfVisual(String(tutor.cpf || "")),
+      cep: formatarCepVisual(String(tutor.cep || "")),
+      endereco: String(tutor.endereco || ""),
+      numero: String(tutor.numero || ""),
+      complemento: String(tutor.complemento || ""),
+      bairro: String(tutor.bairro || ""),
+      cidade: String(tutor.cidade || ""),
+      estado: String(tutor.estado || "CE"),
+      latitude: normalizarCoordenadaOpcional(tutor.latitude),
+      longitude: normalizarCoordenadaOpcional(tutor.longitude),
+      place_id: String(tutor.place_id || ""),
+      endereco_normalizado: String(tutor.endereco_normalizado || ""),
+    });
+    ultimoCepConsultadoTutorRef.current = normalizarCep(tutor.cep || "");
+    setStatusEnderecoTutor(
+      tutorTemGeorreferenciamento(tutor)
+        ? "Endereco do tutor georreferenciado com sucesso."
+        : "Complete o endereco e execute o georreferenciamento antes de usar o tutor no fluxo domiciliar."
+    );
+  };
+
+  const carregarPanoramaTutor = async (tutorId: string) => {
+    const idNumerico = Number.parseInt(tutorId || "", 10);
+    if (!Number.isFinite(idNumerico) || idNumerico <= 0) {
+      setTutorPanorama(null);
+      return;
+    }
+
+    try {
+      setCarregandoTutorPanorama(true);
+      const response = await api.get(`/tutores/${idNumerico}/panorama`);
+      const panorama = response?.data as TutorPanoramaData;
+      setTutorPanorama(panorama);
+      if (panorama?.tutor) {
+        setTutores((atuais) => {
+          const tutorAtualizado = panorama.tutor as TutorOption;
+          const restantes = atuais.filter((item) => item.id !== tutorAtualizado.id);
+          return [...restantes, tutorAtualizado].sort((a, b) =>
+            a.nome.localeCompare(b.nome, "pt-BR")
+          );
+        });
+      }
+      preencherModalTutor(panorama?.tutor);
+    } catch (error) {
+      console.error("Erro ao carregar panorama do tutor:", error);
+      setTutorPanorama(null);
+    } finally {
+      setCarregandoTutorPanorama(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!formData.tutor_id) {
+      setTutorPanorama(null);
+      return;
+    }
+    void carregarPanoramaTutor(formData.tutor_id);
+  }, [formData.tutor_id, isOpen]);
+
+  const consultarCepTutor = async (cepFonte = novoTutor.cep) => {
+    const cep = normalizarCep(cepFonte || "");
+    if (cep.length !== 8) return;
+    if (ultimoCepConsultadoTutorRef.current === cep) return;
+
+    const sequencia = consultaCepTutorSequenciaRef.current + 1;
+    consultaCepTutorSequenciaRef.current = sequencia;
+
+    try {
+      setConsultandoCepTutor(true);
+      setStatusEnderecoTutor("Consultando CEP...");
+      const response = await api.get(`/clinicas/cep/${cep}`);
+      const item = response?.data?.item || {};
+
+      if (sequencia !== consultaCepTutorSequenciaRef.current) {
+        return;
+      }
+
+      setNovoTutor((prev) => ({
+        ...prev,
+        cep: formatarCepVisual(item.cep || cep),
+        endereco: item.logradouro || prev.endereco,
+        complemento: prev.complemento || item.complemento || "",
+        bairro: item.bairro || prev.bairro,
+        cidade: item.cidade || prev.cidade,
+        estado: item.estado || prev.estado,
+        latitude: null,
+        longitude: null,
+        place_id: "",
+        endereco_normalizado: "",
+      }));
+      ultimoCepConsultadoTutorRef.current = normalizarCep(item.cep || cep);
+      setStatusEnderecoTutor(
+        item?.bairro_origem === "aprendizado"
+          ? "CEP preenchido com bairro aprendido. Informe o numero e georreferencie o endereco."
+          : "CEP preenchido pelo ViaCEP. Informe o numero e georreferencie o endereco."
+      );
+    } catch (error: any) {
+      if (sequencia !== consultaCepTutorSequenciaRef.current) {
+        return;
+      }
+      ultimoCepConsultadoTutorRef.current = "";
+      const detail = error?.response?.data?.detail || error?.message || "Falha ao consultar CEP.";
+      setStatusEnderecoTutor(String(detail));
+    } finally {
+      if (sequencia === consultaCepTutorSequenciaRef.current) {
+        setConsultandoCepTutor(false);
+      }
+    }
+  };
+
+  const geocodificarTutorEndereco = async () => {
+    if (!novoTutor.endereco.trim() || !novoTutor.numero.trim() || !novoTutor.cidade.trim() || !novoTutor.estado.trim()) {
+      setStatusEnderecoTutor("Preencha endereco, numero, cidade e UF para georreferenciar o tutor.");
+      return;
+    }
+
+    try {
+      setGeocodificandoTutor(true);
+      setStatusEnderecoTutor("");
+      const response = await api.post("/tutores/geocode-endereco", {
+        endereco: novoTutor.endereco,
+        numero: novoTutor.numero,
+        complemento: novoTutor.complemento,
+        bairro: novoTutor.bairro,
+        cidade: novoTutor.cidade,
+        estado: novoTutor.estado,
+        cep: novoTutor.cep,
+      });
+      const item = response?.data?.item || {};
+      setNovoTutor((prev) => ({
+        ...prev,
+        bairro: item.bairro || prev.bairro,
+        cidade: item.cidade || prev.cidade,
+        estado: item.estado || prev.estado,
+        cep: item.cep || prev.cep,
+        latitude: normalizarCoordenadaOpcional(item.latitude) ?? prev.latitude,
+        longitude: normalizarCoordenadaOpcional(item.longitude) ?? prev.longitude,
+        place_id: item.place_id || prev.place_id,
+        endereco_normalizado: item.endereco_normalizado || prev.endereco_normalizado,
+      }));
+      setStatusEnderecoTutor("Endereco do tutor georreferenciado com sucesso.");
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || "Falha ao georreferenciar o tutor.";
+      setStatusEnderecoTutor(String(detail));
+    } finally {
+      setGeocodificandoTutor(false);
     }
   };
 
@@ -1009,8 +1536,28 @@ export default function NovoAgendamentoModal({
     }
   };
 
+  const handleOrigemAtendimentoChange = (origem: OrigemAtendimento) => {
+    if (!isEditando) {
+      resetFluxoAssistente(false);
+    }
+    setFormData((prev) => ({
+      ...prev,
+      origem_atendimento: origem,
+      clinica_id: origem === "domiciliar" ? "" : prev.clinica_id,
+      reserva_destinatario_manual: origem === "domiciliar" ? "tutor" : "clinica",
+    }));
+    if (origem === "domiciliar") {
+      setMensagemProximidade("");
+      setSugestaoProximidade(null);
+    }
+  };
+
   const handleTutorChange = (tutorId: string) => {
     const tutor = tutores.find((t) => t.id.toString() === tutorId);
+    if (!isEditando && atendimentoDomiciliar) {
+      resetFluxoAssistente(false);
+    }
+    setInteracaoProximidade((prev) => ({ ...prev, clinica: true }));
     setTutorSelecionado(tutor?.nome || "");
     setFormData((prev) => ({
       ...prev,
@@ -1034,22 +1581,50 @@ export default function NovoAgendamentoModal({
 
   const buscarSugestaoProximidade = async (clinicaId: string, dataISO: string) => {
     const clinicaIdNum = Number.parseInt(clinicaId, 10);
+    const tutorIdNum = Number.parseInt(formData.tutor_id || "", 10);
     if (!Number.isFinite(clinicaIdNum)) {
-      setMensagemProximidade("");
-      setSugestaoProximidade(null);
-      return;
+      if (!atendimentoDomiciliar) {
+        setMensagemProximidade("");
+        setSugestaoProximidade(null);
+        return;
+      }
     }
     if (!dataISO) {
       setMensagemProximidade("Selecione a data para ativar o assistente inteligente de proximidade.");
       setSugestaoProximidade(null);
       return;
     }
+    if (atendimentoDomiciliar) {
+      if (!Number.isFinite(tutorIdNum)) {
+        setMensagemProximidade("Selecione um tutor georreferenciado para ativar a sugestao de proximidade.");
+        setSugestaoProximidade(null);
+        return;
+      }
+      if (!tutorSelecionadoGeorreferenciado) {
+        setMensagemProximidade(
+          "Georreferencie o endereco do tutor antes de consultar sugestoes de proximidade para o atendimento domiciliar."
+        );
+        setSugestaoProximidade(null);
+        return;
+      }
+    } else {
+      const clinicaAtual = clinicas.find((item) => item.id === clinicaIdNum) || null;
+      if (!clinicaTemGeorreferenciamento(clinicaAtual)) {
+        setMensagemProximidade(
+          "Georreferencie o endereco da clinica na tela de Clinicas antes de consultar sugestoes de proximidade."
+        );
+        setSugestaoProximidade(null);
+        return;
+      }
+    }
     const consultaId = ++sequenciaConsultaProximidadeRef.current;
 
     try {
       const dataContato = !isEditando ? (dataContatoAssistente || hojeLocalIso()) : undefined;
       const response = await api.post<SugestaoProximidadeResponse>("/agenda/sugestao-proximidade", {
-        clinica_id: clinicaIdNum,
+        origem_atendimento: formData.origem_atendimento,
+        clinica_id: atendimentoDomiciliar ? null : clinicaIdNum,
+        tutor_id: atendimentoDomiciliar ? tutorIdNum : null,
         data: dataISO,
         data_contato: dataContato,
         servico_id: formData.servico_id ? Number.parseInt(formData.servico_id, 10) : null,
@@ -1092,8 +1667,15 @@ export default function NovoAgendamentoModal({
       const dataSugerida = String(item?.data || dataISO || "").trim();
       const horaSugerida = String(item?.inicio || "").trim();
       const clinicaSugerida = String(item?.clinica || "").trim();
+      const nomeTutorAtual = String(tutorPanorama?.tutor?.nome || tutorSelecionadoOption?.nome || tutorSelecionado || "").trim();
       const clinicaDestino = String(
-        clinicas.find((c) => String(c?.id || "") === String(clinicaIdNum))?.nome || ""
+        atendimentoDomiciliar
+          ? data?.destino_operacional || item?.destino_operacional || item?.clinica_destino || (nomeTutorAtual ? `Domicilio de ${nomeTutorAtual}` : "Atendimento domiciliar")
+          : clinicas.find((c) => String(c?.id || "") === String(clinicaIdNum))?.nome ||
+              data?.destino_operacional ||
+              item?.destino_operacional ||
+              item?.clinica_destino ||
+              ""
       ).trim();
       const mesmoDestino = !!clinicaDestino && clinicaDestino === clinicaSugerida;
       const detalheHora = horaSugerida ? ` às ${horaSugerida}` : "";
@@ -1111,7 +1693,7 @@ export default function NovoAgendamentoModal({
           ? `e a composicao do deslocamento para ${clinicaDestino} é de ${detalheComposicao}`
           : `com composicao estimada de deslocamento em ${detalheComposicao}`;
       const textoBase = `Encontramos uma opção melhor de horário para reduzir deslocamento. Temos um atendimento ${
-        clinicaSugerida ? `na ${clinicaSugerida}` : "próximo"
+        clinicaSugerida ? `de referencia em ${clinicaSugerida}` : "proximo"
       } no dia ${resumoHorario} ${textoDeslocamento}.`;
       const mensagemAssistente = acimaDoLimite
         ? `${textoBase} (limite configurado: ${limiteBase} min).`
@@ -1129,6 +1711,8 @@ export default function NovoAgendamentoModal({
       }
 
       const chavePopup = [
+        formData.origem_atendimento,
+        String(atendimentoDomiciliar ? tutorIdNum : clinicaIdNum),
         String(clinicaIdNum),
         String(formData.servico_id || ""),
         String(item?.agendamento_id || ""),
@@ -1170,7 +1754,7 @@ export default function NovoAgendamentoModal({
 
       if (confirmou && dataSugerida) {
         try {
-          const { items, itensIgnorados } = await buscarSugestoesOperacionais(dataSugerida, clinicaIdNum);
+          const { items, itensIgnorados } = await buscarSugestoesOperacionais(dataSugerida);
           setItensIgnoradosJanela(itensIgnorados);
           setSugestoesHorario(items);
           setOfertasPanoramicasConsultadas(true);
@@ -1281,17 +1865,40 @@ export default function NovoAgendamentoModal({
     }));
   };
 
+  const tutorSelecionadoGeorreferenciadoAtual = tutorPanorama?.tutor
+    ? tutorTemGeorreferenciamento(tutorPanorama.tutor)
+    : tutorTemGeorreferenciamento(tutores.find((tutor) => tutor.id.toString() === formData.tutor_id) || null);
+
   useEffect(() => {
     if (!isOpen) return;
-    if (!formData.clinica_id) {
-      setMensagemProximidade("");
-      setSugestaoProximidade(null);
-      return;
-    }
     if (!formData.servico_id) {
       setMensagemProximidade("Selecione o servico para ativar o assistente inteligente de proximidade.");
       setSugestaoProximidade(null);
       return;
+    }
+    if (atendimentoDomiciliar) {
+      if (!formData.tutor_id) {
+        setMensagemProximidade("Selecione um tutor georreferenciado para ativar o assistente inteligente.");
+        setSugestaoProximidade(null);
+        return;
+      }
+      if (!tutorSelecionadoGeorreferenciadoAtual) {
+        setMensagemProximidade("O tutor selecionado ainda nao possui georreferenciamento confirmado.");
+        setSugestaoProximidade(null);
+        return;
+      }
+    } else {
+      if (!formData.clinica_id) {
+        setMensagemProximidade("");
+        setSugestaoProximidade(null);
+        return;
+      }
+      const clinicaAtual = clinicas.find((clinica) => clinica.id.toString() === formData.clinica_id) || null;
+      if (!clinicaTemGeorreferenciamento(clinicaAtual)) {
+        setMensagemProximidade("A clinica selecionada ainda nao possui georreferenciamento confirmado.");
+        setSugestaoProximidade(null);
+        return;
+      }
     }
     if (!interacaoProximidade.clinica || !interacaoProximidade.servico) {
       return;
@@ -1304,6 +1911,10 @@ export default function NovoAgendamentoModal({
     formData.data,
     interacaoProximidade.clinica,
     interacaoProximidade.servico,
+    clinicas,
+    atendimentoDomiciliar,
+    formData.tutor_id,
+    tutorSelecionadoGeorreferenciadoAtual,
   ]);
 
   const pacientesFiltradosPorTutor = formData.tutor_id
@@ -1313,8 +1924,29 @@ export default function NovoAgendamentoModal({
   const tutorOptions: SearchableSelectOption[] = tutores.map((tutor) => ({
     value: tutor.id.toString(),
     label: tutor.nome,
-    description: tutor.telefone ? `Telefone: ${tutor.telefone}` : undefined,
-    searchText: [tutor.nome, tutor.telefone || ""].filter(Boolean).join(" "),
+    description: [
+      `Tutor #${tutor.id}`,
+      tutor.whatsapp || tutor.telefone ? `WhatsApp: ${tutor.whatsapp || tutor.telefone}` : "",
+      tutor.endereco_resumo ||
+        (tutor.georreferenciado ? "Endereco georreferenciado" : "Endereco pendente"),
+      tutor.pets?.length
+        ? `Pets: ${tutor.pets.map((pet) => pet.nome).filter(Boolean).join(", ")}`
+        : tutor.total_pets === 0
+          ? "Sem pets vinculados"
+          : "",
+    ]
+      .filter(Boolean)
+      .join(" - "),
+    searchText: [
+      tutor.nome,
+      tutor.whatsapp || "",
+      tutor.telefone || "",
+      tutor.email || "",
+      tutor.cidade || "",
+      ...(tutor.pets || []).map((pet) => pet.nome),
+    ]
+      .filter(Boolean)
+      .join(" "),
   }));
 
   const pacienteOptions: SearchableSelectOption[] = pacientesFiltradosPorTutor.map((paciente) => ({
@@ -1332,10 +1964,49 @@ export default function NovoAgendamentoModal({
     return {
       value: clinica.id.toString(),
       label: clinica.nome,
-      description: endereco,
+      description: `${endereco} - ${clinicaTemGeorreferenciamento(clinica) ? "georreferenciada" : "pendente de georreferenciamento"}`,
       searchText: [clinica.nome, endereco].filter(Boolean).join(" "),
     };
   });
+
+  const clinicaSelecionada = clinicas.find((clinica) => clinica.id.toString() === formData.clinica_id) || null;
+  const clinicaSelecionadaGeorreferenciada = clinicaTemGeorreferenciamento(clinicaSelecionada);
+  const tutorSelecionadoOption = tutores.find((tutor) => tutor.id.toString() === formData.tutor_id) || null;
+  const tutorPanoramaSelecionado = String(tutorPanorama?.tutor?.id || "") === formData.tutor_id
+    ? tutorPanorama?.tutor
+    : null;
+  const nomeTutorReservaManual = String(
+    tutorSelecionadoOption?.nome || tutorPanoramaSelecionado?.nome || tutorSelecionado || ""
+  ).trim();
+  const telefoneTutorReservaManual = String(
+    tutorSelecionadoOption?.whatsapp ||
+      tutorPanoramaSelecionado?.whatsapp ||
+      tutorSelecionadoOption?.telefone ||
+      tutorPanoramaSelecionado?.telefone ||
+      ""
+  ).trim();
+  const nomeClinicaReservaManual = String(clinicaSelecionada?.nome || "").trim();
+  const telefonesClinicaMensagem = obterWhatsappsClinica(
+    clinicaSelecionada?.whatsapps,
+    clinicaSelecionada?.telefone,
+  );
+  const pacienteSelecionadoMensagem = pacientes.find(
+    (paciente) => paciente.id.toString() === formData.paciente_id
+  ) || null;
+  const servicoSelecionadoMensagem = servicos.find(
+    (servico) => servico.id?.toString() === formData.servico_id
+  ) || null;
+  const tutorSelecionadoGeorreferenciado = tutorPanorama?.tutor
+    ? tutorTemGeorreferenciamento(tutorPanorama.tutor)
+    : tutorTemGeorreferenciamento(tutorSelecionadoOption);
+  const destinoOperacionalAtualLabel = atendimentoDomiciliar
+    ? (() => {
+        const nomeTutor = String(
+          tutorPanorama?.tutor?.nome || tutorSelecionadoOption?.nome || tutorSelecionado || ""
+        ).trim();
+        return nomeTutor ? `Domicilio de ${nomeTutor}` : "Atendimento domiciliar";
+      })()
+    : String(clinicaSelecionada?.nome || "").trim() || "Clinica selecionada";
 
   const obterDuracaoServicoSelecionado = (): number => {
     const servicoSelecionado = servicos.find((s) => s.id?.toString() === formData.servico_id);
@@ -1347,12 +2018,15 @@ export default function NovoAgendamentoModal({
   };
 
   const buscarSugestoesOperacionais = async (
-    dataBaseBusca: string,
-    clinicaId: number
+    dataBaseBusca: string
   ): Promise<{ items: SugestaoHorarioItem[]; motivo: string; itensIgnorados: number }> => {
+    const clinicaId = Number.parseInt(formData.clinica_id || "", 10);
+    const tutorId = Number.parseInt(formData.tutor_id || "", 10);
     const payload = {
       data: dataBaseBusca,
-      clinica_id: clinicaId,
+      origem_atendimento: formData.origem_atendimento,
+      clinica_id: atendimentoDomiciliar ? null : (Number.isFinite(clinicaId) ? clinicaId : null),
+      tutor_id: atendimentoDomiciliar && Number.isFinite(tutorId) ? tutorId : null,
       servico_id: formData.servico_id ? parseInt(formData.servico_id, 10) : null,
       duracao_minutos: obterDuracaoServicoSelecionado(),
       intervalo_minutos: intervaloSugestaoMinutos,
@@ -1445,11 +2119,14 @@ export default function NovoAgendamentoModal({
     try {
       setRegistrandoEncerramento(true);
       const clinicaId = Number.parseInt(formData.clinica_id || "", 10);
+      const tutorId = Number.parseInt(formData.tutor_id || "", 10);
       const servicoId = Number.parseInt(formData.servico_id || "", 10);
       await api.post("/agenda/assistente/encerramento", {
         tipo,
         motivo,
-        clinica_id: Number.isFinite(clinicaId) ? clinicaId : null,
+        origem_atendimento: formData.origem_atendimento,
+        clinica_id: atendimentoDomiciliar ? null : (Number.isFinite(clinicaId) ? clinicaId : null),
+        tutor_id: atendimentoDomiciliar && Number.isFinite(tutorId) ? tutorId : null,
         servico_id: Number.isFinite(servicoId) ? servicoId : null,
         data_referencia: String(formData.data || "").trim() || null,
         data_contato: String(dataContatoAssistente || "").trim() || null,
@@ -1457,6 +2134,7 @@ export default function NovoAgendamentoModal({
           total_sugestoes: totalSugestoes,
           indice_sugestao_atual: indiceSugestaoAtual + 1,
           decisao_assistente: decisaoAssistente,
+          destino_operacional: destinoOperacionalAtualLabel,
           perfil: isAdmin ? "admin" : "nao_admin",
         },
       });
@@ -1514,9 +2192,26 @@ export default function NovoAgendamentoModal({
     setOfertasPanoramicasConsultadas(false);
 
     const clinicaId = Number.parseInt(formData.clinica_id || "", 10);
-    if (!Number.isFinite(clinicaId)) {
-      setErroSugestoes("Selecione uma clinica cadastrada para sugerir horarios.");
-      return;
+    const tutorId = Number.parseInt(formData.tutor_id || "", 10);
+    if (atendimentoDomiciliar) {
+      if (!Number.isFinite(tutorId)) {
+        setErroSugestoes("Selecione um tutor georreferenciado para sugerir horarios.");
+        return;
+      }
+      if (!tutorSelecionadoGeorreferenciado) {
+        setErroSugestoes("Georreferencie o tutor selecionado antes de gerar sugestoes de horario.");
+        return;
+      }
+    } else {
+      if (!Number.isFinite(clinicaId)) {
+        setErroSugestoes("Selecione uma clinica cadastrada para sugerir horarios.");
+        return;
+      }
+      const clinicaAtual = clinicas.find((item) => item.id === clinicaId) || null;
+      if (!clinicaTemGeorreferenciamento(clinicaAtual)) {
+        setErroSugestoes("Georreferencie a clinica selecionada antes de gerar sugestoes de horario.");
+        return;
+      }
     }
     if (!formData.servico_id) {
       setErroSugestoes("Selecione o servico para sugerir horarios operacionais com duracao correta.");
@@ -1529,7 +2224,9 @@ export default function NovoAgendamentoModal({
       setCarregandoSugestoes(true);
       const dataContato = !isEditando ? (dataContatoAssistente || hojeLocalIso()) : undefined;
       const response = await api.post<AssistenteOfertaResponse>("/agenda/assistente/ofertas", {
-        clinica_id: clinicaId,
+        origem_atendimento: formData.origem_atendimento,
+        clinica_id: atendimentoDomiciliar ? null : clinicaId,
+        tutor_id: atendimentoDomiciliar ? tutorId : null,
         data: dataSelecionada || null,
         data_contato: dataContato,
         servico_id: formData.servico_id ? parseInt(formData.servico_id, 10) : null,
@@ -1604,6 +2301,79 @@ export default function NovoAgendamentoModal({
     return null;
   };
 
+  const extrairReservaExpirada = (error: any): ReservaExpiradaDetail | null => {
+    if (error?.response?.status !== 409) return null;
+    const detail = error?.response?.data?.detail;
+    if (
+      detail &&
+      typeof detail === "object" &&
+      [
+        "CONFIRMACAO_SLOT_RESERVA_EXPIRADA",
+        "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA",
+      ].includes(detail.codigo)
+    ) {
+      return detail as ReservaExpiradaDetail;
+    }
+    return null;
+  };
+
+  const confirmarRevisaoReservaExpirada = async (
+    detail: ReservaExpiradaDetail
+  ): Promise<boolean> => {
+    const reativandoMesmaReserva =
+      detail.codigo === "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA";
+    const reserva = detail.reservas_expiradas?.[0];
+    const contexto = reserva
+      ? [
+          `Clínica: ${reserva.clinica || "Pendente"}`,
+          `Tutor: ${reserva.tutor || "Pendente"}`,
+          `Pet: ${reserva.paciente || "Pendente"}`,
+        ].join("\n")
+      : "";
+
+    return fortinho.confirm({
+      title: reativandoMesmaReserva
+        ? "Confirmação recebida após o prazo"
+        : "ATENÇÃO: este horário teve uma reserva expirada",
+      message:
+        `${extrairMensagemErro(
+          detail,
+          "Este horário já teve uma reserva que expirou."
+        )}` +
+        `${contexto ? `\n\n${contexto}` : ""}` +
+        (reativandoMesmaReserva
+          ? "\n\nConfirme somente se este mesmo cliente respondeu depois do vencimento. O sistema verificará novamente se o horário continua livre antes de agendar."
+          : "\n\nAntes de agendar outra pessoa, volte às mensagens do WhatsApp e confira se a clínica enviou os dados após o prazo. Só continue se não houver resposta."),
+      mood: "alert",
+      gesture: "open-arms",
+      confirmLabel: reativandoMesmaReserva
+        ? "Cliente confirmou; verificar e agendar"
+        : "Revisei as mensagens e quero agendar",
+      cancelLabel: reativandoMesmaReserva ? "Cancelar" : "Voltar e verificar WhatsApp",
+    });
+  };
+
+  const motivoAgendaFechadaConfirmavel = (motivo?: string | null): boolean => {
+    const texto = String(motivo || "").trim();
+    return [
+      "Agenda fechada",
+      "Horario fora do funcionamento da agenda",
+      "Horario fora da excecao desta data",
+    ].some((prefixo) => texto.startsWith(prefixo));
+  };
+
+  const confirmarAgendamentoAgendaFechadaAdmin = async (motivo: string): Promise<boolean> =>
+    fortinho.confirm({
+      title: "Agenda fechada",
+      message:
+        `${motivo}\n\nEste agendamento ficará fora do horário de funcionamento. ` +
+        "A confirmação não altera a configuração da agenda e ficará registrada na auditoria. Deseja continuar?",
+      mood: "alert",
+      gesture: "open-arms",
+      confirmLabel: "Confirmar agendamento",
+      cancelLabel: "Voltar",
+    });
+
   const confirmarExcecaoConflitoAdmin = async (conflito: ConflitoDeslocamentoDetail): Promise<boolean> => {
     if (!isAdmin) return false;
 
@@ -1623,16 +2393,119 @@ export default function NovoAgendamentoModal({
   };
 
   const abrirModalTutor = () => {
-    setNovoTutor(buildInitialTutorForm());
+    if (tutorPanorama?.tutor) {
+      preencherModalTutor(tutorPanorama.tutor);
+    } else {
+      setNovoTutor(buildInitialTutorForm());
+      setStatusEnderecoTutor("");
+      setConsultandoCepTutor(false);
+      ultimoCepConsultadoTutorRef.current = "";
+      consultaCepTutorSequenciaRef.current += 1;
+    }
     setModalTutorAberto(true);
   };
 
   const abrirModalAnimal = () => {
     setNovoAnimal(buildInitialAnimalForm(formData.tutor_id));
+    setNovaRaca("");
+    setGestaoRacasAberta(false);
+    setRacaEmEdicaoId("");
+    setNomeRacaEmEdicao("");
     setModalAnimalAberto(true);
   };
 
-  const salvarNovoTutor = async () => {
+  const nomesDeRacaIguais = (primeira: string, segunda: string): boolean =>
+    primeira.localeCompare(segunda, "pt-BR", { sensitivity: "base" }) === 0;
+
+  const cadastrarRacaAnimal = () => {
+    const nome = novaRaca.trim();
+    if (!nome) return;
+
+    const racaExistente = racasCatalogo.find((raca) => nomesDeRacaIguais(raca.nome, nome));
+    if (racaExistente) {
+      setNovoAnimal((prev) => ({ ...prev, raca: racaExistente.nome }));
+      setNovaRaca("");
+      fortinho.notify({
+        title: "Raça já cadastrada",
+        message: `${racaExistente.nome} já está disponível para ${novoAnimal.especie.toLowerCase()}.`,
+        mood: "happy",
+        gesture: "idle",
+      });
+      return;
+    }
+
+    setRacasCustomPorEspecie((prev) => addRacaCustomPorEspecie(prev, novoAnimal.especie, nome));
+    setNovoAnimal((prev) => ({ ...prev, raca: nome }));
+    setNovaRaca("");
+  };
+
+  const iniciarEdicaoRacaAnimal = () => {
+    if (!racaSelecionadaNoCatalogo) return;
+    setRacaEmEdicaoId(racaSelecionadaNoCatalogo.id);
+    setNomeRacaEmEdicao(racaSelecionadaNoCatalogo.nome);
+  };
+
+  const salvarEdicaoRacaAnimal = () => {
+    const nome = nomeRacaEmEdicao.trim();
+    const racaEmEdicao = racasCatalogo.find((raca) => raca.id === racaEmEdicaoId);
+    if (!nome || !racaEmEdicao) return;
+
+    const duplicada = racasCatalogo.some(
+      (raca) => raca.id !== racaEmEdicao.id && nomesDeRacaIguais(raca.nome, nome),
+    );
+    if (duplicada) {
+      fortinho.notify({
+        title: "Raça já cadastrada",
+        message: "Escolha um nome diferente para a raça.",
+        mood: "alert",
+        gesture: "idle",
+      });
+      return;
+    }
+
+    const atualizado = editarRacaCatalogo(
+      racasCustomPorEspecie,
+      ajustesRacasPorEspecie,
+      novoAnimal.especie,
+      racaEmEdicao,
+      nome,
+    );
+    setRacasCustomPorEspecie(atualizado.racasCustomPorEspecie);
+    setAjustesRacasPorEspecie(atualizado.ajustesPorEspecie);
+    setNovoAnimal((prev) => ({ ...prev, raca: nome }));
+    setRacaEmEdicaoId("");
+    setNomeRacaEmEdicao("");
+  };
+
+  const excluirRacaAnimal = async () => {
+    if (!racaSelecionadaNoCatalogo) return;
+
+    const confirmou = await fortinho.confirm({
+      title: "Excluir raça do catálogo",
+      message:
+        `Deseja excluir ${racaSelecionadaNoCatalogo.nome} das opções de ${novoAnimal.especie.toLowerCase()}? ` +
+        "Os animais já cadastrados não serão alterados.",
+      mood: "alert",
+      gesture: "idle",
+      confirmLabel: "Excluir raça",
+      cancelLabel: "Cancelar",
+    });
+    if (!confirmou) return;
+
+    const atualizado = excluirRacaCatalogo(
+      racasCustomPorEspecie,
+      ajustesRacasPorEspecie,
+      novoAnimal.especie,
+      racaSelecionadaNoCatalogo,
+    );
+    setRacasCustomPorEspecie(atualizado.racasCustomPorEspecie);
+    setAjustesRacasPorEspecie(atualizado.ajustesPorEspecie);
+    setNovoAnimal((prev) => ({ ...prev, raca: "" }));
+    setRacaEmEdicaoId("");
+    setNomeRacaEmEdicao("");
+  };
+
+  const salvarNovoTutor = async (confirmarReativacao = false) => {
     const nome = novoTutor.nome.trim();
     if (!nome) {
       fortinho.notify({
@@ -1647,12 +2520,28 @@ export default function NovoAgendamentoModal({
 
     try {
       setSalvandoTutor(true);
-      const response = await api.post("/tutores", {
+      const payload = {
         nome,
+        confirmar_reativacao: confirmarReativacao,
         telefone: novoTutor.telefone || null,
         whatsapp: novoTutor.whatsapp || novoTutor.telefone || null,
         email: novoTutor.email || null,
-      });
+        cpf: novoTutor.cpf || null,
+        cep: novoTutor.cep || null,
+        endereco: novoTutor.endereco || null,
+        numero: novoTutor.numero || null,
+        complemento: novoTutor.complemento || null,
+        bairro: novoTutor.bairro || null,
+        cidade: novoTutor.cidade || null,
+        estado: novoTutor.estado || null,
+        latitude: normalizarCoordenadaOpcional(novoTutor.latitude),
+        longitude: normalizarCoordenadaOpcional(novoTutor.longitude),
+        place_id: novoTutor.place_id || null,
+        endereco_normalizado: novoTutor.endereco_normalizado || null,
+      };
+      const response = novoTutor.id
+        ? await api.put(`/tutores/${novoTutor.id}`, payload)
+        : await api.post("/tutores", payload);
 
       const tutorId = response?.data?.id;
       const tutorNome = response?.data?.nome || nome;
@@ -1665,6 +2554,12 @@ export default function NovoAgendamentoModal({
           id: Number(tutorId),
           nome: tutorNome,
           telefone: novoTutor.telefone || null,
+          email: novoTutor.email || null,
+          cidade: novoTutor.cidade || null,
+          endereco_resumo: resumoEnderecoTutor(novoTutor),
+          latitude: normalizarCoordenadaOpcional(novoTutor.latitude),
+          longitude: normalizarCoordenadaOpcional(novoTutor.longitude),
+          georreferenciado: tutorTemGeorreferenciamento(novoTutor),
         };
         const restantes = prev.filter((item) => item.id !== Number(tutorId));
         return [...restantes, tutorNormalizado].sort((a, b) => a.nome.localeCompare(b.nome));
@@ -1678,8 +2573,35 @@ export default function NovoAgendamentoModal({
       setTutorSelecionado(tutorNome);
       setModalTutorAberto(false);
       setNovoTutor(buildInitialTutorForm());
+      setStatusEnderecoTutor("");
+      ultimoCepConsultadoTutorRef.current = "";
+      consultaCepTutorSequenciaRef.current += 1;
+      await carregarPanoramaTutor(String(tutorId));
     } catch (error: any) {
       const detail = error?.response?.data?.detail ?? error?.message;
+      if (
+        !confirmarReativacao &&
+        detail &&
+        typeof detail === "object" &&
+        detail.codigo === "TUTOR_INATIVO_EXISTENTE"
+      ) {
+        const tutorExistente = detail.tutor || {};
+        const nomeExistente = String(tutorExistente.nome || nome).trim() || "este tutor";
+        const confirmou = await fortinho.confirm({
+          title: "Cadastro anterior encontrado",
+          message:
+            `${nomeExistente} possui um cadastro inativo com este mesmo nome. ` +
+            "Deseja reativa-lo e usar este cadastro no agendamento?",
+          mood: "alert",
+          gesture: "idle",
+          confirmLabel: "Reativar tutor",
+          cancelLabel: "Manter como esta",
+        });
+        if (confirmou) {
+          await salvarNovoTutor(true);
+        }
+        return;
+      }
       fortinho.notify({
         title: "Erro ao salvar tutor",
         message: extrairMensagemErro(detail),
@@ -1772,6 +2694,7 @@ export default function NovoAgendamentoModal({
       setTutorSelecionado(tutor.nome);
       setModalAnimalAberto(false);
       setNovoAnimal(buildInitialAnimalForm(String(tutor.id)));
+      await carregarPanoramaTutor(String(tutor.id));
     } catch (error: any) {
       const detail = error?.response?.data?.detail ?? error?.message;
       fortinho.notify({
@@ -1786,17 +2709,286 @@ export default function NovoAgendamentoModal({
     }
   };
 
+  const construirMensagemAgendaPosCriacao = (): MensagemAgendaPosCriacao => {
+    const tipo = formData.marcar_como_reserva ? "reserva" : "agendamento";
+    const destinatarioTipo = formData.reserva_destinatario_manual;
+    const destinatarioId = destinatarioTipo === "clinica" ? formData.clinica_id : formData.tutor_id;
+    const destinatarioNome = destinatarioTipo === "clinica"
+      ? nomeClinicaReservaManual
+      : nomeTutorReservaManual;
+    const telefones = destinatarioTipo === "clinica"
+      ? telefonesClinicaMensagem
+      : (telefoneTutorReservaManual ? [telefoneTutorReservaManual] : []);
+    const telefoneLembrado = lerUltimoWhatsappSelecionado(destinatarioTipo, destinatarioId);
+    const telefoneSugerido = telefoneLembrado && telefones.includes(telefoneLembrado)
+      ? telefoneLembrado
+      : (telefones[0] || "");
+    const mensagem = montarMensagemAgendaManual({
+      tipo,
+      data: formData.data,
+      hora: formData.hora,
+      prazoConfirmacao: tipo === "reserva" ? formData.reserva_prazo_confirmacao : undefined,
+      servicoNome: servicoSelecionadoMensagem?.nome,
+      pacienteId: pacienteSelecionadoMensagem?.id,
+      pacienteNome: pacienteSelecionadoMensagem?.nome,
+      tutorNome: nomeTutorReservaManual,
+      clinicaNome: nomeClinicaReservaManual,
+    });
+
+    return {
+      agendamentoId: isEditando && agendamento?.id ? Number(agendamento.id) : null,
+      tipo,
+      destinatarioTipo,
+      destinatarioId,
+      destinatarioNome,
+      telefones,
+      telefoneSugerido,
+      prazoLabel: tipo === "reserva"
+        ? formatarPrazoReserva(formData.reserva_prazo_confirmacao)
+        : undefined,
+      mensagem,
+    };
+  };
+
+  const abrirWhatsAppMensagemAgenda = () => {
+    if (!mensagemAgendaCriada) return;
+    const url = montarLinkWhatsAppReserva(whatsappMensagemSelecionado, mensagemAgendaCriada.mensagem);
+    window.open(url, "_blank", "noopener,noreferrer");
+    salvarUltimoWhatsappSelecionado(
+      mensagemAgendaCriada.destinatarioTipo,
+      mensagemAgendaCriada.destinatarioId,
+      whatsappMensagemSelecionado,
+    );
+    setFeedbackMensagemAgenda(
+      whatsappMensagemSelecionado
+        ? "WhatsApp aberto com o destinatario e a mensagem preenchidos. Revise e envie manualmente."
+        : "WhatsApp aberto sem destinatario fixo. Selecione o contato, revise e envie manualmente."
+    );
+  };
+
+  const copiarMensagemAgenda = async () => {
+    if (!mensagemAgendaCriada) return;
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard indisponivel");
+      }
+      await navigator.clipboard.writeText(mensagemAgendaCriada.mensagem);
+      salvarUltimoWhatsappSelecionado(
+        mensagemAgendaCriada.destinatarioTipo,
+        mensagemAgendaCriada.destinatarioId,
+        whatsappMensagemSelecionado,
+      );
+      setFeedbackMensagemAgenda("Mensagem copiada.");
+    } catch (_error) {
+      setFeedbackMensagemAgenda("Nao foi possivel copiar automaticamente. Selecione o texto e copie manualmente.");
+    }
+  };
+
+  const enviarReservaPeloFortCordis = async () => {
+    if (
+      !mensagemAgendaCriada?.agendamentoId ||
+      mensagemAgendaCriada.tipo !== "reserva" ||
+      !whatsappMensagemSelecionado ||
+      envioAutomaticoStatus === "sending" ||
+      envioAutomaticoStatus === "sent"
+    ) {
+      return;
+    }
+
+    if (!envioAutomaticoIdempotencyRef.current) {
+      envioAutomaticoIdempotencyRef.current = typeof globalThis.crypto?.randomUUID === "function"
+        ? globalThis.crypto.randomUUID()
+        : `agenda-${mensagemAgendaCriada.agendamentoId}-${Date.now()}`;
+    }
+
+    setEnvioAutomaticoStatus("sending");
+    setFeedbackMensagemAgenda("Enviando o modelo aprovado pela Meta...");
+    try {
+      await api.post(`/agenda/${mensagemAgendaCriada.agendamentoId}/whatsapp/reserva`, {
+        destination: whatsappMensagemSelecionado,
+        recipient_type: mensagemAgendaCriada.destinatarioTipo,
+        idempotency_key: envioAutomaticoIdempotencyRef.current,
+      });
+      salvarUltimoWhatsappSelecionado(
+        mensagemAgendaCriada.destinatarioTipo,
+        mensagemAgendaCriada.destinatarioId,
+        whatsappMensagemSelecionado,
+      );
+      setEnvioAutomaticoStatus("sent");
+      setFeedbackMensagemAgenda(
+        "Reserva enviada pelo FortCordis. Os botoes Confirmar e Solicitar alteracao ja estao vinculados a este agendamento."
+      );
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail ?? error?.message;
+      setEnvioAutomaticoStatus("idle");
+      setFeedbackMensagemAgenda(
+        extrairMensagemErro(detail, "Nao foi possivel enviar automaticamente. Use Abrir WhatsApp como alternativa.")
+      );
+    }
+  };
+
+  const gerarMensagemManualEdicao = () => {
+    const construida = construirMensagemAgendaPosCriacao();
+    setMensagemAgendaCriada(construida);
+    setWhatsappMensagemSelecionado(construida.telefoneSugerido);
+    setFeedbackMensagemAgenda("");
+    setEnvioAutomaticoStatus("idle");
+    envioAutomaticoIdempotencyRef.current = "";
+  };
+
+  const iniciarEdicaoWhatsappDestinatario = () => {
+    if (formData.reserva_destinatario_manual === "clinica") {
+      if (!clinicaSelecionada) return;
+      setWhatsappsDestinatarioEdicao(
+        prepararWhatsappsFormulario(
+          clinicaSelecionada.whatsapps,
+          clinicaSelecionada.telefone,
+        ),
+      );
+    } else {
+      if (!formData.tutor_id) return;
+      setWhatsappsDestinatarioEdicao([
+        telefoneTutorReservaManual
+          ? formatarWhatsAppVisual(telefoneTutorReservaManual)
+          : "",
+      ]);
+    }
+
+    setEditandoWhatsappDestinatario(true);
+  };
+
+  const cancelarEdicaoWhatsappDestinatario = () => {
+    setEditandoWhatsappDestinatario(false);
+    setWhatsappsDestinatarioEdicao([""]);
+  };
+
+  const atualizarWhatsappDestinatarioEdicao = (indice: number, valor: string) => {
+    setWhatsappsDestinatarioEdicao((atuais) =>
+      atuais.map((item, itemIndice) =>
+        itemIndice === indice ? formatarWhatsAppVisual(valor) : item,
+      ),
+    );
+  };
+
+  const adicionarWhatsappClinicaEdicao = () => {
+    setWhatsappsDestinatarioEdicao((atuais) =>
+      atuais.length >= 10 ? atuais : [...atuais, ""],
+    );
+  };
+
+  const removerWhatsappClinicaEdicao = (indice: number) => {
+    setWhatsappsDestinatarioEdicao((atuais) => {
+      const restantes = atuais.filter((_, itemIndice) => itemIndice !== indice);
+      return restantes.length > 0 ? restantes : [""];
+    });
+  };
+
+  const salvarWhatsappDestinatario = async () => {
+    const numerosNormalizados = normalizarWhatsappsParaApi(whatsappsDestinatarioEdicao);
+    if (numerosNormalizados.length === 0) {
+      fortinho.notify({
+        title: "WhatsApp não informado",
+        message: "Informe pelo menos um número de WhatsApp antes de salvar.",
+        mood: "alert",
+        gesture: "idle",
+      });
+      return;
+    }
+
+    setSalvandoWhatsappDestinatario(true);
+    try {
+      if (formData.reserva_destinatario_manual === "clinica") {
+        const clinicaId = Number.parseInt(formData.clinica_id, 10);
+        if (!Number.isFinite(clinicaId)) {
+          throw new Error("Selecione uma clínica antes de editar o WhatsApp.");
+        }
+
+        const response = await api.put(`/clinicas/${clinicaId}/whatsapps`, {
+          whatsapps: numerosNormalizados,
+        });
+        const clinicaAtualizada = response?.data as ClinicaOption;
+        setClinicas((atuais) =>
+          atuais.map((clinica) =>
+            clinica.id === clinicaId
+              ? { ...clinica, ...clinicaAtualizada }
+              : clinica,
+          ),
+        );
+      } else {
+        const tutorId = Number.parseInt(formData.tutor_id, 10);
+        if (!Number.isFinite(tutorId)) {
+          throw new Error("Selecione um tutor antes de editar o WhatsApp.");
+        }
+
+        const whatsapp = numerosNormalizados[0];
+        const response = await api.put(`/tutores/${tutorId}`, { whatsapp });
+        const tutorAtualizado = response?.data as TutorOption;
+        setTutores((atuais) =>
+          atuais.map((tutor) =>
+            tutor.id === tutorId
+              ? { ...tutor, ...tutorAtualizado, whatsapp }
+              : tutor,
+          ),
+        );
+        setTutorPanorama((atual) =>
+          atual && atual.tutor.id === tutorId
+            ? { ...atual, tutor: { ...atual.tutor, whatsapp } }
+            : atual,
+        );
+      }
+
+      setEditandoWhatsappDestinatario(false);
+      setWhatsappsDestinatarioEdicao([""]);
+      fortinho.notify({
+        title: "WhatsApp atualizado",
+        message: "O contato foi salvo e já será usado nesta mensagem.",
+        mood: "happy",
+        gesture: "wave",
+      });
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail ?? error?.message;
+      fortinho.notify({
+        title: "Erro ao salvar WhatsApp",
+        message: extrairMensagemErro(detail),
+        mood: "alert",
+        gesture: "idle",
+        sticky: true,
+      });
+    } finally {
+      setSalvandoWhatsappDestinatario(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
       if (!isEditando) {
-        if (!formData.servico_id) {
-          throw new Error("Selecione o servico antes de concluir o agendamento guiado.");
+        if (editandoWhatsappDestinatario) {
+          throw new Error("Salve ou cancele a edição do WhatsApp antes de criar o agendamento.");
         }
-        if (!formData.clinica_id && !(formData.clinica_nova_nome || "").trim()) {
-          throw new Error("Informe a clinica para iniciar o assistente de agendamento.");
+        if (!formData.servico_id) {
+          throw new Error(
+            atendimentoDomiciliar
+              ? "Selecione o servico antes de concluir o agendamento domiciliar."
+              : "Selecione o servico antes de concluir o agendamento guiado."
+          );
+        }
+        if (atendimentoDomiciliar) {
+          if (!formData.tutor_id) {
+            throw new Error("Selecione um tutor com endereco georreferenciado para o atendimento domiciliar.");
+          }
+          if (!tutorSelecionadoGeorreferenciado) {
+            throw new Error("Georreferencie o endereco do tutor antes de salvar o atendimento domiciliar.");
+          }
+        } else {
+          if (!formData.clinica_id) {
+            throw new Error("Selecione uma clinica ja cadastrada para iniciar o assistente de agendamento.");
+          }
+          if (!clinicaSelecionadaGeorreferenciada) {
+            throw new Error("Georreferencie a clinica selecionada na tela de Clinicas antes de continuar.");
+          }
         }
         if (decisaoAssistente === "pendente") {
           throw new Error(
@@ -1820,6 +3012,30 @@ export default function NovoAgendamentoModal({
       if (Number.isNaN(inicio.getTime())) {
         throw new Error("Data ou hora invalida.");
       }
+      if (!isEditando) {
+        if (formData.reserva_destinatario_manual === "clinica" && !formData.clinica_id) {
+          throw new Error("Selecione uma clinica para preparar a mensagem manual.");
+        }
+        if (formData.reserva_destinatario_manual === "tutor" && !formData.tutor_id) {
+          throw new Error("Selecione um tutor para preparar a mensagem manual.");
+        }
+      }
+      if (!isEditando && formData.marcar_como_reserva) {
+        const prazoHoras = Number(formData.reserva_prazo_horas);
+        if (!Number.isFinite(prazoHoras) || prazoHoras < 0.5 || prazoHoras > 72) {
+          throw new Error("Informe um prazo entre 0,5 e 72 horas para confirmação da reserva.");
+        }
+        const prazoConfirmacao = new Date(formData.reserva_prazo_confirmacao);
+        if (Number.isNaN(prazoConfirmacao.getTime())) {
+          throw new Error("Informe um prazo valido para confirmacao da reserva.");
+        }
+        if (prazoConfirmacao.getTime() <= Date.now()) {
+          throw new Error("O prazo de confirmacao da reserva deve estar no futuro.");
+        }
+        if (prazoConfirmacao.getTime() >= inicio.getTime()) {
+          throw new Error("O prazo de confirmacao deve ser anterior ao horario reservado.");
+        }
+      }
 
       const duracaoEfetiva = obterDuracaoServicoSelecionado();
       const fim = new Date(inicio.getTime() + duracaoEfetiva * 60000);
@@ -1831,11 +3047,21 @@ export default function NovoAgendamentoModal({
         agendaFeriados,
         agendaExcecoes
       );
+      let confirmarAgendaFechada = false;
       if (!validacaoHorario.valido) {
-        throw new Error(validacaoHorario.motivo);
+        const motivo = validacaoHorario.motivo || "Agenda fechada para este horario.";
+        if (isEditando || !isAdmin || !motivoAgendaFechadaConfirmavel(motivo)) {
+          throw new Error(motivo);
+        }
+        const confirmou = await confirmarAgendamentoAgendaFechadaAdmin(motivo);
+        if (!confirmou) {
+          return;
+        }
+        confirmarAgendaFechada = true;
       }
 
       let pacienteId = formData.paciente_id ? parseInt(formData.paciente_id, 10) : NaN;
+      let tutorId = formData.tutor_id ? parseInt(formData.tutor_id, 10) : NaN;
 
       if (!Number.isFinite(pacienteId) && !permiteSemPacienteTutor) {
         if (formData.tutor_id) {
@@ -1845,29 +3071,26 @@ export default function NovoAgendamentoModal({
       }
 
       let clinicaId = formData.clinica_id ? parseInt(formData.clinica_id, 10) : NaN;
-      if (!Number.isFinite(clinicaId) && (formData.clinica_nova_nome || "").trim()) {
-        const respostaClinica = await api.post("/clinicas", {
-          nome: (formData.clinica_nova_nome || "").trim(),
-          razao_social: (formData.clinica_nova_razao_social || "").trim(),
-          cnpj: "",
-          telefone: "",
-          email: "",
-          endereco: "",
-          cidade: "",
-          estado: "",
-          cep: "",
-          observacoes: "",
-          tabela_preco_id: parseInt(formData.clinica_nova_tabela_preco_id || "1", 10),
-          preco_personalizado_km: 0,
-          preco_personalizado_base: 0,
-          observacoes_preco: "Cadastro rapido via agenda panoramica",
-        });
-
-        clinicaId = respostaClinica?.data?.id;
-        if (!clinicaId) {
-          throw new Error("Nao foi possivel criar a clinica rapidamente.");
+      if (atendimentoDomiciliar) {
+        clinicaId = NaN;
+        if (!Number.isFinite(tutorId)) {
+          throw new Error("Selecione um tutor antes de salvar o atendimento domiciliar.");
+        }
+        if (!tutorSelecionadoGeorreferenciado) {
+          throw new Error("Georreferencie o endereco do tutor antes de salvar o atendimento domiciliar.");
+        }
+      } else {
+        if (!Number.isFinite(clinicaId)) {
+          throw new Error("Selecione uma clinica ja cadastrada antes de salvar o agendamento.");
+        }
+        if (!clinicaSelecionadaGeorreferenciada) {
+          throw new Error("Georreferencie a clinica selecionada na tela de Clinicas antes de salvar o agendamento.");
         }
       }
+
+      const entregaMensagemAgenda = !isEditando
+        ? construirMensagemAgendaPosCriacao()
+        : null;
 
       const observacoesOriginais = String(formData.observacoes || "").trim();
       const observacoesAssistente: string[] = [];
@@ -1891,6 +3114,14 @@ export default function NovoAgendamentoModal({
             observacoesAssistente.push("[Assistente agenda] excecao manual concedida por admin.");
           }
         }
+        if (entregaMensagemAgenda?.tipo === "reserva") {
+          observacoesAssistente.push(
+            `[Reserva manual] prazo de confirmacao: ${entregaMensagemAgenda.prazoLabel}`
+          );
+          observacoesAssistente.push(
+            `[Reserva manual] destinatario: ${entregaMensagemAgenda.destinatarioTipo}`
+          );
+        }
       }
       const observacoesFinal = [observacoesOriginais, ...observacoesAssistente]
         .filter((item) => String(item || "").trim().length > 0)
@@ -1898,11 +3129,16 @@ export default function NovoAgendamentoModal({
 
       const payloadBase = {
         paciente_id: Number.isFinite(pacienteId) ? pacienteId : null,
+        tutor_id: Number.isFinite(tutorId) ? tutorId : null,
         clinica_id: Number.isFinite(clinicaId) ? clinicaId : null,
         servico_id: formData.servico_id ? parseInt(formData.servico_id, 10) : null,
+        origem_atendimento: formData.origem_atendimento,
         inicio: toApiDateTime(inicio),
         fim: toApiDateTime(fim),
         status: statusFormulario,
+        reserva_expira_em: formData.marcar_como_reserva
+          ? toApiDateTime(new Date(formData.reserva_prazo_confirmacao))
+          : null,
         observacoes: observacoesFinal,
         excecao_operacional_concedida:
           !isEditando && decisaoAssistente === "sem_opcao" && isAdmin && excecaoConcedida,
@@ -1910,13 +3146,55 @@ export default function NovoAgendamentoModal({
           !isEditando && decisaoAssistente === "sem_opcao" && isAdmin && excecaoConcedida
             ? String(motivoSemOpcao || "").trim()
             : null,
+        confirmar_alteracao_servico_hoje: false,
       };
 
-      const enviarAgendamento = async (confirmarConflitoDeslocamento = false) => {
-        const payload = {
+      const servicoOriginalId = String(agendamento?.servico_id ?? "");
+      const dataOriginalAgendamento = String(
+        agendamento?.data || String(agendamento?.inicio || "").slice(0, 10)
+      );
+      const alterandoServicoDeHoje =
+        isEditando &&
+        servicoOriginalId !== String(formData.servico_id || "") &&
+        dataOriginalAgendamento === hojeLocalIso();
+
+      if (alterandoServicoDeHoje) {
+        if (!isAdmin) {
+          throw new Error(
+            "Somente administradores podem alterar o servico de um agendamento de hoje."
+          );
+        }
+        const confirmouAlteracao = await fortinho.confirm({
+          title: "Confirmar alteração do serviço",
+          message:
+            "Este agendamento é de hoje. Deseja confirmar a troca administrativa do serviço? Se o atendimento já tiver iniciado, o horário original será preservado.",
+          mood: "alert",
+          gesture: "open-arms",
+          confirmLabel: "Confirmar alteração",
+          cancelLabel: "Voltar",
+        });
+        if (!confirmouAlteracao) {
+          return;
+        }
+        payloadBase.confirmar_alteracao_servico_hoje = true;
+      }
+
+      const enviarAgendamento = async (
+        confirmarConflitoDeslocamento = false,
+        confirmarSlotReservaExpirada = false
+      ) => {
+        const payload: typeof payloadBase & {
+          confirmar_conflito_deslocamento: boolean;
+          confirmar_slot_reserva_expirada: boolean;
+          confirmar_agenda_fechada?: boolean;
+        } = {
           ...payloadBase,
           confirmar_conflito_deslocamento: confirmarConflitoDeslocamento,
+          confirmar_slot_reserva_expirada: confirmarSlotReservaExpirada,
         };
+        if (!isEditando && confirmarAgendaFechada) {
+          payload.confirmar_agenda_fechada = true;
+        }
         if (isEditando) {
           return api.put(`/agenda/${agendamento.id}`, payload);
         }
@@ -1924,16 +3202,33 @@ export default function NovoAgendamentoModal({
       };
 
       let response;
-      try {
-        response = await enviarAgendamento(false);
-      } catch (error: any) {
+      let confirmouConflitoDeslocamento = false;
+      let confirmouRevisaoReservaExpirada = false;
+      for (let tentativa = 0; tentativa < 3 && !response; tentativa += 1) {
+        try {
+          response = await enviarAgendamento(
+            confirmouConflitoDeslocamento,
+            confirmouRevisaoReservaExpirada
+          );
+          continue;
+        } catch (error: any) {
+          const reservaExpirada = extrairReservaExpirada(error);
+          if (reservaExpirada && !confirmouRevisaoReservaExpirada) {
+            const confirmou = await confirmarRevisaoReservaExpirada(reservaExpirada);
+            if (!confirmou) {
+              return;
+            }
+            confirmouRevisaoReservaExpirada = true;
+            continue;
+          }
+
         const conflito = extrairConflitoDeslocamento(error);
         if (conflito) {
           if (!isAdmin) {
             throw new Error(
               extrairMensagemErro(
                 conflito,
-                "Conflito operacional de deslocamento. Ajuste o horario ou escolha outra clinica."
+                "Conflito operacional de deslocamento. Ajuste o horario ou revise o destino do atendimento."
               )
             );
           }
@@ -1943,30 +3238,36 @@ export default function NovoAgendamentoModal({
             throw new Error(
               extrairMensagemErro(
                 conflito,
-                "Conflito operacional de deslocamento. Ajuste o horario ou escolha outra clinica."
+                "Conflito operacional de deslocamento. Ajuste o horario ou revise o destino do atendimento."
               )
             );
           }
-
-          try {
-            response = await enviarAgendamento(true);
-          } catch (errorOverride: any) {
-            const conflitoOverride = extrairConflitoDeslocamento(errorOverride);
-            if (conflitoOverride) {
-              throw new Error(
-                extrairMensagemErro(
-                  conflitoOverride,
-                  "Nao foi possivel concluir mesmo com excecao. Ajuste o horario ou escolha outra clinica."
-                )
-              );
-            }
-            throw errorOverride;
-          }
+          confirmouConflitoDeslocamento = true;
+          continue;
         } else {
           throw error;
         }
+        }
       }
 
+      if (!response) {
+        throw new Error(
+          "Não foi possível concluir o agendamento após as confirmações. Revise o horário e tente novamente."
+        );
+      }
+
+      if (entregaMensagemAgenda) {
+        setMensagemAgendaCriada({
+          ...entregaMensagemAgenda,
+          agendamentoId: Number(response?.data?.id) || null,
+        });
+        setWhatsappMensagemSelecionado(entregaMensagemAgenda.telefoneSugerido);
+        setFeedbackMensagemAgenda("");
+        setEnvioAutomaticoStatus("idle");
+        envioAutomaticoIdempotencyRef.current = "";
+        await onSuccess(response?.data, { manterModalAberto: true });
+        return;
+      }
       await onSuccess(response?.data);
       onClose();
       setFormData(buildInitialFormData(defaultDate, defaultTime));
@@ -1998,8 +3299,21 @@ export default function NovoAgendamentoModal({
     }
   };
 
-  const clinicaInformada = Boolean(formData.clinica_id) || Boolean((formData.clinica_nova_nome || "").trim());
-  const assistenteProntoParaSugerir = clinicaInformada && Boolean(formData.servico_id) && Boolean(formData.data);
+  const destinoPrincipalInformado = atendimentoDomiciliar ? Boolean(formData.tutor_id) : Boolean(formData.clinica_id);
+  const assistenteProntoParaSugerir =
+    destinoPrincipalInformado &&
+    (atendimentoDomiciliar ? tutorSelecionadoGeorreferenciado : clinicaSelecionadaGeorreferenciada) &&
+    Boolean(formData.servico_id) &&
+    Boolean(formData.data);
+  const tituloAssistente = isEditando ? "Sugerir horarios operacionais" : "Assistente guiado de agendamento";
+  const descricaoAssistente = isEditando
+    ? "Considera conflitos de agenda e tempo de deslocamento usando o destino operacional georreferenciado."
+    : atendimentoDomiciliar
+      ? "Fluxo obrigatorio: selecionar tutor georreferenciado/servico, oferecer sugestao, registrar aceite ou recusa do cliente."
+      : "Fluxo obrigatorio: selecionar clinica georreferenciada/servico, oferecer sugestao, registrar aceite ou recusa do cliente.";
+  const rotuloBotaoAssistente = carregandoSugestoes
+    ? "Buscando..."
+    : (isEditando ? "Sugerir horarios" : "Gerar melhor oferta");
   const totalSugestoes = sugestoesHorario.length;
   const indiceEtapaWizardNovo = resolverIndiceEtapaWizardNovo(
     assistenteProntoParaSugerir,
@@ -2013,6 +3327,12 @@ export default function NovoAgendamentoModal({
   const semOpcaoSemExcecao = !isEditando && decisaoAssistente === "sem_opcao" && !excecaoManualLiberada;
   const dataSelecionadaPassada = !isEditando && isDataPassada(formData.data);
   const clienteComCredito = !isEditando && saldoCreditoCliente > 0;
+  const destinatarioMensagemNome = formData.reserva_destinatario_manual === "clinica"
+    ? nomeClinicaReservaManual
+    : nomeTutorReservaManual;
+  const destinatarioMensagemTelefones = formData.reserva_destinatario_manual === "clinica"
+    ? telefonesClinicaMensagem
+    : (telefoneTutorReservaManual ? [telefoneTutorReservaManual] : []);
   const bloquearSalvarNovo =
     !isEditando &&
     (
@@ -2022,24 +3342,250 @@ export default function NovoAgendamentoModal({
 
   if (!isOpen) return null;
 
+  if (mensagemAgendaCriada) {
+    const possuiTelefone = Boolean(whatsappMensagemSelecionado);
+    const ehReserva = mensagemAgendaCriada.tipo === "reserva";
+    const destinatarioLabel = mensagemAgendaCriada.destinatarioTipo === "clinica" ? "Clínica" : "Tutor";
+
+    return (
+      <div className="fc-appointment-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div
+          className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="fc-mensagem-agenda-title"
+        >
+          <div className="flex items-center justify-between border-b border-emerald-100 bg-emerald-50 px-5 py-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                <Check className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                  {ehReserva ? "Reserva criada" : "Agendamento criado"}
+                </div>
+                <h2 id="fc-mensagem-agenda-title" className="truncate text-xl font-bold text-gray-900">
+                  {ehReserva ? "Envie o prazo pelo WhatsApp" : "Avise que o horário foi agendado"}
+                </h2>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => (isEditando ? setMensagemAgendaCriada(null) : onClose())}
+              className="rounded-full p-2 text-gray-500 transition hover:bg-white hover:text-gray-700"
+              aria-label="Fechar mensagem da agenda"
+              title="Fechar"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="max-h-[75vh] space-y-4 overflow-y-auto p-5">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Destinatário</div>
+                <div className="mt-1 text-sm font-semibold text-gray-900">
+                  {destinatarioLabel}: {mensagemAgendaCriada.destinatarioNome || "não identificado"}
+                </div>
+                {mensagemAgendaCriada.telefones.length > 1 ? (
+                  <div className="mt-2">
+                    <label htmlFor="fc-whatsapp-destino" className="mb-1 block text-xs font-medium text-gray-600">
+                      Escolha o WhatsApp
+                    </label>
+                    <select
+                      id="fc-whatsapp-destino"
+                      value={whatsappMensagemSelecionado}
+                      onChange={(event) => {
+                        setWhatsappMensagemSelecionado(event.target.value);
+                        setEnvioAutomaticoStatus("idle");
+                        envioAutomaticoIdempotencyRef.current = "";
+                        setFeedbackMensagemAgenda("");
+                      }}
+                      className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                    >
+                      {mensagemAgendaCriada.telefones.map((telefone, indice) => (
+                        <option key={`${telefone}-${indice}`} value={telefone}>
+                          WhatsApp {indice + 1} — {formatarWhatsAppVisual(telefone)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="mt-0.5 text-xs text-gray-600">
+                    {possuiTelefone ? formatarWhatsAppVisual(whatsappMensagemSelecionado) : "Sem WhatsApp cadastrado"}
+                  </div>
+                )}
+              </div>
+              <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  {ehReserva ? "Prazo informado" : "Situação"}
+                </div>
+                <div className="mt-1 text-sm font-semibold text-gray-900">
+                  {ehReserva ? mensagemAgendaCriada.prazoLabel : "Horário agendado"}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="fc-mensagem-agenda" className="mb-1 block text-sm font-medium text-gray-700">
+                Mensagem pronta
+              </label>
+              <textarea
+                id="fc-mensagem-agenda"
+                readOnly
+                rows={12}
+                value={mensagemAgendaCriada.mensagem}
+                onFocus={(event) => event.currentTarget.select()}
+                className="w-full resize-none rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm leading-6 text-gray-800 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+              />
+            </div>
+
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {ehReserva ? "A reserva já foi salva." : "O agendamento já foi salvo."} O envio automático usa o
+              modelo aprovado; Abrir WhatsApp e Copiar mensagem continuam disponíveis como alternativa manual.
+            </div>
+
+            {isEditando ? (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                Esta mensagem foi gerada com os dados atuais do formulário. Se você alterou paciente, tutor ou
+                outro campo, clique em <strong>Salvar Alterações</strong> depois de voltar para confirmar.
+              </div>
+            ) : null}
+
+            {!possuiTelefone ? (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                O WhatsApp será aberto sem destinatário. Escolha o contato correto antes de enviar.
+              </div>
+            ) : null}
+
+            {feedbackMensagemAgenda ? (
+              <div aria-live="polite" className="text-sm font-medium text-gray-700">
+                {feedbackMensagemAgenda}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="flex flex-col-reverse gap-2 border-t border-gray-200 bg-gray-50 px-5 py-4 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={() => (isEditando ? setMensagemAgendaCriada(null) : onClose())}
+              className="fc-appointment-button-secondary"
+            >
+              {isEditando ? "Voltar ao formulário" : "Concluir"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void copiarMensagemAgenda()}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-600 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
+            >
+              <Copy className="h-4 w-4" />
+              Copiar mensagem
+            </button>
+            {ehReserva && !isEditando ? (
+              <button
+                type="button"
+                onClick={() => void enviarReservaPeloFortCordis()}
+                disabled={!possuiTelefone || !mensagemAgendaCriada.agendamentoId || envioAutomaticoStatus !== "idle"}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {envioAutomaticoStatus === "sending" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : envioAutomaticoStatus === "sent" ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+                {envioAutomaticoStatus === "sending"
+                  ? "Enviando..."
+                  : envioAutomaticoStatus === "sent"
+                    ? "Enviado pelo FortCordis"
+                    : "Enviar pelo FortCordis"}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={abrirWhatsAppMensagemAgenda}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+            >
+              <MessageCircle className="h-4 w-4" />
+              {possuiTelefone ? "Abrir WhatsApp" : "Abrir e escolher contato"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center p-6 border-b">
-          <h2 className="text-xl font-semibold">
-            {isEditando ? "Editar Agendamento" : "Novo Agendamento"}
-          </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+    <div className="fc-appointment-modal-backdrop fixed inset-0 z-50 flex items-center justify-center">
+      <div
+        className="fc-appointment-modal w-full"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="fc-appointment-modal-title"
+      >
+        <div className="fc-appointment-modal-header">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="fc-appointment-modal-icon" aria-hidden="true">
+              <Calendar className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <span className="fc-appointment-modal-kicker">Central de agenda</span>
+              <h2 id="fc-appointment-modal-title" className="truncate text-xl font-black">
+                {isEditando ? "Editar Agendamento" : "Novo Agendamento"}
+              </h2>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="fc-appointment-modal-close"
+            aria-label="Fechar agendamento"
+            title="Fechar"
+          >
             <X className="w-6 h-6" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="fc-appointment-form space-y-4">
           {erroCarregamento && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {erroCarregamento}
             </div>
           )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Origem do atendimento</label>
+            <div className="fc-appointment-origin grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => handleOrigemAtendimentoChange("clinica_parceira")}
+                className={`fc-appointment-origin-option ${
+                  !atendimentoDomiciliar
+                    ? "fc-appointment-origin-option-active"
+                    : ""
+                }`}
+              >
+                Clinica parceira
+              </button>
+              <button
+                type="button"
+                onClick={() => handleOrigemAtendimentoChange("domiciliar")}
+                className={`fc-appointment-origin-option ${
+                  atendimentoDomiciliar
+                    ? "fc-appointment-origin-option-active"
+                    : ""
+                }`}
+              >
+                Domiciliar
+              </button>
+            </div>
+            <div className="fc-appointment-context-note mt-2 rounded-lg border px-3 py-2 text-xs">
+              {atendimentoDomiciliar
+                ? "Use o endereco georreferenciado do tutor. Nao e necessario cadastrar uma clinica ficticia."
+                : "Fluxo com clinica parceira, usando a clinica georreferenciada como base do assistente e da operacao."}
+            </div>
+          </div>
 
           {/* Tutor */}
           <div>
@@ -2056,15 +3602,99 @@ export default function NovoAgendamentoModal({
                 searchPlaceholder="Buscar tutor por nome ou telefone..."
                 emptyText="Nenhum tutor encontrado."
                 clearLabel="Selecione..."
+                onSearchChange={setBuscaTutorRemota}
+                isSearching={buscandoTutores}
               />
               <button
                 type="button"
                 onClick={abrirModalTutor}
-                className="px-3 py-2 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50"
+                className="fc-appointment-inline-action"
               >
-                Novo tutor
+                {formData.tutor_id ? "Ver tutor" : "Novo tutor"}
               </button>
             </div>
+            {formData.tutor_id && (
+              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                {carregandoTutorPanorama ? (
+                  <div className="text-sm text-slate-600">Carregando panorama do tutor...</div>
+                ) : tutorPanorama?.tutor ? (
+                  <div className="space-y-3">
+                    <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-900">{tutorPanorama.tutor.nome}</div>
+                        <div className="text-xs text-slate-600">
+                          {[tutorPanorama.tutor.telefone, tutorPanorama.tutor.email].filter(Boolean).join(" - ") || "Contato ainda incompleto"}
+                        </div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {resumoEnderecoTutor(tutorPanorama.tutor) || "Endereco do tutor ainda nao preenchido."}
+                        </div>
+                      </div>
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          tutorTemGeorreferenciamento(tutorPanorama.tutor)
+                            ? "bg-emerald-100 text-emerald-800"
+                            : "bg-amber-100 text-amber-800"
+                        }`}
+                      >
+                        {tutorTemGeorreferenciamento(tutorPanorama.tutor) ? "Endereco georreferenciado" : "Endereco pendente"}
+                      </span>
+                    </div>
+
+                    <div className="rounded-md border border-slate-200 bg-white p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-medium text-slate-900">
+                            Animais vinculados: {Number(tutorPanorama.resumo?.total_pets || tutorPanorama.pets.length || 0)}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            Selecione um pet existente ou cadastre outro a partir deste tutor.
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={abrirModalAnimal}
+                          className="px-3 py-1.5 rounded-md border border-blue-200 text-blue-700 text-xs hover:bg-blue-50"
+                        >
+                          Adicionar pet
+                        </button>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {tutorPanorama.pets.length > 0 ? (
+                          tutorPanorama.pets.map((pet) => {
+                            const selecionado = String(pet.id) === formData.paciente_id;
+                            const descricao = [pet.especie, pet.raca].filter(Boolean).join(" - ");
+                            return (
+                              <button
+                                key={pet.id}
+                                type="button"
+                                onClick={() => handlePacienteChange(String(pet.id))}
+                                className={`rounded-lg border px-3 py-2 text-left text-xs ${
+                                  selecionado
+                                    ? "border-blue-300 bg-blue-50 text-blue-900"
+                                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                                }`}
+                              >
+                                <div className="font-semibold">{pet.nome}</div>
+                                {descricao ? <div className="mt-0.5 text-[11px] opacity-80">{descricao}</div> : null}
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <div className="text-xs text-slate-500">Este tutor ainda nao tem pets vinculados.</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-sm text-slate-600">Selecione um tutor para ver os animais vinculados.</div>
+                )}
+              </div>
+            )}
+            {atendimentoDomiciliar && formData.tutor_id && !tutorSelecionadoGeorreferenciado && (
+              <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                O tutor selecionado ainda nao possui endereco georreferenciado. Abra o cadastro do tutor e conclua o georreferenciamento antes de salvar.
+              </div>
+            )}
           </div>
 
           {/* Animal */}
@@ -2090,7 +3720,7 @@ export default function NovoAgendamentoModal({
               <button
                 type="button"
                 onClick={abrirModalAnimal}
-                className="px-3 py-2 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50"
+                className="fc-appointment-inline-action"
               >
                 Novo animal
               </button>
@@ -2106,62 +3736,37 @@ export default function NovoAgendamentoModal({
           </div>
 
           {/* Clínica */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              <Building className="w-4 h-4 inline mr-1" />
-              Clínica
-            </label>
-            <SearchableSelect
-              value={formData.clinica_id}
-              onChange={handleClinicaChange}
-              options={clinicaOptions}
-              placeholder="Selecione..."
-              searchPlaceholder="Buscar clinica ou endereco..."
-              emptyText="Nenhuma clinica encontrada."
-              clearLabel="Selecione..."
-              showSelectedDescription
-            />
-            {mensagemProximidade && (
-              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                <strong>Assistente inteligente:</strong> {mensagemProximidade}
-                {!isEditando && (
-                  <div className="mt-1 text-xs text-amber-900">
-                    Proximo passo: gerar melhor oferta para visualizar o panorama completo antes de confirmar com o cliente.
-                  </div>
-                )}
+          {!atendimentoDomiciliar ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                <Building className="w-4 h-4 inline mr-1" />
+                Clínica
+              </label>
+              <SearchableSelect
+                value={formData.clinica_id}
+                onChange={handleClinicaChange}
+                options={clinicaOptions}
+                placeholder="Selecione..."
+                searchPlaceholder="Buscar clinica ou endereco..."
+                emptyText="Nenhuma clinica encontrada."
+                clearLabel="Selecione..."
+                showSelectedDescription
+              />
+              <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                O modal nao cria mais clinicas rapidamente. Para usar o assistente, selecione uma clinica ja cadastrada e
+                com georreferenciamento concluido na tela de Clinicas.
               </div>
-            )}
-
-            {!formData.clinica_id && (
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
-                <input
-                  type="text"
-                  value={formData.clinica_nova_nome}
-                  onChange={(e) => setFormData({ ...formData, clinica_nova_nome: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="Nome fantasia (cadastro rápido)"
-                />
-                <input
-                  type="text"
-                  value={formData.clinica_nova_razao_social}
-                  onChange={(e) => setFormData({ ...formData, clinica_nova_razao_social: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="Razão social"
-                />
-                <select
-                  value={formData.clinica_nova_tabela_preco_id}
-                  onChange={(e) => setFormData({ ...formData, clinica_nova_tabela_preco_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                >
-                  {tabelasPreco.map((opcao) => (
-                    <option key={opcao.id} value={opcao.id.toString()}>
-                      {opcao.nome}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
+              {formData.clinica_id && !clinicaSelecionadaGeorreferenciada && (
+                <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  A clinica selecionada ainda nao esta georreferenciada. Corrija o cadastro dela antes de sugerir ou salvar.
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900">
+              Este atendimento sera tratado como domiciliar e usara o endereco do tutor como referencia operacional.
+            </div>
+          )}
 
           {/* Serviço */}
           <div>
@@ -2224,6 +3829,27 @@ export default function NovoAgendamentoModal({
               />
             </div>
           </div>
+          <div className="fc-appointment-assistant rounded-lg border px-3 py-3">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-1">
+                <div className="text-sm font-medium text-blue-900 flex items-center gap-2">
+                  <Sparkles className="h-4 w-4" />
+                  {tituloAssistente}
+                </div>
+                <p className="text-xs text-blue-800">
+                  {descricaoAssistente}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={buscarSugestoesHorario}
+                disabled={carregandoSugestoes || (!isEditando && !assistenteProntoParaSugerir)}
+                className="w-full md:w-auto px-3 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60"
+              >
+                {rotuloBotaoAssistente}
+              </button>
+            </div>
+          </div>
           {!isEditando && bloqueioManualAssistenteAtivo && (
             <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
               {decisaoAssistente !== "sem_opcao" && (
@@ -2245,27 +3871,26 @@ export default function NovoAgendamentoModal({
             </div>
           )}
 
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-3">
-            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <div className="text-sm font-medium text-blue-900 flex items-center gap-2">
-                <Sparkles className="h-4 w-4" />
-                {isEditando ? "Sugerir horarios operacionais" : "Assistente guiado de agendamento"}
-              </div>
-              <button
-                type="button"
-                onClick={buscarSugestoesHorario}
-                disabled={carregandoSugestoes || (!isEditando && !assistenteProntoParaSugerir)}
-                className="px-3 py-1.5 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60"
-              >
-                {carregandoSugestoes ? "Buscando..." : (isEditando ? "Sugerir horarios" : "Gerar melhor oferta")}
-              </button>
+          <div className="fc-appointment-assistant-detail rounded-lg border p-3 space-y-3">
+            <div className="text-sm font-medium text-blue-900 flex items-center gap-2">
+              <Sparkles className="h-4 w-4" />
+              Panorama e desfecho do assistente
             </div>
 
             <p className="text-xs text-blue-800">
-              {isEditando
-                ? "Considera conflitos de agenda e tempo de deslocamento entre clinicas."
-                : "Fluxo obrigatorio: selecionar clinica/servico, oferecer sugestao, registrar aceite ou recusa do cliente."}
+              {descricaoAssistente}
             </p>
+
+            {mensagemProximidade && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                <strong>Assistente inteligente:</strong> {mensagemProximidade}
+                {!isEditando && (
+                  <div className="mt-1">
+                    Proximo passo: gerar melhor oferta para visualizar o panorama completo antes de confirmar com o cliente.
+                  </div>
+                )}
+              </div>
+            )}
 
             {!isEditando && etapaWizardAtual && (
               <div className="rounded-md border border-blue-200 bg-white px-2 py-2 space-y-2">
@@ -2308,7 +3933,7 @@ export default function NovoAgendamentoModal({
 
             {!isEditando && !assistenteProntoParaSugerir && (
               <div className="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs text-blue-700">
-                Preencha clinica, servico e data para iniciar o assistente guiado.
+                Preencha {atendimentoDomiciliar ? "tutor georreferenciado" : "clinica georreferenciada"}, servico e data para iniciar o assistente guiado.
               </div>
             )}
 
@@ -2510,18 +4135,254 @@ export default function NovoAgendamentoModal({
             )}
           </div>
 
-          {!isEditando && (
-            <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              <input
-                type="checkbox"
-                checked={formData.marcar_como_reserva}
-                onChange={(e) => setFormData({ ...formData, marcar_como_reserva: e.target.checked })}
-                className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
-              />
-              <span>
-                Marcar como <strong>reserva de horário</strong> (bloqueia o slot como pendente de confirmação).
-              </span>
-            </label>
+          {(!isEditando || formData.marcar_como_reserva) && (
+            <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+              {!isEditando && (
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={formData.marcar_como_reserva}
+                    onChange={(event) => {
+                      const marcada = event.target.checked;
+                      setFormData((prev) => ({
+                        ...prev,
+                        marcar_como_reserva: marcada,
+                        reserva_prazo_horas: marcada ? "3" : prev.reserva_prazo_horas,
+                        reserva_prazo_confirmacao: marcada
+                          ? criarPrazoPadraoReserva()
+                          : prev.reserva_prazo_confirmacao,
+                      }));
+                    }}
+                    className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                  />
+                  <span>
+                    Marcar como <strong>reserva de horário</strong> (bloqueia o slot como pendente de confirmação).
+                  </span>
+                </label>
+              )}
+
+              <div className={isEditando ? "space-y-3" : "space-y-3 border-t border-amber-200 pt-3"}>
+                <div>
+                  <div className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-800">
+                    Mensagem {isEditando ? "de confirmação" : "após salvar"}
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <label
+                      className={`flex items-center gap-2 rounded-lg border px-3 py-2 transition ${
+                        formData.reserva_destinatario_manual === "clinica"
+                          ? "border-amber-500 bg-white"
+                          : "border-amber-200 bg-amber-50/50"
+                      } ${atendimentoDomiciliar || !formData.clinica_id ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+                    >
+                      <input
+                        type="radio"
+                        name="reserva_destinatario_manual"
+                        value="clinica"
+                        checked={formData.reserva_destinatario_manual === "clinica"}
+                        disabled={atendimentoDomiciliar || !formData.clinica_id}
+                        onChange={() => setFormData((prev) => ({ ...prev, reserva_destinatario_manual: "clinica" }))}
+                        className="h-4 w-4 border-amber-300 text-amber-600 focus:ring-amber-500"
+                      />
+                      <span className="min-w-0">
+                        <span className="block font-semibold">Clínica</span>
+                        <span className="block truncate text-xs text-amber-800">
+                          {nomeClinicaReservaManual || "Selecione uma clínica"}
+                        </span>
+                      </span>
+                    </label>
+
+                    <label
+                      className={`flex items-center gap-2 rounded-lg border px-3 py-2 transition ${
+                        formData.reserva_destinatario_manual === "tutor"
+                          ? "border-amber-500 bg-white"
+                          : "border-amber-200 bg-amber-50/50"
+                      } ${!formData.tutor_id ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+                    >
+                      <input
+                        type="radio"
+                        name="reserva_destinatario_manual"
+                        value="tutor"
+                        checked={formData.reserva_destinatario_manual === "tutor"}
+                        disabled={!formData.tutor_id}
+                        onChange={() => setFormData((prev) => ({ ...prev, reserva_destinatario_manual: "tutor" }))}
+                        className="h-4 w-4 border-amber-300 text-amber-600 focus:ring-amber-500"
+                      />
+                      <span className="min-w-0">
+                        <span className="block font-semibold">Tutor/cliente</span>
+                        <span className="block truncate text-xs text-amber-800">
+                          {nomeTutorReservaManual || "Selecione um tutor"}
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                {!isEditando && (
+                  formData.marcar_como_reserva ? (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label htmlFor="fc-reserva-prazo-horas" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-800">
+                          Prazo para confirmação
+                        </label>
+                        <div className="flex max-w-xs overflow-hidden rounded-lg border border-amber-300 bg-white focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-200">
+                          <input
+                            id="fc-reserva-prazo-horas"
+                            type="number"
+                            required
+                            min="0.5"
+                            max="72"
+                            step="0.5"
+                            inputMode="decimal"
+                            value={formData.reserva_prazo_horas}
+                            onChange={(event) => {
+                              const valor = event.target.value;
+                              const horas = Number(valor);
+                              setFormData((prev) => ({
+                                ...prev,
+                                reserva_prazo_horas: valor,
+                                reserva_prazo_confirmacao:
+                                  Number.isFinite(horas) && horas >= 0.5 && horas <= 72
+                                    ? criarPrazoReservaPorHoras(horas)
+                                    : prev.reserva_prazo_confirmacao,
+                              }));
+                            }}
+                            className="min-w-0 flex-1 border-0 px-3 py-2 text-gray-900 outline-none"
+                          />
+                          <span className="flex items-center border-l border-amber-200 bg-amber-50 px-3 font-medium text-amber-800">
+                            horas
+                          </span>
+                        </div>
+                        <div className="mt-1 text-xs text-amber-800">
+                          O padrão é 3 horas; ajuste conforme o combinado com o cliente.
+                        </div>
+                      </div>
+                      <div>
+                        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-800">
+                          Confirmar até
+                        </div>
+                        <div className="rounded-lg border border-amber-200 bg-white/80 px-3 py-2 font-medium text-gray-900">
+                          {formatarPrazoReserva(formData.reserva_prazo_confirmacao)}
+                        </div>
+                        <div className="mt-1 text-xs text-amber-800">
+                          O prazo precisa ser anterior ao horário reservado.
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                      Depois de salvar, o sistema mostrará o botão para avisar que o horário solicitado foi agendado.
+                    </div>
+                  )
+                )}
+
+                <div className="rounded-lg border border-amber-200 bg-white/70 px-3 py-3 text-xs text-amber-900">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      Contato atual: <strong>{destinatarioMensagemNome || "não selecionado"}</strong>
+                      {destinatarioMensagemTelefones.length > 0
+                        ? ` — ${destinatarioMensagemTelefones.map(formatarWhatsAppVisual).join(" / ")}`
+                        : " — sem WhatsApp cadastrado"}.
+                    </div>
+                    {!editandoWhatsappDestinatario ? (
+                      <button
+                        type="button"
+                        onClick={iniciarEdicaoWhatsappDestinatario}
+                        disabled={
+                          formData.reserva_destinatario_manual === "clinica"
+                            ? !formData.clinica_id
+                            : !formData.tutor_id
+                        }
+                        className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white px-2.5 py-1.5 font-semibold text-amber-900 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        {destinatarioMensagemTelefones.length > 0 ? "Editar WhatsApp" : "Adicionar WhatsApp"}
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {editandoWhatsappDestinatario ? (
+                    <div className="mt-3 rounded-lg border border-amber-200 bg-white p-3">
+                      <div className="space-y-2">
+                        {whatsappsDestinatarioEdicao.map((telefone, indice) => (
+                          <div key={`whatsapp-destinatario-${indice}`} className="flex items-end gap-2">
+                            <label className="min-w-0 flex-1">
+                              <span className="mb-1 block font-semibold text-amber-900">
+                                WhatsApp{formData.reserva_destinatario_manual === "clinica" ? ` ${indice + 1}` : ""}
+                              </span>
+                              <input
+                                type="tel"
+                                inputMode="tel"
+                                value={telefone}
+                                onChange={(event) => atualizarWhatsappDestinatarioEdicao(indice, event.target.value)}
+                                placeholder="(85) 99999-9999"
+                                className="w-full rounded-md border border-amber-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200"
+                              />
+                            </label>
+                            {formData.reserva_destinatario_manual === "clinica" && whatsappsDestinatarioEdicao.length > 1 ? (
+                              <button
+                                type="button"
+                                onClick={() => removerWhatsappClinicaEdicao(indice)}
+                                className="rounded-md border border-red-200 p-2 text-red-600 transition hover:bg-red-50"
+                                aria-label={`Remover WhatsApp ${indice + 1}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+
+                      {formData.reserva_destinatario_manual === "clinica" && whatsappsDestinatarioEdicao.length < 10 ? (
+                        <button
+                          type="button"
+                          onClick={adicionarWhatsappClinicaEdicao}
+                          className="mt-2 inline-flex items-center gap-1 font-semibold text-amber-800 hover:text-amber-950"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Adicionar outro número
+                        </button>
+                      ) : null}
+
+                      <div className="mt-3 flex flex-wrap justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={cancelarEdicaoWhatsappDestinatario}
+                          disabled={salvandoWhatsappDestinatario}
+                          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void salvarWhatsappDestinatario()}
+                          disabled={salvandoWhatsappDestinatario}
+                          className="rounded-md bg-amber-700 px-3 py-1.5 font-semibold text-white hover:bg-amber-800 disabled:opacity-50"
+                        >
+                          {salvandoWhatsappDestinatario ? "Salvando..." : "Salvar contato"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-2">
+                    A alteração fica salva no cadastro. Se houver mais de um WhatsApp, você escolherá o número antes de abrir a conversa. O envio continua manual enquanto a Meta analisa a empresa.
+                  </div>
+                </div>
+
+                {isEditando && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={gerarMensagemManualEdicao}
+                      className="inline-flex items-center gap-2 rounded-md bg-amber-700 px-3 py-1.5 font-semibold text-white transition hover:bg-amber-800"
+                    >
+                      <MessageCircle className="h-3.5 w-3.5" />
+                      Gerar mensagem de confirmação
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           )}
 
           {/* Observações */}
@@ -2544,18 +4405,18 @@ export default function NovoAgendamentoModal({
               Conclua o assistente guiado para habilitar o salvamento do agendamento.
             </div>
           )}
-          <div className="flex justify-end gap-3 pt-4">
+          <div className="fc-appointment-actions flex justify-end gap-3 pt-4">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-gray-600 hover:text-gray-800"
+              className="fc-appointment-button-secondary"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={loading || bloquearSalvarNovo || registrandoEncerramento}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              className="fc-appointment-button-primary"
             >
               {loading 
                 ? (isEditando ? "Salvando..." : "Criando...") 
@@ -2567,37 +4428,57 @@ export default function NovoAgendamentoModal({
       </div>
 
       {modalTutorAberto && (
-        <div className="fixed inset-0 z-[60] bg-black bg-opacity-40 flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-lg bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b px-5 py-4">
-              <h3 className="text-lg font-semibold text-gray-900">Cadastrar Tutor</h3>
+        <div className="fc-appointment-submodal-backdrop fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="fc-appointment-submodal w-full max-w-3xl" role="dialog" aria-modal="true" aria-labelledby="fc-tutor-modal-title">
+            <div className="fc-appointment-submodal-header flex items-center justify-between px-5 py-4">
+              <h3 className="text-lg font-semibold text-gray-900">
+                <span id="fc-tutor-modal-title">
+                {novoTutor.id ? "Cadastro do Tutor" : "Cadastrar Tutor"}
+                </span>
+              </h3>
               <button
                 type="button"
                 onClick={() => setModalTutorAberto(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="fc-appointment-submodal-close"
                 disabled={salvandoTutor}
+                aria-label="Fechar cadastro do tutor"
+                title="Fechar"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="space-y-3 px-5 py-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nome *</label>
-                <input
-                  type="text"
-                  value={novoTutor.nome}
-                  onChange={(e) => setNovoTutor((prev) => ({ ...prev, nome: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="Nome do tutor"
-                />
-              </div>
+            <div className="fc-appointment-submodal-body space-y-3 px-5 py-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nome *</label>
+                  <input
+                    type="text"
+                    value={novoTutor.nome}
+                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, nome: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="Nome do tutor"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
+                  <input
+                    type="text"
+                    value={novoTutor.cpf}
+                    inputMode="numeric"
+                    maxLength={14}
+                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, cpf: formatarCpfVisual(e.target.value) }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="000.000.000-00"
+                  />
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
                   <input
                     type="text"
                     value={novoTutor.telefone}
-                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, telefone: e.target.value }))}
+                    inputMode="tel"
+                    maxLength={15}
+                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, telefone: formatarTelefoneVisual(e.target.value) }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     placeholder="(00) 00000-0000"
                   />
@@ -2607,39 +4488,210 @@ export default function NovoAgendamentoModal({
                   <input
                     type="text"
                     value={novoTutor.whatsapp}
-                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, whatsapp: e.target.value }))}
+                    inputMode="tel"
+                    maxLength={15}
+                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, whatsapp: formatarTelefoneVisual(e.target.value) }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     placeholder="(00) 00000-0000"
                   />
                 </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={novoTutor.email}
+                    onChange={(e) => setNovoTutor((prev) => ({ ...prev, email: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="email@exemplo.com"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={novoTutor.email}
-                  onChange={(e) => setNovoTutor((prev) => ({ ...prev, email: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="email@exemplo.com"
-                />
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900">Endereco do tutor</div>
+                    <div className="text-xs text-slate-500">
+                      O agendamento domiciliar depende do endereco georreferenciado pela API Google.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={geocodificarTutorEndereco}
+                    disabled={geocodificandoTutor}
+                    className="px-3 py-1.5 rounded-md border border-blue-200 text-blue-700 text-xs hover:bg-blue-50 disabled:opacity-60"
+                  >
+                    {geocodificandoTutor ? "Georreferenciando..." : "Georreferenciar endereco"}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">CEP</label>
+                    <input
+                      type="text"
+                      value={novoTutor.cep}
+                      inputMode="numeric"
+                      maxLength={9}
+                      onChange={(e) => {
+                        const valor = formatarCepVisual(e.target.value);
+                        const cepAtual = normalizarCep(valor);
+                        const cepAnterior = normalizarCep(novoTutor.cep);
+                        const mudouCep = cepAtual !== cepAnterior;
+
+                        if (mudouCep) {
+                          ultimoCepConsultadoTutorRef.current = "";
+                          consultaCepTutorSequenciaRef.current += 1;
+                          setConsultandoCepTutor(false);
+                          setStatusEnderecoTutor("");
+                        }
+
+                        setNovoTutor((prev) => ({
+                          ...prev,
+                          cep: valor,
+                          ...(mudouCep
+                            ? {
+                                latitude: null,
+                                longitude: null,
+                                place_id: "",
+                                endereco_normalizado: "",
+                              }
+                            : {}),
+                        }));
+
+                        if (cepAtual.length === 8) {
+                          void consultarCepTutor(valor);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (normalizarCep(novoTutor.cep).length === 8) {
+                          void consultarCepTutor();
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="00000-000"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Bairro</label>
+                    <input
+                      type="text"
+                      value={novoTutor.bairro}
+                      onChange={(e) => setNovoTutor((prev) => ({ ...prev, bairro: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="Bairro"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Endereco</label>
+                    <input
+                      type="text"
+                      value={novoTutor.endereco}
+                      onChange={(e) => setNovoTutor((prev) => ({ ...prev, endereco: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="Rua / Avenida"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Numero</label>
+                    <input
+                      type="text"
+                      value={novoTutor.numero}
+                      onChange={(e) => setNovoTutor((prev) => ({ ...prev, numero: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="123"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Complemento</label>
+                    <input
+                      type="text"
+                      value={novoTutor.complemento}
+                      onChange={(e) => setNovoTutor((prev) => ({ ...prev, complemento: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="Apto, bloco, sala"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Cidade</label>
+                    <input
+                      type="text"
+                      value={novoTutor.cidade}
+                      onChange={(e) => setNovoTutor((prev) => ({ ...prev, cidade: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="Cidade"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">UF</label>
+                    <input
+                      type="text"
+                      value={novoTutor.estado}
+                      onChange={(e) => setNovoTutor((prev) => ({ ...prev, estado: e.target.value.toUpperCase().slice(0, 2) }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="CE"
+                    />
+                  </div>
+                </div>
+                {statusEnderecoTutor && (
+                  <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+                    {consultandoCepTutor ? "Consultando CEP..." : statusEnderecoTutor}
+                  </div>
+                )}
+                {(novoTutor.latitude !== null || novoTutor.longitude !== null) && (
+                  <div className="text-xs text-slate-500">
+                    Lat/Lng: {novoTutor.latitude ?? "-"}, {novoTutor.longitude ?? "-"}
+                    {novoTutor.endereco_normalizado ? ` - ${novoTutor.endereco_normalizado}` : ""}
+                  </div>
+                )}
               </div>
+
+              {tutorPanorama?.tutor?.id && String(tutorPanorama.tutor.id) === String(novoTutor.id || "") && (
+                <div className="rounded-lg border border-slate-200 p-4">
+                  <div className="text-sm font-semibold text-slate-900">Panorama dos animais do tutor</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {Number(tutorPanorama.resumo?.total_pets || tutorPanorama.pets.length || 0)} pet(s) vinculado(s)
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {tutorPanorama.pets.length > 0 ? (
+                      tutorPanorama.pets.map((pet) => (
+                        <button
+                          key={pet.id}
+                          type="button"
+                          onClick={() => {
+                            handlePacienteChange(String(pet.id));
+                            setModalTutorAberto(false);
+                          }}
+                          className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs text-slate-700 hover:border-blue-300 hover:bg-blue-50"
+                        >
+                          <div className="font-semibold">{pet.nome}</div>
+                          <div className="mt-0.5 opacity-80">
+                            {[pet.especie, pet.raca].filter(Boolean).join(" - ") || "Sem detalhes"}
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="text-xs text-slate-500">Nenhum pet vinculado ainda.</div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="flex justify-end gap-2 border-t px-5 py-4">
+            <div className="fc-appointment-submodal-footer flex justify-end gap-2 px-5 py-4">
               <button
                 type="button"
                 onClick={() => setModalTutorAberto(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                className="fc-appointment-button-secondary"
                 disabled={salvandoTutor}
               >
                 Cancelar
               </button>
               <button
                 type="button"
-                onClick={salvarNovoTutor}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                onClick={() => void salvarNovoTutor()}
+                className="fc-appointment-button-primary"
                 disabled={salvandoTutor}
               >
-                {salvandoTutor ? "Salvando..." : "Salvar Tutor"}
+                {salvandoTutor ? "Salvando..." : novoTutor.id ? "Salvar Tutor" : "Criar Tutor"}
               </button>
             </div>
           </div>
@@ -2647,20 +4699,22 @@ export default function NovoAgendamentoModal({
       )}
 
       {modalAnimalAberto && (
-        <div className="fixed inset-0 z-[60] bg-black bg-opacity-40 flex items-center justify-center p-4">
-          <div className="w-full max-w-2xl rounded-lg bg-white shadow-xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b px-5 py-4">
-              <h3 className="text-lg font-semibold text-gray-900">Cadastrar Animal</h3>
+        <div className="fc-appointment-submodal-backdrop fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="fc-appointment-submodal w-full max-w-2xl" role="dialog" aria-modal="true" aria-labelledby="fc-animal-modal-title">
+            <div className="fc-appointment-submodal-header flex items-center justify-between px-5 py-4">
+              <h3 id="fc-animal-modal-title" className="text-lg font-semibold text-gray-900">Cadastrar Animal</h3>
               <button
                 type="button"
                 onClick={() => setModalAnimalAberto(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="fc-appointment-submodal-close"
                 disabled={salvandoAnimal}
+                aria-label="Fechar cadastro do animal"
+                title="Fechar"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="space-y-3 px-5 py-4">
+            <div className="fc-appointment-submodal-body space-y-3 px-5 py-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Tutor *</label>
                 <select
@@ -2692,7 +4746,12 @@ export default function NovoAgendamentoModal({
                   <label className="block text-sm font-medium text-gray-700 mb-1">Especie</label>
                   <select
                     value={novoAnimal.especie}
-                    onChange={(e) => setNovoAnimal((prev) => ({ ...prev, especie: e.target.value }))}
+                    onChange={(e) => {
+                      setNovoAnimal((prev) => ({ ...prev, especie: e.target.value, raca: "" }));
+                      setNovaRaca("");
+                      setRacaEmEdicaoId("");
+                      setNomeRacaEmEdicao("");
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   >
                     {["Canina", "Felina", "Equina", "Outra"].map((especie) => (
@@ -2706,14 +4765,132 @@ export default function NovoAgendamentoModal({
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Raca</label>
-                  <input
-                    type="text"
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Raça</label>
+                  <select
                     value={novoAnimal.raca}
                     onChange={(e) => setNovoAnimal((prev) => ({ ...prev, raca: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="Raca"
-                  />
+                  >
+                    <option value="">Selecione...</option>
+                    {opcoesRacaAnimal.map((raca) => (
+                      <option key={raca} value={raca}>
+                        {raca}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setGestaoRacasAberta((aberta) => !aberta)}
+                    className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-900"
+                    aria-expanded={gestaoRacasAberta}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    {gestaoRacasAberta ? "Fechar gestão de raças" : "Cadastrar ou gerenciar raças"}
+                  </button>
+
+                  {gestaoRacasAberta && (
+                    <div className="mt-2 space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs text-slate-600">
+                        Catálogo de raças {novoAnimal.especie.toLowerCase()}, em ordem alfabética.
+                      </p>
+
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={novaRaca}
+                          onChange={(e) => setNovaRaca(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              cadastrarRacaAnimal();
+                            }
+                          }}
+                          className="min-w-0 flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          placeholder="Nova raça"
+                        />
+                        <button
+                          type="button"
+                          onClick={cadastrarRacaAnimal}
+                          disabled={!novaRaca.trim()}
+                          className="inline-flex items-center gap-1 rounded-lg border border-blue-200 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Cadastrar
+                        </button>
+                      </div>
+
+                      {racaEmEdicaoId ? (
+                        <div className="space-y-2 rounded-md border border-blue-100 bg-white p-2">
+                          <label className="block text-xs font-medium text-slate-700" htmlFor="fc-raca-em-edicao">
+                            Editar raça
+                          </label>
+                          <div className="flex gap-2">
+                            <input
+                              id="fc-raca-em-edicao"
+                              type="text"
+                              value={nomeRacaEmEdicao}
+                              onChange={(e) => setNomeRacaEmEdicao(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  salvarEdicaoRacaAnimal();
+                                }
+                              }}
+                              className="min-w-0 flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={salvarEdicaoRacaAnimal}
+                              disabled={!nomeRacaEmEdicao.trim()}
+                              className="rounded-lg bg-blue-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Salvar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRacaEmEdicaoId("");
+                                setNomeRacaEmEdicao("");
+                              }}
+                              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="mr-auto text-xs text-slate-600">
+                            {racaSelecionadaNoCatalogo
+                              ? `Selecionada: ${racaSelecionadaNoCatalogo.nome}`
+                              : "Selecione uma raça acima para editar ou excluir."}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={iniciarEdicaoRacaAnimal}
+                            disabled={!racaSelecionadaNoCatalogo}
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void excluirRacaAnimal()}
+                            disabled={!racaSelecionadaNoCatalogo}
+                            className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Excluir
+                          </button>
+                        </div>
+                      )}
+
+                      <p className="text-xs text-slate-500">
+                        Alterações no catálogo não modificam a raça de animais já cadastrados.
+                      </p>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Sexo</label>
@@ -2774,11 +4951,11 @@ export default function NovoAgendamentoModal({
                 />
               </div>
             </div>
-            <div className="flex justify-end gap-2 border-t px-5 py-4">
+            <div className="fc-appointment-submodal-footer flex justify-end gap-2 px-5 py-4">
               <button
                 type="button"
                 onClick={() => setModalAnimalAberto(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                className="fc-appointment-button-secondary"
                 disabled={salvandoAnimal}
               >
                 Cancelar
@@ -2786,7 +4963,7 @@ export default function NovoAgendamentoModal({
               <button
                 type="button"
                 onClick={salvarNovoAnimal}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                className="fc-appointment-button-primary"
                 disabled={salvandoAnimal}
               >
                 {salvandoAnimal ? "Salvando..." : "Salvar Animal"}

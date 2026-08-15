@@ -1,30 +1,73 @@
-export const nowLocalInput = () => {
-  const date = new Date();
-  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
-  return date.toISOString().slice(0, 16);
+export const ATENDIMENTO_OPERATIONAL_TIME_ZONE = "America/Fortaleza";
+const ATENDIMENTO_OPERATIONAL_OFFSET = "-03:00";
+
+const formatOperationalLocalInput = (date: Date) => {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: ATENDIMENTO_OPERATIONAL_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  const parts = Object.fromEntries(
+    formatter
+      .formatToParts(date)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 };
+
+const parseOperationalDate = (value?: string | null) => {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  let normalized = raw.replace(" ", "T");
+  const hasExplicitTimezone =
+    /T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+  if (!hasExplicitTimezone) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+      normalized = `${normalized}T00:00:00`;
+    } else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(normalized)) {
+      normalized = `${normalized}:00`;
+    }
+    normalized = `${normalized}${ATENDIMENTO_OPERATIONAL_OFFSET}`;
+  }
+
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+export const localInputToOperationalIso = (value?: string | null) => {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(:\d{2}(?:\.\d+)?)?$/);
+  if (!match) return null;
+
+  const normalized = `${match[1]}${match[2] || ":00"}${ATENDIMENTO_OPERATIONAL_OFFSET}`;
+  return Number.isNaN(new Date(normalized).getTime()) ? null : normalized;
+};
+
+export const nowLocalInput = () => formatOperationalLocalInput(new Date());
 
 export const isoToLocalInput = (value?: string | null) => {
   if (!value) return nowLocalInput();
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return nowLocalInput();
-  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
-  return date.toISOString().slice(0, 16);
+  const date = parseOperationalDate(value);
+  return date ? formatOperationalLocalInput(date) : nowLocalInput();
 };
 
 export const isoToOptionalLocalInput = (value?: string | null) => {
   if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
-  return date.toISOString().slice(0, 16);
+  const date = parseOperationalDate(value);
+  return date ? formatOperationalLocalInput(date) : "";
 };
 
 export const formatDate = (value?: string | null) => {
   if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("pt-BR");
+  const date = parseOperationalDate(value);
+  if (!date) return value;
+  return date.toLocaleString("pt-BR", { timeZone: ATENDIMENTO_OPERATIONAL_TIME_ZONE });
 };
 
 export const formatBytes = (value?: number | null) => {

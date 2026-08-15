@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../layout-dashboard";
+import { Filter, MessageSquare, MessagesSquare, RefreshCw, Send, UserCheck, Users } from "lucide-react";
 
 type AssignedFilter = "all" | "assigned" | "unassigned";
 
@@ -67,6 +68,13 @@ interface AgentsResponse {
   data: Agent[];
 }
 
+interface LoadMessagesOptions {
+  isCurrent?: () => boolean;
+  silent?: boolean;
+}
+
+const MESSAGE_STATUS_REFRESH_INTERVAL_MS = 5_000;
+
 function getAuthHeaders(): Record<string, string> {
   if (typeof window === "undefined") {
     return {};
@@ -107,11 +115,14 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<ApiResul
   }
 
   const text = await response.text();
+  const normalizedText = /<!doctype html/i.test(text)
+    ? "Backend WhatsApp Stage não configurado neste ambiente."
+    : text.trim().slice(0, 500);
   return {
     ok: response.ok,
     status: response.status,
     data: null,
-    errorText: text || `HTTP ${response.status}`,
+    errorText: normalizedText || `HTTP ${response.status}`,
   };
 }
 
@@ -234,8 +245,16 @@ export default function WhatsAppStagePage() {
     }
   };
 
-  const loadMessages = async (conversationId: string, page = 1): Promise<void> => {
-    setLoadingMessages(true);
+  const loadMessages = async (
+    conversationId: string,
+    page = 1,
+    options: LoadMessagesOptions = {}
+  ): Promise<void> => {
+    const { isCurrent, silent = false } = options;
+
+    if (!silent) {
+      setLoadingMessages(true);
+    }
     setErrorMessage(null);
 
     try {
@@ -252,13 +271,19 @@ export default function WhatsAppStagePage() {
         throw new Error(result.errorText || `Falha ao carregar mensagens (HTTP ${result.status})`);
       }
 
-      setMessages(result.data.data);
-      setMessagesPagination(result.data.pagination);
+      if (!isCurrent || isCurrent()) {
+        setMessages(result.data.data);
+        setMessagesPagination(result.data.pagination);
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Erro ao carregar mensagens";
-      setErrorMessage(message);
+      if (!isCurrent || isCurrent()) {
+        const message = error instanceof Error ? error.message : "Erro ao carregar mensagens";
+        setErrorMessage(message);
+      }
     } finally {
-      setLoadingMessages(false);
+      if (!silent && (!isCurrent || isCurrent())) {
+        setLoadingMessages(false);
+      }
     }
   };
 
@@ -400,30 +425,67 @@ export default function WhatsAppStagePage() {
       return;
     }
 
-    void loadMessages(selectedConversationId, 1);
+    let active = true;
+    let refreshInProgress = false;
+
+    const refreshMessages = async (silent: boolean): Promise<void> => {
+      if (refreshInProgress) {
+        return;
+      }
+
+      refreshInProgress = true;
+      try {
+        await loadMessages(selectedConversationId, 1, {
+          isCurrent: () => active,
+          silent,
+        });
+      } finally {
+        refreshInProgress = false;
+      }
+    };
+
+    void refreshMessages(false);
+    const intervalId = window.setInterval(
+      () => void refreshMessages(true),
+      MESSAGE_STATUS_REFRESH_INTERVAL_MS
+    );
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedConversationId]);
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6">
-        <header className="space-y-1">
-          <h1 className="text-2xl font-bold text-gray-900">WhatsApp Stage Viewer</h1>
-          <p className="text-sm text-gray-600">
-            Tela temporária para visualizar e testar o backend WhatsApp em stage via rota <code>/whatsapp</code>.
-          </p>
+      <div className="fc-wa-page">
+        <header className="fc-wa-header">
+          <div>
+            <span className="fc-wa-kicker"><MessageSquare className="h-4 w-4" />Central de relacionamento</span>
+            <h1>WhatsApp Stage</h1>
+            <p>Conversas, mensagens e distribuição de atendimentos em uma visão operacional.</p>
+          </div>
+          <span className="fc-wa-environment">Ambiente Stage</span>
         </header>
 
+        <section className="fc-wa-metrics" aria-label="Resumo do atendimento WhatsApp">
+          <div className="fc-wa-metric fc-wa-metric-cordis"><MessagesSquare className="h-5 w-5" /><strong>{conversationsPagination.total}</strong><span>Conversas no filtro</span></div>
+          <div className="fc-wa-metric fc-wa-metric-vital"><MessageSquare className="h-5 w-5" /><strong>{messagesPagination.total}</strong><span>Mensagens da conversa</span></div>
+          <div className="fc-wa-metric fc-wa-metric-amber"><UserCheck className="h-5 w-5" /><strong>{conversations.filter((item) => !item.last_agent_id).length}</strong><span>Sem atribuição</span></div>
+          <div className="fc-wa-metric fc-wa-metric-ink"><Users className="h-5 w-5" /><strong>{agents.filter((agent) => agent.active).length}</strong><span>Agentes ativos</span></div>
+        </section>
+
         {infoMessage ? (
-          <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">{infoMessage}</div>
+          <div className="fc-wa-message fc-wa-message-info">{infoMessage}</div>
         ) : null}
 
         {errorMessage ? (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</div>
+          <div className="fc-wa-message fc-wa-message-error">{errorMessage}</div>
         ) : null}
 
-        <section className="rounded-xl border bg-white p-4">
-          <h2 className="mb-3 text-lg font-semibold text-gray-900">Filtros de Conversa</h2>
+        <section className="fc-wa-filters">
+          <div className="fc-wa-section-title"><Filter className="h-5 w-5" /><div><span>Fila ativa</span><h2>Filtros de conversa</h2></div></div>
           <form className="grid gap-3 md:grid-cols-4" onSubmit={handleFilterSubmit}>
             <input
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
@@ -451,23 +513,23 @@ export default function WhatsAppStagePage() {
 
             <button
               type="submit"
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              className="fc-wa-primary"
             >
               {loadingConversations ? "Carregando..." : "Filtrar"}
             </button>
           </form>
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-2">
-          <div className="rounded-xl border bg-white">
-            <div className="border-b px-4 py-3">
-              <h2 className="text-lg font-semibold text-gray-900">Conversas</h2>
+        <section className="fc-wa-workspace">
+          <div className="fc-wa-inbox">
+            <div className="fc-wa-panel-heading">
+              <h2>Conversas</h2>
               <p className="text-xs text-gray-500">
                 Página {conversationsPagination.page} de {Math.max(1, Math.ceil(conversationsPagination.total / conversationsPagination.limit))} · Total {conversationsPagination.total}
               </p>
             </div>
 
-            <div className="max-h-[520px] overflow-auto divide-y">
+            <div className="fc-wa-conversation-list">
               {conversations.length === 0 ? (
                 <div className="p-6 text-sm text-gray-500">Nenhuma conversa encontrada.</div>
               ) : (
@@ -478,7 +540,7 @@ export default function WhatsAppStagePage() {
                       key={conversation.id}
                       type="button"
                       onClick={() => setSelectedConversationId(conversation.id)}
-                      className={`w-full p-4 text-left transition ${selected ? "bg-blue-50" : "hover:bg-gray-50"}`}
+                      className={`fc-wa-conversation ${selected ? "fc-wa-conversation-active" : ""}`}
                     >
                       <div className="flex items-center justify-between gap-3">
                         <p className="font-medium text-gray-900">{conversation.wa_phone_number}</p>
@@ -495,7 +557,7 @@ export default function WhatsAppStagePage() {
               )}
             </div>
 
-            <div className="flex items-center justify-between border-t p-3">
+            <div className="fc-wa-pagination">
               <button
                 type="button"
                 onClick={() => void loadConversations(Math.max(1, conversationsPagination.page - 1))}
@@ -522,18 +584,33 @@ export default function WhatsAppStagePage() {
             </div>
           </div>
 
-          <div className="space-y-6">
-            <div className="rounded-xl border bg-white">
-              <div className="border-b px-4 py-3">
-                <h2 className="text-lg font-semibold text-gray-900">Mensagens</h2>
-                <p className="text-xs text-gray-500">
-                  {selectedConversation
-                    ? `Conversa #${selectedConversation.id} · ${selectedConversation.wa_phone_number}`
-                    : "Selecione uma conversa"}
-                </p>
+          <div className="space-y-4">
+            <div className="fc-wa-chat">
+              <div className="fc-wa-panel-heading flex items-center justify-between gap-3">
+                <div>
+                  <h2>Mensagens</h2>
+                  <p className="text-xs text-gray-500">
+                    {selectedConversation
+                      ? `Conversa #${selectedConversation.id} · ${selectedConversation.wa_phone_number}`
+                      : "Selecione uma conversa"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedConversationId) {
+                      void loadMessages(selectedConversationId, 1);
+                    }
+                  }}
+                  disabled={!selectedConversationId || loadingMessages}
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${loadingMessages ? "animate-spin" : ""}`} />
+                  Atualizar
+                </button>
               </div>
 
-              <div className="max-h-[420px] overflow-auto p-4">
+              <div className="fc-wa-message-stream">
                 {!selectedConversationId ? (
                   <p className="text-sm text-gray-500">Selecione uma conversa para carregar mensagens.</p>
                 ) : loadingMessages ? (
@@ -545,7 +622,7 @@ export default function WhatsAppStagePage() {
                     {messages.map((message) => (
                       <article
                         key={message.id}
-                        className={`rounded-lg border p-3 ${message.from_me ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"}`}
+                        className={`fc-wa-bubble ${message.from_me ? "fc-wa-bubble-agent" : "fc-wa-bubble-client"}`}
                       >
                         <div className="mb-1 flex items-center justify-between gap-2">
                           <span className="text-xs font-medium text-gray-700">{message.from_me ? "Agente" : "Cliente"}</span>
@@ -564,7 +641,7 @@ export default function WhatsAppStagePage() {
                 )}
               </div>
 
-              <div className="border-t p-3">
+              <div className="fc-wa-composer">
                 <form className="space-y-2" onSubmit={handleSendMessage}>
                   <div className="flex gap-2">
                     <select
@@ -584,18 +661,18 @@ export default function WhatsAppStagePage() {
 
                     <button
                       type="submit"
-                      className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
+                      className="fc-wa-send"
                       disabled={!selectedConversationId}
                     >
-                      Enviar
+                      <Send className="h-4 w-4" />Enviar
                     </button>
                   </div>
                 </form>
               </div>
             </div>
 
-            <div className="rounded-xl border bg-white p-4 space-y-4">
-              <h2 className="text-lg font-semibold text-gray-900">Agentes e Claim</h2>
+            <div className="fc-wa-agents">
+              <div className="fc-wa-section-title"><Users className="h-5 w-5" /><div><span>Distribuição</span><h2>Agentes e claim</h2></div></div>
 
               <form className="grid gap-2 md:grid-cols-4" onSubmit={handleCreateAgent}>
                 <input
@@ -617,7 +694,7 @@ export default function WhatsAppStagePage() {
                   value={newAgentRole}
                   onChange={(event) => setNewAgentRole(event.target.value)}
                 />
-                <button className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700" type="submit">
+                <button className="fc-wa-primary" type="submit">
                   Criar agente
                 </button>
               </form>
@@ -655,7 +732,7 @@ export default function WhatsAppStagePage() {
                 </button>
               </div>
 
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <div className="fc-wa-agent-list">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
                   Agentes cadastrados {loadingAgents ? "(carregando...)" : ""}
                 </p>
@@ -679,4 +756,3 @@ export default function WhatsAppStagePage() {
     </DashboardLayout>
   );
 }
-

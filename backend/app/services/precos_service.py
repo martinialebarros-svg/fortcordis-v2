@@ -75,11 +75,12 @@ def _preco_tabela_padrao(
 
 def calcular_preco_servico(
     db: Session,
-    clinica_id: int,
+    clinica_id: int | None,
     servico_id: int,
     tipo_horario: str = "comercial",
     *,
     usar_preco_clinica: bool = True,
+    origem_atendimento: str | None = None,
 ) -> Decimal:
     """Calcula preco final para OS/agendamento.
 
@@ -87,15 +88,28 @@ def calcular_preco_servico(
     1) Preco negociado da clinica para o servico (quando existir)
     2) Preco da tabela da clinica
     """
-    clinica = db.query(Clinica).filter(Clinica.id == clinica_id).first()
-    if not clinica:
-        raise HTTPException(status_code=404, detail="Clinica nao encontrada")
-
     servico = db.query(Servico).filter(Servico.id == servico_id).first()
     if not servico:
         raise HTTPException(status_code=404, detail="Servico nao encontrado")
 
     horario = _normalize_tipo_horario(tipo_horario)
+    origem_normalizada = str(origem_atendimento or "").strip().lower()
+
+    if not clinica_id:
+        if origem_normalizada == "domiciliar":
+            preco_domiciliar = to_decimal(
+                servico.preco_domiciliar_plantao
+                if horario == "plantao"
+                else servico.preco_domiciliar_comercial
+            )
+            if preco_domiciliar > Decimal("0.00"):
+                return preco_domiciliar
+            return to_decimal(servico.preco)
+        raise HTTPException(status_code=404, detail="Clinica nao encontrada")
+
+    clinica = db.query(Clinica).filter(Clinica.id == clinica_id).first()
+    if not clinica:
+        raise HTTPException(status_code=404, detail="Clinica nao encontrada")
 
     if usar_preco_clinica:
         try:
@@ -114,4 +128,3 @@ def calcular_preco_servico(
                 return to_decimal(field)
 
     return _preco_tabela_padrao(db, clinica, servico, horario)
-

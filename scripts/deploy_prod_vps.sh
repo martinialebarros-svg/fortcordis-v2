@@ -34,6 +34,10 @@ set -euo pipefail
 #   ENABLE_BACKUP_RESTORE_DRILL=1
 #   BACKUP_RESTORE_DRILL_SKIP_SQLITE_CHECK=0
 #   BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR=0
+#   ENABLE_ECO_STUDY_OCR=1
+#   REQUIRE_ECO_STUDY_OCR=0
+#   RUNTIME_BACKUP_RETENTION_DAYS=30
+#   RUNTIME_BACKUP_MAX_ITEMS=200
 
 APP_DIR="${APP_DIR:-/var/www/fortcordis-v2}"
 BRANCH="${BRANCH:-main}"
@@ -60,6 +64,13 @@ WHATSAPP_DEFAULT_ALLOWED_PAPEIS="${WHATSAPP_DEFAULT_ALLOWED_PAPEIS:-admin,recepc
 WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS="${WHATSAPP_DEFAULT_WRITE_ALLOWED_PAPEIS:-${WHATSAPP_DEFAULT_ALLOWED_PAPEIS}}"
 
 RUNTIME_BACKUP_DIR="${RUNTIME_BACKUP_DIR:-$HOME/fortcordis-runtime-backups}"
+# Stage e prod rodam na mesma VPS, com o mesmo $HOME, e escrevem nesse mesmo
+# diretorio - sem rotacao, ele cresce sem limite a cada deploy (chegou a 2004
+# itens / 13G em ~5 meses e derrubou o disco). Os dois limites abaixo sao
+# aplicados juntos: por idade e por quantidade, para segurar o crescimento
+# mesmo se a frequencia de deploy aumentar.
+RUNTIME_BACKUP_RETENTION_DAYS="${RUNTIME_BACKUP_RETENTION_DAYS:-30}"
+RUNTIME_BACKUP_MAX_ITEMS="${RUNTIME_BACKUP_MAX_ITEMS:-200}"
 AUTO_ROLLBACK_ON_FAILURE="${AUTO_ROLLBACK_ON_FAILURE:-1}"
 ENABLE_AUTH_CANARY="${ENABLE_AUTH_CANARY:-1}"
 AUTH_CANARY_TIMEOUT_SECONDS="${AUTH_CANARY_TIMEOUT_SECONDS:-8}"
@@ -67,6 +78,8 @@ AUTH_CANARY_DISABLE_INTERNAL_TOKEN="${AUTH_CANARY_DISABLE_INTERNAL_TOKEN:-0}"
 ENABLE_BACKUP_RESTORE_DRILL="${ENABLE_BACKUP_RESTORE_DRILL:-1}"
 BACKUP_RESTORE_DRILL_SKIP_SQLITE_CHECK="${BACKUP_RESTORE_DRILL_SKIP_SQLITE_CHECK:-0}"
 BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR="${BACKUP_RESTORE_DRILL_KEEP_RESTORE_DIR:-0}"
+ENABLE_ECO_STUDY_OCR="${ENABLE_ECO_STUDY_OCR:-1}"
+REQUIRE_ECO_STUDY_OCR="${REQUIRE_ECO_STUDY_OCR:-0}"
 PRE_DEPLOY_HASH=""
 NEW_HASH=""
 CODE_UPDATED=0
@@ -104,6 +117,49 @@ require_cmd() {
     echo "[ERROR] Missing command: $1" >&2
     exit 1
   }
+}
+
+has_tesseract_language() {
+  local language="$1"
+  tesseract --list-langs 2>/dev/null | grep -Fxq "$language"
+}
+
+ensure_eco_study_ocr_dependencies() {
+  if [[ "${ENABLE_ECO_STUDY_OCR}" != "1" ]]; then
+    log "Eco study OCR disabled for this deploy."
+    return 0
+  fi
+
+  if command -v tesseract >/dev/null 2>&1 \
+    && has_tesseract_language por \
+    && has_tesseract_language eng; then
+    log "Eco study OCR ready: $(tesseract --version 2>/dev/null | head -n 1)"
+    return 0
+  fi
+
+  log "Installing Tesseract OCR with por/eng language data"
+  if command -v apt-get >/dev/null 2>&1; then
+    if run_with_sudo env DEBIAN_FRONTEND=noninteractive apt-get update \
+      && run_with_sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        tesseract-ocr tesseract-ocr-por tesseract-ocr-eng; then
+      log "Tesseract packages installed."
+    fi
+  fi
+
+  if command -v tesseract >/dev/null 2>&1 \
+    && has_tesseract_language por \
+    && has_tesseract_language eng; then
+    log "Eco study OCR ready: $(tesseract --version 2>/dev/null | head -n 1)"
+    return 0
+  fi
+
+  if [[ "${REQUIRE_ECO_STUDY_OCR}" == "1" ]]; then
+    echo "[ERROR] Tesseract OCR with por/eng is required but unavailable." >&2
+    return 1
+  fi
+
+  log "WARN: Tesseract OCR unavailable; image and raster PDF imports will fail until provisioned."
+  return 0
 }
 
 wait_http_ok() {
@@ -253,6 +309,9 @@ is_env_placeholder_value() {
     *placeholder*)
       return 0
       ;;
+    *not_configured*|000000000000000)
+      return 0
+      ;;
     stage_access_token_placeholder|stage_phone_number_id|stage_verify_token|stage_app_secret)
       return 0
       ;;
@@ -358,8 +417,8 @@ replace_env_key_if_exact_match() {
 }
 
 ensure_whatsapp_stage_env_file() {
-  local generated_internal_token generated_verify_token generated_app_secret
-  local default_access_token default_phone_number_id
+  local generated_internal_token generated_verify_token
+  local default_access_token default_phone_number_id default_app_secret
   local current_internal_token_before current_internal_token_after
   generated_internal_token="$(
     python3 - <<'PY'
@@ -373,14 +432,9 @@ import secrets
 print("stage_verify_" + secrets.token_hex(8))
 PY
   )"
-  generated_app_secret="$(
-    python3 - <<'PY'
-import secrets
-print(secrets.token_hex(24))
-PY
-  )"
   default_access_token="stage_access_token_not_configured"
-  default_phone_number_id="000000000000000"
+  default_phone_number_id="1279142515283484"
+  default_app_secret="stage_app_secret_not_configured"
 
   if [[ ! -f "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" ]]; then
     local backend_database_url
@@ -397,7 +451,12 @@ DATABASE_URL=${backend_database_url}
 WHATSAPP_ACCESS_TOKEN=${default_access_token}
 PHONE_NUMBER_ID=${default_phone_number_id}
 WHATSAPP_VERIFY_TOKEN=${generated_verify_token}
-WHATSAPP_APP_SECRET=${generated_app_secret}
+WHATSAPP_APP_SECRET=${default_app_secret}
+WHATSAPP_GRAPH_API_VERSION=v26.0
+META_APP_ID=975334532125008
+WHATSAPP_BUSINESS_ACCOUNT_ID=1369494994627980
+WHATSAPP_RESERVATION_TEMPLATE_NAME=reserva_de_agendamento
+WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE=pt_BR
 NODE_ENV=production
 WEBHOOK_ALLOW_UNSIGNED=false
 API_BACKEND_URL=${API_BACKEND_URL}
@@ -415,7 +474,7 @@ EOF
   replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ACCESS_TOKEN" "stage_access_token_placeholder" "${default_access_token}"
   replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "PHONE_NUMBER_ID" "stage_phone_number_id" "${default_phone_number_id}"
   replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "stage_verify_token" "${generated_verify_token}"
-  replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "stage_app_secret" "${generated_app_secret}"
+  replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "stage_app_secret" "${default_app_secret}"
 
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "API_BACKEND_URL" "${API_BACKEND_URL}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_API_AUTH_ENABLED" "true"
@@ -425,12 +484,88 @@ EOF
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ACCESS_TOKEN" "${default_access_token}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "PHONE_NUMBER_ID" "${default_phone_number_id}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "${generated_verify_token}"
-  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "${generated_app_secret}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "${default_app_secret}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_GRAPH_API_VERSION" "v26.0"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "META_APP_ID" "975334532125008"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_BUSINESS_ACCOUNT_ID" "1369494994627980"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_RESERVATION_TEMPLATE_NAME" "reserva_de_agendamento"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE" "pt_BR"
 
   current_internal_token_after="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "")"
   if [[ -z "${current_internal_token_before}" && -n "${current_internal_token_after}" ]]; then
     log "Generated WHATSAPP_INTERNAL_API_TOKEN for ${WHATSAPP_STAGE_BACKEND_ENV_FILE}."
   fi
+}
+
+validate_whatsapp_stage_meta_config() {
+  local access_token phone_number_id app_secret verify_token
+  local meta_app_id business_account_id template_name template_language
+  local invalid=0
+
+  access_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ACCESS_TOKEN" "")"
+  phone_number_id="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "PHONE_NUMBER_ID" "")"
+  app_secret="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "")"
+  verify_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "")"
+  meta_app_id="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "META_APP_ID" "")"
+  business_account_id="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_BUSINESS_ACCOUNT_ID" "")"
+  template_name="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_RESERVATION_TEMPLATE_NAME" "")"
+  template_language="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE" "")"
+
+  if is_env_placeholder_value "${access_token}" || [[ "${access_token}" != EAA* ]] || [[ "${#access_token}" -lt 64 ]]; then
+    echo "[ERROR] WHATSAPP_ACCESS_TOKEN ausente, placeholder ou fora do formato esperado." >&2
+    invalid=1
+  fi
+  if [[ "${phone_number_id}" != "1279142515283484" ]]; then
+    echo "[ERROR] PHONE_NUMBER_ID nao corresponde ao numero Fort Cordis aprovado." >&2
+    invalid=1
+  fi
+  if is_env_placeholder_value "${app_secret}" || [[ ! "${app_secret}" =~ ^[[:xdigit:]]{32}$ ]]; then
+    echo "[ERROR] WHATSAPP_APP_SECRET ausente, placeholder ou fora do formato esperado." >&2
+    invalid=1
+  fi
+  if is_env_placeholder_value "${verify_token}" || [[ "${#verify_token}" -lt 16 ]]; then
+    echo "[ERROR] WHATSAPP_VERIFY_TOKEN ausente, placeholder ou muito curto." >&2
+    invalid=1
+  fi
+  if [[ "${meta_app_id}" != "975334532125008" ]]; then
+    echo "[ERROR] META_APP_ID nao corresponde ao app FortZap aprovado." >&2
+    invalid=1
+  fi
+  if [[ "${business_account_id}" != "1369494994627980" ]]; then
+    echo "[ERROR] WHATSAPP_BUSINESS_ACCOUNT_ID nao corresponde a WABA Fort Cordis." >&2
+    invalid=1
+  fi
+  if [[ "${template_name}" != "reserva_de_agendamento" || "${template_language}" != "pt_BR" ]]; then
+    echo "[ERROR] Modelo de reserva ou idioma nao correspondem ao modelo aprovado." >&2
+    invalid=1
+  fi
+
+  if [[ "${invalid}" -ne 0 ]]; then
+    echo "[ERROR] Configure os segredos Meta diretamente no servidor antes de habilitar o servico." >&2
+    return 1
+  fi
+
+  log "WhatsApp stage Meta configuration validated without exposing secrets."
+}
+
+ensure_whatsapp_core_integration_env() {
+  if [[ "${ENABLE_WHATSAPP_STAGE_BACKEND}" != "1" ]]; then
+    return 0
+  fi
+
+  ensure_whatsapp_stage_env_file
+  local internal_token backend_env_file
+  backend_env_file="${BACKEND_DIR}/.env"
+  internal_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "")"
+  if [[ -z "${internal_token}" ]]; then
+    echo "[ERROR] WhatsApp internal token is unavailable for core integration." >&2
+    return 1
+  fi
+
+  upsert_env_key "${backend_env_file}" "WHATSAPP_AGENDA_ENABLED" "true"
+  upsert_env_key "${backend_env_file}" "WHATSAPP_AGENDA_SERVICE_URL" "${WHATSAPP_STAGE_BACKEND_URL}"
+  upsert_env_key "${backend_env_file}" "WHATSAPP_AGENDA_INTERNAL_TOKEN" "${internal_token}"
+  log "Core WhatsApp agenda integration env ensured."
 }
 
 ensure_whatsapp_stage_service_unit() {
@@ -477,6 +612,7 @@ deploy_whatsapp_stage_backend() {
   fi
 
   ensure_whatsapp_stage_env_file
+  validate_whatsapp_stage_meta_config
   ensure_whatsapp_stage_service_unit
 
   log "WhatsApp stage backend: install deps + migrations"
@@ -519,6 +655,33 @@ backup_runtime_file() {
     mkdir -p "$(dirname "$dst")"
     cp -f "$src" "$dst"
     log "Preserved runtime file: ${rel_path}"
+  fi
+}
+
+prune_runtime_backups() {
+  if [[ ! -d "$RUNTIME_BACKUP_DIR" ]]; then
+    return
+  fi
+
+  local pruned_by_age=0
+  while IFS= read -r -d '' item; do
+    rm -rf -- "$item"
+    pruned_by_age=$((pruned_by_age + 1))
+  done < <(find "$RUNTIME_BACKUP_DIR" -mindepth 1 -maxdepth 1 -mtime "+${RUNTIME_BACKUP_RETENTION_DAYS}" -print0 2>/dev/null)
+  if [[ "$pruned_by_age" -gt 0 ]]; then
+    log "Pruned ${pruned_by_age} runtime backup item(s) com mais de ${RUNTIME_BACKUP_RETENTION_DAYS} dias em ${RUNTIME_BACKUP_DIR}"
+  fi
+
+  local total_items
+  total_items="$(find "$RUNTIME_BACKUP_DIR" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')"
+  if [[ "$total_items" -gt "$RUNTIME_BACKUP_MAX_ITEMS" ]]; then
+    local excess=$((total_items - RUNTIME_BACKUP_MAX_ITEMS))
+    local pruned_by_count=0
+    while IFS= read -r item && [[ "$pruned_by_count" -lt "$excess" ]]; do
+      rm -rf -- "$item"
+      pruned_by_count=$((pruned_by_count + 1))
+    done < <(find "$RUNTIME_BACKUP_DIR" -mindepth 1 -maxdepth 1 -printf '%T@ %p\n' 2>/dev/null | sort -n | cut -d' ' -f2-)
+    log "Pruned ${pruned_by_count} runtime backup item(s) adicionais para manter no maximo ${RUNTIME_BACKUP_MAX_ITEMS} itens em ${RUNTIME_BACKUP_DIR}"
   fi
 }
 
@@ -661,6 +824,7 @@ if [[ -n "${PRE_DEPLOY_HASH}" ]]; then
 fi
 
 mkdir -p "$RUNTIME_BACKUP_DIR"
+prune_runtime_backups
 STAMP="$(date +%Y%m%d_%H%M%S)"
 DEPLOY_BACKUP_MARKER="${RUNTIME_BACKUP_DIR}/${STAMP}__deploy-prod.marker"
 touch "$DEPLOY_BACKUP_MARKER"
@@ -690,6 +854,8 @@ log "Backend: install deps + migrations"
 cd "$BACKEND_DIR"
 
 ensure_backend_stage_cookie_security
+ensure_whatsapp_core_integration_env
+ensure_eco_study_ocr_dependencies
 
 if [[ ! -x "${BACKEND_DIR}/venv/bin/python" ]]; then
   log "Creating backend venv"

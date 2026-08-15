@@ -20,10 +20,11 @@ export default function AtendimentoPrescricaoWorkspace(props: AtendimentoPrescri
     abrirMedicamentoBuscaRapida,
     adicionarItemPrescricaoEmBranco,
     aplicarPresetPrescricao,
-    aplicarProtocoloPrescricao,
+    aplicarProtocoloSelecionado,
     autosaveBadgeClass,
     autosaveLabel,
     classificarAlertaPrescricao,
+    descartarProtocoloSelecionado,
     editarPresetPrescricao,
     especieRacaExibicao,
     form,
@@ -50,10 +51,13 @@ export default function AtendimentoPrescricaoWorkspace(props: AtendimentoPrescri
     protocoloPrescricaoRecomendado,
     protocoloPrescricaoSelecionado,
     protocoloPrescricaoSelecionadoDetalhe,
+    protocoloPrescricaoSelecionadoGatilho,
+    protocoloPrescricaoSelecionadoItensPreview,
     removerPresetPrescricao,
     renderPrescricaoItemCard,
     salvarPresetPrescricaoAtual,
     selecionarMedicamentoBuscaRapida,
+    selecionarProtocoloPrescricao,
     setField,
     setNomeNovoPresetPrescricao,
     setPrescricaoBuscaRapida,
@@ -365,17 +369,85 @@ export default function AtendimentoPrescricaoWorkspace(props: AtendimentoPrescri
               <button
                 key={protocolo.key}
                 type="button"
-                onClick={() => aplicarProtocoloPrescricao(protocolo)}
+                onClick={() => selecionarProtocoloPrescricao(protocolo.key)}
                 className={`rounded-2xl px-3 py-2 text-xs font-medium transition ${
-                  protocoloPrescricaoRecomendado?.key === protocolo.key || protocoloPrescricaoSelecionado === protocolo.key
+                  protocoloPrescricaoSelecionado === protocolo.key
                     ? "bg-teal-600 text-white"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    : protocoloPrescricaoRecomendado?.key === protocolo.key
+                      ? "bg-teal-100 text-teal-800"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                 }`}
               >
                 {protocolo.label}
               </button>
             ))}
           </div>
+
+          {protocoloPrescricaoSelecionadoDetalhe ? (
+            <div className="mt-4 rounded-[22px] border border-teal-200 bg-teal-50/60 px-4 py-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-teal-700">Previa do protocolo</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{protocoloPrescricaoSelecionadoDetalhe.label}</p>
+                  <p className="mt-1 text-xs text-slate-600">
+                    {protocoloPrescricaoSelecionadoGatilho ? (
+                      <>
+                        Gatilho identificado no diagnostico: <span className="font-medium text-teal-700">&quot;{protocoloPrescricaoSelecionadoGatilho}&quot;</span>
+                      </>
+                    ) : (
+                      "Selecionado manualmente - nenhum gatilho do diagnostico atual casou com este protocolo."
+                    )}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={descartarProtocoloSelecionado}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Descartar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={aplicarProtocoloSelecionado}
+                    className="rounded-xl bg-teal-600 px-3 py-2 text-xs font-medium text-white hover:bg-teal-700"
+                  >
+                    Aplicar protocolo
+                  </button>
+                </div>
+              </div>
+
+              {protocoloPrescricaoSelecionadoItensPreview.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {protocoloPrescricaoSelecionadoItensPreview.map((item: any, index: number) => (
+                    <div key={index} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+                      <p className="font-semibold text-slate-900">{item.medicamento_nome}</p>
+                      <p className="mt-0.5 text-slate-600">
+                        {[item.dose, item.frequencia, item.duracao, item.via].filter(Boolean).join(" - ")}
+                      </p>
+                      {item.instrucoes ? <p className="mt-0.5 text-slate-500">{item.instrucoes}</p> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-xs text-slate-500">Este protocolo nao inclui itens de receita - apenas orientacoes e retorno.</p>
+              )}
+
+              {protocoloPrescricaoSelecionadoDetalhe.orientacoesPadrao ? (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Orientacoes a inserir</p>
+                  <p className="mt-1 whitespace-pre-line">{protocoloPrescricaoSelecionadoDetalhe.orientacoesPadrao}</p>
+                </div>
+              ) : null}
+
+              {protocoloPrescricaoSelecionadoDetalhe.retornoDias ? (
+                <p className="mt-3 text-xs text-slate-500">
+                  Retorno sugerido: {protocoloPrescricaoSelecionadoDetalhe.retornoDias} dia(s)
+                  {form.prescricao_retorno_dias ? " (mantido o valor ja preenchido)." : "."}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="mt-4 rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

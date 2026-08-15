@@ -4,9 +4,22 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
-import { getLaudoViewPath, TIPO_LAUDO_ULTRASSOM_ABDOMINAL } from "@/lib/laudos";
-import { baixarLaudoPdf } from "@/lib/laudo-pdf";
-import { ArrowLeft, FileText, Download, Edit, Printer } from "lucide-react";
+import {
+  getLaudoViewPath,
+  TIPO_LAUDO_ELETROCARDIOGRAMA,
+  TIPO_LAUDO_PRESSAO_ARTERIAL,
+  TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
+} from "@/lib/laudos";
+import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
+import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
+import { parseStoredEchoMeasurements } from "@/lib/echo-derived-measurements";
+import { ArrowLeft, CheckCircle, Download, FileText, Loader2, Printer, Send, Upload } from "lucide-react";
+
+const PORTAL_RELEASE_STATUS = "Liberado no portal";
+
+function isPortalReleased(status?: string) {
+  return status === PORTAL_RELEASE_STATUS;
+}
 
 interface Paciente {
   id: number;
@@ -27,13 +40,86 @@ interface Laudo {
   tipo: string;
   titulo: string;
   descricao: string;
+  medidas?: Record<string, string>;
   diagnostico: string;
   observacoes: string;
   status: string;
   data_laudo: string;
   data_exame?: string;
   clinica?: string;
+  clinic_id?: number | null;
+  veterinario_parceiro_id?: number | null;
+  veterinario_parceiro_nome?: string | null;
+  veterinario_parceiro_crmv?: string | null;
+  portal_clinica_disponivel?: boolean;
+  portal_clinica_liberado?: boolean;
+  portal_veterinario_disponivel?: boolean;
+  portal_veterinario_liberado?: boolean;
+  portal_destinos_pendentes?: string[];
+  portal_pode_liberar?: boolean;
   criado_por_nome: string;
+  pdf_externo?: {
+    anexo_id?: number;
+    nome_original?: string;
+  } | null;
+  pressao_arterial?: {
+    pas_1?: number | null;
+    pas_2?: number | null;
+    pas_3?: number | null;
+    pas_media?: number | null;
+    metodo?: string | null;
+    manguito?: string | null;
+    membro?: string | null;
+    decubito?: string | null;
+    obs_extra?: string | null;
+  } | null;
+}
+
+function getPortalPendingDestinations(laudo: Laudo | null) {
+  if (!laudo) {
+    return [] as string[];
+  }
+  if (Array.isArray(laudo.portal_destinos_pendentes)) {
+    return laudo.portal_destinos_pendentes;
+  }
+
+  const pending: string[] = [];
+  if (laudo.clinic_id && !isPortalReleased(laudo.status)) {
+    pending.push("clinica");
+  }
+  if (laudo.veterinario_parceiro_id && !laudo.portal_veterinario_liberado) {
+    pending.push("veterinario_parceiro");
+  }
+  return pending;
+}
+
+function canReleasePortal(laudo: Laudo | null) {
+  return getPortalPendingDestinations(laudo).length > 0;
+}
+
+function getPortalConfirmMessage(laudo: Laudo | null) {
+  const pending = getPortalPendingDestinations(laudo);
+  if (pending.includes("clinica") && pending.includes("veterinario_parceiro")) {
+    return "Liberar este laudo no portal da clinica parceira e do veterinario parceiro?";
+  }
+  if (pending.includes("clinica")) {
+    return "Liberar este laudo para o portal da clinica parceira?";
+  }
+  return "Liberar este laudo para o portal do veterinario parceiro?";
+}
+
+function getPortalButtonTitle(laudo: Laudo | null) {
+  const pending = getPortalPendingDestinations(laudo);
+  if (!pending.length) {
+    return "Laudo ja liberado para todos os destinos vinculados";
+  }
+  if (pending.includes("clinica") && pending.includes("veterinario_parceiro")) {
+    return "Liberar no portal da clinica e do veterinario parceiro";
+  }
+  if (pending.includes("clinica")) {
+    return "Liberar no portal da clinica";
+  }
+  return "Liberar no portal do veterinario parceiro";
 }
 
 export default function VisualizarLaudoPage() {
@@ -45,6 +131,12 @@ export default function VisualizarLaudoPage() {
   const [paciente, setPaciente] = useState<Paciente | null>(null);
   const [medidas, setMedidas] = useState<Record<string, string>>({});
   const [qualitativa, setQualitativa] = useState<Record<string, string>>({});
+  const [liberandoPortal, setLiberandoPortal] = useState(false);
+  const [arquivoSubstituicao, setArquivoSubstituicao] = useState<File | null>(null);
+  const [substituindoPdf, setSubstituindoPdf] = useState(false);
+  const [fileInputKey, setFileInputKey] = useState(0);
+  const laudoEhEletrocardiograma = laudo?.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA;
+  const laudoEhPressao = laudo?.tipo === TIPO_LAUDO_PRESSAO_ARTERIAL;
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -88,17 +180,16 @@ export default function VisualizarLaudoPage() {
 
         // Extrair medidas (formato: - DIVEd: 1.50)
         // Regex atualizada para capturar nomes com underscores
-        const medidasExtraidas: Record<string, string> = {};
-        const regexMedidas = /-\s*([\w_]+):\s*([\d.]+)/g;
-        let match;
-        while ((match = regexMedidas.exec(descricao)) !== null) {
-          medidasExtraidas[match[1]] = match[2];
-        }
+        const medidasExtraidas = parseStoredEchoMeasurements(
+          respLaudo.data.medidas,
+          descricao
+        );
         setMedidas(medidasExtraidas);
 
         // Extrair qualitativa
         const qualitativaExtraida: Record<string, string> = {};
         const regexQualitativa = /-\s*(valvas|camaras|funcao|pericardio|vasos|ad_vd):\s*(.+?)(?=\n-|$)/gi;
+        let match;
         while ((match = regexQualitativa.exec(descricao)) !== null) {
           qualitativaExtraida[match[1].toLowerCase()] = match[2].trim();
         }
@@ -115,6 +206,9 @@ export default function VisualizarLaudoPage() {
   const downloadPDF = async () => {
     if (!laudoId) return;
     try {
+      if (laudo?.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA) {
+        return await baixarLaudoPdfOriginal(Number(laudoId), laudo.pdf_externo?.nome_original || `eletrocardiograma_${laudoId}.pdf`);
+      }
       return await baixarLaudoPdf(Number(laudoId), `laudo_${laudoId}.pdf`);
       const token = localStorage.getItem("token");
       const response = await fetch(`/api/v1/laudos/${laudoId}/pdf`, {
@@ -156,10 +250,103 @@ export default function VisualizarLaudoPage() {
     window.print();
   };
 
+  const liberarNoPortalClinica = async () => {
+    if (!laudo || !laudoId || !canReleasePortal(laudo)) {
+      return;
+    }
+    if (!laudo.clinic_id && !laudo.veterinario_parceiro_id) {
+      alert("Vincule uma clinica ou um veterinario parceiro ao laudo antes de liberar no portal.");
+      return;
+    }
+    if (!confirm(getPortalConfirmMessage(laudo))) {
+      return;
+    }
+
+    setLiberandoPortal(true);
+    try {
+      const response = await api.post(`/laudos/${laudoId}/portal/liberar`);
+      setLaudo((current) =>
+        current
+          ? {
+              ...current,
+              status: response.data?.status || PORTAL_RELEASE_STATUS,
+              portal_clinica_liberado: response.data?.portal_clinica_liberado,
+              portal_veterinario_liberado: response.data?.portal_veterinario_liberado,
+              portal_destinos_pendentes: response.data?.portal_destinos_pendentes || [],
+              portal_pode_liberar: response.data?.portal_pode_liberar,
+            }
+          : current
+      );
+      alert(response.data?.message || "Laudo liberado no portal.");
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      alert(detail || "Erro ao liberar laudo no portal. Tente novamente.");
+    } finally {
+      setLiberandoPortal(false);
+    }
+  };
+
+  const selecionarPdfSubstituto = (file: File | null) => {
+    if (!file) {
+      setArquivoSubstituicao(null);
+      return;
+    }
+
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (!isPdf) {
+      alert("Selecione um arquivo PDF.");
+      setArquivoSubstituicao(null);
+      setFileInputKey((current) => current + 1);
+      return;
+    }
+
+    setArquivoSubstituicao(file);
+  };
+
+  const substituirPdfEletrocardiograma = async () => {
+    if (!laudoId || !laudoEhEletrocardiograma) {
+      return;
+    }
+    if (!arquivoSubstituicao) {
+      alert("Selecione o novo PDF antes de substituir.");
+      return;
+    }
+
+    const confirmMessage = isPortalReleased(laudo?.status)
+      ? "Este laudo ja foi liberado no portal. Deseja trocar o PDF e atualizar imediatamente o arquivo baixavel dos destinatarios autorizados?"
+      : "Deseja substituir o PDF anexado a este laudo de eletrocardiograma?";
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("arquivo", arquivoSubstituicao);
+
+    setSubstituindoPdf(true);
+    try {
+      await api.put(`/laudos/${laudoId}/eletrocardiograma/pdf`, formData);
+      setArquivoSubstituicao(null);
+      setFileInputKey((current) => current + 1);
+      await carregarLaudo();
+      alert(
+        isPortalReleased(laudo?.status)
+          ? "PDF substituido e portal atualizado."
+          : "PDF substituido com sucesso.",
+      );
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      alert(detail || "Erro ao substituir PDF do eletrocardiograma.");
+    } finally {
+      setSubstituindoPdf(false);
+    }
+  };
+
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="p-6 text-center">Carregando laudo...</div>
+        <div className="fc-report-view-page">
+          <div className="fc-report-loading"><span aria-hidden="true" />Carregando laudo...</div>
+        </div>
       </DashboardLayout>
     );
   }
@@ -167,15 +354,18 @@ export default function VisualizarLaudoPage() {
   if (!laudo) {
     return (
       <DashboardLayout>
-        <div className="p-6 text-center">
+        <div className="fc-report-view-page">
+          <div className="fc-report-empty">
           <h1 className="text-2xl font-bold text-gray-900">Laudo não encontrado</h1>
           <p className="text-gray-500 mt-2">O laudo solicitado não existe ou foi removido.</p>
           <button
+            type="button"
             onClick={() => router.push("/laudos")}
-            className="mt-4 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+            className="fc-report-editor-save mt-4"
           >
             Voltar para Laudos
           </button>
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -183,45 +373,76 @@ export default function VisualizarLaudoPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-5xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-          <div className="flex items-center gap-3">
+      <div className="fc-report-view-page">
+        <header className="fc-report-view-header">
+          <div className="fc-report-editor-heading">
             <button
+              type="button"
               onClick={() => router.push("/laudos")}
-              className="p-2 hover:bg-gray-100 rounded-lg"
+              className="fc-report-editor-back"
+              aria-label="Voltar para laudos"
             >
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
+              <ArrowLeft className="h-5 w-5" />
             </button>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Visualizar Laudo</h1>
-              <p className="text-gray-500">{laudo.titulo}</p>
+              <span className="fc-report-editor-kicker">
+                <FileText className="h-4 w-4" />
+                Documento clínico
+              </span>
+              <h1>Visualizar laudo</h1>
+              <p>{laudo.titulo}</p>
             </div>
           </div>
 
-          <div className="flex gap-2">
+          <div className="fc-report-view-actions">
             <button
+              type="button"
+              onClick={liberarNoPortalClinica}
+              disabled={liberandoPortal || !canReleasePortal(laudo)}
+              className={`fc-report-view-portal ${!canReleasePortal(laudo) ? "fc-report-view-portal-released" : ""}`}
+              title={getPortalButtonTitle(laudo)}
+            >
+              {!canReleasePortal(laudo) ? (
+                <CheckCircle className="w-4 h-4" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
+              {!canReleasePortal(laudo)
+                ? "No portal"
+                : liberandoPortal
+                  ? "Liberando..."
+                  : "Liberar portal"}
+            </button>
+            <button
+              type="button"
               onClick={downloadPDF}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              className="fc-report-view-pdf"
             >
               <Download className="w-4 h-4" />
               PDF
             </button>
             <button
+              type="button"
               onClick={imprimir}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+              className="fc-report-view-print"
             >
               <Printer className="w-4 h-4" />
               Imprimir
             </button>
           </div>
-        </div>
+        </header>
 
         {/* Conteúdo do Laudo */}
-        <div className="bg-white rounded-lg shadow-sm border p-8 print:shadow-none print:border-none">
+        <article className="fc-report-view-document print:shadow-none print:border-none">
           {/* Cabeçalho do Laudo */}
           <div className="text-center mb-8">
-            <h2 className="text-xl font-bold text-gray-900">LAUDO ECOCARDIOGRÁFICO</h2>
+            <h2 className="text-xl font-bold text-gray-900">
+              {laudoEhEletrocardiograma
+                ? "LAUDO DE ELETROCARDIOGRAMA"
+                : laudoEhPressao
+                  ? "LAUDO DE PRESSAO ARTERIAL"
+                  : "LAUDO ECOCARDIOGRAFICO"}
+            </h2>
             <div className="w-full h-px bg-gray-300 mt-4"></div>
           </div>
 
@@ -272,7 +493,9 @@ export default function VisualizarLaudoPage() {
               <div>
                 <span className="text-gray-500">Data do Exame:</span>
                 <p className="font-medium">
-                  {new Date(laudo.data_exame || laudo.data_laudo).toLocaleDateString('pt-BR')}
+                  {laudo.data_exame
+                    ? formatCalendarDate(laudo.data_exame)
+                    : formatOperationalDate(laudo.data_laudo)}
                 </p>
               </div>
               {laudo.clinica && (
@@ -281,12 +504,24 @@ export default function VisualizarLaudoPage() {
                   <p className="font-medium">{laudo.clinica}</p>
                 </div>
               )}
+              {laudo.veterinario_parceiro_nome && (
+                <div>
+                  <span className="text-gray-500">Veterinário parceiro:</span>
+                  <p className="font-medium">
+                    {laudo.veterinario_parceiro_nome}
+                    {laudo.veterinario_parceiro_crmv ? ` • CRMV ${laudo.veterinario_parceiro_crmv}` : ""}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Status */}
           <div className="mb-6">
-            <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${laudo.status === 'Finalizado'
+            <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
+              laudo.status === PORTAL_RELEASE_STATUS
+                ? 'bg-teal-100 text-teal-800'
+                : laudo.status === 'Finalizado'
                 ? 'bg-green-100 text-green-800'
                 : laudo.status === 'Rascunho'
                   ? 'bg-gray-100 text-gray-800'
@@ -296,8 +531,94 @@ export default function VisualizarLaudoPage() {
             </span>
           </div>
 
+          {laudoEhEletrocardiograma && (
+            <div className="mb-6 rounded-lg border border-teal-100 bg-teal-50 p-4 text-sm text-teal-900">
+              <p className="font-semibold">PDF original anexado</p>
+              <p className="mt-1">
+                Use o botao PDF para baixar o eletrocardiograma enviado. A liberacao para o portal da clinica fica no botao Liberar portal.
+              </p>
+              <div className="mt-4 rounded-lg border border-teal-200 bg-white/70 p-4">
+                <p className="text-sm font-semibold text-slate-900">Trocar arquivo do eletrocardiograma</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  {laudo.pdf_externo?.nome_original
+                    ? `Arquivo atual: ${laudo.pdf_externo.nome_original}`
+                    : "Nenhum PDF externo encontrado para este laudo."}
+                </p>
+                <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center">
+                  <input
+                    key={fileInputKey}
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    onChange={(event) => selecionarPdfSubstituto(event.target.files?.[0] || null)}
+                    className="block w-full text-sm text-slate-700 file:mr-4 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-slate-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={substituirPdfEletrocardiograma}
+                    disabled={substituindoPdf || !arquivoSubstituicao}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {substituindoPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    {substituindoPdf ? "Substituindo..." : "Trocar PDF"}
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  {isPortalReleased(laudo.status)
+                    ? "Como este laudo ja esta no portal, a troca atualiza imediatamente o arquivo disponivel para a clinica parceira."
+                    : "A troca atualiza o PDF deste laudo sem criar um novo registro."}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {laudoEhPressao && (
+            <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+              <p className="font-semibold">Resumo da afericao de pressao arterial</p>
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
+                <div className="rounded-lg border border-amber-200 bg-white px-3 py-2">
+                  <span className="text-xs uppercase tracking-wide text-amber-700">PAS 1</span>
+                  <p className="mt-1 font-medium">{laudo.pressao_arterial?.pas_1 ?? "-"} mmHg</p>
+                </div>
+                <div className="rounded-lg border border-amber-200 bg-white px-3 py-2">
+                  <span className="text-xs uppercase tracking-wide text-amber-700">PAS 2</span>
+                  <p className="mt-1 font-medium">{laudo.pressao_arterial?.pas_2 ?? "-"} mmHg</p>
+                </div>
+                <div className="rounded-lg border border-amber-200 bg-white px-3 py-2">
+                  <span className="text-xs uppercase tracking-wide text-amber-700">PAS 3</span>
+                  <p className="mt-1 font-medium">{laudo.pressao_arterial?.pas_3 ?? "-"} mmHg</p>
+                </div>
+                <div className="rounded-lg border border-amber-200 bg-white px-3 py-2">
+                  <span className="text-xs uppercase tracking-wide text-amber-700">Media</span>
+                  <p className="mt-1 font-medium">{laudo.pressao_arterial?.pas_media ?? "-"} mmHg</p>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div>
+                  <span className="text-xs uppercase tracking-wide text-amber-700">Metodo</span>
+                  <p className="mt-1">{laudo.pressao_arterial?.metodo || "Doppler"}</p>
+                </div>
+                <div>
+                  <span className="text-xs uppercase tracking-wide text-amber-700">Manguito</span>
+                  <p className="mt-1">{laudo.pressao_arterial?.manguito || "-"}</p>
+                </div>
+                <div>
+                  <span className="text-xs uppercase tracking-wide text-amber-700">Membro / decubito</span>
+                  <p className="mt-1">
+                    {[laudo.pressao_arterial?.membro, laudo.pressao_arterial?.decubito].filter(Boolean).join(" · ") || "-"}
+                  </p>
+                </div>
+              </div>
+              {laudo.pressao_arterial?.obs_extra ? (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2">
+                  <span className="text-xs uppercase tracking-wide text-amber-700">Observacoes da afericao</span>
+                  <p className="mt-1 whitespace-pre-wrap">{laudo.pressao_arterial.obs_extra}</p>
+                </div>
+              ) : null}
+            </div>
+          )}
+
           {/* Medidas */}
-          {Object.keys(medidas).length > 0 && (
+          {!laudoEhPressao && Object.keys(medidas).length > 0 && (
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-3">Medidas Ecocardiográficas</h3>
               <div className="bg-gray-50 rounded-lg p-4">
@@ -322,7 +643,7 @@ export default function VisualizarLaudoPage() {
           )}
 
           {/* Qualitativa */}
-          {Object.keys(qualitativa).length > 0 && (
+          {!laudoEhPressao && Object.keys(qualitativa).length > 0 && (
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-3">Avaliação Qualitativa</h3>
               <div className="space-y-3">
@@ -361,10 +682,10 @@ export default function VisualizarLaudoPage() {
             <p>Laudo emitido por {laudo.criado_por_nome || "Médico Veterinário"}</p>
             <p className="mt-1">
               Documento gerado eletronicamente em{' '}
-              {new Date(laudo.data_laudo).toLocaleDateString('pt-BR')}
+              {formatOperationalDate(laudo.data_laudo)}
             </p>
           </div>
-        </div>
+        </article>
       </div>
     </DashboardLayout>
   );

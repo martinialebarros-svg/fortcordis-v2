@@ -5,6 +5,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: fortcordis-vps-deploy
+  cancel-in-progress: false
+
 jobs:
   quality-gate:
     runs-on: ubuntu-latest
@@ -47,6 +51,10 @@ jobs:
       - name: Run frontend lint
         working-directory: frontend
         run: npm run lint
+
+      - name: Run frontend tests
+        working-directory: frontend
+        run: npm test
 
       - name: Run frontend build
         working-directory: frontend
@@ -104,6 +112,101 @@ jobs:
       run: |
         mkdir -p ~/.ssh
         ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+    - name: Configure OpenAI secret on Production VPS
+      env:
+        OPENAI_API_KEY_PROD: ${{ secrets.OPENAI_API_KEY_PROD }}
+      run: |
+        if [ -z "$OPENAI_API_KEY_PROD" ]; then
+          echo "OPENAI_API_KEY_PROD is not configured."
+          exit 1
+        fi
+
+        printf '%s\n' "$OPENAI_API_KEY_PROD" | \
+          ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+            set -euo pipefail
+            umask 077
+            IFS= read -r openai_api_key
+            if [ -z "$openai_api_key" ]; then
+              echo "Received an empty OpenAI API key."
+              exit 1
+            fi
+
+            env_file="/var/www/fortcordis-v2/backend/.env"
+            if [ ! -f "$env_file" ]; then
+              echo "Production backend env file not found."
+              exit 1
+            fi
+
+            temp_file="${env_file}.openai.$$"
+            trap "rm -f \"$temp_file\"" EXIT
+            found=0
+            : > "$temp_file"
+            while IFS= read -r line || [ -n "$line" ]; do
+              case "$line" in
+                OPENAI_API_KEY=*)
+                  printf "OPENAI_API_KEY=%s\n" "$openai_api_key" >> "$temp_file"
+                  found=1
+                  ;;
+                *)
+                  printf "%s\n" "$line" >> "$temp_file"
+                  ;;
+              esac
+            done < "$env_file"
+            if [ "$found" -eq 0 ]; then
+              printf "OPENAI_API_KEY=%s\n" "$openai_api_key" >> "$temp_file"
+            fi
+
+            chmod --reference="$env_file" "$temp_file"
+            mv "$temp_file" "$env_file"
+            trap - EXIT
+            unset openai_api_key
+            echo "Production backend OpenAI secret configured."
+          '
+
+    - name: Configure echo voice assistant on Production VPS
+      run: |
+        ssh -i ~/.ssh/id_vps -o IdentitiesOnly=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+          set -euo pipefail
+          env_file="/var/www/fortcordis-v2/backend/.env"
+          if [ ! -f "$env_file" ]; then
+            echo "Production backend env file not found."
+            exit 1
+          fi
+
+          upsert_env() {
+            key="$1"
+            value="$2"
+            temp_file="${env_file}.${key}.$$"
+            awk -v key="$key" -v value="$value" '
+              BEGIN { found = 0 }
+              index($0, key "=") == 1 {
+                print key "=" value
+                found = 1
+                next
+              }
+              { print }
+              END {
+                if (!found) print key "=" value
+              }
+            ' "$env_file" > "$temp_file"
+            chmod --reference="$env_file" "$temp_file"
+            mv "$temp_file" "$env_file"
+          }
+
+          upsert_env AI_ECHO_ASSISTANT_ENABLED true
+          upsert_env AI_PROVIDER openai
+          upsert_env AI_TRANSCRIPTION_MODEL gpt-4o-transcribe
+          upsert_env AI_STRUCTURING_MODEL gpt-5.6-sol
+          upsert_env AI_ECHO_REASONING_EFFORT low
+          upsert_env AI_ECHO_MAX_OUTPUT_TOKENS 8000
+          upsert_env AI_AUDIO_RETENTION_HOURS 2
+          upsert_env AI_ECHO_AUDIO_MAX_BYTES 20971520
+          upsert_env AI_ECHO_AUDIO_MAX_SECONDS 600
+          upsert_env AI_ECHO_MAX_ATTEMPTS 3
+          upsert_env AI_ECHO_MONTHLY_SESSION_LIMIT 100
+          echo "Production echo voice assistant configuration updated."
+        EOF
 
     - name: Deploy to VPS
       run: |

@@ -1,9 +1,10 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
+import { formatCalendarDate } from "@/lib/calendar-date";
 import { requestPushSync, syncPushNotificationsNow } from "@/lib/usePushNotifications";
 import {
   AgendaExcecaoConfig,
@@ -240,9 +241,9 @@ export default function ConfiguracoesPage() {
   const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState(false);
 
-  // ConfiguraÃ§Ãµes da empresa
+  // Configurações da empresa
   const [configEmpresa, setConfigEmpresa] = useState<ConfiguracoesSistema>({
-    nome_empresa: "Fort Cordis Cardiologia VeterinÃ¡ria",
+    nome_empresa: "Fort Cordis Cardiologia Veterinária",
     endereco: "",
     telefone: "",
     email: "",
@@ -251,7 +252,7 @@ export default function ConfiguracoesPage() {
     website: "",
     tem_logomarca: false,
     tem_assinatura: false,
-    texto_rodape_laudo: "Fort Cordis Cardiologia VeterinÃ¡ria | Fortaleza-CE",
+    texto_rodape_laudo: "Fort Cordis Cardiologia Veterinária | Fortaleza-CE",
     mostrar_logomarca: true,
     mostrar_assinatura: true,
     fortinho_habilitado: false,
@@ -266,7 +267,7 @@ export default function ConfiguracoesPage() {
     codigo_municipio_servico: "",
   });
 
-  // ConfiguraÃ§Ãµes do usuÃ¡rio
+  // Configurações do usuário
   const [configUsuario, setConfigUsuario] = useState<ConfiguracoesUsuario>({
     tema: "light",
     idioma: "pt-BR",
@@ -310,6 +311,7 @@ export default function ConfiguracoesPage() {
   const [filtroAuditoriaBusca, setFiltroAuditoriaBusca] = useState("");
   const [filtroAuditoriaDataInicio, setFiltroAuditoriaDataInicio] = useState("");
   const [filtroAuditoriaDataFim, setFiltroAuditoriaDataFim] = useState("");
+  const [auditoriaExpandida, setAuditoriaExpandida] = useState<Record<number, boolean>>({});
   const [modoEdicaoUsuario, setModoEdicaoUsuario] = useState(false);
   const [novoFeriadoData, setNovoFeriadoData] = useState("");
   const [novoFeriadoTipo, setNovoFeriadoTipo] = useState<"local" | "nacional">("local");
@@ -616,6 +618,55 @@ export default function ConfiguracoesPage() {
     const data = new Date(valor);
     if (Number.isNaN(data.getTime())) return "-";
     return data.toLocaleString("pt-BR");
+  };
+
+  const formatarValorAuditoria = (valor: unknown): string => {
+    if (valor === null || valor === undefined || valor === "") return "(vazio)";
+    if (typeof valor === "object") return JSON.stringify(valor);
+    return String(valor);
+  };
+
+  // registrar_auditoria segue 2 formatos: {alteracoes: {campo: {antes, depois}}}
+  // para updates, ou chave-valor simples para criacao/exclusao/estado pontual.
+  const renderizarDetalhesAuditoria = (detalhes?: Record<string, any>) => {
+    if (!detalhes || Object.keys(detalhes).length === 0) return null;
+    const { alteracoes, ...outrosCampos } = detalhes;
+    const temAlteracoes = alteracoes && typeof alteracoes === "object" && !Array.isArray(alteracoes);
+
+    return (
+      <div className="space-y-3">
+        {temAlteracoes ? (
+          <table className="min-w-full text-xs border border-gray-200 rounded-lg overflow-hidden">
+            <thead className="bg-gray-100 text-gray-500">
+              <tr>
+                <th className="text-left px-2 py-1 font-medium">Campo</th>
+                <th className="text-left px-2 py-1 font-medium">Antes</th>
+                <th className="text-left px-2 py-1 font-medium">Depois</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(alteracoes as Record<string, any>).map(([campo, valores]) => (
+                <tr key={campo} className="border-t border-gray-200">
+                  <td className="px-2 py-1 font-medium text-gray-700">{campo}</td>
+                  <td className="px-2 py-1 text-gray-500">{formatarValorAuditoria((valores as any)?.antes)}</td>
+                  <td className="px-2 py-1 text-gray-700">{formatarValorAuditoria((valores as any)?.depois)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : null}
+        {Object.keys(outrosCampos).length > 0 ? (
+          <div className="space-y-1 text-xs">
+            {Object.entries(outrosCampos).map(([chave, valor]) => (
+              <div key={chave} className="flex gap-2">
+                <span className="font-medium text-gray-500">{chave}:</span>
+                <span className="text-gray-700 break-all">{formatarValorAuditoria(valor)}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
   };
 
   const limparFormularioUsuario = () => {
@@ -928,9 +979,9 @@ export default function ConfiguracoesPage() {
         agenda_excecoes: payload.agenda_excecoes,
         agenda_rota_regras: payload.agenda_rota_regras,
       }));
-      alert("ConfiguraÃ§Ãµes da empresa salvas com sucesso!");
+      alert("Configurações da empresa salvas com sucesso!");
     } catch (error) {
-      alert("Erro ao salvar configuraÃ§Ãµes da empresa.");
+      alert("Erro ao salvar configurações da empresa.");
     } finally {
       setSalvando(false);
     }
@@ -1127,9 +1178,9 @@ export default function ConfiguracoesPage() {
       await api.put("/configuracoes/usuario", proximaConfig);
       await syncPushNotificationsNow(false);
       requestPushSync(proximaConfig.notificacoes_push);
-      alert("ConfiguraÃ§Ãµes pessoais salvas com sucesso!");
+      alert("Configurações pessoais salvas com sucesso!");
     } catch (error) {
-      alert("Erro ao salvar configuraÃ§Ãµes pessoais.");
+      alert("Erro ao salvar configurações pessoais.");
     } finally {
       setSalvando(false);
     }
@@ -1140,7 +1191,7 @@ export default function ConfiguracoesPage() {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      alert("Arquivo muito grande. MÃ¡ximo: 5MB");
+      alert("Arquivo muito grande. Máximo: 5MB");
       return;
     }
 
@@ -1167,7 +1218,7 @@ export default function ConfiguracoesPage() {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      alert("Arquivo muito grande. MÃ¡ximo: 5MB");
+      alert("Arquivo muito grande. Máximo: 5MB");
       return;
     }
 
@@ -1193,7 +1244,7 @@ export default function ConfiguracoesPage() {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      alert("Arquivo muito grande. MÃ¡ximo: 5MB");
+      alert("Arquivo muito grande. Máximo: 5MB");
       return;
     }
 
@@ -1247,65 +1298,72 @@ export default function ConfiguracoesPage() {
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="p-6 text-center">Carregando configuraÃ§Ãµes...</div>
+        <div className="fc-settings-page">
+          <div className="fc-settings-loading">
+            <span aria-hidden="true" />
+            Carregando configurações...
+          </div>
+        </div>
       </DashboardLayout>
     );
   }
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Settings className="w-6 h-6" />
-            ConfiguraÃ§Ãµes
-          </h1>
-          <p className="text-gray-500">Gerencie as configuraÃ§Ãµes do sistema e sua conta</p>
+      <div className="fc-settings-page">
+        <div className="fc-settings-header">
+          <div>
+            <span className="fc-settings-kicker">
+              <Settings className="h-4 w-4" />
+              Governança do sistema
+            </span>
+            <h1>Configurações</h1>
+            <p>Gerencie identidade, operação, preferências e acessos da Fort Cordis.</p>
+          </div>
+          <div className="fc-settings-context">
+            <Shield className="h-5 w-5" />
+            <span>Área atual</span>
+            <strong>{aba === "empresa" ? "Empresa" : aba === "usuario" ? "Minha conta" : "Usuários"}</strong>
+          </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-2 mb-6 border-b">
+        <div className="fc-settings-tabs" role="tablist" aria-label="Áreas de configuração">
           <button
+            type="button"
+            role="tab"
+            aria-selected={aba === "empresa"}
             onClick={() => setAba("empresa")}
-            className={`px-4 py-2 font-medium flex items-center gap-2 border-b-2 transition-colors ${
-              aba === "empresa"
-                ? "border-teal-600 text-teal-600"
-                : "border-transparent text-gray-600 hover:text-gray-800"
-            }`}
+            className={`fc-settings-tab ${aba === "empresa" ? "fc-settings-tab-active" : ""}`}
           >
             <Building2 className="w-4 h-4" />
             Empresa
           </button>
           <button
+            type="button"
+            role="tab"
+            aria-selected={aba === "usuario"}
             onClick={() => setAba("usuario")}
-            className={`px-4 py-2 font-medium flex items-center gap-2 border-b-2 transition-colors ${
-              aba === "usuario"
-                ? "border-teal-600 text-teal-600"
-                : "border-transparent text-gray-600 hover:text-gray-800"
-            }`}
+            className={`fc-settings-tab ${aba === "usuario" ? "fc-settings-tab-active" : ""}`}
           >
             <UserCircle className="w-4 h-4" />
             Minha Conta
           </button>
           <button
+            type="button"
+            role="tab"
+            aria-selected={aba === "usuarios"}
             onClick={() => setAba("usuarios")}
-            className={`px-4 py-2 font-medium flex items-center gap-2 border-b-2 transition-colors ${
-              aba === "usuarios"
-                ? "border-teal-600 text-teal-600"
-                : "border-transparent text-gray-600 hover:text-gray-800"
-            }`}
+            className={`fc-settings-tab ${aba === "usuarios" ? "fc-settings-tab-active" : ""}`}
           >
             <Users className="w-4 h-4" />
-            UsuÃ¡rios
+            Usuários
           </button>
         </div>
 
-        {/* ConteÃºdo */}
         {aba === "empresa" && (
-          <div className="space-y-6">
+          <div className="fc-settings-content fc-settings-company">
             {/* Dados da Empresa */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Building2 className="w-5 h-5 text-teal-600" />
                 Dados da Empresa
@@ -1362,7 +1420,7 @@ export default function ConfiguracoesPage() {
                 
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    EndereÃ§o
+                    Endereço
                   </label>
                   <input
                     type="text"
@@ -1411,7 +1469,7 @@ export default function ConfiguracoesPage() {
             </div>
 
             {/* Dados Fiscais (ISS / NFS-e) */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Building2 className="w-5 h-5 text-teal-600" />
                 Dados Fiscais (Prestador de Servicos)
@@ -1506,7 +1564,7 @@ export default function ConfiguracoesPage() {
             </div>
 
             {/* Jornada da Agenda */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card">
               <h2 className="text-lg font-semibold mb-2">Funcionamento da Agenda</h2>
               {somenteLeituraAgenda && (
                 <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-3">
@@ -1616,7 +1674,7 @@ export default function ConfiguracoesPage() {
                         className="flex items-center justify-between gap-3 px-3 py-2 border border-gray-200 rounded-lg"
                       >
                         <div className="text-sm text-gray-700">
-                          <span className="font-medium">{new Date(`${feriado.data}T00:00:00`).toLocaleDateString("pt-BR")}</span>
+                          <span className="font-medium">{formatCalendarDate(feriado.data)}</span>
                           <span className="mx-2 text-gray-400">|</span>
                           <span className="uppercase text-xs font-semibold text-orange-700">
                             {feriado.tipo || "local"}
@@ -1706,7 +1764,7 @@ export default function ConfiguracoesPage() {
                         className="flex items-center justify-between gap-3 px-3 py-2 border border-gray-200 rounded-lg"
                       >
                         <div className="text-sm text-gray-700">
-                          <span className="font-medium">{new Date(`${excecao.data}T00:00:00`).toLocaleDateString("pt-BR")}</span>
+                          <span className="font-medium">{formatCalendarDate(excecao.data)}</span>
                           <span className="mx-2 text-gray-400">|</span>
                           {excecao.ativo ? (
                             <span className="text-emerald-700 font-medium">
@@ -2231,7 +2289,7 @@ export default function ConfiguracoesPage() {
             </div>
 
             {/* Logomarca */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <ImageIcon className="w-5 h-5 text-teal-600" />
                 Logomarca
@@ -2285,10 +2343,10 @@ export default function ConfiguracoesPage() {
             </div>
 
             {/* Assinatura do Sistema */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Signature className="w-5 h-5 text-teal-600" />
-                Assinatura PadrÃ£o do Sistema
+                Assinatura Padrão do Sistema
               </h2>
               
               <div className="flex items-center gap-6">
@@ -2325,7 +2383,7 @@ export default function ConfiguracoesPage() {
               </div>
               
               <p className="mt-3 text-sm text-gray-500">
-                Esta assinatura serÃ¡ usada como padrÃ£o quando o usuÃ¡rio nÃ£o tiver assinatura prÃ³pria.
+                Esta assinatura será usada como padrão quando o usuário não tiver assinatura própria.
               </p>
               
               <div className="mt-4 flex items-center gap-2">
@@ -2343,7 +2401,7 @@ export default function ConfiguracoesPage() {
             </div>
 
             {/* Fortinho */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card">
               <h2 className="text-lg font-semibold mb-2">Fortinho</h2>
               <p className="text-sm text-gray-500 mb-4">
                 Controle global do assistente Fortinho para todo o sistema.
@@ -2368,9 +2426,9 @@ export default function ConfiguracoesPage() {
               )}
             </div>
 
-            {/* Texto do RodapÃ© */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
-              <h2 className="text-lg font-semibold mb-4">Texto do RodapÃ© do Laudo</h2>
+            {/* Texto do Rodapé */}
+            <div className="fc-settings-card">
+              <h2 className="text-lg font-semibold mb-4">Texto do Rodapé do Laudo</h2>
               <textarea
                 value={configEmpresa.texto_rodape_laudo ?? ""}
                 onChange={(e) => setConfigEmpresa({ ...configEmpresa, texto_rodape_laudo: e.target.value })}
@@ -2382,9 +2440,9 @@ export default function ConfiguracoesPage() {
         )}
 
         {aba === "usuario" && (
-          <div className="space-y-6">
+          <div className="fc-settings-content fc-settings-account">
             {/* Dados Profissionais */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Shield className="w-5 h-5 text-teal-600" />
                 Dados Profissionais
@@ -2403,7 +2461,7 @@ export default function ConfiguracoesPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                   />
                   <p className="mt-1 text-xs text-gray-500">
-                    SerÃ¡ exibido nos laudos emitidos por vocÃª
+                    Será exibido nos laudos emitidos por você
                   </p>
                 </div>
                 
@@ -2415,7 +2473,7 @@ export default function ConfiguracoesPage() {
                     type="text"
                     value={configUsuario.especialidade ?? ""}
                     onChange={(e) => setConfigUsuario({ ...configUsuario, especialidade: e.target.value })}
-                    placeholder="Ex: Cardiologia VeterinÃ¡ria"
+                    placeholder="Ex: Cardiologia Veterinária"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                   />
                 </div>
@@ -2423,7 +2481,7 @@ export default function ConfiguracoesPage() {
             </div>
 
             {/* Assinatura Pessoal */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Signature className="w-5 h-5 text-teal-600" />
                 Minha Assinatura
@@ -2453,13 +2511,13 @@ export default function ConfiguracoesPage() {
               </div>
               
               <p className="mt-3 text-sm text-gray-500">
-                Esta assinatura serÃ¡ usada nos laudos emitidos por vocÃª. Se nÃ£o houver assinatura pessoal, serÃ¡ usada a assinatura padrÃ£o do sistema.
+                Esta assinatura será usada nos laudos emitidos por você. Se não houver assinatura pessoal, será usada a assinatura padrão do sistema.
               </p>
             </div>
 
-            {/* PreferÃªncias */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
-              <h2 className="text-lg font-semibold mb-4">PreferÃªncias</h2>
+            {/* Preferências */}
+            <div className="fc-settings-card">
+              <h2 className="text-lg font-semibold mb-4">Preferências</h2>
               
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
@@ -2471,7 +2529,7 @@ export default function ConfiguracoesPage() {
                     className="w-4 h-4 text-teal-600"
                   />
                   <label htmlFor="notif_email" className="text-sm text-gray-700">
-                    Receber notificaÃ§Ãµes por e-mail
+                    Receber notificações por e-mail
                   </label>
                 </div>
                 
@@ -2484,7 +2542,7 @@ export default function ConfiguracoesPage() {
                     className="w-4 h-4 text-teal-600"
                   />
                   <label htmlFor="notif_push" className="text-sm text-gray-700">
-                    Receber notificaÃ§Ãµes push
+                    Receber notificações push
                   </label>
                 </div>
 
@@ -2673,7 +2731,7 @@ export default function ConfiguracoesPage() {
                   className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
                 >
                   <Save className="w-4 h-4" />
-                  {salvando ? "Salvando..." : "Salvar ConfiguraÃ§Ãµes"}
+                  {salvando ? "Salvando..." : "Salvar Configurações"}
                 </button>
               </div>
             </div>
@@ -2681,8 +2739,8 @@ export default function ConfiguracoesPage() {
         )}
 
         {aba === "usuarios" && (
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-            <div className="xl:col-span-1 bg-white rounded-lg shadow-sm border p-6">
+          <div className="fc-settings-content fc-settings-users grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="fc-settings-card xl:col-span-1">
               <h3 className="text-lg font-semibold text-gray-900 mb-1">
                 {modoEdicaoUsuario ? "Editar usuario" : "Novo usuario"}
               </h3>
@@ -2794,7 +2852,7 @@ export default function ConfiguracoesPage() {
               </div>
             </div>
 
-            <div className="xl:col-span-2 bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card xl:col-span-2">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Usuarios cadastrados</h3>
                 <button
@@ -2880,7 +2938,7 @@ export default function ConfiguracoesPage() {
               )}
             </div>
 
-            <div className="xl:col-span-3 bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card xl:col-span-3">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">Permissoes por papel</h3>
@@ -2982,7 +3040,7 @@ export default function ConfiguracoesPage() {
               )}
             </div>
 
-            <div className="xl:col-span-3 bg-white rounded-lg shadow-sm border p-6">
+            <div className="fc-settings-card xl:col-span-3">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">Auditoria de acoes</h3>
@@ -3097,38 +3155,69 @@ export default function ConfiguracoesPage() {
                         <th className="text-left px-3 py-2 font-medium">Acao</th>
                         <th className="text-left px-3 py-2 font-medium">Modulo</th>
                         <th className="text-left px-3 py-2 font-medium">Descricao</th>
+                        <th className="text-left px-3 py-2 font-medium">Detalhes</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {auditoriaItens.map((item) => (
-                        <tr key={item.id} className="border-t border-gray-100">
-                          <td className="px-3 py-2 text-gray-700">{formatarDataHora(item.created_at)}</td>
-                          <td className="px-3 py-2 text-gray-700">
-                            <div className="font-medium text-gray-900">{item.usuario_nome || "-"}</div>
-                            <div className="text-xs text-gray-500">{item.usuario_email || "-"}</div>
-                          </td>
-                          <td className="px-3 py-2">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
-                              {item.acao}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-gray-700">
-                            <div>{item.modulo}</div>
-                            <div className="text-xs text-gray-500">
-                              {item.entidade}
-                              {item.entidade_id ? ` #${item.entidade_id}` : ""}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 text-gray-700">
-                            <div>{item.descricao || "-"}</div>
-                            {item.rota ? (
-                              <div className="text-xs text-gray-500">
-                                {item.metodo || "-"} {item.rota}
-                              </div>
+                      {auditoriaItens.map((item) => {
+                        const temDetalhes = !!item.detalhes && Object.keys(item.detalhes).length > 0;
+                        const expandido = !!auditoriaExpandida[item.id];
+                        return (
+                          <Fragment key={item.id}>
+                            <tr className="border-t border-gray-100">
+                              <td className="px-3 py-2 text-gray-700">{formatarDataHora(item.created_at)}</td>
+                              <td className="px-3 py-2 text-gray-700">
+                                <div className="font-medium text-gray-900">{item.usuario_nome || "-"}</div>
+                                <div className="text-xs text-gray-500">{item.usuario_email || "-"}</div>
+                              </td>
+                              <td className="px-3 py-2">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
+                                  {item.acao}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-gray-700">
+                                <div>{item.modulo}</div>
+                                <div className="text-xs text-gray-500">
+                                  {item.entidade}
+                                  {item.entidade_id ? ` #${item.entidade_id}` : ""}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-gray-700">
+                                <div>{item.descricao || "-"}</div>
+                                {item.rota ? (
+                                  <div className="text-xs text-gray-500">
+                                    {item.metodo || "-"} {item.rota}
+                                  </div>
+                                ) : null}
+                              </td>
+                              <td className="px-3 py-2">
+                                {temDetalhes ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setAuditoriaExpandida((atual) => ({ ...atual, [item.id]: !atual[item.id] }))
+                                    }
+                                    className="text-xs font-medium text-blue-600 hover:underline"
+                                  >
+                                    {expandido ? "Ocultar" : "Ver detalhes"}
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-gray-400">-</span>
+                                )}
+                              </td>
+                            </tr>
+                            {temDetalhes && expandido ? (
+                              <tr className="border-t border-gray-100 bg-gray-50">
+                                <td colSpan={6} className="py-3">
+                                  <div className="sticky left-0 w-fit max-w-[90vw] px-3">
+                                    {renderizarDetalhesAuditoria(item.detalhes)}
+                                  </div>
+                                </td>
+                              </tr>
                             ) : null}
-                          </td>
-                        </tr>
-                      ))}
+                          </Fragment>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

@@ -14,10 +14,41 @@ export interface DadosPacienteImportados {
 
 export interface DadosExameImportados {
   paciente: DadosPacienteImportados;
-  medidas: Record<string, number>;
+  medidas: Record<string, number | string>;
   clinica: string;
   veterinario_solicitante: string;
   fc: string;
+  medidas_extraidas?: MedidaEcoExtraida[];
+  meta_importacao_estudo?: MetaImportacaoEstudoEco;
+}
+
+export interface MedidaEcoExtraida {
+  campo: string;
+  rotulo: string;
+  valor: number;
+  unidade: string;
+  valor_original: number;
+  unidade_original: string;
+  confianca: number;
+  pagina: number;
+  texto_origem: string;
+  origem: string;
+  tecnica?: "modo_m" | "2d" | null;
+  status: "sugerida" | "candidata" | "duplicada" | "conflito";
+}
+
+export interface MetaImportacaoEstudoEco {
+  formato: string;
+  arquivo: string;
+  perfil?: string;
+  fabricante?: string;
+  modelo_equipamento?: string;
+  paginas: number;
+  medidas_sugeridas: number;
+  candidatos: number;
+  conflitos: number;
+  tecnicas_ve_detectadas?: Array<"modo_m" | "2d">;
+  variantes_ocr?: Record<string, string>;
 }
 
 type XmlImportJobStatus = {

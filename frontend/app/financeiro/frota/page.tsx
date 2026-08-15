@@ -6,6 +6,7 @@ import { CarFront, Fuel, Plus, RefreshCw, Save, Settings2, Trash2, Waypoints } f
 
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import { operationalTodayDateInput } from "@/lib/calendar-date";
 
 type FormaRateio = "por_km" | "por_atendimento" | "fixo_mensal" | "hibrido";
 type AbaFrota = "custos" | "veiculos" | "telemetria" | "config";
@@ -129,12 +130,12 @@ const FORMAS_RATEIO: Array<{ id: FormaRateio; label: string }> = [
 
 const ABAS: Array<{ id: AbaFrota; label: string }> = [
   { id: "custos", label: "Custos" },
-  { id: "veiculos", label: "Veiculos" },
+  { id: "veiculos", label: "Veículos" },
   { id: "telemetria", label: "Telemetria" },
-  { id: "config", label: "Configuracao" },
+  { id: "config", label: "Configuração" },
 ];
 
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+const hojeISO = () => operationalTodayDateInput();
 const competenciaAtual = () => hojeISO().slice(0, 7);
 
 const parseNumero = (raw: string): number | null => {
@@ -569,38 +570,60 @@ export default function CustosFrotaPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-bold text-gray-900">Financeiro - Frota V2</h1>
-          <p className="text-sm text-gray-600">Custos, veiculos, telemetria, rateio hibrido e depreciacao mensal.</p>
-        </div>
+      <div className="fc-fleet-page">
+        <header className="fc-fleet-header">
+          <div>
+            <span className="fc-fleet-kicker"><CarFront className="h-4 w-4" />Financeiro e mobilidade</span>
+            <h1>Gestão de Frota</h1>
+            <p>Custos, veículos, telemetria, rateio híbrido e depreciação mensal.</p>
+          </div>
+          <button type="button" onClick={() => void carregarTudo()} className="fc-fleet-refresh">
+            <RefreshCw className="h-4 w-4" />
+            Atualizar dados
+          </button>
+        </header>
 
-        <div className="bg-white border rounded-xl p-4 flex flex-wrap gap-2">
+        <section className="fc-fleet-metrics" aria-label="Resumo da frota">
+          <div className="fc-fleet-metric fc-fleet-metric-cordis">
+            <CarFront className="h-5 w-5" />
+            <strong>{formatarMoeda(custoTotal)}</strong>
+            <span>Custos no período</span>
+          </div>
+          <div className="fc-fleet-metric fc-fleet-metric-vital">
+            <Fuel className="h-5 w-5" />
+            <strong>{veiculos.filter((veiculo) => veiculo.ativo).length}</strong>
+            <span>Veículos ativos</span>
+          </div>
+          <div className="fc-fleet-metric fc-fleet-metric-amber">
+            <Waypoints className="h-5 w-5" />
+            <strong>{telemetria.length}</strong>
+            <span>Registros de telemetria</span>
+          </div>
+          <div className="fc-fleet-metric fc-fleet-metric-ink">
+            <Settings2 className="h-5 w-5" />
+            <strong>{Math.round(Number(resumoRateio?.config_rateio?.peso_km || 0) * 100)}%</strong>
+            <span>Peso do KM no rateio</span>
+          </div>
+        </section>
+
+        <nav className="fc-fleet-tabs" role="tablist" aria-label="Áreas da gestão de frota">
           {ABAS.map((aba) => (
             <button
               key={aba.id}
               type="button"
               onClick={() => setTab(aba.id)}
-              className={`px-3 py-2 rounded-lg text-sm border ${
-                tab === aba.id ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700 border-gray-300"
-              }`}
+              role="tab"
+              aria-selected={tab === aba.id}
+              className={`fc-fleet-tab ${tab === aba.id ? "fc-fleet-tab-active" : ""}`}
             >
               {aba.label}
             </button>
           ))}
-          <button
-            type="button"
-            onClick={() => void carregarTudo()}
-            className="ml-auto inline-flex items-center gap-2 px-3 py-2 border rounded-lg text-sm text-gray-700 hover:bg-gray-50"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Atualizar tudo
-          </button>
-        </div>
+        </nav>
 
         {tab === "custos" ? (
-          <div className="space-y-4">
-            <div className="bg-white border rounded-xl p-4 grid grid-cols-1 md:grid-cols-4 xl:grid-cols-6 gap-3">
+          <div className="fc-fleet-view">
+            <div className="fc-fleet-filters grid grid-cols-1 gap-3 md:grid-cols-4 xl:grid-cols-6">
               <div>
                 <label className="text-xs text-gray-600 block mb-1">Data inicio</label>
                 <input type="date" value={filtroInicio} onChange={(e) => setFiltroInicio(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
@@ -627,8 +650,8 @@ export default function CustosFrotaPage() {
               <button type="button" onClick={() => { setCustoIdEdit(null); setCustoForm((prev) => ({ ...prev, valor: "", descricao: "" })); }} className="inline-flex items-center gap-2 px-3 py-2 border rounded-lg text-sm text-gray-700 hover:bg-gray-50"><Plus className="w-4 h-4" />Novo</button>
             </div>
 
-            <div className="bg-white border rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-3">
+            <div className="fc-fleet-panel fc-fleet-panel-cordis">
+              <div className="fc-fleet-panel-title">
                 <CarFront className="w-4 h-4 text-blue-600" />
                 <h2 className="font-semibold text-gray-900">{custoIdEdit ? `Editar custo #${custoIdEdit}` : "Novo custo de frota"}</h2>
               </div>
@@ -656,8 +679,8 @@ export default function CustosFrotaPage() {
               <button type="button" onClick={() => void salvarCusto()} disabled={saving} className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-60"><Save className="w-4 h-4" />{saving ? "Salvando..." : "Salvar custo"}</button>
             </div>
 
-            <div className="bg-white border rounded-xl p-4 space-y-3">
-              <h2 className="font-semibold text-gray-900">Resumo de rateio</h2>
+            <div className="fc-fleet-panel fc-fleet-panel-vital space-y-3">
+              <h2 className="fc-fleet-section-title">Resumo de rateio</h2>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <input type="number" min="0" step="0.01" placeholder="KM periodo" value={kmPeriodo} onChange={(e) => setKmPeriodo(e.target.value)} className="px-3 py-2 border rounded-lg" />
                 <input type="number" min="0" step="1" placeholder="Atendimentos periodo" value={atendimentosPeriodo} onChange={(e) => setAtendimentosPeriodo(e.target.value)} className="px-3 py-2 border rounded-lg" />
@@ -665,17 +688,17 @@ export default function CustosFrotaPage() {
                 <button type="button" onClick={() => setTab("config")} className="px-3 py-2 border rounded-lg text-sm text-gray-700 hover:bg-gray-50">Ir para configuracao</button>
               </div>
               {resumoRateio ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-sm">
-                  <div className="rounded-lg border bg-gray-50 px-3 py-2">Total: <b>{formatarMoeda(resumoRateio.total_periodo)}</b></div>
-                  <div className="rounded-lg border bg-gray-50 px-3 py-2">Por KM: <b>{formatarMoeda(resumoRateio.indices.custo_por_km)}</b></div>
-                  <div className="rounded-lg border bg-gray-50 px-3 py-2">Por atendimento: <b>{formatarMoeda(resumoRateio.indices.custo_por_atendimento)}</b></div>
-                  <div className="rounded-lg border bg-gray-50 px-3 py-2">Hibrido/atend.: <b>{formatarMoeda(resumoRateio.indices.custo_hibrido_por_atendimento)}</b></div>
+                <div className="fc-fleet-summary-grid">
+                  <div>Total: <b>{formatarMoeda(resumoRateio.total_periodo)}</b></div>
+                  <div>Por KM: <b>{formatarMoeda(resumoRateio.indices.custo_por_km)}</b></div>
+                  <div>Por atendimento: <b>{formatarMoeda(resumoRateio.indices.custo_por_atendimento)}</b></div>
+                  <div>Híbrido/atend.: <b>{formatarMoeda(resumoRateio.indices.custo_hibrido_por_atendimento)}</b></div>
                 </div>
               ) : <p className="text-sm text-gray-500">Sem dados de rateio.</p>}
             </div>
 
-            <div className="bg-white border rounded-xl overflow-hidden">
-              <div className="px-4 py-3 border-b flex items-center justify-between"><h2 className="font-semibold text-gray-900">Lancamentos</h2><span className="text-sm text-gray-600">Total: {formatarMoeda(custoTotal)}</span></div>
+            <div className="fc-fleet-table-panel">
+              <div className="fc-fleet-table-heading"><h2>Lançamentos</h2><span>Total: {formatarMoeda(custoTotal)}</span></div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-gray-600"><tr><th className="text-left px-4 py-2">Data</th><th className="text-left px-4 py-2">Categoria</th><th className="text-right px-4 py-2">Valor</th><th className="text-left px-4 py-2">Rateio</th><th className="text-left px-4 py-2">Veiculo</th><th className="text-right px-4 py-2">Acoes</th></tr></thead>
@@ -698,9 +721,9 @@ export default function CustosFrotaPage() {
         ) : null}
 
         {tab === "veiculos" ? (
-          <div className="space-y-4">
-            <div className="bg-white border rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-3"><Fuel className="w-4 h-4 text-green-600" /><h2 className="font-semibold text-gray-900">{veiculoIdEdit ? `Editar veiculo #${veiculoIdEdit}` : "Cadastro de veiculo"}</h2></div>
+          <div className="fc-fleet-view">
+            <div className="fc-fleet-panel fc-fleet-panel-vital">
+              <div className="fc-fleet-panel-title"><Fuel className="h-4 w-4" /><h2>{veiculoIdEdit ? `Editar veículo #${veiculoIdEdit}` : "Cadastro de veículo"}</h2></div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
                 <input type="text" placeholder="Nome" value={veiculoForm.nome} onChange={(e) => setVeiculoForm((prev) => ({ ...prev, nome: e.target.value }))} className="px-3 py-2 border rounded-lg" />
                 <input type="text" placeholder="Placa" value={veiculoForm.placa} onChange={(e) => setVeiculoForm((prev) => ({ ...prev, placa: e.target.value }))} className="px-3 py-2 border rounded-lg" />
@@ -714,8 +737,8 @@ export default function CustosFrotaPage() {
               <button type="button" onClick={() => void salvarVeiculo()} disabled={saving} className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-60"><Save className="w-4 h-4" />Salvar veiculo</button>
             </div>
 
-            <div className="bg-white border rounded-xl overflow-hidden">
-              <div className="px-4 py-3 border-b"><h2 className="font-semibold text-gray-900">Veiculos cadastrados</h2></div>
+            <div className="fc-fleet-table-panel">
+              <div className="fc-fleet-table-heading"><h2>Veículos cadastrados</h2></div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-gray-600"><tr><th className="text-left px-4 py-2">Nome</th><th className="text-left px-4 py-2">Placa</th><th className="text-right px-4 py-2">Consumo</th><th className="text-left px-4 py-2">Status</th><th className="text-right px-4 py-2">Acoes</th></tr></thead>
@@ -737,15 +760,15 @@ export default function CustosFrotaPage() {
         ) : null}
 
         {tab === "telemetria" ? (
-          <div className="space-y-4">
-            <div className="bg-white border rounded-xl p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="fc-fleet-view">
+            <div className="fc-fleet-filters grid grid-cols-1 gap-3 md:grid-cols-3">
               <input type="month" value={telemetriaFiltroCompetencia} onChange={(e) => setTelemetriaFiltroCompetencia(e.target.value)} className="px-3 py-2 border rounded-lg" />
               <select value={telemetriaFiltroVeiculo} onChange={(e) => setTelemetriaFiltroVeiculo(e.target.value)} className="px-3 py-2 border rounded-lg"><option value="">Todos os veiculos</option>{veiculos.map((item) => (<option key={item.id} value={String(item.id)}>{labelVeiculo(item)}</option>))}</select>
               <button type="button" onClick={() => void carregarTelemetria()} className="px-3 py-2 border rounded-lg text-sm text-gray-700 hover:bg-gray-50">Atualizar telemetria</button>
             </div>
 
-            <div className="bg-white border rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-3"><Waypoints className="w-4 h-4 text-indigo-600" /><h2 className="font-semibold text-gray-900">{telemetriaIdEdit ? `Editar telemetria #${telemetriaIdEdit}` : "Novo registro de telemetria"}</h2></div>
+            <div className="fc-fleet-panel fc-fleet-panel-cordis">
+              <div className="fc-fleet-panel-title"><Waypoints className="h-4 w-4" /><h2>{telemetriaIdEdit ? `Editar telemetria #${telemetriaIdEdit}` : "Novo registro de telemetria"}</h2></div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
                 <select value={telemetriaForm.veiculo_id} onChange={(e) => setTelemetriaForm((prev) => ({ ...prev, veiculo_id: e.target.value }))} className="px-3 py-2 border rounded-lg"><option value="">Selecione veiculo</option>{veiculos.map((item) => (<option key={item.id} value={String(item.id)}>{labelVeiculo(item)}</option>))}</select>
                 <input type="month" value={telemetriaForm.competencia} onChange={(e) => setTelemetriaForm((prev) => ({ ...prev, competencia: e.target.value }))} className="px-3 py-2 border rounded-lg" />
@@ -758,17 +781,17 @@ export default function CustosFrotaPage() {
               <button type="button" onClick={() => void salvarTelemetria()} disabled={saving} className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-60"><Save className="w-4 h-4" />Salvar telemetria</button>
             </div>
 
-            <div className="bg-white border rounded-xl overflow-hidden">
-              <div className="px-4 py-3 border-b"><h2 className="font-semibold text-gray-900">Registros de telemetria</h2></div>
+            <div className="fc-fleet-table-panel">
+              <div className="fc-fleet-table-heading"><h2>Registros de telemetria</h2></div>
               <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50 text-gray-600"><tr><th className="text-left px-4 py-2">Veiculo</th><th className="text-left px-4 py-2">Competencia</th><th className="text-right px-4 py-2">KM rodado</th><th className="text-right px-4 py-2">Combustivel</th><th className="text-right px-4 py-2">Acoes</th></tr></thead><tbody>{telemetria.length === 0 ? (<tr><td colSpan={5} className="px-4 py-6 text-center text-gray-500">Sem registros.</td></tr>) : telemetria.map((item) => (<tr key={item.id} className="border-t"><td className="px-4 py-2">{veiculoMap.get(item.veiculo_id) || `Veiculo #${item.veiculo_id}`}</td><td className="px-4 py-2">{item.competencia}</td><td className="px-4 py-2 text-right">{item.km_rodado != null ? formatarNumero(item.km_rodado) : "-"}</td><td className="px-4 py-2 text-right">{item.valor_combustivel != null ? formatarMoeda(item.valor_combustivel) : "-"}</td><td className="px-4 py-2 text-right"><div className="inline-flex items-center gap-2"><button type="button" onClick={() => { setTelemetriaIdEdit(item.id); setTelemetriaForm({ veiculo_id: String(item.veiculo_id), competencia: item.competencia, km_inicial: item.km_inicial != null ? String(item.km_inicial) : "", km_final: item.km_final != null ? String(item.km_final) : "", km_rodado: item.km_rodado != null ? String(item.km_rodado) : "", litros_consumidos: item.litros_consumidos != null ? String(item.litros_consumidos) : "", valor_combustivel: item.valor_combustivel != null ? String(item.valor_combustivel) : "" }); }} className="px-2 py-1 border rounded text-xs">Editar</button><button type="button" onClick={() => void (async () => { if (!confirm("Remover telemetria?")) return; try { await api.delete(`/financeiro/frota/telemetria/${item.id}`); await carregarTelemetria(true); } catch { setErro("Falha ao remover telemetria."); } })()} className="inline-flex items-center gap-1 px-2 py-1 border rounded text-xs text-red-700"><Trash2 className="w-3 h-3" />Remover</button></div></td></tr>))}</tbody></table></div>
             </div>
           </div>
         ) : null}
 
         {tab === "config" ? (
-          <div className="space-y-4">
-            <div className="bg-white border rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-3"><Settings2 className="w-4 h-4 text-violet-600" /><h2 className="font-semibold text-gray-900">Configuracao de rateio hibrido</h2></div>
+          <div className="fc-fleet-view">
+            <div className="fc-fleet-panel fc-fleet-panel-ink">
+              <div className="fc-fleet-panel-title"><Settings2 className="h-4 w-4" /><h2>Configuração de rateio híbrido</h2></div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <input type="number" min="0" step="0.01" placeholder="Peso KM" value={configForm.peso_km} onChange={(e) => setConfigForm((prev) => ({ ...prev, peso_km: e.target.value }))} className="px-3 py-2 border rounded-lg" />
                 <input type="number" min="0" step="0.01" placeholder="Peso atendimento" value={configForm.peso_atendimento} onChange={(e) => setConfigForm((prev) => ({ ...prev, peso_atendimento: e.target.value }))} className="px-3 py-2 border rounded-lg" />
@@ -778,8 +801,8 @@ export default function CustosFrotaPage() {
               <p className="mt-2 text-xs text-gray-500">ID configuracao: {configRateioId ?? "-"}</p>
             </div>
 
-            <div className="bg-white border rounded-xl p-4 space-y-3">
-              <h2 className="font-semibold text-gray-900">Depreciacao mensal automatica</h2>
+            <div className="fc-fleet-panel fc-fleet-panel-amber space-y-3">
+              <h2 className="fc-fleet-section-title">Depreciação mensal automática</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <input type="month" value={competenciaDepreciacao} onChange={(e) => setCompetenciaDepreciacao(e.target.value)} className="px-3 py-2 border rounded-lg" />
                 <button type="button" onClick={() => void gerarDepreciacao()} disabled={saving} className="px-3 py-2 border rounded-lg text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60">{saving ? "Processando..." : "Gerar depreciacao"}</button>
@@ -794,8 +817,8 @@ export default function CustosFrotaPage() {
           </div>
         ) : null}
 
-        {erro ? <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{erro}</div> : null}
-        {sucesso ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{sucesso}</div> : null}
+        {erro ? <div className="fc-fleet-message fc-fleet-message-error">{erro}</div> : null}
+        {sucesso ? <div className="fc-fleet-message fc-fleet-message-success">{sucesso}</div> : null}
       </div>
     </DashboardLayout>
   );

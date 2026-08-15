@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 import { X, DollarSign, Calendar, FileText, Tag, CreditCard } from "lucide-react";
 import api from "@/lib/axios";
 import { extractApiErrorMessageSync } from "@/lib/api-error";
+import {
+  calendarDateInput,
+  calendarDateToOperationalIso,
+  operationalTodayDateInput,
+} from "@/lib/calendar-date";
 
 interface TransacaoModalProps {
   isOpen: boolean;
@@ -72,12 +77,12 @@ export default function TransacaoModal({ isOpen, onClose, onSuccess, transacao }
   // Preencher formulário quando estiver editando
   useEffect(() => {
     if (isEditando && transacao) {
-      const dataTransacao = transacao.data_transacao 
-        ? new Date(transacao.data_transacao).toISOString().split('T')[0]
-        : new Date().toISOString().split('T')[0];
+      const dataTransacao = transacao.data_transacao
+        ? calendarDateInput(transacao.data_transacao)
+        : operationalTodayDateInput();
       
       const dataVencimento = transacao.data_vencimento
-        ? new Date(transacao.data_vencimento).toISOString().split('T')[0]
+        ? calendarDateInput(transacao.data_vencimento)
         : "";
 
       setFormData({
@@ -104,7 +109,7 @@ export default function TransacaoModal({ isOpen, onClose, onSuccess, transacao }
         forma_pagamento: "dinheiro",
         status: "Pendente",
         descricao: "",
-        data_transacao: new Date().toISOString().split('T')[0],
+        data_transacao: operationalTodayDateInput(),
         data_vencimento: "",
         observacoes: "",
         paciente_id: "",
@@ -155,8 +160,8 @@ export default function TransacaoModal({ isOpen, onClose, onSuccess, transacao }
         forma_pagamento: formData.forma_pagamento,
         status: formData.status,
         descricao: formData.descricao,
-        data_transacao: new Date(formData.data_transacao).toISOString(),
-        data_vencimento: formData.data_vencimento ? new Date(formData.data_vencimento).toISOString() : null,
+        data_transacao: calendarDateToOperationalIso(formData.data_transacao),
+        data_vencimento: calendarDateToOperationalIso(formData.data_vencimento),
         observacoes: formData.observacoes || null,
         paciente_id: formData.paciente_id ? parseInt(formData.paciente_id) : null,
         paciente_nome: formData.paciente_nome || null,

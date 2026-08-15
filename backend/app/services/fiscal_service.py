@@ -1,15 +1,18 @@
 """Servicos de negocio para o modulo fiscal."""
+from __future__ import annotations
 
 import logging
+import json
 from datetime import datetime, time
-from typing import Optional
+from typing import Any, Mapping, Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, literal, text
 from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.models.clinica import Clinica
-from app.models.fiscal import NotaFiscal
+from app.models.fiscal import NotaFiscal, RelatorioFiscalEmissao
 from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.servico import Servico
@@ -18,10 +21,39 @@ from app.schemas.fiscal import NotaFiscalCreate, NotaFiscalUpdate
 
 logger = logging.getLogger(__name__)
 _MAX_NUMERO_GENERATION_ATTEMPTS = 5
+FISCAL_TIMEZONE = ZoneInfo("America/Fortaleza")
+
+_CAMPOS_FISCAIS_CLINICA_OBRIGATORIOS = (
+    (("razao_social", "nome", "clinica_razao_social", "clinica_nome"), "razao/nome"),
+    (("cnpj", "clinica_cnpj"), "cnpj"),
+    (("endereco", "clinica_endereco"), "logradouro"),
+    (("bairro", "clinica_bairro"), "bairro"),
+    (("cidade", "clinica_cidade"), "cidade"),
+    (("estado", "clinica_estado"), "estado"),
+    (("cep", "clinica_cep"), "cep"),
+    (("telefone", "clinica_telefone"), "telefone"),
+)
 
 
 def _now_str() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(FISCAL_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def campos_fiscais_pendentes_da_clinica(item: Mapping[str, Any]) -> list[str]:
+    """Retorna os campos cadastrais mínimos exigidos para exportar um tomador PJ."""
+    faltando: list[str] = []
+    for keys, label in _CAMPOS_FISCAIS_CLINICA_OBRIGATORIOS:
+        if not any(str(item.get(key) or "").strip() for key in keys):
+            faltando.append(label)
+    return faltando
+
+
+def detalhes_fiscais_da_clinica(item: Mapping[str, Any]) -> dict:
+    faltando = campos_fiscais_pendentes_da_clinica(item)
+    return {
+        "dados_fiscais_completos": not faltando,
+        "campos_fiscais_pendentes": faltando,
+    }
 
 
 def _calcular_valores(valor_servico: float, valor_desconto: float, aliquota_iss: float) -> tuple[float, float]:
@@ -252,6 +284,7 @@ def buscar_clinicas_com_os(
     db: Session,
     data_inicio: str,
     data_fim: str,
+    somente_completas: bool = False,
 ) -> list[dict]:
     """Lista clinicas ativas que tiveram OS por data de atendimento no periodo."""
     dt_inicio = _parse_date_start(data_inicio)
@@ -304,7 +337,7 @@ def buscar_clinicas_com_os(
         .all()
     )
 
-    return [
+    items = [
         {
             "id": row.id,
             "nome": row.nome,
@@ -325,6 +358,137 @@ def buscar_clinicas_com_os(
         }
         for row in rows
     ]
+    for item in items:
+        item.update(detalhes_fiscais_da_clinica(item))
+    if somente_completas:
+        items = [item for item in items if item["dados_fiscais_completos"]]
+    return items
+
+
+def listar_clinicas_invalidas_para_exportacao(os_items: list[dict]) -> list[dict]:
+    """Agrupa as OS por clínica e aplica a mesma regra da lista de elegibilidade."""
+    clinica_por_id: dict[str, dict] = {}
+    for item in os_items:
+        clinica_id = str(item.get("clinica_id") or item.get("clinica_nome") or "sem-clinica")
+        clinica_por_id.setdefault(clinica_id, item)
+
+    invalidas: list[dict] = []
+    for row in clinica_por_id.values():
+        faltando = campos_fiscais_pendentes_da_clinica(row)
+        if faltando:
+            invalidas.append(
+                {
+                    "clinica_id": row.get("clinica_id"),
+                    "clinica_nome": row.get("clinica_nome") or "Clinica sem nome",
+                    "faltando": faltando,
+                }
+            )
+    return invalidas
+
+
+def registrar_emissao_relatorio_fiscal(
+    db: Session,
+    *,
+    os_items: list[dict],
+    formato: str,
+    modo_multiclinica: bool,
+    tipo_emissao: str,
+    data_inicio: Optional[str],
+    data_fim: Optional[str],
+    descricao_servico: Optional[str],
+    arquivo_nome: str,
+    usuario_id: Optional[int],
+    usuario_nome: Optional[str],
+) -> RelatorioFiscalEmissao:
+    """Registra a emissão depois de gerar o arquivo para manter a trilha auditável."""
+    clinicas: dict[str, dict] = {}
+    for item in os_items:
+        clinica_id = item.get("clinica_id")
+        key = str(clinica_id if clinica_id is not None else "sem-clinica")
+        atual = clinicas.setdefault(
+            key,
+            {
+                "clinica_id": clinica_id,
+                "nome": item.get("clinica_nome") or "Atendimento sem clinica",
+                "quantidade_os": 0,
+                "valor_total": 0.0,
+            },
+        )
+        atual["quantidade_os"] += 1
+        atual["valor_total"] = round(atual["valor_total"] + float(item.get("valor_final") or 0), 2)
+
+    emissao = RelatorioFiscalEmissao(
+        formato=formato,
+        modo="multiclinica" if modo_multiclinica else "uma_clinica",
+        tipo_emissao=tipo_emissao,
+        data_inicio=data_inicio or None,
+        data_fim=data_fim or None,
+        quantidade_os=len(os_items),
+        valor_total=round(sum(float(item.get("valor_final") or 0) for item in os_items), 2),
+        clinicas_json=json.dumps(list(clinicas.values()), ensure_ascii=False),
+        os_ids_json=json.dumps([item["os_id"] for item in os_items if item.get("os_id") is not None]),
+        descricao_servico=(descricao_servico or "").strip() or None,
+        arquivo_nome=arquivo_nome,
+        usuario_id=usuario_id,
+        usuario_nome=(usuario_nome or "").strip() or None,
+        emitido_em=_now_str(),
+    )
+    db.add(emissao)
+    db.commit()
+    db.refresh(emissao)
+    return emissao
+
+
+def listar_emissoes_relatorios_fiscais(
+    db: Session,
+    *,
+    skip: int = 0,
+    limit: int = 20,
+    clinica_id: Optional[int] = None,
+) -> tuple[list[dict], int]:
+    query = db.query(RelatorioFiscalEmissao)
+    if clinica_id is not None:
+        # A coluna e JSON textual por compatibilidade SQLite/PostgreSQL; a busca é feita
+        # após desserializar para evitar depender de funções JSON específicas do banco.
+        rows = query.order_by(RelatorioFiscalEmissao.emitido_em.desc(), RelatorioFiscalEmissao.id.desc()).all()
+        items = [_serializar_emissao_relatorio_fiscal(row) for row in rows]
+        items = [
+            item
+            for item in items
+            if any(clinica.get("clinica_id") == clinica_id for clinica in item["clinicas"])
+        ]
+        return items[skip : skip + limit], len(items)
+
+    total = query.count()
+    rows = (
+        query.order_by(RelatorioFiscalEmissao.emitido_em.desc(), RelatorioFiscalEmissao.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return [_serializar_emissao_relatorio_fiscal(row) for row in rows], total
+
+
+def _serializar_emissao_relatorio_fiscal(emissao: RelatorioFiscalEmissao) -> dict:
+    try:
+        clinicas = json.loads(emissao.clinicas_json or "[]")
+    except (TypeError, json.JSONDecodeError):
+        clinicas = []
+    return {
+        "id": emissao.id,
+        "formato": emissao.formato,
+        "modo": emissao.modo,
+        "tipo_emissao": emissao.tipo_emissao,
+        "data_inicio": emissao.data_inicio,
+        "data_fim": emissao.data_fim,
+        "quantidade_os": int(emissao.quantidade_os or 0),
+        "valor_total": float(emissao.valor_total or 0),
+        "clinicas": clinicas if isinstance(clinicas, list) else [],
+        "descricao_servico": emissao.descricao_servico,
+        "arquivo_nome": emissao.arquivo_nome,
+        "usuario_nome": emissao.usuario_nome,
+        "emitido_em": emissao.emitido_em,
+    }
 
 
 def buscar_os_para_fiscal(
@@ -399,6 +563,7 @@ def _build_os_query(db: Session):
             OrdemServico.valor_final,
             OrdemServico.status.label("status_os"),
             OrdemServico.clinica_id,
+            OrdemServico.origem_atendimento,
             Paciente.nome.label("paciente_nome"),
             Tutor.nome.label("tutor_nome"),
             tutor_cpf_col,
@@ -425,6 +590,9 @@ def _build_os_query(db: Session):
 
 def _serialize_os_row(row) -> dict:
     tipo_cliente = "PJ" if row.clinica_id else "PF"
+    clinica_nome_exibicao = row.clinica_nome
+    if not clinica_nome_exibicao and str(getattr(row, "origem_atendimento", None) or "").strip().lower() == "domiciliar":
+        clinica_nome_exibicao = "Atendimento domiciliar"
     cliente_nome = row.clinica_razao_social or row.clinica_nome or row.tutor_nome or row.paciente_nome or ""
     cliente_documento = row.clinica_cnpj or row.tutor_cpf or ""
 
@@ -443,7 +611,7 @@ def _serialize_os_row(row) -> dict:
         "tutor_nome": row.tutor_nome or "",
         "servico_nome": row.servico_nome or "",
         "clinica_id": row.clinica_id,
-        "clinica_nome": row.clinica_nome,
+        "clinica_nome": clinica_nome_exibicao,
         "clinica_razao_social": row.clinica_razao_social,
         "clinica_cnpj": row.clinica_cnpj,
         "clinica_atividade_cnae": row.clinica_atividade_cnae,
@@ -455,6 +623,7 @@ def _serialize_os_row(row) -> dict:
         "clinica_cep": row.clinica_cep,
         "clinica_telefone": row.clinica_telefone,
         "clinica_email": row.clinica_email,
+        "origem_atendimento": row.origem_atendimento,
     }
 
 

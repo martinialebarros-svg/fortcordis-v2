@@ -5,19 +5,39 @@ import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import {
+  formatarCepVisual,
+  formatarCpfVisual,
+  formatarTelefoneVisual,
+  normalizarCep,
+  normalizarCpf,
+  normalizarTelefone,
+} from "@/lib/atendimento-cadastro";
+import {
   addRacaCustomPorEspecie,
   getRacaOptions,
   loadRacasCustomPorEspecie,
   saveRacasCustomPorEspecie,
 } from "@/lib/racas";
-import { Save, ArrowLeft, Dog } from "lucide-react";
+import { Save, ArrowLeft, Plus, UserRound, PawPrint } from "lucide-react";
 
 export default function NovoPacientePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [paciente, setPaciente] = useState({
+    tutor_id: "",
     nome: "",
     tutor: "",
+    tutor_email: "",
+    tutor_telefone: "",
+    tutor_whatsapp: "",
+    tutor_cpf: "",
+    tutor_cep: "",
+    tutor_endereco: "",
+    tutor_numero: "",
+    tutor_complemento: "",
+    tutor_bairro: "",
+    tutor_cidade: "",
+    tutor_estado: "CE",
     especie: "Canina",
     raca: "",
     sexo: "Macho",
@@ -26,6 +46,7 @@ export default function NovoPacientePage() {
     microchip: "",
     observacoes: "",
   });
+  const [feedback, setFeedback] = useState("");
   const [novaRaca, setNovaRaca] = useState("");
   const [racasCustomPorEspecie, setRacasCustomPorEspecie] = useState<Record<string, string[]>>({});
   const [racasLoaded, setRacasLoaded] = useState(false);
@@ -64,15 +85,39 @@ export default function NovoPacientePage() {
     }
   }, [router]);
 
-  const handleSalvar = async () => {
+  const handleSalvar = async (cadastrarOutroPet = false) => {
     setLoading(true);
+    setFeedback("");
     try {
       const payload = {
         ...paciente,
+        tutor_id: paciente.tutor_id ? Number(paciente.tutor_id) : null,
+        tutor_telefone: normalizarTelefone(paciente.tutor_telefone),
+        tutor_whatsapp: normalizarTelefone(paciente.tutor_whatsapp),
+        tutor_cpf: normalizarCpf(paciente.tutor_cpf),
+        tutor_cep: normalizarCep(paciente.tutor_cep),
         peso_kg: paciente.peso_kg ? parseFloat(paciente.peso_kg) : null,
       };
       
-      await api.post("/pacientes", payload);
+      const response = await api.post("/pacientes", payload);
+      if (cadastrarOutroPet) {
+        const tutorId = response.data?.tutor_id || paciente.tutor_id;
+        setPaciente((prev) => ({
+          ...prev,
+          tutor_id: tutorId ? String(tutorId) : prev.tutor_id,
+          nome: "",
+          especie: "Canina",
+          raca: "",
+          sexo: "Macho",
+          peso_kg: "",
+          data_nascimento: "",
+          microchip: "",
+          observacoes: "",
+        }));
+        setNovaRaca("");
+        setFeedback("Paciente salvo. Cadastre o proximo pet do mesmo tutor.");
+        return;
+      }
       alert("Paciente cadastrado com sucesso!");
       router.push("/pacientes");
     } catch (error) {
@@ -85,23 +130,240 @@ export default function NovoPacientePage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-6">
-          <button
-            onClick={() => router.push("/pacientes")}
-            className="p-2 hover:bg-gray-100 rounded-lg"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Novo Paciente</h1>
-            <p className="text-gray-500">Cadastre um novo paciente</p>
+      <div className="fc-patient-form-page">
+        <header className="fc-patient-form-header">
+          <div className="fc-patient-form-heading">
+            <button
+              type="button"
+              onClick={() => router.push("/pacientes")}
+              className="fc-patient-form-back"
+              aria-label="Voltar para pacientes"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div>
+              <span className="fc-patient-form-kicker">
+                <PawPrint className="h-4 w-4" />
+                Carteira clínica
+              </span>
+              <h1>Novo paciente</h1>
+              <p>Cadastre o tutor e a identificação clínica do pet.</p>
+            </div>
           </div>
-        </div>
+          <div className="fc-patient-form-context">
+            <span>Fluxo atual</span>
+            <strong>Novo cadastro</strong>
+          </div>
+        </header>
 
-        <div className="bg-white rounded-lg shadow-sm border p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <main className="fc-patient-form-panel">
+          {feedback && (
+            <div className="fc-patient-form-feedback">
+              {feedback}
+            </div>
+          )}
+
+          <div className="fc-patient-form-section-header fc-patient-form-section-tutor">
+            <UserRound className="h-5 w-5" />
+            <div>
+              <span>Responsável</span>
+              <h2>Dados do tutor</h2>
+            </div>
+          </div>
+
+          <div className="fc-patient-form-grid">
+            {paciente.tutor_id && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  ID do tutor
+                </label>
+                <input
+                  type="text"
+                  value={paciente.tutor_id}
+                  readOnly
+                  className="w-full px-3 py-2 border border-gray-200 bg-gray-50 rounded-lg text-gray-700"
+                />
+              </div>
+            )}
+
+            <div className={paciente.tutor_id ? "" : "md:col-span-2"}>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Nome do tutor *
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor}
+                onChange={(e) => setPaciente({...paciente, tutor: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Ex: João Silva"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                E-mail do tutor
+              </label>
+              <input
+                type="email"
+                value={paciente.tutor_email}
+                onChange={(e) => setPaciente({...paciente, tutor_email: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="email@tutor.com"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Telefone
+              </label>
+              <input
+                type="tel"
+                value={paciente.tutor_telefone}
+                onChange={(e) => setPaciente({...paciente, tutor_telefone: formatarTelefoneVisual(e.target.value)})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="(00) 00000-0000"
+                inputMode="tel"
+                autoComplete="tel"
+                maxLength={15}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                WhatsApp
+              </label>
+              <input
+                type="tel"
+                value={paciente.tutor_whatsapp}
+                onChange={(e) => setPaciente({...paciente, tutor_whatsapp: formatarTelefoneVisual(e.target.value)})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="(00) 00000-0000"
+                inputMode="tel"
+                autoComplete="tel"
+                maxLength={15}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                CPF
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_cpf}
+                onChange={(e) => setPaciente({...paciente, tutor_cpf: formatarCpfVisual(e.target.value)})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="000.000.000-00"
+                inputMode="numeric"
+                maxLength={14}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                CEP
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_cep}
+                onChange={(e) => setPaciente({...paciente, tutor_cep: formatarCepVisual(e.target.value)})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="00000-000"
+                inputMode="numeric"
+                autoComplete="postal-code"
+                maxLength={9}
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Endereço
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_endereco}
+                onChange={(e) => setPaciente({...paciente, tutor_endereco: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Rua / Avenida"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Número
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_numero}
+                onChange={(e) => setPaciente({...paciente, tutor_numero: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="123"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Complemento
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_complemento}
+                onChange={(e) => setPaciente({...paciente, tutor_complemento: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Apto, bloco, sala"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Bairro
+              </label>
+              <input
+                type="text"
+                value={paciente.tutor_bairro}
+                onChange={(e) => setPaciente({...paciente, tutor_bairro: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Bairro"
+              />
+            </div>
+
+            <div className="grid grid-cols-[1fr_96px] gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Cidade
+                </label>
+                <input
+                  type="text"
+                  value={paciente.tutor_cidade}
+                  onChange={(e) => setPaciente({...paciente, tutor_cidade: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Cidade"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  UF
+                </label>
+                <input
+                  type="text"
+                  value={paciente.tutor_estado}
+                  onChange={(e) => setPaciente({...paciente, tutor_estado: e.target.value.toUpperCase().slice(0, 2)})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="CE"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="fc-patient-form-section-header fc-patient-form-section-pet">
+            <PawPrint className="h-5 w-5" />
+            <div>
+              <span>Identificação clínica</span>
+              <h2>Dados do pet</h2>
+            </div>
+          </div>
+
+          <div className="fc-patient-form-grid">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Nome do Paciente *
@@ -112,19 +374,6 @@ export default function NovoPacientePage() {
                 onChange={(e) => setPaciente({...paciente, nome: e.target.value})}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 placeholder="Ex: Rex"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Tutor/Proprietário *
-              </label>
-              <input
-                type="text"
-                value={paciente.tutor}
-                onChange={(e) => setPaciente({...paciente, tutor: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                placeholder="Ex: João Silva"
               />
             </div>
             
@@ -254,23 +503,34 @@ export default function NovoPacientePage() {
             </div>
           </div>
           
-          <div className="flex justify-end gap-3 mt-6 pt-6 border-t">
+          <div className="fc-patient-form-actions">
             <button
+              type="button"
               onClick={() => router.push("/pacientes")}
-              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+              className="fc-patient-form-cancel"
             >
               Cancelar
             </button>
             <button
-              onClick={handleSalvar}
+              type="button"
+              onClick={() => handleSalvar(true)}
               disabled={loading || !paciente.nome || !paciente.tutor}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              className="fc-patient-form-secondary"
+            >
+              <Plus className="w-4 h-4" />
+              Salvar e adicionar outro pet
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSalvar(false)}
+              disabled={loading || !paciente.nome || !paciente.tutor}
+              className="fc-patient-form-primary"
             >
               <Save className="w-4 h-4" />
               {loading ? "Salvando..." : "Salvar Paciente"}
             </button>
           </div>
-        </div>
+        </main>
       </div>
     </DashboardLayout>
   );

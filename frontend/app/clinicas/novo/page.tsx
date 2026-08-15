@@ -4,8 +4,18 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
+import {
+  formatarCepVisual,
+  formatarCnpjVisual,
+  formatarTelefoneVisual,
+  normalizarCep,
+  normalizarCnpj,
+  normalizarTelefone,
+} from "@/lib/atendimento-cadastro";
 import { Save, ArrowLeft, Building2, MapPin, DollarSign, Calculator, Percent } from "lucide-react";
 import ManualPinModal from "../components/ManualPinModal";
+import WhatsappNumbersField from "../components/WhatsappNumbersField";
+import { normalizarWhatsappsParaApi } from "@/lib/clinica-whatsapp";
 
 const ESTADOS = [
   "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA",
@@ -48,6 +58,7 @@ export default function NovaClinicaPage() {
     razao_social: "",
     cnpj: "",
     telefone: "",
+    whatsapps: [""],
     email: "",
     endereco: "",
     numero: "",
@@ -74,13 +85,6 @@ export default function NovaClinicaPage() {
       router.push("/");
     }
   }, [router]);
-
-  const normalizarCep = (valor: string) => valor.replace(/\D/g, "").slice(0, 8);
-  const formatarCepVisual = (valor: string) => {
-    const cep = normalizarCep(valor);
-    if (cep.length <= 5) return cep;
-    return `${cep.slice(0, 5)}-${cep.slice(5)}`;
-  };
 
   const assinaturaGeocode = (dados = clinica) =>
     [
@@ -348,6 +352,9 @@ export default function NovaClinicaPage() {
         ...clinica,
         nome: clinica.nome.trim(),
         razao_social: clinica.razao_social.trim(),
+        cnpj: normalizarCnpj(clinica.cnpj),
+        telefone: normalizarTelefone(clinica.telefone),
+        whatsapps: normalizarWhatsappsParaApi(clinica.whatsapps),
         cep: normalizarCep(clinica.cep),
         bairro_manual: bairroEditadoManual,
         tabela_preco_id: parseInt(clinica.tabela_preco_id.toString()),
@@ -390,24 +397,35 @@ export default function NovaClinicaPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-5xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-6">
-          <button
-            onClick={() => router.push("/clinicas")}
-            className="p-2 hover:bg-gray-100 rounded-lg"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Nova Clínica</h1>
-            <p className="text-gray-500">Cadastre uma nova clínica parceira</p>
+      <div className="fc-clinic-form-page">
+        <header className="fc-clinic-form-header">
+          <div className="fc-clinic-form-heading">
+            <button
+              type="button"
+              onClick={() => router.push("/clinicas")}
+              className="fc-clinic-form-back"
+              aria-label="Voltar para clínicas"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div>
+              <span className="fc-clinic-form-kicker">
+                <Building2 className="h-4 w-4" />
+                Rede assistida
+              </span>
+              <h1>Nova clínica</h1>
+              <p>Cadastre a unidade parceira, localização e condições comerciais.</p>
+            </div>
           </div>
-        </div>
+          <div className="fc-clinic-form-context">
+            <span>Fluxo atual</span>
+            <strong>Novo cadastro</strong>
+          </div>
+        </header>
 
-        <div className="space-y-6">
+        <div className="fc-clinic-form-content">
           {/* Informações Básicas */}
-          <div className="bg-white rounded-lg shadow-sm border p-6">
+          <section className="fc-clinic-form-card fc-clinic-form-card-profile">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <Building2 className="w-5 h-5 text-purple-600" />
               Informações Básicas
@@ -447,24 +465,34 @@ export default function NovaClinicaPage() {
                 <input
                   type="text"
                   value={clinica.cnpj}
-                  onChange={(e) => setClinica({...clinica, cnpj: e.target.value})}
+                  onChange={(e) => setClinica({...clinica, cnpj: formatarCnpjVisual(e.target.value)})}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   placeholder="00.000.000/0000-00"
+                  inputMode="numeric"
+                  maxLength={18}
                 />
               </div>
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Telefone
+                  Telefone geral
                 </label>
                 <input
-                  type="text"
+                  type="tel"
                   value={clinica.telefone}
-                  onChange={(e) => setClinica({...clinica, telefone: e.target.value})}
+                  onChange={(e) => setClinica({...clinica, telefone: formatarTelefoneVisual(e.target.value)})}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   placeholder="(00) 00000-0000"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  maxLength={15}
                 />
               </div>
+
+              <WhatsappNumbersField
+                value={clinica.whatsapps}
+                onChange={(whatsapps) => setClinica({ ...clinica, whatsapps })}
+              />
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -495,6 +523,9 @@ export default function NovaClinicaPage() {
                     onBlur={consultarCep}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     placeholder="00000-000"
+                    inputMode="numeric"
+                    autoComplete="postal-code"
+                    maxLength={9}
                   />
                   <button
                     type="button"
@@ -683,10 +714,10 @@ export default function NovaClinicaPage() {
                 />
               </div>
             </div>
-          </div>
+          </section>
 
           {/* Tabela de Preços */}
-          <div className="bg-white rounded-lg shadow-sm border p-6">
+          <section className="fc-clinic-form-card fc-clinic-form-card-pricing">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <DollarSign className="w-5 h-5 text-green-600" />
               Tabela de Preços
@@ -804,10 +835,10 @@ export default function NovaClinicaPage() {
                 )}
               </div>
             )}
-          </div>
+          </section>
 
           {/* Precos negociados por servico */}
-          <div className="bg-white rounded-lg shadow-sm border p-6">
+          <section className="fc-clinic-form-card fc-clinic-form-card-negotiated">
             <h2 className="text-lg font-semibold text-gray-900 mb-2 flex items-center gap-2">
               <Percent className="w-5 h-5 text-emerald-600" />
               Precos negociados por servico
@@ -870,10 +901,10 @@ export default function NovaClinicaPage() {
                 </table>
               </div>
             )}
-          </div>
+          </section>
 
           {/* Resumo */}
-          <div className="bg-gray-50 rounded-lg border p-4">
+          <aside className="fc-clinic-form-summary">
             <h3 className="text-sm font-medium text-gray-700 mb-2">Resumo da Configuração</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               <div>
@@ -887,20 +918,22 @@ export default function NovaClinicaPage() {
                 <span className="ml-2 font-medium">{clinica.cidade || "Não informada"}</span>
               </div>
             </div>
-          </div>
+          </aside>
           
           {/* Botões */}
-          <div className="flex justify-end gap-3 pt-4">
+          <div className="fc-clinic-form-actions">
             <button
+              type="button"
               onClick={() => router.push("/clinicas")}
-              className="px-6 py-2 text-gray-700 hover:bg-gray-100 rounded-lg border"
+              className="fc-clinic-form-cancel"
             >
               Cancelar
             </button>
             <button
+              type="button"
               onClick={handleSalvar}
               disabled={loading || !clinica.nome}
-              className="flex items-center justify-center gap-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
+              className="fc-clinic-form-primary"
             >
               <Save className="w-4 h-4" />
               {loading ? "Salvando..." : "Salvar Clínica"}

@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import sqlite3
 import tarfile
@@ -40,6 +41,18 @@ def _resolve_relative_file(base_dir: str, relative_path: str) -> str:
     if not _is_within(base_dir, abs_path):
         raise RuntimeError(f"Path fora do diretorio base: {relative_path}")
     return abs_path
+
+
+def _slugify_fragment(value: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower())
+    normalized = normalized.strip("-")
+    return normalized or "app"
+
+
+def _build_default_stamp(app_dir: str) -> str:
+    app_slug = _slugify_fragment(os.path.basename(os.path.abspath(app_dir)))
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    return f"{timestamp}_{app_slug}_{os.getpid()}"
 
 
 def _sha256_file(file_path: str) -> str:
@@ -99,9 +112,12 @@ def _extract_archive(archive_path: str, destination_dir: str) -> None:
             target_path = os.path.abspath(os.path.join(destination_dir, member.name))
             if not _is_within(destination_dir, target_path):
                 raise RuntimeError(f"Entrada de archive fora do destino: {member.name}")
-        # `filter="data"` evita o comportamento legado de extracao insegura e
-        # remove o DeprecationWarning de default change no Python 3.14+.
-        archive.extractall(destination_dir, filter="data")
+        # `filter="data"` endurece a extracao em Python mais novo; para
+        # interpretadores antigos, o pre-check acima mantem a extracao segura.
+        try:
+            archive.extractall(destination_dir, filter="data")
+        except TypeError:
+            archive.extractall(destination_dir)
 
 
 def _verify_restored_files(restore_dir: str, manifest: Dict[str, object]) -> List[str]:
@@ -205,7 +221,7 @@ def main() -> int:
     runtime_paths = list(args.runtime_path or [])
     if not runtime_paths:
         runtime_paths = list(DEFAULT_RUNTIME_PATHS)
-    stamp = str(args.stamp or "").strip() or datetime.now().strftime("%Y%m%d_%H%M%S")
+    stamp = str(args.stamp or "").strip() or _build_default_stamp(app_dir)
 
     os.makedirs(backup_dir, exist_ok=True)
     archive_path = os.path.join(backup_dir, f"{stamp}__runtime-drill.tar.gz")

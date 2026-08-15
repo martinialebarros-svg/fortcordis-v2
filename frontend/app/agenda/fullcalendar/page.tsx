@@ -12,11 +12,12 @@ import type {
   EventInput,
 } from "@fullcalendar/core";
 import type { DateClickArg, EventResizeDoneArg } from "@fullcalendar/interaction";
-import { CalendarDays, ChevronDown, Download, FileText, MapPin, RefreshCw, Stethoscope, Trash2, Wallet } from "lucide-react";
+import { CalendarDays, ChevronDown, Download, FileText, List, MapPin, RefreshCw, Stethoscope, Trash2, Wallet } from "lucide-react";
 
 import DashboardLayout from "../../layout-dashboard";
 import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
+import { normalizarCoordenadaOpcional } from "@/lib/coordinates";
 import { montarToastAgendaRealtime } from "@/lib/agenda-realtime-toast";
 import { useAgendaRealtime, type AgendaRealtimePayload } from "@/lib/useAgendaRealtime";
 import {
@@ -25,6 +26,8 @@ import {
   FORMA_PAGAMENTO_PADRAO,
   descricaoFormaPagamentoConfig,
   normalizarCodigoFormaPagamento,
+  obterOrigemAtendimentoMeta,
+  obterTituloAgendamentoPorOrigem,
   type AgendaStatus,
   type AgendaStatusAction,
   type FormaPagamentoConfig,
@@ -32,10 +35,16 @@ import {
   osEstaPaga,
 } from "@/lib/agenda-shared-actions";
 import { consultarSaldoCreditoCliente } from "@/lib/credito-cliente";
-import { montarGoogleMapsDestinoClinica, montarWazeDestinoClinica } from "@/lib/waze";
+import {
+  montarGoogleMapsDestinoLocal,
+  montarWazeDestinoLocal,
+  type WazeDestinoLocal,
+} from "@/lib/waze";
 import {
   getLaudoEditPath,
   TIPO_LAUDO_ECOCARDIOGRAMA,
+  TIPO_LAUDO_ELETROCARDIOGRAMA,
+  TIPO_LAUDO_PRESSAO_ARTERIAL,
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
 import {
@@ -60,19 +69,22 @@ import {
 const AgendaFullCalendarView = dynamic(() => import("./AgendaFullCalendarView"), {
   ssr: false,
   loading: () => (
-    <div className="rounded-xl border bg-white p-6 text-sm text-gray-500 shadow-sm">
+    <div className="fc-calendar-loading">
       Carregando calendario...
     </div>
   ),
 });
 
 const NovoAgendamentoModal = dynamic(() => import("../NovoAgendamentoModal"));
+const ClienteInfoModal = dynamic(() => import("../ClienteInfoModal"));
 
 interface Agendamento {
   id: number;
   paciente_id?: number | null;
+  tutor_id?: number | null;
   clinica_id?: number | null;
   servico_id?: number | null;
+  origem_atendimento?: "clinica_parceira" | "domiciliar" | string | null;
   paciente: string | null;
   tutor: string | null;
   clinica: string | null;
@@ -124,6 +136,8 @@ interface ClinicaEndereco {
   longitude?: number | null;
   endereco_normalizado?: string | null;
 }
+
+type TutorEndereco = ClinicaEndereco;
 
 interface OrdemServicoResumo {
   id: number;
@@ -197,6 +211,7 @@ const STATUS_CORES: Record<string, StatusVisual> = {
   Realizado: { bg: "#d1fae5", border: "#34d399", text: "#064e3b" },
   Cancelado: { bg: "#fee2e2", border: "#f87171", text: "#7f1d1d" },
   Faltou: { bg: "#ffedd5", border: "#fb923c", text: "#7c2d12" },
+  Expirado: { bg: "#f1f5f9", border: "#94a3b8", text: "#334155" },
 };
 
 const STATUS_FILTRO = ["todos", ...AGENDA_STATUS_LIST];
@@ -258,17 +273,6 @@ const minutosParaHoraComSegundos = (minutos: number): string => {
   const horas = Math.floor(normalizado / 60);
   const mins = normalizado % 60;
   return `${String(horas).padStart(2, "0")}:${String(mins).padStart(2, "0")}:00`;
-};
-
-const somarMinutosHHMM = (hora: string, minutosAdicionar: number): string => {
-  const [hhRaw = "0", mmRaw = "0"] = String(hora || "00:00").split(":");
-  const hh = Number.parseInt(hhRaw, 10);
-  const mm = Number.parseInt(mmRaw, 10);
-  const base = (Number.isFinite(hh) ? hh : 0) * 60 + (Number.isFinite(mm) ? mm : 0);
-  const total = Math.max(0, Math.min((24 * 60) - 1, base + Math.max(1, minutosAdicionar)));
-  const h = Math.floor(total / 60);
-  const m = total % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 };
 
 const usuarioEhAdmin = () => {
@@ -456,6 +460,7 @@ export default function AgendaFullCalendarPage() {
   const [intervalo, setIntervalo] = useState<IntervaloConsulta | null>(null);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [clinicasEndereco, setClinicasEndereco] = useState<Record<number, ClinicaEndereco>>({});
+  const [tutoresEndereco, setTutoresEndereco] = useState<Record<number, TutorEndereco>>({});
   const [ordensServicoPorAgendamento, setOrdensServicoPorAgendamento] = useState<Record<number, OrdemServicoResumo>>(
     {}
   );
@@ -483,6 +488,7 @@ export default function AgendaFullCalendarPage() {
   );
   const [erro, setErro] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("todos");
+  const [filtroOrigemAtendimento, setFiltroOrigemAtendimento] = useState("todos");
   const [mensagemStatus, setMensagemStatus] = useState("");
   const [dataControleAgenda, setDataControleAgenda] = useState(() => toDateInput(new Date()));
   const [modalRecorrenciaAberto, setModalRecorrenciaAberto] = useState(false);
@@ -492,6 +498,7 @@ export default function AgendaFullCalendarPage() {
   const [aplicandoRecorrencia, setAplicandoRecorrencia] = useState(false);
   const [menuStatusAberto, setMenuStatusAberto] = useState(false);
   const [selecionado, setSelecionado] = useState<Agendamento | null>(null);
+  const [clienteModalAlvo, setClienteModalAlvo] = useState<{ pacienteId?: number; tutorId?: number } | null>(null);
   const [modalAberto, setModalAberto] = useState(false);
   const [modalTipoHorario, setModalTipoHorario] = useState<{ id: number; status: StatusAgenda } | null>(null);
   const [tipoHorario, setTipoHorario] = useState<"comercial" | "plantao">("comercial");
@@ -523,6 +530,32 @@ export default function AgendaFullCalendarPage() {
   const acoesStatusDisponiveis = useMemo<AgendaStatusAction[]>(
     () => obterAcoesStatusPorFluxo(selecionado?.status),
     [selecionado]
+  );
+  const origemSelecionadoMeta = useMemo(
+    () => (selecionado ? obterOrigemAtendimentoMeta(selecionado.origem_atendimento) : null),
+    [selecionado]
+  );
+  const resolverDestinoAgendamento = useCallback(
+    (agendamento?: Agendamento | null): { destino: WazeDestinoLocal | null; nome: string } => {
+      if (!agendamento) {
+        return { destino: null, nome: "destino" };
+      }
+
+      const atendimentoDomiciliar =
+        String(agendamento.origem_atendimento || "").trim().toLowerCase() === "domiciliar";
+      if (atendimentoDomiciliar) {
+        return {
+          destino: agendamento.tutor_id ? tutoresEndereco[agendamento.tutor_id] || null : null,
+          nome: String(agendamento.tutor || "atendimento domiciliar").trim() || "atendimento domiciliar",
+        };
+      }
+
+      return {
+        destino: agendamento.clinica_id ? clinicasEndereco[agendamento.clinica_id] || null : null,
+        nome: String(agendamento.clinica || "clinica").trim() || "clinica",
+      };
+    },
+    [clinicasEndereco, tutoresEndereco]
   );
   const laudoSelecionado = useMemo(() => {
     if (!selecionado) return null;
@@ -588,6 +621,7 @@ export default function AgendaFullCalendarPage() {
     const urlParams = new URLSearchParams(window.location.search);
     const dataQuery = urlParams.get("data");
     const statusQuery = urlParams.get("status");
+    const origemQuery = urlParams.get("origem_atendimento") || urlParams.get("origem");
 
     if (isDateInputValida(dataQuery)) {
       setDataControleAgenda(dataQuery);
@@ -595,6 +629,14 @@ export default function AgendaFullCalendarPage() {
 
     if (statusQuery && STATUS_FILTRO.includes(statusQuery)) {
       setFiltroStatus(statusQuery);
+    }
+
+    if (
+      origemQuery === "todos" ||
+      origemQuery === "clinica_parceira" ||
+      origemQuery === "domiciliar"
+    ) {
+      setFiltroOrigemAtendimento(origemQuery);
     }
 
     filtrosIniciaisAplicadosRef.current = true;
@@ -804,25 +846,23 @@ export default function AgendaFullCalendarPage() {
     };
   }, []);
 
-  const montarWazeWebUrl = useCallback((clinica: ClinicaEndereco | null | undefined): string => {
-    return montarWazeDestinoClinica(clinica)?.webUrl || "";
+  const montarWazeWebUrl = useCallback((destino: WazeDestinoLocal | null | undefined): string => {
+    return montarWazeDestinoLocal(destino)?.webUrl || "";
   }, []);
 
-  const montarGoogleMapsWebUrl = useCallback((clinica: ClinicaEndereco | null | undefined): string => {
-    return montarGoogleMapsDestinoClinica(clinica) || "";
+  const montarGoogleMapsWebUrl = useCallback((destino: WazeDestinoLocal | null | undefined): string => {
+    return montarGoogleMapsDestinoLocal(destino) || "";
   }, []);
 
   const wazeSelecionadoUrl = useMemo(() => {
-    if (!selecionado) return "";
-    const clinica = clinicasEndereco[Number(selecionado.clinica_id)];
-    return montarWazeWebUrl(clinica);
-  }, [clinicasEndereco, montarWazeWebUrl, selecionado]);
+    const { destino } = resolverDestinoAgendamento(selecionado);
+    return montarWazeWebUrl(destino);
+  }, [montarWazeWebUrl, resolverDestinoAgendamento, selecionado]);
 
   const googleMapsSelecionadoUrl = useMemo(() => {
-    if (!selecionado) return "";
-    const clinica = clinicasEndereco[Number(selecionado.clinica_id)];
-    return montarGoogleMapsWebUrl(clinica);
-  }, [clinicasEndereco, montarGoogleMapsWebUrl, selecionado]);
+    const { destino } = resolverDestinoAgendamento(selecionado);
+    return montarGoogleMapsWebUrl(destino);
+  }, [montarGoogleMapsWebUrl, resolverDestinoAgendamento, selecionado]);
 
   const carregarClinicasComEndereco = useCallback(async (items: Agendamento[]) => {
     const idsClinica = Array.from(
@@ -858,8 +898,8 @@ export default function AgendaFullCalendarPage() {
           cidade: clinica?.cidade || null,
           estado: clinica?.estado || null,
           cep: clinica?.cep || null,
-          latitude: Number.isFinite(Number(clinica?.latitude)) ? Number(clinica.latitude) : null,
-          longitude: Number.isFinite(Number(clinica?.longitude)) ? Number(clinica.longitude) : null,
+          latitude: normalizarCoordenadaOpcional(clinica?.latitude),
+          longitude: normalizarCoordenadaOpcional(clinica?.longitude),
           endereco_normalizado: clinica?.endereco_normalizado || null,
         };
       }
@@ -868,6 +908,53 @@ export default function AgendaFullCalendarPage() {
     } catch (error) {
       console.error("Erro ao carregar enderecos de clinicas no FullCalendar:", error);
       setClinicasEndereco({});
+    }
+  }, []);
+
+  const carregarTutoresComEndereco = useCallback(async (items: Agendamento[]) => {
+    const idsTutor = Array.from(
+      new Set(
+        items
+          .map((item) => Number(item.tutor_id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      )
+    );
+
+    if (idsTutor.length === 0) {
+      setTutoresEndereco({});
+      return;
+    }
+
+    try {
+      const respTutores = await api.get("/tutores?limit=2000");
+      const listaTutores = Array.isArray(respTutores.data?.items) ? respTutores.data.items : [];
+
+      const mapa: Record<number, TutorEndereco> = {};
+      for (const tutor of listaTutores) {
+        const tutorId = Number(tutor?.id);
+        if (!Number.isFinite(tutorId) || !idsTutor.includes(tutorId)) {
+          continue;
+        }
+
+        mapa[tutorId] = {
+          id: tutorId,
+          nome: tutor?.nome || null,
+          endereco: tutor?.endereco || null,
+          numero: tutor?.numero || null,
+          bairro: tutor?.bairro || null,
+          cidade: tutor?.cidade || null,
+          estado: tutor?.estado || null,
+          cep: tutor?.cep || null,
+          latitude: normalizarCoordenadaOpcional(tutor?.latitude),
+          longitude: normalizarCoordenadaOpcional(tutor?.longitude),
+          endereco_normalizado: tutor?.endereco_normalizado || null,
+        };
+      }
+
+      setTutoresEndereco(mapa);
+    } catch (error) {
+      console.error("Erro ao carregar enderecos de tutores no FullCalendar:", error);
+      setTutoresEndereco({});
     }
   }, []);
 
@@ -1031,6 +1118,7 @@ export default function AgendaFullCalendarPage() {
       if (includeRelated) {
         await Promise.all([
           carregarClinicasComEndereco(items),
+          carregarTutoresComEndereco(items),
           carregarOrdensServicoVinculadas(items, periodo),
           carregarLaudosVinculados(items),
         ]);
@@ -1042,7 +1130,7 @@ export default function AgendaFullCalendarPage() {
     } finally {
       setLoading(false);
     }
-  }, [carregarClinicasComEndereco, carregarLaudosVinculados, carregarOrdensServicoVinculadas]);
+  }, [carregarClinicasComEndereco, carregarLaudosVinculados, carregarOrdensServicoVinculadas, carregarTutoresComEndereco]);
 
   const carregarConfiguracaoAgenda = useCallback(async () => {
     try {
@@ -1212,12 +1300,17 @@ export default function AgendaFullCalendarPage() {
     setSlotSelecionado(null);
   }, []);
 
-  const handleAgendamentoSuccess = useCallback(async (agendamentoSalvo?: any) => {
+  const handleAgendamentoSuccess = useCallback(async (
+    agendamentoSalvo?: any,
+    opcoes?: { manterModalAberto?: boolean }
+  ) => {
     const edicaoAnterior = agendamentoEditando;
     if (intervalo) {
       await carregarAgendamentos(intervalo);
     }
-    fecharModal();
+    if (!opcoes?.manterModalAberto) {
+      fecharModal();
+    }
 
     if (!edicaoAnterior || !agendamentoSalvo) {
       return;
@@ -1269,6 +1362,12 @@ export default function AgendaFullCalendarPage() {
   }, [router, selecionado]);
 
   const getRotaNovoLaudo = useCallback((tipo: string, agendamentoId: number) => {
+    if (tipo === TIPO_LAUDO_ELETROCARDIOGRAMA) {
+      return `/laudos/eletrocardiograma/upload?agendamento_id=${agendamentoId}`;
+    }
+    if (tipo === TIPO_LAUDO_PRESSAO_ARTERIAL) {
+      return `/laudos/novo?agendamento_id=${agendamentoId}&tipo=${TIPO_LAUDO_PRESSAO_ARTERIAL}`;
+    }
     const basePath =
       tipo === TIPO_LAUDO_ULTRASSOM_ABDOMINAL ? "/ultrassonografia-abdominal/novo" : "/laudos/novo";
     return `${basePath}?agendamento_id=${agendamentoId}`;
@@ -1295,7 +1394,14 @@ export default function AgendaFullCalendarPage() {
     }
 
     try {
-      const { baixarLaudoPdf } = await import("@/lib/laudo-pdf");
+      const { baixarLaudoPdf, baixarLaudoPdfOriginal } = await import("@/lib/laudo-pdf");
+      if (laudoSelecionado.tipo === TIPO_LAUDO_ELETROCARDIOGRAMA) {
+        await baixarLaudoPdfOriginal(
+          laudoSelecionado.id,
+          `eletrocardiograma_agendamento_${selecionado.id}.pdf`,
+        );
+        return;
+      }
       await baixarLaudoPdf(
         laudoSelecionado.id,
         `laudo_agendamento_${selecionado.id}.pdf`,
@@ -1304,7 +1410,7 @@ export default function AgendaFullCalendarPage() {
       console.error("Erro ao baixar PDF do laudo:", error);
       setErro("Nao foi possivel baixar o PDF do laudo agora.");
     }
-  }, [laudoSelecionado?.id, selecionado]);
+  }, [laudoSelecionado?.id, laudoSelecionado?.tipo, selecionado]);
 
   const abrirModalCriacao = useCallback((data: Date, allDay = false) => {
     setDataControleAgenda(toDateInput(data));
@@ -1390,13 +1496,41 @@ export default function AgendaFullCalendarPage() {
       setMenuStatusAberto(false);
 
       try {
-        const params = new URLSearchParams();
-        params.append("status", novoStatus);
-        if (tipoHorarioParam) {
-          params.append("tipo_horario", tipoHorarioParam);
-        }
+        const enviarAtualizacao = (confirmarReservaExpirada = false) => {
+          const params = new URLSearchParams();
+          params.append("status", novoStatus);
+          if (tipoHorarioParam) {
+            params.append("tipo_horario", tipoHorarioParam);
+          }
+          if (confirmarReservaExpirada) {
+            params.append("confirmar_slot_reserva_expirada", "true");
+          }
+          return api.patch(`/agenda/${agendamentoId}/status?${params.toString()}`);
+        };
 
-        const response = await api.patch(`/agenda/${agendamentoId}/status?${params.toString()}`);
+        let response;
+        try {
+          response = await enviarAtualizacao(false);
+        } catch (errorInicial: any) {
+          const detail = errorInicial?.response?.data?.detail;
+          if (
+            errorInicial?.response?.status !== 409 ||
+            detail?.codigo !== "CONFIRMACAO_REATIVACAO_RESERVA_EXPIRADA"
+          ) {
+            throw errorInicial;
+          }
+          const confirmou = await fortinho.confirm({
+            title: "Confirmação recebida após o prazo",
+            message:
+              "Confirme somente se este mesmo cliente respondeu depois do vencimento. O sistema verificará se o horário ainda está livre antes de mudar o status para Agendado.",
+            mood: "alert",
+            gesture: "open-arms",
+            confirmLabel: "Cliente confirmou; agendar",
+            cancelLabel: "Cancelar",
+          });
+          if (!confirmou) return;
+          response = await enviarAtualizacao(true);
+        }
         setErro("");
         setMensagemStatus(response.data?.mensagem || `Status atualizado para ${novoStatus}.`);
 
@@ -1415,69 +1549,7 @@ export default function AgendaFullCalendarPage() {
         setAtualizandoStatusId(null);
       }
     },
-    [carregarAgendamentos, intervalo]
-  );
-
-  const abrirExcecaoNoSlotAdmin = useCallback(
-    async (dataIso: string, hora: string, duracaoMin: number) => {
-      if (!isAdmin) {
-        setErro("Apenas administradores podem abrir excecao de agenda.");
-        return false;
-      }
-
-      const confirmado = window.confirm(
-        `Abrir excecao de agenda em ${dataIso} às ${hora} para permitir agendamento?`
-      );
-      if (!confirmado) {
-        return false;
-      }
-
-      const fim = somarMinutosHHMM(hora, Math.max(30, duracaoMin));
-      const excecaoExistente = agendaExcecoes.find((item) => item.data === dataIso);
-
-      let inicioExcecao = hora;
-      let fimExcecao = fim;
-      if (excecaoExistente?.ativo) {
-        inicioExcecao = excecaoExistente.inicio < hora ? excecaoExistente.inicio : hora;
-        fimExcecao = excecaoExistente.fim > fim ? excecaoExistente.fim : fim;
-      }
-
-      const payloadExcecoes = normalizarAgendaExcecoes([
-        ...agendaExcecoes.filter((item) => item.data !== dataIso),
-        {
-          data: dataIso,
-          ativo: true,
-          inicio: inicioExcecao,
-          fim: fimExcecao,
-          motivo: "Abertura rapida via slot do FullCalendar",
-        },
-      ]);
-
-      try {
-        setSalvandoAgendaDia(true);
-        setErro("");
-        await api.put("/configuracoes", { agenda_excecoes: payloadExcecoes });
-        setAgendaExcecoes(payloadExcecoes);
-        setDataControleAgenda(dataIso);
-        setMensagemStatus(`Excecao aberta em ${dataIso} (${inicioExcecao} - ${fimExcecao}).`);
-        return true;
-      } catch (error: any) {
-        if (error?.response?.status === 403) {
-          setErro("Sem permissao para abrir excecao de agenda.");
-        } else {
-          setErro(
-            extrairMensagemErroApi(
-              error?.response?.data?.detail,
-              "Nao foi possivel abrir excecao para este horario."
-            )
-          );
-        }
-        return false;
-      } finally {
-        setSalvandoAgendaDia(false);
-      }
-    },
-    [agendaExcecoes, isAdmin]
+    [carregarAgendamentos, fortinho, intervalo]
   );
 
   const executarAcaoStatus = useCallback(
@@ -1486,6 +1558,18 @@ export default function AgendaFullCalendarPage() {
 
       if (selecionado.status === acao.status) {
         setMensagemStatus(`Este agendamento ja esta com status ${acao.status}.`);
+        setMenuStatusAberto(false);
+        return;
+      }
+
+      if (
+        selecionado.status === "Expirado" &&
+        acao.status === "Agendado" &&
+        (!selecionado.paciente_id || !selecionado.tutor_id)
+      ) {
+        setErro(
+          "Antes de confirmar tardiamente, edite a reserva e preencha os dados do tutor e do pet. Depois use 'Agendar após confirmação tardia'."
+        );
         setMenuStatusAberto(false);
         return;
       }
@@ -1555,8 +1639,11 @@ export default function AgendaFullCalendarPage() {
     if (filtroStatus !== "todos") {
       params.set("status", filtroStatus);
     }
+    if (filtroOrigemAtendimento !== "todos") {
+      params.set("origem_atendimento", filtroOrigemAtendimento);
+    }
     router.push(`/agenda?${params.toString()}`);
-  }, [dataControleAgenda, filtroStatus, router]);
+  }, [dataControleAgenda, filtroOrigemAtendimento, filtroStatus, router]);
 
   const receberPagamentoSelecionado = useCallback(async () => {
     if (!selecionado) return;
@@ -1653,7 +1740,7 @@ export default function AgendaFullCalendarPage() {
     } catch (error: any) {
       console.error("Erro ao excluir agendamento no FullCalendar:", error);
       if (error?.response?.status === 403) {
-        setErro("Apenas administradores podem excluir agendamentos.");
+        setErro("Apenas administradores e a equipe de recepção podem excluir agendamentos.");
       } else {
         setErro(
           extrairMensagemErroApi(error?.response?.data?.detail, "Nao foi possivel excluir este agendamento.")
@@ -1670,7 +1757,7 @@ export default function AgendaFullCalendarPage() {
         if (agendamentoIgnoradoId && agendamento.id === agendamentoIgnoradoId) {
           return false;
         }
-        if (String(agendamento.status || "").trim() === "Cancelado") {
+        if (["Cancelado", "Expirado"].includes(String(agendamento.status || "").trim())) {
           return false;
         }
 
@@ -1963,8 +2050,10 @@ export default function AgendaFullCalendarPage() {
         try {
           await api.post("/agenda", {
             paciente_id: agendamento.paciente_id ?? null,
+            tutor_id: agendamento.tutor_id ?? null,
             clinica_id: agendamento.clinica_id ?? null,
             servico_id: agendamento.servico_id ?? null,
+            origem_atendimento: agendamento.origem_atendimento || "clinica_parceira",
             inicio: toApiDateTime(inicioRecorrente),
             fim: toApiDateTime(fimRecorrente),
             status: agendamento.status || "Agendado",
@@ -2029,6 +2118,10 @@ export default function AgendaFullCalendarPage() {
       if (filtroStatus !== "todos" && ag.status !== filtroStatus) {
         continue;
       }
+      const origemAtual = String(ag.origem_atendimento || "clinica_parceira").trim() || "clinica_parceira";
+      if (filtroOrigemAtendimento !== "todos" && origemAtual !== filtroOrigemAtendimento) {
+        continue;
+      }
 
       const inicio = parseInicioLocal(ag);
       if (!inicio) {
@@ -2041,12 +2134,12 @@ export default function AgendaFullCalendarPage() {
         border: "#9ca3af",
         text: "#111827",
       };
-      const clinica = clinicasEndereco[Number(ag.clinica_id)];
-      const wazeUrl = montarWazeWebUrl(clinica);
+      const { destino } = resolverDestinoAgendamento(ag);
+      const wazeUrl = montarWazeWebUrl(destino);
 
       lista.push({
         id: String(ag.id),
-        title: ag.clinica || "Clinica nao informada",
+        title: obterTituloAgendamentoPorOrigem(ag.origem_atendimento, ag.clinica),
         start: inicio,
         end: fim,
         backgroundColor: statusVisual.bg,
@@ -2060,7 +2153,7 @@ export default function AgendaFullCalendarPage() {
     }
 
     return lista;
-  }, [agendamentos, clinicasEndereco, filtroStatus, montarWazeWebUrl]);
+  }, [agendamentos, filtroOrigemAtendimento, filtroStatus, montarWazeWebUrl, resolverDestinoAgendamento]);
 
   const handleEventClick = useCallback((arg: EventClickArg) => {
     const agendamento = arg.event.extendedProps.agendamento as Agendamento | undefined;
@@ -2085,13 +2178,8 @@ export default function AgendaFullCalendarPage() {
       const validacaoHorario = validarHorarioNaAgenda(inicio, fim);
       if (!validacaoHorario.valido) {
         if (isAdmin) {
-          const dataIso = toDateInput(inicio);
-          const horaIso = toTimeInput(inicio);
-          const abriu = await abrirExcecaoNoSlotAdmin(dataIso, horaIso, duracaoSlotMinutos);
-          if (abriu) {
-            setErro("");
-            abrirModalCriacao(inicio, false);
-          }
+          setErro("");
+          abrirModalCriacao(inicio, false);
           return;
         }
         setErro(validacaoHorario.motivo || "Agenda fechada para este horario.");
@@ -2108,7 +2196,6 @@ export default function AgendaFullCalendarPage() {
       agendaExcecoes,
       agendaFeriados,
       agendaSemanal,
-      abrirExcecaoNoSlotAdmin,
       abrirModalCriacao,
       duracaoSlotMinutos,
       existeConflitoSlot,
@@ -2133,13 +2220,8 @@ export default function AgendaFullCalendarPage() {
       const validacaoHorario = validarHorarioNaAgenda(inicio, fim);
       if (!validacaoHorario.valido) {
         if (isAdmin) {
-          const dataIso = toDateInput(inicio);
-          const horaIso = toTimeInput(inicio);
-          const abriu = await abrirExcecaoNoSlotAdmin(dataIso, horaIso, duracaoSlotMinutos);
-          if (abriu) {
-            setErro("");
-            abrirModalCriacao(inicio, false);
-          }
+          setErro("");
+          abrirModalCriacao(inicio, false);
           return;
         }
         setErro(validacaoHorario.motivo || "Agenda fechada para este horario.");
@@ -2156,7 +2238,6 @@ export default function AgendaFullCalendarPage() {
       agendaExcecoes,
       agendaFeriados,
       agendaSemanal,
-      abrirExcecaoNoSlotAdmin,
       abrirModalCriacao,
       duracaoSlotMinutos,
       existeConflitoSlot,
@@ -2200,9 +2281,18 @@ export default function AgendaFullCalendarPage() {
   );
 
   const renderEventContent = useCallback((eventInfo: EventContentArg) => {
-    const nomeClinica = String(eventInfo.event.title || "Clinica nao informada");
+    const agendamento = eventInfo.event.extendedProps.agendamento as Agendamento | undefined;
+    const origemMeta = obterOrigemAtendimentoMeta(agendamento?.origem_atendimento);
+    const titulo = String(
+      eventInfo.event.title || obterTituloAgendamentoPorOrigem(agendamento?.origem_atendimento, agendamento?.clinica)
+    );
 
-    return <span className="block truncate text-[11px] font-semibold leading-tight">{nomeClinica}</span>;
+    return (
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className={origemMeta.compactBadgeClassName}>{origemMeta.label}</span>
+        <span className="block truncate text-[11px] font-semibold leading-tight">{titulo}</span>
+      </div>
+    );
   }, []);
 
   const permiteInteracaoHorarioAgenda = useCallback(
@@ -2270,9 +2360,9 @@ export default function AgendaFullCalendarPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6">
+      <div className="fc-agenda-page fc-calendar-page">
         {toastRealtime && (
-          <div className="fixed right-4 top-4 z-[70]">
+          <div className="fixed right-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[70] lg:top-4">
             <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-xs shadow-lg ${toastRealtime.classe}`}>
               <span className="font-medium">{toastRealtime.texto}</span>
               {typeof toastRealtime.agendamentoId === "number" && (
@@ -2288,26 +2378,29 @@ export default function AgendaFullCalendarPage() {
           </div>
         )}
 
-        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="fc-agenda-header fc-calendar-header">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Agenda FullCalendar</h1>
-            <p className="text-gray-500">
-              Clique em horario vazio para criar, selecione um evento para editar/status, e arraste para alterar horario.
-            </p>
+            <span className="fc-agenda-kicker">
+              <CalendarDays className="h-4 w-4" />
+              Visão avançada
+            </span>
+            <h1>Calendário operacional</h1>
+            <p>Clique em um horário vazio para criar e arraste eventos para reorganizar o fluxo.</p>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="fc-calendar-controls">
             <button
               type="button"
               onClick={abrirAgendaLista}
-              className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+              className="fc-agenda-button-secondary"
             >
-              Ver Agenda Lista
+              <List className="h-4 w-4" />
+              Ver lista
             </button>
             <select
               value={filtroStatus}
               onChange={(event) => setFiltroStatus(event.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              className="fc-agenda-control"
             >
               {STATUS_FILTRO.map((status) => (
                 <option key={status} value={status}>
@@ -2316,21 +2409,31 @@ export default function AgendaFullCalendarPage() {
               ))}
             </select>
 
+            <select
+              value={filtroOrigemAtendimento}
+              onChange={(event) => setFiltroOrigemAtendimento(event.target.value)}
+              className="fc-agenda-control"
+            >
+              <option value="todos">Todas as origens</option>
+              <option value="clinica_parceira">Clinica parceira</option>
+              <option value="domiciliar">Atendimento domiciliar</option>
+            </select>
+
             <input
               type="date"
               value={dataControleAgenda}
               onChange={(event) => setDataControleAgenda(event.target.value || toDateInput(new Date()))}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              className="fc-agenda-control"
             />
 
             {isAdmin ? (
               <button
                 onClick={alternarAberturaAgendaDia}
                 disabled={salvandoAgendaDia}
-                className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                className={`fc-agenda-button-state ${
                   jornadaDataControle.fechado
-                    ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                    : "bg-amber-500 text-white hover:bg-amber-600"
+                    ? "fc-agenda-button-state-open"
+                    : "fc-agenda-button-state-close"
                 }`}
               >
                 {salvandoAgendaDia
@@ -2340,7 +2443,7 @@ export default function AgendaFullCalendarPage() {
                     : "Fechar data"}
               </button>
             ) : (
-              <span className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+              <span className="fc-calendar-admin-note">
                 Somente admin pode abrir/fechar agenda
               </span>
             )}
@@ -2348,7 +2451,7 @@ export default function AgendaFullCalendarPage() {
             <button
               onClick={() => intervalo && carregarAgendamentos(intervalo)}
               disabled={!intervalo || loading || salvandoMovimentacao}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="fc-agenda-button-primary"
             >
               <RefreshCw className={`h-4 w-4 ${loading || salvandoMovimentacao ? "animate-spin" : ""}`} />
               {salvandoMovimentacao ? "Salvando..." : "Atualizar"}
@@ -2356,7 +2459,7 @@ export default function AgendaFullCalendarPage() {
           </div>
         </div>
 
-        <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-xs text-gray-700">
+        <div className="fc-calendar-day-state">
           Data {dataControleAgenda}:{" "}
           <strong>{jornadaDataControle.fechado ? "fechada" : "aberta"}</strong>
           {jornadaDataControle.motivo ? ` (${jornadaDataControle.motivo})` : ""}
@@ -2364,12 +2467,13 @@ export default function AgendaFullCalendarPage() {
         </div>
 
         <div
-          className={`mb-4 rounded-lg border px-4 py-2 text-xs ${
+          className={`fc-agenda-livebar ${
             realtimeConectado
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : "border-amber-200 bg-amber-50 text-amber-800"
+              ? "fc-agenda-livebar-online"
+              : "fc-agenda-livebar-warning"
           }`}
         >
+          <span className="fc-agenda-live-dot" />
           Tempo real: {realtimeConectado ? "conectado" : "reconectando..."}
           {realtimeUltimoEvento ? ` | Ultimo evento: ${realtimeUltimoEvento}` : ""}
           {mensagemRealtime ? ` | ${mensagemRealtime}` : ""}
@@ -2377,7 +2481,7 @@ export default function AgendaFullCalendarPage() {
 
         {erro && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</div>}
 
-        <div className="rounded-xl border bg-white p-2 shadow-sm md:p-4">
+        <div className="fc-calendar-surface">
           <AgendaFullCalendarView
             events={eventos}
             eventContent={renderEventContent}
@@ -2388,7 +2492,9 @@ export default function AgendaFullCalendarPage() {
             eventDrop={handleEventDrop}
             eventResize={handleEventResize}
             businessHours={businessHours}
-            selectAllow={(selectInfo) => permiteInteracaoHorarioAgenda(selectInfo.start, selectInfo.end ?? selectInfo.start)}
+            selectAllow={(selectInfo) =>
+              isAdmin || permiteInteracaoHorarioAgenda(selectInfo.start, selectInfo.end ?? selectInfo.start)
+            }
             eventAllow={(dropInfo) => permiteInteracaoHorarioAgenda(dropInfo.start, dropInfo.end ?? dropInfo.start)}
             eventOverlap={(stillEvent, movingEvent) => {
               const statusStill = String(
@@ -2397,13 +2503,13 @@ export default function AgendaFullCalendarPage() {
               const statusMoving = String(
                 ((movingEvent?.extendedProps?.agendamento as Agendamento | undefined)?.status || "").trim()
               );
-              return statusStill === "Cancelado" || statusMoving === "Cancelado";
+              return ["Cancelado", "Expirado"].includes(statusStill) || ["Cancelado", "Expirado"].includes(statusMoving);
             }}
             selectOverlap={(event) => {
               const statusExistente = String(
                 ((event.extendedProps?.agendamento as Agendamento | undefined)?.status || "").trim()
               );
-              return statusExistente === "Cancelado";
+              return ["Cancelado", "Expirado"].includes(statusExistente);
             }}
             slotMinTime={slotMinTime}
             slotMaxTime={slotMaxTime}
@@ -2415,7 +2521,7 @@ export default function AgendaFullCalendarPage() {
         </div>
 
         <div className="mt-4 grid gap-4 lg:grid-cols-3">
-          <div className="rounded-xl border bg-white p-4 shadow-sm">
+          <div className="fc-calendar-summary-card">
             <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
               <CalendarDays className="h-4 w-4" />
               Resumo do periodo carregado
@@ -2432,12 +2538,18 @@ export default function AgendaFullCalendarPage() {
             </p>
           </div>
 
-          <div className="rounded-xl border bg-white p-4 shadow-sm lg:col-span-2">
+          <div className="fc-calendar-detail-card lg:col-span-2">
             <h2 className="mb-2 text-sm font-semibold text-gray-700">Detalhes do evento selecionado</h2>
             {!selecionado ? (
               <p className="text-sm text-gray-500">Clique em um evento para ver os detalhes e abrir as acoes.</p>
             ) : (
               <div className="space-y-3">
+                {origemSelecionadoMeta && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-medium text-gray-500">Origem do atendimento</span>
+                    <span className={origemSelecionadoMeta.badgeClassName}>{origemSelecionadoMeta.descricao}</span>
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={abrirEdicaoSelecionado}
@@ -2475,12 +2587,24 @@ export default function AgendaFullCalendarPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => laudarSelecionado(TIPO_LAUDO_ULTRASSOM_ABDOMINAL)}
+                        onClick={() => laudarSelecionado(TIPO_LAUDO_ELETROCARDIOGRAMA)}
                         className="flex w-full items-center justify-between gap-3 border-t px-4 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
                       >
-                        <span>US abdominal</span>
+                        <span>Eletrocardiograma</span>
                         <span className="text-xs text-gray-500">
-                          {obterLaudoVinculado(selecionado.id, TIPO_LAUDO_ULTRASSOM_ABDOMINAL)
+                          {obterLaudoVinculado(selecionado.id, TIPO_LAUDO_ELETROCARDIOGRAMA)
+                            ? "Ver existente"
+                            : "Upload PDF"}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => laudarSelecionado(TIPO_LAUDO_PRESSAO_ARTERIAL)}
+                        className="flex w-full items-center justify-between gap-3 border-t px-4 py-3 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        <span>Pressao arterial</span>
+                        <span className="text-xs text-gray-500">
+                          {obterLaudoVinculado(selecionado.id, TIPO_LAUDO_PRESSAO_ARTERIAL)
                             ? "Editar existente"
                             : "Novo laudo"}
                         </span>
@@ -2608,15 +2732,53 @@ export default function AgendaFullCalendarPage() {
                 <div className="grid gap-2 text-sm sm:grid-cols-2">
                   <p>
                     <span className="font-medium text-gray-700">Paciente:</span>{" "}
-                    <span className="text-gray-900">{selecionado.paciente || "Nao informado"}</span>
+                    {selecionado.paciente_id || selecionado.tutor_id ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setClienteModalAlvo(
+                            selecionado.paciente_id
+                              ? { pacienteId: selecionado.paciente_id }
+                              : { tutorId: selecionado.tutor_id! }
+                          )
+                        }
+                        className="text-gray-900 hover:text-blue-700 hover:underline"
+                        title="Ver e editar dados do cliente"
+                      >
+                        {selecionado.paciente || "Nao informado"}
+                      </button>
+                    ) : (
+                      <span className="text-gray-900">{selecionado.paciente || "Nao informado"}</span>
+                    )}
                   </p>
                   <p>
                     <span className="font-medium text-gray-700">Tutor:</span>{" "}
-                    <span className="text-gray-900">{selecionado.tutor || "Nao informado"}</span>
+                    {selecionado.paciente_id || selecionado.tutor_id ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setClienteModalAlvo(
+                            selecionado.paciente_id
+                              ? { pacienteId: selecionado.paciente_id }
+                              : { tutorId: selecionado.tutor_id! }
+                          )
+                        }
+                        className="text-gray-900 hover:text-blue-700 hover:underline"
+                        title="Ver e editar dados do cliente"
+                      >
+                        {selecionado.tutor || "Nao informado"}
+                      </button>
+                    ) : (
+                      <span className="text-gray-900">{selecionado.tutor || "Nao informado"}</span>
+                    )}
                   </p>
                   <p>
-                    <span className="font-medium text-gray-700">Clinica:</span>{" "}
-                    <span className="text-gray-900">{selecionado.clinica || "Nao informada"}</span>
+                    <span className="font-medium text-gray-700">
+                      {origemSelecionadoMeta?.codigo === "domiciliar" ? "Local:" : "Clinica:"}
+                    </span>{" "}
+                    <span className="text-gray-900">
+                      {obterTituloAgendamentoPorOrigem(selecionado.origem_atendimento, selecionado.clinica)}
+                    </span>
                   </p>
                   <p>
                     <span className="font-medium text-gray-700">Servico:</span>{" "}
@@ -3085,6 +3247,15 @@ export default function AgendaFullCalendarPage() {
             isAdmin={isAdmin}
           />
         ) : null}
+
+        {clienteModalAlvo && (
+          <ClienteInfoModal
+            pacienteId={clienteModalAlvo.pacienteId}
+            tutorId={clienteModalAlvo.tutorId}
+            onClose={() => setClienteModalAlvo(null)}
+            onSaved={() => { if (intervalo) void carregarAgendamentos(intervalo); }}
+          />
+        )}
       </div>
     </DashboardLayout>
   );

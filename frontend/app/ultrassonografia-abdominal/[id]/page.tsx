@@ -10,11 +10,12 @@ import {
   TIPO_LAUDO_ULTRASSOM_ABDOMINAL,
 } from "@/lib/laudos";
 import { baixarLaudoPdf } from "@/lib/laudo-pdf";
+import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
 import {
   getOrgaosVisiveis,
   normalizarSexoPaciente,
 } from "@/lib/ultrassonografia-abdominal";
-import { ArrowLeft, Download, Edit, Loader2 } from "lucide-react";
+import { ArrowLeft, Download, Edit, Loader2, ScanLine } from "lucide-react";
 
 interface ImagemPreview {
   id: number;
@@ -111,9 +112,11 @@ export default function VisualizarUltrassonografiaAbdominalPage() {
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="p-6 text-center text-gray-500">
-          <Loader2 className="mx-auto mb-3 h-6 w-6 animate-spin text-teal-600" />
+        <div className="fc-ultrasound-view-page">
+          <div className="fc-ultrasound-loading">
+          <Loader2 className="h-6 w-6 animate-spin" />
           Carregando laudo...
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -130,27 +133,32 @@ export default function VisualizarUltrassonografiaAbdominalPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-5xl mx-auto space-y-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-3">
+      <div className="fc-ultrasound-view-page">
+        <header className="fc-ultrasound-view-header">
+          <div className="fc-ultrasound-form-heading">
             <button
               type="button"
               onClick={() => router.push("/ultrassonografia-abdominal")}
-              className="p-2 rounded-lg hover:bg-gray-100"
+              className="fc-ultrasound-form-back"
+              aria-label="Voltar para ultrassonografia abdominal"
             >
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
+              <ArrowLeft className="h-5 w-5" />
             </button>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Laudo de Ultrassonografia Abdominal</h1>
-              <p className="text-gray-500">{laudo.paciente?.nome || "Paciente"}</p>
+              <span className="fc-ultrasound-form-kicker">
+                <ScanLine className="h-4 w-4" />
+                Documento ultrassonográfico
+              </span>
+              <h1>Ultrassonografia abdominal</h1>
+              <p>{laudo.paciente?.nome || "Paciente"}</p>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="fc-ultrasound-view-actions">
             <button
               type="button"
               onClick={downloadPDF}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700"
+              className="fc-ultrasound-view-pdf"
             >
               <Download className="w-4 h-4" />
               PDF
@@ -158,15 +166,15 @@ export default function VisualizarUltrassonografiaAbdominalPage() {
             <button
               type="button"
               onClick={() => router.push(getLaudoEditPath(laudoId || "", laudo.tipo))}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700"
+              className="fc-ultrasound-view-edit"
             >
               <Edit className="w-4 h-4" />
               Editar
             </button>
           </div>
-        </div>
+        </header>
 
-        <div className="bg-white rounded-xl border shadow-sm p-6">
+        <section className="fc-ultrasound-view-card fc-ultrasound-view-summary">
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
             <div><span className="text-gray-500">Paciente</span><p className="font-medium">{laudo.paciente?.nome || "N/A"}</p></div>
             <div><span className="text-gray-500">Tutor</span><p className="font-medium">{laudo.paciente?.tutor || "N/A"}</p></div>
@@ -175,14 +183,14 @@ export default function VisualizarUltrassonografiaAbdominalPage() {
             <div><span className="text-gray-500">Sexo</span><p className="font-medium">{normalizarSexoPaciente(sexoPaciente)}</p></div>
             <div><span className="text-gray-500">Peso</span><p className="font-medium">{laudo.paciente?.peso_kg ? `${laudo.paciente.peso_kg} kg` : "N/A"}</p></div>
             <div><span className="text-gray-500">Idade</span><p className="font-medium">{laudo.paciente?.idade || "N/A"}</p></div>
-            <div><span className="text-gray-500">Data</span><p className="font-medium">{new Date(laudo.data_exame || laudo.data_laudo).toLocaleDateString("pt-BR")}</p></div>
+            <div><span className="text-gray-500">Data</span><p className="font-medium">{laudo.data_exame ? formatCalendarDate(laudo.data_exame) : formatOperationalDate(laudo.data_laudo)}</p></div>
             <div><span className="text-gray-500">Clinica</span><p className="font-medium">{laudo.clinica || "N/A"}</p></div>
             <div><span className="text-gray-500">Veterinario</span><p className="font-medium">{laudo.medico_solicitante || "N/A"}</p></div>
             <div><span className="text-gray-500">Status</span><p className="font-medium">{laudo.status}</p></div>
           </div>
-        </div>
+        </section>
 
-        <div className="bg-white rounded-xl border shadow-sm p-6 space-y-5">
+        <section className="fc-ultrasound-view-card space-y-5">
           <h2 className="text-lg font-semibold text-gray-900">Avaliacao Qualitativa</h2>
           {orgaos.map((orgao) => {
             const texto = qualitativa[orgao.key];
@@ -203,10 +211,10 @@ export default function VisualizarUltrassonografiaAbdominalPage() {
               <p className="text-sm text-gray-700 whitespace-pre-wrap">{observacoes}</p>
             </div>
           )}
-        </div>
+        </section>
 
         {imagens.length > 0 && (
-          <div className="bg-white rounded-xl border shadow-sm p-6">
+          <section className="fc-ultrasound-view-card">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Imagens</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {imagens.map((imagem) => (
@@ -216,7 +224,7 @@ export default function VisualizarUltrassonografiaAbdominalPage() {
                 </div>
               ))}
             </div>
-          </div>
+          </section>
         )}
       </div>
     </DashboardLayout>

@@ -43,6 +43,12 @@ CHAVES_COMPRIMENTO_MM = {
     "DIVES",
     "SIVs",
     "PLVES",
+    "DIVEd_2D",
+    "SIVd_2D",
+    "PLVEd_2D",
+    "DIVES_2D",
+    "SIVs_2D",
+    "PLVES_2D",
     "TAPSE",
     "MAPSE",
     "Aorta",
@@ -136,14 +142,18 @@ def recalcular_dived_normalizado_para_pdf(dados_pdf: Dict[str, Any]) -> None:
     paciente = dados_pdf.get("paciente")
     paciente_dict = paciente if isinstance(paciente, dict) else {}
 
-    dived_mm = _to_float(medidas.get("DIVEd"))
     peso_kg = _to_float_peso(paciente_dict.get("peso"))
-
-    if dived_mm is None or dived_mm <= 0 or peso_kg is None or peso_kg <= 0:
+    if peso_kg is None or peso_kg <= 0:
         return
-
-    dived_cm = dived_mm / 10.0
-    medidas["DIVEd_normalizado"] = round(dived_cm / (peso_kg ** 0.294), 2)
+    for diameter_key, normalized_key in (
+        ("DIVEd", "DIVEd_normalizado"),
+        ("DIVEd_2D", "DIVEd_normalizado_2D"),
+    ):
+        dived_mm = _to_float(medidas.get(diameter_key))
+        if dived_mm is None or dived_mm <= 0:
+            continue
+        dived_cm = dived_mm / 10.0
+        medidas[normalized_key] = round(dived_cm / (peso_kg ** 0.294), 2)
 
 
 def _bloco_sem_quebra(*flowables):
@@ -187,10 +197,20 @@ MAPEAMENTO_REFERENCIA_ECO = {
     "SIVs": "ivs_s",
     "PLVEd": "lvpw_d",
     "PLVES": "lvpw_s",
+    "DIVEd_2D": "lvid_d",
+    "DIVES_2D": "lvid_s",
+    "SIVd_2D": "ivs_d",
+    "SIVs_2D": "ivs_s",
+    "PLVEd_2D": "lvpw_d",
+    "PLVES_2D": "lvpw_s",
     "VDF": "edv",
+    "VDF_2D": "edv",
     "VSF": "esv",
+    "VSF_2D": "esv",
     "FE_Teicholz": "ef",
+    "FE_Teicholz_2D": "ef",
     "DeltaD_FS": "fs",
+    "DeltaD_FS_2D": "fs",
     "TAPSE": "tapse",
     "MAPSE": "mapse",
     "Aorta": "ao",
@@ -231,6 +251,9 @@ def aplicar_referencia_eco(parametros: List[Dict], referencia_eco: Optional[Dict
             ref_min = referencia_eco.get(f"{prefixo}_min")
             ref_max = referencia_eco.get(f"{prefixo}_max")
             if ref_min is not None and ref_max is not None:
+                if str(param.get("chave")) in {"e_doppler", "a_doppler"}:
+                    ref_min = float(ref_min) / 100
+                    ref_max = float(ref_max) / 100
                 atualizado["ref_min"] = ref_min
                 atualizado["ref_max"] = ref_max
 
@@ -1360,6 +1383,19 @@ def gerar_pdf_laudo_eco(
             {'chave': 'TAPSE', 'label': 'TAPSE (excursão sistólica do plano anular tricúspide)', 'unidade': 'mm', 'ref_min': None, 'ref_max': None},
             {'chave': 'MAPSE', 'label': 'MAPSE (excursão sistólica do plano anular mitral)', 'unidade': 'mm', 'ref_min': None, 'ref_max': None},
         ]
+        params_ve_modo_2d = [
+            {'chave': 'DIVEd_2D', 'label': 'DIVEd 2D (Diâmetro interno do VE em diástole)', 'unidade': 'mm', 'ref_min': 16.0, 'ref_max': 24.0},
+            {'chave': 'DIVEd_normalizado_2D', 'label': 'DIVEd normalizado 2D (DIVEd [cm] / peso^0,294)', 'unidade': '', 'ref_min': 1.27, 'ref_max': 1.73},
+            {'chave': 'SIVd_2D', 'label': 'SIVd 2D (Septo interventricular em diástole)', 'unidade': 'mm', 'ref_min': 3.5, 'ref_max': 5.5},
+            {'chave': 'PLVEd_2D', 'label': 'PLVEd 2D (Parede livre do VE em diástole)', 'unidade': 'mm', 'ref_min': 3.5, 'ref_max': 5.5},
+            {'chave': 'DIVES_2D', 'label': 'DIVEs 2D (Diâmetro interno do VE em sístole)', 'unidade': 'mm', 'ref_min': 9.0, 'ref_max': 16.0},
+            {'chave': 'SIVs_2D', 'label': 'SIVs 2D (Septo interventricular em sístole)', 'unidade': 'mm', 'ref_min': 4.5, 'ref_max': 7.5},
+            {'chave': 'PLVES_2D', 'label': 'PLVEs 2D (Parede livre do VE em sístole)', 'unidade': 'mm', 'ref_min': 5.0, 'ref_max': 8.0},
+            {'chave': 'VDF_2D', 'label': 'VDF 2D (Teicholz)', 'unidade': 'ml', 'ref_min': 0, 'ref_max': 0},
+            {'chave': 'VSF_2D', 'label': 'VSF 2D (Teicholz)', 'unidade': 'ml', 'ref_min': 0, 'ref_max': 0},
+            {'chave': 'FE_Teicholz_2D', 'label': 'FE 2D (Teicholz)', 'unidade': '%', 'ref_min': 55, 'ref_max': 80},
+            {'chave': 'DeltaD_FS_2D', 'label': 'Delta D / %FS 2D', 'unidade': '%', 'ref_min': 28, 'ref_max': 42},
+        ]
         
         # Grupo: Átrio Esquerdo / Aorta - SEM Interpretação
         params_ae_aorta = [
@@ -1398,6 +1434,8 @@ def gerar_pdf_laudo_eco(
             {'chave': 'TD', 'label': 'TD (tempo desaceleração)', 'unidade': 'ms', 'ref_min': 0.00, 'ref_max': 160.00},
             {'chave': 'TRIV', 'label': 'TRIV (tempo relaxamento isovolumétrico)', 'unidade': 'ms', 'ref_min': None, 'ref_max': None},
             {'chave': 'MR_dp_dt', 'label': 'MR dp/dt', 'unidade': 'mmHg/s', 'ref_min': None, 'ref_max': None},
+            {'chave': 'e_doppler', 'label': "e' (Doppler tecidual)", 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
+            {'chave': 'a_doppler', 'label': "a' (Doppler tecidual)", 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
             {'chave': 'doppler_tecidual_relacao', 'label': "Doppler tecidual (Relação e'/a')", 'unidade': '', 'ref_min': None, 'ref_max': None},
             {'chave': 'E_E_linha', 'label': "E/E'", 'unidade': '', 'ref_min': 0, 'ref_max': 12},
         ]
@@ -1405,14 +1443,21 @@ def gerar_pdf_laudo_eco(
         # Grupo: Regurgitações - SEM Interpretação
         params_regurgitacoes = [
             {'chave': 'IM_Vmax', 'label': 'IM (insuficiência mitral) Vmax', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
+            {'chave': 'IM_Grad', 'label': 'Gradiente da insuficiência mitral (4 × V²)', 'unidade': 'mmHg', 'ref_min': None, 'ref_max': None},
             {'chave': 'IT_Vmax', 'label': 'IT (insuficiência tricúspide) Vmax', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
+            {'chave': 'IT_Grad', 'label': 'Gradiente da insuficiência tricúspide (4 × V²)', 'unidade': 'mmHg', 'ref_min': None, 'ref_max': None},
+            {'chave': 'PAD_estimada', 'label': 'Pressão atrial direita estimada', 'unidade': 'mmHg', 'ref_min': None, 'ref_max': None},
+            {'chave': 'PSAP', 'label': 'PSAP estimada (gradiente IT + PAD estimada)', 'unidade': 'mmHg', 'ref_min': None, 'ref_max': None},
             {'chave': 'IA_Vmax', 'label': 'IA (insuficiência aórtica) Vmax', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
+            {'chave': 'IA_Grad', 'label': 'Gradiente da insuficiência aórtica (4 × V²)', 'unidade': 'mmHg', 'ref_min': None, 'ref_max': None},
             {'chave': 'IP_Vmax', 'label': 'IP (insuficiência pulmonar) Vmax', 'unidade': 'm/s', 'ref_min': None, 'ref_max': None},
+            {'chave': 'IP_Grad', 'label': 'Gradiente da insuficiência pulmonar (4 × V²)', 'unidade': 'mmHg', 'ref_min': None, 'ref_max': None},
         ]
         
         # Aplicar referências do banco de dados se disponíveis
         referencia_eco = dados_pdf.get("referencia_eco")
         params_ve_modo_m = aplicar_referencia_eco(params_ve_modo_m, referencia_eco)
+        params_ve_modo_2d = aplicar_referencia_eco(params_ve_modo_2d, referencia_eco)
         params_ae_aorta = aplicar_referencia_eco(params_ae_aorta, referencia_eco)
         params_ap_aorta = aplicar_referencia_eco(params_ap_aorta, referencia_eco)
         params_doppler_saidas = aplicar_referencia_eco(params_doppler_saidas, referencia_eco)
@@ -1423,12 +1468,22 @@ def gerar_pdf_laudo_eco(
         # Montar tabelas conforme modelo de referência
         # =================================================================
         
-        # VE - Modo B e Modo M: COM Referência (diferença solicitada pelo usuário)
+        medidas_pdf = dados_pdf.get("medidas") or {}
+        tecnica_ve = str(medidas_pdf.get("VE_tecnica_relatorio") or "").lower()
+        tem_modo_m = any(_to_float(medidas_pdf.get(item["chave"])) for item in params_ve_modo_m)
+        tem_modo_2d = any(_to_float(medidas_pdf.get(item["chave"])) for item in params_ve_modo_2d)
+        if tecnica_ve == "2d" or (tem_modo_2d and not tem_modo_m):
+            titulo_ve = "VE - Modo 2D"
+            params_ve_relatorio = params_ve_modo_2d
+        else:
+            titulo_ve = "VE - Modo M"
+            params_ve_relatorio = params_ve_modo_m
+
         elements.append(
             _bloco_sem_quebra(
                 criar_tabela_medidas(
-                    "VE - Modo B e Modo M",
-                    params_ve_modo_m,
+                    titulo_ve,
+                    params_ve_relatorio,
                     dados_pdf,
                     mostrar_referencia=True,
                     mostrar_interpretacao=False,
@@ -1830,6 +1885,7 @@ def gerar_pdf_laudo_pressao(
                 print(f"Erro ao remover arquivo temporario {temp_file}: {e}")
 
 
+
 # Mantém compatibilidade com código anterior
 gerar_pdf_laudo = gerar_pdf_laudo_eco
 
@@ -2079,5 +2135,3 @@ def gerar_pdf_laudo_ultrassom_abdominal(
                     os.unlink(temp_file)
             except Exception as e:
                 print(f"Erro ao remover arquivo temporario {temp_file}: {e}")
-
-

@@ -6,9 +6,10 @@ import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -44,7 +45,12 @@ class AgendaConcorrenciaSlotTest(unittest.TestCase):
         self._session_factory = sessionmaker(bind=self._engine, autocommit=False, autoflush=False)
 
         with self._session_factory() as db:
-            clinica = Clinica(nome="Casa Pet", ativo=True)
+            clinica = Clinica(
+                nome="Casa Pet",
+                ativo=True,
+                latitude=-3.7319,
+                longitude=-38.5267,
+            )
             servico = Servico(nome="Consulta", duracao_minutos=30, ativo=True)
             db.add_all([clinica, servico])
             db.commit()
@@ -118,6 +124,158 @@ class AgendaConcorrenciaSlotTest(unittest.TestCase):
         with self._session_factory() as db:
             total = db.query(Agendamento).count()
         self.assertEqual(total, 1)
+
+    def test_remarcacao_sincroniza_hora_antes_de_validar_slot(self) -> None:
+        inicio_ocupado = datetime(2099, 5, 27, 10, 0, 0)
+        inicio_original = inicio_ocupado + timedelta(hours=1)
+        usuario = SimpleNamespace(id=1, nome="User 1", tem_papel=lambda _: False)
+
+        with self._session_factory() as db, patch.object(
+            agenda, "registrar_auditoria", return_value=None
+        ), patch.object(
+            agenda, "_notificar_agenda_update", return_value=None
+        ), patch.object(
+            agenda, "_validar_deslocamento_agendamento", return_value=None
+        ):
+            ocupado = agenda.criar_agendamento(
+                agendamento=self._payload(),
+                request=SimpleNamespace(),
+                db=db,
+                current_user=usuario,
+            )
+            candidato = agenda.criar_agendamento(
+                agendamento=agenda.AgendamentoCreate(
+                    paciente_id=None,
+                    clinica_id=self.clinica_id,
+                    servico_id=self.servico_id,
+                    inicio=inicio_original,
+                    fim=inicio_original + timedelta(minutes=30),
+                    status="Reservado",
+                    observacoes="teste remarcacao",
+                ),
+                request=SimpleNamespace(),
+                db=db,
+                current_user=usuario,
+            )
+
+            with self.assertRaises(HTTPException) as contexto:
+                agenda.atualizar_agendamento(
+                    agendamento_id=int(candidato["id"]),
+                    agendamento=agenda.AgendamentoUpdate(
+                        inicio=inicio_ocupado,
+                        fim=inicio_ocupado + timedelta(minutes=30),
+                    ),
+                    request=SimpleNamespace(),
+                    db=db,
+                    current_user=usuario,
+                )
+
+            self.assertEqual(contexto.exception.status_code, 409)
+            db.rollback()
+
+            candidato_persistido = (
+                db.query(Agendamento)
+                .filter(Agendamento.id == int(candidato["id"]))
+                .one()
+            )
+            self.assertEqual(candidato_persistido.hora, "11:00")
+            self.assertEqual(
+                db.query(Agendamento)
+                .filter(Agendamento.id == int(ocupado["id"]))
+                .count(),
+                1,
+            )
+
+    def test_confirmacao_revalida_slot_e_bloqueia_conflito_legado(self) -> None:
+        inicio = datetime(2099, 5, 27, 10, 0, 0)
+        usuario = SimpleNamespace(id=1, nome="User 1", tem_papel=lambda _: False)
+
+        with self._session_factory() as db:
+            reservado = Agendamento(
+                paciente_id=None,
+                clinica_id=self.clinica_id,
+                servico_id=self.servico_id,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                data="2099-05-27",
+                hora="10:00",
+                status="Reservado",
+            )
+            conflito_legado = Agendamento(
+                paciente_id=None,
+                clinica_id=self.clinica_id,
+                servico_id=self.servico_id,
+                inicio=inicio,
+                fim=inicio + timedelta(minutes=30),
+                data="2099-05-27",
+                hora="10:00",
+                status="Agendado",
+            )
+            db.add_all([reservado, conflito_legado])
+            db.commit()
+            db.refresh(reservado)
+
+            with patch.object(
+                agenda, "_validar_paciente_tutor_para_status", return_value=None
+            ), self.assertRaises(HTTPException) as contexto:
+                agenda.atualizar_status(
+                    agendamento_id=int(reservado.id),
+                    request=SimpleNamespace(),
+                    status="Confirmado",
+                    db=db,
+                    current_user=usuario,
+                )
+
+            self.assertEqual(contexto.exception.status_code, 409)
+            db.rollback()
+            db.refresh(reservado)
+            self.assertEqual(reservado.status, "Reservado")
+
+    def test_reserva_sem_paciente_pode_ser_cancelada(self) -> None:
+        usuario = SimpleNamespace(id=1, nome="User 1", tem_papel=lambda _: False)
+
+        with self._session_factory() as db, patch.object(
+            agenda, "registrar_auditoria", return_value=None
+        ), patch.object(
+            agenda, "_notificar_agenda_update", return_value=None
+        ), patch.object(
+            agenda, "_validar_deslocamento_agendamento", return_value=None
+        ):
+            reservado = agenda.criar_agendamento(
+                agendamento=self._payload(),
+                request=SimpleNamespace(),
+                db=db,
+                current_user=usuario,
+            )
+
+            resposta = agenda.atualizar_status(
+                agendamento_id=int(reservado["id"]),
+                request=SimpleNamespace(),
+                status="Cancelado",
+                db=db,
+                current_user=usuario,
+            )
+
+            self.assertEqual(resposta["status"], "Cancelado")
+            persistido = (
+                db.query(Agendamento)
+                .filter(Agendamento.id == int(reservado["id"]))
+                .one()
+            )
+            db.refresh(persistido)
+            self.assertEqual(persistido.status, "Cancelado")
+
+    def test_violacao_da_constraint_de_slot_retorna_http_409(self) -> None:
+        db = MagicMock()
+        erro = SQLAlchemyError("exclusion violation")
+        erro.orig = SimpleNamespace(sqlstate="23P01")
+        db.commit.side_effect = erro
+
+        with self.assertRaises(HTTPException) as contexto:
+            agenda._commit_agenda_write(db)
+
+        self.assertEqual(contexto.exception.status_code, 409)
+        db.rollback.assert_called_once_with()
 
 
 if __name__ == "__main__":

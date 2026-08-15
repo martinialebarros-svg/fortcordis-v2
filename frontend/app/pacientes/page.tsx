@@ -4,12 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "../layout-dashboard";
 import api from "@/lib/axios";
-import { Users, Search, Plus, Dog, Cat, User, Edit2, Trash2 } from "lucide-react";
+import { Users, Search, Plus, Dog, Cat, User, Edit2, Trash2, ListChecks } from "lucide-react";
 
 interface Paciente {
   id: number;
   nome: string;
+  tutor_id?: number | null;
   tutor: string;
+  tutor_email?: string;
   especie?: string;
   raca?: string;
   sexo?: string;
@@ -51,7 +53,11 @@ export default function PacientesPage() {
   const pacientesFiltrados = useMemo(
     () =>
       pacientes.filter(
-        (p) => p.nome.toLowerCase().includes(busca.toLowerCase()) || p.tutor?.toLowerCase().includes(busca.toLowerCase())
+        (p) =>
+          p.nome.toLowerCase().includes(busca.toLowerCase()) ||
+          p.tutor?.toLowerCase().includes(busca.toLowerCase()) ||
+          String(p.id).includes(busca.trim()) ||
+          String(p.tutor_id || "").includes(busca.trim())
       ),
     [busca, pacientes]
   );
@@ -167,45 +173,70 @@ export default function PacientesPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+      <div className="fc-registry-page">
+        <header className="fc-registry-header fc-registry-header-patient">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Pacientes</h1>
-            <p className="text-gray-500">Gerencie os pacientes cadastrados</p>
+            <span className="fc-registry-kicker">
+              <Users className="h-4 w-4" />
+              Carteira clínica
+            </span>
+            <h1>Pacientes</h1>
+            <p>Animais, tutores e identificação clínica organizados para acesso rápido.</p>
           </div>
           <button
             onClick={() => router.push("/pacientes/novo")}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            className="fc-registry-primary"
           >
             <Plus className="w-4 h-4" />
             Novo Paciente
           </button>
-        </div>
+        </header>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-          <div className="bg-white p-4 rounded-lg shadow-sm border flex items-center gap-4">
-            <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center">
-              <Users className="w-6 h-6 text-blue-600" />
+        <section className="fc-registry-metrics" aria-label="Resumo da carteira de pacientes">
+          <div className="fc-registry-metric fc-registry-metric-cordis">
+            <div className="fc-registry-metric-icon">
+              <Users className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-gray-900">{totalPacientes}</p>
-              <p className="text-sm text-gray-500">Total de pacientes</p>
+              <strong>{totalPacientes}</strong>
+              <span>Total cadastrados</span>
             </div>
           </div>
-        </div>
+          <div className="fc-registry-metric fc-registry-metric-vital">
+            <div className="fc-registry-metric-icon">
+              <Search className="h-5 w-5" />
+            </div>
+            <div>
+              <strong>{pacientesFiltrados.length}</strong>
+              <span>Resultados visíveis</span>
+            </div>
+          </div>
+          <div className="fc-registry-metric fc-registry-metric-ink">
+            <div className="fc-registry-metric-icon">
+              <ListChecks className="h-5 w-5" />
+            </div>
+            <div>
+              <strong>{selecionados.length}</strong>
+              <span>Selecionados</span>
+            </div>
+          </div>
+        </section>
 
-        <div className="bg-white p-4 rounded-lg shadow-sm border mb-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+        <section className="fc-registry-search">
+          <div className="fc-registry-search-copy">
+            <span>Localização rápida</span>
+            <strong>Encontre por paciente, tutor ou identificador</strong>
+          </div>
+          <div className="fc-registry-search-field">
+            <Search className="h-5 w-5" />
             <input
               type="text"
-              placeholder="Buscar por nome ou tutor..."
+              placeholder="Buscar por nome, tutor ou ID..."
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
             />
           </div>
-        </div>
+        </section>
 
         {(mensagemAcao || erroAcao) && (
           <div className="space-y-2 mb-6">
@@ -220,33 +251,40 @@ export default function PacientesPage() {
           </div>
         )}
 
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+        <section className="fc-registry-list">
           {loading ? (
-            <div className="p-8 text-center text-gray-500">Carregando...</div>
+            <div className="fc-registry-loading" aria-label="Carregando pacientes">
+              {[0, 1, 2].map((item) => <span key={item} />)}
+            </div>
           ) : pacientesFiltrados.length === 0 ? (
-            <div className="p-12 text-center">
-              <Users className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500 text-lg">Nenhum paciente encontrado</p>
+            <div className="fc-registry-empty">
+              <div><Users className="h-6 w-6" /></div>
+              <span>Carteira sem resultados</span>
+              <p>Nenhum paciente encontrado</p>
+              <button type="button" onClick={() => router.push("/pacientes/novo")} className="fc-registry-primary mt-5">
+                <Plus className="h-4 w-4" />
+                Cadastrar paciente
+              </button>
             </div>
           ) : (
             <div>
-              <div className="px-4 py-3 border-b bg-gray-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+              <div className="fc-registry-selection-bar">
+                <label>
                   <input
                     type="checkbox"
                     checked={todosFiltradosSelecionados}
                     onChange={alternarSelecionarFiltrados}
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    className="fc-registry-checkbox"
                   />
                   Selecionar visiveis ({idsFiltrados.length})
                 </label>
 
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-500">{selecionados.length} selecionado(s)</span>
+                <div>
+                  <span>{selecionados.length} selecionado(s)</span>
                   <button
                     onClick={excluirSelecionados}
                     disabled={selecionados.length === 0 || deletandoLote}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm font-medium hover:bg-red-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="fc-registry-danger"
                   >
                     <Trash2 className="w-4 h-4" />
                     {deletandoLote ? "Excluindo..." : "Excluir selecionados"}
@@ -254,47 +292,58 @@ export default function PacientesPage() {
                 </div>
               </div>
 
-              <div className="divide-y">
+              <div className="divide-y divide-ink-100">
                 {pacientesFiltrados.map((paciente) => (
-                  <div key={paciente.id} className="p-4 flex items-center gap-4 hover:bg-gray-50 group">
-                    <label className="flex-shrink-0 inline-flex items-center" title="Selecionar paciente">
+                  <div key={paciente.id} className="fc-registry-row group">
+                    <label className="fc-registry-row-check" title="Selecionar paciente">
                       <input
                         type="checkbox"
                         checked={selecionadosSet.has(paciente.id)}
                         onChange={() => alternarSelecaoPaciente(paciente.id)}
-                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        className="fc-registry-checkbox"
                       />
                     </label>
 
-                    <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
+                    <div className="fc-registry-avatar">
                       {getEspecieIcon(paciente.especie)}
                     </div>
 
-                    <div className="flex-1 cursor-pointer" onClick={() => router.push(`/pacientes/${paciente.id}`)}>
-                      <h3 className="font-medium text-gray-900">{paciente.nome}</h3>
-                      <p className="text-sm text-gray-500">Tutor: {paciente.tutor || "Nao informado"}</p>
-                    </div>
+                    <button type="button" className="fc-registry-row-main" onClick={() => router.push(`/pacientes/${paciente.id}`)}>
+                      <div>
+                        <h3>{paciente.nome}</h3>
+                        <span className="fc-registry-id">
+                          Pet #{paciente.id}
+                        </span>
+                      </div>
+                      <p>
+                        Tutor: {paciente.tutor || "Nao informado"}
+                        {paciente.tutor_id ? ` | Tutor #${paciente.tutor_id}` : ""}
+                      </p>
+                      {paciente.tutor_email && (
+                        <small>{paciente.tutor_email}</small>
+                      )}
+                    </button>
 
-                    <div className="text-right text-sm text-gray-500 hidden sm:block">
+                    <div className="fc-registry-trailing">
                       {paciente.especie && <p>{paciente.especie}</p>}
-                      {paciente.raca && <p className="text-gray-400">{paciente.raca}</p>}
+                      {paciente.raca && <small>{paciente.raca}</small>}
                     </div>
 
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => router.push(`/pacientes/${paciente.id}`)}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
-                        title="Editar"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/pacientes/${paciente.id}`)}
+                      className="fc-registry-edit"
+                      title="Editar"
+                      aria-label={`Editar paciente ${paciente.nome}`}
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
                   </div>
                 ))}
               </div>
             </div>
           )}
-        </div>
+        </section>
       </div>
     </DashboardLayout>
   );
