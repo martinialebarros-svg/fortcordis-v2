@@ -113,6 +113,7 @@ class PortalExamListResponse(BaseModel):
     partner_tipo_label: Optional[str] = None
     operational_summary: Optional[PortalClinicOperationalSummaryResponse] = None
     operational_items: list[PortalClinicOperationalItemResponse] = Field(default_factory=list)
+    operational_pending_items: list[PortalClinicOperationalItemResponse] = Field(default_factory=list)
     items: list[PortalExamSummaryResponse] = Field(default_factory=list)
 
 
