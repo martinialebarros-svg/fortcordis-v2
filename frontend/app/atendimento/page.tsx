@@ -1269,6 +1269,8 @@ export default function AtendimentoPage() {
   const [finalizando, setFinalizando] = useState(false);
   const [tipoHorarioFinalizacao, setTipoHorarioFinalizacao] = useState<"comercial" | "plantao">("comercial");
   const [workspacePainel, setWorkspacePainel] = useState<WorkspacePainel>("consulta");
+  const [workspacePainelAnterior, setWorkspacePainelAnterior] =
+    useState<Exclude<WorkspacePainel, "bibliotecas">>("consulta");
   const [consultaEditorEtapa, setConsultaEditorEtapa] = useState<ConsultaEditorEtapa>("anamnese");
   const [consultaCampoAtivo, setConsultaCampoAtivo] = useState<ClinicalFieldKey>("queixa_principal");
   const [prescricaoModoFoco, setPrescricaoModoFoco] = useState(true);
@@ -3313,7 +3315,7 @@ export default function AtendimentoPage() {
 
   const abrirMedicamentoBuscaRapida = (med: Medicamento) => {
     editarMedicamento(med);
-    setWorkspacePainel("bibliotecas");
+    abrirBibliotecasClinicas();
   };
 
   const toggleFormulaManipuladaPrescricao = (idx: number) => {
@@ -5465,6 +5467,19 @@ export default function AtendimentoPage() {
   const isDocumentosWorkspace = workspacePainel === "documentos";
   const isBibliotecasWorkspace = workspacePainel === "bibliotecas";
   const showCaseSidebar = painelCasosAberto && !isPrescricaoWorkspace && !isBibliotecasWorkspace;
+  const labelWorkspacePainelAnterior =
+    workspaceCards.find((item) => item.key === workspacePainelAnterior)?.titulo || "Consulta";
+
+  const abrirBibliotecasClinicas = () => {
+    if (workspacePainel !== "bibliotecas") {
+      setWorkspacePainelAnterior(workspacePainel);
+    }
+    setWorkspacePainel("bibliotecas");
+  };
+
+  const fecharBibliotecasClinicas = () => {
+    setWorkspacePainel(workspacePainelAnterior);
+  };
   const uploadGeralEmAndamento = uploadingAttachmentKey === "geral";
   const progressoUploadGeral = uploadProgressByKey["geral"] ?? null;
   const showClinicalRadarAside = isConsultaWorkspace || isDocumentosWorkspace;
@@ -6355,7 +6370,7 @@ export default function AtendimentoPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setWorkspacePainel("bibliotecas")}
+                onClick={() => (isBibliotecasWorkspace ? fecharBibliotecasClinicas() : abrirBibliotecasClinicas())}
                 className={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-medium transition ${
                   isBibliotecasWorkspace
                     ? "border-violet-200 bg-violet-50 text-violet-700"
@@ -6363,7 +6378,7 @@ export default function AtendimentoPage() {
                 }`}
               >
                 <Pill className="h-4 w-4" />
-                Bibliotecas clinicas
+                {isBibliotecasWorkspace ? `Voltar para ${labelWorkspacePainelAnterior}` : "Bibliotecas clinicas"}
               </button>
             </div>
           </div>
