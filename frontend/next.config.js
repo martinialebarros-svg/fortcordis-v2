@@ -13,6 +13,7 @@ const appContentSecurityPolicy = [
   "object-src 'none'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data: https:",
+  "frame-src 'self' blob:",
   "style-src 'self' 'unsafe-inline' https:",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:",
   "connect-src 'self' https: wss: ws:",
