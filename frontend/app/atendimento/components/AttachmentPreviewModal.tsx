@@ -10,6 +10,7 @@ import {
   RefreshCw,
   X,
 } from "lucide-react";
+import Modal from "./Modal";
 import type { LooseAtendimentoComponentProps } from "./component-props";
 
 type AttachmentPreviewModalProps = LooseAtendimentoComponentProps;
@@ -42,24 +43,17 @@ export default function AttachmentPreviewModal(props: AttachmentPreviewModalProp
   }
 
   return (
-    <div
-      data-fortcordis-overlay-safe="1"
-      className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/70 px-4 py-6"
+    <Modal
+      titleId="attachment-preview-modal-titulo"
+      onClose={closeAttachmentPreview}
+      overlayClassName="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/70 px-4 py-6"
+      contentClassName="relative z-[121] flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl"
+      overlayCloseLabel="Fechar preview"
     >
-      <button
-        type="button"
-        aria-label="Fechar preview"
-        onClick={closeAttachmentPreview}
-        className="absolute inset-0 cursor-default"
-      />
-      <div
-        data-fortcordis-overlay-safe="1"
-        className="relative z-[121] flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl"
-      >
         <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Preview do anexo</p>
-            <h3 className="mt-1 text-lg font-semibold text-slate-900">{attachmentPreview.title}</h3>
+            <h3 id="attachment-preview-modal-titulo" className="mt-1 text-lg font-semibold text-slate-900">{attachmentPreview.title}</h3>
             <p className="mt-1 text-sm text-slate-500">
               {attachmentPreview.anexo.descricao || attachmentPreview.anexo.tipo}
             </p>
@@ -266,7 +260,6 @@ export default function AttachmentPreviewModal(props: AttachmentPreviewModalProp
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

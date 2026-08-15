@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowLeft, Plus, Trash2, X } from "lucide-react";
+import Modal from "./Modal";
 import type { LooseAtendimentoComponentProps } from "./component-props";
 
 type PainelExamesModalProps = LooseAtendimentoComponentProps;
@@ -29,9 +30,18 @@ export default function PainelExamesModal(props: PainelExamesModalProps) {
     setPainelModalOpen,
   } = props;
 
+  const fecharModal = () => {
+    setPainelModalOpen(false);
+    setPainelModalMode("list");
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="relative w-full max-w-2xl max-h-[85vh] overflow-auto rounded-3xl bg-white shadow-2xl">
+    <Modal
+      titleId="painel-exames-modal-titulo"
+      onClose={fecharModal}
+      overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      contentClassName="relative w-full max-w-2xl max-h-[85vh] overflow-auto rounded-3xl bg-white shadow-2xl"
+    >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
           <div className="flex items-center gap-3">
             {painelModalMode === "edit" ? (
@@ -48,7 +58,7 @@ export default function PainelExamesModal(props: PainelExamesModalProps) {
                 <ArrowLeft className="h-4 w-4 text-slate-600" />
               </button>
             ) : null}
-            <h3 className="text-lg font-bold text-slate-900">
+            <h3 id="painel-exames-modal-titulo" className="text-lg font-bold text-slate-900">
               {painelModalMode === "create"
                 ? "Novo painel de exames"
                 : painelModalMode === "edit"
@@ -58,10 +68,7 @@ export default function PainelExamesModal(props: PainelExamesModalProps) {
           </div>
           <button
             type="button"
-            onClick={() => {
-              setPainelModalOpen(false);
-              setPainelModalMode("list");
-            }}
+            onClick={fecharModal}
             className="rounded-full bg-slate-100 p-2 hover:bg-slate-200"
           >
             <X className="h-4 w-4 text-slate-600" />
@@ -244,7 +251,6 @@ export default function PainelExamesModal(props: PainelExamesModalProps) {
             </div>
           ) : null}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

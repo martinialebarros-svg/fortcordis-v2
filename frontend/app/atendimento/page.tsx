@@ -1718,21 +1718,10 @@ export default function AtendimentoPage() {
       setAttachmentPdfZoom(110);
     }
 
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        if (attachmentPreview.objectUrl) {
-          window.URL.revokeObjectURL(attachmentPreview.objectUrl);
-        }
-        setAttachmentImageOffset({ x: 0, y: 0 });
-        setAttachmentImageDragging(false);
-        attachmentImagePanRef.current.pointerId = null;
-        setAttachmentPreview(null);
-      }
-    };
-
-    window.addEventListener("keydown", handleEscape);
+    // Fechar com Escape e feito pelo wrapper <Modal> (AttachmentPreviewModal);
+    // este cleanup so cuida de revogar o objectUrl quando o preview muda ou
+    // desmonta, independente de como o fechamento aconteceu.
     return () => {
-      window.removeEventListener("keydown", handleEscape);
       if (attachmentPreview.objectUrl) {
         window.URL.revokeObjectURL(attachmentPreview.objectUrl);
       }
