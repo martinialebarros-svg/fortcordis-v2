@@ -254,6 +254,24 @@ type PesoHistorico = {
   peso: number;
 };
 
+type TemperaturaHistorico = {
+  atendimento_id: number;
+  data_atendimento: string;
+  temperatura: number;
+};
+
+type FrequenciaCardiacaHistorico = {
+  atendimento_id: number;
+  data_atendimento: string;
+  frequencia_cardiaca: number;
+};
+
+type FrequenciaRespiratoriaHistorico = {
+  atendimento_id: number;
+  data_atendimento: string;
+  frequencia_respiratoria: number;
+};
+
 type PrescricaoHistorica = {
   id: number;
   orientacoes_gerais: string;
@@ -293,6 +311,9 @@ type HistoricoPaciente = {
   alertas: Alerta[];
   atendimentos: AtendimentoHistorico[];
   pesos?: PesoHistorico[];
+  temperaturas?: TemperaturaHistorico[];
+  frequencias_cardiacas?: FrequenciaCardiacaHistorico[];
+  frequencias_respiratorias?: FrequenciaRespiratoriaHistorico[];
   timeline: TimelineGrupo[];
 };
 
@@ -2464,6 +2485,45 @@ export default function AtendimentoPage() {
       })
       .join(" ");
   }, [pesoSerie]);
+
+  const formatarDataCurtaVital = (iso: string) => {
+    const data = new Date(iso);
+    if (Number.isNaN(data.getTime())) return "";
+    return data.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  };
+
+  const ultimoRegistroVital = <T extends { atendimento_id: number; data_atendimento: string }>(
+    registros: T[] | undefined,
+    atendimentoAtualId: number
+  ): T | null => {
+    const anteriores = (registros || [])
+      .filter((item) => Number(item.atendimento_id) !== atendimentoAtualId && item.data_atendimento)
+      .sort((a, b) => new Date(b.data_atendimento).getTime() - new Date(a.data_atendimento).getTime());
+    return anteriores[0] || null;
+  };
+
+  const ultimaTemperaturaRegistro = useMemo(
+    () => ultimoRegistroVital(historicoPaciente?.temperaturas, Number(selecionado || 0)),
+    [historicoPaciente?.temperaturas, selecionado]
+  );
+  const ultimaFrequenciaCardiacaRegistro = useMemo(
+    () => ultimoRegistroVital(historicoPaciente?.frequencias_cardiacas, Number(selecionado || 0)),
+    [historicoPaciente?.frequencias_cardiacas, selecionado]
+  );
+  const ultimaFrequenciaRespiratoriaRegistro = useMemo(
+    () => ultimoRegistroVital(historicoPaciente?.frequencias_respiratorias, Number(selecionado || 0)),
+    [historicoPaciente?.frequencias_respiratorias, selecionado]
+  );
+
+  const ultimaTemperaturaLabel = ultimaTemperaturaRegistro
+    ? `Ultima: ${ultimaTemperaturaRegistro.temperatura}°C (${formatarDataCurtaVital(ultimaTemperaturaRegistro.data_atendimento)})`
+    : null;
+  const ultimaFrequenciaCardiacaLabel = ultimaFrequenciaCardiacaRegistro
+    ? `Ultima: ${ultimaFrequenciaCardiacaRegistro.frequencia_cardiaca} bpm (${formatarDataCurtaVital(ultimaFrequenciaCardiacaRegistro.data_atendimento)})`
+    : null;
+  const ultimaFrequenciaRespiratoriaLabel = ultimaFrequenciaRespiratoriaRegistro
+    ? `Ultima: ${ultimaFrequenciaRespiratoriaRegistro.frequencia_respiratoria} mpm (${formatarDataCurtaVital(ultimaFrequenciaRespiratoriaRegistro.data_atendimento)})`
+    : null;
 
   const pacienteDropdownAberto =
     mostrarPacientes &&
@@ -7221,6 +7281,9 @@ export default function AtendimentoPage() {
                     setField={setField}
                     setTriagemExpandida={setTriagemExpandida}
                     triagemExpandida={triagemExpandida}
+                    ultimaFrequenciaCardiacaLabel={ultimaFrequenciaCardiacaLabel}
+                    ultimaFrequenciaRespiratoriaLabel={ultimaFrequenciaRespiratoriaLabel}
+                    ultimaTemperaturaLabel={ultimaTemperaturaLabel}
                   />
                 ) : null}
 

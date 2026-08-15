@@ -5226,6 +5226,33 @@ def historico_paciente(
             for a in atendimentos
             if a.peso is not None
         ],
+        "temperaturas": [
+            {
+                "atendimento_id": a.id,
+                "data_atendimento": _to_operational_iso(a.data_atendimento),
+                "temperatura": a.temperatura,
+            }
+            for a in atendimentos
+            if a.temperatura is not None
+        ],
+        "frequencias_cardiacas": [
+            {
+                "atendimento_id": a.id,
+                "data_atendimento": _to_operational_iso(a.data_atendimento),
+                "frequencia_cardiaca": a.frequencia_cardiaca,
+            }
+            for a in atendimentos
+            if a.frequencia_cardiaca is not None
+        ],
+        "frequencias_respiratorias": [
+            {
+                "atendimento_id": a.id,
+                "data_atendimento": _to_operational_iso(a.data_atendimento),
+                "frequencia_respiratoria": a.frequencia_respiratoria,
+            }
+            for a in atendimentos
+            if a.frequencia_respiratoria is not None
+        ],
         "timeline": _montar_timeline_paciente(db, paciente_id, limite=limite, atendimentos_paciente=atendimentos),
     }
 

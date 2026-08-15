@@ -15,7 +15,19 @@ const CLASSE_INPUT_NORMAL = "w-full rounded-lg border px-3 py-2 text-sm";
 const CLASSE_INPUT_ALERTA = "w-full rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900";
 
 export default function AtendimentoTriagemSection(props: AtendimentoTriagemSectionProps) {
-  const { especieExibicao, ESCALA_ECC, form, HIDRATACAO, MUCOSAS, setField, setTriagemExpandida, triagemExpandida } = props;
+  const {
+    especieExibicao,
+    ESCALA_ECC,
+    form,
+    HIDRATACAO,
+    MUCOSAS,
+    setField,
+    setTriagemExpandida,
+    triagemExpandida,
+    ultimaFrequenciaCardiacaLabel,
+    ultimaFrequenciaRespiratoriaLabel,
+    ultimaTemperaturaLabel,
+  } = props;
 
   const statusTemperatura = avaliarTemperatura(form.triagem.temperatura, especieExibicao);
   const statusFrequenciaCardiaca = avaliarFrequenciaCardiaca(form.triagem.frequencia_cardiaca, especieExibicao);
@@ -83,6 +95,9 @@ export default function AtendimentoTriagemSection(props: AtendimentoTriagemSecti
                 className={statusTemperatura ? CLASSE_INPUT_ALERTA : CLASSE_INPUT_NORMAL}
                 placeholder="0.0"
               />
+              {ultimaTemperaturaLabel ? (
+                <p className="mt-1 text-[11px] text-slate-500">{ultimaTemperaturaLabel}</p>
+              ) : null}
             </div>
             <div>
               <label className="mb-1 flex items-center gap-1.5 text-xs text-gray-600">
@@ -101,6 +116,9 @@ export default function AtendimentoTriagemSection(props: AtendimentoTriagemSecti
                 className={statusFrequenciaCardiaca ? CLASSE_INPUT_ALERTA : CLASSE_INPUT_NORMAL}
                 placeholder="Batimentos"
               />
+              {ultimaFrequenciaCardiacaLabel ? (
+                <p className="mt-1 text-[11px] text-slate-500">{ultimaFrequenciaCardiacaLabel}</p>
+              ) : null}
             </div>
             <div>
               <label className="mb-1 flex items-center gap-1.5 text-xs text-gray-600">
@@ -119,6 +137,9 @@ export default function AtendimentoTriagemSection(props: AtendimentoTriagemSecti
                 className={statusFrequenciaRespiratoria ? CLASSE_INPUT_ALERTA : CLASSE_INPUT_NORMAL}
                 placeholder="Movimentos"
               />
+              {ultimaFrequenciaRespiratoriaLabel ? (
+                <p className="mt-1 text-[11px] text-slate-500">{ultimaFrequenciaRespiratoriaLabel}</p>
+              ) : null}
             </div>
             <div>
               <label className="mb-1 block text-xs text-gray-600">Pressao Arterial</label>
