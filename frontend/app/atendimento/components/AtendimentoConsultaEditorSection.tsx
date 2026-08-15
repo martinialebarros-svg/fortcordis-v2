@@ -26,6 +26,8 @@ export default function AtendimentoConsultaEditorSection(props: AtendimentoConsu
     injectClinicalSnippet,
     PROGNOSTICO,
     registerClinicalTextarea,
+    salvarFraseRapida,
+    savingQuickPhrase,
     setClinicalFieldValue,
     setConsultaCampoAtivo,
     setConsultaEditorEtapa,
@@ -288,6 +290,8 @@ export default function AtendimentoConsultaEditorSection(props: AtendimentoConsu
             onInsertPhrase={(text) => injectClinicalSnippet(consultaCampoAtivoConfig.key, text)}
             onInsertScaffold={(text) => injectClinicalSnippet(consultaCampoAtivoConfig.key, text)}
             onClear={() => setClinicalFieldValue(consultaCampoAtivoConfig.key, "")}
+            onSaveAsPhrase={(titulo, texto) => salvarFraseRapida(consultaCampoAtivoConfig.key, titulo, texto)}
+            savingPhrase={savingQuickPhrase}
             textareaRef={registerClinicalTextarea(consultaCampoAtivoConfig.key)}
             onTextareaKeyDown={handleConsultaTextareaKeyDown}
             className="w-full"

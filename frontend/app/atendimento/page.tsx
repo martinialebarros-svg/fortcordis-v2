@@ -1291,6 +1291,7 @@ export default function AtendimentoPage() {
   const [catalogoExames, setCatalogoExames] = useState<CatalogoExame[]>([]);
   const [paineisExames, setPaineisExames] = useState<PainelExame[]>([]);
   const [clinicalPhrases, setClinicalPhrases] = useState<ClinicalPhraseRecord[]>([]);
+  const [savingQuickPhrase, setSavingQuickPhrase] = useState(false);
   const [documentTemplates, setDocumentTemplates] = useState<DocumentoAtendimentoTemplate[]>([]);
 
   const [busca, setBusca] = useState("");
@@ -5126,6 +5127,34 @@ export default function AtendimentoPage() {
     }
   };
 
+  const salvarFraseRapida = async (secao: ClinicalFieldKey, titulo: string, texto: string) => {
+    const tituloLimpo = titulo.trim();
+    const textoLimpo = texto.trim();
+    if (!tituloLimpo || !textoLimpo) {
+      setErro("Preencha titulo e texto da frase rapida.");
+      return false;
+    }
+    try {
+      setSavingQuickPhrase(true);
+      await api.post("/atendimentos/frases-clinicas", {
+        secao,
+        titulo: tituloLimpo,
+        texto: textoLimpo,
+        ordem: 0,
+        ativo: 1,
+      });
+      await carregarFrasesClinicas();
+      setSucesso("Frase rapida salva. Ja disponivel como atalho nesta secao.");
+      setErro("");
+      return true;
+    } catch (e: any) {
+      setErro(extractApiErrorMessageSync(e, "Erro ao salvar frase rapida."));
+      return false;
+    } finally {
+      setSavingQuickPhrase(false);
+    }
+  };
+
   const escHtml = (value: any) =>
     String(value ?? "")
       .replace(/&/g, "&amp;")
@@ -6133,7 +6162,7 @@ export default function AtendimentoPage() {
   return (
     <DashboardLayout>
       <div className="fc-care-page">
-        <div className="fixed right-4 top-4 z-[90] flex max-w-md flex-col gap-2">
+        <div className="fixed right-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[90] flex max-w-md flex-col gap-2 lg:top-4">
           {erroPopup ? (
             <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-xl">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -6723,6 +6752,8 @@ export default function AtendimentoPage() {
                     injectClinicalSnippet={injectClinicalSnippet}
                     PROGNOSTICO={PROGNOSTICO}
                     registerClinicalTextarea={registerClinicalTextarea}
+                    salvarFraseRapida={salvarFraseRapida}
+                    savingQuickPhrase={savingQuickPhrase}
                     setClinicalFieldValue={setClinicalFieldValue}
                     setConsultaCampoAtivo={setConsultaCampoAtivo}
                     setConsultaEditorEtapa={setConsultaEditorEtapa}
