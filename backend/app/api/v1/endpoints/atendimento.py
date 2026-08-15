@@ -1587,6 +1587,7 @@ def _map_exame(exame: Exame) -> dict:
         "laudo_id": exame.laudo_id,
         "data_solicitacao": _to_iso(exame.data_solicitacao),
         "data_resultado": _to_operational_iso(exame.data_resultado),
+        "visualizado_portal_em": _to_iso(exame.visualizado_portal_em),
     }
 
 
@@ -4382,6 +4383,7 @@ def liberar_exame_no_portal(
     exame.data_resultado = released_at
     exame.observacoes_pre_portal = exame.observacoes or ""
     exame.observacoes = PORTAL_EXAME_RELEASE_MESSAGE
+    exame.visualizado_portal_em = None
     if not exame.criado_por_id:
         exame.criado_por_id = getattr(current_user, "id", None)
     if not exame.criado_por_nome:
@@ -4447,6 +4449,7 @@ def revogar_liberacao_exame_no_portal(
     if (exame.observacoes or "").strip() == PORTAL_EXAME_RELEASE_MESSAGE:
         exame.observacoes = exame.observacoes_pre_portal or ""
     exame.observacoes_pre_portal = None
+    exame.visualizado_portal_em = None
 
     db.commit()
     db.refresh(exame)

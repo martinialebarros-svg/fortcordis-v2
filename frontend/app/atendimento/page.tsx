@@ -314,6 +314,7 @@ export type ExameSolicitacao = {
   laudo_id?: number | null;
   data_solicitacao?: string;
   data_resultado?: string;
+  visualizado_portal_em?: string | null;
   anexos_resultado?: Anexo[];
   /** Marcacao explicita de exclusao. Omitir um exame do payload nao apaga nada. */
   _destroy?: boolean;

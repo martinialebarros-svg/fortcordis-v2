@@ -383,6 +383,112 @@ class PortalAccessHttpFlowTest(unittest.TestCase):
                 self.assertEqual(file_response.status_code, 200)
                 self.assertEqual(file_response.content, seed["attachment_bytes"])
 
+    def test_clinic_download_marks_exame_as_visualizado_no_portal(self) -> None:
+        seed = self._seed_portal_data()
+        app.dependency_overrides[get_db] = self._override_get_db()
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "PORTAL_DEBUG_EXPOSE_CODE", True))
+            stack.enter_context(patch("app.api.v1.endpoints.portal.registrar_auditoria", return_value=None))
+            stack.enter_context(
+                patch(
+                    "app.api.v1.endpoints.portal.send_portal_access_code",
+                    return_value=SimpleNamespace(provider="smtp", channel="email"),
+                )
+            )
+            with TestClient(app) as client:
+                token = self._request_clinic_token(
+                    client,
+                    clinica_id=seed["clinica_id"],
+                    clinica_email=seed["clinica_email"],
+                )
+                clinic_headers = {"Authorization": f"Bearer {token}"}
+
+                db = self._session_factory()
+                try:
+                    exame_antes = db.query(Exame).filter(Exame.id == seed["exame_id"]).first()
+                    self.assertIsNone(exame_antes.visualizado_portal_em)
+                finally:
+                    db.close()
+
+                download_url_response = client.post(
+                    f"/api/v1/portal/exames/{seed['exame_id']}/download-url",
+                    headers=clinic_headers,
+                    json={},
+                )
+                self.assertEqual(download_url_response.status_code, 200)
+                download_item = download_url_response.json()["items"][0]
+
+                file_response = client.get(
+                    download_item["download_url"],
+                    headers={download_item["download_token_header"]: download_item["download_token"]},
+                )
+                self.assertEqual(file_response.status_code, 200)
+
+                db = self._session_factory()
+                try:
+                    exame_depois = db.query(Exame).filter(Exame.id == seed["exame_id"]).first()
+                    self.assertIsNotNone(exame_depois.visualizado_portal_em)
+                    primeiro_acesso = exame_depois.visualizado_portal_em
+                finally:
+                    db.close()
+
+                # Um segundo download nao deve "andar" o timestamp - so o
+                # PRIMEIRO acesso conta.
+                second_file_response = client.get(
+                    download_item["download_url"],
+                    headers={download_item["download_token_header"]: download_item["download_token"]},
+                )
+                self.assertEqual(second_file_response.status_code, 200)
+
+                db = self._session_factory()
+                try:
+                    exame_final = db.query(Exame).filter(Exame.id == seed["exame_id"]).first()
+                    self.assertEqual(exame_final.visualizado_portal_em, primeiro_acesso)
+                finally:
+                    db.close()
+
+    def test_tutor_download_nao_marca_exame_como_visualizado_no_portal(self) -> None:
+        # O mesmo endpoint de download atende tutor e clinica parceira; o
+        # tutor abrindo o proprio exame nao pode ser confundido com a
+        # clinica parceira tendo visto o resultado.
+        seed = self._seed_portal_data()
+        app.dependency_overrides[get_db] = self._override_get_db()
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "PORTAL_DEBUG_EXPOSE_CODE", True))
+            stack.enter_context(patch("app.api.v1.endpoints.portal.registrar_auditoria", return_value=None))
+            stack.enter_context(
+                patch(
+                    "app.api.v1.endpoints.portal.send_portal_access_code",
+                    return_value=SimpleNamespace(provider="smtp", channel="email"),
+                )
+            )
+            with TestClient(app) as client:
+                token = self._request_tutor_token(client, seed)
+                auth_headers = {"Authorization": f"Bearer {token}"}
+
+                download_url_response = client.post(
+                    f"/api/v1/portal/exames/{seed['exame_id']}/download-url",
+                    headers=auth_headers,
+                    json={},
+                )
+                self.assertEqual(download_url_response.status_code, 200)
+                download_item = download_url_response.json()["items"][0]
+
+                file_response = client.get(
+                    download_item["download_url"],
+                    headers={download_item["download_token_header"]: download_item["download_token"]},
+                )
+                self.assertEqual(file_response.status_code, 200)
+
+                db = self._session_factory()
+                try:
+                    exame = db.query(Exame).filter(Exame.id == seed["exame_id"]).first()
+                    self.assertIsNone(exame.visualizado_portal_em)
+                finally:
+                    db.close()
+
     def test_tutor_http_flow_downloads_remote_attachment_url(self) -> None:
         remote_url = "https://storage.example.com/portal/eco-luna.pdf"
         remote_bytes = b"%PDF-1.4\nremote portal http flow\n"

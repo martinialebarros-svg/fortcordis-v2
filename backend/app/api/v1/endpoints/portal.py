@@ -425,6 +425,26 @@ def _is_exam_released_to_portal(exam: Exame, laudos_map: dict[int, Laudo]) -> bo
     return False
 
 
+def _marcar_exame_visualizado_no_portal(db: Session, exame_id: int, actor_type: str | None) -> None:
+    """Registra o primeiro acesso da CLINICA PARCEIRA ao arquivo de um exame liberado.
+
+    O mesmo endpoint de download tambem atende o tutor (dono do pet); um
+    download do tutor nao pode contar como "a clinica parceira ja viu"
+    (informacao errada seria pior que nenhuma), entao so marca quando
+    actor_type == "clinica". Idempotente (so grava na primeira vez) e
+    silencioso: um erro aqui nao pode derrubar o download do arquivo em si.
+    """
+    if actor_type != "clinica":
+        return
+    exame = db.query(Exame).filter(Exame.id == exame_id).first()
+    if not exame or exame.visualizado_portal_em is not None:
+        return
+    if not is_portal_released_status(exame.status):
+        return
+    exame.visualizado_portal_em = datetime.now()
+    db.commit()
+
+
 def _serialize_exam_attachment(anexo: AnexoAtendimento) -> PortalExamAttachmentResponse:
     return PortalExamAttachmentResponse(
         anexo_id=anexo.id,
@@ -1769,6 +1789,8 @@ def baixar_arquivo_anexo_portal(
         actor_id = portal_session.actor_id
         clinica_id = portal_session.clinica_id
         account_id = portal_session.account_id
+
+    _marcar_exame_visualizado_no_portal(db, attachment.exame_id, actor_type)
 
     registrar_auditoria(
         current_user=None,

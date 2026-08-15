@@ -511,6 +511,24 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
                         </span>
                       </button>
                     ) : null}
+                    {exameLiberadoNoPortal ? (
+                      <span
+                        title={
+                          exame.visualizado_portal_em
+                            ? `Clinica parceira visualizou em ${formatDate(exame.visualizado_portal_em)}`
+                            : "A clinica parceira ainda nao abriu este exame."
+                        }
+                        className={`self-start rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                          exame.visualizado_portal_em
+                            ? "bg-emerald-100 text-emerald-700"
+                            : "bg-amber-100 text-amber-700"
+                        }`}
+                      >
+                        {exame.visualizado_portal_em
+                          ? `Visto em ${formatDate(exame.visualizado_portal_em)}`
+                          : "Ainda nao visto"}
+                      </span>
+                    ) : null}
                     <div className="ml-1 flex items-center self-start border-l border-slate-200 pl-3">
                       <button
                         type="button"
