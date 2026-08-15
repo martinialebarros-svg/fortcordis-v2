@@ -650,12 +650,147 @@ def _portal_operational_status_for_external_exam(exam: Exame) -> tuple[str, str]
     return "em_andamento", "Em andamento"
 
 
+_PORTAL_OPERATIONAL_RECENT_LIMIT = 8
+_PORTAL_OPERATIONAL_PENDING_CANDIDATE_LIMIT = 30
+
+
+def _portal_build_laudo_operational_items(
+    db: Session,
+    laudos: list[Laudo],
+    *,
+    sla_horas: int,
+    clinica_nome: str,
+) -> list[tuple[datetime, PortalClinicOperationalItemResponse]]:
+    if not laudos:
+        return []
+    pacientes_map = _load_map(db, Paciente, [laudo.paciente_id for laudo in laudos if laudo.paciente_id])
+    tutores_map = _load_map(
+        db,
+        Tutor,
+        [paciente.tutor_id for paciente in pacientes_map.values() if paciente and paciente.tutor_id],
+    )
+    related_exams = (
+        db.query(Exame)
+        .filter(Exame.laudo_id.in_([laudo.id for laudo in laudos if laudo.id]))
+        .order_by(Exame.id.desc())
+        .all()
+    )
+    exams_by_laudo_id: dict[int, Exame] = {}
+    for exam in related_exams:
+        exams_by_laudo_id.setdefault(int(exam.laudo_id or 0), exam)
+
+    items: list[tuple[datetime, PortalClinicOperationalItemResponse]] = []
+    for laudo in laudos:
+        related_exam = exams_by_laudo_id.get(int(laudo.id))
+        status_key, status_label = _portal_operational_status_for_laudo(laudo, related_exam)
+        operational_dt = _portal_operational_datetime_for_laudo(laudo)
+        paciente = pacientes_map.get(laudo.paciente_id)
+        tutor = tutores_map.get(getattr(paciente, "tutor_id", None))
+        items.append(
+            (
+                _normalize_local_naive_datetime(operational_dt) or datetime.min,
+                PortalClinicOperationalItemResponse(
+                    item_id=f"laudo:{laudo.id}",
+                    origem="laudo",
+                    paciente_id=laudo.paciente_id,
+                    paciente_nome=getattr(paciente, "nome", None),
+                    tutor_nome=getattr(tutor, "nome", None),
+                    especie=getattr(paciente, "especie", None),
+                    tipo_exame=getattr(related_exam, "tipo_exame", None) or _portal_tipo_label_from_laudo(laudo),
+                    status_key=status_key,
+                    status_label=status_label,
+                    data_realizacao=operational_dt.isoformat() if operational_dt else None,
+                    data_liberacao=(
+                        getattr(related_exam, "data_resultado", None) or getattr(laudo, "updated_at", None)
+                    ).isoformat()
+                    if status_key == "liberado_portal"
+                    and (getattr(related_exam, "data_resultado", None) or getattr(laudo, "updated_at", None))
+                    else None,
+                    previsao_liberacao=(
+                        _portal_operational_release_estimate(operational_dt)
+                        if status_key != "liberado_portal"
+                        else None
+                    ),
+                    observacoes=(
+                        "Prazo padrao de ate "
+                        f"{sla_horas}h apos a realizacao."
+                        if status_key != "liberado_portal"
+                        else f"Disponivel no portal da unidade {clinica_nome}."
+                    ),
+                ),
+            )
+        )
+    return items
+
+
+def _portal_build_external_exam_operational_items(
+    db: Session,
+    exams: list[Exame],
+    *,
+    sla_horas: int,
+) -> list[tuple[datetime, PortalClinicOperationalItemResponse]]:
+    if not exams:
+        return []
+    pacientes_map = _load_map(db, Paciente, [exam.paciente_id for exam in exams if exam.paciente_id])
+    tutores_map = _load_map(
+        db,
+        Tutor,
+        [paciente.tutor_id for paciente in pacientes_map.values() if paciente and paciente.tutor_id],
+    )
+    atendimentos_map = _load_map(
+        db,
+        AtendimentoClinico,
+        [exam.atendimento_id for exam in exams if exam.atendimento_id],
+    )
+
+    items: list[tuple[datetime, PortalClinicOperationalItemResponse]] = []
+    for exam in exams:
+        status_key, status_label = _portal_operational_status_for_external_exam(exam)
+        atendimento = atendimentos_map.get(getattr(exam, "atendimento_id", None))
+        operational_dt = _portal_operational_datetime_for_external_exam(exam, atendimento)
+        paciente = pacientes_map.get(exam.paciente_id)
+        tutor = tutores_map.get(getattr(paciente, "tutor_id", None))
+        items.append(
+            (
+                _normalize_local_naive_datetime(operational_dt) or datetime.min,
+                PortalClinicOperationalItemResponse(
+                    item_id=f"exame:{exam.id}",
+                    origem="exame",
+                    paciente_id=exam.paciente_id,
+                    paciente_nome=getattr(paciente, "nome", None),
+                    tutor_nome=getattr(tutor, "nome", None),
+                    especie=getattr(paciente, "especie", None),
+                    tipo_exame=exam.tipo_exame or "Exame",
+                    status_key=status_key,
+                    status_label=status_label,
+                    data_realizacao=operational_dt.isoformat() if operational_dt else None,
+                    data_liberacao=exam.data_resultado.isoformat() if status_key == "liberado_portal" and exam.data_resultado else None,
+                    previsao_liberacao=(
+                        _portal_operational_release_estimate(operational_dt)
+                        if status_key != "liberado_portal"
+                        else None
+                    ),
+                    observacoes=(
+                        "Arquivo ja disponivel para consulta e download."
+                        if status_key == "liberado_portal"
+                        else f"Prazo padrao de ate {sla_horas}h para disponibilizacao."
+                    ),
+                ),
+            )
+        )
+    return items
+
+
 def _build_clinic_operational_panel(
     db: Session,
     *,
     clinica_id: int,
     clinica_nome: str,
-) -> tuple[PortalClinicOperationalSummaryResponse, list[PortalClinicOperationalItemResponse]]:
+) -> tuple[
+    PortalClinicOperationalSummaryResponse,
+    list[PortalClinicOperationalItemResponse],
+    list[PortalClinicOperationalItemResponse],
+]:
     local_now = _portal_local_now()
     local_today = local_now.date()
     today_start = datetime.combine(local_today, datetime.min.time())
@@ -724,135 +859,59 @@ def _build_clinic_operational_panel(
         laudo_base.order_by(
             func.coalesce(Laudo.data_exame, Laudo.data_laudo, Laudo.created_at).desc(),
             Laudo.id.desc(),
-        ).limit(8).all()
+        ).limit(_PORTAL_OPERATIONAL_RECENT_LIMIT).all()
     )
-    laudos_pacientes_map = _load_map(db, Paciente, [laudo.paciente_id for laudo in recent_laudos if laudo.paciente_id])
-    laudos_tutores_map = _load_map(
-        db,
-        Tutor,
-        [paciente.tutor_id for paciente in laudos_pacientes_map.values() if paciente and paciente.tutor_id],
-    )
-    related_exams = (
-        db.query(Exame)
-        .filter(Exame.laudo_id.in_([laudo.id for laudo in recent_laudos if laudo.id]))
-        .order_by(Exame.id.desc())
-        .all()
-        if recent_laudos
-        else []
-    )
-    exams_by_laudo_id: dict[int, Exame] = {}
-    for exam in related_exams:
-        exams_by_laudo_id.setdefault(int(exam.laudo_id or 0), exam)
-
     recent_external_exams = (
-        db.query(Exame)
-        .join(AtendimentoClinico, AtendimentoClinico.id == Exame.atendimento_id)
-        .filter(
-            AtendimentoClinico.clinica_id == clinica_id,
-            Exame.laudo_id.is_(None),
-        )
-        .order_by(
+        external_exam_scope.order_by(
             func.coalesce(Exame.data_solicitacao, Exame.data_resultado, Exame.created_at).desc(),
             Exame.id.desc(),
         )
-        .limit(8)
+        .limit(_PORTAL_OPERATIONAL_RECENT_LIMIT)
         .all()
     )
-    external_pacientes_map = _load_map(
-        db,
-        Paciente,
-        [exam.paciente_id for exam in recent_external_exams if exam.paciente_id],
+
+    operational_items = (
+        _portal_build_laudo_operational_items(db, recent_laudos, sla_horas=sla_horas, clinica_nome=clinica_nome)
+        + _portal_build_external_exam_operational_items(db, recent_external_exams, sla_horas=sla_horas)
     )
-    external_tutores_map = _load_map(
-        db,
-        Tutor,
-        [paciente.tutor_id for paciente in external_pacientes_map.values() if paciente and paciente.tutor_id],
-    )
-    external_atendimentos_map = _load_map(
-        db,
-        AtendimentoClinico,
-        [exam.atendimento_id for exam in recent_external_exams if exam.atendimento_id],
-    )
-
-    operational_items: list[tuple[datetime, PortalClinicOperationalItemResponse]] = []
-
-    for laudo in recent_laudos:
-        related_exam = exams_by_laudo_id.get(int(laudo.id))
-        status_key, status_label = _portal_operational_status_for_laudo(laudo, related_exam)
-        operational_dt = _portal_operational_datetime_for_laudo(laudo)
-        paciente = laudos_pacientes_map.get(laudo.paciente_id)
-        tutor = laudos_tutores_map.get(getattr(paciente, "tutor_id", None))
-        operational_items.append(
-            (
-                _normalize_local_naive_datetime(operational_dt) or datetime.min,
-                PortalClinicOperationalItemResponse(
-                    item_id=f"laudo:{laudo.id}",
-                    origem="laudo",
-                    paciente_id=laudo.paciente_id,
-                    paciente_nome=getattr(paciente, "nome", None),
-                    tutor_nome=getattr(tutor, "nome", None),
-                    especie=getattr(paciente, "especie", None),
-                    tipo_exame=getattr(related_exam, "tipo_exame", None) or _portal_tipo_label_from_laudo(laudo),
-                    status_key=status_key,
-                    status_label=status_label,
-                    data_realizacao=operational_dt.isoformat() if operational_dt else None,
-                    data_liberacao=(
-                        getattr(related_exam, "data_resultado", None) or getattr(laudo, "updated_at", None)
-                    ).isoformat()
-                    if status_key == "liberado_portal"
-                    and (getattr(related_exam, "data_resultado", None) or getattr(laudo, "updated_at", None))
-                    else None,
-                    previsao_liberacao=(
-                        _portal_operational_release_estimate(operational_dt)
-                        if status_key != "liberado_portal"
-                        else None
-                    ),
-                    observacoes=(
-                        "Prazo padrao de ate "
-                        f"{sla_horas}h apos a realizacao."
-                        if status_key != "liberado_portal"
-                        else f"Disponivel no portal da unidade {clinica_nome}."
-                    ),
-                ),
-            )
-        )
-
-    for exam in recent_external_exams:
-        status_key, status_label = _portal_operational_status_for_external_exam(exam)
-        atendimento = external_atendimentos_map.get(getattr(exam, "atendimento_id", None))
-        operational_dt = _portal_operational_datetime_for_external_exam(exam, atendimento)
-        paciente = external_pacientes_map.get(exam.paciente_id)
-        tutor = external_tutores_map.get(getattr(paciente, "tutor_id", None))
-        operational_items.append(
-            (
-                _normalize_local_naive_datetime(operational_dt) or datetime.min,
-                PortalClinicOperationalItemResponse(
-                    item_id=f"exame:{exam.id}",
-                    origem="exame",
-                    paciente_id=exam.paciente_id,
-                    paciente_nome=getattr(paciente, "nome", None),
-                    tutor_nome=getattr(tutor, "nome", None),
-                    especie=getattr(paciente, "especie", None),
-                    tipo_exame=exam.tipo_exame or "Exame",
-                    status_key=status_key,
-                    status_label=status_label,
-                    data_realizacao=operational_dt.isoformat() if operational_dt else None,
-                    data_liberacao=exam.data_resultado.isoformat() if status_key == "liberado_portal" and exam.data_resultado else None,
-                    previsao_liberacao=(
-                        _portal_operational_release_estimate(operational_dt)
-                        if status_key != "liberado_portal"
-                        else None
-                    ),
-                    observacoes=(
-                        "Arquivo ja disponivel para consulta e download."
-                        if status_key == "liberado_portal"
-                        else f"Prazo padrao de ate {sla_horas}h para disponibilizacao."
-                    ),
-                ),
-            )
-        )
-
     operational_items.sort(key=lambda item: item[0], reverse=True)
+
+    # `recent_laudos`/`recent_external_exams` acima misturam todos os status e sao
+    # cortados a `_PORTAL_OPERATIONAL_RECENT_LIMIT` por recencia - serve como feed
+    # de atividade, mas um exame `aguardando_liberacao` mais antigo pode ficar de
+    # fora se houver bastante atividade recente de outros status na frente dele.
+    # Por isso `operational_pending_items` roda uma consulta propria, pre-filtrada
+    # pra excluir so o que ja esta liberado (sem misturar com outros status antes
+    # do corte), com um limite bem mais generoso.
+    pending_laudo_candidates = (
+        laudo_base.filter(~Laudo.status.in_(PORTAL_RELEASED_LAUDO_STATUSES))
+        .order_by(
+            func.coalesce(Laudo.data_exame, Laudo.data_laudo, Laudo.created_at).desc(),
+            Laudo.id.desc(),
+        )
+        .limit(_PORTAL_OPERATIONAL_PENDING_CANDIDATE_LIMIT)
+        .all()
+    )
+    pending_external_candidates = (
+        external_exam_base.order_by(
+            func.coalesce(Exame.data_solicitacao, Exame.data_resultado, Exame.created_at).desc(),
+            Exame.id.desc(),
+        )
+        .limit(_PORTAL_OPERATIONAL_PENDING_CANDIDATE_LIMIT)
+        .all()
+    )
+    operational_pending_items = [
+        (sort_key, item)
+        for sort_key, item in (
+            _portal_build_laudo_operational_items(
+                db, pending_laudo_candidates, sla_horas=sla_horas, clinica_nome=clinica_nome
+            )
+            + _portal_build_external_exam_operational_items(db, pending_external_candidates, sla_horas=sla_horas)
+        )
+        if item.status_key == "aguardando_liberacao"
+    ]
+    operational_pending_items.sort(key=lambda item: item[0], reverse=True)
+
     summary = PortalClinicOperationalSummaryResponse(
         realizados_hoje=laudo_realizados_hoje + external_realizados_hoje,
         em_laudo=em_laudo,
@@ -860,7 +919,11 @@ def _build_clinic_operational_panel(
         liberados_hoje=released_today,
         sla_horas=sla_horas,
     )
-    return summary, [item for _, item in operational_items[:8]]
+    return (
+        summary,
+        [item for _, item in operational_items[:_PORTAL_OPERATIONAL_RECENT_LIMIT]],
+        [item for _, item in operational_pending_items],
+    )
 
 
 def _load_exam_related_maps(
@@ -1186,7 +1249,7 @@ def listar_exames_clinica_portal(
     exams = query.order_by(primary_order, Exame.id.desc()).offset(offset).limit(limit).all()
 
     attachments_by_exam, pacientes_map, tutores_map, laudos_map = _load_exam_related_maps(db, exams)
-    operational_summary, operational_items = _build_clinic_operational_panel(
+    operational_summary, operational_items, operational_pending_items = _build_clinic_operational_panel(
         db,
         clinica_id=clinica.id,
         clinica_nome=clinica.nome,
@@ -1208,6 +1271,7 @@ def listar_exames_clinica_portal(
         clinica_nome=clinica.nome,
         operational_summary=operational_summary,
         operational_items=operational_items,
+        operational_pending_items=operational_pending_items,
         items=items,
     )
 

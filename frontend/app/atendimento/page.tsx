@@ -1371,6 +1371,8 @@ export default function AtendimentoPage() {
   const [finalizando, setFinalizando] = useState(false);
   const [tipoHorarioFinalizacao, setTipoHorarioFinalizacao] = useState<"comercial" | "plantao">("comercial");
   const [workspacePainel, setWorkspacePainel] = useState<WorkspacePainel>("consulta");
+  const [workspacePainelAnterior, setWorkspacePainelAnterior] =
+    useState<Exclude<WorkspacePainel, "bibliotecas">>("consulta");
   const [consultaEditorEtapa, setConsultaEditorEtapa] = useState<ConsultaEditorEtapa>("anamnese");
   const [consultaCampoAtivo, setConsultaCampoAtivo] = useState<ClinicalFieldKey>("queixa_principal");
   const [consultaVerTodosCampos, setConsultaVerTodosCampos] = useState(false);
@@ -1396,6 +1398,7 @@ export default function AtendimentoPage() {
   const [catalogoExames, setCatalogoExames] = useState<CatalogoExame[]>([]);
   const [paineisExames, setPaineisExames] = useState<PainelExame[]>([]);
   const [clinicalPhrases, setClinicalPhrases] = useState<ClinicalPhraseRecord[]>([]);
+  const [savingQuickPhrase, setSavingQuickPhrase] = useState(false);
   const [documentTemplates, setDocumentTemplates] = useState<DocumentoAtendimentoTemplate[]>([]);
 
   const [busca, setBusca] = useState("");
@@ -3474,7 +3477,7 @@ export default function AtendimentoPage() {
 
   const abrirMedicamentoBuscaRapida = (med: Medicamento) => {
     editarMedicamento(med);
-    setWorkspacePainel("bibliotecas");
+    abrirBibliotecasClinicas();
   };
 
   const toggleFormulaManipuladaPrescricao = (idx: number) => {
@@ -5394,6 +5397,34 @@ export default function AtendimentoPage() {
     }
   };
 
+  const salvarFraseRapida = async (secao: ClinicalFieldKey, titulo: string, texto: string) => {
+    const tituloLimpo = titulo.trim();
+    const textoLimpo = texto.trim();
+    if (!tituloLimpo || !textoLimpo) {
+      setErro("Preencha titulo e texto da frase rapida.");
+      return false;
+    }
+    try {
+      setSavingQuickPhrase(true);
+      await api.post("/atendimentos/frases-clinicas", {
+        secao,
+        titulo: tituloLimpo,
+        texto: textoLimpo,
+        ordem: 0,
+        ativo: 1,
+      });
+      await carregarFrasesClinicas();
+      setSucesso("Frase rapida salva. Ja disponivel como atalho nesta secao.");
+      setErro("");
+      return true;
+    } catch (e: any) {
+      setErro(extractApiErrorMessageSync(e, "Erro ao salvar frase rapida."));
+      return false;
+    } finally {
+      setSavingQuickPhrase(false);
+    }
+  };
+
   const escHtml = (value: any) =>
     String(value ?? "")
       .replace(/&/g, "&amp;")
@@ -5642,32 +5673,6 @@ export default function AtendimentoPage() {
     return "border-slate-200 bg-slate-50 text-slate-700";
   };
 
-  const fluxoClinico = [
-    {
-      id: "triagem",
-      titulo: "Triagem",
-      descricao: "Sinais vitais e estabilidade",
-      concluido: form.triagem_concluida === 1,
-    },
-    {
-      id: "consulta",
-      titulo: "Consulta",
-      descricao: "Anamnese, exame fisico e plano",
-      concluido: form.consulta_concluida === 1,
-    },
-    {
-      id: "exames",
-      titulo: "Exames",
-      descricao: `${form.exames.filter((item) => (item.tipo_exame || "").trim()).length} solicitacao(oes)`,
-      concluido: form.exames.some((item) => (item.tipo_exame || "").trim()),
-    },
-    {
-      id: "prescricao",
-      titulo: "Prescricao",
-      descricao: `${form.prescricao_itens.filter((item) => item.medicamento_id || item.medicamento_nome.trim()).length} item(ns)`,
-      concluido: form.prescricao_itens.some((item) => item.medicamento_id || item.medicamento_nome.trim()),
-    },
-  ];
   const totalExamesSolicitados = form.exames.filter((item) => (item.tipo_exame || "").trim()).length;
   const totalPrescricaoItens = form.prescricao_itens.filter((item) => item.medicamento_id || item.medicamento_nome.trim()).length;
   const totalAnexosExame = form.exames.reduce((acc, exame) => acc + (exame.anexos_resultado?.length || 0), 0);
@@ -5678,6 +5683,7 @@ export default function AtendimentoPage() {
     titulo: string;
     resumo: string;
     badge: string;
+    triagemConcluida?: boolean;
     pendente?: boolean;
   }> = [
     {
@@ -5685,6 +5691,7 @@ export default function AtendimentoPage() {
       titulo: "Consulta",
       resumo: "Triagem + editor clinico",
       badge: `${clinicalSummary.completeness}%`,
+      triagemConcluida: form.triagem_concluida === 1,
     },
     {
       key: "exames",
@@ -5713,6 +5720,19 @@ export default function AtendimentoPage() {
   const isDocumentosWorkspace = workspacePainel === "documentos";
   const isBibliotecasWorkspace = workspacePainel === "bibliotecas";
   const showCaseSidebar = painelCasosAberto && !isPrescricaoWorkspace && !isBibliotecasWorkspace;
+  const labelWorkspacePainelAnterior =
+    workspaceCards.find((item) => item.key === workspacePainelAnterior)?.titulo || "Consulta";
+
+  const abrirBibliotecasClinicas = () => {
+    if (workspacePainel !== "bibliotecas") {
+      setWorkspacePainelAnterior(workspacePainel);
+    }
+    setWorkspacePainel("bibliotecas");
+  };
+
+  const fecharBibliotecasClinicas = () => {
+    setWorkspacePainel(workspacePainelAnterior);
+  };
   const uploadGeralEmAndamento = uploadingAttachmentKey === "geral";
   const progressoUploadGeral = uploadProgressByKey["geral"] ?? null;
   const showClinicalRadarAside = isConsultaWorkspace || isDocumentosWorkspace;
@@ -6778,7 +6798,7 @@ export default function AtendimentoPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setWorkspacePainel("bibliotecas")}
+                onClick={() => (isBibliotecasWorkspace ? fecharBibliotecasClinicas() : abrirBibliotecasClinicas())}
                 className={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-medium transition ${
                   isBibliotecasWorkspace
                     ? "border-violet-200 bg-violet-50 text-violet-700"
@@ -6786,7 +6806,7 @@ export default function AtendimentoPage() {
                 }`}
               >
                 <Pill className="h-4 w-4" />
-                Bibliotecas clinicas
+                {isBibliotecasWorkspace ? `Voltar para ${labelWorkspacePainelAnterior}` : "Bibliotecas clinicas"}
               </button>
             </div>
           </div>
@@ -6804,6 +6824,12 @@ export default function AtendimentoPage() {
                   <div>
                     <p className="text-sm font-semibold text-slate-900">{item.titulo}</p>
                     <p className="mt-1 text-xs text-slate-500">{item.resumo}</p>
+                    {item.triagemConcluida ? (
+                      <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Triagem concluida
+                      </span>
+                    ) : null}
                   </div>
                   <span
                     className={`fc-care-tab-badge ${item.pendente ? "fc-care-tab-badge-alert" : ""}`}
@@ -7139,7 +7165,6 @@ export default function AtendimentoPage() {
                   <AtendimentoConsultaOverviewSection
                     abrirCadastroComplementar={abrirCadastroComplementar}
                     clinicas={clinicas}
-                    fluxoClinico={fluxoClinico}
                     form={form}
                     getBadgeStatusClass={getBadgeStatusClass}
                     pacienteBusca={pacienteBusca}
@@ -7151,7 +7176,6 @@ export default function AtendimentoPage() {
                     setField={setField}
                     setMostrarPacientes={setMostrarPacientes}
                     setPacienteBusca={setPacienteBusca}
-                    setWorkspacePainel={setWorkspacePainel}
                     STATUS_ATENDIMENTO={STATUS_ATENDIMENTO}
                     especieRacaExibicao={especieRacaExibicao}
                     sexoPacienteExibicao={sexoPacienteExibicao}
@@ -7221,6 +7245,8 @@ export default function AtendimentoPage() {
                     injectClinicalSnippet={injectClinicalSnippet}
                     PROGNOSTICO={PROGNOSTICO}
                     registerClinicalTextarea={registerClinicalTextarea}
+                    salvarFraseRapida={salvarFraseRapida}
+                    savingQuickPhrase={savingQuickPhrase}
                     setClinicalFieldValue={setClinicalFieldValue}
                     setConsultaCampoAtivo={setConsultaCampoAtivo}
                     setConsultaEditorEtapa={setConsultaEditorEtapa}

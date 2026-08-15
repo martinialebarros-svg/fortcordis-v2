@@ -353,6 +353,7 @@ export type PortalExamListResponse = {
   partner_tipo_label?: string | null;
   operational_summary?: PortalClinicOperationalSummary | null;
   operational_items?: PortalClinicOperationalItem[];
+  operational_pending_items?: PortalClinicOperationalItem[];
   items: PortalExamItem[];
 };
 

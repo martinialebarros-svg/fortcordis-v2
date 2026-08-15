@@ -1,6 +1,7 @@
 "use client";
 
-import { ClipboardList, Eraser, Sparkles, Wand2 } from "lucide-react";
+import { BookmarkPlus, ClipboardList, Eraser, Sparkles, Wand2 } from "lucide-react";
+import { useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import type { ClinicalFieldConfig } from "@/lib/atendimento-clinical-notes";
@@ -12,6 +13,8 @@ interface ClinicalFieldCardProps {
   onInsertPhrase: (text: string) => void;
   onInsertScaffold?: (text: string) => void;
   onClear: () => void;
+  onSaveAsPhrase?: (titulo: string, texto: string) => Promise<boolean> | boolean;
+  savingPhrase?: boolean;
   textareaRef?: (node: HTMLTextAreaElement | null) => void;
   onTextareaKeyDown?: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void;
   className?: string;
@@ -57,6 +60,8 @@ export default function ClinicalFieldCard({
   onInsertPhrase,
   onInsertScaffold,
   onClear,
+  onSaveAsPhrase,
+  savingPhrase = false,
   textareaRef,
   onTextareaKeyDown,
   className = "",
@@ -65,6 +70,28 @@ export default function ClinicalFieldCard({
   const hasValue = value.trim().length > 0;
   const lineCount = value.trim() ? value.split("\n").length : 0;
   const titleId = `clinical-field-title-${config.key}`;
+
+  const [showQuickSaveForm, setShowQuickSaveForm] = useState(false);
+  const [quickTitulo, setQuickTitulo] = useState("");
+  const [quickTexto, setQuickTexto] = useState("");
+
+  const openQuickSaveForm = () => {
+    setQuickTitulo("");
+    setQuickTexto(value.trim());
+    setShowQuickSaveForm(true);
+  };
+
+  const closeQuickSaveForm = () => {
+    setShowQuickSaveForm(false);
+    setQuickTitulo("");
+    setQuickTexto("");
+  };
+
+  const handleQuickSave = async () => {
+    if (!onSaveAsPhrase) return;
+    const saved = await onSaveAsPhrase(quickTitulo, quickTexto);
+    if (saved) closeQuickSaveForm();
+  };
 
   return (
     <article className={`overflow-hidden rounded-[24px] border p-4 shadow-sm ${tone.shell} ${className}`.trim()}>
@@ -85,17 +112,81 @@ export default function ClinicalFieldCard({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClear}
-            className="rounded-xl border border-white/60 bg-white/80 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-white"
-          >
-            <span className="inline-flex items-center gap-2">
-              <Eraser className="h-3.5 w-3.5" />
-              Limpar
-            </span>
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {onSaveAsPhrase ? (
+              <button
+                type="button"
+                onClick={() => (showQuickSaveForm ? closeQuickSaveForm() : openQuickSaveForm())}
+                disabled={!hasValue}
+                className="rounded-xl border border-white/60 bg-white/80 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <BookmarkPlus className="h-3.5 w-3.5" />
+                  Salvar como frase
+                </span>
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={onClear}
+              className="rounded-xl border border-white/60 bg-white/80 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-white"
+            >
+              <span className="inline-flex items-center gap-2">
+                <Eraser className="h-3.5 w-3.5" />
+                Limpar
+              </span>
+            </button>
+          </div>
         </div>
+
+        {showQuickSaveForm ? (
+          <div className="space-y-2 rounded-2xl border border-white/70 bg-white/90 p-3">
+            <p className="text-xs text-slate-600">
+              Salva este texto como atalho reutilizavel em <strong>{config.title}</strong>.
+            </p>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                Titulo do atalho
+              </label>
+              <input
+                value={quickTitulo}
+                onChange={(event) => setQuickTitulo(event.target.value)}
+                placeholder="Ex.: Sopro apical"
+                autoFocus
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-300 focus:ring-2 focus:ring-slate-200"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                Texto do atalho
+              </label>
+              <textarea
+                value={quickTexto}
+                onChange={(event) => setQuickTexto(event.target.value)}
+                rows={4}
+                className="w-full resize-y rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-300 focus:ring-2 focus:ring-slate-200"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleQuickSave}
+                disabled={savingPhrase || !quickTitulo.trim() || !quickTexto.trim()}
+                className="rounded-xl bg-teal-600 px-3 py-2 text-xs font-medium text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {savingPhrase ? "Salvando..." : "Salvar atalho"}
+              </button>
+              <button
+                type="button"
+                onClick={closeQuickSaveForm}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-100"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="flex flex-wrap gap-2">
           {config.scaffold ? (
