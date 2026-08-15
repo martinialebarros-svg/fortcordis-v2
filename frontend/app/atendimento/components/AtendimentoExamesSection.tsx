@@ -529,9 +529,40 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
                 </div>
 
                 {!exameExpandido ? (
-                  <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                    {exame.tipo_exame || "Exame sem nome"} · {anexosResultado.length} arquivo(s) ·{" "}
-                    {exame.resultado?.trim() ? "com interpretacao" : "sem interpretacao"}
+                  <div
+                    onDragEnter={(event) => {
+                      event.preventDefault();
+                      setExamDropActive((prev: AtendimentoExamesSectionProps) => ({ ...prev, [exameKey]: true }));
+                      setExamesExpandidos((prev: AtendimentoExamesSectionProps) => ({ ...prev, [exameKey]: true }));
+                    }}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                    }}
+                    onDragLeave={(event) => {
+                      event.preventDefault();
+                      if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+                      clearExamDropState(exameKey);
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      clearExamDropState(exameKey);
+                      setExamesExpandidos((prev: AtendimentoExamesSectionProps) => ({ ...prev, [exameKey]: true }));
+                      const files = Array.from(event.dataTransfer.files || []);
+                      if (files.length > 1) {
+                        void uploadArquivosResultadoExame(index, files);
+                      } else if (files[0]) {
+                        setExamUploadDraftFile(exameKey, files[0]);
+                      }
+                    }}
+                    className={`rounded-[18px] border px-3 py-2 text-xs transition ${
+                      dropAtivo ? "border-blue-300 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-600"
+                    }`}
+                  >
+                    {dropAtivo
+                      ? "Solte o arquivo aqui para anexar a este exame..."
+                      : `${exame.tipo_exame || "Exame sem nome"} · ${anexosResultado.length} arquivo(s) · ${
+                          exame.resultado?.trim() ? "com interpretacao" : "sem interpretacao"
+                        }`}
                   </div>
                 ) : null}
 
