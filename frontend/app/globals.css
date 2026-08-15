@@ -6655,8 +6655,8 @@ body {
     }
   }
 
-  .fc-care-page,
-  .fc-care-loading {
+  .fc-care-page {
+    @apply min-h-screen space-y-4 p-4 sm:p-5 lg:p-6;
     max-width: 1680px;
     margin: 0 auto;
     background:
@@ -6667,16 +6667,8 @@ body {
     background-size: auto, 64px 64px, 64px 64px, auto;
   }
 
-  .fc-care-page {
-    @apply min-h-screen space-y-4 p-4 sm:p-5 lg:p-6;
-  }
-
-  .fc-care-loading {
-    @apply min-h-screen p-6 text-sm font-medium text-ink-500;
-  }
-
   .fc-care-header {
-    @apply relative overflow-hidden rounded-lg border border-ink-900/20 p-5 text-white shadow-fort-card sm:p-6;
+    @apply relative overflow-hidden rounded-lg border border-ink-900/20 p-5 text-white shadow-fort-card sm:p-6 xl:sticky xl:top-0 xl:z-20;
     background: linear-gradient(112deg, rgba(76, 5, 25, 0.98) 0%, rgba(23, 32, 29, 0.98) 54%, rgba(15, 118, 110, 0.94) 100%);
   }
 
@@ -6802,6 +6794,14 @@ body {
 
   .fc-care-tab-active .fc-care-tab-badge {
     @apply bg-vital-600 text-white;
+  }
+
+  .fc-care-tab-badge-alert {
+    @apply bg-amber-500 text-white;
+  }
+
+  .fc-care-tab-active .fc-care-tab-badge-alert {
+    @apply bg-amber-500 text-white;
   }
 
   .fc-care-layout {

@@ -97,6 +97,7 @@ from app.services.atendimento.document_crud_service import (
 from app.services.atendimento.document_context_service import (
     atualizar_documento_template_se_contexto_mudou as atualizar_documento_template_se_contexto_mudou_service,
     carregar_contexto_entidades_documento as carregar_contexto_entidades_documento_service,
+    identificar_variaveis_vazias as identificar_variaveis_vazias_service,
     montar_contexto_template_documento as montar_contexto_template_documento_service,
     renderizar_template_documento as renderizar_template_documento_service,
 )
@@ -119,6 +120,7 @@ from app.services.atendimento_upload_service import (
 )
 from app.services.attachment_download_service import (
     attachment_has_download_source,
+    attachment_is_verified_pdf,
     build_attachment_download_response,
 )
 from app.services.upload_dedupe_cleanup_service import (
@@ -708,6 +710,12 @@ def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
         return datetime.fromisoformat(raw)
     except ValueError:
         return None
+
+
+def _to_local_naive(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None or value.tzinfo is None:
+        return value
+    return value.astimezone(ATENDIMENTO_LOCAL_TZ).replace(tzinfo=None)
 
 
 def _to_iso(value: Any) -> Optional[str]:
@@ -1940,7 +1948,7 @@ def _sync_exames(
         else:
             exame.laudo_id = payload.laudo_id
         exame.data_solicitacao = exame.data_solicitacao or datetime.now()
-        exame.data_resultado = _parse_datetime(payload.data_resultado) if payload.data_resultado else exame.data_resultado
+        exame.data_resultado = _to_local_naive(_parse_datetime(payload.data_resultado)) if payload.data_resultado else exame.data_resultado
         if _status_exame_concluido(exame.status) and exame.data_resultado is None:
             exame.data_resultado = datetime.now()
 
@@ -2647,6 +2655,18 @@ def criar_documento_atendimento(
     if not titulo or not corpo:
         raise HTTPException(status_code=422, detail="Informe um template ativo ou preencha titulo e corpo do documento.")
 
+    variaveis_vazias: List[str] = []
+    if template and titulo == titulo_base and corpo == corpo_base:
+        # So reporta "vazias" quando o documento salvo e realmente o texto
+        # renderizado do template sem sobrescrita pelo chamador - senao a
+        # analise descreveria placeholders que nem estao no texto final.
+        variaveis_vazias = sorted(
+            set(
+                identificar_variaveis_vazias_service(template.titulo_padrao or "", contexto)
+                + identificar_variaveis_vazias_service(template.corpo_template or "", contexto)
+            )
+        )
+
     documento = DocumentoAtendimento(
         atendimento_id=atendimento.id,
         template_id=template.id if template else None,
@@ -2662,7 +2682,10 @@ def criar_documento_atendimento(
     atendimento.updated_at = datetime.now()
     db.commit()
     db.refresh(documento)
-    return serializar_documento_atendimento_service(documento)
+    resultado = serializar_documento_atendimento_service(documento)
+    if variaveis_vazias:
+        resultado["variaveis_vazias"] = variaveis_vazias
+    return resultado
 
 
 @router.put("/{atendimento_id}/documentos/{documento_id}")
@@ -4340,12 +4363,17 @@ def liberar_exame_no_portal(
     # upload real). attachment_has_download_source confirma que existe de
     # fato algo baixavel (arquivo local ou URL remota valida) antes de
     # liberar o exame como "resultado disponivel" para o portal externo.
+    # attachment_is_verified_pdf vai alem: confirma os bytes magicos "%PDF-"
+    # no CONTEUDO real (nao so que existe algo baixavel) - um arquivo
+    # renomeado para .pdf sem ser um PDF de verdade nao passa por essa
+    # checagem extra.
     if not any(
-        _anexo_eh_pdf(anexo) and attachment_has_download_source(anexo) for anexo in anexos
+        _anexo_eh_pdf(anexo) and attachment_has_download_source(anexo) and attachment_is_verified_pdf(anexo)
+        for anexo in anexos
     ):
         raise HTTPException(status_code=422, detail="Anexe o PDF do resultado antes de liberar no portal.")
 
-    released_at = datetime.utcnow()
+    released_at = datetime.now()
     status_anterior = exame.status or ""
     exame.tipo_exame = _normalizar_tipo_exame_portal_externo(exame.tipo_exame)
     if exame.tipo_exame == "Eletrocardiograma" and not (exame.categoria_exame or "").strip():
@@ -4913,7 +4941,8 @@ def _montar_timeline_paciente(
     reaproveitar uma lista ja buscada pelo chamador (historico_paciente ja
     consulta AtendimentoClinico com o mesmo limite) em vez de reconsultar a
     mesma tabela. A ordem de `atendimentos` nao importa para o resultado: os
-    eventos de todas as categorias sao reordenados por data ao final."""
+    eventos de todas as categorias sao reordenados por data ao final, do
+    mais recente para o mais antigo (anos e eventos dentro do ano)."""
     atendimentos = (
         atendimentos_paciente
         if atendimentos_paciente is not None
@@ -5064,7 +5093,7 @@ def _montar_timeline_paciente(
         )
 
     grouped: Dict[str, List[dict]] = defaultdict(list)
-    for event in sorted(events, key=lambda item: item.get("data") or ""):
+    for event in sorted(events, key=lambda item: item.get("data") or "", reverse=True):
         year = "Sem data"
         if event.get("data"):
             parsed = _parse_datetime(event["data"])
@@ -5072,7 +5101,8 @@ def _montar_timeline_paciente(
                 year = str(parsed.year)
         grouped[year].append(event)
 
-    ordered_years = sorted(grouped.keys(), key=lambda value: (value == "Sem data", value))
+    anos_reais = sorted((year for year in grouped if year != "Sem data"), reverse=True)
+    ordered_years = anos_reais + (["Sem data"] if "Sem data" in grouped else [])
     return [{"ano": year, "eventos": grouped[year]} for year in ordered_years]
 
 

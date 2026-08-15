@@ -48,6 +48,10 @@ const DashboardPushSnoozeHandler = dynamic(
   () => import("@/components/layout/DashboardPushSnoozeHandler"),
   { ssr: false }
 );
+const AlertasInternosBell = dynamic(
+  () => import("@/components/layout/AlertasInternosBell"),
+  { ssr: false }
+);
 
 type MenuItem = {
   href: string;
@@ -378,8 +382,8 @@ export default function DashboardLayout({
         <DashboardPushSnoozeHandler enabled={authChecked && Boolean(user)} />
         <DashboardOverlayCleanup />
         {/* Header mobile */}
-        <div className="fc-mobile-header flex items-center justify-between lg:hidden">
-          <div className="flex items-center gap-2 min-w-0">
+        <div className="fc-mobile-header flex items-center justify-between lg:contents">
+          <div className="flex min-w-0 items-center gap-2 lg:hidden">
             {logoUrl ? (
               <img
                 src={logoUrl}
@@ -393,13 +397,16 @@ export default function DashboardLayout({
             )}
             <h1 className="truncate text-lg font-bold text-ink-900">{nomeClinica}</h1>
           </div>
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            aria-label={sidebarOpen ? "Fechar menu" : "Abrir menu"}
-            className="p-2 text-ink-500 hover:text-ink-900"
-          >
-            {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-          </button>
+          <div className="flex shrink-0 items-center gap-1 lg:contents">
+            <AlertasInternosBell containerClassName="relative z-[70] shrink-0 lg:fixed lg:right-3 lg:top-3" />
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              aria-label={sidebarOpen ? "Fechar menu" : "Abrir menu"}
+              className="shrink-0 p-2 text-ink-500 hover:text-ink-900 lg:hidden"
+            >
+              {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            </button>
+          </div>
         </div>
 
         <div className="flex">

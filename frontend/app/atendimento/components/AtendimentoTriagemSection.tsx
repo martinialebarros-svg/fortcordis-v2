@@ -1,12 +1,32 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Thermometer } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Thermometer } from "lucide-react";
 import type { LooseAtendimentoComponentProps } from "./component-props";
+import {
+  avaliarFrequenciaCardiaca,
+  avaliarFrequenciaRespiratoria,
+  avaliarSaturacaoOxigenio,
+  avaliarTemperatura,
+} from "@/lib/vital-signs-reference";
 
 type AtendimentoTriagemSectionProps = LooseAtendimentoComponentProps;
 
+const CLASSE_INPUT_NORMAL = "w-full rounded-lg border px-3 py-2 text-sm";
+const CLASSE_INPUT_ALERTA = "w-full rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900";
+
 export default function AtendimentoTriagemSection(props: AtendimentoTriagemSectionProps) {
-  const { ESCALA_ECC, form, HIDRATACAO, MUCOSAS, setField, setTriagemExpandida, triagemExpandida } = props;
+  const { especieExibicao, ESCALA_ECC, form, HIDRATACAO, MUCOSAS, setField, setTriagemExpandida, triagemExpandida } = props;
+
+  const statusTemperatura = avaliarTemperatura(form.triagem.temperatura, especieExibicao);
+  const statusFrequenciaCardiaca = avaliarFrequenciaCardiaca(form.triagem.frequencia_cardiaca, especieExibicao);
+  const statusFrequenciaRespiratoria = avaliarFrequenciaRespiratoria(form.triagem.frequencia_respiratoria, especieExibicao);
+  const statusSaturacaoOxigenio = avaliarSaturacaoOxigenio(form.triagem.saturacao_oxigenio);
+  const algumSinalVitalForaDaFaixa = [
+    statusTemperatura,
+    statusFrequenciaCardiaca,
+    statusFrequenciaRespiratoria,
+    statusSaturacaoOxigenio,
+  ].some(Boolean);
 
   return (
     <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm space-y-4">
@@ -49,7 +69,10 @@ export default function AtendimentoTriagemSection(props: AtendimentoTriagemSecti
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-gray-600">Temperatura (°C)</label>
+              <label className="mb-1 flex items-center gap-1.5 text-xs text-gray-600">
+                Temperatura (°C)
+                {statusTemperatura ? <BadgeSinalVital status={statusTemperatura} /> : null}
+              </label>
               <input
                 type="number"
                 step="0.1"
@@ -57,12 +80,15 @@ export default function AtendimentoTriagemSection(props: AtendimentoTriagemSecti
                 onChange={(e) =>
                   setField("triagem", { ...form.triagem, temperatura: e.target.value ? Number(e.target.value) : null })
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={statusTemperatura ? CLASSE_INPUT_ALERTA : CLASSE_INPUT_NORMAL}
                 placeholder="0.0"
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-gray-600">FC (bpm)</label>
+              <label className="mb-1 flex items-center gap-1.5 text-xs text-gray-600">
+                FC (bpm)
+                {statusFrequenciaCardiaca ? <BadgeSinalVital status={statusFrequenciaCardiaca} /> : null}
+              </label>
               <input
                 type="number"
                 value={form.triagem.frequencia_cardiaca ?? ""}
@@ -72,12 +98,15 @@ export default function AtendimentoTriagemSection(props: AtendimentoTriagemSecti
                     frequencia_cardiaca: e.target.value ? Number(e.target.value) : null,
                   })
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={statusFrequenciaCardiaca ? CLASSE_INPUT_ALERTA : CLASSE_INPUT_NORMAL}
                 placeholder="Batimentos"
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-gray-600">FR (mpm)</label>
+              <label className="mb-1 flex items-center gap-1.5 text-xs text-gray-600">
+                FR (mpm)
+                {statusFrequenciaRespiratoria ? <BadgeSinalVital status={statusFrequenciaRespiratoria} /> : null}
+              </label>
               <input
                 type="number"
                 value={form.triagem.frequencia_respiratoria ?? ""}
@@ -87,7 +116,7 @@ export default function AtendimentoTriagemSection(props: AtendimentoTriagemSecti
                     frequencia_respiratoria: e.target.value ? Number(e.target.value) : null,
                   })
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={statusFrequenciaRespiratoria ? CLASSE_INPUT_ALERTA : CLASSE_INPUT_NORMAL}
                 placeholder="Movimentos"
               />
             </div>
@@ -101,7 +130,10 @@ export default function AtendimentoTriagemSection(props: AtendimentoTriagemSecti
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-gray-600">SpO2 (%)</label>
+              <label className="mb-1 flex items-center gap-1.5 text-xs text-gray-600">
+                SpO2 (%)
+                {statusSaturacaoOxigenio ? <BadgeSinalVital status={statusSaturacaoOxigenio} /> : null}
+              </label>
               <input
                 type="number"
                 value={form.triagem.saturacao_oxigenio ?? ""}
@@ -111,7 +143,7 @@ export default function AtendimentoTriagemSection(props: AtendimentoTriagemSecti
                     saturacao_oxigenio: e.target.value ? Number(e.target.value) : null,
                   })
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={statusSaturacaoOxigenio ? CLASSE_INPUT_ALERTA : CLASSE_INPUT_NORMAL}
                 placeholder="%"
               />
             </div>
@@ -178,11 +210,28 @@ export default function AtendimentoTriagemSection(props: AtendimentoTriagemSecti
           </div>
         </>
       ) : (
-        <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-          Peso {form.triagem.peso ?? "-"} kg · FC {form.triagem.frequencia_cardiaca ?? "-"} bpm · FR{" "}
-          {form.triagem.frequencia_respiratoria ?? "-"} mpm · PA {form.triagem.pressao_arterial || "-"}
+        <div
+          className={
+            algumSinalVitalForaDaFaixa
+              ? "flex items-center gap-2 rounded-[18px] border border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+              : "rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"
+          }
+        >
+          {algumSinalVitalForaDaFaixa ? <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" /> : null}
+          <span>
+            Peso {form.triagem.peso ?? "-"} kg · FC {form.triagem.frequencia_cardiaca ?? "-"} bpm · FR{" "}
+            {form.triagem.frequencia_respiratoria ?? "-"} mpm · PA {form.triagem.pressao_arterial || "-"}
+          </span>
         </div>
       )}
     </section>
+  );
+}
+
+function BadgeSinalVital({ status }: { status: "baixo" | "alto" }) {
+  return (
+    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+      {status}
+    </span>
   );
 }

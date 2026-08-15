@@ -1,6 +1,6 @@
 # Verify - laudo-phrase-library
 
-Data: 2026-08-01
+Data: 2026-08-11
 Responsavel: Codex  
 Status: done
 
@@ -32,8 +32,10 @@ Status: done
 | NFR-006 | acessibilidade | seletor fecha por Escape/clique externo; gatilho e grupos expõem estado expandido e todos os comandos usam botoes/input nativos. | ok |
 | NFR-007 | privacidade | chave local `fortcordis:eco:conclusoes-recentes` recebe somente array de IDs, sem texto do laudo ou identificadores do paciente. | ok |
 | NFR-008 | responsividade | painel e renderizado em portal no `document.body`, usa coordenadas fixas e calcula lado, largura e `maxHeight` a partir do gatilho e do viewport. | ok |
+| NFR-009 | seguranca | router depende de `get_current_user`; regressao cobre 12 chamadas anonimas e confirma modulo/acoes da matriz `frases`. | ok local |
 | CA-018 | aceitacao | cabecalho e `shrink-0`; lista usa `min-h-0`, `flex-1` e `overflow-y-auto`, mantendo o final rolavel dentro da altura calculada. | ok |
 | CA-019 | aceitacao | listeners de resize/scroll reposicionam o painel; eventos de scroll originados dentro do proprio painel nao recalculam a ancora. | ok |
+| CA-020 | seguranca | `test_todas_as_rotas_exigem_autenticacao`, `test_usuario_autenticado_consegue_carregar_payload` e smoke anonimo em stage. | ok |
 
 ## 2) Testes automatizados executados
 
@@ -41,6 +43,7 @@ Comandos:
 
 ```bash
 cd backend
+venv/bin/python -m pytest tests/test_frases_ecocardiograma_estruturado_auth.py
 venv/bin/python -m pytest tests/test_frases_ecocardiograma_estruturado_teste_service.py tests/test_frases_ecocardiograma_estruturado_import.py
 venv/bin/python -m py_compile app/api/v1/endpoints/frases_ecocardiograma_estruturado_teste.py app/services/frases_ecocardiograma_estruturado_teste_service.py
 venv/bin/python -m py_compile sync_frases_store.py
@@ -58,6 +61,7 @@ Resumo dos resultados:
 - Frontend do seletor de Conclusao: ESLint direcionado dos dois componentes passou; TypeScript sem emissao passou; o novo build de producao compilou, validou tipos e gerou 39 paginas.
 - Hotfix de viewport do seletor: ESLint direcionado passou; TypeScript sem emissao passou; build de producao compilou e gerou 39 paginas.
 - Store runtime de stage: 15 titulos renomeados para `DMVM`, 6 referencias de presets sincronizadas, 112 titulos unicos e zero referencias quebradas; producao permaneceu com o hash anterior.
+- Seguranca da API: 15 testes direcionados passaram (3 de autenticacao/autorizacao, 11 do servico e 1 de importacao); a mesma execucao da esteira (`pytest tests`) passou com 711 testes; CI, deploy e Migration CI de stage passaram no SHA `2a16925c`.
 
 ## 3) Testes manuais
 
@@ -75,10 +79,14 @@ Resumo dos resultados:
 - Cenario 12: reabrir o seletor e confirmar o grupo Recentes com no maximo cinco frases validas.
 - Cenario 13: abrir Conclusao proximo ao rodape da janela e confirmar que o painel cabe abaixo ou inverte para cima, sem esconder o fim da barra de rolagem.
 - Cenario 14: rolar a lista ate a ultima patologia e redimensionar a janela, confirmando que o painel permanece contido no viewport.
+- Cenario 15: chamar GET e cada familia de mutacao da API sem cookie/token e confirmar `401`.
+- Cenario 16: com sessao e permissao do modulo `frases`, carregar a biblioteca e aplicar/salvar uma alteracao controlada em stage.
 
 Resultado operacional ja confirmado para o cenario 8: arquivo runtime e API publica de stage retornam zero titulos legados e 112 conclusoes integras. Os cenarios 6 e 7 serao repetidos no frontend publicado apos o workflow de deploy.
 
 Os cenarios 9 a 12 dependem do primeiro deploy desta iteracao em stage e serao repetidos no frontend servido antes de qualquer promocao para producao.
+
+O smoke de seguranca em stage confirmou `401 Credenciais invalidas` tanto no GET do payload quanto no POST com payload invalido. As rotas `/` e `/laudos/novo` retornaram `200` nos hosts `stage.fortcordis.com.br` e `app.stage.fortcordis.com.br`. Nenhuma mutacao clinica foi usada no smoke vivo.
 
 ## 4) Regressao e riscos residuais
 
@@ -87,6 +95,7 @@ Os cenarios 9 a 12 dependem do primeiro deploy desta iteracao em stage e serao r
 - Risco residual 3: autorecovery depende da existencia de backup runtime valido e mais rico no ambiente.
 - Risco residual 4: a validacao visual dos menus expansivos depende do deploy de stage concluir.
 - Risco residual 5: o historico Recentes e local a cada navegador e nao sincroniza entre dispositivos, por desenho.
+- Risco residual 6: usuarios autenticados sem permissao configurada no modulo `frases` passam a receber `403`, comportamento intencional da matriz existente.
 
 ## 5) Itens fora de escopo entregues
 

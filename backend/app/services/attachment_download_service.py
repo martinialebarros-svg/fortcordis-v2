@@ -99,6 +99,52 @@ def attachment_has_download_source(attachment) -> bool:
     return resolve_attachment_download_source(attachment) is not None
 
 
+PDF_MAGIC_BYTES = b"%PDF-"
+
+
+def _bytes_look_like_pdf(chunk: bytes) -> bool:
+    return chunk.lstrip(b"\x00\r\n\t ").startswith(PDF_MAGIC_BYTES)
+
+
+def attachment_is_verified_pdf(attachment) -> bool:
+    """Confirma que o anexo E DE FATO um PDF (bytes magicos "%PDF-" no inicio
+    do conteudo real), complementar a attachment_has_download_source (que so
+    confirma que existe ALGO baixavel, nao que o conteudo seja um PDF valido).
+    Usado no gate de liberar_exame_no_portal, que concede acesso ao tutor/
+    clinica parceira com base nisso. Qualquer falha (arquivo ausente, rede,
+    conteudo que nao comeca com %PDF-) e fail-closed: retorna False."""
+    source = resolve_attachment_download_source(attachment)
+    if not source:
+        return False
+
+    if source.kind == "local_file":
+        try:
+            with open(source.value, "rb") as arquivo:
+                return _bytes_look_like_pdf(arquivo.read(1024))
+        except OSError:
+            return False
+
+    client = httpx.Client(
+        follow_redirects=False,
+        timeout=max(1, int(settings.PORTAL_REMOTE_STORAGE_TIMEOUT_SECONDS or 20)),
+    )
+    try:
+        headers = {**_build_remote_headers(source.value), "Range": "bytes=0-1023"}
+        request = client.build_request("GET", source.value, headers=headers)
+        response = client.send(request, stream=True)
+        try:
+            if response.is_redirect or response.status_code not in (200, 206):
+                return False
+            chunk = next(response.iter_bytes(), b"")
+            return _bytes_look_like_pdf(chunk)
+        finally:
+            response.close()
+    except httpx.HTTPError:
+        return False
+    finally:
+        client.close()
+
+
 def _is_trusted_storage_host(hostname: str) -> bool:
     trusted_hosts = {
         host.strip().lower()

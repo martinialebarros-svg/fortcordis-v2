@@ -11,6 +11,7 @@ import { receiveWebhook, verifyWebhook } from "./controllers/webhookController";
 import { getWebhookEventsCleanupRuntimeState } from "./services/webhookEventsCleanupService";
 import { logger } from "./utils/logger";
 import { requireApiAuth } from "./middleware/auth";
+import { sendAgendaReservation } from "./controllers/agendaAutomationController";
 
 const app = express();
 
@@ -37,6 +38,7 @@ app.post("/webhook", receiveWebhook);
 // Conversations/agents are protected: valid app token or internal automation token.
 app.use("/conversations", requireApiAuth);
 app.use("/agents", requireApiAuth);
+app.use("/automation", requireApiAuth);
 
 app.get("/conversations", asyncHandler(listConversations));
 app.get("/conversations/:id/messages", asyncHandler(listConversationMessages));
@@ -46,6 +48,7 @@ app.post("/conversations/:id/unclaim", asyncHandler(unclaimConversation));
 
 app.get("/agents", asyncHandler(listAgents));
 app.post("/agents", asyncHandler(createAgent));
+app.post("/automation/agenda/reservations", asyncHandler(sendAgendaReservation));
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   logger.error("Unhandled request error", { message: err.message });

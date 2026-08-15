@@ -69,6 +69,7 @@ export default function ClinicalFieldCard({
   const tone = toneClasses[config.tone];
   const hasValue = value.trim().length > 0;
   const lineCount = value.trim() ? value.split("\n").length : 0;
+  const titleId = `clinical-field-title-${config.key}`;
 
   const [showQuickSaveForm, setShowQuickSaveForm] = useState(false);
   const [quickTitulo, setQuickTitulo] = useState("");
@@ -102,7 +103,7 @@ export default function ClinicalFieldCard({
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-sm font-semibold text-slate-900">{config.title}</h3>
+                <h3 id={titleId} className="text-sm font-semibold text-slate-900">{config.title}</h3>
                 <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${tone.badge}`}>
                   {hasValue ? `${lineCount} linha(s)` : "Em aberto"}
                 </span>
@@ -218,6 +219,7 @@ export default function ClinicalFieldCard({
 
         <textarea
           ref={textareaRef}
+          aria-labelledby={titleId}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={onTextareaKeyDown}

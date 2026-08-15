@@ -16,6 +16,8 @@ import {
   WebhookPayload,
   WebhookStatusEvent
 } from "../types/whatsapp";
+import { handleAgendaButtonReply } from "../services/agendaButtonService";
+import { canonicalWhatsAppIdentity } from "../utils/phoneNumber";
 
 interface WebhookEventRow {
   id: string;
@@ -224,7 +226,13 @@ async function handleContacts(value: WebhookChangeValue, client: PoolClient): Pr
       continue;
     }
 
-    const conversation = await upsertConversation(client, waId, waId, contact.profile?.name ?? null);
+    const identity = canonicalWhatsAppIdentity(waId);
+    const conversation = await upsertConversation(
+      client,
+      identity,
+      identity,
+      contact.profile?.name ?? null
+    );
 
     await queryWithClient(
       client,
@@ -250,7 +258,7 @@ async function handleInboundMessages(value: WebhookChangeValue, client: PoolClie
 
   for (const contact of value.contacts ?? []) {
     if (contact.wa_id) {
-      contactsByWaId.set(contact.wa_id, contact);
+      contactsByWaId.set(canonicalWhatsAppIdentity(contact.wa_id), contact);
     }
   }
 
@@ -260,11 +268,12 @@ async function handleInboundMessages(value: WebhookChangeValue, client: PoolClie
       continue;
     }
 
-    const contact = contactsByWaId.get(from);
+    const identity = canonicalWhatsAppIdentity(from);
+    const contact = contactsByWaId.get(identity);
     const conversation = await upsertConversation(
       client,
-      from,
-      contact?.wa_id ?? null,
+      identity,
+      contact?.wa_id ? canonicalWhatsAppIdentity(contact.wa_id) : identity,
       contact?.profile?.name ?? null
     );
 
@@ -281,6 +290,7 @@ async function handleInboundMessages(value: WebhookChangeValue, client: PoolClie
     });
 
     if (inserted) {
+      await handleAgendaButtonReply(client, message);
       await touchConversation(conversation.id, client);
     }
   }
@@ -347,6 +357,15 @@ async function processWebhookPayload(payload: WebhookPayload, client: PoolClient
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
       if (change.field !== "messages" || !change.value) {
+        continue;
+      }
+
+      const configuredPhoneNumberId = String(process.env.PHONE_NUMBER_ID || "").trim();
+      const eventPhoneNumberId = String(change.value.metadata?.phone_number_id || "").trim();
+      if (configuredPhoneNumberId && eventPhoneNumberId && configuredPhoneNumberId !== eventPhoneNumberId) {
+        logger.warn("Ignoring webhook event for an unexpected phone_number_id", {
+          phoneNumberId: eventPhoneNumberId
+        });
         continue;
       }
 

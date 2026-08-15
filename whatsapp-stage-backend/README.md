@@ -101,10 +101,11 @@ docker-compose up -d --build
 - `POST /conversations/:id/unclaim`
 - `GET /agents`
 - `POST /agents`
+- `POST /automation/agenda/reservations` (envia `reserva_de_agendamento` com quick replies)
 
 ## Autenticacao e ACL
 
-- Rotas protegidas: `/conversations*` e `/agents*`.
+- Rotas protegidas: `/conversations*`, `/agents*` e `/automation*`.
 - A API aceita `Authorization: Bearer <token>` e valida o usuario no backend principal via `GET ${API_BACKEND_URL}/api/v1/auth/me`.
 - Opcionalmente, automacoes podem usar `X-WhatsApp-Internal-Token` quando `WHATSAPP_INTERNAL_API_TOKEN` estiver configurado.
 - Guardrail de producao: se `NODE_ENV/APP_ENV` indicar producao e `WHATSAPP_API_AUTH_ENABLED=false`, o processo falha no startup por padrao.
@@ -161,11 +162,16 @@ WHATSAPP_INTERNAL_API_TOKEN="<internal_token>" bash scripts/smoke-tests.sh
 ```bash
 npm run smoke
 npm run test:whatsapp-retry
+npm run test:reservation-template
 ```
 
 ## Observacoes
 
 - `POST /webhook` exige assinatura valida por padrao.
+- Respostas de botao da Agenda sao aceitas somente quando payload, remetente e `PHONE_NUMBER_ID`
+  correspondem ao envio persistido; o callback ao backend principal usa o token interno.
+- Modelo da Agenda: `WHATSAPP_RESERVATION_TEMPLATE_NAME=reserva_de_agendamento` e
+  `WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE=pt_BR`.
 - Para debug local sem assinatura (nao recomendado), use `WEBHOOK_ALLOW_UNSIGNED=true` no `.env`.
 - Retencao de eventos webhook:
   - `WHATSAPP_WEBHOOK_EVENTS_CLEANUP_ENABLED` (default `true`)

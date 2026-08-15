@@ -309,6 +309,9 @@ is_env_placeholder_value() {
     *placeholder*)
       return 0
       ;;
+    *not_configured*|000000000000000)
+      return 0
+      ;;
     stage_access_token_placeholder|stage_phone_number_id|stage_verify_token|stage_app_secret)
       return 0
       ;;
@@ -414,8 +417,8 @@ replace_env_key_if_exact_match() {
 }
 
 ensure_whatsapp_stage_env_file() {
-  local generated_internal_token generated_verify_token generated_app_secret
-  local default_access_token default_phone_number_id
+  local generated_internal_token generated_verify_token
+  local default_access_token default_phone_number_id default_app_secret
   local current_internal_token_before current_internal_token_after
   generated_internal_token="$(
     python3 - <<'PY'
@@ -429,14 +432,9 @@ import secrets
 print("stage_verify_" + secrets.token_hex(8))
 PY
   )"
-  generated_app_secret="$(
-    python3 - <<'PY'
-import secrets
-print(secrets.token_hex(24))
-PY
-  )"
   default_access_token="stage_access_token_not_configured"
-  default_phone_number_id="000000000000000"
+  default_phone_number_id="1279142515283484"
+  default_app_secret="stage_app_secret_not_configured"
 
   if [[ ! -f "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" ]]; then
     local backend_database_url
@@ -453,7 +451,12 @@ DATABASE_URL=${backend_database_url}
 WHATSAPP_ACCESS_TOKEN=${default_access_token}
 PHONE_NUMBER_ID=${default_phone_number_id}
 WHATSAPP_VERIFY_TOKEN=${generated_verify_token}
-WHATSAPP_APP_SECRET=${generated_app_secret}
+WHATSAPP_APP_SECRET=${default_app_secret}
+WHATSAPP_GRAPH_API_VERSION=v26.0
+META_APP_ID=975334532125008
+WHATSAPP_BUSINESS_ACCOUNT_ID=1369494994627980
+WHATSAPP_RESERVATION_TEMPLATE_NAME=reserva_de_agendamento
+WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE=pt_BR
 NODE_ENV=production
 WEBHOOK_ALLOW_UNSIGNED=false
 API_BACKEND_URL=${API_BACKEND_URL}
@@ -471,7 +474,7 @@ EOF
   replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ACCESS_TOKEN" "stage_access_token_placeholder" "${default_access_token}"
   replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "PHONE_NUMBER_ID" "stage_phone_number_id" "${default_phone_number_id}"
   replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "stage_verify_token" "${generated_verify_token}"
-  replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "stage_app_secret" "${generated_app_secret}"
+  replace_env_key_if_exact_match "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "stage_app_secret" "${default_app_secret}"
 
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "API_BACKEND_URL" "${API_BACKEND_URL}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_API_AUTH_ENABLED" "true"
@@ -481,12 +484,88 @@ EOF
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ACCESS_TOKEN" "${default_access_token}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "PHONE_NUMBER_ID" "${default_phone_number_id}"
   set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "${generated_verify_token}"
-  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "${generated_app_secret}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "${default_app_secret}"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_GRAPH_API_VERSION" "v26.0"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "META_APP_ID" "975334532125008"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_BUSINESS_ACCOUNT_ID" "1369494994627980"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_RESERVATION_TEMPLATE_NAME" "reserva_de_agendamento"
+  set_env_key_if_blank_or_placeholder "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE" "pt_BR"
 
   current_internal_token_after="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "")"
   if [[ -z "${current_internal_token_before}" && -n "${current_internal_token_after}" ]]; then
     log "Generated WHATSAPP_INTERNAL_API_TOKEN for ${WHATSAPP_STAGE_BACKEND_ENV_FILE}."
   fi
+}
+
+validate_whatsapp_stage_meta_config() {
+  local access_token phone_number_id app_secret verify_token
+  local meta_app_id business_account_id template_name template_language
+  local invalid=0
+
+  access_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_ACCESS_TOKEN" "")"
+  phone_number_id="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "PHONE_NUMBER_ID" "")"
+  app_secret="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_APP_SECRET" "")"
+  verify_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_VERIFY_TOKEN" "")"
+  meta_app_id="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "META_APP_ID" "")"
+  business_account_id="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_BUSINESS_ACCOUNT_ID" "")"
+  template_name="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_RESERVATION_TEMPLATE_NAME" "")"
+  template_language="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE" "")"
+
+  if is_env_placeholder_value "${access_token}" || [[ "${access_token}" != EAA* ]] || [[ "${#access_token}" -lt 64 ]]; then
+    echo "[ERROR] WHATSAPP_ACCESS_TOKEN ausente, placeholder ou fora do formato esperado." >&2
+    invalid=1
+  fi
+  if [[ "${phone_number_id}" != "1279142515283484" ]]; then
+    echo "[ERROR] PHONE_NUMBER_ID nao corresponde ao numero Fort Cordis aprovado." >&2
+    invalid=1
+  fi
+  if is_env_placeholder_value "${app_secret}" || [[ ! "${app_secret}" =~ ^[[:xdigit:]]{32}$ ]]; then
+    echo "[ERROR] WHATSAPP_APP_SECRET ausente, placeholder ou fora do formato esperado." >&2
+    invalid=1
+  fi
+  if is_env_placeholder_value "${verify_token}" || [[ "${#verify_token}" -lt 16 ]]; then
+    echo "[ERROR] WHATSAPP_VERIFY_TOKEN ausente, placeholder ou muito curto." >&2
+    invalid=1
+  fi
+  if [[ "${meta_app_id}" != "975334532125008" ]]; then
+    echo "[ERROR] META_APP_ID nao corresponde ao app FortZap aprovado." >&2
+    invalid=1
+  fi
+  if [[ "${business_account_id}" != "1369494994627980" ]]; then
+    echo "[ERROR] WHATSAPP_BUSINESS_ACCOUNT_ID nao corresponde a WABA Fort Cordis." >&2
+    invalid=1
+  fi
+  if [[ "${template_name}" != "reserva_de_agendamento" || "${template_language}" != "pt_BR" ]]; then
+    echo "[ERROR] Modelo de reserva ou idioma nao correspondem ao modelo aprovado." >&2
+    invalid=1
+  fi
+
+  if [[ "${invalid}" -ne 0 ]]; then
+    echo "[ERROR] Configure os segredos Meta diretamente no servidor antes de habilitar o servico." >&2
+    return 1
+  fi
+
+  log "WhatsApp stage Meta configuration validated without exposing secrets."
+}
+
+ensure_whatsapp_core_integration_env() {
+  if [[ "${ENABLE_WHATSAPP_STAGE_BACKEND}" != "1" ]]; then
+    return 0
+  fi
+
+  ensure_whatsapp_stage_env_file
+  local internal_token backend_env_file
+  backend_env_file="${BACKEND_DIR}/.env"
+  internal_token="$(read_env_file_value "${WHATSAPP_STAGE_BACKEND_ENV_FILE}" "WHATSAPP_INTERNAL_API_TOKEN" "")"
+  if [[ -z "${internal_token}" ]]; then
+    echo "[ERROR] WhatsApp internal token is unavailable for core integration." >&2
+    return 1
+  fi
+
+  upsert_env_key "${backend_env_file}" "WHATSAPP_AGENDA_ENABLED" "true"
+  upsert_env_key "${backend_env_file}" "WHATSAPP_AGENDA_SERVICE_URL" "${WHATSAPP_STAGE_BACKEND_URL}"
+  upsert_env_key "${backend_env_file}" "WHATSAPP_AGENDA_INTERNAL_TOKEN" "${internal_token}"
+  log "Core WhatsApp agenda integration env ensured."
 }
 
 ensure_whatsapp_stage_service_unit() {
@@ -533,6 +612,7 @@ deploy_whatsapp_stage_backend() {
   fi
 
   ensure_whatsapp_stage_env_file
+  validate_whatsapp_stage_meta_config
   ensure_whatsapp_stage_service_unit
 
   log "WhatsApp stage backend: install deps + migrations"
@@ -774,6 +854,7 @@ log "Backend: install deps + migrations"
 cd "$BACKEND_DIR"
 
 ensure_backend_stage_cookie_security
+ensure_whatsapp_core_integration_env
 ensure_eco_study_ocr_dependencies
 
 if [[ ! -x "${BACKEND_DIR}/venv/bin/python" ]]; then

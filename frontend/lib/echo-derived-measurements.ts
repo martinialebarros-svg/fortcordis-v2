@@ -49,6 +49,10 @@ function formatDerivedValue(value: number): string {
   return Number(value.toFixed(2)).toString();
 }
 
+function formatDerivedPercentage(value: number): string {
+  return String(Math.round(value));
+}
+
 export function calculateBernoulliGradient(velocity: unknown): number | null {
   const parsed = parsePositiveNumber(velocity);
   return parsed === null ? null : 4 * parsed ** 2;
@@ -189,6 +193,56 @@ export function deriveAutomaticEchoMeasurements(
   const has2D = hasAnyMeasurement(measurements, LV_2D_KEYS);
   if (hasMMode && !has2D) derived.VE_tecnica_relatorio = "modo_m";
   if (has2D && !hasMMode) derived.VE_tecnica_relatorio = "2d";
+
+  return derived;
+}
+
+/**
+ * Completa apenas a visualizacao das referencias com a funcao ventricular que
+ * pode ser obtida das medidas ja preenchidas. Nao altera o formulario nem o
+ * payload do laudo: se a FE ou o FS informado pelo equipamento existir, ele
+ * sempre tem precedencia sobre o valor calculado aqui.
+ */
+export function deriveLeftVentricularFunctionForReference(
+  measurements: Record<string, string>
+): Record<string, string> {
+  const derived: Record<string, string> = {};
+
+  for (const fields of Object.values({
+    modo_m: {
+      edv: "VDF",
+      esv: "VSF",
+      ef: "FE_Teicholz",
+      lvidD: "DIVEd",
+      lvidS: "DIVES",
+      fs: "DeltaD_FS",
+    },
+    modo_2d: {
+      edv: "VDF_2D",
+      esv: "VSF_2D",
+      ef: "FE_Teicholz_2D",
+      lvidD: "DIVEd_2D",
+      lvidS: "DIVES_2D",
+      fs: "DeltaD_FS_2D",
+    },
+  })) {
+    const edv = parsePositiveNumber(measurements[fields.edv]);
+    const esv = parsePositiveNumber(measurements[fields.esv]);
+    if (!String(measurements[fields.ef] ?? "").trim() && edv !== null && esv !== null && esv <= edv) {
+      derived[fields.ef] = formatDerivedPercentage(((edv - esv) / edv) * 100);
+    }
+
+    const lvidD = parsePositiveNumber(measurements[fields.lvidD]);
+    const lvidS = parsePositiveNumber(measurements[fields.lvidS]);
+    if (
+      !String(measurements[fields.fs] ?? "").trim() &&
+      lvidD !== null &&
+      lvidS !== null &&
+      lvidS <= lvidD
+    ) {
+      derived[fields.fs] = formatDerivedPercentage(((lvidD - lvidS) / lvidD) * 100);
+    }
+  }
 
   return derived;
 }

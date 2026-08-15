@@ -29,3 +29,7 @@ Adicionar um importador de estudo ecocardiografico que aceite imagem e PDF, extr
 ## Resultado esperado
 
 Uma base segura para calibrar o importador com estudos reais por aparelho, reduzindo digitacao sem transformar a extracao automatica em fonte clinica definitiva.
+
+As medidas de FE e encurtamento do VE em Modo 2D devem permanecer separadas das
+medidas do Modo M no formulario, mas serem comparadas aos mesmos intervalos
+clinicos configurados para funcao sistolica.

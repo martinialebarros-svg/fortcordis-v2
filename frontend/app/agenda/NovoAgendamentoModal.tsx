@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check, Copy, MessageCircle, Pencil, Plus, Trash2 } from "lucide-react";
+import { X, User, Building, Calendar, Clock, Sparkles, Search, ChevronDown, Check, Copy, MessageCircle, Pencil, Plus, Trash2, Send, Loader2 } from "lucide-react";
 import api from "@/lib/axios";
 import { useFortinho } from "@/components/fortinho/FortinhoProvider";
 import {
@@ -32,6 +32,19 @@ import {
   obterWhatsappsClinica,
   prepararWhatsappsFormulario,
 } from "@/lib/clinica-whatsapp";
+import {
+  addRacaCustomPorEspecie,
+  editarRacaCatalogo,
+  excluirRacaCatalogo,
+  getRacaOptions,
+  getRacasCatalogo,
+  loadAjustesRacasPorEspecie,
+  loadRacasCustomPorEspecie,
+  saveAjustesRacasPorEspecie,
+  saveRacasCustomPorEspecie,
+  type AjustesRacasPorEspecie,
+  type RacasCustomPorEspecie,
+} from "@/lib/racas";
 
 const LIMITE_MINUTOS_PROXIMIDADE = 25;
 const LIMITE_ESTENDIDO_EXTRA_MIN = 15;
@@ -300,12 +313,44 @@ interface FormDataAgenda {
 }
 
 interface MensagemAgendaPosCriacao {
+  agendamentoId: number | null;
   tipo: "reserva" | "agendamento";
   destinatarioTipo: ReservaManualDestinatario;
+  destinatarioId: string;
   destinatarioNome: string;
   telefones: string[];
+  telefoneSugerido: string;
   prazoLabel?: string;
   mensagem: string;
+}
+
+const ULTIMO_WHATSAPP_STORAGE_PREFIX = "fortcordis:agenda:ultimo-whatsapp:v1";
+
+function obterUltimoWhatsappStorageKey(tipo: ReservaManualDestinatario, id: string): string | null {
+  if (!id) return null;
+  return `${ULTIMO_WHATSAPP_STORAGE_PREFIX}:${tipo}:${id}`;
+}
+
+function lerUltimoWhatsappSelecionado(tipo: ReservaManualDestinatario, id: string): string {
+  if (typeof window === "undefined") return "";
+  const key = obterUltimoWhatsappStorageKey(tipo, id);
+  if (!key) return "";
+  try {
+    return window.localStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+function salvarUltimoWhatsappSelecionado(tipo: ReservaManualDestinatario, id: string, telefone: string): void {
+  if (typeof window === "undefined" || !telefone) return;
+  const key = obterUltimoWhatsappStorageKey(tipo, id);
+  if (!key) return;
+  try {
+    window.localStorage.setItem(key, telefone);
+  } catch {
+    // localStorage indisponivel (modo privado, quota, etc.) - segue sem lembrar.
+  }
 }
 
 interface NovoTutorForm {
@@ -835,6 +880,13 @@ export default function NovoAgendamentoModal({
   const [salvandoAnimal, setSalvandoAnimal] = useState(false);
   const [novoTutor, setNovoTutor] = useState<NovoTutorForm>(buildInitialTutorForm());
   const [novoAnimal, setNovoAnimal] = useState<NovoAnimalForm>(buildInitialAnimalForm());
+  const [novaRaca, setNovaRaca] = useState("");
+  const [racasCustomPorEspecie, setRacasCustomPorEspecie] = useState<RacasCustomPorEspecie>({});
+  const [ajustesRacasPorEspecie, setAjustesRacasPorEspecie] = useState<AjustesRacasPorEspecie>({});
+  const [racasLoaded, setRacasLoaded] = useState(false);
+  const [gestaoRacasAberta, setGestaoRacasAberta] = useState(false);
+  const [racaEmEdicaoId, setRacaEmEdicaoId] = useState("");
+  const [nomeRacaEmEdicao, setNomeRacaEmEdicao] = useState("");
   const [consultandoCepTutor, setConsultandoCepTutor] = useState(false);
   const [geocodificandoTutor, setGeocodificandoTutor] = useState(false);
   const [statusEnderecoTutor, setStatusEnderecoTutor] = useState("");
@@ -846,6 +898,8 @@ export default function NovoAgendamentoModal({
   const [mensagemAgendaCriada, setMensagemAgendaCriada] = useState<MensagemAgendaPosCriacao | null>(null);
   const [feedbackMensagemAgenda, setFeedbackMensagemAgenda] = useState("");
   const [whatsappMensagemSelecionado, setWhatsappMensagemSelecionado] = useState("");
+  const [envioAutomaticoStatus, setEnvioAutomaticoStatus] = useState<"idle" | "sending" | "sent">("idle");
+  const envioAutomaticoIdempotencyRef = useRef("");
   const [editandoWhatsappDestinatario, setEditandoWhatsappDestinatario] = useState(false);
   const [whatsappsDestinatarioEdicao, setWhatsappsDestinatarioEdicao] = useState<string[]>([""]);
   const [salvandoWhatsappDestinatario, setSalvandoWhatsappDestinatario] = useState(false);
@@ -855,6 +909,21 @@ export default function NovoAgendamentoModal({
 
   const [formData, setFormData] = useState<FormDataAgenda>(
     buildInitialFormData(defaultDate, defaultTime)
+  );
+
+  const racasCatalogo = getRacasCatalogo(
+    novoAnimal.especie,
+    racasCustomPorEspecie[novoAnimal.especie] || [],
+    ajustesRacasPorEspecie,
+  );
+  const opcoesRacaAnimal = getRacaOptions(
+    novoAnimal.especie,
+    novoAnimal.raca,
+    racasCustomPorEspecie[novoAnimal.especie] || [],
+    ajustesRacasPorEspecie,
+  );
+  const racaSelecionadaNoCatalogo = racasCatalogo.find(
+    (raca) => raca.nome === novoAnimal.raca,
   );
 
   const isEditando = !!agendamento;
@@ -982,6 +1051,22 @@ export default function NovoAgendamentoModal({
     return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
   };
 
+  useEffect(() => {
+    setRacasCustomPorEspecie(loadRacasCustomPorEspecie());
+    setAjustesRacasPorEspecie(loadAjustesRacasPorEspecie());
+    setRacasLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!racasLoaded) return;
+    saveRacasCustomPorEspecie(racasCustomPorEspecie);
+  }, [racasCustomPorEspecie, racasLoaded]);
+
+  useEffect(() => {
+    if (!racasLoaded) return;
+    saveAjustesRacasPorEspecie(ajustesRacasPorEspecie);
+  }, [ajustesRacasPorEspecie, racasLoaded]);
+
   // Inicializa formulario ao abrir no modo "novo" sem resetar quando pacientes/tutores atualizam.
   useEffect(() => {
     if (!isOpen || isEditando) return;
@@ -1076,6 +1161,10 @@ export default function NovoAgendamentoModal({
     setSalvandoAnimal(false);
     setNovoTutor(buildInitialTutorForm());
     setNovoAnimal(buildInitialAnimalForm());
+    setNovaRaca("");
+    setGestaoRacasAberta(false);
+    setRacaEmEdicaoId("");
+    setNomeRacaEmEdicao("");
     setTutorPanorama(null);
     setCarregandoTutorPanorama(false);
     setGeocodificandoTutor(false);
@@ -2318,7 +2407,102 @@ export default function NovoAgendamentoModal({
 
   const abrirModalAnimal = () => {
     setNovoAnimal(buildInitialAnimalForm(formData.tutor_id));
+    setNovaRaca("");
+    setGestaoRacasAberta(false);
+    setRacaEmEdicaoId("");
+    setNomeRacaEmEdicao("");
     setModalAnimalAberto(true);
+  };
+
+  const nomesDeRacaIguais = (primeira: string, segunda: string): boolean =>
+    primeira.localeCompare(segunda, "pt-BR", { sensitivity: "base" }) === 0;
+
+  const cadastrarRacaAnimal = () => {
+    const nome = novaRaca.trim();
+    if (!nome) return;
+
+    const racaExistente = racasCatalogo.find((raca) => nomesDeRacaIguais(raca.nome, nome));
+    if (racaExistente) {
+      setNovoAnimal((prev) => ({ ...prev, raca: racaExistente.nome }));
+      setNovaRaca("");
+      fortinho.notify({
+        title: "Raça já cadastrada",
+        message: `${racaExistente.nome} já está disponível para ${novoAnimal.especie.toLowerCase()}.`,
+        mood: "happy",
+        gesture: "idle",
+      });
+      return;
+    }
+
+    setRacasCustomPorEspecie((prev) => addRacaCustomPorEspecie(prev, novoAnimal.especie, nome));
+    setNovoAnimal((prev) => ({ ...prev, raca: nome }));
+    setNovaRaca("");
+  };
+
+  const iniciarEdicaoRacaAnimal = () => {
+    if (!racaSelecionadaNoCatalogo) return;
+    setRacaEmEdicaoId(racaSelecionadaNoCatalogo.id);
+    setNomeRacaEmEdicao(racaSelecionadaNoCatalogo.nome);
+  };
+
+  const salvarEdicaoRacaAnimal = () => {
+    const nome = nomeRacaEmEdicao.trim();
+    const racaEmEdicao = racasCatalogo.find((raca) => raca.id === racaEmEdicaoId);
+    if (!nome || !racaEmEdicao) return;
+
+    const duplicada = racasCatalogo.some(
+      (raca) => raca.id !== racaEmEdicao.id && nomesDeRacaIguais(raca.nome, nome),
+    );
+    if (duplicada) {
+      fortinho.notify({
+        title: "Raça já cadastrada",
+        message: "Escolha um nome diferente para a raça.",
+        mood: "alert",
+        gesture: "idle",
+      });
+      return;
+    }
+
+    const atualizado = editarRacaCatalogo(
+      racasCustomPorEspecie,
+      ajustesRacasPorEspecie,
+      novoAnimal.especie,
+      racaEmEdicao,
+      nome,
+    );
+    setRacasCustomPorEspecie(atualizado.racasCustomPorEspecie);
+    setAjustesRacasPorEspecie(atualizado.ajustesPorEspecie);
+    setNovoAnimal((prev) => ({ ...prev, raca: nome }));
+    setRacaEmEdicaoId("");
+    setNomeRacaEmEdicao("");
+  };
+
+  const excluirRacaAnimal = async () => {
+    if (!racaSelecionadaNoCatalogo) return;
+
+    const confirmou = await fortinho.confirm({
+      title: "Excluir raça do catálogo",
+      message:
+        `Deseja excluir ${racaSelecionadaNoCatalogo.nome} das opções de ${novoAnimal.especie.toLowerCase()}? ` +
+        "Os animais já cadastrados não serão alterados.",
+      mood: "alert",
+      gesture: "idle",
+      confirmLabel: "Excluir raça",
+      cancelLabel: "Cancelar",
+    });
+    if (!confirmou) return;
+
+    const atualizado = excluirRacaCatalogo(
+      racasCustomPorEspecie,
+      ajustesRacasPorEspecie,
+      novoAnimal.especie,
+      racaSelecionadaNoCatalogo,
+    );
+    setRacasCustomPorEspecie(atualizado.racasCustomPorEspecie);
+    setAjustesRacasPorEspecie(atualizado.ajustesPorEspecie);
+    setNovoAnimal((prev) => ({ ...prev, raca: "" }));
+    setRacaEmEdicaoId("");
+    setNomeRacaEmEdicao("");
   };
 
   const salvarNovoTutor = async (confirmarReativacao = false) => {
@@ -2528,12 +2712,17 @@ export default function NovoAgendamentoModal({
   const construirMensagemAgendaPosCriacao = (): MensagemAgendaPosCriacao => {
     const tipo = formData.marcar_como_reserva ? "reserva" : "agendamento";
     const destinatarioTipo = formData.reserva_destinatario_manual;
+    const destinatarioId = destinatarioTipo === "clinica" ? formData.clinica_id : formData.tutor_id;
     const destinatarioNome = destinatarioTipo === "clinica"
       ? nomeClinicaReservaManual
       : nomeTutorReservaManual;
     const telefones = destinatarioTipo === "clinica"
       ? telefonesClinicaMensagem
       : (telefoneTutorReservaManual ? [telefoneTutorReservaManual] : []);
+    const telefoneLembrado = lerUltimoWhatsappSelecionado(destinatarioTipo, destinatarioId);
+    const telefoneSugerido = telefoneLembrado && telefones.includes(telefoneLembrado)
+      ? telefoneLembrado
+      : (telefones[0] || "");
     const mensagem = montarMensagemAgendaManual({
       tipo,
       data: formData.data,
@@ -2547,10 +2736,13 @@ export default function NovoAgendamentoModal({
     });
 
     return {
+      agendamentoId: isEditando && agendamento?.id ? Number(agendamento.id) : null,
       tipo,
       destinatarioTipo,
+      destinatarioId,
       destinatarioNome,
       telefones,
+      telefoneSugerido,
       prazoLabel: tipo === "reserva"
         ? formatarPrazoReserva(formData.reserva_prazo_confirmacao)
         : undefined,
@@ -2562,6 +2754,11 @@ export default function NovoAgendamentoModal({
     if (!mensagemAgendaCriada) return;
     const url = montarLinkWhatsAppReserva(whatsappMensagemSelecionado, mensagemAgendaCriada.mensagem);
     window.open(url, "_blank", "noopener,noreferrer");
+    salvarUltimoWhatsappSelecionado(
+      mensagemAgendaCriada.destinatarioTipo,
+      mensagemAgendaCriada.destinatarioId,
+      whatsappMensagemSelecionado,
+    );
     setFeedbackMensagemAgenda(
       whatsappMensagemSelecionado
         ? "WhatsApp aberto com o destinatario e a mensagem preenchidos. Revise e envie manualmente."
@@ -2576,10 +2773,67 @@ export default function NovoAgendamentoModal({
         throw new Error("Clipboard indisponivel");
       }
       await navigator.clipboard.writeText(mensagemAgendaCriada.mensagem);
+      salvarUltimoWhatsappSelecionado(
+        mensagemAgendaCriada.destinatarioTipo,
+        mensagemAgendaCriada.destinatarioId,
+        whatsappMensagemSelecionado,
+      );
       setFeedbackMensagemAgenda("Mensagem copiada.");
     } catch (_error) {
       setFeedbackMensagemAgenda("Nao foi possivel copiar automaticamente. Selecione o texto e copie manualmente.");
     }
+  };
+
+  const enviarReservaPeloFortCordis = async () => {
+    if (
+      !mensagemAgendaCriada?.agendamentoId ||
+      mensagemAgendaCriada.tipo !== "reserva" ||
+      !whatsappMensagemSelecionado ||
+      envioAutomaticoStatus === "sending" ||
+      envioAutomaticoStatus === "sent"
+    ) {
+      return;
+    }
+
+    if (!envioAutomaticoIdempotencyRef.current) {
+      envioAutomaticoIdempotencyRef.current = typeof globalThis.crypto?.randomUUID === "function"
+        ? globalThis.crypto.randomUUID()
+        : `agenda-${mensagemAgendaCriada.agendamentoId}-${Date.now()}`;
+    }
+
+    setEnvioAutomaticoStatus("sending");
+    setFeedbackMensagemAgenda("Enviando o modelo aprovado pela Meta...");
+    try {
+      await api.post(`/agenda/${mensagemAgendaCriada.agendamentoId}/whatsapp/reserva`, {
+        destination: whatsappMensagemSelecionado,
+        recipient_type: mensagemAgendaCriada.destinatarioTipo,
+        idempotency_key: envioAutomaticoIdempotencyRef.current,
+      });
+      salvarUltimoWhatsappSelecionado(
+        mensagemAgendaCriada.destinatarioTipo,
+        mensagemAgendaCriada.destinatarioId,
+        whatsappMensagemSelecionado,
+      );
+      setEnvioAutomaticoStatus("sent");
+      setFeedbackMensagemAgenda(
+        "Reserva enviada pelo FortCordis. Os botoes Confirmar e Solicitar alteracao ja estao vinculados a este agendamento."
+      );
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail ?? error?.message;
+      setEnvioAutomaticoStatus("idle");
+      setFeedbackMensagemAgenda(
+        extrairMensagemErro(detail, "Nao foi possivel enviar automaticamente. Use Abrir WhatsApp como alternativa.")
+      );
+    }
+  };
+
+  const gerarMensagemManualEdicao = () => {
+    const construida = construirMensagemAgendaPosCriacao();
+    setMensagemAgendaCriada(construida);
+    setWhatsappMensagemSelecionado(construida.telefoneSugerido);
+    setFeedbackMensagemAgenda("");
+    setEnvioAutomaticoStatus("idle");
+    envioAutomaticoIdempotencyRef.current = "";
   };
 
   const iniciarEdicaoWhatsappDestinatario = () => {
@@ -3003,9 +3257,14 @@ export default function NovoAgendamentoModal({
       }
 
       if (entregaMensagemAgenda) {
-        setMensagemAgendaCriada(entregaMensagemAgenda);
-        setWhatsappMensagemSelecionado(entregaMensagemAgenda.telefones[0] || "");
+        setMensagemAgendaCriada({
+          ...entregaMensagemAgenda,
+          agendamentoId: Number(response?.data?.id) || null,
+        });
+        setWhatsappMensagemSelecionado(entregaMensagemAgenda.telefoneSugerido);
         setFeedbackMensagemAgenda("");
+        setEnvioAutomaticoStatus("idle");
+        envioAutomaticoIdempotencyRef.current = "";
         await onSuccess(response?.data, { manterModalAberto: true });
         return;
       }
@@ -3112,7 +3371,7 @@ export default function NovoAgendamentoModal({
             </div>
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => (isEditando ? setMensagemAgendaCriada(null) : onClose())}
               className="rounded-full p-2 text-gray-500 transition hover:bg-white hover:text-gray-700"
               aria-label="Fechar mensagem da agenda"
               title="Fechar"
@@ -3136,7 +3395,12 @@ export default function NovoAgendamentoModal({
                     <select
                       id="fc-whatsapp-destino"
                       value={whatsappMensagemSelecionado}
-                      onChange={(event) => setWhatsappMensagemSelecionado(event.target.value)}
+                      onChange={(event) => {
+                        setWhatsappMensagemSelecionado(event.target.value);
+                        setEnvioAutomaticoStatus("idle");
+                        envioAutomaticoIdempotencyRef.current = "";
+                        setFeedbackMensagemAgenda("");
+                      }}
                       className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
                     >
                       {mensagemAgendaCriada.telefones.map((telefone, indice) => (
@@ -3177,9 +3441,16 @@ export default function NovoAgendamentoModal({
             </div>
 
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              {ehReserva ? "A reserva já foi salva." : "O agendamento já foi salvo."} Enquanto a conta da Meta
-              estiver em análise, revise e envie esta mensagem manualmente.
+              {ehReserva ? "A reserva já foi salva." : "O agendamento já foi salvo."} O envio automático usa o
+              modelo aprovado; Abrir WhatsApp e Copiar mensagem continuam disponíveis como alternativa manual.
             </div>
+
+            {isEditando ? (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                Esta mensagem foi gerada com os dados atuais do formulário. Se você alterou paciente, tutor ou
+                outro campo, clique em <strong>Salvar Alterações</strong> depois de voltar para confirmar.
+              </div>
+            ) : null}
 
             {!possuiTelefone ? (
               <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
@@ -3197,10 +3468,10 @@ export default function NovoAgendamentoModal({
           <div className="flex flex-col-reverse gap-2 border-t border-gray-200 bg-gray-50 px-5 py-4 sm:flex-row sm:justify-end">
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => (isEditando ? setMensagemAgendaCriada(null) : onClose())}
               className="fc-appointment-button-secondary"
             >
-              Concluir
+              {isEditando ? "Voltar ao formulário" : "Concluir"}
             </button>
             <button
               type="button"
@@ -3210,6 +3481,27 @@ export default function NovoAgendamentoModal({
               <Copy className="h-4 w-4" />
               Copiar mensagem
             </button>
+            {ehReserva && !isEditando ? (
+              <button
+                type="button"
+                onClick={() => void enviarReservaPeloFortCordis()}
+                disabled={!possuiTelefone || !mensagemAgendaCriada.agendamentoId || envioAutomaticoStatus !== "idle"}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {envioAutomaticoStatus === "sending" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : envioAutomaticoStatus === "sent" ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+                {envioAutomaticoStatus === "sending"
+                  ? "Enviando..."
+                  : envioAutomaticoStatus === "sent"
+                    ? "Enviado pelo FortCordis"
+                    : "Enviar pelo FortCordis"}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={abrirWhatsAppMensagemAgenda}
@@ -3843,34 +4135,36 @@ export default function NovoAgendamentoModal({
             )}
           </div>
 
-          {!isEditando && (
+          {(!isEditando || formData.marcar_como_reserva) && (
             <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
-              <label className="flex items-start gap-2">
-                <input
-                  type="checkbox"
-                  checked={formData.marcar_como_reserva}
-                  onChange={(event) => {
-                    const marcada = event.target.checked;
-                    setFormData((prev) => ({
-                      ...prev,
-                      marcar_como_reserva: marcada,
-                      reserva_prazo_horas: marcada ? "3" : prev.reserva_prazo_horas,
-                      reserva_prazo_confirmacao: marcada
-                        ? criarPrazoPadraoReserva()
-                        : prev.reserva_prazo_confirmacao,
-                    }));
-                  }}
-                  className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
-                />
-                <span>
-                  Marcar como <strong>reserva de horário</strong> (bloqueia o slot como pendente de confirmação).
-                </span>
-              </label>
+              {!isEditando && (
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={formData.marcar_como_reserva}
+                    onChange={(event) => {
+                      const marcada = event.target.checked;
+                      setFormData((prev) => ({
+                        ...prev,
+                        marcar_como_reserva: marcada,
+                        reserva_prazo_horas: marcada ? "3" : prev.reserva_prazo_horas,
+                        reserva_prazo_confirmacao: marcada
+                          ? criarPrazoPadraoReserva()
+                          : prev.reserva_prazo_confirmacao,
+                      }));
+                    }}
+                    className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                  />
+                  <span>
+                    Marcar como <strong>reserva de horário</strong> (bloqueia o slot como pendente de confirmação).
+                  </span>
+                </label>
+              )}
 
-              <div className="space-y-3 border-t border-amber-200 pt-3">
+              <div className={isEditando ? "space-y-3" : "space-y-3 border-t border-amber-200 pt-3"}>
                 <div>
                   <div className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-800">
-                    Mensagem após salvar
+                    Mensagem {isEditando ? "de confirmação" : "após salvar"}
                   </div>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <label
@@ -3923,60 +4217,62 @@ export default function NovoAgendamentoModal({
                   </div>
                 </div>
 
-                {formData.marcar_como_reserva ? (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div>
-                      <label htmlFor="fc-reserva-prazo-horas" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-800">
-                        Prazo para confirmação
-                      </label>
-                      <div className="flex max-w-xs overflow-hidden rounded-lg border border-amber-300 bg-white focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-200">
-                        <input
-                          id="fc-reserva-prazo-horas"
-                          type="number"
-                          required
-                          min="0.5"
-                          max="72"
-                          step="0.5"
-                          inputMode="decimal"
-                          value={formData.reserva_prazo_horas}
-                          onChange={(event) => {
-                            const valor = event.target.value;
-                            const horas = Number(valor);
-                            setFormData((prev) => ({
-                              ...prev,
-                              reserva_prazo_horas: valor,
-                              reserva_prazo_confirmacao:
-                                Number.isFinite(horas) && horas >= 0.5 && horas <= 72
-                                  ? criarPrazoReservaPorHoras(horas)
-                                  : prev.reserva_prazo_confirmacao,
-                            }));
-                          }}
-                          className="min-w-0 flex-1 border-0 px-3 py-2 text-gray-900 outline-none"
-                        />
-                        <span className="flex items-center border-l border-amber-200 bg-amber-50 px-3 font-medium text-amber-800">
-                          horas
-                        </span>
+                {!isEditando && (
+                  formData.marcar_como_reserva ? (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label htmlFor="fc-reserva-prazo-horas" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-800">
+                          Prazo para confirmação
+                        </label>
+                        <div className="flex max-w-xs overflow-hidden rounded-lg border border-amber-300 bg-white focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-200">
+                          <input
+                            id="fc-reserva-prazo-horas"
+                            type="number"
+                            required
+                            min="0.5"
+                            max="72"
+                            step="0.5"
+                            inputMode="decimal"
+                            value={formData.reserva_prazo_horas}
+                            onChange={(event) => {
+                              const valor = event.target.value;
+                              const horas = Number(valor);
+                              setFormData((prev) => ({
+                                ...prev,
+                                reserva_prazo_horas: valor,
+                                reserva_prazo_confirmacao:
+                                  Number.isFinite(horas) && horas >= 0.5 && horas <= 72
+                                    ? criarPrazoReservaPorHoras(horas)
+                                    : prev.reserva_prazo_confirmacao,
+                              }));
+                            }}
+                            className="min-w-0 flex-1 border-0 px-3 py-2 text-gray-900 outline-none"
+                          />
+                          <span className="flex items-center border-l border-amber-200 bg-amber-50 px-3 font-medium text-amber-800">
+                            horas
+                          </span>
+                        </div>
+                        <div className="mt-1 text-xs text-amber-800">
+                          O padrão é 3 horas; ajuste conforme o combinado com o cliente.
+                        </div>
                       </div>
-                      <div className="mt-1 text-xs text-amber-800">
-                        O padrão é 3 horas; ajuste conforme o combinado com o cliente.
+                      <div>
+                        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-800">
+                          Confirmar até
+                        </div>
+                        <div className="rounded-lg border border-amber-200 bg-white/80 px-3 py-2 font-medium text-gray-900">
+                          {formatarPrazoReserva(formData.reserva_prazo_confirmacao)}
+                        </div>
+                        <div className="mt-1 text-xs text-amber-800">
+                          O prazo precisa ser anterior ao horário reservado.
+                        </div>
                       </div>
                     </div>
-                    <div>
-                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-800">
-                        Confirmar até
-                      </div>
-                      <div className="rounded-lg border border-amber-200 bg-white/80 px-3 py-2 font-medium text-gray-900">
-                        {formatarPrazoReserva(formData.reserva_prazo_confirmacao)}
-                      </div>
-                      <div className="mt-1 text-xs text-amber-800">
-                        O prazo precisa ser anterior ao horário reservado.
-                      </div>
+                  ) : (
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                      Depois de salvar, o sistema mostrará o botão para avisar que o horário solicitado foi agendado.
                     </div>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                    Depois de salvar, o sistema mostrará o botão para avisar que o horário solicitado foi agendado.
-                  </div>
+                  )
                 )}
 
                 <div className="rounded-lg border border-amber-200 bg-white/70 px-3 py-3 text-xs text-amber-900">
@@ -4072,6 +4368,19 @@ export default function NovoAgendamentoModal({
                     A alteração fica salva no cadastro. Se houver mais de um WhatsApp, você escolherá o número antes de abrir a conversa. O envio continua manual enquanto a Meta analisa a empresa.
                   </div>
                 </div>
+
+                {isEditando && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={gerarMensagemManualEdicao}
+                      className="inline-flex items-center gap-2 rounded-md bg-amber-700 px-3 py-1.5 font-semibold text-white transition hover:bg-amber-800"
+                    >
+                      <MessageCircle className="h-3.5 w-3.5" />
+                      Gerar mensagem de confirmação
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -4437,7 +4746,12 @@ export default function NovoAgendamentoModal({
                   <label className="block text-sm font-medium text-gray-700 mb-1">Especie</label>
                   <select
                     value={novoAnimal.especie}
-                    onChange={(e) => setNovoAnimal((prev) => ({ ...prev, especie: e.target.value }))}
+                    onChange={(e) => {
+                      setNovoAnimal((prev) => ({ ...prev, especie: e.target.value, raca: "" }));
+                      setNovaRaca("");
+                      setRacaEmEdicaoId("");
+                      setNomeRacaEmEdicao("");
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   >
                     {["Canina", "Felina", "Equina", "Outra"].map((especie) => (
@@ -4451,14 +4765,132 @@ export default function NovoAgendamentoModal({
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Raca</label>
-                  <input
-                    type="text"
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Raça</label>
+                  <select
                     value={novoAnimal.raca}
                     onChange={(e) => setNovoAnimal((prev) => ({ ...prev, raca: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="Raca"
-                  />
+                  >
+                    <option value="">Selecione...</option>
+                    {opcoesRacaAnimal.map((raca) => (
+                      <option key={raca} value={raca}>
+                        {raca}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setGestaoRacasAberta((aberta) => !aberta)}
+                    className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-900"
+                    aria-expanded={gestaoRacasAberta}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    {gestaoRacasAberta ? "Fechar gestão de raças" : "Cadastrar ou gerenciar raças"}
+                  </button>
+
+                  {gestaoRacasAberta && (
+                    <div className="mt-2 space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs text-slate-600">
+                        Catálogo de raças {novoAnimal.especie.toLowerCase()}, em ordem alfabética.
+                      </p>
+
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={novaRaca}
+                          onChange={(e) => setNovaRaca(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              cadastrarRacaAnimal();
+                            }
+                          }}
+                          className="min-w-0 flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          placeholder="Nova raça"
+                        />
+                        <button
+                          type="button"
+                          onClick={cadastrarRacaAnimal}
+                          disabled={!novaRaca.trim()}
+                          className="inline-flex items-center gap-1 rounded-lg border border-blue-200 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Cadastrar
+                        </button>
+                      </div>
+
+                      {racaEmEdicaoId ? (
+                        <div className="space-y-2 rounded-md border border-blue-100 bg-white p-2">
+                          <label className="block text-xs font-medium text-slate-700" htmlFor="fc-raca-em-edicao">
+                            Editar raça
+                          </label>
+                          <div className="flex gap-2">
+                            <input
+                              id="fc-raca-em-edicao"
+                              type="text"
+                              value={nomeRacaEmEdicao}
+                              onChange={(e) => setNomeRacaEmEdicao(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  salvarEdicaoRacaAnimal();
+                                }
+                              }}
+                              className="min-w-0 flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={salvarEdicaoRacaAnimal}
+                              disabled={!nomeRacaEmEdicao.trim()}
+                              className="rounded-lg bg-blue-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Salvar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRacaEmEdicaoId("");
+                                setNomeRacaEmEdicao("");
+                              }}
+                              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="mr-auto text-xs text-slate-600">
+                            {racaSelecionadaNoCatalogo
+                              ? `Selecionada: ${racaSelecionadaNoCatalogo.nome}`
+                              : "Selecione uma raça acima para editar ou excluir."}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={iniciarEdicaoRacaAnimal}
+                            disabled={!racaSelecionadaNoCatalogo}
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void excluirRacaAnimal()}
+                            disabled={!racaSelecionadaNoCatalogo}
+                            className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Excluir
+                          </button>
+                        </div>
+                      )}
+
+                      <p className="text-xs text-slate-500">
+                        Alterações no catálogo não modificam a raça de animais já cadastrados.
+                      </p>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Sexo</label>

@@ -49,6 +49,7 @@ import {
   buildClinicalFieldValues,
   hasMeaningfulDraft,
   insertSnippetIntoText,
+  type ClinicalFieldConfig,
   type ClinicalFieldKey,
   type ClinicalPhraseRecord,
 } from "@/lib/atendimento-clinical-notes";
@@ -60,8 +61,10 @@ import {
   ChevronLeft,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   ClipboardPlus,
   Clock3,
+  Copy,
   Download,
   Eye,
   FileUp,
@@ -85,6 +88,7 @@ import {
   X,
 } from "lucide-react";
 
+const AtendimentoAlertasCriticosCard = dynamic(() => import("./components/AtendimentoAlertasCriticosCard"));
 const AtendimentoBibliotecasSection = dynamic(() => import("./components/AtendimentoBibliotecasSection"));
 const AtendimentoCadastroComplementarSection = dynamic(() => import("./components/AtendimentoCadastroComplementarSection"));
 const AtendimentoConsultaOverviewSection = dynamic(() => import("./components/AtendimentoConsultaOverviewSection"));
@@ -99,6 +103,7 @@ const AtendimentoPrescricaoWorkspace = dynamic(() => import("./components/Atendi
 const AtendimentoTriagemSection = dynamic(() => import("./components/AtendimentoTriagemSection"));
 const AttachmentPreviewModal = dynamic(() => import("./components/AttachmentPreviewModal"), { ssr: false });
 const PainelExamesModal = dynamic(() => import("./components/PainelExamesModal"), { ssr: false });
+const ConfirmDialog = dynamic(() => import("./components/ConfirmDialog"), { ssr: false });
 
 // === TIPOS ===
 
@@ -169,6 +174,7 @@ type DocumentoAtendimento = {
   emitido_at?: string | null;
   created_at?: string;
   updated_at?: string;
+  variaveis_vazias?: string[];
 };
 
 type DocumentoAtendimentoForm = {
@@ -201,6 +207,20 @@ type PendingExamUpload = {
   file: File;
   previewUrl: string | null;
   kind: "image" | "pdf" | "other";
+};
+
+type ConfirmDialogVariant = "default" | "destructive";
+
+type ConfirmDialogOptions = {
+  titulo: string;
+  descricao: string;
+  variante?: ConfirmDialogVariant;
+  confirmLabel?: string;
+  cancelLabel?: string;
+};
+
+type ConfirmDialogState = ConfirmDialogOptions & {
+  resolve: (value: boolean) => void;
 };
 
 type ExameFluxoStatus = "aguardando_arquivo" | "arquivo_anexado" | "interpretado" | "liberado_portal";
@@ -585,6 +605,57 @@ const EXAME_STATUS_META: Record<ExameFluxoStatus, { label: string; chipClass: st
   },
 };
 
+const TIMELINE_EVENTO_META: Record<
+  string,
+  { label: string; icon: typeof ClipboardPlus; dotClass: string; badgeClass: string }
+> = {
+  atendimento: {
+    label: "Atendimento",
+    icon: ClipboardPlus,
+    dotClass: "border-teal-100 bg-teal-500",
+    badgeClass: "bg-teal-100 text-teal-700",
+  },
+  evolucao: {
+    label: "Evolucao",
+    icon: Clock3,
+    dotClass: "border-sky-100 bg-sky-500",
+    badgeClass: "bg-sky-100 text-sky-700",
+  },
+  exame_solicitado: {
+    label: "Exame solicitado",
+    icon: FileUp,
+    dotClass: "border-amber-100 bg-amber-500",
+    badgeClass: "bg-amber-100 text-amber-700",
+  },
+  exame_resultado: {
+    label: "Resultado de exame",
+    icon: CheckCircle2,
+    dotClass: "border-emerald-100 bg-emerald-500",
+    badgeClass: "bg-emerald-100 text-emerald-700",
+  },
+  anexo: {
+    label: "Anexo",
+    icon: Paperclip,
+    dotClass: "border-violet-100 bg-violet-500",
+    badgeClass: "bg-violet-100 text-violet-700",
+  },
+  laudo: {
+    label: "Laudo",
+    icon: FileText,
+    dotClass: "border-rose-100 bg-rose-500",
+    badgeClass: "bg-rose-100 text-rose-700",
+  },
+};
+const TIMELINE_EVENTO_META_PADRAO = {
+  label: "Evento",
+  icon: History,
+  dotClass: "border-slate-100 bg-slate-400",
+  badgeClass: "bg-slate-100 text-slate-600",
+};
+
+const extrairVariaveisNaoResolvidas = (texto: string): string[] =>
+  Array.from(new Set((texto.match(/\{\{\s*[A-Za-z0-9_]+\s*\}\}/g) || []).map((match) => match.trim())));
+
 const CONSULTA_EDITOR_ETAPAS: Array<{
   key: ConsultaEditorEtapa;
   titulo: string;
@@ -728,6 +799,37 @@ const emptyExam = (): ExameSolicitacao => ({
   anexos_resultado: [],
   _localId: gerarExameLocalId(),
 });
+
+const reindexarAposRemocaoDeItem = <T,>(registro: Record<number, T>, idxRemovido: number): Record<number, T> => {
+  const proximo: Record<number, T> = {};
+  Object.entries(registro).forEach(([chave, valor]) => {
+    const numero = Number(chave);
+    if (numero < idxRemovido) proximo[numero] = valor;
+    else if (numero > idxRemovido) proximo[numero - 1] = valor;
+  });
+  return proximo;
+};
+
+const reindexarAposInsercaoDeItem = <T,>(registro: Record<number, T>, idxInserido: number): Record<number, T> => {
+  const proximo: Record<number, T> = {};
+  Object.entries(registro).forEach(([chave, valor]) => {
+    const numero = Number(chave);
+    if (numero < idxInserido) proximo[numero] = valor;
+    else proximo[numero + 1] = valor;
+  });
+  return proximo;
+};
+
+const trocarIndicesAposMover = <T,>(registro: Record<number, T>, a: number, b: number): Record<number, T> => {
+  const proximo = { ...registro };
+  const valorA = registro[a];
+  const valorB = registro[b];
+  if (valorB === undefined) delete proximo[a];
+  else proximo[a] = valorB;
+  if (valorA === undefined) delete proximo[b];
+  else proximo[b] = valorA;
+  return proximo;
+};
 
 const emptyPrescriptionItem = (): PrescricaoItem => ({
   medicamento_id: null,
@@ -1273,8 +1375,10 @@ export default function AtendimentoPage() {
     useState<Exclude<WorkspacePainel, "bibliotecas">>("consulta");
   const [consultaEditorEtapa, setConsultaEditorEtapa] = useState<ConsultaEditorEtapa>("anamnese");
   const [consultaCampoAtivo, setConsultaCampoAtivo] = useState<ClinicalFieldKey>("queixa_principal");
+  const [consultaVerTodosCampos, setConsultaVerTodosCampos] = useState(false);
   const [prescricaoModoFoco, setPrescricaoModoFoco] = useState(true);
   const [protocoloPrescricaoSelecionado, setProtocoloPrescricaoSelecionado] = useState("");
+  const [protocoloPrescricaoDecididoPara, setProtocoloPrescricaoDecididoPara] = useState<string | null>(null);
   const [triagemExpandida, setTriagemExpandida] = useState(false);
   const [cadastroComplementarExpandido, setCadastroComplementarExpandido] = useState(false);
   const [painelCasosAberto, setPainelCasosAberto] = useState(false);
@@ -1287,6 +1391,7 @@ export default function AtendimentoPage() {
   const [autosaveAt, setAutosaveAt] = useState("");
 
   const [lista, setLista] = useState<AtendimentoResumo[]>([]);
+  const [clinicaFiltroAplicado, setClinicaFiltroAplicado] = useState("");
   const [pacientes, setPacientes] = useState<PacienteResumo[]>([]);
   const [clinicas, setClinicas] = useState<ClinicaResumo[]>([]);
   const [medicamentos, setMedicamentos] = useState<Medicamento[]>([]);
@@ -1345,6 +1450,7 @@ export default function AtendimentoPage() {
   const [uploadingAttachmentKey, setUploadingAttachmentKey] = useState<string | null>(null);
   const [uploadProgressByKey, setUploadProgressByKey] = useState<Record<string, number | null>>({});
   const [openingAttachmentId, setOpeningAttachmentId] = useState<number | null>(null);
+  const [confirmDialogState, setConfirmDialogState] = useState<ConfirmDialogState | null>(null);
   const [attachmentPreview, setAttachmentPreview] = useState<AttachmentPreview | null>(null);
   const [attachmentImageZoom, setAttachmentImageZoom] = useState(1);
   const [attachmentImageOffset, setAttachmentImageOffset] = useState({ x: 0, y: 0 });
@@ -1385,6 +1491,13 @@ export default function AtendimentoPage() {
   // podem deixar a resposta do clique mais antigo sobrescrever o prontuario
   // do clique mais recente.
   const abrirAtendimentoRequestIdRef = useRef(0);
+  // Id do atendimento sendo aberto no momento (ou null) - feedback visual
+  // (Loader2 no card clicado + demais itens desabilitados) enquanto
+  // abrirAtendimento esta em voo. So a chamada cujo requestId ainda for o
+  // mais recente pode limpar este estado (mesma logica de invalidacao do
+  // ref acima), senao uma resposta antiga que chega apos ser superada
+  // apagaria o loading de um clique mais novo ainda em andamento.
+  const [abrindoAtendimentoId, setAbrindoAtendimentoId] = useState<number | null>(null);
   // Save manual e autosave nao podem ter dois PUT/POST em voo ao mesmo tempo
   // para o mesmo atendimento: sem isso, se o PUT do autosave (payload mais
   // antigo) commitar depois do PUT manual (mais novo), o registro final fica
@@ -1419,6 +1532,8 @@ export default function AtendimentoPage() {
   const [prescricaoEntradaModo, setPrescricaoEntradaModo] = useState<"industrializado" | "manipulado" | null>(null);
   const [prescricaoEditorManualAberto, setPrescricaoEditorManualAberto] = useState(false);
   const [prescricaoBuscaRapida, setPrescricaoBuscaRapida] = useState("");
+  const [medicamentoBuscaPorItem, setMedicamentoBuscaPorItem] = useState<Record<number, string>>({});
+  const [medicamentoFocoPorItem, setMedicamentoFocoPorItem] = useState<Record<number, boolean>>({});
   const [prescricaoPreviewAtivo, setPrescricaoPreviewAtivo] = useState(false);
   const [prescricaoPreviewPdf, setPrescricaoPreviewPdf] = useState<string | null>(null);
   const [prescricaoPreviewLoading, setPrescricaoPreviewLoading] = useState(false);
@@ -2019,6 +2134,7 @@ export default function AtendimentoPage() {
       setLista(response.data?.items || []);
       setTotalLista(Number(response.data?.total || 0));
       setPaginaLista(safePage);
+      setClinicaFiltroAplicado(clinicaAtual);
     } catch (e: any) {
       setErro(extractApiErrorMessageSync(e, "Erro ao listar atendimentos."));
     }
@@ -2403,6 +2519,14 @@ export default function AtendimentoPage() {
       PROTOCOLOS_PRESCRICAO.find((protocolo) => protocolo.key === protocoloPrescricaoSelecionado) || null,
     [protocoloPrescricaoSelecionado]
   );
+  const protocoloPrescricaoSelecionadoGatilho = useMemo(() => {
+    if (!protocoloPrescricaoSelecionadoDetalhe) return null;
+    return (
+      protocoloPrescricaoSelecionadoDetalhe.gatilhos.find((gatilho) =>
+        diagnosticoTextoConsolidado.includes(normalizarTokenPrescricao(gatilho))
+      ) || null
+    );
+  }, [protocoloPrescricaoSelecionadoDetalhe, diagnosticoTextoConsolidado]);
   const prescricaoErrosCount = useMemo(
     () =>
       Object.values(prescricaoValidationErrors).reduce(
@@ -2604,16 +2728,41 @@ export default function AtendimentoPage() {
     void carregarCadastroComplementar(form.paciente_id);
   }, [form.paciente_id]);
 
+  const confirmarAcao = useCallback((opcoes: ConfirmDialogOptions): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setConfirmDialogState((atual) => {
+        // Resolve qualquer dialogo pendente como cancelado antes de abrir o
+        // proximo - evita uma Promise anterior ficar presa para sempre caso
+        // duas acoes disparem confirmarAcao antes da primeira ser resolvida
+        // (ex.: componente ainda carregando via dynamic import).
+        atual?.resolve(false);
+        return { ...opcoes, resolve };
+      });
+    });
+  }, []);
+
+  const resolverConfirmDialog = useCallback((valor: boolean) => {
+    setConfirmDialogState((atual) => {
+      atual?.resolve(valor);
+      return null;
+    });
+  }, []);
+
   const abrirAtendimento = async (id: number) => {
     if (
       !selecionado &&
       hasEncounterContent(formRef.current) &&
       typeof window !== "undefined" &&
-      !window.confirm("Abrir o registro historico e substituir o rascunho atual? As alteracoes ainda nao salvas serao descartadas.")
+      !(await confirmarAcao({
+        titulo: "Substituir rascunho atual?",
+        descricao:
+          "Abrir o registro historico e substituir o rascunho atual? As alteracoes ainda nao salvas serao descartadas.",
+      }))
     ) {
       return;
     }
     const requestId = ++abrirAtendimentoRequestIdRef.current;
+    setAbrindoAtendimentoId(id);
     try {
       const response = await api.get(`/atendimentos/${id}`);
       if (requestId !== abrirAtendimentoRequestIdRef.current) return;
@@ -2669,6 +2818,7 @@ export default function AtendimentoPage() {
       hydratingFormRef.current = true;
       setForm(formParaAplicar);
       setProtocoloPrescricaoSelecionado("");
+      setProtocoloPrescricaoDecididoPara(null);
       setPrescricaoEditorManualAberto(false);
       setPrescricaoEntradaModo(null);
       setPrescricaoBuscaRapida("");
@@ -2702,6 +2852,10 @@ export default function AtendimentoPage() {
     } catch (e: any) {
       if (requestId !== abrirAtendimentoRequestIdRef.current) return;
       setErro(extractApiErrorMessageSync(e, "Erro ao abrir atendimento."));
+    } finally {
+      if (requestId === abrirAtendimentoRequestIdRef.current) {
+        setAbrindoAtendimentoId(null);
+      }
     }
   };
 
@@ -2719,6 +2873,7 @@ export default function AtendimentoPage() {
     setExameBusca("");
     setPainelExameSelecionado("");
     setProtocoloPrescricaoSelecionado("");
+    setProtocoloPrescricaoDecididoPara(null);
     setPrescricaoEditorManualAberto(false);
     setPrescricaoEntradaModo(null);
     setPrescricaoBuscaRapida("");
@@ -2783,7 +2938,10 @@ export default function AtendimentoPage() {
       !selecionadoRef.current &&
       hasEncounterContent(atual) &&
       typeof window !== "undefined" &&
-      !window.confirm("Substituir o rascunho atual por um novo atendimento deste paciente?")
+      !(await confirmarAcao({
+        titulo: "Substituir rascunho atual?",
+        descricao: "Substituir o rascunho atual por um novo atendimento deste paciente?",
+      }))
     ) {
       return;
     }
@@ -2823,6 +2981,7 @@ export default function AtendimentoPage() {
     setExameBusca("");
     setPainelExameSelecionado("");
     setProtocoloPrescricaoSelecionado("");
+    setProtocoloPrescricaoDecididoPara(null);
     setPrescricaoEditorManualAberto(itensCopiados.length > 0);
     setPrescricaoEntradaModo(null);
     setPrescricaoBuscaRapida("");
@@ -2869,11 +3028,14 @@ export default function AtendimentoPage() {
     }
     if (
       typeof window !== "undefined" &&
-      !window.confirm(
-        "Iniciar um novo atendimento herdando queixa principal, anamnese, exame fisico, " +
+      !(await confirmarAcao({
+        titulo: "Herdar dados do atendimento anterior?",
+        descricao:
+          "Iniciar um novo atendimento herdando queixa principal, anamnese, exame fisico, " +
           "dados clinicos e a receita (se houver) do atendimento selecionado? Diagnostico, " +
-          "plano terapeutico e triagem nao sao copiados - revise e preencha novamente."
-      )
+          "plano terapeutico e triagem nao sao copiados - revise e preencha novamente.",
+        confirmLabel: "Herdar dados",
+      }))
     ) {
       return;
     }
@@ -3491,11 +3653,39 @@ export default function AtendimentoPage() {
     setErro("");
   };
 
+  const protocoloPrescricaoSelecionadoItensPreview = protocoloPrescricaoSelecionadoDetalhe
+    ? protocoloPrescricaoSelecionadoDetalhe.itens.map(montarItemDeProtocoloPrescricao)
+    : [];
+
+  const fecharPreviaProtocoloPrescricao = (protocoloKey: string) => {
+    // So marca a recomendacao como "decidida" para o diagnostico atual quando
+    // o protocolo fechado e o recomendado - descartar um protocolo escolhido
+    // manualmente nao deve suprimir a recomendacao automatica.
+    if (protocoloPrescricaoRecomendado?.key === protocoloKey) {
+      setProtocoloPrescricaoDecididoPara(diagnosticoTextoConsolidado);
+    }
+    setProtocoloPrescricaoSelecionado("");
+  };
+
+  const selecionarProtocoloPrescricao = (protocoloKey: string) => {
+    if (protocoloPrescricaoSelecionado === protocoloKey) {
+      fecharPreviaProtocoloPrescricao(protocoloKey);
+      return;
+    }
+    setProtocoloPrescricaoSelecionado(protocoloKey);
+  };
+
   const aplicarProtocoloSelecionado = () => {
     if (!protocoloPrescricaoSelecionado) return;
     const protocolo = PROTOCOLOS_PRESCRICAO.find((item) => item.key === protocoloPrescricaoSelecionado);
     if (!protocolo) return;
     aplicarProtocoloPrescricao(protocolo);
+    fecharPreviaProtocoloPrescricao(protocolo.key);
+  };
+
+  const descartarProtocoloSelecionado = () => {
+    if (!protocoloPrescricaoSelecionado) return;
+    fecharPreviaProtocoloPrescricao(protocoloPrescricaoSelecionado);
   };
 
   const buildExamFromCatalog = (item: CatalogoExame, painel?: PainelExame | null): ExameSolicitacao => ({
@@ -3598,7 +3788,16 @@ export default function AtendimentoPage() {
   };
 
   const excluirPainelExame = async (painelId: number) => {
-    if (!confirm("Tem certeza que deseja excluir este painel?")) return;
+    if (
+      !(await confirmarAcao({
+        titulo: "Excluir painel de exames?",
+        descricao: "Tem certeza que deseja excluir este painel? Esta acao nao pode ser desfeita.",
+        variante: "destructive",
+        confirmLabel: "Excluir",
+      }))
+    ) {
+      return;
+    }
     try {
       await api.delete(`/atendimentos/paineis/${painelId}`);
       setSucesso("Painel removido com sucesso.");
@@ -3814,7 +4013,7 @@ export default function AtendimentoPage() {
     }
   };
 
-  const removerExame = (index: number) => {
+  const removerExame = async (index: number) => {
     const exame = form.exames[index];
     if (!exame) return;
 
@@ -3827,9 +4026,12 @@ export default function AtendimentoPage() {
     if (exame.id) {
       const nome = (exame.tipo_exame || "").trim() || "sem nome";
       if (
-        !window.confirm(
-          `Excluir o exame "${nome}" do prontuario? A exclusao e aplicada no proximo salvamento.`
-        )
+        !(await confirmarAcao({
+          titulo: "Excluir exame do prontuario?",
+          descricao: `Excluir o exame "${nome}" do prontuario? A exclusao e aplicada no proximo salvamento.`,
+          variante: "destructive",
+          confirmLabel: "Excluir",
+        }))
       ) {
         return;
       }
@@ -3866,9 +4068,11 @@ export default function AtendimentoPage() {
     if (!exame.id) return;
     if (
       acao === "revogar" &&
-      !window.confirm(
-        "Revogar a liberacao deste exame? A clinica parceira perde o acesso no portal."
-      )
+      !(await confirmarAcao({
+        titulo: "Revogar liberacao no portal?",
+        descricao: "Revogar a liberacao deste exame? A clinica parceira perde o acesso no portal.",
+        confirmLabel: "Revogar",
+      }))
     ) {
       return;
     }
@@ -4185,7 +4389,12 @@ export default function AtendimentoPage() {
 
       if (precisaConfirmar) {
         setFinalizando(false);
-        if (window.confirm(String(detalhe.mensagem || "Concluir mesmo com pendencias?"))) {
+        const confirmado = await confirmarAcao({
+          titulo: "Concluir com pendencias?",
+          descricao: String(detalhe.mensagem || "Concluir mesmo com pendencias?"),
+          confirmLabel: "Concluir",
+        });
+        if (confirmado) {
           await finalizarAtendimento(true);
         }
         return;
@@ -4253,7 +4462,16 @@ export default function AtendimentoPage() {
   }, [clinicalFieldValues, contextoAplicado, form, loading, selecionado]);
 
   const deleteAtendimento = async (id: number) => {
-    if (!confirm(`Excluir atendimento #${id}?`)) return;
+    if (
+      !(await confirmarAcao({
+        titulo: "Excluir atendimento?",
+        descricao: `Excluir o atendimento #${id}? Esta acao nao pode ser desfeita.`,
+        variante: "destructive",
+        confirmLabel: "Excluir",
+      }))
+    ) {
+      return;
+    }
     try {
       await api.delete(`/atendimentos/${id}`);
       if (selecionado === id) novoAtendimento();
@@ -4699,7 +4917,12 @@ export default function AtendimentoPage() {
   const excluirAnexo = async (anexo: Anexo) => {
     if (
       typeof window !== "undefined" &&
-      !window.confirm("Excluir este anexo definitivamente? O arquivo original nao podera ser recuperado.")
+      !(await confirmarAcao({
+        titulo: "Excluir anexo?",
+        descricao: "Excluir este anexo definitivamente? O arquivo original nao podera ser recuperado.",
+        variante: "destructive",
+        confirmLabel: "Excluir",
+      }))
     ) {
       return;
     }
@@ -4762,6 +4985,11 @@ export default function AtendimentoPage() {
     setErro("");
   };
 
+  const documentoVariaveisNaoResolvidas = useMemo(
+    () => extrairVariaveisNaoResolvidas(`${documentoClinicoForm.titulo} ${documentoClinicoForm.corpo}`),
+    [documentoClinicoForm.titulo, documentoClinicoForm.corpo]
+  );
+
   const criarDocumentoClinicoDeTemplate = async () => {
     if (!documentoTemplateSelecionado) {
       setErro("Selecione um template de documento.");
@@ -4783,7 +5011,12 @@ export default function AtendimentoPage() {
       const documentosAtualizados = await recarregarDocumentosAtendimento(atendimentoId);
       const documentoPersistido = documentosAtualizados.find((item) => item.id === documento.id) || documento;
       setDocumentoClinicoForm(hydrateDocumentoForm(documentoPersistido));
-      setSucesso("Documento criado a partir do template.");
+      const variaveisVazias = documento.variaveis_vazias || [];
+      setSucesso(
+        variaveisVazias.length
+          ? `Documento criado a partir do template. Atencao: ${variaveisVazias.join(", ")} estava(m) vazio(s) no cadastro - revise o texto antes de gerar o PDF.`
+          : "Documento criado a partir do template."
+      );
       setErro("");
       return documentoPersistido;
     } catch (e: any) {
@@ -4846,6 +5079,31 @@ export default function AtendimentoPage() {
     }
     if (!documentoParaPdf?.id) return;
 
+    const variaveisNaoResolvidasPdf = extrairVariaveisNaoResolvidas(
+      `${documentoParaPdf.titulo} ${documentoParaPdf.corpo}`
+    );
+    if (
+      variaveisNaoResolvidasPdf.length > 0 &&
+      !(await confirmarAcao({
+        titulo: "Variaveis nao reconhecidas no documento",
+        descricao: `O documento "${documentoParaPdf.titulo}" ainda tem ${variaveisNaoResolvidasPdf.length} variavel(is) nao reconhecida(s) (${variaveisNaoResolvidasPdf.join(", ")}). Gerar o PDF assim mesmo?`,
+        confirmLabel: "Gerar assim mesmo",
+      }))
+    ) {
+      return;
+    }
+
+    if (
+      documentoParaPdf.status === "emitido" &&
+      !(await confirmarAcao({
+        titulo: "Documento ja emitido",
+        descricao: `O documento "${documentoParaPdf.titulo}" ja foi emitido anteriormente. Gerar um novo PDF agora cria uma nova versao oficial com o conteudo atual. Continuar?`,
+        confirmLabel: "Gerar nova versao",
+      }))
+    ) {
+      return;
+    }
+
     try {
       setGerandoDocumentoPdfId(documentoParaPdf.id);
       const response = await api.get(
@@ -4890,7 +5148,16 @@ export default function AtendimentoPage() {
   };
 
   const excluirDocumentoClinico = async (documento: DocumentoAtendimento) => {
-    if (!confirm(`Remover o documento "${documento.titulo}"?`)) return;
+    if (
+      !(await confirmarAcao({
+        titulo: "Remover documento?",
+        descricao: `Remover o documento "${documento.titulo}"? Esta acao nao pode ser desfeita.`,
+        variante: "destructive",
+        confirmLabel: "Remover",
+      }))
+    ) {
+      return;
+    }
     try {
       await api.delete(`/atendimentos/${documento.atendimento_id}/documentos/${documento.id}`);
       await recarregarDocumentosAtendimento(documento.atendimento_id);
@@ -5002,7 +5269,8 @@ export default function AtendimentoPage() {
       duracao_padrao: "",
       observacoes,
     });
-    setSucesso("");
+    setWorkspacePainel("bibliotecas");
+    setSucesso("Formula pronta para revisao em Bibliotecas clinicas.");
     setErro("");
   };
 
@@ -5409,12 +5677,14 @@ export default function AtendimentoPage() {
   const totalPrescricaoItens = form.prescricao_itens.filter((item) => item.medicamento_id || item.medicamento_nome.trim()).length;
   const totalAnexosExame = form.exames.reduce((acc, exame) => acc + (exame.anexos_resultado?.length || 0), 0);
   const totalAnexosDocumento = anexosGerais.length + totalAnexosExame + form.documentos.length;
+  const examesPendentesCount = resumoExamesFluxo.aguardando_arquivo + resumoExamesFluxo.arquivo_anexado;
   const workspaceCards: Array<{
     key: Exclude<WorkspacePainel, "bibliotecas">;
     titulo: string;
     resumo: string;
     badge: string;
     triagemConcluida?: boolean;
+    pendente?: boolean;
   }> = [
     {
       key: "consulta",
@@ -5428,12 +5698,14 @@ export default function AtendimentoPage() {
       titulo: "Exames",
       resumo: "Solicitacao e resultados",
       badge: `${totalExamesSolicitados}`,
+      pendente: examesPendentesCount > 0,
     },
     {
       key: "prescricao",
       titulo: "Prescricao",
       resumo: "Receituario assistido",
       badge: `${totalPrescricaoItens}`,
+      pendente: prescricaoValidacaoAtual.total > 0,
     },
     {
       key: "documentos",
@@ -5489,6 +5761,15 @@ export default function AtendimentoPage() {
     const camposPermitidos = new Set(etapaAtiva.campos);
     return clinicalFieldConfigs.filter((config) => camposPermitidos.has(config.key));
   }, [consultaEditorEtapa, clinicalFieldConfigs]);
+  const consultaEditorGruposConsolidados = useMemo(() => {
+    const configPorChave = new Map(clinicalFieldConfigs.map((config) => [config.key, config]));
+    return CONSULTA_EDITOR_ETAPAS.map((etapa) => ({
+      ...etapa,
+      configs: etapa.campos
+        .map((key) => configPorChave.get(key))
+        .filter((config): config is ClinicalFieldConfig => Boolean(config)),
+    }));
+  }, [clinicalFieldConfigs]);
   const consultaCampoAtivoConfig = useMemo(
     () =>
       consultaEditorCamposVisiveis.find((config) => config.key === consultaCampoAtivo) ||
@@ -5500,15 +5781,6 @@ export default function AtendimentoPage() {
     () => consultaEditorCamposVisiveis.findIndex((item) => item.key === consultaCampoAtivo),
     [consultaCampoAtivo, consultaEditorCamposVisiveis]
   );
-  const workspaceGridClass = isBibliotecasWorkspace
-    ? "grid gap-6 grid-cols-1"
-    : isExamesWorkspace
-      ? "grid gap-6 grid-cols-1"
-    : isPrescricaoWorkspace
-      ? prescricaoModoFoco
-        ? "grid gap-6 xl:grid-cols-[minmax(0,1fr),340px] 2xl:grid-cols-[minmax(0,1fr),360px]"
-        : "grid gap-6 xl:grid-cols-[minmax(0,1fr),380px] 2xl:grid-cols-[minmax(0,1fr),400px]"
-      : "grid gap-6 xl:grid-cols-[minmax(0,1fr),380px] 2xl:grid-cols-[minmax(0,1fr),400px]";
   const goToConsultaCampoAnterior = () => {
     if (consultaCampoAtivoIndex <= 0) return;
     setConsultaCampoAtivo(consultaEditorCamposVisiveis[consultaCampoAtivoIndex - 1].key);
@@ -5537,7 +5809,7 @@ export default function AtendimentoPage() {
   }, [consultaCampoAtivo, consultaEditorCamposVisiveis]);
 
   useEffect(() => {
-    if (!isConsultaWorkspace || !consultaCampoAtivoConfig) return;
+    if (!isConsultaWorkspace || !consultaCampoAtivoConfig || consultaVerTodosCampos) return;
     if (typeof window === "undefined") return;
     window.requestAnimationFrame(() => {
       const target = clinicalTextareaRefs.current[consultaCampoAtivoConfig.key];
@@ -5546,10 +5818,10 @@ export default function AtendimentoPage() {
       const cursor = target.value.length;
       target.setSelectionRange(cursor, cursor);
     });
-  }, [isConsultaWorkspace, consultaCampoAtivoConfig]);
+  }, [isConsultaWorkspace, consultaCampoAtivoConfig, consultaVerTodosCampos]);
 
   useEffect(() => {
-    if (!isConsultaWorkspace) return;
+    if (!isConsultaWorkspace || consultaVerTodosCampos) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.altKey && event.shiftKey)) return;
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -5562,7 +5834,7 @@ export default function AtendimentoPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [goToConsultaCampoAnterior, goToConsultaCampoProximo, isConsultaWorkspace]);
+  }, [goToConsultaCampoAnterior, goToConsultaCampoProximo, isConsultaWorkspace, consultaVerTodosCampos]);
 
   const examesChavesAtuaisRaw = form.exames.map((exame) => getExameStateKey(exame)).join(",");
   useEffect(() => {
@@ -5599,8 +5871,11 @@ export default function AtendimentoPage() {
   useEffect(() => {
     if (protocoloPrescricaoSelecionado) return;
     if (!protocoloPrescricaoRecomendado) return;
+    // Nao reabre a previa automaticamente se o vet ja aplicou ou descartou o
+    // protocolo recomendado para o texto de diagnostico atual.
+    if (protocoloPrescricaoDecididoPara === diagnosticoTextoConsolidado) return;
     setProtocoloPrescricaoSelecionado(protocoloPrescricaoRecomendado.key);
-  }, [protocoloPrescricaoRecomendado, protocoloPrescricaoSelecionado]);
+  }, [protocoloPrescricaoRecomendado, protocoloPrescricaoSelecionado, protocoloPrescricaoDecididoPara, diagnosticoTextoConsolidado]);
 
   useEffect(() => {
     if (prescricaoValidacaoAtual.total === 0 && prescricaoErrosCount > 0) {
@@ -5654,6 +5929,20 @@ export default function AtendimentoPage() {
   const atendimentosVisiveis = filtered;
   const timelineGrupos = historicoPaciente?.timeline || [];
   const alertasAtivos = historicoPaciente?.alertas || [];
+  const temAlertasCriticos = alertasAtivos.some((alerta: any) =>
+    ["critica", "alta"].includes((alerta.gravidade || "").toLowerCase())
+  );
+  const workspaceGridClass = isBibliotecasWorkspace
+    ? "grid gap-6 grid-cols-1"
+    : isExamesWorkspace
+      ? temAlertasCriticos
+        ? "grid gap-6 xl:grid-cols-[minmax(0,1fr),380px] 2xl:grid-cols-[minmax(0,1fr),400px]"
+        : "grid gap-6 grid-cols-1"
+    : isPrescricaoWorkspace
+      ? prescricaoModoFoco
+        ? "grid gap-6 xl:grid-cols-[minmax(0,1fr),340px] 2xl:grid-cols-[minmax(0,1fr),360px]"
+        : "grid gap-6 xl:grid-cols-[minmax(0,1fr),380px] 2xl:grid-cols-[minmax(0,1fr),400px]"
+      : "grid gap-6 xl:grid-cols-[minmax(0,1fr),380px] 2xl:grid-cols-[minmax(0,1fr),400px]";
   const medicamentosCardiologicos = medicamentosCardiologiaLista.length;
   const itensPrescricaoAtivos = form.prescricao_itens.filter((item) => item.medicamento_id || (item.medicamento_nome || "").trim());
   const autosaveLabel = useMemo(() => {
@@ -5697,12 +5986,37 @@ export default function AtendimentoPage() {
       // Limpa o unico item em vez de remover
       setPrescricaoEditorManualAberto(false);
       setField("prescricao_itens", [emptyPrescriptionItem()]);
+      setMedicamentoBuscaPorItem({});
+      setMedicamentoFocoPorItem({});
     } else {
       setField(
         "prescricao_itens",
         form.prescricao_itens.filter((_, itemIndex) => itemIndex !== idx)
       );
+      setMedicamentoBuscaPorItem((prev) => reindexarAposRemocaoDeItem(prev, idx));
+      setMedicamentoFocoPorItem((prev) => reindexarAposRemocaoDeItem(prev, idx));
     }
+  };
+  const moverItemPrescricao = (idx: number, direcao: -1 | 1) => {
+    const destino = idx + direcao;
+    if (destino < 0 || destino >= form.prescricao_itens.length) return;
+    const itens = [...form.prescricao_itens];
+    [itens[idx], itens[destino]] = [itens[destino], itens[idx]];
+    setField("prescricao_itens", itens);
+    setMedicamentoBuscaPorItem((prev) => trocarIndicesAposMover(prev, idx, destino));
+    setMedicamentoFocoPorItem((prev) => trocarIndicesAposMover(prev, idx, destino));
+  };
+  const duplicarItemPrescricao = (idx: number) => {
+    const copia: PrescricaoItem = {
+      ...hydratePrescriptionItem(form.prescricao_itens[idx]),
+      id: undefined,
+      historico_ajustes: [],
+    };
+    const itens = [...form.prescricao_itens];
+    itens.splice(idx + 1, 0, copia);
+    setField("prescricao_itens", itens);
+    setMedicamentoBuscaPorItem((prev) => reindexarAposInsercaoDeItem(prev, idx + 1));
+    setMedicamentoFocoPorItem((prev) => reindexarAposInsercaoDeItem(prev, idx + 1));
   };
   const prescricaoTemRascunhoInicial =
     !prescricaoEditorManualAberto &&
@@ -5717,6 +6031,27 @@ export default function AtendimentoPage() {
       item.medicamento_id != null
         ? medicamentos.find((entry) => entry.id === item.medicamento_id) || null
         : null;
+    const medicamentoBuscaAtual = medicamentoBuscaPorItem[idx] || "";
+    const medicamentoResultados = (() => {
+      const term = medicamentoBuscaAtual.trim();
+      if (!term) return [];
+      if (!medicamentosFuse) {
+        const normalizedTerm = term.toLowerCase();
+        return medicamentos
+          .filter((med) =>
+            [med.nome, med.principio_ativo, med.categoria, med.classe_terapeutica].some((value) =>
+              String(value || "").toLowerCase().includes(normalizedTerm)
+            )
+          )
+          .slice(0, 8);
+      }
+      return medicamentosFuse.search(term).map((entry) => entry.item).slice(0, 8);
+    })();
+    const selecionarMedicamentoDoItem = (medId: number | null) => {
+      setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: false }));
+      setMedicamentoBuscaPorItem((prev) => ({ ...prev, [idx]: "" }));
+      aplicarMedicamentoNaPrescricao(idx, medId);
+    };
     const apresentacoesDisponiveis = sugestao?.apresentacoes || [];
     const sugestaoApresentacao = sugestao?.sugestaoApresentacao || null;
     const alertasItem = (sugestao?.alertas || []).map((alerta) => alerta.trim()).filter((alerta) => alerta.length > 0);
@@ -5774,6 +6109,39 @@ export default function AtendimentoPage() {
                 {ativo ? "Pronto para revisar" : "Aguardando definicao"}
               </span>
             )}
+            {!isUnico ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => moverItemPrescricao(idx, -1)}
+                  disabled={idx === 0}
+                  title="Mover para cima"
+                  aria-label="Mover item para cima"
+                  className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moverItemPrescricao(idx, 1)}
+                  disabled={idx === form.prescricao_itens.length - 1}
+                  title="Mover para baixo"
+                  aria-label="Mover item para baixo"
+                  className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => duplicarItemPrescricao(idx)}
+              title="Duplicar item"
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+            >
+              <Copy className="h-4 w-4" />
+              Duplicar
+            </button>
             <button
               type="button"
               onClick={() => removerItemPrescricao(idx)}
@@ -5788,22 +6156,62 @@ export default function AtendimentoPage() {
         <div className="grid gap-6 p-5 xl:grid-cols-[minmax(0,1.7fr),320px]">
           <div className="space-y-5">
             <div className="grid gap-3 lg:grid-cols-2">
-              <div className="lg:col-span-2">
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Medicamento da biblioteca
+              <div className="lg:col-span-2 relative">
+                <label className="mb-1.5 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                  <span>Medicamento da biblioteca</span>
+                  {medicamentoSelecionado ? (
+                    <button
+                      type="button"
+                      onClick={() => selecionarMedicamentoDoItem(null)}
+                      className="text-[10px] font-medium normal-case tracking-normal text-slate-400 transition hover:text-rose-600"
+                    >
+                      Limpar selecao
+                    </button>
+                  ) : null}
                 </label>
-                <select
-                  value={item.medicamento_id || ""}
-                  onChange={(e) => aplicarMedicamentoNaPrescricao(idx, e.target.value ? Number(e.target.value) : null)}
+                <input
+                  value={medicamentoBuscaAtual}
+                  onChange={(e) => {
+                    const valor = e.target.value;
+                    setMedicamentoBuscaPorItem((prev) => ({ ...prev, [idx]: valor }));
+                    setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: true }));
+                  }}
+                  onFocus={() => setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: true }))}
+                  onBlur={() => setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: false }))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && medicamentoResultados.length > 0) {
+                      e.preventDefault();
+                      selecionarMedicamentoDoItem(medicamentoResultados[0].id);
+                    } else if (e.key === "Escape") {
+                      setMedicamentoFocoPorItem((prev) => ({ ...prev, [idx]: false }));
+                    }
+                  }}
+                  placeholder={
+                    medicamentoSelecionado
+                      ? medicamentoSelecionado.nome
+                      : "Buscar medicamento por nome, principio ativo ou classe..."
+                  }
                   className={inputClass("medicamento_nome")}
-                >
-                  <option value="">Selecionar medicamento</option>
-                  {medicamentos.map((med) => (
-                    <option key={med.id} value={med.id}>
-                      {med.nome}
-                    </option>
-                  ))}
-                </select>
+                />
+                {medicamentoFocoPorItem[idx] && medicamentoResultados.length > 0 ? (
+                  <div className="absolute z-10 mt-2 max-h-72 w-full overflow-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                    {medicamentoResultados.map((med) => (
+                      <button
+                        key={med.id}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => selecionarMedicamentoDoItem(med.id)}
+                        className="w-full rounded-xl px-3 py-2 text-left transition hover:bg-sky-50"
+                      >
+                        <p className="text-sm font-medium text-slate-900">{med.nome}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {med.classe_terapeutica || med.categoria || "Sem classificacao"}
+                          {med.principio_ativo ? ` - ${med.principio_ativo}` : ""}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               <div className="lg:col-span-2">
@@ -6152,7 +6560,44 @@ export default function AtendimentoPage() {
   };
 
   if (loading) {
-    return <DashboardLayout><div className="fc-care-loading">Carregando modulo de atendimento...</div></DashboardLayout>;
+    return (
+      <DashboardLayout>
+        <div className="fc-care-page" role="status" aria-live="polite">
+          <span className="sr-only">Carregando modulo de atendimento...</span>
+          <section className="fc-care-header animate-pulse" aria-hidden="true">
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="max-w-2xl space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="h-12 w-12 rounded-2xl bg-white/15" />
+                    <div className="space-y-2">
+                      <div className="h-3 w-32 rounded bg-white/15" />
+                      <div className="h-5 w-48 rounded bg-white/20" />
+                    </div>
+                  </div>
+                  <div className="h-3 w-80 max-w-full rounded bg-white/10" />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <div className="h-10 w-32 rounded-2xl bg-white/10" />
+                  <div className="h-10 w-28 rounded-2xl bg-white/10" />
+                  <div className="h-10 w-40 rounded-2xl bg-white/15" />
+                </div>
+              </div>
+            </div>
+          </section>
+          <div className="fc-care-layout grid grid-cols-1 gap-6 xl:grid-cols-12" aria-hidden="true">
+            <div className="fc-care-sidebar order-2 space-y-4 xl:order-none xl:col-span-3">
+              <div className="h-40 animate-pulse rounded-[22px] border border-slate-200 bg-slate-100" />
+              <div className="h-56 animate-pulse rounded-[22px] border border-slate-200 bg-slate-100" />
+            </div>
+            <div className="fc-care-workspace order-1 space-y-4 xl:order-none xl:col-span-9">
+              <div className="h-48 animate-pulse rounded-[26px] border border-slate-200 bg-slate-100" />
+              <div className="h-72 animate-pulse rounded-[26px] border border-slate-200 bg-slate-100" />
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
   }
 
   return (
@@ -6214,15 +6659,17 @@ export default function AtendimentoPage() {
                     {autosaveLabel}
                   </span>
                 </div>
-                <button
-                  onClick={() => (form.paciente_id ? iniciarNovoAtendimentoPaciente() : novoAtendimento())}
-                  className="fc-care-button-secondary"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <Plus className="h-4 w-4" />
-                    {form.paciente_id ? "Novo atendimento deste paciente" : "Novo atendimento"}
-                  </span>
-                </button>
+                {selecionado ? null : (
+                  <button
+                    onClick={() => (form.paciente_id ? iniciarNovoAtendimentoPaciente() : novoAtendimento())}
+                    className="fc-care-button-secondary"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <Plus className="h-4 w-4" />
+                      {form.paciente_id ? "Novo atendimento deste paciente" : "Novo atendimento"}
+                    </span>
+                  </button>
+                )}
                 <button
                   onClick={() =>
                     goLaudo({
@@ -6384,7 +6831,10 @@ export default function AtendimentoPage() {
                       </span>
                     ) : null}
                   </div>
-                  <span className="fc-care-tab-badge">
+                  <span
+                    className={`fc-care-tab-badge ${item.pendente ? "fc-care-tab-badge-alert" : ""}`}
+                    title={item.pendente ? "Ha pendencia real nesta area" : undefined}
+                  >
                     {item.badge}
                   </span>
                 </div>
@@ -6395,8 +6845,8 @@ export default function AtendimentoPage() {
 
         <div className={`fc-care-layout ${showCaseSidebar ? "grid grid-cols-1 gap-6 xl:grid-cols-12" : "grid grid-cols-1 gap-6"}`}>
           {showCaseSidebar ? (
-          <div className="fc-care-sidebar self-start xl:col-span-3">
-            <div className="space-y-6 xl:sticky xl:top-6">
+          <div className="fc-care-sidebar order-2 self-start xl:order-none xl:col-span-3">
+            <div className="space-y-6 xl:sticky xl:top-[500px]">
               <section className="fc-care-case-panel">
                 <div className="flex items-center justify-between">
                   <div>
@@ -6480,39 +6930,68 @@ export default function AtendimentoPage() {
                 </div>
 
                 <div className="mt-4 max-h-[380px] space-y-3 overflow-auto pr-1">
-                  {atendimentosVisiveis.map((item) => (
-                    <div key={item.id} className={`rounded-[22px] border p-4 transition ${selecionado === item.id ? "border-teal-300 bg-teal-50" : "border-slate-200 bg-slate-50/80 hover:bg-white"}`}>
-                      <button onClick={() => abrirAtendimento(item.id)} className="w-full text-left">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-900">#{item.id} - {item.paciente_nome || "Paciente"}</p>
-                            <p className="mt-1 text-xs text-slate-500">{item.tutor_nome || "Tutor nao informado"}</p>
+                  {atendimentosVisiveis.map((item) => {
+                    const abrindoEsteItem = abrindoAtendimentoId === item.id;
+                    const carregandoOutroItem = abrindoAtendimentoId !== null && !abrindoEsteItem;
+                    return (
+                      <div
+                        key={item.id}
+                        className={`rounded-[22px] border p-4 transition ${selecionado === item.id ? "border-teal-300 bg-teal-50" : "border-slate-200 bg-slate-50/80 hover:bg-white"} ${carregandoOutroItem ? "pointer-events-none opacity-60" : ""}`}
+                      >
+                        <button
+                          onClick={() => abrirAtendimento(item.id)}
+                          disabled={abrindoAtendimentoId !== null}
+                          className="w-full text-left disabled:cursor-not-allowed"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">#{item.id} - {item.paciente_nome || "Paciente"}</p>
+                              <p className="mt-1 text-xs text-slate-500">{item.tutor_nome || "Tutor nao informado"}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {abrindoEsteItem ? <Loader2 className="h-4 w-4 animate-spin text-teal-600" /> : null}
+                              <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${getBadgeStatusClass(item.status)}`}>{item.status}</span>
+                            </div>
                           </div>
-                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${getBadgeStatusClass(item.status)}`}>{item.status}</span>
+                          <p className="mt-3 text-xs text-slate-500">{formatDate(item.data_atendimento)}</p>
+                          <p className="mt-1 text-sm text-slate-700">{item.diagnostico || item.queixa_principal || "Sem resumo clinico"}</p>
+                          <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-medium">
+                            {clinicaFiltroAplicado === "" && item.clinica_nome ? (
+                              <span className="rounded-full bg-slate-200 px-2.5 py-1 text-slate-700">{item.clinica_nome}</span>
+                            ) : null}
+                            <span className="rounded-full bg-white px-2.5 py-1 text-slate-600">{item.total_exames || 0} exame(s)</span>
+                            {item.tem_prescricao ? (
+                              <span className="rounded-full bg-violet-100 px-2.5 py-1 text-violet-700">Receita salva</span>
+                            ) : null}
+                            {item.documentacao_pendencias && item.documentacao_pendencias.length > 0 ? (
+                              <span
+                                className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-800"
+                                title={`Faltam: ${item.documentacao_pendencias.join("; ")}`}
+                              >
+                                Documentacao incompleta
+                              </span>
+                            ) : null}
+                          </div>
+                        </button>
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            onClick={() => goLaudo({ ...item, atendimento_id: item.id })}
+                            disabled={abrindoAtendimentoId !== null}
+                            className="rounded-xl bg-sky-100 px-3 py-1.5 text-xs font-medium text-sky-700 transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Laudar
+                          </button>
+                          <button
+                            onClick={() => deleteAtendimento(item.id)}
+                            disabled={abrindoAtendimentoId !== null}
+                            className="rounded-xl bg-red-100 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Excluir
+                          </button>
                         </div>
-                        <p className="mt-3 text-xs text-slate-500">{formatDate(item.data_atendimento)}</p>
-                        <p className="mt-1 text-sm text-slate-700">{item.diagnostico || item.queixa_principal || "Sem resumo clinico"}</p>
-                        <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-medium">
-                          <span className="rounded-full bg-white px-2.5 py-1 text-slate-600">{item.total_exames || 0} exame(s)</span>
-                          {item.tem_prescricao ? (
-                            <span className="rounded-full bg-violet-100 px-2.5 py-1 text-violet-700">Receita salva</span>
-                          ) : null}
-                          {item.documentacao_pendencias && item.documentacao_pendencias.length > 0 ? (
-                            <span
-                              className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-800"
-                              title={`Faltam: ${item.documentacao_pendencias.join("; ")}`}
-                            >
-                              Documentacao incompleta
-                            </span>
-                          ) : null}
-                        </div>
-                      </button>
-                      <div className="mt-3 flex gap-2">
-                        <button onClick={() => goLaudo({ ...item, atendimento_id: item.id })} className="rounded-xl bg-sky-100 px-3 py-1.5 text-xs font-medium text-sky-700 transition hover:bg-sky-200">Laudar</button>
-                        <button onClick={() => deleteAtendimento(item.id)} className="rounded-xl bg-red-100 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-200">Excluir</button>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {atendimentosVisiveis.length === 0 ? <div className="rounded-[22px] border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">Nenhum atendimento encontrado.</div> : null}
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2">
@@ -6552,19 +7031,30 @@ export default function AtendimentoPage() {
                         <div className="absolute left-0 top-1 h-5 w-5 rounded-full border-4 border-teal-100 bg-teal-500" />
                         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-teal-700">{grupo.ano}</p>
                         <div className="mt-3 space-y-3">
-                          {grupo.eventos.map((evento) => (
-                            <div key={`${grupo.ano}-${evento.tipo}-${evento.referencia_id}`} className="rounded-[20px] border border-slate-200 bg-slate-50 p-3">
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <p className="text-sm font-medium text-slate-900">{evento.titulo}</p>
-                                  <p className="text-[11px] uppercase tracking-[0.25em] text-slate-500">{evento.tipo}</p>
+                          {grupo.eventos.map((evento) => {
+                            const eventoMeta = TIMELINE_EVENTO_META[evento.tipo] || TIMELINE_EVENTO_META_PADRAO;
+                            const EventoIcon = eventoMeta.icon;
+                            return (
+                              <div key={`${grupo.ano}-${evento.tipo}-${evento.referencia_id}`} className="rounded-[20px] border border-slate-200 bg-slate-50 p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex items-start gap-2">
+                                    <span className={`mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 ${eventoMeta.dotClass}`}>
+                                      <EventoIcon className="h-3.5 w-3.5 text-white" />
+                                    </span>
+                                    <div>
+                                      <p className="text-sm font-medium text-slate-900">{evento.titulo}</p>
+                                      <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] ${eventoMeta.badgeClass}`}>
+                                        {eventoMeta.label}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <span className="shrink-0 text-[11px] text-slate-500">{formatDate(evento.data)}</span>
                                 </div>
-                                <span className="text-[11px] text-slate-500">{formatDate(evento.data)}</span>
+                                <p className="mt-2 text-sm text-slate-700">{evento.descricao}</p>
+                                {evento.status ? <p className="mt-2 text-xs text-slate-500">Status: {evento.status}</p> : null}
                               </div>
-                              <p className="mt-2 text-sm text-slate-700">{evento.descricao}</p>
-                              {evento.status ? <p className="mt-2 text-xs text-slate-500">Status: {evento.status}</p> : null}
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     ))}
@@ -6668,7 +7158,7 @@ export default function AtendimentoPage() {
           </div>
           ) : null}
 
-          <div className={`fc-care-workspace ${showCaseSidebar ? "xl:col-span-9" : ""}`}>
+          <div className={`fc-care-workspace order-1 xl:order-none ${showCaseSidebar ? "xl:col-span-9" : ""}`}>
             <div className={workspaceGridClass}>
               <div className="space-y-6">
                 {isConsultaWorkspace ? (
@@ -6723,6 +7213,7 @@ export default function AtendimentoPage() {
                 {isConsultaWorkspace ? (
                   <AtendimentoTriagemSection
                     ESCALA_ECC={ESCALA_ECC}
+                    especieExibicao={especieExibicao}
                     form={form}
                     HIDRATACAO={HIDRATACAO}
                     MUCOSAS={MUCOSAS}
@@ -6741,7 +7232,9 @@ export default function AtendimentoPage() {
                     consultaEditorCamposVisiveis={consultaEditorCamposVisiveis}
                     consultaEditorEtapa={consultaEditorEtapa}
                     consultaEditorEtapas={consultaEditorEtapas}
+                    consultaEditorGruposConsolidados={consultaEditorGruposConsolidados}
                     consultaEtapasCompletas={consultaEtapasCompletas}
+                    consultaVerTodosCampos={consultaVerTodosCampos}
                     dadosClinicosOrigem={dadosClinicosOrigem}
                     form={form}
                     formatDate={formatDate}
@@ -6757,6 +7250,7 @@ export default function AtendimentoPage() {
                     setClinicalFieldValue={setClinicalFieldValue}
                     setConsultaCampoAtivo={setConsultaCampoAtivo}
                     setConsultaEditorEtapa={setConsultaEditorEtapa}
+                    setConsultaVerTodosCampos={setConsultaVerTodosCampos}
                     setField={setField}
                   />
                 ) : null}
@@ -6858,6 +7352,7 @@ export default function AtendimentoPage() {
                     documentoClinicoForm={documentoClinicoForm}
                     documentoTemplateForm={documentoTemplateForm}
                     documentoTemplateSelecionado={documentoTemplateSelecionado}
+                    documentoVariaveisNaoResolvidas={documentoVariaveisNaoResolvidas}
                     editarDocumentoTemplate={editarDocumentoTemplate}
                     evolucaoForm={evolucaoForm}
                     excluirDocumentoClinico={excluirDocumentoClinico}
@@ -6896,6 +7391,7 @@ export default function AtendimentoPage() {
                 {isPrescricaoWorkspace ? (
                   <>
                     <AtendimentoPrescricaoHistorySection
+                      abrindoAtendimentoId={abrindoAtendimentoId}
                       abrirAtendimento={abrirAtendimento}
                       formatDate={formatDate}
                       herdarAtendimentoAnterior={herdarAtendimentoAnterior}
@@ -6907,11 +7403,12 @@ export default function AtendimentoPage() {
                       abrirMedicamentoBuscaRapida={abrirMedicamentoBuscaRapida}
                     adicionarItemPrescricaoEmBranco={adicionarItemPrescricaoEmBranco}
                     aplicarPresetPrescricao={aplicarPresetPrescricao}
-                    aplicarProtocoloPrescricao={aplicarProtocoloPrescricao}
+                    aplicarProtocoloSelecionado={aplicarProtocoloSelecionado}
                     autosaveBadgeClass={autosaveBadgeClass}
                     autosaveLabel={autosaveLabel}
                     cancelarEdicaoPresetPrescricao={cancelarEdicaoPresetPrescricao}
                     classificarAlertaPrescricao={classificarAlertaPrescricao}
+                    descartarProtocoloSelecionado={descartarProtocoloSelecionado}
                     editarPresetPrescricao={editarPresetPrescricao}
                     especieRacaExibicao={especieRacaExibicao}
                     form={form}
@@ -6938,10 +7435,13 @@ export default function AtendimentoPage() {
                     protocoloPrescricaoRecomendado={protocoloPrescricaoRecomendado}
                     protocoloPrescricaoSelecionado={protocoloPrescricaoSelecionado}
                     protocoloPrescricaoSelecionadoDetalhe={protocoloPrescricaoSelecionadoDetalhe}
+                    protocoloPrescricaoSelecionadoGatilho={protocoloPrescricaoSelecionadoGatilho}
+                    protocoloPrescricaoSelecionadoItensPreview={protocoloPrescricaoSelecionadoItensPreview}
                     removerPresetPrescricao={removerPresetPrescricao}
                     renderPrescricaoItemCard={renderPrescricaoItemCard}
                     salvarPresetPrescricaoAtual={salvarPresetPrescricaoAtual}
                     selecionarMedicamentoBuscaRapida={selecionarMedicamentoBuscaRapida}
+                    selecionarProtocoloPrescricao={selecionarProtocoloPrescricao}
                     setField={setField}
                     setNomeNovoPresetPrescricao={setNomeNovoPresetPrescricao}
                     setPrescricaoBuscaRapida={setPrescricaoBuscaRapida}
@@ -6965,12 +7465,24 @@ export default function AtendimentoPage() {
                 />
               )}
 
-              {(isPrescricaoWorkspace || showClinicalRadarAside) ? (
+              {(isPrescricaoWorkspace || (isExamesWorkspace && temAlertasCriticos) || showClinicalRadarAside) ? (
                 <aside
-                  className={`fc-care-aside self-start space-y-6 xl:sticky xl:max-h-[calc(100vh-2rem)] xl:overflow-auto xl:pr-1 ${
-                    isPrescricaoWorkspace && prescricaoModoFoco ? "xl:top-3" : "xl:top-6"
+                  className={`fc-care-aside self-start space-y-6 xl:sticky xl:max-h-[calc(100vh-516px)] xl:overflow-auto xl:pr-1 ${
+                    isPrescricaoWorkspace && prescricaoModoFoco ? "xl:top-[488px]" : "xl:top-[500px]"
                   }`}
                 >
+                  {isPrescricaoWorkspace || isExamesWorkspace ? (
+                    // O radar clinico completo (AtendimentoClinicalRadarAside) so aparece em
+                    // Consulta/Documentos - sem isso, alertas de gravidade alta/critica (ex.:
+                    // alergia a medicamento) ficavam invisiveis justamente nas abas de maior
+                    // risco de erro (prescrever, solicitar exame). Card compacto, so os mais
+                    // graves, independente da aba.
+                    <AtendimentoAlertasCriticosCard
+                      alertasAtivos={alertasAtivos}
+                      getGravidadeClass={getGravidadeClass}
+                    />
+                  ) : null}
+
                   {showClinicalRadarAside ? (
                     <AtendimentoClinicalRadarAside
                       alertasAtivos={alertasAtivos}
@@ -7071,6 +7583,18 @@ export default function AtendimentoPage() {
           setAttachmentPdfZoom={setAttachmentPdfZoom}
           zoomInAttachmentImage={zoomInAttachmentImage}
           zoomOutAttachmentImage={zoomOutAttachmentImage}
+        />
+      ) : null}
+      {confirmDialogState ? (
+        <ConfirmDialog
+          aberto
+          titulo={confirmDialogState.titulo}
+          descricao={confirmDialogState.descricao}
+          variante={confirmDialogState.variante}
+          confirmLabel={confirmDialogState.confirmLabel}
+          cancelLabel={confirmDialogState.cancelLabel}
+          onConfirm={() => resolverConfirmDialog(true)}
+          onCancel={() => resolverConfirmDialog(false)}
         />
       ) : null}
       </div>

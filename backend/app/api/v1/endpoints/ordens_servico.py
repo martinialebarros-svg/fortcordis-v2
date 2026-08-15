@@ -1335,16 +1335,8 @@ def gerar_relatorio_pendencias_pdf(
     )
 
 
-@router.get("/relatorios/recibos/pdf")
-def gerar_recibos_os_pdf(
-    os_ids: str,
-    agrupar: bool = Query(False),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Gera recibo PDF para OS recebidas, individual ou agrupado."""
-    ids = _parse_os_ids_param(os_ids)
-
+def _montar_recibos_os(db: Session, ids: List[int]) -> List[Dict[str, Any]]:
+    """Monta os dicionarios de recibo para as OS informadas (somente as ja Pagas sao incluidas)."""
     resultados = (
         db.query(
             OrdemServico,
@@ -1361,17 +1353,6 @@ def gerar_recibos_os_pdf(
         .order_by(OrdemServico.data_atendimento.asc(), OrdemServico.id.asc())
         .all()
     )
-
-    encontrados_ids = {item[0].id for item in resultados}
-    faltantes = [os_id for os_id in ids if os_id not in encontrados_ids]
-    if faltantes:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Algumas OS informadas nao foram encontradas ou ainda nao estao recebidas: "
-                + ", ".join(str(item) for item in faltantes)
-            ),
-        )
 
     pagamentos_rows = (
         db.query(OrdemServicoPagamento)
@@ -1449,8 +1430,12 @@ def gerar_recibos_os_pdf(
             }
         )
 
+    return recibos
+
+
+def _carregar_dados_emissor_recibo_empresa(db: Session) -> Dict[str, Any]:
+    """Dados de identidade/contato da empresa para o cabecalho do recibo (sem dados de usuario)."""
     configuracao = db.query(Configuracao).first()
-    configuracao_usuario = _carregar_configuracao_usuario_recibo(db, current_user.id)
     nome_empresa = (
         (configuracao.nome_empresa or "").strip()
         if configuracao and configuracao.nome_empresa
@@ -1472,13 +1457,48 @@ def gerar_recibos_os_pdf(
     logomarca = None
     texto_rodape = ""
     assinatura_emitente = None
-    crmv_emitente = ""
     if configuracao:
         if configuracao.mostrar_logomarca and configuracao.logomarca_dados:
             logomarca = configuracao.logomarca_dados
         texto_rodape = (configuracao.texto_rodape_laudo or "").strip()
         if configuracao.mostrar_assinatura and configuracao.assinatura_dados:
             assinatura_emitente = configuracao.assinatura_dados
+
+    return {
+        "nome_empresa": nome_empresa,
+        "contato_empresa": contato_empresa,
+        "logomarca": logomarca,
+        "texto_rodape": texto_rodape,
+        "assinatura_emitente": assinatura_emitente,
+    }
+
+
+@router.get("/relatorios/recibos/pdf")
+def gerar_recibos_os_pdf(
+    os_ids: str,
+    agrupar: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Gera recibo PDF para OS recebidas, individual ou agrupado."""
+    ids = _parse_os_ids_param(os_ids)
+
+    recibos = _montar_recibos_os(db, ids)
+    encontrados_ids = {item["id"] for item in recibos}
+    faltantes = [os_id for os_id in ids if os_id not in encontrados_ids]
+    if faltantes:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Algumas OS informadas nao foram encontradas ou ainda nao estao recebidas: "
+                + ", ".join(str(item) for item in faltantes)
+            ),
+        )
+
+    dados_empresa = _carregar_dados_emissor_recibo_empresa(db)
+    configuracao_usuario = _carregar_configuracao_usuario_recibo(db, current_user.id)
+    assinatura_emitente = dados_empresa["assinatura_emitente"]
+    crmv_emitente = ""
     if configuracao_usuario:
         if configuracao_usuario.assinatura_dados:
             assinatura_emitente = configuracao_usuario.assinatura_dados
@@ -1486,14 +1506,14 @@ def gerar_recibos_os_pdf(
 
     pdf_bytes = _gerar_pdf_recibos_ordens(
         recibos=recibos,
-        nome_empresa=nome_empresa,
-        contato_empresa=contato_empresa,
-        texto_rodape=texto_rodape,
+        nome_empresa=dados_empresa["nome_empresa"],
+        contato_empresa=dados_empresa["contato_empresa"],
+        texto_rodape=dados_empresa["texto_rodape"],
         agrupar=agrupar,
         nome_emitente=str(current_user.nome or "").strip() or "Usuario emissor",
         crmv_emitente=crmv_emitente,
         assinatura_emitente_dados=assinatura_emitente,
-        logomarca_dados=logomarca,
+        logomarca_dados=dados_empresa["logomarca"],
     )
 
     if agrupar:

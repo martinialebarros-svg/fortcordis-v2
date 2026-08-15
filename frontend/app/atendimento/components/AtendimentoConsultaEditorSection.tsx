@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, ChevronLeft, ChevronRight, Stethoscope } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, ListChecks, Stethoscope } from "lucide-react";
 import ClinicalFieldCard from "./ClinicalFieldCard";
 import type { LooseAtendimentoComponentProps } from "./component-props";
 
@@ -15,7 +15,9 @@ export default function AtendimentoConsultaEditorSection(props: AtendimentoConsu
     consultaEditorCamposVisiveis,
     consultaEditorEtapa,
     consultaEditorEtapas,
+    consultaEditorGruposConsolidados,
     consultaEtapasCompletas,
+    consultaVerTodosCampos,
     dadosClinicosOrigem,
     form,
     formatDate,
@@ -31,6 +33,7 @@ export default function AtendimentoConsultaEditorSection(props: AtendimentoConsu
     setClinicalFieldValue,
     setConsultaCampoAtivo,
     setConsultaEditorEtapa,
+    setConsultaVerTodosCampos,
     setField,
   } = props;
 
@@ -112,10 +115,17 @@ export default function AtendimentoConsultaEditorSection(props: AtendimentoConsu
                 </select>
               </div>
 
-              <div className="rounded-[20px] border border-slate-200 bg-white px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500">Cobertura do prontuario</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-900">{clinicalSummary.completeness}%</p>
-                <p className="mt-1 text-sm text-slate-600">do editor clinico preenchido</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-[20px] border border-slate-200 bg-white px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500">Pronto para concluir</p>
+                  <p className="mt-2 text-2xl font-semibold text-slate-900">{clinicalSummary.coberturaMinima.percentual}%</p>
+                  <p className="mt-1 text-xs text-slate-600">minimo exigido para concluir o atendimento</p>
+                </div>
+                <div className="rounded-[20px] border border-slate-200 bg-white px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500">Detalhamento</p>
+                  <p className="mt-2 text-2xl font-semibold text-slate-900">{clinicalSummary.completeness}%</p>
+                  <p className="mt-1 text-xs text-slate-600">do editor clinico preenchido</p>
+                </div>
               </div>
 
               {clinicalSummary.pending.length > 0 ? (
@@ -207,81 +217,131 @@ export default function AtendimentoConsultaEditorSection(props: AtendimentoConsu
         <div className="rounded-[22px] border border-slate-200 bg-slate-50 p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.25em] text-slate-500">Campos da etapa</p>
-              <p className="mt-1 text-sm text-slate-700">{consultaCampoAtivoConfig?.title || "Selecione um campo"}</p>
-              <p className="mt-1 text-xs text-slate-500">
-                Atalhos: Alt + Shift + esquerda/direita para navegar e Ctrl/Cmd + Enter para avancar. Campo com texto
-                = concluido automaticamente.
+              <p className="text-xs uppercase tracking-[0.25em] text-slate-500">
+                {consultaVerTodosCampos ? "Revisao consolidada" : "Campos da etapa"}
               </p>
+              <p className="mt-1 text-sm text-slate-700">
+                {consultaVerTodosCampos
+                  ? "Todos os 11 campos clinicos abertos para revisao antes de salvar ou concluir."
+                  : consultaCampoAtivoConfig?.title || "Selecione um campo"}
+              </p>
+              {!consultaVerTodosCampos ? (
+                <>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Atalhos: Alt + Shift + esquerda/direita para navegar e Ctrl/Cmd + Enter para avancar. Campo com texto
+                    = concluido automaticamente.
+                  </p>
+                  <p className="sr-only" aria-live="polite">
+                    {consultaCampoAtivoConfig ? `Campo ativo: ${consultaCampoAtivoConfig.title}` : ""}
+                  </p>
+                </>
+              ) : null}
             </div>
             <div className="flex items-center gap-2">
+              {!consultaVerTodosCampos ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={goToConsultaCampoAnterior}
+                    disabled={consultaCampoAtivoIndex <= 0}
+                    className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Campo anterior"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                    {Math.max(consultaCampoAtivoIndex + 1, 1)}/{Math.max(consultaEditorCamposVisiveis.length, 1)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={goToConsultaCampoProximo}
+                    disabled={consultaCampoAtivoIndex >= consultaEditorCamposVisiveis.length - 1}
+                    className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Proximo campo"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </>
+              ) : null}
               <button
                 type="button"
-                onClick={goToConsultaCampoAnterior}
-                disabled={consultaCampoAtivoIndex <= 0}
-                className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label="Campo anterior"
+                onClick={() => setConsultaVerTodosCampos(!consultaVerTodosCampos)}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
               >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600">
-                {Math.max(consultaCampoAtivoIndex + 1, 1)}/{Math.max(consultaEditorCamposVisiveis.length, 1)}
-              </span>
-              <button
-                type="button"
-                onClick={goToConsultaCampoProximo}
-                disabled={consultaCampoAtivoIndex >= consultaEditorCamposVisiveis.length - 1}
-                className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label="Proximo campo"
-              >
-                <ChevronRight className="h-4 w-4" />
+                <ListChecks className="h-3.5 w-3.5" />
+                {consultaVerTodosCampos ? "Ver um por vez" : "Ver todos os campos"}
               </button>
             </div>
           </div>
 
-          <div className="mt-3 flex flex-wrap gap-2">
-            {consultaEditorCamposVisiveis.map((config: any) => {
-              const value = getClinicalFieldValue(config.key);
-              const linhas = value.trim() ? value.split("\n").length : 0;
-              const concluido = linhas > 0;
-              const ativo = consultaCampoAtivoConfig?.key === config.key;
-              return (
-                <button
-                  key={config.key}
-                  type="button"
-                  onClick={() => setConsultaCampoAtivo(config.key)}
-                  className={`rounded-xl border px-3 py-2 text-left transition ${
-                    ativo
-                      ? concluido
-                        ? "border-emerald-300 bg-emerald-50 text-emerald-900"
-                        : "border-teal-300 bg-teal-50 text-teal-900"
-                      : concluido
-                        ? "border-emerald-200 bg-emerald-50/70 text-emerald-800 hover:bg-emerald-100/70"
-                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
-                  }`}
-                >
-                  <span className="flex items-center gap-2 text-sm font-medium">
-                    {concluido ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : null}
-                    {config.title}
-                  </span>
-                  <span
-                    className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                      concluido
-                        ? "bg-emerald-200 text-emerald-800"
-                        : ativo
-                          ? "bg-teal-200 text-teal-800"
-                          : "bg-slate-200 text-slate-600"
+          {!consultaVerTodosCampos ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {consultaEditorCamposVisiveis.map((config: any) => {
+                const value = getClinicalFieldValue(config.key);
+                const linhas = value.trim() ? value.split("\n").length : 0;
+                const concluido = linhas > 0;
+                const ativo = consultaCampoAtivoConfig?.key === config.key;
+                return (
+                  <button
+                    key={config.key}
+                    type="button"
+                    onClick={() => setConsultaCampoAtivo(config.key)}
+                    className={`rounded-xl border px-3 py-2 text-left transition ${
+                      ativo
+                        ? concluido
+                          ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                          : "border-teal-300 bg-teal-50 text-teal-900"
+                        : concluido
+                          ? "border-emerald-200 bg-emerald-50/70 text-emerald-800 hover:bg-emerald-100/70"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
                     }`}
                   >
-                    {concluido ? `Concluido · ${linhas} linha(s)` : "Em aberto"}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                    <span className="flex items-center gap-2 text-sm font-medium">
+                      {concluido ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : null}
+                      {config.title}
+                    </span>
+                    <span
+                      className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                        concluido
+                          ? "bg-emerald-200 text-emerald-800"
+                          : ativo
+                            ? "bg-teal-200 text-teal-800"
+                            : "bg-slate-200 text-slate-600"
+                      }`}
+                    >
+                      {concluido ? `Concluido · ${linhas} linha(s)` : "Em aberto"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
 
-        {consultaCampoAtivoConfig ? (
+        {consultaVerTodosCampos ? (
+          <div className="space-y-5">
+            {consultaEditorGruposConsolidados.map((grupo: any) => (
+              <div key={grupo.key} className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">{grupo.titulo}</p>
+                <div className="space-y-4">
+                  {grupo.configs.map((config: any) => (
+                    <ClinicalFieldCard
+                      key={config.key}
+                      config={config}
+                      value={getClinicalFieldValue(config.key)}
+                      onChange={(value) => setClinicalFieldValue(config.key, value)}
+                      onInsertPhrase={(text) => injectClinicalSnippet(config.key, text)}
+                      onInsertScaffold={(text) => injectClinicalSnippet(config.key, text)}
+                      onClear={() => setClinicalFieldValue(config.key, "")}
+                      textareaRef={registerClinicalTextarea(config.key)}
+                      className="w-full"
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : consultaCampoAtivoConfig ? (
           <ClinicalFieldCard
             key={consultaCampoAtivoConfig.key}
             config={consultaCampoAtivoConfig}

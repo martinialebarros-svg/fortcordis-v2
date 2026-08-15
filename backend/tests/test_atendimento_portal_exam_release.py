@@ -146,3 +146,43 @@ class AtendimentoPortalExamReleaseTest(unittest.TestCase):
             db.close()
             engine.dispose()
             tmpdir.cleanup()
+
+    def test_liberar_exame_com_conteudo_falso_e_bloqueado(self) -> None:
+        # mime_type/nome informam "application/pdf" e o arquivo existe de
+        # fato (passa por attachment_has_download_source), mas o CONTEUDO
+        # real nao comeca com os bytes magicos de PDF (ex.: .txt renomeado).
+        tmpdir, db, engine = self._build_session()
+        try:
+            atendimento_item, exame = self._seed_exam(db, tipo_exame="Eletrocardiograma", pdf=False)
+            caminho_falso = Path(tmpdir.name) / "falso.pdf"
+            caminho_falso.write_bytes(b"isto nao e um pdf de verdade")
+            db.add(
+                AnexoAtendimento(
+                    atendimento_id=atendimento_item.id,
+                    exame_id=exame.id,
+                    tipo="resultado_exame",
+                    descricao="PDF do resultado",
+                    url="/api/v1/atendimentos/anexos/1/arquivo",
+                    nome_original="falso.pdf",
+                    tamanho=1024,
+                    mime_type="application/pdf",
+                    caminho_arquivo=str(caminho_falso),
+                    origem="upload",
+                )
+            )
+            db.commit()
+
+            with self.assertRaises(HTTPException) as ctx:
+                atendimento.liberar_exame_no_portal(
+                    exame_id=exame.id,
+                    db=db,
+                    current_user=SimpleNamespace(id=99, nome="Dr Teste"),
+                )
+
+            self.assertEqual(ctx.exception.status_code, 422)
+            db.refresh(exame)
+            self.assertNotEqual(exame.status, PORTAL_RELEASED_STATUS)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()

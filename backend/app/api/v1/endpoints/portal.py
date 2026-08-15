@@ -6,9 +6,11 @@ import logging
 import re
 import secrets
 from datetime import date, datetime, timedelta, timezone
+from io import BytesIO
 from typing import Any, Iterable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -27,18 +29,33 @@ from app.core.portal_release import (
     PORTAL_RELEASED_LAUDO_STATUSES,
     is_portal_released_status,
 )
+from app.api.v1.endpoints.agenda import _adquirir_lock_escrita_agenda
+from app.api.v1.endpoints.ordens_servico import (
+    _carregar_dados_emissor_recibo_empresa,
+    _gerar_pdf_recibos_ordens,
+    _montar_recibos_os,
+)
 from app.db.database import get_db
+from app.models.agendamento import Agendamento
 from app.models.atendimento_clinico import AnexoAtendimento, AtendimentoClinico
 from app.models.clinica import Clinica
 from app.models.laudo import Exame, Laudo
+from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.portal_access import PortalAccessChallenge
 from app.models.portal_partner import PortalPartnerProfile, PortalPartnerReleaseTarget
+from app.models.servico import Servico
 from app.models.tutor import Tutor
 from app.schemas.portal import (
     PortalChallengeResponse,
     PortalClinicOperationalItemResponse,
     PortalClinicOperationalSummaryResponse,
+    PortalClinicaAgendamentoCancelResponse,
+    PortalClinicaAgendamentoItemResponse,
+    PortalClinicaAgendamentoListResponse,
+    PortalClinicaFinanceiroResponse,
+    PortalClinicaFinanceiroSummaryResponse,
+    PortalClinicaOrdemServicoItemResponse,
     PortalClinicaSessionLinkRequest,
     PortalCodeVerifyRequest,
     PortalDownloadLinkItemResponse,
@@ -49,6 +66,7 @@ from app.schemas.portal import (
     PortalTokenResponse,
     PortalTutorSessionLinkRequest,
 )
+from app.services.alerta_interno_service import criar_alerta_interno
 from app.services.attachment_download_service import (
     attachment_has_download_source,
     build_attachment_download_response,
@@ -1255,6 +1273,270 @@ def listar_exames_clinica_portal(
         operational_items=operational_items,
         operational_pending_items=operational_pending_items,
         items=items,
+    )
+
+
+AGENDA_PORTAL_STATUSES_VISIVEIS = ("Agendado", "Reservado", "Confirmado", "Em atendimento")
+AGENDA_PORTAL_STATUSES_CANCELAVEIS = ("Agendado", "Reservado", "Confirmado")
+
+
+def _exigir_sessao_clinica_portal(db: Session, portal_session: PortalSessionContext) -> Clinica:
+    if portal_session.actor_type != "clinica" or portal_session.clinica_id is None:
+        raise HTTPException(status_code=403, detail="Sessao do portal sem acesso para clinica.")
+    clinica = _obter_clinica_ativa(db, portal_session.clinica_id)
+    if not clinica:
+        raise HTTPException(status_code=403, detail="Clinica sem acesso ativo ao portal.")
+    return clinica
+
+
+def _build_portal_agendamento_item(agendamento: Agendamento) -> PortalClinicaAgendamentoItemResponse:
+    status_atual = str(agendamento.status or "")
+    return PortalClinicaAgendamentoItemResponse(
+        id=agendamento.id,
+        data=agendamento.data,
+        hora=agendamento.hora,
+        inicio=agendamento.inicio,
+        fim=agendamento.fim,
+        status=status_atual,
+        paciente_nome=agendamento.paciente,
+        tutor_nome=agendamento.tutor,
+        servico_nome=agendamento.servico,
+        pode_cancelar=status_atual in AGENDA_PORTAL_STATUSES_CANCELAVEIS,
+    )
+
+
+@router.get("/clinicas/agendamentos", response_model=PortalClinicaAgendamentoListResponse)
+def listar_agendamentos_clinica_portal(
+    db: Session = Depends(get_db),
+    portal_session: PortalSessionContext = Depends(get_current_portal_session),
+):
+    clinica = _exigir_sessao_clinica_portal(db, portal_session)
+
+    agendamentos = (
+        db.query(Agendamento)
+        .filter(Agendamento.clinica_id == clinica.id)
+        .filter(Agendamento.status.in_(AGENDA_PORTAL_STATUSES_VISIVEIS))
+        .order_by(Agendamento.inicio.asc())
+        .limit(200)
+        .all()
+    )
+
+    return PortalClinicaAgendamentoListResponse(
+        total=len(agendamentos),
+        clinica_id=clinica.id,
+        clinica_nome=clinica.nome,
+        items=[_build_portal_agendamento_item(agendamento) for agendamento in agendamentos],
+    )
+
+
+@router.patch(
+    "/clinicas/agendamentos/{agendamento_id}/cancelar",
+    response_model=PortalClinicaAgendamentoCancelResponse,
+)
+def cancelar_agendamento_clinica_portal(
+    agendamento_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    portal_session: PortalSessionContext = Depends(get_current_portal_session),
+):
+    clinica = _exigir_sessao_clinica_portal(db, portal_session)
+    _adquirir_lock_escrita_agenda(db)
+
+    agendamento = (
+        db.query(Agendamento)
+        .filter(Agendamento.id == agendamento_id, Agendamento.clinica_id == clinica.id)
+        .first()
+    )
+    if not agendamento:
+        raise HTTPException(status_code=404, detail="Agendamento nao encontrado.")
+
+    status_atual = str(agendamento.status or "")
+    if status_atual not in AGENDA_PORTAL_STATUSES_CANCELAVEIS:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Este agendamento nao pode ser cancelado pelo portal no status atual "
+                f"({status_atual or 'desconhecido'}). Entre em contato com a Fort Cordis."
+            ),
+        )
+
+    nota_portal = (
+        f"[Portal] Cancelado pela clinica parceira ({clinica.nome}) em "
+        f"{_utcnow().strftime('%d/%m/%Y %H:%M')} UTC."
+    )
+    observacoes_atuais = str(agendamento.observacoes or "").strip()
+    agendamento.observacoes = "\n".join(filter(None, [observacoes_atuais, nota_portal]))
+    agendamento.status = "Cancelado"
+
+    detalhes_agendamento = " | ".join(
+        filter(
+            None,
+            [
+                f"Data: {agendamento.data} {agendamento.hora}".strip() if agendamento.data else None,
+                f"Paciente: {agendamento.paciente}" if agendamento.paciente else None,
+                f"Servico: {agendamento.servico}" if agendamento.servico else None,
+            ],
+        )
+    )
+    criar_alerta_interno(
+        db,
+        tipo="agendamento_cancelado_portal",
+        nivel="aviso",
+        titulo=f"Cancelamento pelo portal: {clinica.nome}",
+        mensagem=(
+            f"A clinica {clinica.nome} cancelou o agendamento #{agendamento.id} pelo portal."
+            + (f" {detalhes_agendamento}." if detalhes_agendamento else "")
+        ),
+        entidade_tipo="agendamento",
+        entidade_id=agendamento.id,
+        clinica_id=clinica.id,
+    )
+
+    # O alerta interno e criado na MESMA transacao do cancelamento (ver
+    # alerta_interno_service.criar_alerta_interno) para garantir que nunca exista um
+    # cancelamento "bem-sucedido" sem o aviso correspondente para a equipe.
+    db.commit()
+    db.refresh(agendamento)
+
+    registrar_auditoria(
+        current_user=None,
+        modulo="portal_clinica",
+        entidade="Agendamento",
+        acao="cancelar",
+        descricao=f"Agendamento #{agendamento.id} cancelado pela clinica parceira via portal.",
+        entidade_id=agendamento.id,
+        detalhes={
+            "clinica_id": clinica.id,
+            "clinica_nome": clinica.nome,
+            "status_anterior": status_atual,
+            "portal_actor_id": portal_session.actor_id,
+        },
+        request=request,
+    )
+
+    return PortalClinicaAgendamentoCancelResponse(
+        item=_build_portal_agendamento_item(agendamento),
+        message="Agendamento cancelado com sucesso.",
+    )
+
+
+FINANCEIRO_PORTAL_PENDENTES_LIMIT = 200
+FINANCEIRO_PORTAL_PAGAS_LIMIT = 50
+
+
+def _build_portal_os_item(
+    ordem: OrdemServico,
+    paciente_nome: str | None,
+    servico_nome: str | None,
+) -> PortalClinicaOrdemServicoItemResponse:
+    return PortalClinicaOrdemServicoItemResponse(
+        id=ordem.id,
+        numero_os=ordem.numero_os,
+        status=str(ordem.status or ""),
+        valor=float(ordem.valor_final or 0),
+        data_atendimento=ordem.data_atendimento,
+        paciente_nome=paciente_nome,
+        servico_nome=servico_nome,
+    )
+
+
+@router.get("/clinicas/financeiro", response_model=PortalClinicaFinanceiroResponse)
+def obter_financeiro_clinica_portal(
+    db: Session = Depends(get_db),
+    portal_session: PortalSessionContext = Depends(get_current_portal_session),
+):
+    clinica = _exigir_sessao_clinica_portal(db, portal_session)
+
+    base_query = (
+        db.query(OrdemServico, Paciente.nome, Servico.nome)
+        .outerjoin(Paciente, Paciente.id == OrdemServico.paciente_id)
+        .outerjoin(Servico, Servico.id == OrdemServico.servico_id)
+        .filter(OrdemServico.clinica_id == clinica.id)
+    )
+
+    pendentes_rows = (
+        base_query.filter(OrdemServico.status == "Pendente")
+        .order_by(OrdemServico.id.desc())
+        .limit(FINANCEIRO_PORTAL_PENDENTES_LIMIT)
+        .all()
+    )
+    pagas_rows = (
+        base_query.filter(OrdemServico.status == "Pago")
+        .order_by(OrdemServico.id.desc())
+        .limit(FINANCEIRO_PORTAL_PAGAS_LIMIT)
+        .all()
+    )
+
+    def _agregados(status_os: str) -> tuple[float, int]:
+        total, quantidade = (
+            db.query(
+                func.coalesce(func.sum(OrdemServico.valor_final), 0),
+                func.count(OrdemServico.id),
+            )
+            .filter(OrdemServico.clinica_id == clinica.id, OrdemServico.status == status_os)
+            .one()
+        )
+        return float(total or 0), int(quantidade or 0)
+
+    total_pendente, quantidade_pendente = _agregados("Pendente")
+    total_pago, quantidade_pago = _agregados("Pago")
+
+    return PortalClinicaFinanceiroResponse(
+        clinica_id=clinica.id,
+        clinica_nome=clinica.nome,
+        summary=PortalClinicaFinanceiroSummaryResponse(
+            total_pendente=total_pendente,
+            total_pago=total_pago,
+            quantidade_pendente=quantidade_pendente,
+            quantidade_pago=quantidade_pago,
+        ),
+        pendentes=[_build_portal_os_item(o, nome_p, nome_s) for o, nome_p, nome_s in pendentes_rows],
+        pagas=[_build_portal_os_item(o, nome_p, nome_s) for o, nome_p, nome_s in pagas_rows],
+    )
+
+
+@router.get("/clinicas/ordens-servico/{ordem_servico_id}/recibo")
+def baixar_recibo_os_clinica_portal(
+    ordem_servico_id: int,
+    db: Session = Depends(get_db),
+    portal_session: PortalSessionContext = Depends(get_current_portal_session),
+):
+    clinica = _exigir_sessao_clinica_portal(db, portal_session)
+
+    ordem_existe = (
+        db.query(OrdemServico.id)
+        .filter(
+            OrdemServico.id == ordem_servico_id,
+            OrdemServico.clinica_id == clinica.id,
+            OrdemServico.status == "Pago",
+        )
+        .first()
+    )
+    if not ordem_existe:
+        raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada.")
+
+    recibos = _montar_recibos_os(db, [ordem_servico_id])
+    if not recibos:
+        raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada.")
+
+    dados_empresa = _carregar_dados_emissor_recibo_empresa(db)
+    pdf_bytes = _gerar_pdf_recibos_ordens(
+        recibos=recibos,
+        nome_empresa=dados_empresa["nome_empresa"],
+        contato_empresa=dados_empresa["contato_empresa"],
+        texto_rodape=dados_empresa["texto_rodape"],
+        agrupar=False,
+        nome_emitente=dados_empresa["nome_empresa"],
+        crmv_emitente="",
+        assinatura_emitente_dados=dados_empresa["assinatura_emitente"],
+        logomarca_dados=dados_empresa["logomarca"],
+    )
+
+    filename = f"recibo_os_{recibos[0]['numero_os']}.pdf"
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

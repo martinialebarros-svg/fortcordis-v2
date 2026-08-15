@@ -29,6 +29,8 @@ const MAPEAMENTO_PARAMETROS: Record<string, { campo: string; nome: string; categ
   VSF: { campo: "esv", nome: "VSF (Volume sistólico final)", categoria: "funcao" },
   FE_Teicholz: { campo: "ef", nome: "FE (Fração de ejeção - Teicholz)", categoria: "funcao" },
   DeltaD_FS: { campo: "fs", nome: "Delta D / %FS (Encurtamento)", categoria: "funcao" },
+  FE_Teicholz_2D: { campo: "ef", nome: "FE 2D (Fração de ejeção - Teicholz)", categoria: "funcao" },
+  DeltaD_FS_2D: { campo: "fs", nome: "Delta D / %FS 2D (Encurtamento)", categoria: "funcao" },
   TAPSE: { campo: "tapse", nome: "TAPSE", categoria: "funcao" },
   MAPSE: { campo: "mapse", nome: "MAPSE", categoria: "funcao" },
   
@@ -86,6 +88,78 @@ function normalizarEspecie(especie: string): string {
   return especie || "Canina";
 }
 
+export function compararMedidasComReferencia(
+  medidas: Record<string, string>,
+  referencia: ReferenciaEco
+): Record<string, ComparacaoMedida> {
+  const comparacoes: Record<string, ComparacaoMedida> = {};
+
+  Object.entries(medidas).forEach(([key, valor]) => {
+    if (!valor || valor.trim() === "") return;
+
+    const mapeamento = MAPEAMENTO_PARAMETROS[key];
+    if (!mapeamento) return;
+
+    const valorNumerico = parseFloat(valor.replace(",", "."));
+    if (isNaN(valorNumerico)) return;
+
+    const minKey = `${mapeamento.campo}_min` as keyof ReferenciaEco;
+    const maxKey = `${mapeamento.campo}_max` as keyof ReferenciaEco;
+
+    const refMinRaw = referencia[minKey] as number | null | undefined;
+    const refMaxRaw = referencia[maxKey] as number | null | undefined;
+    let refMin = typeof refMinRaw === "number" ? refMinRaw : null;
+    let refMax = typeof refMaxRaw === "number" ? refMaxRaw : null;
+    if (key === "e_doppler" || key === "a_doppler") {
+      refMin = refMin === null ? null : refMin / 100;
+      refMax = refMax === null ? null : refMax / 100;
+    }
+
+    if (
+      refMin === null ||
+      refMax === null ||
+      (refMin === 0 && refMax === 0)
+    ) {
+      comparacoes[key] = {
+        nome: mapeamento.nome,
+        valor_medido: valor,
+        referencia_min: refMin,
+        referencia_max: refMax,
+        status: "nao_avaliado",
+        interpretacao: "Sem referencia definida",
+        categoria: mapeamento.categoria,
+      };
+      return;
+    }
+
+    let status: ComparacaoMedida["status"];
+    let interpretacao: string;
+
+    if (valorNumerico < refMin) {
+      status = "diminuido";
+      interpretacao = `Abaixo do esperado (< ${refMin})`;
+    } else if (valorNumerico > refMax) {
+      status = "aumentado";
+      interpretacao = `Acima do esperado (> ${refMax})`;
+    } else {
+      status = "normal";
+      interpretacao = "Dentro da faixa normal";
+    }
+
+    comparacoes[key] = {
+      nome: mapeamento.nome,
+      valor_medido: valor,
+      referencia_min: refMin,
+      referencia_max: refMax,
+      status,
+      interpretacao,
+      categoria: mapeamento.categoria,
+    };
+  });
+
+  return comparacoes;
+}
+
 export function useReferenciaEco() {
   const [loading, setLoading] = useState(false);
 
@@ -129,77 +203,7 @@ export function useReferenciaEco() {
     }
   }, []);
 
-  const compararMedidas = useCallback((
-    medidas: Record<string, string>,
-    referencia: ReferenciaEco
-  ): Record<string, ComparacaoMedida> => {
-    const comparacoes: Record<string, ComparacaoMedida> = {};
-
-    Object.entries(medidas).forEach(([key, valor]) => {
-      if (!valor || valor.trim() === "") return;
-
-      const mapeamento = MAPEAMENTO_PARAMETROS[key];
-      if (!mapeamento) return;
-
-      const valorNumerico = parseFloat(valor.replace(",", "."));
-      if (isNaN(valorNumerico)) return;
-
-      const minKey = `${mapeamento.campo}_min` as keyof ReferenciaEco;
-      const maxKey = `${mapeamento.campo}_max` as keyof ReferenciaEco;
-
-      const refMinRaw = referencia[minKey] as number | null | undefined;
-      const refMaxRaw = referencia[maxKey] as number | null | undefined;
-      let refMin = typeof refMinRaw === "number" ? refMinRaw : null;
-      let refMax = typeof refMaxRaw === "number" ? refMaxRaw : null;
-      if (key === "e_doppler" || key === "a_doppler") {
-        refMin = refMin === null ? null : refMin / 100;
-        refMax = refMax === null ? null : refMax / 100;
-      }
-
-      if (
-        refMin === null ||
-        refMax === null ||
-        (refMin === 0 && refMax === 0)
-      ) {
-        comparacoes[key] = {
-          nome: mapeamento.nome,
-          valor_medido: valor,
-          referencia_min: refMin,
-          referencia_max: refMax,
-          status: "nao_avaliado",
-          interpretacao: "Sem referencia definida",
-          categoria: mapeamento.categoria,
-        };
-        return;
-      }
-
-      let status: ComparacaoMedida["status"];
-      let interpretacao: string;
-
-      if (valorNumerico < refMin) {
-        status = "diminuido";
-        interpretacao = `Abaixo do esperado (< ${refMin})`;
-      } else if (valorNumerico > refMax) {
-        status = "aumentado";
-        interpretacao = `Acima do esperado (> ${refMax})`;
-      } else {
-        status = "normal";
-        interpretacao = "Dentro da faixa normal";
-      }
-
-      comparacoes[key] = {
-        nome: mapeamento.nome,
-        valor_medido: valor,
-        referencia_min: refMin,
-        referencia_max: refMax,
-        status,
-        interpretacao,
-        categoria: mapeamento.categoria,
-      };
-    });
-
-    return comparacoes;
-  }, []);
+  const compararMedidas = useCallback(compararMedidasComReferencia, []);
 
   return {
     buscarReferencia,
@@ -293,6 +297,8 @@ export const mapeamentoParametros: Record<string, string> = {
   "VSF": "esv",
   "FE_Teicholz": "ef",
   "DeltaD_FS": "fs",
+  "FE_Teicholz_2D": "ef",
+  "DeltaD_FS_2D": "fs",
   "Aorta": "ao",
   "Atrio_esquerdo": "la",
   "AE_Ao": "la_ao",

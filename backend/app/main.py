@@ -13,6 +13,7 @@ from app.api.v1.endpoints import (
     admin,
     agenda,
     ai_echo,
+    alertas_internos,
     assistente_ia,
     atendimento,
     auth,
@@ -37,6 +38,7 @@ from app.api.v1.endpoints import (
     servicos,
     tabelas_preco,
     tutores,
+    whatsapp_agenda,
     xml_import,
 )
 from app.core.runtime_checks import build_runtime_report, validate_startup_or_raise
@@ -398,6 +400,7 @@ async def monitor_runtime_http_status(request: Request, call_next):
 # Rotas REST
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+app.include_router(alertas_internos.router, prefix="/api/v1/alertas-internos", tags=["alertas_internos"])
 app.include_router(
     assistente_ia.router,
     prefix="/api/v1/assistente-ia",
@@ -409,6 +412,7 @@ app.include_router(
     tags=["ai_echo"],
 )
 app.include_router(agenda.router, prefix="/api/v1/agenda", tags=["agenda"])
+app.include_router(whatsapp_agenda.router, prefix="/api/v1", tags=["whatsapp_agenda"])
 app.include_router(pacientes.router, prefix="/api/v1/pacientes", tags=["pacientes"])
 app.include_router(clinicas.router, prefix="/api/v1/clinicas", tags=["clinicas"])
 app.include_router(servicos.router, prefix="/api/v1/servicos", tags=["servicos"])

@@ -4,6 +4,19 @@
 
 Primeira entrega vertical publicada em stage; perfis GE LOGIQ e e GE Vivid IQ calibrados com estudos mantidos fora do repositorio.
 
+## Correcao de referencias do VE em Modo 2D
+
+- A comparacao de `FE_Teicholz_2D` usa `ef_min`/`ef_max`, e a de
+  `DeltaD_FS_2D` usa `fs_min`/`fs_max`, os mesmos intervalos clinicos do Modo M.
+- A aba Referencias completa somente a visualizacao com FE e Delta D/FS quando
+  esses campos nao vierem do equipamento, calculando-os a partir de VDF/VSF e
+  DIVEd/DIVES da mesma tecnica. O calculo nao altera o formulario nem o payload
+  do laudo, e valores fornecidos pelo equipamento tem precedencia.
+- `./node_modules/.bin/vitest run app/laudos/hooks/useReferenciaEco.test.ts`: a regressao
+  cobre os dois campos calculados com FE 2D = 43% e Delta D/FS 2D = 21%,
+  classificando-os abaixo dos intervalos 55-80% e 28-42%, respectivamente, e
+  confirma que valores fornecidos pelo equipamento nao sao substituidos.
+
 ## Evidencias automatizadas
 
 - `venv/bin/python -m unittest tests.test_eco_study_extraction_service tests.test_eco_study_import_jobs tests.test_eco_study_import_migration tests.test_image_header_import_service tests.test_xml_import_jobs tests.test_sdd_guardrail -v`: 36/36 testes passaram.
