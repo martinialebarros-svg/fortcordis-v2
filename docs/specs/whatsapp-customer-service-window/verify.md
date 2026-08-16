@@ -2,7 +2,7 @@
 
 Data: 2026-08-16
 Responsavel: Martiniano + Codex
-Status: local-passed
+Status: stage-passed
 
 ## Matriz
 
@@ -14,6 +14,18 @@ Status: local-passed
 | CA-004 | controlador rejeita antes do insert ou da chamada Graph; compilacao estrita | passou |
 | CA-005 | webhook usa timestamp do provedor e migracao faz backfill apenas quando nulo | passou por inspecao e compilacao |
 | CA-006 | suites, lint, build e guardrail SDD | passou |
+
+## Evidencia de stage
+
+- Commit funcional: `49ec7349b7286beb07ede02deb58d907af34d6b9`.
+- Snapshot instalado: `ba8d4062605d679c1dee2d59b673c8c537254ccc`, descendente do commit funcional.
+- Migration CI: run `31929596690`, concluido com sucesso.
+- Deploy to Stage: run `31929596728`, concluido com sucesso; quality gate, guardrail SDD, migracao WhatsApp, smoke e canario autenticado passaram.
+- `GET https://stage.fortcordis.com.br/`: HTTP 200.
+- `GET https://app.stage.fortcordis.com.br/whatsapp-stage`: HTTP 200.
+- `GET https://stage.fortcordis.com.br/whatsapp/health`: HTTP 200 com `status: ok`.
+- Rotas de conversas sem autenticacao: HTTP 401 em leitura e envio.
+- Bundle servido contem `CUSTOMER_SERVICE_WINDOW_CLOSED`, o prazo para responder, o estado de janela encerrada e o estado sem mensagem recebida.
 
 ## Comandos executados
 
@@ -44,4 +56,4 @@ git diff --check
 - Backend WhatsApp compilou e todas as suites do quality gate passaram; auditoria encontrou 0 vulnerabilidades de producao.
 - TypeScript, lint e build otimizado do frontend passaram; 43 paginas foram geradas.
 - O guardrail SDD reconheceu `whatsapp-customer-service-window` como feature qualificada.
-- Publicacao em stage e producao nao executada neste ciclo.
+- Publicacao e homologacao em stage concluidas; producao nao foi alterada neste ciclo.

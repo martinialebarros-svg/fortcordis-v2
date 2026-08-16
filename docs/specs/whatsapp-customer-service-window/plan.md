@@ -8,4 +8,4 @@ Data: 2026-08-16
 - [x] P4. Bloquear texto livre fora da janela no backend.
 - [x] P5. Exibir o prazo e bloquear o compositor no frontend.
 - [x] P6. Executar testes focados, compilacao, lint, build e guardrail SDD.
-- [ ] P7. Publicar e homologar em stage mediante autorizacao.
+- [x] P7. Publicar e homologar em stage mediante autorizacao.
