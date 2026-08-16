@@ -798,6 +798,39 @@ def _texto_pdf_html(value: Any, fallback: str = "-") -> str:
     return _pdf_escape(texto).replace("\r\n", "\n").replace("\n", "<br/>")
 
 
+_DOCUMENTO_PDF_NEGRITO_RE = re.compile(r"\*\*(.+?)\*\*")
+_DOCUMENTO_PDF_ITALICO_RE = re.compile(r"\*(.+?)\*")
+
+
+def _renderizar_linha_documento_pdf(linha: str) -> str:
+    """Aplica a marcacao markdown-lite (**negrito**, *italico*, "- item") de
+    um bloco de corpo de documento clinico, escapando o texto ANTES de
+    inserir qualquer tag real do ReportLab (o `**`/`*`/`-` do usuario nao sao
+    caracteres XML-especiais, entao a ordem escape-depois-marca e segura)."""
+    escapada = _pdf_escape(linha)
+    formatada = _DOCUMENTO_PDF_NEGRITO_RE.sub(r"<b>\1</b>", escapada)
+    formatada = _DOCUMENTO_PDF_ITALICO_RE.sub(r"<i>\1</i>", formatada)
+    sem_espacos_iniciais = formatada.lstrip()
+    if sem_espacos_iniciais.startswith("- "):
+        indentacao = formatada[: len(formatada) - len(sem_espacos_iniciais)]
+        formatada = f"{indentacao}• {sem_espacos_iniciais[2:]}"
+    return formatada
+
+
+def _texto_pdf_html_documento(value: Any, fallback: str = "-") -> str:
+    """Igual a `_texto_pdf_html`, mas so para o corpo de documentos/templates
+    clinicos: tambem converte **negrito**, *italico* e linhas "- item" para
+    as tags equivalentes do ReportLab. Uso restrito a esse contexto para nao
+    mudar o comportamento dos outros ~7 lugares que chamam `_texto_pdf_html`
+    (orientacoes de prescricao, contexto clinico, etc.) - la, um asterisco
+    digitado a toa nao deveria virar negrito de surpresa."""
+    texto = str(value or "").strip()
+    if not texto:
+        return fallback
+    linhas = texto.replace("\r\n", "\n").split("\n")
+    return "<br/>".join(_renderizar_linha_documento_pdf(linha) for linha in linhas)
+
+
 def _formatar_moeda_brl(value: Any) -> str:
     if value in (None, ""):
         return "-"
@@ -968,7 +1001,7 @@ def _gerar_pdf_documento_atendimento_bytes(
         if not blocos:
             blocos = ["Sem conteudo registrado."]
         for bloco in blocos:
-            story.append(Paragraph(_texto_pdf_html(bloco, ""), corpo_style))
+            story.append(Paragraph(_texto_pdf_html_documento(bloco, ""), corpo_style))
             story.append(Spacer(1, 4 * mm))
 
         if nome_veterinario:
@@ -1587,6 +1620,7 @@ def _map_exame(exame: Exame) -> dict:
         "laudo_id": exame.laudo_id,
         "data_solicitacao": _to_iso(exame.data_solicitacao),
         "data_resultado": _to_operational_iso(exame.data_resultado),
+        "visualizado_portal_em": _to_iso(exame.visualizado_portal_em),
     }
 
 
@@ -4382,6 +4416,7 @@ def liberar_exame_no_portal(
     exame.data_resultado = released_at
     exame.observacoes_pre_portal = exame.observacoes or ""
     exame.observacoes = PORTAL_EXAME_RELEASE_MESSAGE
+    exame.visualizado_portal_em = None
     if not exame.criado_por_id:
         exame.criado_por_id = getattr(current_user, "id", None)
     if not exame.criado_por_nome:
@@ -4447,6 +4482,7 @@ def revogar_liberacao_exame_no_portal(
     if (exame.observacoes or "").strip() == PORTAL_EXAME_RELEASE_MESSAGE:
         exame.observacoes = exame.observacoes_pre_portal or ""
     exame.observacoes_pre_portal = None
+    exame.visualizado_portal_em = None
 
     db.commit()
     db.refresh(exame)
@@ -5222,6 +5258,33 @@ def historico_paciente(
             }
             for a in atendimentos
             if a.peso is not None
+        ],
+        "temperaturas": [
+            {
+                "atendimento_id": a.id,
+                "data_atendimento": _to_operational_iso(a.data_atendimento),
+                "temperatura": a.temperatura,
+            }
+            for a in atendimentos
+            if a.temperatura is not None
+        ],
+        "frequencias_cardiacas": [
+            {
+                "atendimento_id": a.id,
+                "data_atendimento": _to_operational_iso(a.data_atendimento),
+                "frequencia_cardiaca": a.frequencia_cardiaca,
+            }
+            for a in atendimentos
+            if a.frequencia_cardiaca is not None
+        ],
+        "frequencias_respiratorias": [
+            {
+                "atendimento_id": a.id,
+                "data_atendimento": _to_operational_iso(a.data_atendimento),
+                "frequencia_respiratoria": a.frequencia_respiratoria,
+            }
+            for a in atendimentos
+            if a.frequencia_respiratoria is not None
         ],
         "timeline": _montar_timeline_paciente(db, paciente_id, limite=limite, atendimentos_paciente=atendimentos),
     }

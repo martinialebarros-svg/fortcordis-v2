@@ -57,6 +57,7 @@ import { buildPrescriptionSupport, suggestMedicationPresentation } from "@/lib/c
 import {
   AlertTriangle,
   ArrowRight,
+  ArrowUpRight,
   CheckCircle2,
   ChevronLeft,
   ChevronDown,
@@ -254,6 +255,24 @@ type PesoHistorico = {
   peso: number;
 };
 
+type TemperaturaHistorico = {
+  atendimento_id: number;
+  data_atendimento: string;
+  temperatura: number;
+};
+
+type FrequenciaCardiacaHistorico = {
+  atendimento_id: number;
+  data_atendimento: string;
+  frequencia_cardiaca: number;
+};
+
+type FrequenciaRespiratoriaHistorico = {
+  atendimento_id: number;
+  data_atendimento: string;
+  frequencia_respiratoria: number;
+};
+
 type PrescricaoHistorica = {
   id: number;
   orientacoes_gerais: string;
@@ -293,6 +312,9 @@ type HistoricoPaciente = {
   alertas: Alerta[];
   atendimentos: AtendimentoHistorico[];
   pesos?: PesoHistorico[];
+  temperaturas?: TemperaturaHistorico[];
+  frequencias_cardiacas?: FrequenciaCardiacaHistorico[];
+  frequencias_respiratorias?: FrequenciaRespiratoriaHistorico[];
   timeline: TimelineGrupo[];
 };
 
@@ -314,6 +336,7 @@ export type ExameSolicitacao = {
   laudo_id?: number | null;
   data_solicitacao?: string;
   data_resultado?: string;
+  visualizado_portal_em?: string | null;
   anexos_resultado?: Anexo[];
   /** Marcacao explicita de exclusao. Omitir um exame do payload nao apaga nada. */
   _destroy?: boolean;
@@ -1696,21 +1719,10 @@ export default function AtendimentoPage() {
       setAttachmentPdfZoom(110);
     }
 
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        if (attachmentPreview.objectUrl) {
-          window.URL.revokeObjectURL(attachmentPreview.objectUrl);
-        }
-        setAttachmentImageOffset({ x: 0, y: 0 });
-        setAttachmentImageDragging(false);
-        attachmentImagePanRef.current.pointerId = null;
-        setAttachmentPreview(null);
-      }
-    };
-
-    window.addEventListener("keydown", handleEscape);
+    // Fechar com Escape e feito pelo wrapper <Modal> (AttachmentPreviewModal);
+    // este cleanup so cuida de revogar o objectUrl quando o preview muda ou
+    // desmonta, independente de como o fechamento aconteceu.
     return () => {
-      window.removeEventListener("keydown", handleEscape);
       if (attachmentPreview.objectUrl) {
         window.URL.revokeObjectURL(attachmentPreview.objectUrl);
       }
@@ -2463,6 +2475,45 @@ export default function AtendimentoPage() {
       })
       .join(" ");
   }, [pesoSerie]);
+
+  const formatarDataCurtaVital = (iso: string) => {
+    const data = new Date(iso);
+    if (Number.isNaN(data.getTime())) return "";
+    return data.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  };
+
+  const ultimoRegistroVital = <T extends { atendimento_id: number; data_atendimento: string }>(
+    registros: T[] | undefined,
+    atendimentoAtualId: number
+  ): T | null => {
+    const anteriores = (registros || [])
+      .filter((item) => Number(item.atendimento_id) !== atendimentoAtualId && item.data_atendimento)
+      .sort((a, b) => new Date(b.data_atendimento).getTime() - new Date(a.data_atendimento).getTime());
+    return anteriores[0] || null;
+  };
+
+  const ultimaTemperaturaRegistro = useMemo(
+    () => ultimoRegistroVital(historicoPaciente?.temperaturas, Number(selecionado || 0)),
+    [historicoPaciente?.temperaturas, selecionado]
+  );
+  const ultimaFrequenciaCardiacaRegistro = useMemo(
+    () => ultimoRegistroVital(historicoPaciente?.frequencias_cardiacas, Number(selecionado || 0)),
+    [historicoPaciente?.frequencias_cardiacas, selecionado]
+  );
+  const ultimaFrequenciaRespiratoriaRegistro = useMemo(
+    () => ultimoRegistroVital(historicoPaciente?.frequencias_respiratorias, Number(selecionado || 0)),
+    [historicoPaciente?.frequencias_respiratorias, selecionado]
+  );
+
+  const ultimaTemperaturaLabel = ultimaTemperaturaRegistro
+    ? `Ultima: ${ultimaTemperaturaRegistro.temperatura}°C (${formatarDataCurtaVital(ultimaTemperaturaRegistro.data_atendimento)})`
+    : null;
+  const ultimaFrequenciaCardiacaLabel = ultimaFrequenciaCardiacaRegistro
+    ? `Ultima: ${ultimaFrequenciaCardiacaRegistro.frequencia_cardiaca} bpm (${formatarDataCurtaVital(ultimaFrequenciaCardiacaRegistro.data_atendimento)})`
+    : null;
+  const ultimaFrequenciaRespiratoriaLabel = ultimaFrequenciaRespiratoriaRegistro
+    ? `Ultima: ${ultimaFrequenciaRespiratoriaRegistro.frequencia_respiratoria} mpm (${formatarDataCurtaVital(ultimaFrequenciaRespiratoriaRegistro.data_atendimento)})`
+    : null;
 
   const pacienteDropdownAberto =
     mostrarPacientes &&
@@ -6670,6 +6721,7 @@ export default function AtendimentoPage() {
                     </span>
                   </button>
                 )}
+                <span aria-hidden="true" className="hidden h-8 w-px self-center bg-white/15 sm:block" />
                 <button
                   onClick={() =>
                     goLaudo({
@@ -6679,9 +6731,14 @@ export default function AtendimentoPage() {
                       agendamento_id: form.agendamento_id ? Number(form.agendamento_id) : null,
                     })
                   }
+                  title="Abre o modulo de Laudos em outra tela"
                   className="fc-care-button-laudo"
                 >
-                  <span className="inline-flex items-center gap-2"><FileText className="h-4 w-4" />Laudar</span>
+                  <span className="inline-flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    Laudar
+                    <ArrowUpRight className="h-3.5 w-3.5 opacity-70" />
+                  </span>
                 </button>
                 <button
                   onClick={() => void saveAtendimento()}
@@ -6992,7 +7049,18 @@ export default function AtendimentoPage() {
                       </div>
                     );
                   })}
-                  {atendimentosVisiveis.length === 0 ? <div className="rounded-[22px] border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">Nenhum atendimento encontrado.</div> : null}
+                  {atendimentosVisiveis.length === 0 ? (
+                    <div className="rounded-[22px] border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">
+                      <p>Nenhum atendimento encontrado para os filtros atuais.</p>
+                      <button
+                        type="button"
+                        onClick={() => void limparFiltrosLista()}
+                        className="mt-3 rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-200"
+                      >
+                        Limpar filtros
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <button
@@ -7220,6 +7288,9 @@ export default function AtendimentoPage() {
                     setField={setField}
                     setTriagemExpandida={setTriagemExpandida}
                     triagemExpandida={triagemExpandida}
+                    ultimaFrequenciaCardiacaLabel={ultimaFrequenciaCardiacaLabel}
+                    ultimaFrequenciaRespiratoriaLabel={ultimaFrequenciaRespiratoriaLabel}
+                    ultimaTemperaturaLabel={ultimaTemperaturaLabel}
                   />
                 ) : null}
 

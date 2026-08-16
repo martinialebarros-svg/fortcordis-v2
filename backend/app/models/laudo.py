@@ -82,6 +82,10 @@ class Exame(Base):
     # sobrescreve o campo com uma mensagem fixa) - usado para restaurar ao
     # revogar a liberacao.
     observacoes_pre_portal = Column(Text)
+    # Primeiro acesso da clinica parceira ao arquivo do exame liberado no
+    # portal (nulo = ainda nao visualizado). Zerado ao liberar/revogar de
+    # novo, para nao carregar uma visualizacao de um ciclo anterior.
+    visualizado_portal_em = Column(DateTime(timezone=True), nullable=True)
 
     # Auditoria
     created_at = Column(DateTime(timezone=True), default=func.now())

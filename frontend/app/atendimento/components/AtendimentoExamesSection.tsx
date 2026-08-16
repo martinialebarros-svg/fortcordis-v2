@@ -152,7 +152,7 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
         <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
           <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Solicitados</p>
           <p className="mt-1 text-lg font-semibold text-slate-900">{resumoExamesFluxo.solicitados}</p>
@@ -168,6 +168,10 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2">
           <p className="text-[11px] uppercase tracking-[0.2em] text-emerald-700">Interpretados</p>
           <p className="mt-1 text-lg font-semibold text-emerald-900">{resumoExamesFluxo.interpretado}</p>
+        </div>
+        <div className="rounded-2xl border border-violet-200 bg-violet-50 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-violet-700">No portal</p>
+          <p className="mt-1 text-lg font-semibold text-violet-900">{resumoExamesFluxo.liberado_portal}</p>
         </div>
       </div>
 
@@ -511,6 +515,24 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
                         </span>
                       </button>
                     ) : null}
+                    {exameLiberadoNoPortal ? (
+                      <span
+                        title={
+                          exame.visualizado_portal_em
+                            ? `Clinica parceira visualizou em ${formatDate(exame.visualizado_portal_em)}`
+                            : "A clinica parceira ainda nao abriu este exame."
+                        }
+                        className={`self-start rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                          exame.visualizado_portal_em
+                            ? "bg-emerald-100 text-emerald-700"
+                            : "bg-amber-100 text-amber-700"
+                        }`}
+                      >
+                        {exame.visualizado_portal_em
+                          ? `Visto em ${formatDate(exame.visualizado_portal_em)}`
+                          : "Ainda nao visto"}
+                      </span>
+                    ) : null}
                     <div className="ml-1 flex items-center self-start border-l border-slate-200 pl-3">
                       <button
                         type="button"
@@ -529,9 +551,40 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
                 </div>
 
                 {!exameExpandido ? (
-                  <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                    {exame.tipo_exame || "Exame sem nome"} · {anexosResultado.length} arquivo(s) ·{" "}
-                    {exame.resultado?.trim() ? "com interpretacao" : "sem interpretacao"}
+                  <div
+                    onDragEnter={(event) => {
+                      event.preventDefault();
+                      setExamDropActive((prev: AtendimentoExamesSectionProps) => ({ ...prev, [exameKey]: true }));
+                      setExamesExpandidos((prev: AtendimentoExamesSectionProps) => ({ ...prev, [exameKey]: true }));
+                    }}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                    }}
+                    onDragLeave={(event) => {
+                      event.preventDefault();
+                      if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+                      clearExamDropState(exameKey);
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      clearExamDropState(exameKey);
+                      setExamesExpandidos((prev: AtendimentoExamesSectionProps) => ({ ...prev, [exameKey]: true }));
+                      const files = Array.from(event.dataTransfer.files || []);
+                      if (files.length > 1) {
+                        void uploadArquivosResultadoExame(index, files);
+                      } else if (files[0]) {
+                        setExamUploadDraftFile(exameKey, files[0]);
+                      }
+                    }}
+                    className={`rounded-[18px] border px-3 py-2 text-xs transition ${
+                      dropAtivo ? "border-blue-300 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-600"
+                    }`}
+                  >
+                    {dropAtivo
+                      ? "Solte o arquivo aqui para anexar a este exame..."
+                      : `${exame.tipo_exame || "Exame sem nome"} · ${anexosResultado.length} arquivo(s) · ${
+                          exame.resultado?.trim() ? "com interpretacao" : "sem interpretacao"
+                        }`}
                   </div>
                 ) : null}
 
@@ -810,7 +863,25 @@ export default function AtendimentoExamesSection(props: AtendimentoExamesSection
         })()}
         {examesVisiveis.length === 0 ? (
           <div className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-            Nenhum exame encontrado para o filtro atual.
+            {exameFiltroRapido === "todos" ? (
+              <p>Nenhum exame solicitado ainda.</p>
+            ) : (
+              <>
+                <p>
+                  Nenhum exame encontrado para o filtro &quot;
+                  {EXAME_FILTRO_OPCOES.find((filtro: AtendimentoExamesSectionProps) => filtro.key === exameFiltroRapido)
+                    ?.label || exameFiltroRapido}
+                  &quot;.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setExameFiltroRapido("todos")}
+                  className="mt-3 rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-200"
+                >
+                  Ver todos os exames
+                </button>
+              </>
+            )}
           </div>
         ) : null}
       </div>

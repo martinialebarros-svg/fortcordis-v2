@@ -243,5 +243,59 @@ class AtendimentoDocumentosTest(unittest.TestCase):
             tmpdir.cleanup()
 
 
+class TextoPdfHtmlDocumentoTest(unittest.TestCase):
+    def test_converte_negrito(self) -> None:
+        self.assertEqual(
+            atendimento._texto_pdf_html_documento("Isto e **importante** aqui."),
+            "Isto e <b>importante</b> aqui.",
+        )
+
+    def test_converte_italico(self) -> None:
+        self.assertEqual(
+            atendimento._texto_pdf_html_documento("Isto e *sutil* aqui."),
+            "Isto e <i>sutil</i> aqui.",
+        )
+
+    def test_negrito_com_italico_aninhado(self) -> None:
+        self.assertEqual(
+            atendimento._texto_pdf_html_documento("**negrito com *italico* dentro**"),
+            "<b>negrito com <i>italico</i> dentro</b>",
+        )
+
+    def test_converte_linha_de_lista_preservando_indentacao(self) -> None:
+        # So a primeira e a ultima linha do bloco tem espacos externos
+        # removidos (strip do bloco inteiro); uma linha do meio preserva a
+        # propria indentacao.
+        self.assertEqual(
+            atendimento._texto_pdf_html_documento("Orientacoes:\n  - primeiro item\nFim."),
+            "Orientacoes:<br/>  • primeiro item<br/>Fim.",
+        )
+
+    def test_lista_multilinha_vira_bullets_separados_por_br(self) -> None:
+        resultado = atendimento._texto_pdf_html_documento("- um\n- dois\n- tres")
+        self.assertEqual(resultado, "• um<br/>• dois<br/>• tres")
+
+    def test_escapa_caracteres_xml_antes_de_aplicar_marcacao(self) -> None:
+        # "<script>" digitado pelo usuario nao pode virar uma tag real do
+        # ReportLab - precisa aparecer escapado no PDF final.
+        resultado = atendimento._texto_pdf_html_documento("**<script>alert(1)</script>**")
+        self.assertEqual(resultado, "<b>&lt;script&gt;alert(1)&lt;/script&gt;</b>")
+
+    def test_asterisco_avulso_nao_pareado_fica_literal(self) -> None:
+        self.assertEqual(
+            atendimento._texto_pdf_html_documento("5 * 3 = 15"),
+            "5 * 3 = 15",
+        )
+
+    def test_texto_vazio_usa_fallback(self) -> None:
+        self.assertEqual(atendimento._texto_pdf_html_documento("   ", fallback="-"), "-")
+
+    def test_quebras_de_linha_simples_viram_br(self) -> None:
+        self.assertEqual(
+            atendimento._texto_pdf_html_documento("linha um\nlinha dois"),
+            "linha um<br/>linha dois",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -147,6 +147,61 @@ class AtendimentoPortalExamReleaseTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
+    def test_liberar_exame_zera_visualizado_portal_em(self) -> None:
+        # Um valor preexistente (ex.: sobra de um ciclo anterior de
+        # liberar/revogar) nao pode vazar para a nova liberacao - senao o
+        # selo mostraria "visto" para uma clinica que ainda nao acessou o
+        # exame desta vez.
+        tmpdir, db, engine = self._build_session()
+        try:
+            _, exame = self._seed_exam(db, tmpdir, tipo_exame="ECG", pdf=True)
+            exame.visualizado_portal_em = datetime(2026, 7, 1, 8, 0)
+            db.commit()
+
+            with patch.object(atendimento, "_auditar_transicao_exame_portal"):
+                payload = atendimento.liberar_exame_no_portal(
+                    exame_id=exame.id,
+                    db=db,
+                    current_user=SimpleNamespace(id=99, nome="Dr Teste"),
+                )
+
+            self.assertIsNone(payload["exame"]["visualizado_portal_em"])
+            db.refresh(exame)
+            self.assertIsNone(exame.visualizado_portal_em)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_revogar_zera_visualizado_portal_em(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            _, exame = self._seed_exam(db, tmpdir, tipo_exame="ECG", pdf=True)
+            with patch.object(atendimento, "_auditar_transicao_exame_portal"):
+                atendimento.liberar_exame_no_portal(
+                    exame_id=exame.id,
+                    db=db,
+                    current_user=SimpleNamespace(id=99, nome="Dr Teste"),
+                )
+            db.refresh(exame)
+            exame.visualizado_portal_em = datetime(2026, 7, 2, 9, 0)
+            db.commit()
+
+            with patch.object(atendimento, "_auditar_transicao_exame_portal"):
+                payload = atendimento.revogar_liberacao_exame_no_portal(
+                    exame_id=exame.id,
+                    db=db,
+                    current_user=SimpleNamespace(id=99, nome="Dr Teste"),
+                )
+
+            self.assertIsNone(payload["exame"]["visualizado_portal_em"])
+            db.refresh(exame)
+            self.assertIsNone(exame.visualizado_portal_em)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
     def test_liberar_exame_com_conteudo_falso_e_bloqueado(self) -> None:
         # mime_type/nome informam "application/pdf" e o arquivo existe de
         # fato (passa por attachment_has_download_source), mas o CONTEUDO
