@@ -407,6 +407,7 @@ export default function FinanceiroPage() {
   const [enviandoCompartilhamentoRecibo, setEnviandoCompartilhamentoRecibo] = useState(false);
   const [previewRecibo, setPreviewRecibo] = useState<PreviewReciboState | null>(null);
   const [carregandoPreviewRecibo, setCarregandoPreviewRecibo] = useState(false);
+  const [enviandoWhatsAppOficialOsId, setEnviandoWhatsAppOficialOsId] = useState<number | null>(null);
   const highlightedRowRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
 
@@ -1716,7 +1717,32 @@ export default function FinanceiroPage() {
     });
   };
 
-  const enviarCobrancaWhatsApp = (grupo: GrupoCobrancaDestinatario) => {
+  const criarIdempotencyKeyWhatsApp = (prefixo: string, osId: number) =>
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${prefixo}-${osId}-${Date.now()}`;
+
+  const enviarCobrancaWhatsApp = async (grupo: GrupoCobrancaDestinatario) => {
+    const ordensPendentes = grupo.ordens.filter((os) => os.status === "Pendente");
+    if (ordensPendentes.length === 1) {
+      const ordem = ordensPendentes[0];
+      if (!confirm(`Enviar pelo WhatsApp oficial a cobrança da OS ${ordem.numero_os}?`)) return;
+
+      setEnviandoWhatsAppOficialOsId(ordem.id);
+      try {
+        await api.post(`/ordens-servico/${ordem.id}/whatsapp/cobranca`, {
+          idempotency_key: criarIdempotencyKeyWhatsApp("cobranca", ordem.id),
+        });
+        alert("Cobrança enviada pelo WhatsApp oficial da Fort Cordis.");
+      } catch (error) {
+        const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+        alert(detail || "Erro ao enviar a cobrança pelo WhatsApp oficial.");
+      } finally {
+        setEnviandoWhatsAppOficialOsId(null);
+      }
+      return;
+    }
+
     const telefone = normalizarTelefoneWhatsApp(grupo.telefone_destinatario || "");
     if (!telefone) {
       const alvo = grupo.tipo_destinatario === "tutor" ? "tutor" : "clinica";
@@ -1727,6 +1753,23 @@ export default function FinanceiroPage() {
     const mensagem = preencherMensagemCobranca(grupo);
     const url = `https://wa.me/${telefone}?text=${encodeURIComponent(mensagem)}`;
     window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const avisarReciboPeloWhatsAppOficial = async (os: OrdemServico) => {
+    if (!confirm(`Enviar pelo WhatsApp oficial o aviso do recibo da OS ${os.numero_os}?`)) return;
+
+    setEnviandoWhatsAppOficialOsId(os.id);
+    try {
+      await api.post(`/ordens-servico/${os.id}/whatsapp/recibo`, {
+        idempotency_key: criarIdempotencyKeyWhatsApp("recibo", os.id),
+      });
+      alert("Aviso de recibo enviado pelo WhatsApp oficial da Fort Cordis.");
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      alert(detail || "Erro ao enviar o aviso de recibo pelo WhatsApp oficial.");
+    } finally {
+      setEnviandoWhatsAppOficialOsId(null);
+    }
   };
 
   const copiarMensagemCobranca = async (grupo: GrupoCobrancaDestinatario) => {
@@ -2617,11 +2660,16 @@ export default function FinanceiroPage() {
                             Copiar mensagem
                           </button>
                           <button
-                            onClick={() => enviarCobrancaWhatsApp(grupo)}
+                            onClick={() => void enviarCobrancaWhatsApp(grupo)}
+                            disabled={grupo.ordens.some(
+                              (os) => os.status === "Pendente" && enviandoWhatsAppOficialOsId === os.id
+                            )}
                             className="px-3 py-1.5 text-sm bg-green-600 text-white hover:bg-green-700 rounded-lg flex items-center gap-1"
                           >
                           <MessageCircle className="w-4 h-4" />
-                          Enviar WhatsApp
+                          {grupo.ordens.filter((os) => os.status === "Pendente").length === 1
+                            ? "Enviar FortCordis"
+                            : "Enviar WhatsApp"}
                         </button>
                       </div>
                     </div>
@@ -3020,6 +3068,17 @@ export default function FinanceiroPage() {
                             >
                               <MessageCircle className="w-4 h-4" />
                               WhatsApp
+                            </button>
+                          )}
+                          {os.status === "Pago" && (
+                            <button
+                              onClick={() => void avisarReciboPeloWhatsAppOficial(os)}
+                              disabled={enviandoWhatsAppOficialOsId === os.id}
+                              className="px-3 py-1.5 text-sm bg-green-600 text-white hover:bg-green-700 rounded-lg flex items-center gap-1 disabled:opacity-50"
+                              title="Avisar pelo WhatsApp oficial que o recibo esta disponivel"
+                            >
+                              <MessageCircle className="w-4 h-4" />
+                              {enviandoWhatsAppOficialOsId === os.id ? "Enviando..." : "FortCordis"}
                             </button>
                           )}
                           {os.status === "Pago" && (

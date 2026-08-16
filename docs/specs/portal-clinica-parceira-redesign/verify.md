@@ -41,12 +41,12 @@ Resumo dos resultados:
 - Cenario 1 (pendencia em destaque): login admin local (`admin@fortcordis.com`) -> `/clinicas/portal/espelho` -> clinica "casa do caralho" (id 11) com 1 laudo sintetico `status="Finalizado"` inserido temporariamente -> secao "Aguardando liberacao" mostrou contagem 1 e o card com paciente/tutor/data/previsao; secao "Resumo da unidade" e "Atividade recente" mantiveram os demais indicadores. Registro sintetico removido apos o teste.
 - Cenario 2 (estado vazio): mesma clinica antes de inserir o registro sintetico -> mensagem "Ainda nao ha exames registrados para esta clinica" (zero historico, `isNewClinicWithNoHistory`).
 - Cenario 3 (mobile): viewport redimensionado para 375x812 -> medicao via JS confirmou `document.documentElement.scrollWidth === window.innerWidth` (sem scroll horizontal) e o grid do item pendente colapsado para 1 coluna.
-- **Nao executado**: login real de uma clinica parceira via `/clinica-parceira` (sem credencial de clinica de teste disponivel neste ambiente). Risco considerado baixo pois a rota espelhada reusa o mesmo componente e contrato (RF-006/NFR-002).
+- Cenario 4 (login real de clinica parceira, 2026-08-16): usuario ativou de verdade uma conta de clinica em stage (Clinica #8 - convite -> ativacao -> senha -> login com MFA) e testou `/clinica-parceira` com a sessao real (nao o espelho administrativo). JWT do login decodificado confirma sessao genuina (`portal_auth_method: "password_mfa"`, `portal_channel: "email_password"`) - o layout do painel bateu com o espelho (Resumo da unidade, Aguardando liberacao, estados vazios), mas o carregamento de exames retornou 500. Causa raiz (bug de schema, `exames.created_at` como texto no Postgres) diagnosticada e corrigida em `docs/specs/portal-clinica-exame-created-at-fix/` - ver esse spec para o traceback completo e a verificacao da correcao.
 
 ## 4) Regressao e riscos residuais
 
 - Risco residual 1: cenario real de producao (clinica com volume alto de pendencias, CB-004) ainda nao observado - o cap de 30 candidatos por origem foi uma escolha de projeto, nao validada contra volume real.
-- Risco residual 2: sessao real de clinica parceira (login com senha propria) nao testada nesta rodada, apenas a visao espelhada administrativa.
+- ~~Risco residual 2: sessao real de clinica parceira (login com senha propria) nao testada nesta rodada~~ - testado em 2026-08-16 (Cenario 4); achou e corrigiu um bug real de schema (ver `docs/specs/portal-clinica-exame-created-at-fix/`).
 
 ## 5) Itens fora de escopo entregues
 

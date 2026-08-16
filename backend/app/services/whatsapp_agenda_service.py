@@ -17,10 +17,20 @@ from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.models.whatsapp_agenda_resposta import WhatsappAgendaResposta
 from app.services.alerta_interno_service import criar_alerta_interno
+from app.services.whatsapp_template_delivery_service import (
+    WhatsAppTemplateDeliveryError,
+    send_approved_utility_template,
+)
 
 
 Action = Literal["confirmar", "solicitar_alteracao"]
 RecipientType = Literal["clinica", "tutor"]
+AgendaUtilityTemplateKey = Literal[
+    "appointmentReminder",
+    "appointmentChange",
+    "appointmentCancellation",
+    "appointmentMissingData",
+]
 LOCAL_TZ = timezone(timedelta(hours=-3))
 
 
@@ -36,6 +46,13 @@ class WhatsAppReservationTemplate:
     appointment_date: str
     appointment_time: str
     confirmation_deadline: str
+
+
+@dataclass(frozen=True)
+class WhatsAppAgendaUtilityTemplate:
+    template_key: AgendaUtilityTemplateKey
+    destination: str
+    parameters: tuple[str, str, str, str]
 
 
 def normalize_whatsapp_number(value: Any) -> str:
@@ -124,6 +141,69 @@ def build_reservation_template(
     )
 
 
+def build_agenda_utility_template(
+    db: Session,
+    *,
+    agendamento: Agendamento,
+    destination: str,
+    recipient_type: RecipientType,
+    template_key: AgendaUtilityTemplateKey,
+) -> WhatsAppAgendaUtilityTemplate:
+    status = str(agendamento.status or "").strip() or "Agendado"
+    if template_key == "appointmentCancellation":
+        if status != "Cancelado":
+            raise HTTPException(
+                status_code=409,
+                detail="O modelo de cancelamento exige um agendamento cancelado.",
+            )
+    elif status not in {"Agendado", "Reservado", "Confirmado"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Este modelo so pode ser enviado para um agendamento ativo.",
+        )
+
+    paciente = db.query(Paciente).filter(Paciente.id == agendamento.paciente_id).first()
+    tutor = db.query(Tutor).filter(Tutor.id == agendamento.tutor_id).first()
+    if paciente is None or tutor is None or int(paciente.tutor_id or 0) != int(tutor.id):
+        raise HTTPException(
+            status_code=409,
+            detail="Vincule o animal e o tutor antes de enviar este modelo pelo WhatsApp.",
+        )
+
+    normalized_destination = normalize_whatsapp_number(destination)
+    if recipient_type == "clinica":
+        clinica = db.query(Clinica).filter(Clinica.id == agendamento.clinica_id).first()
+        if clinica is None:
+            raise HTTPException(status_code=409, detail="Clinica do agendamento nao encontrada.")
+        allowed = _allowed_numbers([clinica.whatsapps, clinica.telefone])
+        recipient_name = str(clinica.nome or "Clinica").strip()
+    else:
+        allowed = _allowed_numbers([tutor.whatsapp, tutor.telefone])
+        recipient_name = str(tutor.nome or "Tutor").strip()
+
+    if normalized_destination not in allowed:
+        raise HTTPException(
+            status_code=422,
+            detail="O numero escolhido nao pertence ao destinatario cadastrado neste agendamento.",
+        )
+
+    appointment = agendamento.inicio
+    if appointment is None:
+        raise HTTPException(status_code=409, detail="O agendamento nao possui horario valido.")
+    appointment_local = appointment.astimezone(LOCAL_TZ) if appointment.tzinfo else appointment
+
+    return WhatsAppAgendaUtilityTemplate(
+        template_key=template_key,
+        destination=normalized_destination,
+        parameters=(
+            recipient_name[:120],
+            str(paciente.nome or "").strip()[:120],
+            appointment_local.strftime("%d/%m/%Y"),
+            appointment_local.strftime("%H:%M"),
+        ),
+    )
+
+
 def send_reservation_template(
     *,
     agendamento_id: int,
@@ -174,6 +254,25 @@ def send_reservation_template(
     if not isinstance(payload, dict) or not payload.get("message_id"):
         raise WhatsAppAgendaDeliveryError("Resposta invalida do servico do WhatsApp.")
     return payload
+
+
+def send_agenda_utility_template(
+    *,
+    agendamento_id: int,
+    template: WhatsAppAgendaUtilityTemplate,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    try:
+        return send_approved_utility_template(
+            template_key=template.template_key,
+            subject_type="agendamento",
+            subject_id=agendamento_id,
+            destination=template.destination,
+            parameters=template.parameters,
+            idempotency_key=idempotency_key,
+        )
+    except WhatsAppTemplateDeliveryError as exc:
+        raise WhatsAppAgendaDeliveryError(str(exc)) from exc
 
 
 def _result_payload(record: WhatsappAgendaResposta) -> dict[str, Any]:

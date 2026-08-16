@@ -70,6 +70,8 @@ jobs:
         working-directory: whatsapp-stage-backend
         run: |
           npm run test:reservation-template
+          npm run test:approved-templates
+          npm run test:customer-service-window
           npm run test:phone-number
           npm run test:whatsapp-retry
           npm run test:auth-policy

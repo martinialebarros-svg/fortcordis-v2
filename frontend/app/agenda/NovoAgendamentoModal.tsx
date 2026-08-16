@@ -23,7 +23,6 @@ import {
   criarPrazoReservaPorHoras,
   formatarPrazoReserva,
   montarLinkWhatsAppReserva,
-  montarMensagemAgendaManual,
   type ReservaManualDestinatario,
 } from "@/lib/agenda-reserva-manual";
 import {
@@ -45,6 +44,11 @@ import {
   type AjustesRacasPorEspecie,
   type RacasCustomPorEspecie,
 } from "@/lib/racas";
+import {
+  AGENDA_WHATSAPP_TEMPLATES,
+  renderAgendaWhatsAppTemplate,
+  type AgendaWhatsAppTemplateKey,
+} from "@/lib/agenda-whatsapp-templates";
 
 const LIMITE_MINUTOS_PROXIMIDADE = 25;
 const LIMITE_ESTENDIDO_EXTRA_MIN = 15;
@@ -321,7 +325,10 @@ interface MensagemAgendaPosCriacao {
   telefones: string[];
   telefoneSugerido: string;
   prazoLabel?: string;
-  mensagem: string;
+  pacienteNome: string;
+  dataLabel: string;
+  horaLabel: string;
+  modeloSugerido: AgendaWhatsAppTemplateKey;
 }
 
 const ULTIMO_WHATSAPP_STORAGE_PREFIX = "fortcordis:agenda:ultimo-whatsapp:v1";
@@ -899,6 +906,7 @@ export default function NovoAgendamentoModal({
   const [feedbackMensagemAgenda, setFeedbackMensagemAgenda] = useState("");
   const [whatsappMensagemSelecionado, setWhatsappMensagemSelecionado] = useState("");
   const [envioAutomaticoStatus, setEnvioAutomaticoStatus] = useState<"idle" | "sending" | "sent">("idle");
+  const [modeloAgendaSelecionado, setModeloAgendaSelecionado] = useState<AgendaWhatsAppTemplateKey>("reservation");
   const envioAutomaticoIdempotencyRef = useRef("");
   const [editandoWhatsappDestinatario, setEditandoWhatsappDestinatario] = useState(false);
   const [whatsappsDestinatarioEdicao, setWhatsappsDestinatarioEdicao] = useState<string[]>([""]);
@@ -1190,6 +1198,7 @@ export default function NovoAgendamentoModal({
     setMensagemAgendaCriada(null);
     setFeedbackMensagemAgenda("");
     setWhatsappMensagemSelecionado("");
+    setModeloAgendaSelecionado("reservation");
     setEditandoWhatsappDestinatario(false);
     setWhatsappsDestinatarioEdicao([""]);
     setSalvandoWhatsappDestinatario(false);
@@ -1993,9 +2002,6 @@ export default function NovoAgendamentoModal({
   const pacienteSelecionadoMensagem = pacientes.find(
     (paciente) => paciente.id.toString() === formData.paciente_id
   ) || null;
-  const servicoSelecionadoMensagem = servicos.find(
-    (servico) => servico.id?.toString() === formData.servico_id
-  ) || null;
   const tutorSelecionadoGeorreferenciado = tutorPanorama?.tutor
     ? tutorTemGeorreferenciamento(tutorPanorama.tutor)
     : tutorTemGeorreferenciamento(tutorSelecionadoOption);
@@ -2723,17 +2729,17 @@ export default function NovoAgendamentoModal({
     const telefoneSugerido = telefoneLembrado && telefones.includes(telefoneLembrado)
       ? telefoneLembrado
       : (telefones[0] || "");
-    const mensagem = montarMensagemAgendaManual({
-      tipo,
-      data: formData.data,
-      hora: formData.hora,
-      prazoConfirmacao: tipo === "reserva" ? formData.reserva_prazo_confirmacao : undefined,
-      servicoNome: servicoSelecionadoMensagem?.nome,
-      pacienteId: pacienteSelecionadoMensagem?.id,
-      pacienteNome: pacienteSelecionadoMensagem?.nome,
-      tutorNome: nomeTutorReservaManual,
-      clinicaNome: nomeClinicaReservaManual,
-    });
+    const pacienteNome = String(pacienteSelecionadoMensagem?.nome || "").trim();
+    const dataLabel = formData.data
+      ? formData.data.split("-").reverse().join("/")
+      : "";
+    const modeloSugerido: AgendaWhatsAppTemplateKey = tipo === "reserva"
+      ? "reservation"
+      : statusFormulario === "Cancelado"
+        ? "appointmentCancellation"
+        : isEditando
+          ? "appointmentChange"
+          : "appointmentReminder";
 
     return {
       agendamentoId: isEditando && agendamento?.id ? Number(agendamento.id) : null,
@@ -2746,13 +2752,30 @@ export default function NovoAgendamentoModal({
       prazoLabel: tipo === "reserva"
         ? formatarPrazoReserva(formData.reserva_prazo_confirmacao)
         : undefined,
-      mensagem,
+      pacienteNome,
+      dataLabel,
+      horaLabel: formData.hora,
+      modeloSugerido,
     };
+  };
+
+  const obterMensagemAgendaAtual = (): string => {
+    if (!mensagemAgendaCriada) return "";
+    const parameters = [
+      mensagemAgendaCriada.destinatarioNome,
+      mensagemAgendaCriada.pacienteNome,
+      mensagemAgendaCriada.dataLabel,
+      mensagemAgendaCriada.horaLabel,
+    ];
+    if (modeloAgendaSelecionado === "reservation") {
+      parameters.push(mensagemAgendaCriada.prazoLabel || "");
+    }
+    return renderAgendaWhatsAppTemplate(modeloAgendaSelecionado, parameters);
   };
 
   const abrirWhatsAppMensagemAgenda = () => {
     if (!mensagemAgendaCriada) return;
-    const url = montarLinkWhatsAppReserva(whatsappMensagemSelecionado, mensagemAgendaCriada.mensagem);
+    const url = montarLinkWhatsAppReserva(whatsappMensagemSelecionado, obterMensagemAgendaAtual());
     window.open(url, "_blank", "noopener,noreferrer");
     salvarUltimoWhatsappSelecionado(
       mensagemAgendaCriada.destinatarioTipo,
@@ -2772,7 +2795,7 @@ export default function NovoAgendamentoModal({
       if (!navigator.clipboard?.writeText) {
         throw new Error("Clipboard indisponivel");
       }
-      await navigator.clipboard.writeText(mensagemAgendaCriada.mensagem);
+      await navigator.clipboard.writeText(obterMensagemAgendaAtual());
       salvarUltimoWhatsappSelecionado(
         mensagemAgendaCriada.destinatarioTipo,
         mensagemAgendaCriada.destinatarioId,
@@ -2784,10 +2807,9 @@ export default function NovoAgendamentoModal({
     }
   };
 
-  const enviarReservaPeloFortCordis = async () => {
+  const enviarModeloAgendaPeloFortCordis = async () => {
     if (
       !mensagemAgendaCriada?.agendamentoId ||
-      mensagemAgendaCriada.tipo !== "reserva" ||
       !whatsappMensagemSelecionado ||
       envioAutomaticoStatus === "sending" ||
       envioAutomaticoStatus === "sent"
@@ -2798,16 +2820,22 @@ export default function NovoAgendamentoModal({
     if (!envioAutomaticoIdempotencyRef.current) {
       envioAutomaticoIdempotencyRef.current = typeof globalThis.crypto?.randomUUID === "function"
         ? globalThis.crypto.randomUUID()
-        : `agenda-${mensagemAgendaCriada.agendamentoId}-${Date.now()}`;
+        : `agenda-${modeloAgendaSelecionado}-${mensagemAgendaCriada.agendamentoId}-${Date.now()}`;
     }
 
     setEnvioAutomaticoStatus("sending");
     setFeedbackMensagemAgenda("Enviando o modelo aprovado pela Meta...");
     try {
-      await api.post(`/agenda/${mensagemAgendaCriada.agendamentoId}/whatsapp/reserva`, {
+      const endpoint = modeloAgendaSelecionado === "reservation"
+        ? `/agenda/${mensagemAgendaCriada.agendamentoId}/whatsapp/reserva`
+        : `/agenda/${mensagemAgendaCriada.agendamentoId}/whatsapp/modelo`;
+      await api.post(endpoint, {
         destination: whatsappMensagemSelecionado,
         recipient_type: mensagemAgendaCriada.destinatarioTipo,
         idempotency_key: envioAutomaticoIdempotencyRef.current,
+        ...(modeloAgendaSelecionado === "reservation"
+          ? {}
+          : { template_key: modeloAgendaSelecionado }),
       });
       salvarUltimoWhatsappSelecionado(
         mensagemAgendaCriada.destinatarioTipo,
@@ -2816,7 +2844,9 @@ export default function NovoAgendamentoModal({
       );
       setEnvioAutomaticoStatus("sent");
       setFeedbackMensagemAgenda(
-        "Reserva enviada pelo FortCordis. Os botoes Confirmar e Solicitar alteracao ja estao vinculados a este agendamento."
+        modeloAgendaSelecionado === "reservation"
+          ? "Reserva enviada pelo FortCordis. Os botões Confirmar e Solicitar alteração estão vinculados ao agendamento."
+          : "Modelo enviado pelo FortCordis. As respostas chegarão à Caixa de Entrada do WhatsApp para acompanhamento da equipe."
       );
     } catch (error: any) {
       const detail = error?.response?.data?.detail ?? error?.message;
@@ -2825,15 +2855,6 @@ export default function NovoAgendamentoModal({
         extrairMensagemErro(detail, "Nao foi possivel enviar automaticamente. Use Abrir WhatsApp como alternativa.")
       );
     }
-  };
-
-  const gerarMensagemManualEdicao = () => {
-    const construida = construirMensagemAgendaPosCriacao();
-    setMensagemAgendaCriada(construida);
-    setWhatsappMensagemSelecionado(construida.telefoneSugerido);
-    setFeedbackMensagemAgenda("");
-    setEnvioAutomaticoStatus("idle");
-    envioAutomaticoIdempotencyRef.current = "";
   };
 
   const iniciarEdicaoWhatsappDestinatario = () => {
@@ -3088,9 +3109,7 @@ export default function NovoAgendamentoModal({
         }
       }
 
-      const entregaMensagemAgenda = !isEditando
-        ? construirMensagemAgendaPosCriacao()
-        : null;
+      const entregaMensagemAgenda = construirMensagemAgendaPosCriacao();
 
       const observacoesOriginais = String(formData.observacoes || "").trim();
       const observacoesAssistente: string[] = [];
@@ -3262,6 +3281,7 @@ export default function NovoAgendamentoModal({
           agendamentoId: Number(response?.data?.id) || null,
         });
         setWhatsappMensagemSelecionado(entregaMensagemAgenda.telefoneSugerido);
+        setModeloAgendaSelecionado(entregaMensagemAgenda.modeloSugerido);
         setFeedbackMensagemAgenda("");
         setEnvioAutomaticoStatus("idle");
         envioAutomaticoIdempotencyRef.current = "";
@@ -3346,6 +3366,11 @@ export default function NovoAgendamentoModal({
     const possuiTelefone = Boolean(whatsappMensagemSelecionado);
     const ehReserva = mensagemAgendaCriada.tipo === "reserva";
     const destinatarioLabel = mensagemAgendaCriada.destinatarioTipo === "clinica" ? "Clínica" : "Tutor";
+    const mensagemAgendaAtual = obterMensagemAgendaAtual();
+    const modelosAgendaDisponiveis: AgendaWhatsAppTemplateKey[] =
+      mensagemAgendaCriada.modeloSugerido === "appointmentCancellation"
+        ? ["appointmentCancellation"]
+        : ["appointmentReminder", "appointmentChange", "appointmentMissingData"];
 
     return (
       <div className="fc-appointment-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -3427,6 +3452,30 @@ export default function NovoAgendamentoModal({
             </div>
 
             <div>
+              {!ehReserva ? (
+                <div className="mb-4">
+                  <label htmlFor="fc-modelo-whatsapp-agenda" className="mb-1 block text-sm font-medium text-gray-700">
+                    Modelo aprovado
+                  </label>
+                  <select
+                    id="fc-modelo-whatsapp-agenda"
+                    value={modeloAgendaSelecionado}
+                    onChange={(event) => {
+                      setModeloAgendaSelecionado(event.target.value as AgendaWhatsAppTemplateKey);
+                      setEnvioAutomaticoStatus("idle");
+                      envioAutomaticoIdempotencyRef.current = "";
+                      setFeedbackMensagemAgenda("");
+                    }}
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  >
+                    {modelosAgendaDisponiveis.map((templateKey) => (
+                      <option key={templateKey} value={templateKey}>
+                        {AGENDA_WHATSAPP_TEMPLATES[templateKey].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
               <label htmlFor="fc-mensagem-agenda" className="mb-1 block text-sm font-medium text-gray-700">
                 Mensagem pronta
               </label>
@@ -3434,14 +3483,14 @@ export default function NovoAgendamentoModal({
                 id="fc-mensagem-agenda"
                 readOnly
                 rows={12}
-                value={mensagemAgendaCriada.mensagem}
+                value={mensagemAgendaAtual}
                 onFocus={(event) => event.currentTarget.select()}
                 className="w-full resize-none rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm leading-6 text-gray-800 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
               />
             </div>
 
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              {ehReserva ? "A reserva já foi salva." : "O agendamento já foi salvo."} O envio automático usa o
+              {ehReserva ? "A reserva já foi salva." : "O agendamento já foi salvo."} Enviar pelo FortCordis usa o
               modelo aprovado; Abrir WhatsApp e Copiar mensagem continuam disponíveis como alternativa manual.
             </div>
 
@@ -3481,27 +3530,25 @@ export default function NovoAgendamentoModal({
               <Copy className="h-4 w-4" />
               Copiar mensagem
             </button>
-            {ehReserva && !isEditando ? (
-              <button
-                type="button"
-                onClick={() => void enviarReservaPeloFortCordis()}
-                disabled={!possuiTelefone || !mensagemAgendaCriada.agendamentoId || envioAutomaticoStatus !== "idle"}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {envioAutomaticoStatus === "sending" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : envioAutomaticoStatus === "sent" ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-                {envioAutomaticoStatus === "sending"
-                  ? "Enviando..."
-                  : envioAutomaticoStatus === "sent"
-                    ? "Enviado pelo FortCordis"
-                    : "Enviar pelo FortCordis"}
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => void enviarModeloAgendaPeloFortCordis()}
+              disabled={!possuiTelefone || !mensagemAgendaCriada.agendamentoId || envioAutomaticoStatus !== "idle"}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {envioAutomaticoStatus === "sending" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : envioAutomaticoStatus === "sent" ? (
+                <Check className="h-4 w-4" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+              {envioAutomaticoStatus === "sending"
+                ? "Enviando..."
+                : envioAutomaticoStatus === "sent"
+                  ? "Enviado pelo FortCordis"
+                  : "Enviar pelo FortCordis"}
+            </button>
             <button
               type="button"
               onClick={abrirWhatsAppMensagemAgenda}
@@ -4369,18 +4416,6 @@ export default function NovoAgendamentoModal({
                   </div>
                 </div>
 
-                {isEditando && (
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={gerarMensagemManualEdicao}
-                      className="inline-flex items-center gap-2 rounded-md bg-amber-700 px-3 py-1.5 font-semibold text-white transition hover:bg-amber-800"
-                    >
-                      <MessageCircle className="h-3.5 w-3.5" />
-                      Gerar mensagem de confirmação
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
           )}

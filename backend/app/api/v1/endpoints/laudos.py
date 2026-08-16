@@ -3,6 +3,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field
 from datetime import date, datetime
 from io import BytesIO
 import json
@@ -49,6 +50,11 @@ from app.services.laudo_pdf_jobs import (
 from app.services.laudo_pdf_service import compute_laudo_pdf_cache_key, render_laudo_pdf
 from app.services.portal_clinic_notification_service import notify_clinic_report_released
 from app.services.portal_partner_notification_service import notify_partner_report_released
+from app.services.whatsapp_agenda_service import normalize_whatsapp_number
+from app.services.whatsapp_template_delivery_service import (
+    WhatsAppTemplateDeliveryError,
+    send_approved_utility_template,
+)
 from app.utils.ecocardiograma_medidas import (
     extrair_medidas_ecocardiograma_da_descricao,
 )
@@ -72,6 +78,11 @@ ELETROCARDIOGRAMA_UPLOAD_ORIGIN = "laudo_eletrocardiograma_upload"
 ELETROCARDIOGRAMA_UPLOAD_ATTACHMENT_DESCRIPTION = "PDF do eletrocardiograma."
 OPERATIONAL_TIME_ZONE = ZoneInfo("America/Fortaleza")
 DATE_ONLY_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+class PortalReportWhatsAppRequest(BaseModel):
+    idempotency_key: str = Field(..., min_length=8, max_length=128)
+    destination: str | None = Field(default=None, min_length=10, max_length=32)
 
 ULTRASSOM_ORGAOS_ABDOMINAIS = [
     ("figado", "Figado"),
@@ -165,6 +176,20 @@ def _label_tipo_exame_portal(laudo: Laudo) -> str:
     if tipo in labels:
         return labels[tipo]
     return str(laudo.titulo or laudo.tipo or "Laudo").strip() or "Laudo"
+
+
+def _registered_clinic_whatsapp_numbers(clinica: Any) -> list[str]:
+    values = list(getattr(clinica, "whatsapps", None) or [])
+    values.append(getattr(clinica, "telefone", None))
+    numbers: list[str] = []
+    for value in values:
+        try:
+            normalized = normalize_whatsapp_number(value)
+        except HTTPException:
+            continue
+        if normalized not in numbers:
+            numbers.append(normalized)
+    return numbers
 
 
 def _sincronizar_exame_liberado_para_portal(
@@ -2808,6 +2833,76 @@ def liberar_laudo_para_portal_clinica(
         db=db,
         current_user=current_user,
     )
+
+
+@router.post("/laudos/{laudo_id}/portal/whatsapp")
+def avisar_laudo_liberado_por_whatsapp(
+    laudo_id: int,
+    payload: PortalReportWhatsAppRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.models.clinica import Clinica
+    from app.models.paciente import Paciente
+
+    laudo = db.query(Laudo).filter(Laudo.id == laudo_id).first()
+    if laudo is None:
+        raise HTTPException(status_code=404, detail="Laudo nao encontrado.")
+    if not is_portal_released_status(laudo.status, kind="laudo"):
+        raise HTTPException(status_code=409, detail="Libere o laudo no portal antes de enviar o aviso.")
+    if not laudo.clinic_id:
+        raise HTTPException(status_code=409, detail="O laudo nao possui clinica parceira vinculada.")
+
+    clinica = db.query(Clinica).filter(Clinica.id == laudo.clinic_id).first()
+    paciente = db.query(Paciente).filter(Paciente.id == laudo.paciente_id).first()
+    exame = (
+        db.query(Exame)
+        .filter(Exame.laudo_id == laudo.id)
+        .order_by(Exame.id.desc())
+        .first()
+    )
+    if clinica is None or paciente is None or exame is None:
+        raise HTTPException(status_code=409, detail="Dados do laudo incompletos para o aviso por WhatsApp.")
+
+    registered_numbers = _registered_clinic_whatsapp_numbers(clinica)
+    if not registered_numbers:
+        raise HTTPException(status_code=409, detail="A clinica nao possui WhatsApp cadastrado.")
+    destination = normalize_whatsapp_number(payload.destination) if payload.destination else registered_numbers[0]
+    if destination not in registered_numbers:
+        raise HTTPException(status_code=422, detail="O numero nao pertence a clinica vinculada ao laudo.")
+
+    try:
+        result = send_approved_utility_template(
+            template_key="portalReportAvailable",
+            subject_type="exame",
+            subject_id=exame.id,
+            destination=destination,
+            parameters=[
+                str(clinica.nome or "Clinica").strip()[:120],
+                _label_tipo_exame_portal(laudo)[:120],
+                str(paciente.nome or "Paciente").strip()[:120],
+            ],
+            idempotency_key=payload.idempotency_key,
+        )
+    except WhatsAppTemplateDeliveryError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="laudos",
+        entidade="laudo",
+        entidade_id=laudo.id,
+        acao="LAUDO_PORTAL_WHATSAPP_ENVIADO",
+        descricao="Aviso de laudo disponivel enviado pelo WhatsApp oficial.",
+        detalhes={
+            "destination_suffix": destination[-4:],
+            "provider_message_id": result.get("message_id"),
+            "idempotent": bool(result.get("idempotent")),
+        },
+        request=request,
+    )
+    return result
 
 
 @router.post("/laudos/{laudo_id}/pdf-jobs", response_model=dict)

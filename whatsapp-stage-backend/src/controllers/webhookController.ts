@@ -86,17 +86,36 @@ function formatProcessingError(error: unknown): string {
   return text.length > 4000 ? text.slice(0, 4000) : text;
 }
 
-async function touchConversation(conversationId: string, client: PoolClient): Promise<void> {
+async function touchConversation(
+  conversationId: string,
+  client: PoolClient,
+  lastInboundAt: Date | null = null
+): Promise<void> {
   await queryWithClient(
     client,
     `
       UPDATE conversations
       SET updated_at = now(),
-          last_activity_at = now()
+          last_activity_at = now(),
+          last_inbound_at = CASE
+            WHEN $2::timestamptz IS NULL THEN last_inbound_at
+            WHEN last_inbound_at IS NULL OR last_inbound_at < $2::timestamptz THEN $2::timestamptz
+            ELSE last_inbound_at
+          END
       WHERE id = $1
     `,
-    [conversationId]
+    [conversationId, lastInboundAt]
   );
+}
+
+function inboundMessageObservedAt(timestamp: unknown): Date {
+  const providerTimestamp = normalizeProviderTimestamp(timestamp);
+  if (providerTimestamp === null) {
+    return new Date();
+  }
+
+  const providerDate = new Date(providerTimestamp * 1000);
+  return Number.isNaN(providerDate.getTime()) ? new Date() : providerDate;
 }
 
 async function upsertConversation(
@@ -291,7 +310,11 @@ async function handleInboundMessages(value: WebhookChangeValue, client: PoolClie
 
     if (inserted) {
       await handleAgendaButtonReply(client, message);
-      await touchConversation(conversation.id, client);
+      await touchConversation(
+        conversation.id,
+        client,
+        inboundMessageObservedAt(message.timestamp)
+      );
     }
   }
 }

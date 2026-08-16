@@ -12,6 +12,7 @@ import {
 } from "../services/whatsappService";
 import { logger } from "../utils/logger";
 import { canonicalWhatsAppIdentity } from "../utils/phoneNumber";
+import { renderApprovedTemplateBody } from "../templates/approvedTemplates";
 
 interface ReservationParameters {
   recipient_name: string;
@@ -159,11 +160,13 @@ async function persistSentMessage(
   payload: ReservationRequest,
   waMessageId: string
 ): Promise<void> {
-  const renderedBody = [
-    `Ola, ${payload.parameters.recipient_name}. A Fort Cordis reservou o atendimento de`,
-    `${payload.parameters.pet_name} para ${payload.parameters.appointment_date}, as`,
-    `${payload.parameters.appointment_time}. Confirme ate ${payload.parameters.confirmation_deadline}.`
-  ].join(" ");
+  const renderedBody = renderApprovedTemplateBody("reservation", [
+    payload.parameters.recipient_name,
+    payload.parameters.pet_name,
+    payload.parameters.appointment_date,
+    payload.parameters.appointment_time,
+    payload.parameters.confirmation_deadline
+  ]);
 
   await withTransaction(async (client) => {
     const conversation = await queryWithClient<{ id: string }>(

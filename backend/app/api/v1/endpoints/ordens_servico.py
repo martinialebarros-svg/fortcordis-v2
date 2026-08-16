@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from html import escape
 from io import BytesIO
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -40,6 +40,11 @@ from app.services.auditoria_service import registrar_auditoria
 from app.services.precos_service import calcular_preco_servico
 from app.services.push_notifications import send_financeiro_push_notification
 from app.services.push_scheduler_service import cancel_pending_os_payment_reminder
+from app.services.whatsapp_agenda_service import normalize_whatsapp_number
+from app.services.whatsapp_template_delivery_service import (
+    WhatsAppTemplateDeliveryError,
+    send_approved_utility_template,
+)
 
 router = APIRouter()
 
@@ -81,6 +86,14 @@ class OrdemServicoReceberInput(BaseModel):
     valor_credito_utilizado: float = Field(default=0, ge=0)
     destino_credito_excedente: str = Field(default="cliente", pattern="^(cliente|clinica|nenhum)$")
     observacoes_credito: Optional[str] = None
+
+
+class OrdemServicoWhatsAppInput(BaseModel):
+    idempotency_key: str = Field(..., min_length=8, max_length=128)
+    destination: Optional[str] = Field(default=None, max_length=32)
+
+
+OrdemServicoWhatsAppTemplateKey = Literal["receiptAvailable", "pendingPaymentReminder"]
 
 
 def _to_decimal(value, default: Decimal = Decimal("0.00")) -> Decimal:
@@ -1044,6 +1057,142 @@ def _carregar_configuracao_usuario_recibo(
     except SQLAlchemyError as exc:
         print(f"[recibo-os] Aviso: falha ao carregar configuracao do usuario {user_id}: {exc}")
         return None
+
+
+def _numeros_whatsapp_os(
+    os_data: OrdemServico,
+    *,
+    clinica: Optional[Clinica],
+    tutor: Optional[Tutor],
+) -> tuple[str, list[str]]:
+    origem = str(os_data.origem_atendimento or "clinica_parceira").strip().lower()
+    if origem == "domiciliar":
+        nome = str(getattr(tutor, "nome", None) or "").strip()
+        values = [getattr(tutor, "whatsapp", None), getattr(tutor, "telefone", None)]
+        destinatario = "tutor"
+    else:
+        nome = str(getattr(clinica, "nome", None) or "").strip()
+        values = list(getattr(clinica, "whatsapps", None) or [])
+        values.append(getattr(clinica, "telefone", None))
+        destinatario = "clinica"
+
+    if not nome:
+        raise HTTPException(status_code=409, detail=f"A OS nao possui {destinatario} vinculado para o envio.")
+
+    numbers: list[str] = []
+    for value in values:
+        try:
+            normalized = normalize_whatsapp_number(value)
+        except HTTPException:
+            continue
+        if normalized not in numbers:
+            numbers.append(normalized)
+    if not numbers:
+        raise HTTPException(status_code=409, detail=f"O {destinatario} nao possui WhatsApp cadastrado.")
+    return nome, numbers
+
+
+def _send_ordem_servico_whatsapp(
+    *,
+    os_id: int,
+    template_key: OrdemServicoWhatsAppTemplateKey,
+    required_status: str,
+    payload: OrdemServicoWhatsAppInput,
+    request: Request,
+    db: Session,
+    current_user: User,
+) -> dict:
+    os_data = db.query(OrdemServico).filter(OrdemServico.id == os_id).first()
+    if os_data is None:
+        raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada.")
+    if os_data.status != required_status:
+        action = "avisar o recibo" if required_status == "Pago" else "enviar a cobranca"
+        raise HTTPException(status_code=409, detail=f"A OS precisa estar como {required_status} para {action}.")
+
+    paciente = db.query(Paciente).filter(Paciente.id == os_data.paciente_id).first()
+    if paciente is None:
+        raise HTTPException(status_code=409, detail="A OS nao possui paciente vinculado.")
+    tutor = db.query(Tutor).filter(Tutor.id == paciente.tutor_id).first() if paciente.tutor_id else None
+    clinica = db.query(Clinica).filter(Clinica.id == os_data.clinica_id).first() if os_data.clinica_id else None
+    recipient_name, registered_numbers = _numeros_whatsapp_os(os_data, clinica=clinica, tutor=tutor)
+
+    destination = normalize_whatsapp_number(payload.destination) if payload.destination else registered_numbers[0]
+    if destination not in registered_numbers:
+        raise HTTPException(status_code=422, detail="O numero informado nao pertence ao destinatario da OS.")
+
+    try:
+        result = send_approved_utility_template(
+            template_key=template_key,
+            subject_type="ordem_servico",
+            subject_id=os_data.id,
+            destination=destination,
+            parameters=[
+                recipient_name[:120],
+                str(os_data.numero_os or os_data.id)[:120],
+                str(paciente.nome or "Paciente").strip()[:120],
+                _formatar_moeda_brl(os_data.valor_final)[:120],
+            ],
+            idempotency_key=payload.idempotency_key,
+        )
+    except WhatsAppTemplateDeliveryError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    action = "ORDEM_SERVICO_RECIBO_WHATSAPP_ENVIADO" if required_status == "Pago" else "ORDEM_SERVICO_COBRANCA_WHATSAPP_ENVIADA"
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="ordens_servico",
+        entidade="ordem_servico",
+        entidade_id=os_data.id,
+        acao=action,
+        descricao=f"Modelo oficial {template_key} enviado pelo WhatsApp.",
+        detalhes={
+            "destination_suffix": destination[-4:],
+            "provider_message_id": result.get("message_id"),
+            "idempotent": bool(result.get("idempotent")),
+        },
+        request=request,
+    )
+    return result
+
+
+@router.post("/{os_id}/whatsapp/recibo")
+def enviar_aviso_recibo_whatsapp(
+    os_id: int,
+    payload: OrdemServicoWhatsAppInput,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Envia o modelo aprovado de recibo para uma OS paga."""
+    return _send_ordem_servico_whatsapp(
+        os_id=os_id,
+        template_key="receiptAvailable",
+        required_status="Pago",
+        payload=payload,
+        request=request,
+        db=db,
+        current_user=current_user,
+    )
+
+
+@router.post("/{os_id}/whatsapp/cobranca")
+def enviar_cobranca_whatsapp(
+    os_id: int,
+    payload: OrdemServicoWhatsAppInput,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Envia o modelo aprovado de pendencia para uma unica OS pendente."""
+    return _send_ordem_servico_whatsapp(
+        os_id=os_id,
+        template_key="pendingPaymentReminder",
+        required_status="Pendente",
+        payload=payload,
+        request=request,
+        db=db,
+        current_user=current_user,
+    )
 
 
 @router.get("")

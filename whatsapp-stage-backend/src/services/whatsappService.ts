@@ -1,5 +1,11 @@
 import axios, { AxiosError } from "axios";
 import { logger } from "../utils/logger";
+import {
+  APPROVED_TEMPLATE_LANGUAGE,
+  APPROVED_UTILITY_TEMPLATES,
+  ApprovedUtilityTemplateKey,
+  getTemplateBodyParameterCount
+} from "../templates/approvedTemplates";
 
 const graphApiVersion = process.env.WHATSAPP_GRAPH_API_VERSION || "v26.0";
 const GRAPH_API_BASE_URL = `https://graph.facebook.com/${graphApiVersion}`;
@@ -137,6 +143,15 @@ export interface ReservationTemplateParams {
   changePayload: string;
 }
 
+export interface ApprovedUtilityTemplateParams {
+  phoneNumberId: string;
+  accessToken: string;
+  to: string;
+  templateKey: ApprovedUtilityTemplateKey;
+  bodyParameters: string[];
+  quickReplyPayloads: string[];
+}
+
 async function sendPayloadWithRetry(params: {
   phoneNumberId: string;
   accessToken: string;
@@ -238,5 +253,53 @@ export async function sendWhatsAppReservationTemplateWithRetry(
     phoneNumberId: params.phoneNumberId,
     accessToken: params.accessToken,
     payload
+  });
+}
+
+export async function sendWhatsAppApprovedUtilityTemplateWithRetry(
+  params: ApprovedUtilityTemplateParams
+): Promise<GraphMessageResponse> {
+  const definition = APPROVED_UTILITY_TEMPLATES[params.templateKey];
+  const expectedBodyParameters = getTemplateBodyParameterCount(params.templateKey);
+  const expectedQuickReplies = definition.quickReplies.length;
+
+  if (params.bodyParameters.length !== expectedBodyParameters) {
+    throw new Error(
+      `Template '${definition.name}' expects ${expectedBodyParameters} body parameters, received ${params.bodyParameters.length}`
+    );
+  }
+  if (params.quickReplyPayloads.length !== expectedQuickReplies) {
+    throw new Error(
+      `Template '${definition.name}' expects ${expectedQuickReplies} quick reply payloads, received ${params.quickReplyPayloads.length}`
+    );
+  }
+
+  const components: Array<Record<string, unknown>> = [
+    {
+      type: "body",
+      parameters: params.bodyParameters.map((text) => ({ type: "text", text }))
+    },
+    ...params.quickReplyPayloads.map((payload, index) => ({
+      type: "button",
+      sub_type: "quick_reply",
+      index: String(index),
+      parameters: [{ type: "payload", payload }]
+    }))
+  ];
+
+  return sendPayloadWithRetry({
+    phoneNumberId: params.phoneNumberId,
+    accessToken: params.accessToken,
+    payload: {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: params.to,
+      type: "template",
+      template: {
+        name: definition.name,
+        language: { code: APPROVED_TEMPLATE_LANGUAGE },
+        components
+      }
+    }
   });
 }
