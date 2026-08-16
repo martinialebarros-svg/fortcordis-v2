@@ -2,7 +2,7 @@
 
 Data: 2026-08-16
 Responsavel: Claude (pareado com Martiniano)
-Status: implementado, verificado em ambiente local
+Status: implementado, confirmado ao vivo em stage
 
 ## 1) Matriz de rastreabilidade
 
@@ -62,6 +62,13 @@ Ambiente: local (backend/frontend dev), clínica "casa do caralho" (id 11).
   `must_change_password` foi zerado corretamente.
 - Conta de teste (`recepcao-teste@example.com`) e configuração SMTP
   temporária removidas do ambiente local ao final.
+- Cenário 4 (stage, 2026-08-16): confirmado a nível de código que o
+  bundle JS servido por stage para a página de clínica contém a
+  implementação (`grep` nos chunks publicados encontrou o texto do
+  checkbox "Gerar senha temporaria...", o campo "Nome do responsavel
+  na clinica", `senha_temporaria`, "Copiar senha"). Usuário conferiu
+  visualmente na ficha de uma clínica real em stage e confirmou que o
+  checkbox e os campos aparecem corretamente.
 
 ## 4) Regressao e riscos residuais
 
