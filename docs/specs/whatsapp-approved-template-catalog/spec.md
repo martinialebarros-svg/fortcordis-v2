@@ -53,7 +53,7 @@ Status: local-implemented
 - envio automatico ao liberar laudo, emitir recibo ou detectar pendencia;
 - alteracao automatica de Agenda, Portal ou Financeiro pelas respostas dos sete novos modelos; as respostas continuam visiveis na caixa de entrada;
 - modelo de autenticacao, que continua indisponivel para esta WABA;
-- publicacao em stage ou producao.
+- publicacao em producao.
 
 ## 5) Criterios de aceitacao
 

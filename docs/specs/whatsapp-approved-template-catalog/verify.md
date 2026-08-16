@@ -2,7 +2,7 @@
 
 Data: 2026-08-16
 Responsavel: Martiniano + Codex
-Status: local-passed-stage-pending
+Status: stage-passed
 
 ## Matriz
 
@@ -44,4 +44,14 @@ git diff --check
 - Respostas dos novos botoes sao registradas na caixa de entrada, sem mutacao automatica do dominio.
 - A suite completa do backend passou com 740 testes.
 - O build otimizado do frontend gerou 43 paginas sem erro.
-- Nenhum ambiente foi publicado.
+- Stage foi publicado no commit `d8c80ef0`.
+
+## Evidencia de stage
+
+- `Migration CI` (`31926968177`): concluido com sucesso.
+- `Deploy to Stage (VPS)` (`31926968382`): `quality-gate`, `sdd-guardrail` e `deploy-stage` concluidos com sucesso.
+- O VPS confirmou `HEAD=d8c80ef`, migração do serviço WhatsApp aplicada e smoke autenticado concluído.
+- `https://stage.fortcordis.com.br/` respondeu `200` e redirecionou rotas do app para `https://app.stage.fortcordis.com.br/`.
+- `/agenda`, `/financeiro`, `/laudos` e `/whatsapp/health` responderam `200`.
+- As novas rotas protegidas de Agenda, Laudos, Financeiro e automação WhatsApp responderam `401` sem credencial.
+- Os 19 chunks JavaScript referenciados pelas páginas continham as novas rotas e os rótulos de envio pelo FortCordis.

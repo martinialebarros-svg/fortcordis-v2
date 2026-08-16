@@ -12,4 +12,4 @@ Data: 2026-08-16
 - [x] P8. Definir e implementar acoes explicitas de recibo e cobranca.
 - [x] P9. Adicionar persistencia idempotente e associacao ao objeto de dominio.
 - [x] P10. Cobrir o contrato interno, destinatarios cadastrados e payloads Meta.
-- [ ] P11. Validar em stage antes de qualquer promocao.
+- [x] P11. Validar em stage antes de qualquer promocao.
