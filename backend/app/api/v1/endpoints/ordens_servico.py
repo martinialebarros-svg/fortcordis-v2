@@ -43,6 +43,7 @@ from app.services.push_scheduler_service import cancel_pending_os_payment_remind
 from app.services.whatsapp_agenda_service import normalize_whatsapp_number
 from app.services.whatsapp_template_delivery_service import (
     WhatsAppTemplateDeliveryError,
+    send_approved_document_template,
     send_approved_utility_template,
 )
 
@@ -91,6 +92,10 @@ class OrdemServicoReceberInput(BaseModel):
 class OrdemServicoWhatsAppInput(BaseModel):
     idempotency_key: str = Field(..., min_length=8, max_length=128)
     destination: Optional[str] = Field(default=None, max_length=32)
+
+
+class OrdensServicoWhatsAppAgrupadoInput(OrdemServicoWhatsAppInput):
+    os_ids: List[int] = Field(..., min_length=2, max_length=20)
 
 
 OrdemServicoWhatsAppTemplateKey = Literal["receiptAvailable", "pendingPaymentReminder"]
@@ -847,10 +852,10 @@ def _gerar_pdf_recibos_ordens(
 
         linhas_tabela = [[
             _celula_tabela("OS", cabecalho=True),
-            _celula_tabela("Data receb.", cabecalho=True),
-            _celula_tabela("Paciente", cabecalho=True),
-            _celula_tabela("Clinica", cabecalho=True),
+            _celula_tabela("Data atend.", cabecalho=True),
             _celula_tabela("Servico", cabecalho=True),
+            _celula_tabela("Tutor", cabecalho=True),
+            _celula_tabela("Pet", cabecalho=True),
             _celula_tabela("Formas", cabecalho=True),
             _celula_tabela("Valor", cabecalho=True, alinhar_direita=True),
         ]]
@@ -858,10 +863,10 @@ def _gerar_pdf_recibos_ordens(
             linhas_tabela.append(
                 [
                     _celula_tabela(item["numero_os"]),
-                    _celula_tabela(_formatar_data_ddmmaa(item["data_recebimento"])),
-                    _celula_tabela(item["paciente"]),
-                    _celula_tabela(item["clinica"]),
+                    _celula_tabela(_formatar_data_ddmmaa(item["data_atendimento"])),
                     _celula_tabela(item["servico"]),
+                    _celula_tabela(item["tutor"]),
+                    _celula_tabela(item["paciente"]),
                     _celula_tabela(
                         _resumir_formas_pagamento_recibo(
                             item["pagamentos"],
@@ -887,7 +892,7 @@ def _gerar_pdf_recibos_ordens(
         subtotal_row = len(linhas_tabela) - 1
         tabela = Table(
             linhas_tabela,
-            colWidths=[24 * mm, 24 * mm, 30 * mm, 34 * mm, 34 * mm, 90 * mm, 24 * mm],
+            colWidths=[21 * mm, 23 * mm, 36 * mm, 38 * mm, 30 * mm, 88 * mm, 24 * mm],
             repeatRows=1,
         )
         tabela.setStyle(
@@ -1021,13 +1026,13 @@ def _gerar_pdf_recibos_ordens(
         story.append(Spacer(1, 2 * mm))
         story.append(assinatura)
     story.append(Spacer(1, 2 * mm))
-    story.append(
-        Table(
-            [[""]],
-            colWidths=[70 * mm],
-            style=TableStyle([("LINEABOVE", (0, 0), (-1, -1), 0.8, colors.HexColor("#9CA3AF"))]),
-        )
+    linha_assinatura = Table(
+        [[""]],
+        colWidths=[70 * mm],
+        style=TableStyle([("LINEABOVE", (0, 0), (-1, -1), 0.8, colors.HexColor("#9CA3AF"))]),
     )
+    linha_assinatura.hAlign = "LEFT"
+    story.append(linha_assinatura)
     story.append(Paragraph(f"<b>{_texto_pdf(nome_empresa, 'Fort Cordis')}</b>", style_normal))
     story.append(Paragraph(f"Emitido por: <b>{_texto_pdf(nome_emitente, '-')}</b>", style_normal))
     if crmv_emitente:
@@ -1092,6 +1097,91 @@ def _numeros_whatsapp_os(
     return nome, numbers
 
 
+def _carregar_contexto_whatsapp_os(
+    db: Session,
+    os_id: int,
+    *,
+    required_status: str,
+) -> Dict[str, Any]:
+    row = _find_os_with_names(db, os_id)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Ordem de servico {os_id} nao encontrada.")
+
+    (
+        os_data,
+        paciente_nome,
+        tutor_id,
+        tutor_nome,
+        _tutor_telefone,
+        _tutor_whatsapp,
+        _tutor_email,
+        _clinica_nome,
+        _clinica_telefone,
+        _clinica_email,
+        servico_nome,
+    ) = row
+    if os_data.status != required_status:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A OS {os_data.numero_os or os_data.id} precisa estar como {required_status}.",
+        )
+    if os_data.paciente_id is None:
+        raise HTTPException(status_code=409, detail=f"A OS {os_data.numero_os or os_data.id} nao possui paciente vinculado.")
+
+    tutor = db.query(Tutor).filter(Tutor.id == tutor_id).first() if tutor_id else None
+    clinica = db.query(Clinica).filter(Clinica.id == os_data.clinica_id).first() if os_data.clinica_id else None
+    recipient_name, registered_numbers = _numeros_whatsapp_os(os_data, clinica=clinica, tutor=tutor)
+    origem = str(os_data.origem_atendimento or "clinica_parceira").strip().lower()
+    recipient_key = f"tutor:{tutor_id}" if origem == "domiciliar" else f"clinica:{os_data.clinica_id}"
+
+    return {
+        "os": os_data,
+        "paciente_nome": str(paciente_nome or "Paciente").strip() or "Paciente",
+        "tutor_nome": str(tutor_nome or "Tutor nao informado").strip() or "Tutor nao informado",
+        "servico_nome": str(servico_nome or "Servico nao informado").strip() or "Servico nao informado",
+        "recipient_name": recipient_name,
+        "recipient_key": recipient_key,
+        "registered_numbers": registered_numbers,
+    }
+
+
+def _parametros_cobranca_individual(contexto: Dict[str, Any]) -> List[str]:
+    os_data = contexto["os"]
+    return [
+        str(contexto["recipient_name"])[:120],
+        str(os_data.numero_os or os_data.id)[:120],
+        str(contexto["servico_nome"])[:120],
+        _formatar_data_ddmmaa(os_data.data_atendimento)[:120],
+        str(contexto["tutor_nome"])[:120],
+        str(contexto["paciente_nome"])[:120],
+        _formatar_moeda_brl(os_data.valor_final)[:120],
+    ]
+
+
+def _detalhe_cobranca_agrupada(contexto: Dict[str, Any]) -> str:
+    os_data = contexto["os"]
+    return (
+        f"OS {os_data.numero_os or os_data.id} | {_formatar_data_ddmmaa(os_data.data_atendimento)} | "
+        f"{contexto['servico_nome']} | Tutor: {contexto['tutor_nome']} | Pet: {contexto['paciente_nome']} | "
+        f"{_formatar_moeda_brl(os_data.valor_final)}"
+    )
+
+
+def _numeros_comuns_contextos_whatsapp(contextos: List[Dict[str, Any]]) -> set[str]:
+    if not contextos:
+        raise HTTPException(status_code=422, detail="Nenhuma OS informada para o envio.")
+    recipient_keys = {str(item["recipient_key"]) for item in contextos}
+    if len(recipient_keys) != 1:
+        raise HTTPException(status_code=409, detail="As OS agrupadas precisam pertencer ao mesmo destinatario.")
+
+    numeros_comuns = set(contextos[0]["registered_numbers"])
+    for contexto in contextos[1:]:
+        numeros_comuns.intersection_update(contexto["registered_numbers"])
+    if not numeros_comuns:
+        raise HTTPException(status_code=409, detail="As OS nao possuem um WhatsApp cadastrado em comum.")
+    return numeros_comuns
+
+
 def _send_ordem_servico_whatsapp(
     *,
     os_id: int,
@@ -1102,19 +1192,9 @@ def _send_ordem_servico_whatsapp(
     db: Session,
     current_user: User,
 ) -> dict:
-    os_data = db.query(OrdemServico).filter(OrdemServico.id == os_id).first()
-    if os_data is None:
-        raise HTTPException(status_code=404, detail="Ordem de servico nao encontrada.")
-    if os_data.status != required_status:
-        action = "avisar o recibo" if required_status == "Pago" else "enviar a cobranca"
-        raise HTTPException(status_code=409, detail=f"A OS precisa estar como {required_status} para {action}.")
-
-    paciente = db.query(Paciente).filter(Paciente.id == os_data.paciente_id).first()
-    if paciente is None:
-        raise HTTPException(status_code=409, detail="A OS nao possui paciente vinculado.")
-    tutor = db.query(Tutor).filter(Tutor.id == paciente.tutor_id).first() if paciente.tutor_id else None
-    clinica = db.query(Clinica).filter(Clinica.id == os_data.clinica_id).first() if os_data.clinica_id else None
-    recipient_name, registered_numbers = _numeros_whatsapp_os(os_data, clinica=clinica, tutor=tutor)
+    contexto = _carregar_contexto_whatsapp_os(db, os_id, required_status=required_status)
+    os_data = contexto["os"]
+    registered_numbers = contexto["registered_numbers"]
 
     destination = normalize_whatsapp_number(payload.destination) if payload.destination else registered_numbers[0]
     if destination not in registered_numbers:
@@ -1126,13 +1206,18 @@ def _send_ordem_servico_whatsapp(
             subject_type="ordem_servico",
             subject_id=os_data.id,
             destination=destination,
-            parameters=[
-                recipient_name[:120],
-                str(os_data.numero_os or os_data.id)[:120],
-                str(paciente.nome or "Paciente").strip()[:120],
-                _formatar_moeda_brl(os_data.valor_final)[:120],
-            ],
+            parameters=(
+                _parametros_cobranca_individual(contexto)
+                if template_key == "pendingPaymentReminder"
+                else [
+                    str(contexto["recipient_name"])[:120],
+                    str(os_data.numero_os or os_data.id)[:120],
+                    str(contexto["paciente_nome"])[:120],
+                    _formatar_moeda_brl(os_data.valor_final)[:120],
+                ]
+            ),
             idempotency_key=payload.idempotency_key,
+            subject_ids=[os_data.id],
         )
     except WhatsAppTemplateDeliveryError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -1188,6 +1273,188 @@ def enviar_cobranca_whatsapp(
         os_id=os_id,
         template_key="pendingPaymentReminder",
         required_status="Pendente",
+        payload=payload,
+        request=request,
+        db=db,
+        current_user=current_user,
+    )
+
+
+@router.post("/whatsapp/cobranca-agrupada")
+def enviar_cobranca_whatsapp_agrupada(
+    payload: OrdensServicoWhatsAppAgrupadoInput,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Envia um unico modelo oficial para varias OS pendentes do mesmo destinatario."""
+    os_ids = list(dict.fromkeys(payload.os_ids))
+    if len(os_ids) < 2:
+        raise HTTPException(status_code=422, detail="Informe ao menos duas OS diferentes para a cobranca agrupada.")
+
+    contextos = [_carregar_contexto_whatsapp_os(db, os_id, required_status="Pendente") for os_id in os_ids]
+    numeros_comuns = _numeros_comuns_contextos_whatsapp(contextos)
+
+    destination = normalize_whatsapp_number(payload.destination) if payload.destination else sorted(numeros_comuns)[0]
+    if destination not in numeros_comuns:
+        raise HTTPException(status_code=422, detail="O numero informado nao pertence ao destinatario de todas as OS.")
+
+    detalhes = "; ".join(_detalhe_cobranca_agrupada(item) for item in contextos)
+    if len(detalhes) > 800:
+        raise HTTPException(
+            status_code=422,
+            detail="O detalhamento agrupado excede o limite do modelo. Reduza a quantidade de OS neste envio.",
+        )
+    total = sum(float(item["os"].valor_final or 0) for item in contextos)
+    try:
+        result = send_approved_utility_template(
+            template_key="pendingPaymentReminderBulk",
+            subject_type="ordem_servico",
+            subject_id=os_ids[0],
+            subject_ids=os_ids,
+            destination=destination,
+            parameters=[
+                str(contextos[0]["recipient_name"])[:120],
+                str(len(os_ids)),
+                _formatar_moeda_brl(total)[:120],
+                detalhes,
+            ],
+            idempotency_key=payload.idempotency_key,
+        )
+    except WhatsAppTemplateDeliveryError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    for contexto in contextos:
+        os_data = contexto["os"]
+        registrar_auditoria(
+            current_user=current_user,
+            modulo="ordens_servico",
+            entidade="ordem_servico",
+            entidade_id=os_data.id,
+            acao="ORDEM_SERVICO_COBRANCA_AGRUPADA_WHATSAPP_ENVIADA",
+            descricao="Modelo oficial de cobranca agrupada enviado pelo WhatsApp.",
+            detalhes={
+                "os_ids": os_ids,
+                "destination_suffix": destination[-4:],
+                "provider_message_id": result.get("message_id"),
+                "idempotent": bool(result.get("idempotent")),
+            },
+            request=request,
+        )
+    return result
+
+
+def _enviar_recibo_pdf_whatsapp(
+    *,
+    os_ids: List[int],
+    payload: OrdemServicoWhatsAppInput,
+    request: Request,
+    db: Session,
+    current_user: User,
+) -> dict:
+    ids = list(dict.fromkeys(os_ids))
+    if not ids or len(ids) > 20:
+        raise HTTPException(status_code=422, detail="Informe entre uma e vinte OS para o recibo PDF.")
+
+    contextos = [_carregar_contexto_whatsapp_os(db, os_id, required_status="Pago") for os_id in ids]
+    numeros_comuns = _numeros_comuns_contextos_whatsapp(contextos)
+    destination = normalize_whatsapp_number(payload.destination) if payload.destination else sorted(numeros_comuns)[0]
+    if destination not in numeros_comuns:
+        raise HTTPException(status_code=422, detail="O numero informado nao pertence ao destinatario de todas as OS.")
+
+    agrupar = len(ids) > 1
+    pdf_bytes, filename, recibos = _gerar_pdf_recibos_para_ids(
+        db=db,
+        current_user=current_user,
+        ids=ids,
+        agrupar=agrupar,
+    )
+    if agrupar:
+        total = sum(float(item["valor_final"] or 0) for item in recibos)
+        template_key: Literal["receiptPdf", "receiptPdfBulk"] = "receiptPdfBulk"
+        parameters = [
+            str(contextos[0]["recipient_name"])[:120],
+            str(len(ids)),
+            _formatar_moeda_brl(total)[:120],
+        ]
+    else:
+        contexto = contextos[0]
+        os_data = contexto["os"]
+        template_key = "receiptPdf"
+        parameters = [
+            str(contexto["recipient_name"])[:120],
+            str(os_data.numero_os or os_data.id)[:120],
+            str(contexto["servico_nome"])[:120],
+            _formatar_data_ddmmaa(os_data.data_atendimento)[:120],
+            str(contexto["tutor_nome"])[:120],
+            str(contexto["paciente_nome"])[:120],
+            _formatar_moeda_brl(os_data.valor_final)[:120],
+        ]
+
+    try:
+        result = send_approved_document_template(
+            template_key=template_key,
+            subject_id=ids[0],
+            subject_ids=ids,
+            destination=destination,
+            parameters=parameters,
+            idempotency_key=payload.idempotency_key,
+            document_bytes=pdf_bytes,
+            filename=filename,
+        )
+    except WhatsAppTemplateDeliveryError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    for contexto in contextos:
+        os_data = contexto["os"]
+        registrar_auditoria(
+            current_user=current_user,
+            modulo="ordens_servico",
+            entidade="ordem_servico",
+            entidade_id=os_data.id,
+            acao="ORDEM_SERVICO_RECIBO_PDF_WHATSAPP_ENVIADO",
+            descricao="Recibo PDF oficial enviado pelo WhatsApp.",
+            detalhes={
+                "os_ids": ids,
+                "agrupado": agrupar,
+                "destination_suffix": destination[-4:],
+                "provider_message_id": result.get("message_id"),
+                "provider_media_id": result.get("media_id"),
+                "idempotent": bool(result.get("idempotent")),
+            },
+            request=request,
+        )
+    return result
+
+
+@router.post("/{os_id}/whatsapp/recibo-pdf")
+def enviar_recibo_pdf_whatsapp(
+    os_id: int,
+    payload: OrdemServicoWhatsAppInput,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Gera e envia o recibo PDF oficial de uma OS paga."""
+    return _enviar_recibo_pdf_whatsapp(
+        os_ids=[os_id],
+        payload=payload,
+        request=request,
+        db=db,
+        current_user=current_user,
+    )
+
+
+@router.post("/whatsapp/recibos-pdf")
+def enviar_recibos_pdf_whatsapp(
+    payload: OrdensServicoWhatsAppAgrupadoInput,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Gera e envia um unico recibo PDF para varias OS pagas do mesmo destinatario."""
+    return _enviar_recibo_pdf_whatsapp(
+        os_ids=payload.os_ids,
         payload=payload,
         request=request,
         db=db,
@@ -1622,16 +1889,13 @@ def _carregar_dados_emissor_recibo_empresa(db: Session) -> Dict[str, Any]:
     }
 
 
-@router.get("/relatorios/recibos/pdf")
-def gerar_recibos_os_pdf(
-    os_ids: str,
-    agrupar: bool = Query(False),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Gera recibo PDF para OS recebidas, individual ou agrupado."""
-    ids = _parse_os_ids_param(os_ids)
-
+def _gerar_pdf_recibos_para_ids(
+    *,
+    db: Session,
+    current_user: User,
+    ids: List[int],
+    agrupar: bool,
+) -> Tuple[bytes, str, List[Dict[str, Any]]]:
     recibos = _montar_recibos_os(db, ids)
     encontrados_ids = {item["id"] for item in recibos}
     faltantes = [os_id for os_id in ids if os_id not in encontrados_ids]
@@ -1646,10 +1910,12 @@ def gerar_recibos_os_pdf(
 
     dados_empresa = _carregar_dados_emissor_recibo_empresa(db)
     configuracao_usuario = _carregar_configuracao_usuario_recibo(db, current_user.id)
+    # Recibos financeiros representam a empresa: a assinatura/carimbo padrao
+    # prevalece sobre a assinatura pessoal do operador que registrou a baixa.
     assinatura_emitente = dados_empresa["assinatura_emitente"]
     crmv_emitente = ""
     if configuracao_usuario:
-        if configuracao_usuario.assinatura_dados:
+        if not assinatura_emitente and configuracao_usuario.assinatura_dados:
             assinatura_emitente = configuracao_usuario.assinatura_dados
         crmv_emitente = str(configuracao_usuario.crmv or "").strip()
 
@@ -1671,6 +1937,25 @@ def gerar_recibos_os_pdf(
         filename = f"recibo_os_{recibos[0]['numero_os']}.pdf"
     else:
         filename = f"recibos_os_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+    return pdf_bytes, filename, recibos
+
+
+@router.get("/relatorios/recibos/pdf")
+def gerar_recibos_os_pdf(
+    os_ids: str,
+    agrupar: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Gera recibo PDF para OS recebidas, individual ou agrupado."""
+    ids = _parse_os_ids_param(os_ids)
+
+    pdf_bytes, filename, _recibos = _gerar_pdf_recibos_para_ids(
+        db=db,
+        current_user=current_user,
+        ids=ids,
+        agrupar=agrupar,
+    )
     return StreamingResponse(
         BytesIO(pdf_bytes),
         media_type="application/pdf",

@@ -9,7 +9,8 @@ import {
   APPROVED_UTILITY_TEMPLATES,
   ApprovedUtilityTemplateKey,
   getTemplateBodyParameterCount,
-  renderApprovedTemplateBody
+  renderApprovedTemplateBody,
+  templateRequiresDocumentHeader
 } from "../templates/approvedTemplates";
 import { logger } from "../utils/logger";
 import { canonicalWhatsAppIdentity } from "../utils/phoneNumber";
@@ -21,6 +22,7 @@ interface UtilityTemplateRequest {
   template_key: UtilityTemplateKey;
   subject_type: SubjectType;
   subject_id: number;
+  subject_ids: number[];
   destination: string;
   idempotency_key: string;
   parameters: string[];
@@ -41,7 +43,10 @@ const SUBJECT_BY_TEMPLATE: Record<UtilityTemplateKey, SubjectType> = {
   appointmentMissingData: "agendamento",
   portalReportAvailable: "exame",
   receiptAvailable: "ordem_servico",
-  pendingPaymentReminder: "ordem_servico"
+  receiptPdf: "ordem_servico",
+  receiptPdfBulk: "ordem_servico",
+  pendingPaymentReminder: "ordem_servico",
+  pendingPaymentReminderBulk: "ordem_servico"
 };
 
 function cleanText(value: unknown, field: string, maxLength: number): string {
@@ -73,6 +78,9 @@ function parseRequest(body: unknown): UtilityTemplateRequest {
     throw new Error("template_key is not an approved utility template");
   }
   const templateKey = source.template_key;
+  if (templateRequiresDocumentHeader(templateKey)) {
+    throw new Error(`template '${templateKey}' requires the document template route`);
+  }
   const subjectType = cleanText(source.subject_type, "subject_type", 40) as SubjectType;
   if (subjectType !== SUBJECT_BY_TEMPLATE[templateKey]) {
     throw new Error(`template '${templateKey}' cannot be used with subject_type '${subjectType}'`);
@@ -81,21 +89,42 @@ function parseRequest(body: unknown): UtilityTemplateRequest {
   if (!Number.isSafeInteger(subjectId) || subjectId <= 0) {
     throw new Error("subject_id must be a positive integer");
   }
+  const subjectIdsRaw = source.subject_ids === undefined ? [subjectId] : source.subject_ids;
+  if (!Array.isArray(subjectIdsRaw)) {
+    throw new Error("subject_ids must be an array");
+  }
+  const subjectIds = Array.from(new Set(subjectIdsRaw.map((value) => Number(value))));
+  if (
+    subjectIds.length === 0 ||
+    subjectIds.length > 20 ||
+    subjectIds.some((value) => !Number.isSafeInteger(value) || value <= 0) ||
+    !subjectIds.includes(subjectId)
+  ) {
+    throw new Error("subject_ids must contain subject_id and between 1 and 20 positive integers");
+  }
   if (!Array.isArray(source.parameters)) {
     throw new Error("parameters must be an array");
   }
   const parameters = source.parameters.map((value, index) =>
-    cleanText(value, `parameters[${index}]`, 300)
+    cleanText(
+      value,
+      `parameters[${index}]`,
+      templateKey === "pendingPaymentReminderBulk" && index === 3 ? 900 : 300
+    )
   );
   const expected = getTemplateBodyParameterCount(templateKey);
   if (parameters.length !== expected) {
     throw new Error(`template '${templateKey}' expects ${expected} parameters, received ${parameters.length}`);
+  }
+  if (renderApprovedTemplateBody(templateKey, parameters).length > 1024) {
+    throw new Error(`template '${templateKey}' rendered body exceeds 1024 characters`);
   }
 
   return {
     template_key: templateKey,
     subject_type: subjectType,
     subject_id: subjectId,
+    subject_ids: subjectIds,
     destination: normalizeDestination(source.destination),
     idempotency_key: cleanText(source.idempotency_key, "idempotency_key", 128),
     parameters
@@ -164,16 +193,17 @@ async function reserveDelivery(payload: UtilityTemplateRequest) {
     const inserted = await queryWithClient<UtilityTemplateRow>(
       client,
       `INSERT INTO approved_template_messages (
-         template_key, template_name, language_code, subject_type, subject_id,
+         template_key, template_name, language_code, subject_type, subject_id, subject_ids,
          destination, idempotency_key, request_hash, body_parameters,
          button_bindings, rendered_body, processing_status, created_at, updated_at
-       ) VALUES ($1, $2, 'pt_BR', $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, 'pending', now(), now())
+       ) VALUES ($1, $2, 'pt_BR', $3, $4, $5::jsonb, $6, $7, $8, $9::jsonb, $10::jsonb, $11, 'pending', now(), now())
        RETURNING *`,
       [
         payload.template_key,
         definition.name,
         payload.subject_type,
         payload.subject_id,
+        JSON.stringify(payload.subject_ids),
         payload.destination,
         payload.idempotency_key,
         requestHash,
@@ -220,6 +250,7 @@ async function persistSentMessage(
           template_name: definition.name,
           subject_type: payload.subject_type,
           subject_id: payload.subject_id,
+          subject_ids: payload.subject_ids,
           language_code: "pt_BR"
         })
       ]

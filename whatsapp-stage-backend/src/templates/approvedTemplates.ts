@@ -62,18 +62,53 @@ export const APPROVED_UTILITY_TEMPLATES = {
     quickReplies: ["Falar com financeiro"],
     buttonActions: ["falar_financeiro"]
   },
-  pendingPaymentReminder: {
-    name: "lembrete_pagamento_pendente",
-    metaId: "1727741245180854",
+  receiptPdf: {
+    name: "recibo_pagamento_pdf",
+    metaId: "1025876410335393",
+    headerType: "document",
     body:
-      "Olá, {{1}}. A OS {{2}}, referente a {{3}}, continua pendente no valor de {{4}}. " +
+      "Olá, {{1}}. Confirmamos o recebimento da OS {{2}}, referente ao serviço {{3}}, realizado em {{4}}, " +
+      "para o tutor {{5}} e o pet {{6}}, no valor de {{7}}. O recibo detalhado está anexado em PDF.",
+    quickReplies: ["Falar com financeiro"],
+    buttonActions: ["falar_financeiro"]
+  },
+  receiptPdfBulk: {
+    name: "recibo_pagamento_pdf_multiplas_os",
+    metaId: "940165775772306",
+    headerType: "document",
+    body:
+      "Olá, {{1}}. Confirmamos o recebimento de {{2}} ordens de serviço, no total de {{3}}. " +
+      "O recibo consolidado com OS, datas, serviços, tutores e pets está anexado em PDF.",
+    quickReplies: ["Falar com financeiro"],
+    buttonActions: ["falar_financeiro"]
+  },
+  pendingPaymentReminder: {
+    name: "lembrete_pagamento_pendente_detalhado",
+    metaId: "1265598002271332",
+    body:
+      "Olá, {{1}}. A OS {{2}}, referente ao serviço {{3}}, realizado em {{4}}, para o tutor {{5}} e o pet {{6}}, " +
+      "continua pendente no valor de {{7}}. " +
       "Se o pagamento já foi realizado, desconsidere esta mensagem.",
+    quickReplies: ["Já paguei", "Falar com financeiro"],
+    buttonActions: ["ja_paguei", "falar_financeiro"]
+  },
+  pendingPaymentReminderBulk: {
+    name: "lembrete_pagamento_pendente_multiplas_os",
+    metaId: "1574210064240409",
+    body:
+      "Olá, {{1}}. Identificamos {{2}} ordens de serviço pendentes, no total de {{3}}. " +
+      "Detalhamento: {{4}}. Se o pagamento já foi realizado, desconsidere esta mensagem.",
     quickReplies: ["Já paguei", "Falar com financeiro"],
     buttonActions: ["ja_paguei", "falar_financeiro"]
   }
 } as const;
 
 export type ApprovedUtilityTemplateKey = keyof typeof APPROVED_UTILITY_TEMPLATES;
+
+export function templateRequiresDocumentHeader(templateKey: ApprovedUtilityTemplateKey): boolean {
+  const definition = APPROVED_UTILITY_TEMPLATES[templateKey];
+  return "headerType" in definition && definition.headerType === "document";
+}
 
 export function getTemplateBodyParameterCount(templateKey: ApprovedUtilityTemplateKey): number {
   const matches = APPROVED_UTILITY_TEMPLATES[templateKey].body.match(/\{\{\d+\}\}/g);

@@ -96,7 +96,7 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
   {
     label: "Sistema",
     items: [
-      { href: "/whatsapp-stage", label: "WhatsApp Stage", icon: MessageSquare },
+      { href: "/whatsapp-stage", label: "WhatsApp", icon: MessageSquare },
       { href: "/configuracoes", label: "Configurações", icon: Settings },
     ],
   },

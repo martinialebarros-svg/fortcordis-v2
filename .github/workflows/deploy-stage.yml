@@ -13,6 +13,20 @@ jobs:
   quality-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fortcordis_stage
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fortcordis_stage"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -71,10 +85,13 @@ jobs:
         run: |
           npm run test:reservation-template
           npm run test:approved-templates
+          npm run test:document-templates
+          npm run test:inbox-ui
           npm run test:customer-service-window
           npm run test:phone-number
           npm run test:whatsapp-retry
           npm run test:auth-policy
+          npm run test:webhook-cleanup-config
           npm run test:log-redaction
           npm audit --omit=dev
 

@@ -17,10 +17,13 @@ async function run(): Promise<void> {
     appointmentMissingData: ["dados_pendentes_agendamento", "2094851784715594", 4, 2],
     portalReportAvailable: ["laudo_disponivel_portal", "1682393009502350", 3, 0],
     receiptAvailable: ["recibo_disponivel", "934407008986859", 4, 1],
-    pendingPaymentReminder: ["lembrete_pagamento_pendente", "1727741245180854", 4, 2]
+    receiptPdf: ["recibo_pagamento_pdf", "1025876410335393", 7, 1],
+    receiptPdfBulk: ["recibo_pagamento_pdf_multiplas_os", "940165775772306", 3, 1],
+    pendingPaymentReminder: ["lembrete_pagamento_pendente_detalhado", "1265598002271332", 7, 2],
+    pendingPaymentReminderBulk: ["lembrete_pagamento_pendente_multiplas_os", "1574210064240409", 4, 2]
   } as const;
 
-  assert.strictEqual(Object.keys(APPROVED_UTILITY_TEMPLATES).length, 8);
+  assert.strictEqual(Object.keys(APPROVED_UTILITY_TEMPLATES).length, 11);
   assert.strictEqual(APPROVED_TEMPLATE_LANGUAGE, "pt_BR");
   for (const [templateKey, definition] of Object.entries(APPROVED_UTILITY_TEMPLATES)) {
     const expected = expectedCatalog[templateKey as keyof typeof expectedCatalog];
@@ -83,14 +86,22 @@ async function run(): Promise<void> {
       accessToken: "secret-token",
       to: "558588281436",
       templateKey: "pendingPaymentReminder",
-      bodyParameters: ["Animal Care", "12345", "gamora", "R$ 350,00"],
+      bodyParameters: [
+        "Animal Care",
+        "12345",
+        "Ecocardiograma",
+        "15/08/2026",
+        "Maria",
+        "gamora",
+        "R$ 350,00"
+      ],
       quickReplyPayloads: ["payment-confirmed-token", "finance-contact-token"]
     });
 
     assert.strictEqual(capturedPayloads[0].template.name, "laudo_disponivel_portal");
     assert.strictEqual(capturedPayloads[0].template.language.code, "pt_BR");
     assert.strictEqual(capturedPayloads[0].template.components.length, 1);
-    assert.strictEqual(capturedPayloads[1].template.name, "lembrete_pagamento_pendente");
+    assert.strictEqual(capturedPayloads[1].template.name, "lembrete_pagamento_pendente_detalhado");
     assert.strictEqual(capturedPayloads[1].template.components.length, 3);
     assert.deepStrictEqual(capturedPayloads[1].template.components[2], {
       type: "button",

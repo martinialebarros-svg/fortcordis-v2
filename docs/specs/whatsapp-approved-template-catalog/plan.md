@@ -13,3 +13,7 @@ Data: 2026-08-16
 - [x] P9. Adicionar persistencia idempotente e associacao ao objeto de dominio.
 - [x] P10. Cobrir o contrato interno, destinatarios cadastrados e payloads Meta.
 - [x] P11. Validar em stage antes de qualquer promocao.
+- [x] P12. Definir localmente os contratos de cobranca consolidada e recibos PDF.
+- [x] P13. Cobrir cabecalho de documento, upload de midia e referencias de multiplas OS.
+- [x] P14. Registrar IDs e confirmacao operacional da aprovacao dos quatro modelos financeiros.
+- [ ] P15. Validar a extensao em stage depois da aprovacao Meta.

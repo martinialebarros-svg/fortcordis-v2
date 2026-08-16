@@ -102,6 +102,9 @@ docker-compose up -d --build
 - `GET /agents`
 - `POST /agents`
 - `POST /automation/agenda/reservations` (envia `reserva_de_agendamento` com quick replies)
+- `POST /automation/templates` (envia modelo de texto aprovado, com idempotencia e referencia de dominio)
+- `POST /automation/document-templates` (recebe PDF em memoria, faz upload na Cloud API e envia
+  modelo de recibo com cabecalho de documento)
 
 ## Autenticacao e ACL
 
@@ -163,6 +166,8 @@ WHATSAPP_INTERNAL_API_TOKEN="<internal_token>" bash scripts/smoke-tests.sh
 npm run smoke
 npm run test:whatsapp-retry
 npm run test:reservation-template
+npm run test:approved-templates
+npm run test:document-templates
 ```
 
 ## Observacoes
@@ -172,6 +177,10 @@ npm run test:reservation-template
   correspondem ao envio persistido; o callback ao backend principal usa o token interno.
 - Modelo da Agenda: `WHATSAPP_RESERVATION_TEMPLATE_NAME=reserva_de_agendamento` e
   `WHATSAPP_RESERVATION_TEMPLATE_LANGUAGE=pt_BR`.
+- Documentos aceitam apenas `application/pdf`, assinatura `%PDF`, nome seguro e ate 8 MiB. O binario
+  nao e persistido; ficam registrados somente hash, nome, ID de midia e ID da mensagem.
+- Os quatro modelos financeiros possuem IDs registrados no catalogo e tiveram a aprovacao confirmada
+  operacionalmente antes do cutover. O servico nao consulta o status da Meta em tempo real.
 - Para debug local sem assinatura (nao recomendado), use `WEBHOOK_ALLOW_UNSIGNED=true` no `.env`.
 - Retencao de eventos webhook:
   - `WHATSAPP_WEBHOOK_EVENTS_CLEANUP_ENABLED` (default `true`)

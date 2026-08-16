@@ -163,12 +163,16 @@ CREATE TABLE IF NOT EXISTS approved_template_messages (
   language_code VARCHAR(20) NOT NULL,
   subject_type VARCHAR(40) NOT NULL,
   subject_id BIGINT NOT NULL,
+  subject_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
   destination VARCHAR(32) NOT NULL,
   idempotency_key VARCHAR(128) NOT NULL,
   request_hash VARCHAR(64) NOT NULL,
   body_parameters JSONB NOT NULL,
   button_bindings JSONB NOT NULL DEFAULT '[]'::jsonb,
   rendered_body TEXT NOT NULL,
+  document_filename VARCHAR(160),
+  document_sha256 VARCHAR(64),
+  wa_media_id VARCHAR(160),
   wa_message_id VARCHAR(160),
   processing_status VARCHAR(20) NOT NULL DEFAULT 'pending',
   processing_error TEXT,
@@ -178,6 +182,15 @@ CREATE TABLE IF NOT EXISTS approved_template_messages (
   CONSTRAINT approved_template_messages_idempotency_key UNIQUE (idempotency_key),
   CONSTRAINT approved_template_messages_wa_message_id_key UNIQUE (wa_message_id)
 );
+
+ALTER TABLE approved_template_messages
+  ADD COLUMN IF NOT EXISTS subject_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE approved_template_messages
+  ADD COLUMN IF NOT EXISTS document_filename VARCHAR(160);
+ALTER TABLE approved_template_messages
+  ADD COLUMN IF NOT EXISTS document_sha256 VARCHAR(64);
+ALTER TABLE approved_template_messages
+  ADD COLUMN IF NOT EXISTS wa_media_id VARCHAR(160);
 
 CREATE INDEX IF NOT EXISTS ix_approved_template_messages_subject
   ON approved_template_messages (subject_type, subject_id, created_at);
