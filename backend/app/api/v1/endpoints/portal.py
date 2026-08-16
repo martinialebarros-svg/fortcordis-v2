@@ -43,6 +43,7 @@ from app.models.laudo import Exame, Laudo
 from app.models.ordem_servico import OrdemServico
 from app.models.paciente import Paciente
 from app.models.portal_access import PortalAccessChallenge
+from app.models.portal_clinic_auth import PortalClinicAccount
 from app.models.portal_partner import PortalPartnerProfile, PortalPartnerReleaseTarget
 from app.models.servico import Servico
 from app.models.tutor import Tutor
@@ -1285,6 +1286,14 @@ def listar_exames_clinica_portal(
         for exam in exams
     ]
 
+    must_change_password = None
+    if portal_session.account_id is not None:
+        must_change_password = bool(
+            db.query(PortalClinicAccount.must_change_password)
+            .filter(PortalClinicAccount.id == portal_session.account_id)
+            .scalar()
+        )
+
     return PortalExamListResponse(
         total=total,
         clinica_id=clinica.id,
@@ -1293,6 +1302,7 @@ def listar_exames_clinica_portal(
         operational_items=operational_items,
         operational_pending_items=operational_pending_items,
         items=items,
+        must_change_password=must_change_password,
     )
 
 

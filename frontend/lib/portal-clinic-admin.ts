@@ -15,12 +15,14 @@ export function buildClinicInviteMessage({
   accessMode,
   expiresAt,
   accountEmailMasked,
+  senhaTemporaria,
 }: {
   clinicaNome: string;
   activationUrl: string;
-  accessMode: "activation" | "login";
+  accessMode: "activation" | "login" | "temporary_password";
   expiresAt?: string | null;
   accountEmailMasked?: string | null;
+  senhaTemporaria?: string | null;
 }): string {
   const emailLine = accountEmailMasked
     ? `O email institucional definido para este acesso e ${accountEmailMasked}.`
@@ -37,6 +39,21 @@ export function buildClinicInviteMessage({
       emailLine,
       "Se a senha nao estiver mais com a equipe, use a opcao 'Esqueci minha senha' na tela de entrada para redefinir o acesso.",
       "O portal continua protegendo os dados da unidade e dos pacientes, entao este acesso nao deve ser compartilhado fora da equipe autorizada.",
+    ].join("\n");
+  }
+
+  if (accessMode === "temporary_password") {
+    return [
+      `Ola, equipe ${clinicaNome}.`,
+      "",
+      "A Fort Cordis liberou um acesso seguro para a sua clinica acompanhar exames e laudos dos pets atendidos na unidade.",
+      "Use o link abaixo para entrar direto no portal:",
+      activationUrl,
+      "",
+      emailLine,
+      `Senha temporaria: ${senhaTemporaria || "(gerada pelo sistema)"}`,
+      "No primeiro acesso vamos pedir um codigo extra por email, e o portal vai lembrar a equipe de trocar essa senha por uma so da unidade assim que possivel.",
+      "Nao compartilhe este acesso fora da equipe autorizada.",
     ].join("\n");
   }
 
@@ -69,7 +86,7 @@ export function buildPartnerInviteMessage({
 }: {
   partnerNome: string;
   activationUrl: string;
-  accessMode: "activation" | "login";
+  accessMode: "activation" | "login" | "temporary_password";
   expiresAt?: string | null;
   accountEmailMasked?: string | null;
 }): string {

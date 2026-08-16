@@ -136,6 +136,46 @@ def generate_code() -> str:
     return f"{secrets.randbelow(1_000_000):06d}"
 
 
+# Palavras curtas, sem acento, sem ambiguidade visual/sonora - usadas so
+# para compor a senha temporaria de convite (formato `palavra-NNNN`).
+_TEMP_PASSWORD_WORDS = (
+    "abelha", "amora", "anel", "arco", "aroma", "avela", "baleia", "banana",
+    "barco", "bode", "bolha", "bolo", "bosque", "cacto", "cafe", "campo",
+    "canela", "canoa", "carvao", "casaco", "cesta", "chave", "chuva",
+    "cobra", "coelho", "coral", "corvo", "creme", "cristal", "diamante",
+    "dourado", "estrela", "fada", "farol", "flauta", "flecha", "flor",
+    "floresta", "folha", "fonte", "foguete", "fumaca", "funil", "gaivota",
+    "galho", "garfo", "gato", "gaveta", "girafa", "grama", "grao", "grilo",
+    "guarda", "harpa", "ilha", "jaca", "jangada", "jardim", "jarra",
+    "joaninha", "lago", "lagosta", "laranja", "leao", "leque", "limao",
+    "lince", "lontra", "louva", "luar", "lucia", "macaco", "maca", "mango",
+    "manteiga", "mapa", "mar", "marfim", "melancia", "melao", "menta",
+    "mistura", "morango", "mostarda", "musgo", "neve", "noz", "nuvem",
+    "oceano", "orquidea", "ostra", "outono", "ovelha", "paisagem", "palma",
+    "pandeiro", "panela", "pantera", "papagaio", "pardal", "pasta",
+    "pavao", "pedra", "peixe", "pente", "pera", "perola", "pinha",
+    "pinheiro", "pipoca", "planeta", "pomba", "ponte", "porta", "praia",
+    "prata", "quintal", "raio", "rio", "roda", "rosa", "sabao", "sacola",
+    "sal", "salada", "sapato", "sapo", "seda", "selva", "sino", "sol",
+    "tapete", "tartaruga", "tesoura", "tigre", "tomate", "tordo", "torre",
+    "tucano", "tulipa", "uva", "vagalume", "vale", "vaso", "vela",
+    "velame", "vento", "verde", "vidro", "vinho", "violeta", "zebra",
+)
+
+
+def gerar_senha_temporaria() -> str:
+    """Senha temporaria facil de ler/digitar: `palavra-NNNN`.
+
+    Usada quando o admin gera uma conta de clinica com senha ja
+    definida (em vez de a clinica criar a propria senha) - o MFA
+    obrigatorio enquanto `must_change_password` estiver ligado
+    compensa a entropia menor.
+    """
+    palavra = secrets.choice(_TEMP_PASSWORD_WORDS)
+    digitos = f"{secrets.randbelow(10_000):04d}"
+    return f"{palavra}-{digitos}"
+
+
 def hash_password(plain_password: str) -> str:
     pwd_bytes = plain_password.encode("utf-8")[:72]
     plain_truncated = pwd_bytes.decode("utf-8", errors="ignore")
@@ -590,6 +630,32 @@ def send_whatsapp_login_access(
     )
 
 
+def send_whatsapp_temporary_password(
+    *,
+    destination: str,
+    clinica_nome: str,
+    portal_url: str,
+    account_email: str,
+    senha_temporaria: str,
+) -> PortalDeliveryResult:
+    return send_portal_whatsapp_message(
+        destination=destination,
+        message=(
+            f"Fort Cordis: liberamos o acesso da clinica {clinica_nome} ao portal seguro para consultar exames e laudos liberados. "
+            f"Use este link para entrar: {portal_url} . "
+            f"Email de acesso: {account_email}. Senha temporaria: {senha_temporaria} . "
+            "No primeiro acesso vamos pedir um codigo extra por email e vamos te lembrar de trocar essa senha por uma so sua. "
+            "Nao compartilhe este acesso fora da equipe autorizada."
+        ),
+        metadata={
+            "invite_kind": "portal_clinic_temporary_password",
+            "portal_url": portal_url,
+            "account_email": account_email,
+            "clinica_nome": clinica_nome,
+        },
+    )
+
+
 def create_refresh_session(
     db: Session,
     *,
@@ -760,7 +826,7 @@ def issue_clinic_session(
 
 
 def maybe_require_mfa(account: PortalClinicAccount, *, remember_device_until_shift_end: bool) -> bool:
-    return bool(account.force_mfa_on_next_login)
+    return bool(account.force_mfa_on_next_login) or bool(account.must_change_password)
 
 
 def create_password_reset_token(db: Session, *, account_id: int) -> tuple[PortalPasswordResetToken, str]:

@@ -115,6 +115,7 @@ class PortalExamListResponse(BaseModel):
     operational_items: list[PortalClinicOperationalItemResponse] = Field(default_factory=list)
     operational_pending_items: list[PortalClinicOperationalItemResponse] = Field(default_factory=list)
     items: list[PortalExamSummaryResponse] = Field(default_factory=list)
+    must_change_password: Optional[bool] = None
 
 
 class PortalClinicaAgendamentoItemResponse(BaseModel):
@@ -188,6 +189,8 @@ class PortalAdminClinicInviteCreateRequest(BaseModel):
     account_email: Optional[str] = Field(default=None, min_length=5, max_length=255)
     expires_in_hours: int = Field(default=72, ge=1, le=168)
     allow_manual_copy: bool = True
+    senha_temporaria: bool = False
+    responsavel_nome: Optional[str] = Field(default=None, min_length=2, max_length=255)
 
 
 class PortalAdminClinicInviteResponse(BaseModel):
@@ -195,12 +198,13 @@ class PortalAdminClinicInviteResponse(BaseModel):
     status: str
     expires_at: Optional[datetime] = None
     activation_url: str
-    access_mode: Literal["activation", "login"] = "activation"
+    access_mode: Literal["activation", "login", "temporary_password"] = "activation"
     delivery_channel: str
     delivery_target_masked: Optional[str] = None
     account_email_masked: Optional[str] = None
     delivery_status: str = "manual_copy"
     delivery_provider: Optional[str] = None
+    senha_temporaria: Optional[str] = None
 
 
 class PortalAdminClinicInviteRevokeRequest(BaseModel):
@@ -504,6 +508,12 @@ class PortalClinicActivationRequest(BaseModel):
     responsavel_nome: str = Field(..., min_length=2, max_length=255)
     password: str = Field(..., min_length=PORTAL_CLINIC_PASSWORD_MIN_LENGTH, max_length=255)
     password_confirmation: str = Field(..., min_length=PORTAL_CLINIC_PASSWORD_MIN_LENGTH, max_length=255)
+
+
+class PortalClinicPasswordChangeRequest(BaseModel):
+    senha_atual: str = Field(..., min_length=1, max_length=255)
+    nova_senha: str = Field(..., min_length=PORTAL_CLINIC_PASSWORD_MIN_LENGTH, max_length=255)
+    nova_senha_confirmacao: str = Field(..., min_length=PORTAL_CLINIC_PASSWORD_MIN_LENGTH, max_length=255)
 
 
 class PortalClinicActivationResponse(BaseModel):

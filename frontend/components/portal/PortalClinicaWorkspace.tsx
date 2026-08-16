@@ -18,16 +18,19 @@ import {
   PawPrint,
   RefreshCcw,
   Search,
+  Settings,
   ShieldCheck,
   SlidersHorizontal,
   Stethoscope,
   Users,
   Wallet,
+  X,
   XCircle,
 } from "lucide-react";
 
 import {
   cancelPortalClinicAgendamento,
+  changeClinicPortalPassword,
   createPortalAdminClinicExamDownloadUrls,
   clearPortalSession,
   createPortalExamDownloadUrls,
@@ -239,6 +242,14 @@ export default function PortalClinicaWorkspace({
   const [abaAtiva, setAbaAtiva] = useState<PortalTabId>("visao-geral");
   const [agendamentosSolicitados, setAgendamentosSolicitados] = useState(false);
   const [financeiroSolicitado, setFinanceiroSolicitado] = useState(false);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [mustChangePasswordDismissed, setMustChangePasswordDismissed] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [senhaAtualInput, setSenhaAtualInput] = useState("");
+  const [novaSenhaInput, setNovaSenhaInput] = useState("");
+  const [novaSenhaConfirmacaoInput, setNovaSenhaConfirmacaoInput] = useState("");
+  const [passwordChangeLoading, setPasswordChangeLoading] = useState(false);
+  const [passwordChangeError, setPasswordChangeError] = useState("");
   const previewSession = useMemo<PortalSessionResponse | null>(() => {
     if (!isAdminPreview || !previewClinicId) {
       return null;
@@ -349,6 +360,7 @@ export default function PortalClinicaWorkspace({
       }
       setClinicName(response.clinica_nome || adminPreview?.clinicaNome || null);
       setTotalAvailable(response.total);
+      setMustChangePassword(Boolean(response.must_change_password));
       setDashboardLoaded(true);
       if (response.total === 0) {
         setMessage("Nenhum exame liberado foi encontrado para os filtros aplicados.");
@@ -454,6 +466,41 @@ export default function PortalClinicaWorkspace({
       setFinanceiroError(err instanceof Error ? err.message : "Não foi possível baixar o recibo.");
     } finally {
       setBaixandoReciboId(null);
+    }
+  }
+
+  async function handleChangePassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!session) {
+      return;
+    }
+    if (novaSenhaInput !== novaSenhaConfirmacaoInput) {
+      setPasswordChangeError("A confirmação da nova senha não confere.");
+      return;
+    }
+
+    setPasswordChangeLoading(true);
+    setPasswordChangeError("");
+    try {
+      const usableSession = await ensureClinicSession(session);
+      await changeClinicPortalPassword(
+        {
+          senha_atual: senhaAtualInput,
+          nova_senha: novaSenhaInput,
+          nova_senha_confirmacao: novaSenhaConfirmacaoInput,
+        },
+        usableSession.access_token,
+      );
+      setMustChangePassword(false);
+      setShowPasswordModal(false);
+      setSenhaAtualInput("");
+      setNovaSenhaInput("");
+      setNovaSenhaConfirmacaoInput("");
+      setMessage("Senha atualizada com sucesso.");
+    } catch (err) {
+      setPasswordChangeError(err instanceof Error ? err.message : "Não foi possível trocar a senha.");
+    } finally {
+      setPasswordChangeLoading(false);
     }
   }
 
@@ -701,6 +748,19 @@ export default function PortalClinicaWorkspace({
               </h1>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              {!isAdminPreview ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPasswordChangeError("");
+                    setShowPasswordModal(true);
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50"
+                >
+                  <Settings className="h-4 w-4" />
+                  Configurações
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void loadDashboard(filters, session)}
@@ -731,6 +791,34 @@ export default function PortalClinicaWorkspace({
             </div>
           </div>
         </header>
+
+        {mustChangePassword && !mustChangePasswordDismissed && !isAdminPreview ? (
+          <div className="mx-auto mt-4 flex max-w-7xl flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 px-5 py-3 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+            <p>
+              Esta conta ainda está usando a senha temporária gerada no convite. Troque por uma senha só sua assim
+              que possível.
+            </p>
+            <div className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPasswordChangeError("");
+                  setShowPasswordModal(true);
+                }}
+                className="inline-flex items-center justify-center rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-amber-700"
+              >
+                Trocar senha agora
+              </button>
+              <button
+                type="button"
+                onClick={() => setMustChangePasswordDismissed(true)}
+                className="inline-flex items-center justify-center rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-bold text-amber-800 transition hover:bg-amber-100"
+              >
+                Dispensar por agora
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <main className="mx-auto max-w-7xl px-5 py-6 sm:px-8">
           <section className="fc-clinic-dashboard-hero grid gap-4 lg:grid-cols-[1fr_0.72fr] lg:items-start">
@@ -1474,6 +1562,90 @@ export default function PortalClinicaWorkspace({
             </div>
           ) : null}
         </main>
+
+        {showPasswordModal ? (
+          <div
+            className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/60 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="portal-clinica-trocar-senha-titulo"
+          >
+            <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+              <div className="flex items-start justify-between gap-4">
+                <h2 id="portal-clinica-trocar-senha-titulo" className="text-lg font-bold text-slate-950">
+                  Trocar senha
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordModal(false)}
+                  aria-label="Fechar"
+                  className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleChangePassword} className="mt-4 space-y-4">
+                <label className="block text-sm font-semibold text-slate-800">
+                  Senha atual
+                  <input
+                    type="password"
+                    required
+                    value={senhaAtualInput}
+                    onChange={(event) => setSenhaAtualInput(event.target.value)}
+                    className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-500"
+                  />
+                </label>
+                <label className="block text-sm font-semibold text-slate-800">
+                  Nova senha
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={novaSenhaInput}
+                    onChange={(event) => setNovaSenhaInput(event.target.value)}
+                    className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-500"
+                  />
+                </label>
+                <label className="block text-sm font-semibold text-slate-800">
+                  Confirmar nova senha
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={novaSenhaConfirmacaoInput}
+                    onChange={(event) => setNovaSenhaConfirmacaoInput(event.target.value)}
+                    className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-teal-500"
+                  />
+                </label>
+
+                {passwordChangeError ? (
+                  <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
+                    {passwordChangeError}
+                  </div>
+                ) : null}
+
+                <div className="flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswordModal(false)}
+                    className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={passwordChangeLoading}
+                    className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
+                  >
+                    {passwordChangeLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Salvar nova senha
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        ) : null}
       </section>
     );
   }

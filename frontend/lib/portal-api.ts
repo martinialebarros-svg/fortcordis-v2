@@ -114,12 +114,13 @@ export type PortalAdminClinicInviteResponse = {
   status: string;
   expires_at?: string | null;
   activation_url: string;
-  access_mode: "activation" | "login";
+  access_mode: "activation" | "login" | "temporary_password";
   delivery_channel: string;
   delivery_target_masked?: string | null;
   account_email_masked?: string | null;
   delivery_status: string;
   delivery_provider?: string | null;
+  senha_temporaria?: string | null;
 };
 
 export type PortalAdminClinicInviteSnapshot = {
@@ -355,6 +356,7 @@ export type PortalExamListResponse = {
   operational_items?: PortalClinicOperationalItem[];
   operational_pending_items?: PortalClinicOperationalItem[];
   items: PortalExamItem[];
+  must_change_password?: boolean | null;
 };
 
 export type PortalDownloadItem = {
@@ -691,6 +693,27 @@ export async function resetClinicPassword(payload: {
       body: JSON.stringify(payload),
     },
     "Nao foi possivel redefinir a senha da clinica.",
+  );
+}
+
+export async function changeClinicPortalPassword(
+  payload: {
+    senha_atual: string;
+    nova_senha: string;
+    nova_senha_confirmacao: string;
+  },
+  token: string,
+): Promise<PortalSimpleAcceptedResponse> {
+  return portalFetchJson<PortalSimpleAcceptedResponse>(
+    "/api/v1/portal/auth/trocar-senha",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    },
+    "Nao foi possivel trocar a senha da clinica.",
   );
 }
 
