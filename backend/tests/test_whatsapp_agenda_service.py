@@ -25,10 +25,13 @@ from app.models.paciente import Paciente
 from app.models.tutor import Tutor
 from app.models.whatsapp_agenda_resposta import WhatsappAgendaResposta
 from app.services.whatsapp_agenda_service import (
+    WhatsAppAgendaUtilityTemplate,
     WhatsAppReservationTemplate,
+    build_agenda_utility_template,
     build_reservation_template,
     normalize_whatsapp_number,
     process_button_response,
+    send_agenda_utility_template,
     send_reservation_template,
 )
 from app.api.v1.endpoints.whatsapp_agenda import _require_internal_token
@@ -52,7 +55,7 @@ class WhatsAppAgendaServiceTest(unittest.TestCase):
         session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()
         return tmpdir, session, engine
 
-    def _seed_reservation(self, db, *, expired=False):
+    def _seed_reservation(self, db, *, expired=False, status="Reservado"):
         clinica = Clinica(
             nome="Clinica Teste",
             telefone="(85) 98888-1111",
@@ -72,7 +75,7 @@ class WhatsAppAgendaServiceTest(unittest.TestCase):
             paciente_id=paciente.id,
             inicio=now + timedelta(days=1),
             fim=now + timedelta(days=1, minutes=30),
-            status="Reservado",
+            status=status,
             reserva_expira_em=now - timedelta(minutes=1) if expired else now + timedelta(hours=2),
         )
         db.add(agendamento)
@@ -208,6 +211,68 @@ class WhatsAppAgendaServiceTest(unittest.TestCase):
         self.assertEqual(kwargs["headers"]["X-WhatsApp-Internal-Token"], "internal-secret")
         self.assertEqual(kwargs["json"]["reservation_id"], 42)
         self.assertEqual(kwargs["json"]["parameters"]["pet_name"], "Thor")
+
+    def test_build_agenda_utility_template_validates_status_and_recipient(self):
+        tmpdir, db, engine = self._build_session()
+        try:
+            _clinica, _tutor, _paciente, agendamento = self._seed_reservation(
+                db,
+                status="Confirmado",
+            )
+            template = build_agenda_utility_template(
+                db,
+                agendamento=agendamento,
+                destination="(85) 98888-1111",
+                recipient_type="clinica",
+                template_key="appointmentReminder",
+            )
+            self.assertEqual(template.template_key, "appointmentReminder")
+            self.assertEqual(template.destination, "5585988881111")
+            self.assertEqual(template.parameters[0], "Clinica Teste")
+            self.assertEqual(template.parameters[1], "Thor")
+
+            with self.assertRaises(HTTPException) as invalid_cancellation:
+                build_agenda_utility_template(
+                    db,
+                    agendamento=agendamento,
+                    destination="(85) 98888-1111",
+                    recipient_type="clinica",
+                    template_key="appointmentCancellation",
+                )
+            self.assertEqual(invalid_cancellation.exception.status_code, 409)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_agenda_utility_delivery_uses_approved_template_contract(self):
+        response = SimpleNamespace(
+            status_code=201,
+            json=lambda: {"message_id": "wamid.utility.contract", "idempotent": False},
+        )
+        template = WhatsAppAgendaUtilityTemplate(
+            template_key="appointmentChange",
+            destination="5585988881111",
+            parameters=("Clinica Teste", "Thor", "16/08/2026", "14:30"),
+        )
+        with (
+            patch.object(settings, "WHATSAPP_AGENDA_ENABLED", True),
+            patch.object(settings, "WHATSAPP_AGENDA_SERVICE_URL", "http://127.0.0.1:3010"),
+            patch.object(settings, "WHATSAPP_AGENDA_INTERNAL_TOKEN", "internal-secret"),
+            patch("app.services.whatsapp_agenda_service.httpx.post", return_value=response) as post,
+        ):
+            result = send_agenda_utility_template(
+                agendamento_id=42,
+                template=template,
+                idempotency_key="utility-idempotency-123",
+            )
+
+        self.assertEqual(result["message_id"], "wamid.utility.contract")
+        kwargs = post.call_args.kwargs
+        self.assertEqual(kwargs["json"]["template_key"], "appointmentChange")
+        self.assertEqual(kwargs["json"]["subject_type"], "agendamento")
+        self.assertEqual(kwargs["json"]["subject_id"], 42)
+        self.assertEqual(kwargs["json"]["parameters"][1], "Thor")
 
     def test_internal_callback_rejects_missing_or_wrong_token(self):
         with patch.object(settings, "WHATSAPP_AGENDA_INTERNAL_TOKEN", "expected-secret"):

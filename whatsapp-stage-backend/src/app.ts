@@ -12,6 +12,7 @@ import { getWebhookEventsCleanupRuntimeState } from "./services/webhookEventsCle
 import { logger } from "./utils/logger";
 import { requireApiAuth } from "./middleware/auth";
 import { sendAgendaReservation } from "./controllers/agendaAutomationController";
+import { sendApprovedUtilityTemplate } from "./controllers/templateAutomationController";
 
 const app = express();
 
@@ -49,6 +50,7 @@ app.post("/conversations/:id/unclaim", asyncHandler(unclaimConversation));
 app.get("/agents", asyncHandler(listAgents));
 app.post("/agents", asyncHandler(createAgent));
 app.post("/automation/agenda/reservations", asyncHandler(sendAgendaReservation));
+app.post("/automation/templates", asyncHandler(sendApprovedUtilityTemplate));
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   logger.error("Unhandled request error", { message: err.message });

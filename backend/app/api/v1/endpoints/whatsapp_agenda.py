@@ -14,9 +14,12 @@ from app.models.agendamento import Agendamento
 from app.models.user import User
 from app.services.auditoria_service import registrar_auditoria
 from app.services.whatsapp_agenda_service import (
+    AgendaUtilityTemplateKey,
     WhatsAppAgendaDeliveryError,
+    build_agenda_utility_template,
     build_reservation_template,
     process_button_response,
+    send_agenda_utility_template,
     send_reservation_template,
 )
 
@@ -36,6 +39,13 @@ class ReservationButtonResponseRequest(BaseModel):
     agendamento_id: int = Field(..., gt=0)
     action: Literal["confirmar", "solicitar_alteracao"]
     from_phone: str = Field(..., min_length=10, max_length=32)
+
+
+class AgendaUtilityTemplateSendRequest(BaseModel):
+    destination: str = Field(..., min_length=10, max_length=32)
+    recipient_type: Literal["clinica", "tutor"]
+    idempotency_key: str = Field(..., min_length=8, max_length=128)
+    template_key: AgendaUtilityTemplateKey
 
 
 def _require_internal_token(
@@ -82,6 +92,53 @@ def send_reservation(
         acao="RESERVA_WHATSAPP_TEMPLATE_ENVIADO",
         descricao="Modelo de reserva enviado pela WhatsApp Cloud API.",
         detalhes={
+            "recipient_type": payload.recipient_type,
+            "destination_suffix": template.destination[-4:],
+            "provider_message_id": result.get("message_id"),
+            "idempotent": bool(result.get("idempotent")),
+        },
+        request=request,
+    )
+    return result
+
+
+@router.post("/agenda/{agendamento_id}/whatsapp/modelo")
+def send_agenda_utility(
+    agendamento_id: int,
+    payload: AgendaUtilityTemplateSendRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
+    if agendamento is None:
+        raise HTTPException(status_code=404, detail="Agendamento nao encontrado.")
+
+    template = build_agenda_utility_template(
+        db,
+        agendamento=agendamento,
+        destination=payload.destination,
+        recipient_type=payload.recipient_type,
+        template_key=payload.template_key,
+    )
+    try:
+        result = send_agenda_utility_template(
+            agendamento_id=agendamento.id,
+            template=template,
+            idempotency_key=payload.idempotency_key,
+        )
+    except WhatsAppAgendaDeliveryError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    registrar_auditoria(
+        current_user=current_user,
+        modulo="agenda",
+        entidade="agendamento",
+        entidade_id=agendamento.id,
+        acao="AGENDA_WHATSAPP_MODELO_ENVIADO",
+        descricao="Modelo aprovado da Agenda enviado pela WhatsApp Cloud API.",
+        detalhes={
+            "template_key": payload.template_key,
             "recipient_type": payload.recipient_type,
             "destination_suffix": template.destination[-4:],
             "provider_message_id": result.get("message_id"),

@@ -21,6 +21,7 @@ import {
   Eye,
   FileCheck,
   FileText,
+  MessageCircle,
   Plus,
   Search,
   Send,
@@ -145,6 +146,7 @@ export default function LaudosPage() {
   const [loadingExames, setLoadingExames] = useState(true);
   const [loadingMoreLaudos, setLoadingMoreLaudos] = useState(false);
   const [liberandoLaudoId, setLiberandoLaudoId] = useState<number | null>(null);
+  const [avisandoLaudoId, setAvisandoLaudoId] = useState<number | null>(null);
   const laudosRequestIdRef = useRef(0);
   const novoLaudoMenuRef = useRef<HTMLDivElement | null>(null);
   const [novoLaudoMenuAberto, setNovoLaudoMenuAberto] = useState(false);
@@ -357,6 +359,31 @@ export default function LaudosPage() {
       alert(detail || "Erro ao liberar laudo no portal. Tente novamente.");
     } finally {
       setLiberandoLaudoId(null);
+    }
+  };
+
+  const avisarLaudoPorWhatsApp = async (laudo: Laudo) => {
+    if (!laudo.portal_clinica_liberado && !isPortalReleased(laudo.status)) {
+      alert("Libere o laudo no portal antes de enviar o aviso por WhatsApp.");
+      return;
+    }
+    if (!confirm(`Enviar para ${laudo.clinica || "a clinica parceira"} o aviso de laudo disponível?`)) {
+      return;
+    }
+    const idempotencyKey = typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `laudo-portal-${laudo.id}-${Date.now()}`;
+    setAvisandoLaudoId(laudo.id);
+    try {
+      await api.post(`/laudos/${laudo.id}/portal/whatsapp`, {
+        idempotency_key: idempotencyKey,
+      });
+      alert("Aviso enviado pelo WhatsApp oficial da Fort Cordis.");
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      alert(detail || "Erro ao enviar o aviso por WhatsApp.");
+    } finally {
+      setAvisandoLaudoId(null);
     }
   };
 
@@ -648,6 +675,17 @@ export default function LaudosPage() {
                               aria-label={`Liberar laudo de ${laudo.paciente_nome || `paciente ${laudo.paciente_id}`} no portal`}
                             >
                               <Send className="w-4 h-4" />
+                            </button>
+                          )}
+                          {laudo.clinic_id && (laudo.portal_clinica_liberado || isPortalReleased(laudo.status)) && (
+                            <button
+                              onClick={() => avisarLaudoPorWhatsApp(laudo)}
+                              disabled={avisandoLaudoId === laudo.id}
+                              className="fc-clinical-action"
+                              title="Avisar clínica pelo WhatsApp oficial"
+                              aria-label={`Avisar ${laudo.clinica || "clinica"} sobre o laudo disponível`}
+                            >
+                              <MessageCircle className="w-4 h-4" />
                             </button>
                           )}
                           <button

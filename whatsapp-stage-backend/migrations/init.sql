@@ -139,6 +139,34 @@ CREATE TABLE IF NOT EXISTS agenda_reservation_button_events (
   CONSTRAINT agenda_reservation_button_events_provider_message_id_key UNIQUE (provider_message_id)
 );
 
+-- Approved utility templates sent explicitly by FortCordis. Button payloads
+-- remain opaque and are retained for future domain-specific callback bindings.
+CREATE TABLE IF NOT EXISTS approved_template_messages (
+  id BIGSERIAL PRIMARY KEY,
+  template_key VARCHAR(80) NOT NULL,
+  template_name VARCHAR(128) NOT NULL,
+  language_code VARCHAR(20) NOT NULL,
+  subject_type VARCHAR(40) NOT NULL,
+  subject_id BIGINT NOT NULL,
+  destination VARCHAR(32) NOT NULL,
+  idempotency_key VARCHAR(128) NOT NULL,
+  request_hash VARCHAR(64) NOT NULL,
+  body_parameters JSONB NOT NULL,
+  button_bindings JSONB NOT NULL DEFAULT '[]'::jsonb,
+  rendered_body TEXT NOT NULL,
+  wa_message_id VARCHAR(160),
+  processing_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  processing_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_at TIMESTAMPTZ,
+  CONSTRAINT approved_template_messages_idempotency_key UNIQUE (idempotency_key),
+  CONSTRAINT approved_template_messages_wa_message_id_key UNIQUE (wa_message_id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_approved_template_messages_subject
+  ON approved_template_messages (subject_type, subject_id, created_at);
+
 -- normalize duplicated conversations by phone (preserve oldest row)
 WITH ranked_phone AS (
   SELECT
