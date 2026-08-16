@@ -17,6 +17,7 @@ function jsonResponse(payload: unknown): Response {
 describe("WhatsAppStagePage", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-14T03:00:00.000Z"));
     window.localStorage.setItem("token", "test-token");
   });
 
@@ -49,6 +50,11 @@ describe("WhatsAppStagePage", () => {
                 updated_at: "2026-08-14T02:26:00.000Z",
                 last_message_body: "Teste recebido com sucesso pela Fort Cordis.",
                 last_message_at: "2026-08-14T02:26:00.000Z",
+                customer_service_window: {
+                  last_inbound_at: "2026-08-14T02:26:00.000Z",
+                  expires_at: "2026-08-15T02:26:00.000Z",
+                  is_open: true,
+                },
               },
             ],
             pagination: { page: 1, limit: 20, total: 1 },
@@ -75,6 +81,11 @@ describe("WhatsAppStagePage", () => {
               },
             ],
             pagination: { page: 1, limit: 50, total: 1 },
+            customer_service_window: {
+              last_inbound_at: "2026-08-14T02:26:00.000Z",
+              expires_at: "2026-08-15T02:26:00.000Z",
+              is_open: true,
+            },
           });
         }
 
@@ -91,6 +102,8 @@ describe("WhatsAppStagePage", () => {
     });
 
     expect(screen.getByText("sent")).toBeInTheDocument();
+    expect(screen.getByText(/Pode responder normalmente até/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Digite a resposta")).toBeEnabled();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
@@ -98,5 +111,80 @@ describe("WhatsAppStagePage", () => {
 
     expect(screen.getByText("delivered")).toBeInTheDocument();
     expect(screen.queryByText("Carregando mensagens...")).not.toBeInTheDocument();
+  });
+
+  it("bloqueia texto livre quando a janela de 24 horas encerrou", async () => {
+    vi.setSystemTime(new Date("2026-08-16T03:00:00.000Z"));
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        const customerServiceWindow = {
+          last_inbound_at: "2026-08-14T02:26:00.000Z",
+          expires_at: "2026-08-15T02:26:00.000Z",
+          is_open: false,
+        };
+
+        if (url.startsWith("/whatsapp/conversations?")) {
+          return jsonResponse({
+            data: [
+              {
+                id: "3926",
+                wa_phone_number: "558500000000",
+                wa_psid: "558500000000",
+                status: "open",
+                subject: "Cliente de teste",
+                last_agent_id: null,
+                last_activity_at: "2026-08-14T02:26:00.000Z",
+                created_at: "2026-08-14T02:26:00.000Z",
+                updated_at: "2026-08-14T02:26:00.000Z",
+                last_message_body: "Pergunta da clínica.",
+                last_message_at: "2026-08-14T02:26:00.000Z",
+                customer_service_window: customerServiceWindow,
+              },
+            ],
+            pagination: { page: 1, limit: 20, total: 1 },
+          });
+        }
+
+        if (url === "/whatsapp/agents") {
+          return jsonResponse({ data: [] });
+        }
+
+        if (url.startsWith("/whatsapp/conversations/3926/messages?")) {
+          return jsonResponse({
+            data: [
+              {
+                id: "1",
+                conversation_id: "3926",
+                wa_message_id: "wamid.inbound",
+                from_me: false,
+                body: "Pergunta da clínica.",
+                type: "text",
+                status: "received",
+                created_at: "2026-08-14T02:26:00.000Z",
+              },
+            ],
+            pagination: { page: 1, limit: 50, total: 1 },
+            customer_service_window: customerServiceWindow,
+          });
+        }
+
+        throw new Error(`URL inesperada no teste: ${url}`);
+      })
+    );
+
+    render(<WhatsAppStagePage />);
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText(/Janela de 24 horas encerrada em/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Digite a resposta")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
   });
 });

@@ -2,7 +2,11 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../layout-dashboard";
-import { Filter, MessageSquare, MessagesSquare, RefreshCw, Send, UserCheck, Users } from "lucide-react";
+import { Clock3, Filter, MessageSquare, MessagesSquare, RefreshCw, Send, UserCheck, Users } from "lucide-react";
+import {
+  CustomerServiceWindow,
+  evaluateCustomerServiceWindow,
+} from "@/lib/whatsapp-customer-service-window";
 
 type AssignedFilter = "all" | "assigned" | "unassigned";
 
@@ -18,6 +22,7 @@ interface Conversation {
   updated_at: string;
   last_message_body?: string | null;
   last_message_at?: string | null;
+  customer_service_window?: CustomerServiceWindow;
 }
 
 interface Message {
@@ -62,6 +67,7 @@ interface ConversationsResponse {
 interface MessagesResponse {
   data: Message[];
   pagination: Pagination;
+  customer_service_window: CustomerServiceWindow;
 }
 
 interface AgentsResponse {
@@ -74,6 +80,7 @@ interface LoadMessagesOptions {
 }
 
 const MESSAGE_STATUS_REFRESH_INTERVAL_MS = 5_000;
+const CUSTOMER_SERVICE_WINDOW_CLOCK_INTERVAL_MS = 30_000;
 
 function getAuthHeaders(): Record<string, string> {
   if (typeof window === "undefined") {
@@ -188,6 +195,10 @@ export default function WhatsAppStagePage() {
   const [agentActionId, setAgentActionId] = useState("");
   const [sendMessageBody, setSendMessageBody] = useState("");
   const [sendMessageType, setSendMessageType] = useState("text");
+  const [customerServiceWindows, setCustomerServiceWindows] = useState<
+    Record<string, CustomerServiceWindow>
+  >({});
+  const [customerServiceWindowClock, setCustomerServiceWindowClock] = useState(() => Date.now());
 
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -195,6 +206,15 @@ export default function WhatsAppStagePage() {
   const selectedConversation = useMemo(
     () => conversations.find((item) => item.id === selectedConversationId) || null,
     [conversations, selectedConversationId]
+  );
+  const selectedCustomerServiceWindow = selectedConversationId
+    ? customerServiceWindows[selectedConversationId] ||
+      selectedConversation?.customer_service_window ||
+      null
+    : null;
+  const selectedCustomerServiceWindowState = evaluateCustomerServiceWindow(
+    selectedCustomerServiceWindow,
+    customerServiceWindowClock
   );
 
   const loadConversations = async (page = 1): Promise<void> => {
@@ -274,6 +294,10 @@ export default function WhatsAppStagePage() {
       if (!isCurrent || isCurrent()) {
         setMessages(result.data.data);
         setMessagesPagination(result.data.pagination);
+        setCustomerServiceWindows((current) => ({
+          ...current,
+          [conversationId]: result.data!.customer_service_window,
+        }));
       }
     } catch (error) {
       if (!isCurrent || isCurrent()) {
@@ -383,12 +407,27 @@ export default function WhatsAppStagePage() {
       return;
     }
 
+    if (!selectedCustomerServiceWindowState.isOpen) {
+      setErrorMessage(
+        selectedCustomerServiceWindowState.hasInboundMessage
+          ? "A janela de 24 horas foi encerrada. Use um modelo aprovado para retomar o contato."
+          : "Aguarde uma mensagem da clínica antes de responder com texto livre."
+      );
+      return;
+    }
+
     if (!sendMessageBody.trim()) {
       setErrorMessage("Digite uma mensagem antes de enviar.");
       return;
     }
 
-    const result = await requestJson<{ status?: string; error?: string; local_message_id?: string }>(
+    const result = await requestJson<{
+      status?: string;
+      error?: string;
+      code?: string;
+      local_message_id?: string;
+      customer_service_window?: CustomerServiceWindow;
+    }>(
       `/whatsapp/conversations/${selectedConversationId}/messages`,
       {
         method: "POST",
@@ -400,7 +439,23 @@ export default function WhatsAppStagePage() {
     );
 
     if (!result.ok) {
-      setErrorMessage(result.errorText || `Falha ao enviar mensagem (HTTP ${result.status})`);
+      if (
+        result.status === 409 &&
+        result.data?.code === "CUSTOMER_SERVICE_WINDOW_CLOSED"
+      ) {
+        if (result.data.customer_service_window) {
+          setCustomerServiceWindows((current) => ({
+            ...current,
+            [selectedConversationId]: result.data!.customer_service_window!,
+          }));
+        }
+        setErrorMessage(
+          "A janela de 24 horas foi encerrada. Use um modelo aprovado para retomar o contato."
+        );
+        return;
+      } else {
+        setErrorMessage(result.errorText || `Falha ao enviar mensagem (HTTP ${result.status})`);
+      }
     } else {
       setInfoMessage(
         result.data?.status
@@ -417,6 +472,15 @@ export default function WhatsAppStagePage() {
   useEffect(() => {
     void Promise.all([loadConversations(1), loadAgents()]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(
+      () => setCustomerServiceWindowClock(Date.now()),
+      CUSTOMER_SERVICE_WINDOW_CLOCK_INTERVAL_MS
+    );
+
+    return () => window.clearInterval(intervalId);
   }, []);
 
   useEffect(() => {
@@ -610,6 +674,31 @@ export default function WhatsAppStagePage() {
                 </button>
               </div>
 
+              {selectedConversation ? (
+                <div
+                  className={`mx-4 mt-4 flex items-start gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${
+                    selectedCustomerServiceWindowState.isOpen
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                      : "border-amber-200 bg-amber-50 text-amber-900"
+                  }`}
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Clock3 className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    {selectedCustomerServiceWindowState.isOpen
+                      ? `Pode responder normalmente até ${formatDateTime(
+                          selectedCustomerServiceWindowState.expiresAt
+                        )}.`
+                      : selectedCustomerServiceWindowState.hasInboundMessage
+                        ? `Janela de 24 horas encerrada em ${formatDateTime(
+                            selectedCustomerServiceWindowState.expiresAt
+                          )}. Use um modelo aprovado para retomar o contato.`
+                        : "Aguardando uma mensagem da clínica para liberar respostas em texto livre."}
+                  </span>
+                </div>
+              ) : null}
+
               <div className="fc-wa-message-stream">
                 {!selectedConversationId ? (
                   <p className="text-sm text-gray-500">Selecione uma conversa para carregar mensagens.</p>
@@ -657,12 +746,13 @@ export default function WhatsAppStagePage() {
                       placeholder="Digite a resposta"
                       value={sendMessageBody}
                       onChange={(event) => setSendMessageBody(event.target.value)}
+                      disabled={!selectedConversationId || !selectedCustomerServiceWindowState.isOpen}
                     />
 
                     <button
                       type="submit"
                       className="fc-wa-send"
-                      disabled={!selectedConversationId}
+                      disabled={!selectedConversationId || !selectedCustomerServiceWindowState.isOpen}
                     >
                       <Send className="h-4 w-4" />Enviar
                     </button>

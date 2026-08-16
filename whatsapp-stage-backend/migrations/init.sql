@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   subject TEXT,
   last_agent_id BIGINT,
   last_activity_at TIMESTAMPTZ DEFAULT now(),
+  last_inbound_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now(),
   CONSTRAINT conversations_wa_phone_number_key UNIQUE (wa_phone_number),
@@ -26,6 +27,20 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at TIMESTAMPTZ DEFAULT now(),
   CONSTRAINT messages_wa_message_id_key UNIQUE (wa_message_id)
 );
+
+ALTER TABLE conversations
+  ADD COLUMN IF NOT EXISTS last_inbound_at TIMESTAMPTZ;
+
+UPDATE conversations c
+SET last_inbound_at = inbound.last_inbound_at
+FROM (
+  SELECT conversation_id, MAX(created_at) AS last_inbound_at
+  FROM messages
+  WHERE from_me = FALSE
+  GROUP BY conversation_id
+) inbound
+WHERE c.id = inbound.conversation_id
+  AND c.last_inbound_at IS NULL;
 
 -- agents
 CREATE TABLE IF NOT EXISTS agents (
@@ -496,6 +511,7 @@ DROP INDEX IF EXISTS idx_messages_wa_message_id;
 CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status);
 CREATE INDEX IF NOT EXISTS idx_conversations_last_agent ON conversations(last_agent_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_last_activity_desc ON conversations(last_activity_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conversations_last_inbound_desc ON conversations(last_inbound_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages(conversation_id, created_at DESC);
 

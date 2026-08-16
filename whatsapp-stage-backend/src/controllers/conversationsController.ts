@@ -1,10 +1,21 @@
 import { Request, Response } from "express";
 import { query, withTransaction } from "../services/dbService";
 import { sendWhatsAppMessageWithRetry } from "../services/whatsappService";
+import {
+  CustomerServiceWindow,
+  describeCustomerServiceWindow
+} from "../services/customerServiceWindow";
 import { logger } from "../utils/logger";
 
 const whatsappAccessToken = process.env.WHATSAPP_ACCESS_TOKEN;
 const phoneNumberId = process.env.PHONE_NUMBER_ID;
+
+interface ConversationRow {
+  id: string;
+  wa_phone_number: string;
+  last_inbound_at: Date | string | null;
+  [key: string]: unknown;
+}
 
 function parsePositiveInt(input: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(input ?? "", 10);
@@ -64,7 +75,7 @@ export async function listConversations(req: Request, res: Response): Promise<vo
   );
 
   const dataParams = [...params, limit, offset];
-  const dataResult = await query(
+  const dataResult = await query<ConversationRow>(
     `
       SELECT
         c.*,
@@ -92,7 +103,10 @@ export async function listConversations(req: Request, res: Response): Promise<vo
   );
 
   res.json({
-    data: dataResult.rows,
+    data: dataResult.rows.map((conversation) => ({
+      ...conversation,
+      customer_service_window: describeCustomerServiceWindow(conversation.last_inbound_at)
+    })),
     pagination: {
       page,
       limit,
@@ -107,7 +121,10 @@ export async function listConversationMessages(req: Request, res: Response): Pro
   const limit = Math.min(parsePositiveInt(req.query.limit as string | undefined, 50), 200);
   const offset = (page - 1) * limit;
 
-  const conversation = await query(`SELECT id FROM conversations WHERE id = $1`, [conversationId]);
+  const conversation = await query<{ id: string; last_inbound_at: Date | string | null }>(
+    `SELECT id, last_inbound_at FROM conversations WHERE id = $1`,
+    [conversationId]
+  );
   if (conversation.rowCount === 0) {
     res.status(404).json({ error: "Conversation not found" });
     return;
@@ -132,6 +149,9 @@ export async function listConversationMessages(req: Request, res: Response): Pro
 
   res.json({
     data: dataResult.rows,
+    customer_service_window: describeCustomerServiceWindow(
+      conversation.rows[0]?.last_inbound_at ?? null
+    ),
     pagination: {
       page,
       limit,
@@ -155,14 +175,30 @@ export async function sendConversationMessage(req: Request, res: Response): Prom
     return;
   }
 
-  const conversationResult = await query<{ id: string; wa_phone_number: string }>(
-    `SELECT id, wa_phone_number FROM conversations WHERE id = $1`,
+  const conversationResult = await query<{
+    id: string;
+    wa_phone_number: string;
+    last_inbound_at: Date | string | null;
+  }>(
+    `SELECT id, wa_phone_number, last_inbound_at FROM conversations WHERE id = $1`,
     [conversationId]
   );
 
   const conversation = conversationResult.rows[0];
   if (!conversation) {
     res.status(404).json({ error: "Conversation not found" });
+    return;
+  }
+
+  const customerServiceWindow: CustomerServiceWindow = describeCustomerServiceWindow(
+    conversation.last_inbound_at
+  );
+  if (!customerServiceWindow.is_open) {
+    res.status(409).json({
+      error: "Customer service window is closed. Use an approved template.",
+      code: "CUSTOMER_SERVICE_WINDOW_CLOSED",
+      customer_service_window: customerServiceWindow
+    });
     return;
   }
 
