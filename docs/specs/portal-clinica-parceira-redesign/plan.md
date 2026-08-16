@@ -2,7 +2,7 @@
 
 Data: 2026-08-14
 Responsavel: Martiniano Barros
-Status: in-progress (fases 1-3 executadas nesta sessao; falta validacao com dado real de producao, ver secao 3)
+Status: in-progress (fases 1-3 executadas; login real de clinica parceira testado em 2026-08-16, ver T3.3 - falta so validar o cap de 30 candidatos contra volume real de producao, ver verify.md secao "Regressao e riscos residuais")
 
 ## 1) Sequencia de fases
 
@@ -44,10 +44,10 @@ Status: in-progress (fases 1-3 executadas nesta sessao; falta validacao com dado
 
 - [x] T3.1 Lint/typecheck/build do frontend rodados - `tsc --noEmit`, `eslint components/portal/PortalClinicaWorkspace.tsx lib/portal-api.ts` e `npm run build` sem erros.
 - [x] T3.2 Testes de backend do portal rodados - 12/12 verdes (`test_portal_access_foundation.py`).
-- [x] T3.3 Testado manualmente via `/clinicas/portal/espelho` (login admin local `admin@fortcordis.com`), com um laudo sintetico temporario (status `Finalizado`, sem exame liberado) inserido e removido logo apos o teste - confirmado destaque de "Aguardando liberacao" com contagem e dados do item, "Resumo da unidade" com os 7 indicadores secundarios, "Atividade recente" preservando o item com status badge, e o estado vazio "tudo em dia" para uma clinica sem pendencias. **Nao testado**: login real de uma clinica parceira (`/clinica-parceira`) - nao ha credencial de clinica de teste disponivel neste ambiente; o espelho reusa exatamente o mesmo componente (RF-006), entao a lacuna de risco e pequena, mas fica pendente se quiser testar a sessao real tambem.
+- [x] T3.3 Testado manualmente via `/clinicas/portal/espelho` (login admin local `admin@fortcordis.com`), com um laudo sintetico temporario (status `Finalizado`, sem exame liberado) inserido e removido logo apos o teste - confirmado destaque de "Aguardando liberacao" com contagem e dados do item, "Resumo da unidade" com os 7 indicadores secundarios, "Atividade recente" preservando o item com status badge, e o estado vazio "tudo em dia" para uma clinica sem pendencias. **Testado em 2026-08-16**: login real de uma clinica parceira via `/clinica-parceira` (Clinica #8 em stage - convite -> ativacao -> senha -> login com MFA, sessao real confirmada por decode do JWT). Layout bateu com o espelho, mas o carregamento de exames expos um 500 real (bug de schema, `exames.created_at` como texto no Postgres) - diagnosticado e corrigido, ver `docs/specs/portal-clinica-exame-created-at-fix/`. Reverificado ao vivo apos o fix: exames carregando normalmente.
 - [x] T3.4 Viewport mobile (375px) conferido via medicao de geometria (JS): sem overflow horizontal, grid dos itens pendentes em coluna unica.
 - Criterio de conclusao:
-  - build/testes verdes + verificacao visual manual dos dois modos e do mobile. **Atingido**, com a ressalva de T3.3 acima.
+  - build/testes verdes + verificacao visual manual dos dois modos (espelho e sessao real) e do mobile. **Atingido**.
 - Risco:
   - ambiente local sem dado de exemplo de producao para os cenarios reais (`aguardando_liberacao` de verdade) - contornado nesta sessao inserindo e removendo um registro sintetico so para a verificacao visual; a prova funcional de CA-007 (pendente antigo sobrevive ao top-8) ja esta coberta pelo teste automatizado T1.5, que roda em banco isolado.
 - Rollback:
