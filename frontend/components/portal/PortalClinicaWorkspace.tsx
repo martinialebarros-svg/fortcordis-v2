@@ -112,6 +112,15 @@ const OPERATIONAL_STATUS_LABELS: Record<string, string> = {
   em_andamento: "Em andamento",
 };
 
+type PortalTabId = "visao-geral" | "laudos" | "agenda" | "financeiro";
+
+const PORTAL_TABS: { id: PortalTabId; label: string; somenteSessaoReal: boolean }[] = [
+  { id: "visao-geral", label: "Visão geral", somenteSessaoReal: false },
+  { id: "laudos", label: "Laudos", somenteSessaoReal: false },
+  { id: "agenda", label: "Agenda", somenteSessaoReal: true },
+  { id: "financeiro", label: "Financeiro", somenteSessaoReal: true },
+];
+
 function operationalStatusClasses(statusKey: string): string {
   switch (statusKey) {
     case "liberado_portal":
@@ -227,6 +236,9 @@ export default function PortalClinicaWorkspace({
   const [dashboardLoaded, setDashboardLoaded] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [abaAtiva, setAbaAtiva] = useState<PortalTabId>("visao-geral");
+  const [agendamentosSolicitados, setAgendamentosSolicitados] = useState(false);
+  const [financeiroSolicitado, setFinanceiroSolicitado] = useState(false);
   const previewSession = useMemo<PortalSessionResponse | null>(() => {
     if (!isAdminPreview || !previewClinicId) {
       return null;
@@ -477,14 +489,7 @@ export default function PortalClinicaWorkspace({
     }
 
     if (session) {
-      // Sequencial (nao Promise.all) de proposito: evita 3 requisicoes simultaneas
-      // ao backend no primeiro carregamento da pagina do portal, que ja causou
-      // contencao (erro 500 intermitente) no banco SQLite de stage.
-      void (async () => {
-        await loadDashboard(filters, session);
-        await loadAgendamentos(session);
-        await loadFinanceiro(session);
-      })();
+      void loadDashboard(filters, session);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdminPreview, previewClinicId, session?.access_token]);
@@ -494,6 +499,23 @@ export default function PortalClinicaWorkspace({
       onSessionChange?.(session);
     }
   }, [bootstrapping, isAdminPreview, onSessionChange, session]);
+
+  // Agenda/Financeiro so carregam quando a aba correspondente e aberta pela
+  // primeira vez (evita puxar dado que a clinica pode nunca chegar a ver).
+  useEffect(() => {
+    if (isAdminPreview || !session) {
+      return;
+    }
+    if (abaAtiva === "agenda" && !agendamentosSolicitados) {
+      setAgendamentosSolicitados(true);
+      void loadAgendamentos(session);
+    }
+    if (abaAtiva === "financeiro" && !financeiroSolicitado) {
+      setFinanceiroSolicitado(true);
+      void loadFinanceiro(session);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abaAtiva, isAdminPreview, session?.access_token]);
 
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -742,6 +764,31 @@ export default function PortalClinicaWorkspace({
             </div>
           </section>
 
+          <div
+            role="tablist"
+            aria-label="Seções do portal da unidade"
+            className="mt-6 flex gap-2 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-sm"
+          >
+            {PORTAL_TABS.filter((tab) => !tab.somenteSessaoReal || !isAdminPreview).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                id={`portal-tab-${tab.id}`}
+                aria-selected={abaAtiva === tab.id}
+                aria-controls={`portal-tabpanel-${tab.id}`}
+                onClick={() => setAbaAtiva(tab.id)}
+                className={`shrink-0 rounded-lg px-4 py-2 text-sm font-bold transition ${
+                  abaAtiva === tab.id ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {abaAtiva === "visao-geral" ? (
+            <div role="tabpanel" id="portal-tabpanel-visao-geral" aria-labelledby="portal-tab-visao-geral">
           <section className="mt-6 rounded-lg border-2 border-amber-300 bg-amber-50/70 p-4 shadow-sm">
             <div className="flex flex-col gap-3 border-b border-amber-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
@@ -901,8 +948,11 @@ export default function PortalClinicaWorkspace({
                 </div>
               )}
           </section>
+            </div>
+          ) : null}
 
-          {!isAdminPreview ? (
+          {abaAtiva === "agenda" && !isAdminPreview ? (
+            <div role="tabpanel" id="portal-tabpanel-agenda" aria-labelledby="portal-tab-agenda">
             <section className="mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
@@ -1034,9 +1084,11 @@ export default function PortalClinicaWorkspace({
                 )}
               </div>
             </section>
+            </div>
           ) : null}
 
-          {!isAdminPreview ? (
+          {abaAtiva === "financeiro" && !isAdminPreview ? (
+            <div role="tabpanel" id="portal-tabpanel-financeiro" aria-labelledby="portal-tab-financeiro">
             <section className="mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
@@ -1166,8 +1218,11 @@ export default function PortalClinicaWorkspace({
                 )}
               </div>
             </section>
+            </div>
           ) : null}
 
+          {abaAtiva === "laudos" ? (
+            <div role="tabpanel" id="portal-tabpanel-laudos" aria-labelledby="portal-tab-laudos">
           <form
             className="mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
             onSubmit={handleFilterSubmit}
@@ -1416,6 +1471,8 @@ export default function PortalClinicaWorkspace({
               </div>
             )}
           </section>
+            </div>
+          ) : null}
         </main>
       </section>
     );
