@@ -377,6 +377,7 @@ export default function FinanceiroPage() {
   const [erroSaldoCreditoClienteOS, setErroSaldoCreditoClienteOS] = useState("");
   const [usarCreditoClienteOS, setUsarCreditoClienteOS] = useState(false);
   const [valorCreditoUtilizadoOS, setValorCreditoUtilizadoOS] = useState("0.00");
+  const [enviarReciboPdfWhatsAppAposRecebimento, setEnviarReciboPdfWhatsAppAposRecebimento] = useState(false);
   const [salvandoOS, setSalvandoOS] = useState(false);
   const [clinicas, setClinicas] = useState<ClinicaOption[]>([]);
   const [servicos, setServicos] = useState<ServicoOption[]>([]);
@@ -408,6 +409,7 @@ export default function FinanceiroPage() {
   const [previewRecibo, setPreviewRecibo] = useState<PreviewReciboState | null>(null);
   const [carregandoPreviewRecibo, setCarregandoPreviewRecibo] = useState(false);
   const [enviandoWhatsAppOficialOsId, setEnviandoWhatsAppOficialOsId] = useState<number | null>(null);
+  const [enviandoWhatsAppOficialGrupoKey, setEnviandoWhatsAppOficialGrupoKey] = useState<string | null>(null);
   const highlightedRowRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
 
@@ -786,6 +788,17 @@ export default function FinanceiroPage() {
     [modalReceberLoteOSIds, ordensServico]
   );
 
+  const recebimentoLoteMesmoDestinatario = useMemo(() => {
+    const chaves = new Set(
+      ordensRecebimentoLote.map((os) =>
+        os.origem_atendimento === "domiciliar"
+          ? `tutor:${os.tutor_id ?? "sem-tutor"}`
+          : `clinica:${os.clinica_id ?? "sem-clinica"}`
+      )
+    );
+    return ordensRecebimentoLote.length > 0 && chaves.size === 1;
+  }, [ordensRecebimentoLote]);
+
   const resumoPagamentoLoteOS = useMemo(() => {
     const linhas = pagamentosRecebimentoOS.map((item) => {
       const codigo = normalizarCodigoFormaPagamento(item.forma_codigo);
@@ -1012,6 +1025,7 @@ export default function FinanceiroPage() {
     setErroSaldoCreditoClienteOS("");
     setUsarCreditoClienteOS(false);
     setValorCreditoUtilizadoOS("0.00");
+    setEnviarReciboPdfWhatsAppAposRecebimento(false);
   };
 
   const abrirRecebimentoLoteOS = (ids: number[]) => {
@@ -1045,6 +1059,7 @@ export default function FinanceiroPage() {
     setDestinoCreditoExcedenteOS("cliente");
     setUsarCreditoClienteOS(false);
     setValorCreditoUtilizadoOS("0.00");
+    setEnviarReciboPdfWhatsAppAposRecebimento(false);
   };
 
   const handleEditarOS = (os: OrdemServico) => {
@@ -1081,6 +1096,19 @@ export default function FinanceiroPage() {
         destino_credito_excedente: destinoCreditoExcedenteOS,
       });
 
+      let avisoRecibo = "";
+      if (enviarReciboPdfWhatsAppAposRecebimento) {
+        try {
+          await api.post(`/ordens-servico/${modalReceberOS.id}/whatsapp/recibo-pdf`, {
+            idempotency_key: criarIdempotencyKeyWhatsApp("recibo-pdf", modalReceberOS.id),
+          });
+        } catch (error: any) {
+          avisoRecibo =
+            error.response?.data?.detail ||
+            "O recebimento foi registrado, mas nao foi possivel enviar o recibo PDF pelo WhatsApp.";
+        }
+      }
+
       setModalReceberOS(null);
       setPagamentosRecebimentoOS([]);
       setSaldoCreditoClienteOS(0);
@@ -1088,7 +1116,14 @@ export default function FinanceiroPage() {
       setErroSaldoCreditoClienteOS("");
       setUsarCreditoClienteOS(false);
       setValorCreditoUtilizadoOS("0.00");
-      alert("Recebimento registrado com sucesso!");
+      setEnviarReciboPdfWhatsAppAposRecebimento(false);
+      alert(
+        avisoRecibo
+          ? `Recebimento registrado com sucesso.\n\nAviso do WhatsApp: ${avisoRecibo}`
+          : enviarReciboPdfWhatsAppAposRecebimento
+            ? "Recebimento registrado e recibo PDF enviado pelo WhatsApp!"
+            : "Recebimento registrado com sucesso!"
+      );
       carregarDados();
     } catch (error: any) {
       console.error("Erro ao pagar OS:", error);
@@ -1153,6 +1188,8 @@ export default function FinanceiroPage() {
 
     const acumuladoPorForma = new Map<string, number>();
     const erros: string[] = [];
+    const idsRecebidas: number[] = [];
+    let avisoRecibo = "";
     setRecebendoLoteOS(true);
     try {
       for (let index = 0; index < ordensRecebimentoLote.length; index += 1) {
@@ -1171,19 +1208,48 @@ export default function FinanceiroPage() {
             valor_credito_utilizado: 0,
             destino_credito_excedente: "cliente",
           });
+          idsRecebidas.push(os.id);
         } catch (error: any) {
           erros.push(`OS ${os.numero_os || os.id}: ${error.response?.data?.detail || error.message}`);
+        }
+      }
+
+      if (enviarReciboPdfWhatsAppAposRecebimento && idsRecebidas.length > 0) {
+        try {
+          if (idsRecebidas.length === 1) {
+            await api.post(`/ordens-servico/${idsRecebidas[0]}/whatsapp/recibo-pdf`, {
+              idempotency_key: criarIdempotencyKeyWhatsApp("recibo-pdf", idsRecebidas[0]),
+            });
+          } else {
+            await api.post("/ordens-servico/whatsapp/recibos-pdf", {
+              os_ids: idsRecebidas,
+              idempotency_key: criarIdempotencyKeyWhatsApp("recibo-pdf-lote", idsRecebidas[0]),
+            });
+          }
+        } catch (error: any) {
+          avisoRecibo =
+            error.response?.data?.detail ||
+            "As baixas foram registradas, mas nao foi possivel enviar o recibo PDF pelo WhatsApp.";
         }
       }
 
       setModalReceberLoteOSIds(null);
       setPagamentosRecebimentoOS([]);
       setOsSelecionadasBaixa([]);
+      setEnviarReciboPdfWhatsAppAposRecebimento(false);
       await carregarDados();
-      if (erros.length > 0) {
-        alert(`Baixa em lote concluida parcialmente.\n\n${erros.join("\n")}`);
+      if (erros.length > 0 || avisoRecibo) {
+        const partes = [
+          erros.length > 0 ? `Baixa em lote concluida parcialmente.\n${erros.join("\n")}` : "Baixa em lote registrada com sucesso.",
+          avisoRecibo ? `Aviso do WhatsApp: ${avisoRecibo}` : "",
+        ].filter(Boolean);
+        alert(partes.join("\n\n"));
       } else {
-        alert("Baixa em lote registrada com sucesso!");
+        alert(
+          enviarReciboPdfWhatsAppAposRecebimento
+            ? "Baixa em lote registrada e recibo PDF consolidado enviado pelo WhatsApp!"
+            : "Baixa em lote registrada com sucesso!"
+        );
       }
     } finally {
       setRecebendoLoteOS(false);
@@ -1651,9 +1717,8 @@ export default function FinanceiroPage() {
     const ordensPendentes = grupo.ordens.filter((os) => os.status === "Pendente");
     return ordensPendentes.map(
       (os, index) =>
-        `${index + 1}. OS ${os.numero_os} | ${os.paciente || "Paciente"} | ${formatarData(
-          os.data_atendimento
-        )} | ${formatarValor(os.valor_final)}`
+        `${index + 1}. OS ${os.numero_os} | ${formatarData(os.data_atendimento)} | ${os.servico || "Servico"} | ` +
+        `Tutor: ${os.tutor || "Nao informado"} | Pet: ${os.paciente || "Nao informado"} | ${formatarValor(os.valor_final)}`
     );
   };
 
@@ -1724,6 +1789,10 @@ export default function FinanceiroPage() {
 
   const enviarCobrancaWhatsApp = async (grupo: GrupoCobrancaDestinatario) => {
     const ordensPendentes = grupo.ordens.filter((os) => os.status === "Pendente");
+    if (ordensPendentes.length === 0) {
+      alert("Nao ha OS pendente neste grupo para enviar.");
+      return;
+    }
     if (ordensPendentes.length === 1) {
       const ordem = ordensPendentes[0];
       if (!confirm(`Enviar pelo WhatsApp oficial a cobrança da OS ${ordem.numero_os}?`)) return;
@@ -1743,16 +1812,22 @@ export default function FinanceiroPage() {
       return;
     }
 
-    const telefone = normalizarTelefoneWhatsApp(grupo.telefone_destinatario || "");
-    if (!telefone) {
-      const alvo = grupo.tipo_destinatario === "tutor" ? "tutor" : "clinica";
-      alert(`O ${alvo} ${grupo.nome_destinatario} nao possui telefone cadastrado para cobranca.`);
+    if (!confirm(`Enviar uma unica cobranca oficial com ${ordensPendentes.length} OS para ${grupo.nome_destinatario}?`)) {
       return;
     }
-
-    const mensagem = preencherMensagemCobranca(grupo);
-    const url = `https://wa.me/${telefone}?text=${encodeURIComponent(mensagem)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+    setEnviandoWhatsAppOficialGrupoKey(grupo.chave);
+    try {
+      await api.post("/ordens-servico/whatsapp/cobranca-agrupada", {
+        os_ids: ordensPendentes.map((os) => os.id),
+        idempotency_key: criarIdempotencyKeyWhatsApp("cobranca-agrupada", ordensPendentes[0].id),
+      });
+      alert("Cobranca consolidada enviada pelo WhatsApp oficial da Fort Cordis.");
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      alert(detail || "Erro ao enviar a cobranca consolidada pelo WhatsApp oficial.");
+    } finally {
+      setEnviandoWhatsAppOficialGrupoKey(null);
+    }
   };
 
   const avisarReciboPeloWhatsAppOficial = async (os: OrdemServico) => {
@@ -2661,15 +2736,16 @@ export default function FinanceiroPage() {
                           </button>
                           <button
                             onClick={() => void enviarCobrancaWhatsApp(grupo)}
-                            disabled={grupo.ordens.some(
-                              (os) => os.status === "Pendente" && enviandoWhatsAppOficialOsId === os.id
-                            )}
+                            disabled={
+                              enviandoWhatsAppOficialGrupoKey === grupo.chave ||
+                              grupo.ordens.some(
+                                (os) => os.status === "Pendente" && enviandoWhatsAppOficialOsId === os.id
+                              )
+                            }
                             className="px-3 py-1.5 text-sm bg-green-600 text-white hover:bg-green-700 rounded-lg flex items-center gap-1"
                           >
                           <MessageCircle className="w-4 h-4" />
-                          {grupo.ordens.filter((os) => os.status === "Pendente").length === 1
-                            ? "Enviar FortCordis"
-                            : "Enviar WhatsApp"}
+                          {enviandoWhatsAppOficialGrupoKey === grupo.chave ? "Enviando..." : "Enviar FortCordis"}
                         </button>
                       </div>
                     </div>
@@ -3524,6 +3600,29 @@ export default function FinanceiroPage() {
                 />
               </div>
 
+              <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+                <label className="flex items-start gap-2 text-sm font-medium text-green-900">
+                  <input
+                    type="checkbox"
+                    checked={enviarReciboPdfWhatsAppAposRecebimento}
+                    disabled={!recebimentoLoteMesmoDestinatario}
+                    onChange={(event) => setEnviarReciboPdfWhatsAppAposRecebimento(event.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Enviar um recibo PDF consolidado pelo WhatsApp oficial após a baixa
+                    <span className="mt-1 block text-xs font-normal text-green-800">
+                      O PDF detalha OS, data do atendimento, serviço, tutor e pet.
+                    </span>
+                  </span>
+                </label>
+                {!recebimentoLoteMesmoDestinatario && (
+                  <p className="mt-2 text-xs text-amber-800">
+                    Para enviar um único recibo, selecione somente OS do mesmo destinatário.
+                  </p>
+                )}
+              </div>
+
               <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">
                 <div className="flex justify-between">
                   <span>Total das OS</span>
@@ -3555,6 +3654,7 @@ export default function FinanceiroPage() {
                 onClick={() => {
                   setModalReceberLoteOSIds(null);
                   setPagamentosRecebimentoOS([]);
+                  setEnviarReciboPdfWhatsAppAposRecebimento(false);
                 }}
                 disabled={recebendoLoteOS}
                 className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg border disabled:opacity-60"
@@ -3688,6 +3788,23 @@ export default function FinanceiroPage() {
 	                />
 	              </div>
 
+              <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+                <label className="flex items-start gap-2 text-sm font-medium text-green-900">
+                  <input
+                    type="checkbox"
+                    checked={enviarReciboPdfWhatsAppAposRecebimento}
+                    onChange={(event) => setEnviarReciboPdfWhatsAppAposRecebimento(event.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Enviar o recibo em PDF pelo WhatsApp oficial após registrar
+                    <span className="mt-1 block text-xs font-normal text-green-800">
+                      O documento informa OS, data do atendimento, serviço, tutor e pet.
+                    </span>
+                  </span>
+                </label>
+              </div>
+
               {!carregandoSaldoCreditoClienteOS && saldoCreditoClienteOS > 0 && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
                   <label className="flex items-center gap-2 text-sm font-medium text-amber-900">
@@ -3794,6 +3911,7 @@ export default function FinanceiroPage() {
                   setErroSaldoCreditoClienteOS("");
                   setUsarCreditoClienteOS(false);
                   setValorCreditoUtilizadoOS("0.00");
+                  setEnviarReciboPdfWhatsAppAposRecebimento(false);
                 }}
                 className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg border"
               >

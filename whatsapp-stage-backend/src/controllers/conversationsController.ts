@@ -17,6 +17,13 @@ interface ConversationRow {
   [key: string]: unknown;
 }
 
+const CONVERSATION_STATUSES = ["open", "pending", "closed"] as const;
+type ConversationStatus = (typeof CONVERSATION_STATUSES)[number];
+
+export function isConversationStatus(value: unknown): value is ConversationStatus {
+  return typeof value === "string" && CONVERSATION_STATUSES.includes(value as ConversationStatus);
+}
+
 function parsePositiveInt(input: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(input ?? "", 10);
   if (Number.isNaN(parsed) || parsed <= 0) {
@@ -45,6 +52,7 @@ export async function listConversations(req: Request, res: Response): Promise<vo
   const status = req.query.status as string | undefined;
   const assigned = req.query.assigned as string | undefined;
   const phone = req.query.phone as string | undefined;
+  const search = (req.query.search as string | undefined) || phone;
 
   const whereClauses: string[] = [];
   const params: unknown[] = [];
@@ -62,15 +70,29 @@ export async function listConversations(req: Request, res: Response): Promise<vo
     whereClauses.push("c.last_agent_id IS NULL");
   }
 
-  if (phone) {
-    params.push(`%${phone}%`);
-    whereClauses.push(`c.wa_phone_number ILIKE $${params.length}`);
+  if (search) {
+    params.push(`%${search.trim()}%`);
+    whereClauses.push(`(
+      c.wa_phone_number ILIKE $${params.length}
+      OR COALESCE(c.subject, '') ILIKE $${params.length}
+      OR COALESCE(last_message.body, '') ILIKE $${params.length}
+    )`);
   }
 
   const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
+  const joinsSql = `
+    LEFT JOIN agents assigned_agent ON assigned_agent.id = c.last_agent_id
+    LEFT JOIN LATERAL (
+      SELECT m.body, m.created_at, m.from_me, m.type
+      FROM messages m
+      WHERE m.conversation_id = c.id
+      ORDER BY m.created_at DESC, m.id DESC
+      LIMIT 1
+    ) last_message ON true
+  `;
 
   const totalResult = await query<{ total: string }>(
-    `SELECT COUNT(*)::text AS total FROM conversations c ${whereSql}`,
+    `SELECT COUNT(*)::text AS total FROM conversations c ${joinsSql} ${whereSql}`,
     params
   );
 
@@ -79,21 +101,14 @@ export async function listConversations(req: Request, res: Response): Promise<vo
     `
       SELECT
         c.*,
-        (
-          SELECT m.body
-          FROM messages m
-          WHERE m.conversation_id = c.id
-          ORDER BY m.created_at DESC
-          LIMIT 1
-        ) AS last_message_body,
-        (
-          SELECT m.created_at
-          FROM messages m
-          WHERE m.conversation_id = c.id
-          ORDER BY m.created_at DESC
-          LIMIT 1
-        ) AS last_message_at
+        assigned_agent.name AS assigned_agent_name,
+        assigned_agent.email AS assigned_agent_email,
+        last_message.body AS last_message_body,
+        last_message.created_at AS last_message_at,
+        last_message.from_me AS last_message_from_me,
+        last_message.type AS last_message_type
       FROM conversations c
+      ${joinsSql}
       ${whereSql}
       ORDER BY c.last_activity_at DESC NULLS LAST, c.id DESC
       LIMIT $${dataParams.length - 1}
@@ -113,6 +128,68 @@ export async function listConversations(req: Request, res: Response): Promise<vo
       total: Number.parseInt(totalResult.rows[0]?.total ?? "0", 10)
     }
   });
+}
+
+export async function updateConversationStatus(req: Request, res: Response): Promise<void> {
+  const conversationId = req.params.id;
+  const nextStatus = req.body?.status;
+
+  if (!isConversationStatus(nextStatus)) {
+    res.status(422).json({
+      error: `status must be one of: ${CONVERSATION_STATUSES.join(", ")}`
+    });
+    return;
+  }
+
+  const result = await withTransaction(async (client) => {
+    const current = await client.query<{
+      id: string;
+      status: string;
+      wa_phone_number: string;
+    }>(
+      `SELECT id, status, wa_phone_number FROM conversations WHERE id = $1 FOR UPDATE`,
+      [conversationId]
+    );
+
+    const conversation = current.rows[0];
+    if (!conversation) {
+      return { notFound: true as const };
+    }
+
+    if (conversation.status === nextStatus) {
+      return { conversation, changed: false };
+    }
+
+    const updated = await client.query<ConversationRow>(
+      `UPDATE conversations
+       SET status = $2, updated_at = now()
+       WHERE id = $1
+       RETURNING *`,
+      [conversationId, nextStatus]
+    );
+
+    await client.query(
+      `INSERT INTO audit_logs (conversation_id, action, payload, created_at)
+       VALUES ($1, 'conversation_status_changed', $2::jsonb, now())`,
+      [
+        conversationId,
+        JSON.stringify({
+          source: "api.conversation_status",
+          previous_status: conversation.status,
+          status: nextStatus
+        })
+      ]
+    );
+
+    return { conversation: updated.rows[0], changed: true };
+  });
+
+  if ("notFound" in result) {
+    res.status(404).json({ error: "Conversation not found" });
+    return;
+  }
+
+  res.status(200).json({ data: result.conversation, changed: result.changed });
 }
 
 export async function listConversationMessages(req: Request, res: Response): Promise<void> {

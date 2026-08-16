@@ -2,7 +2,7 @@
 
 Data: 2026-06-13
 Responsavel: Martiniano + Codex
-Status: verified
+Status: ready-for-release-user-confirmed-meta-approved
 
 ## 1) Matriz de rastreabilidade
 
@@ -14,6 +14,9 @@ Status: verified
 | CA-004 | Resumo mostra faltante/excedente e bloqueia confirmacao | implementado |
 | CA-005 | Checkbox de OS paga continua selecionando para recibo | implementado |
 | CA-006 | Botao `Receber pendentes` usa OS pendentes do grupo de clinica | implementado |
+| CA-007 | Checkbox de recibo PDF no recebimento individual e endpoint oficial | passou em inspecao, `tsc` e lint |
+| CA-008 | Checkbox consolidado condicionado ao mesmo destinatario | passou em inspecao, `tsc` e lint |
+| CA-009 | tratamento separado de erro financeiro e erro WhatsApp | passou em inspecao, `tsc` e lint |
 
 ## 2) Testes automatizados
 
@@ -25,6 +28,16 @@ cd frontend && npx tsc --noEmit
 ```
 
 Resultado: ok nos dois comandos.
+
+Testes adicionais da extensao:
+
+```bash
+cd backend && venv/bin/python -m unittest tests.test_whatsapp_template_delivery
+cd whatsapp-stage-backend && npm run test:document-templates
+```
+
+Resultado: 8 testes Python e o teste Node de documento passaram; o teste do PDF consolidado extraiu
+OS, data do atendimento, servico, tutor e pet.
 
 Inspecao local:
 
@@ -42,8 +55,11 @@ Resultado: `GET /financeiro 200`; a tela abriu no browser local sem erro de cons
 - Informar valor maior que o total e conferir bloqueio por excedente.
 - Selecionar uma OS paga e confirmar que a acao continua sendo recibo.
 - Gerar recibo de OS recebida apos a baixa em lote.
+- Marcar o envio por WhatsApp e confirmar o recebimento do PDF no telefone cadastrado.
 
 ## 4) Riscos residuais
 
 - A baixa em lote reaproveita o endpoint individual e nao e atomica no backend; em erro intermediario, o sistema informa conclusao parcial.
 - O historico financeiro continua com transacoes vinculadas individualmente por OS, ainda que a operacao operacional tenha sido uma unica baixa em lote.
+- A aprovacao dos modelos Meta de recibo com cabecalho de documento foi confirmada pelo responsavel
+  em 2026-08-16; a publicacao segue condicionada aos gates e smokes desta entrega.

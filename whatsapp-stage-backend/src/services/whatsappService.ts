@@ -4,12 +4,14 @@ import {
   APPROVED_TEMPLATE_LANGUAGE,
   APPROVED_UTILITY_TEMPLATES,
   ApprovedUtilityTemplateKey,
-  getTemplateBodyParameterCount
+  getTemplateBodyParameterCount,
+  templateRequiresDocumentHeader
 } from "../templates/approvedTemplates";
 
 const graphApiVersion = process.env.WHATSAPP_GRAPH_API_VERSION || "v26.0";
 const GRAPH_API_BASE_URL = `https://graph.facebook.com/${graphApiVersion}`;
 const DEFAULT_TIMEOUT_MS = 10000;
+const MEDIA_UPLOAD_TIMEOUT_MS = 30000;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -150,6 +152,22 @@ export interface ApprovedUtilityTemplateParams {
   templateKey: ApprovedUtilityTemplateKey;
   bodyParameters: string[];
   quickReplyPayloads: string[];
+  documentHeader?: {
+    mediaId: string;
+    filename: string;
+  };
+}
+
+interface GraphMediaUploadResponse {
+  id?: string;
+  [key: string]: unknown;
+}
+
+export interface UploadWhatsAppPdfParams {
+  phoneNumberId: string;
+  accessToken: string;
+  filename: string;
+  content: Buffer;
 }
 
 async function sendPayloadWithRetry(params: {
@@ -274,7 +292,31 @@ export async function sendWhatsAppApprovedUtilityTemplateWithRetry(
     );
   }
 
+  const requiresDocument = templateRequiresDocumentHeader(params.templateKey);
+  if (requiresDocument && !params.documentHeader) {
+    throw new Error(`Template '${definition.name}' requires a document header`);
+  }
+  if (!requiresDocument && params.documentHeader) {
+    throw new Error(`Template '${definition.name}' does not accept a document header`);
+  }
+
   const components: Array<Record<string, unknown>> = [
+    ...(params.documentHeader
+      ? [
+          {
+            type: "header",
+            parameters: [
+              {
+                type: "document",
+                document: {
+                  id: params.documentHeader.mediaId,
+                  filename: params.documentHeader.filename
+                }
+              }
+            ]
+          }
+        ]
+      : []),
     {
       type: "body",
       parameters: params.bodyParameters.map((text) => ({ type: "text", text }))
@@ -302,4 +344,58 @@ export async function sendWhatsAppApprovedUtilityTemplateWithRetry(
       }
     }
   });
+}
+
+export async function uploadWhatsAppPdfWithRetry(
+  params: UploadWhatsAppPdfParams
+): Promise<{ id: string }> {
+  if (!params.content.length || params.content.subarray(0, 4).toString("ascii") !== "%PDF") {
+    throw new Error("Document content must be a valid PDF");
+  }
+
+  const url = `${GRAPH_API_BASE_URL}/${params.phoneNumberId}/media`;
+  const maxAttempts = 3;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const formData = new FormData();
+    formData.append("messaging_product", "whatsapp");
+    formData.append(
+      "file",
+      new Blob([new Uint8Array(params.content)], { type: "application/pdf" }),
+      params.filename
+    );
+
+    try {
+      const response = await axios.post<GraphMediaUploadResponse>(url, formData, {
+        headers: {
+          Authorization: `Bearer ${params.accessToken}`
+        },
+        timeout: MEDIA_UPLOAD_TIMEOUT_MS
+      });
+      const mediaId = String(response.data?.id || "").trim();
+      if (!mediaId) {
+        throw new Error("Meta media upload response did not include an id");
+      }
+      return { id: mediaId };
+    } catch (error) {
+      if (!(error as AxiosError).isAxiosError) {
+        throw error;
+      }
+      const normalizedError = normalizeAxiosError(error as AxiosError, attempt);
+      if (attempt >= maxAttempts || !normalizedError.isRetryable) {
+        throw normalizedError;
+      }
+      const backoffMs = computeBackoffWithJitter(attempt);
+      logger.warn("Retrying Graph API media upload", {
+        attempt,
+        nextWaitMs: backoffMs,
+        status: normalizedError.status,
+        code: normalizedError.code,
+        providerMessage: normalizedError.providerMessage
+      });
+      await wait(backoffMs);
+    }
+  }
+
+  throw new Error("Unexpected WhatsApp media upload retry flow termination");
 }

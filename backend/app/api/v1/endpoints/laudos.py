@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from io import BytesIO
 import json
 import os
@@ -1272,6 +1272,178 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
         if not paciente_existente:
             raise
         return paciente_existente.id
+
+
+@router.get("/laudos/pendentes")
+def listar_laudos_pendentes(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Fila pessoal de exames realizados (via Agenda) que ainda precisam
+    de laudo - sem laudo nenhum, ou com laudo em rascunho. So considera
+    exames cujo agendamento foi marcado como "Realizado" (ver
+    docs/specs/laudos-fila-pendentes-agenda)."""
+    from app.models.agendamento import Agendamento
+    from app.models.clinica import Clinica
+    from app.models.paciente import Paciente
+    from app.models.tutor import Tutor
+    from app.services.laudo_agilidade_service import (
+        PRAZO_LAUDO_HORAS_UTEIS,
+        carregar_feriados,
+        horas_uteis_entre,
+    )
+
+    query = (
+        db.query(Exame, AtendimentoClinico.data_atendimento, AtendimentoClinico.clinica_id)
+        .join(AtendimentoClinico, AtendimentoClinico.id == Exame.atendimento_id)
+        .join(Agendamento, Agendamento.id == AtendimentoClinico.agendamento_id)
+        .outerjoin(Laudo, Laudo.id == Exame.laudo_id)
+        .filter(Agendamento.status == "Realizado")
+        .filter(or_(Exame.laudo_id.is_(None), Laudo.status == "Rascunho"))
+    )
+
+    total = query.count()
+    rows = (
+        query.order_by(Exame.urgente_laudo.desc(), AtendimentoClinico.data_atendimento.asc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+    feriados = carregar_feriados(db)
+    agora = datetime.utcnow()
+
+    paciente_ids = {exame.paciente_id for exame, _, _ in rows}
+    pacientes_map = (
+        {p.id: p for p in db.query(Paciente).filter(Paciente.id.in_(paciente_ids)).all()}
+        if paciente_ids
+        else {}
+    )
+    tutor_ids = {p.tutor_id for p in pacientes_map.values() if p.tutor_id}
+    tutores_map = (
+        {t.id: t for t in db.query(Tutor).filter(Tutor.id.in_(tutor_ids)).all()}
+        if tutor_ids
+        else {}
+    )
+    clinica_ids = {clinica_id for _, _, clinica_id in rows if clinica_id}
+    clinicas_map = (
+        {c.id: c for c in db.query(Clinica).filter(Clinica.id.in_(clinica_ids)).all()}
+        if clinica_ids
+        else {}
+    )
+
+    items = []
+    for exame, data_atendimento, clinica_id in rows:
+        paciente = pacientes_map.get(exame.paciente_id)
+        tutor = tutores_map.get(getattr(paciente, "tutor_id", None))
+        clinica = clinicas_map.get(clinica_id)
+        horas = horas_uteis_entre(data_atendimento, agora, feriados) if data_atendimento else 0.0
+        items.append(
+            {
+                "exame_id": exame.id,
+                "atendimento_id": exame.atendimento_id,
+                "laudo_id": exame.laudo_id,
+                "tem_rascunho": exame.laudo_id is not None,
+                "urgente": bool(exame.urgente_laudo),
+                "paciente_nome": getattr(paciente, "nome", None),
+                "tutor_nome": getattr(tutor, "nome", None),
+                "clinica_nome": getattr(clinica, "nome", None),
+                "tipo_exame": exame.tipo_exame,
+                "data_atendimento": data_atendimento.isoformat() if data_atendimento else None,
+                "horas_uteis_decorridas": round(horas, 1),
+                "atrasado": horas > PRAZO_LAUDO_HORAS_UTEIS,
+            }
+        )
+
+    return {"total": total, "items": items}
+
+
+@router.get("/laudos/agilidade")
+def obter_agilidade_laudos(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Indicador pessoal de agilidade: % de laudos finalizados dentro do
+    prazo de 48h uteis, ultimos 90 dias comparado aos 90 dias anteriores
+    (ver docs/specs/laudos-fila-pendentes-agenda)."""
+    from app.models.agendamento import Agendamento
+    from app.services.laudo_agilidade_service import (
+        PRAZO_LAUDO_HORAS_UTEIS,
+        carregar_feriados,
+        horas_uteis_entre,
+    )
+
+    feriados = carregar_feriados(db)
+    agora = datetime.utcnow()
+
+    def _calcular_janela(inicio_janela: datetime, fim_janela: datetime) -> dict:
+        rows = (
+            db.query(Laudo.id, Laudo.finalizado_em, AtendimentoClinico.data_atendimento)
+            .join(Exame, Exame.laudo_id == Laudo.id)
+            .join(AtendimentoClinico, AtendimentoClinico.id == Exame.atendimento_id)
+            .join(Agendamento, Agendamento.id == AtendimentoClinico.agendamento_id)
+            .filter(Agendamento.status == "Realizado")
+            .filter(Laudo.finalizado_em >= inicio_janela, Laudo.finalizado_em < fim_janela)
+            .all()
+        )
+
+        # Um laudo pode ter mais de um exame vinculado - deduplica por
+        # laudo_id (mantendo a realizacao mais antiga) para nao contar o
+        # mesmo laudo 2x no indicador.
+        por_laudo: dict[int, tuple] = {}
+        for laudo_id, finalizado_em, data_atendimento in rows:
+            if data_atendimento is None:
+                continue
+            existente = por_laudo.get(laudo_id)
+            if existente is None or data_atendimento < existente[1]:
+                por_laudo[laudo_id] = (finalizado_em, data_atendimento)
+
+        total = len(por_laudo)
+        if total == 0:
+            return {
+                "total_finalizados": 0,
+                "no_prazo": 0,
+                "percentual_no_prazo": None,
+                "media_horas_uteis": None,
+            }
+
+        no_prazo = 0
+        soma_horas = 0.0
+        for finalizado_em, data_atendimento in por_laudo.values():
+            horas = horas_uteis_entre(data_atendimento, finalizado_em, feriados)
+            soma_horas += horas
+            if horas <= PRAZO_LAUDO_HORAS_UTEIS:
+                no_prazo += 1
+
+        return {
+            "total_finalizados": total,
+            "no_prazo": no_prazo,
+            "percentual_no_prazo": round(100 * no_prazo / total, 1),
+            "media_horas_uteis": round(soma_horas / total, 1),
+        }
+
+    janela_atual = _calcular_janela(agora - timedelta(days=90), agora)
+    janela_anterior = _calcular_janela(agora - timedelta(days=180), agora - timedelta(days=90))
+
+    tendencia = None
+    atual_pct = janela_atual["percentual_no_prazo"]
+    anterior_pct = janela_anterior["percentual_no_prazo"]
+    if atual_pct is not None and anterior_pct is not None:
+        if atual_pct > anterior_pct:
+            tendencia = "melhorou"
+        elif atual_pct < anterior_pct:
+            tendencia = "piorou"
+        else:
+            tendencia = "estavel"
+
+    return {
+        "prazo_horas_uteis": PRAZO_LAUDO_HORAS_UTEIS,
+        "janela_atual": janela_atual,
+        "janela_anterior": janela_anterior,
+        "tendencia": tendencia,
+    }
 
 
 @router.get("/laudos")

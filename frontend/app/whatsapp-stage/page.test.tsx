@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WhatsAppStagePage from "./page";
@@ -11,6 +11,19 @@ function jsonResponse(payload: unknown): Response {
   return new Response(JSON.stringify(payload), {
     status: 200,
     headers: { "Content-Type": "application/json" },
+  });
+}
+
+function notFoundDomainContextResponse(): Response {
+  return jsonResponse({
+    normalized_phone: "558500000000",
+    resolution: "not_found",
+    match_type: null,
+    clinicas: [],
+    tutores: [],
+    pets: [],
+    agendamentos: [],
+    ordens_servico: [],
   });
 }
 
@@ -89,6 +102,8 @@ describe("WhatsAppStagePage", () => {
           });
         }
 
+        if (url.startsWith("/api/v1/whatsapp-contexto?")) return notFoundDomainContextResponse();
+
         throw new Error(`URL inesperada no teste: ${url}`);
       })
     );
@@ -101,15 +116,15 @@ describe("WhatsAppStagePage", () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByText("sent")).toBeInTheDocument();
-    expect(screen.getByText(/Pode responder normalmente até/)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Digite a resposta")).toBeEnabled();
+    expect(screen.getByText("Enviada")).toBeInTheDocument();
+    expect(screen.getByText(/Resposta livre disponível até/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Digite sua resposta")).toBeEnabled();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
 
-    expect(screen.getByText("delivered")).toBeInTheDocument();
+    expect(screen.getByText("Entregue")).toBeInTheDocument();
     expect(screen.queryByText("Carregando mensagens...")).not.toBeInTheDocument();
   });
 
@@ -171,6 +186,8 @@ describe("WhatsAppStagePage", () => {
           });
         }
 
+        if (url.startsWith("/api/v1/whatsapp-contexto?")) return notFoundDomainContextResponse();
+
         throw new Error(`URL inesperada no teste: ${url}`);
       })
     );
@@ -183,8 +200,281 @@ describe("WhatsAppStagePage", () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByText(/Janela de 24 horas encerrada em/)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Digite a resposta")).toBeDisabled();
+    expect(screen.getByText(/Janela encerrada em/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Digite sua resposta")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
+  });
+
+  it("preenche a previa de um modelo e copia o texto para revisao", async () => {
+    const requestedUrls: string[] = [];
+    const customerServiceWindow = {
+      last_inbound_at: "2026-08-14T02:26:00.000Z",
+      expires_at: "2026-08-15T02:26:00.000Z",
+      is_open: true,
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        requestedUrls.push(url);
+
+        if (url.startsWith("/whatsapp/conversations?")) {
+          return jsonResponse({
+            data: [
+              {
+                id: "3926",
+                wa_phone_number: "558500000000",
+                wa_psid: "558500000000",
+                status: "open",
+                subject: "Animal Care",
+                last_agent_id: "7",
+                assigned_agent_name: "Ana",
+                assigned_agent_email: "ana@fortcordis.com",
+                last_activity_at: "2026-08-14T02:26:00.000Z",
+                last_inbound_at: "2026-08-14T02:26:00.000Z",
+                created_at: "2026-08-14T02:26:00.000Z",
+                updated_at: "2026-08-14T02:26:00.000Z",
+                last_message_body: "Olá",
+                last_message_at: "2026-08-14T02:26:00.000Z",
+                customer_service_window: customerServiceWindow,
+              },
+            ],
+            pagination: { page: 1, limit: 20, total: 1 },
+          });
+        }
+
+        if (url === "/whatsapp/agents") {
+          return jsonResponse({
+            data: [
+              {
+                id: "7",
+                name: "Ana",
+                email: "ana@fortcordis.com",
+                role: "agent",
+                active: true,
+                created_at: "2026-08-14T02:00:00.000Z",
+              },
+            ],
+          });
+        }
+
+        if (url === "/whatsapp/automation/templates") {
+          return jsonResponse({
+            data: [
+              {
+                key: "portalReportAvailable",
+                name: "laudo_disponivel_portal",
+                meta_id: "1682393009502350",
+                language: "pt_BR",
+                body: "Olá, {{1}}. O laudo do exame {{2}} de {{3}} está disponível no Portal Fort Cordis.",
+                body_parameter_count: 3,
+                variable_labels: ["Clínica ou destinatário", "Exame", "Pet"],
+                quick_replies: [],
+                category: "laudos",
+                workflow_label: "Laudo disponível no portal",
+                requires_document: false,
+                can_copy_as_free_text: true,
+                meta_approval_live: null,
+              },
+            ],
+            source: "configured_catalog",
+            meta_approval_live: null,
+          });
+        }
+
+        if (url.startsWith("/whatsapp/conversations/3926/messages?")) {
+          return jsonResponse({
+            data: [],
+            pagination: { page: 1, limit: 50, total: 0 },
+            customer_service_window: customerServiceWindow,
+          });
+        }
+
+        if (url.startsWith("/api/v1/whatsapp-contexto?")) return notFoundDomainContextResponse();
+
+        throw new Error(`URL inesperada no teste: ${url}`);
+      })
+    );
+
+    render(<WhatsAppStagePage />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: /Modelos configurados/ }));
+    expect(screen.getByText(/A aprovação atual na Meta não é consultada/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Exame"), { target: { value: "Ecocardiograma" } });
+    fireEvent.change(screen.getByLabelText("Pet"), { target: { value: "Gamora" } });
+    const copyButton = screen.getByRole("button", { name: "Copiar texto para resposta" });
+    expect(copyButton).toBeEnabled();
+    fireEvent.click(copyButton);
+
+    expect(screen.getByPlaceholderText("Digite sua resposta")).toHaveValue(
+      "Olá, Animal Care. O laudo do exame Ecocardiograma de Gamora está disponível no Portal Fort Cordis."
+    );
+
+    fireEvent.change(screen.getByLabelText("Buscar conversas"), { target: { value: "Animal Care" } });
+    fireEvent.submit(screen.getByLabelText("Buscar conversas").closest("form")!);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(requestedUrls.some((url) => url.includes("search=Animal+Care"))).toBe(true);
+  });
+
+  it("mostra clinica, tutor, pet, agendamento e OS vinculados pelo telefone", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/whatsapp/conversations?")) {
+          return jsonResponse({
+            data: [{
+              id: "3926", wa_phone_number: "558588281436", wa_psid: "558588281436",
+              status: "open", subject: "Animal Care", last_agent_id: null,
+              last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: "2026-08-14T02:26:00.000Z",
+              created_at: "2026-08-14T02:26:00.000Z", updated_at: "2026-08-14T02:26:00.000Z",
+              customer_service_window: { last_inbound_at: "2026-08-14T02:26:00.000Z", expires_at: "2026-08-15T02:26:00.000Z", is_open: true },
+            }],
+            pagination: { page: 1, limit: 20, total: 1 },
+          });
+        }
+        if (url === "/whatsapp/agents") return jsonResponse({ data: [] });
+        if (url === "/whatsapp/automation/templates") return jsonResponse({ data: [], source: "configured_catalog", meta_approval_live: null });
+        if (url.startsWith("/whatsapp/conversations/3926/messages?")) return jsonResponse({
+          data: [], pagination: { page: 1, limit: 50, total: 0 },
+          customer_service_window: { last_inbound_at: "2026-08-14T02:26:00.000Z", expires_at: "2026-08-15T02:26:00.000Z", is_open: true },
+        });
+        if (url.startsWith("/api/v1/whatsapp-contexto?")) return jsonResponse({
+          normalized_phone: "558588281436", resolution: "matched", match_type: "clinica",
+          clinicas: [{ id: 10, nome: "Animal Care", cidade: "Fortaleza", estado: "CE" }],
+          tutores: [{ id: 20, nome: "Maria Oliveira" }],
+          pets: [{ id: 30, tutor_id: 20, nome: "Gamora", especie: "Canina", raca: "SRD" }],
+          agendamentos: [{ id: 40, inicio: "2026-08-15T12:00:00.000Z", fim: "2026-08-15T12:30:00.000Z", status: "Confirmado",
+            clinica_id: 10, clinica_nome: "Animal Care", tutor_id: 20, tutor_nome: "Maria Oliveira", pet_id: 30, pet_nome: "Gamora",
+            servico_id: 50, servico_nome: "Ecocardiograma" }],
+          ordens_servico: [{ id: 60, numero_os: "OS-0001", agendamento_id: 40, data_atendimento: "2026-08-15T12:00:00.000Z",
+            status: "Pendente", valor_final: 250, clinica_id: 10, clinica_nome: "Animal Care", tutor_id: 20, tutor_nome: "Maria Oliveira",
+            pet_id: 30, pet_nome: "Gamora", servico_id: 50, servico_nome: "Ecocardiograma" }],
+        });
+        throw new Error(`URL inesperada no teste: ${url}`);
+      })
+    );
+
+    render(<WhatsAppStagePage />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("Vínculo automático por telefone")).toBeInTheDocument();
+    expect(screen.getByText("Maria Oliveira")).toBeInTheDocument();
+    expect(screen.getByText("Canina · SRD")).toBeInTheDocument();
+    expect(screen.getByText(/OS-0001 · Gamora/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Agenda" })).toHaveAttribute("href", "/agenda?agendamento_id=40");
+    expect(screen.getByRole("link", { name: "Financeiro" })).toHaveAttribute("href", "/financeiro?os_id=60");
+  });
+
+  it("avisa quando o telefone pertence a mais de um cadastro", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
+          data: [{ id: "3926", wa_phone_number: "5585999990001", wa_psid: null, status: "open", subject: "Contato compartilhado",
+            last_agent_id: null, last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: null,
+            created_at: "2026-08-14T02:26:00.000Z", updated_at: "2026-08-14T02:26:00.000Z" }],
+          pagination: { page: 1, limit: 20, total: 1 },
+        });
+        if (url === "/whatsapp/agents") return jsonResponse({ data: [] });
+        if (url === "/whatsapp/automation/templates") return jsonResponse({ data: [], source: "configured_catalog", meta_approval_live: null });
+        if (url.startsWith("/whatsapp/conversations/3926/messages?")) return jsonResponse({
+          data: [], pagination: { page: 1, limit: 50, total: 0 },
+          customer_service_window: { last_inbound_at: null, expires_at: null, is_open: false },
+        });
+        if (url.startsWith("/api/v1/whatsapp-contexto?")) return jsonResponse({
+          normalized_phone: "5585999990001", resolution: "ambiguous", match_type: null,
+          clinicas: [{ id: 10, nome: "Animal Care", cidade: "Fortaleza", estado: "CE" }],
+          tutores: [{ id: 20, nome: "Maria Oliveira" }], pets: [], agendamentos: [], ordens_servico: [],
+        });
+        throw new Error(`URL inesperada no teste: ${url}`);
+      })
+    );
+
+    render(<WhatsAppStagePage />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("Número presente em mais de um cadastro")).toBeInTheDocument();
+    expect(screen.getByText("Clínica: Animal Care")).toBeInTheDocument();
+    expect(screen.getByText("Tutor: Maria Oliveira")).toBeInTheDocument();
+    expect(screen.queryByText("Vínculo automático por telefone")).not.toBeInTheDocument();
+  });
+
+  it("descarta um contexto atrasado depois da troca de conversa", async () => {
+    let resolveFirstContext!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/whatsapp/conversations?")) return jsonResponse({
+          data: [
+            { id: "1", wa_phone_number: "558511111111", wa_psid: null, status: "open", subject: "Conversa Um", last_agent_id: null,
+              last_activity_at: "2026-08-14T02:26:00.000Z", last_inbound_at: null, created_at: "2026-08-14T02:26:00.000Z", updated_at: "2026-08-14T02:26:00.000Z" },
+            { id: "2", wa_phone_number: "558522222222", wa_psid: null, status: "open", subject: "Conversa Dois", last_agent_id: null,
+              last_activity_at: "2026-08-14T02:25:00.000Z", last_inbound_at: null, created_at: "2026-08-14T02:25:00.000Z", updated_at: "2026-08-14T02:25:00.000Z" },
+          ],
+          pagination: { page: 1, limit: 20, total: 2 },
+        });
+        if (url === "/whatsapp/agents") return jsonResponse({ data: [] });
+        if (url === "/whatsapp/automation/templates") return jsonResponse({ data: [], source: "configured_catalog", meta_approval_live: null });
+        if (url.includes("/messages?")) return jsonResponse({ data: [], pagination: { page: 1, limit: 50, total: 0 },
+          customer_service_window: { last_inbound_at: null, expires_at: null, is_open: false } });
+        if (url.includes("telefone=558511111111")) {
+          return await new Promise<Response>((resolve) => { resolveFirstContext = resolve; });
+        }
+        if (url.includes("telefone=558522222222")) return jsonResponse({
+          normalized_phone: "558522222222", resolution: "matched", match_type: "clinica",
+          clinicas: [{ id: 2, nome: "Clínica Dois Vinculada", cidade: "Fortaleza", estado: "CE" }],
+          tutores: [], pets: [], agendamentos: [], ordens_servico: [],
+        });
+        throw new Error(`URL inesperada no teste: ${url}`);
+      })
+    );
+
+    render(<WhatsAppStagePage />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Conversa Dois/ }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText("Clínica Dois Vinculada")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveFirstContext(jsonResponse({
+        normalized_phone: "558511111111", resolution: "matched", match_type: "clinica",
+        clinicas: [{ id: 1, nome: "Cadastro Antigo", cidade: null, estado: null }],
+        tutores: [], pets: [], agendamentos: [], ordens_servico: [],
+      }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("Clínica Dois Vinculada")).toBeInTheDocument();
+    expect(screen.queryByText("Cadastro Antigo")).not.toBeInTheDocument();
   });
 });

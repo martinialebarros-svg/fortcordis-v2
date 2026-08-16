@@ -2,7 +2,7 @@
 
 Data: 2026-08-16
 Responsavel: Martiniano + Codex
-Status: approved
+Status: ready-for-release-user-confirmed-meta-approved
 
 ## Problema
 
@@ -11,11 +11,17 @@ servico mantinha apenas o contrato do modelo `reserva_de_agendamento`. Os demais
 de variaveis e botoes nao estavam representados no codigo, o que deixava futuras integracoes sujeitas
 a payloads divergentes do que a Meta aprovou.
 
+O Financeiro passa a exigir quatro novos modelos: cobranca individual detalhada, cobranca
+consolidada, recibo PDF individual e recibo PDF consolidado. Esses contratos ficam tipados
+localmente e foram confirmados pelo responsavel como aprovados e identificados pela Meta. O modelo
+de cobranca anteriormente ativo permanece preservado no historico para rollback.
+
 ## Resultado esperado
 
 - catalogo unico e tipado dos modelos aprovados;
 - validacao local da quantidade de variaveis e respostas rapidas antes de chamar a Graph API;
 - corpo renderizado da reserva igual ao texto realmente entregue pela Meta;
-- acoes manuais e auditadas para Agenda, aviso de laudo, recibo e cobranca individual;
+- acoes manuais e auditadas para Agenda, aviso de laudo, cobranca individual ou consolidada e recibo
+  PDF individual ou consolidado;
 - nenhum disparo automatico novo sem regra de negocio e opt-in definidos;
 - IDs de modelo registrados apenas para rastreabilidade, sem serem enviados como credenciais.

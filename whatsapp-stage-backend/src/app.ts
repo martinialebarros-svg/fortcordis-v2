@@ -1,9 +1,11 @@
 import express, { NextFunction, Request, Response } from "express";
+import multer from "multer";
 import {
   claimConversation,
   listConversationMessages,
   listConversations,
   sendConversationMessage,
+  updateConversationStatus,
   unclaimConversation
 } from "./controllers/conversationsController";
 import { createAgent, listAgents } from "./controllers/agentsController";
@@ -13,8 +15,14 @@ import { logger } from "./utils/logger";
 import { requireApiAuth } from "./middleware/auth";
 import { sendAgendaReservation } from "./controllers/agendaAutomationController";
 import { sendApprovedUtilityTemplate } from "./controllers/templateAutomationController";
+import { sendApprovedDocumentTemplate } from "./controllers/documentTemplateAutomationController";
+import { listApprovedTemplateCatalog } from "./controllers/templateCatalogController";
 
 const app = express();
+const uploadPdf = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024, files: 1 }
+});
 
 app.use(
   express.json({
@@ -44,15 +52,26 @@ app.use("/automation", requireApiAuth);
 app.get("/conversations", asyncHandler(listConversations));
 app.get("/conversations/:id/messages", asyncHandler(listConversationMessages));
 app.post("/conversations/:id/messages", asyncHandler(sendConversationMessage));
+app.patch("/conversations/:id/status", asyncHandler(updateConversationStatus));
 app.post("/conversations/:id/claim", asyncHandler(claimConversation));
 app.post("/conversations/:id/unclaim", asyncHandler(unclaimConversation));
 
 app.get("/agents", asyncHandler(listAgents));
 app.post("/agents", asyncHandler(createAgent));
 app.post("/automation/agenda/reservations", asyncHandler(sendAgendaReservation));
+app.get("/automation/templates", asyncHandler(listApprovedTemplateCatalog));
 app.post("/automation/templates", asyncHandler(sendApprovedUtilityTemplate));
+app.post(
+  "/automation/document-templates",
+  uploadPdf.single("document"),
+  asyncHandler(sendApprovedDocumentTemplate)
+);
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  if (err instanceof multer.MulterError) {
+    res.status(err.code === "LIMIT_FILE_SIZE" ? 413 : 422).json({ error: "Invalid PDF upload." });
+    return;
+  }
   logger.error("Unhandled request error", { message: err.message });
   res.status(500).json({ error: "Internal server error" });
 });

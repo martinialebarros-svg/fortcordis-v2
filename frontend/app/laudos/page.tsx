@@ -13,6 +13,7 @@ import {
 import { baixarLaudoPdf, baixarLaudoPdfOriginal } from "@/lib/laudo-pdf";
 import { formatCalendarDate, formatOperationalDate } from "@/lib/calendar-date";
 import {
+  AlertTriangle,
   Calendar,
   ChevronDown,
   Clock,
@@ -21,11 +22,16 @@ import {
   Eye,
   FileCheck,
   FileText,
+  Gauge,
+  Minus,
   MessageCircle,
   Plus,
   Search,
   Send,
+  Star,
   Trash2,
+  TrendingDown,
+  TrendingUp,
   User,
 } from "lucide-react";
 
@@ -59,6 +65,35 @@ interface Exame {
   status: string;
   valor: number;
   data_solicitacao: string;
+}
+
+interface LaudoPendenteItem {
+  exame_id: number;
+  atendimento_id: number | null;
+  laudo_id: number | null;
+  tem_rascunho: boolean;
+  urgente: boolean;
+  paciente_nome: string | null;
+  tutor_nome: string | null;
+  clinica_nome: string | null;
+  tipo_exame: string;
+  data_atendimento: string | null;
+  horas_uteis_decorridas: number;
+  atrasado: boolean;
+}
+
+interface AgilidadeJanela {
+  total_finalizados: number;
+  no_prazo: number;
+  percentual_no_prazo: number | null;
+  media_horas_uteis: number | null;
+}
+
+interface AgilidadeLaudos {
+  prazo_horas_uteis: number;
+  janela_atual: AgilidadeJanela;
+  janela_anterior: AgilidadeJanela;
+  tendencia: "melhorou" | "piorou" | "estavel" | null;
 }
 
 const LAUDOS_PAGE_SIZE = 100;
@@ -138,7 +173,13 @@ export default function LaudosPage() {
   const [totalLaudos, setTotalLaudos] = useState(0);
   const [exames, setExames] = useState<Exame[]>([]);
   const [totalExames, setTotalExames] = useState(0);
-  const [tab, setTab] = useState<"laudos" | "exames">("laudos");
+  const [tab, setTab] = useState<"laudos" | "exames" | "pendentes">("laudos");
+  const [pendentes, setPendentes] = useState<LaudoPendenteItem[]>([]);
+  const [totalPendentes, setTotalPendentes] = useState(0);
+  const [loadingPendentes, setLoadingPendentes] = useState(true);
+  const [agilidade, setAgilidade] = useState<AgilidadeLaudos | null>(null);
+  const [loadingAgilidade, setLoadingAgilidade] = useState(true);
+  const [togglingUrgenteId, setTogglingUrgenteId] = useState<number | null>(null);
   const [busca, setBusca] = useState("");
   const [buscaAplicada, setBuscaAplicada] = useState("");
   const [dataFiltro, setDataFiltro] = useState("");
@@ -287,6 +328,75 @@ export default function LaudosPage() {
       ativo = false;
     };
   }, [buscaAplicada, dataFiltro, router, tab]);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token || tab !== "pendentes") {
+      return;
+    }
+
+    let ativo = true;
+
+    const carregarPendentes = async () => {
+      setLoadingPendentes(true);
+      try {
+        const response = await api.get("/laudos/pendentes", { params: { skip: 0, limit: 100 } });
+        if (!ativo) return;
+        const items = response.data.items || [];
+        setPendentes(items);
+        setTotalPendentes(getResponseTotal(response.data, items.length));
+      } catch (error) {
+        if (!ativo) return;
+        console.error("Erro ao carregar fila de laudos pendentes:", error);
+        setPendentes([]);
+        setTotalPendentes(0);
+      } finally {
+        if (ativo) setLoadingPendentes(false);
+      }
+    };
+
+    const carregarAgilidade = async () => {
+      setLoadingAgilidade(true);
+      try {
+        const response = await api.get("/laudos/agilidade");
+        if (!ativo) return;
+        setAgilidade(response.data);
+      } catch (error) {
+        if (!ativo) return;
+        console.error("Erro ao carregar indicador de agilidade:", error);
+        setAgilidade(null);
+      } finally {
+        if (ativo) setLoadingAgilidade(false);
+      }
+    };
+
+    carregarPendentes();
+    carregarAgilidade();
+
+    return () => {
+      ativo = false;
+    };
+  }, [tab]);
+
+  const toggleUrgente = async (item: LaudoPendenteItem) => {
+    setTogglingUrgenteId(item.exame_id);
+    try {
+      await api.put(`/exames/${item.exame_id}`, { urgente_laudo: !item.urgente });
+      setPendentes((prev) =>
+        prev
+          .map((p) => (p.exame_id === item.exame_id ? { ...p, urgente: !p.urgente } : p))
+          .sort((a, b) => {
+            if (a.urgente !== b.urgente) return a.urgente ? -1 : 1;
+            return (a.data_atendimento || "").localeCompare(b.data_atendimento || "");
+          })
+      );
+    } catch (error) {
+      console.error("Erro ao marcar/desmarcar urgencia:", error);
+      alert("Nao foi possivel atualizar a urgencia deste item.");
+    } finally {
+      setTogglingUrgenteId(null);
+    }
+  };
 
   const examesFiltrados = exames.filter((exame) => {
     if (!busca.trim()) {
@@ -553,8 +663,18 @@ export default function LaudosPage() {
             <FileCheck className="h-4 w-4" />
             Exames ({totalExames})
           </button>
+          <button
+            onClick={() => setTab("pendentes")}
+            className={`fc-clinical-tab ${tab === "pendentes" ? "fc-clinical-tab-active" : ""}`}
+            role="tab"
+            aria-selected={tab === "pendentes"}
+          >
+            <Gauge className="h-4 w-4" />
+            Pendentes ({totalPendentes})
+          </button>
         </div>
 
+        {tab !== "pendentes" && (
         <div className="fc-clinical-filters">
           <div className="flex flex-col gap-3 lg:flex-row">
             <div className="fc-clinical-control flex-1">
@@ -602,11 +722,65 @@ export default function LaudosPage() {
             </p>
           )}
         </div>
+        )}
+
+        {tab === "pendentes" && (
+          <div className="fc-clinical-filters">
+            {loadingAgilidade ? (
+              <p className="fc-clinical-filter-note">Carregando indicador de agilidade...</p>
+            ) : !agilidade || agilidade.janela_atual.total_finalizados === 0 ? (
+              <p className="fc-clinical-filter-note">
+                Sem laudos finalizados nos ultimos 90 dias para calcular o indicador de agilidade.
+              </p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-6 rounded-lg border border-ink-100 bg-white p-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                    No prazo (ultimos 90 dias)
+                  </p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {agilidade.janela_atual.percentual_no_prazo}%
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {agilidade.janela_atual.no_prazo} de {agilidade.janela_atual.total_finalizados} laudo(s)
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Tempo medio</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {agilidade.janela_atual.media_horas_uteis}h uteis
+                  </p>
+                  <p className="text-xs text-gray-500">prazo: {agilidade.prazo_horas_uteis}h uteis</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {agilidade.tendencia === "melhorou" ? (
+                    <TrendingUp className="h-5 w-5 text-green-600" />
+                  ) : agilidade.tendencia === "piorou" ? (
+                    <TrendingDown className="h-5 w-5 text-red-600" />
+                  ) : agilidade.tendencia === "estavel" ? (
+                    <Minus className="h-5 w-5 text-gray-500" />
+                  ) : null}
+                  <span className="text-sm font-medium text-gray-700">
+                    {agilidade.tendencia === "melhorou"
+                      ? "Melhorou em relacao aos 90 dias anteriores"
+                      : agilidade.tendencia === "piorou"
+                        ? "Piorou em relacao aos 90 dias anteriores"
+                        : agilidade.tendencia === "estavel"
+                          ? "Estavel em relacao aos 90 dias anteriores"
+                          : "Sem dados suficientes nos 90 dias anteriores para comparar"}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="fc-clinical-list">
           <div className="fc-clinical-list-summary">
             {tab === "laudos"
               ? resumoLaudos
+              : tab === "pendentes"
+              ? `${totalPendentes} laudo(s) pendente(s)`
               : `Mostrando ${examesFiltrados.length} de ${totalExames} exame(s)`}
           </div>
 
@@ -741,6 +915,88 @@ export default function LaudosPage() {
                   </div>
                 )}
               </>
+            )
+          ) : tab === "pendentes" ? (
+            loadingPendentes ? (
+              <div className="fc-registry-loading" aria-label="Carregando fila de pendentes">
+                {[0, 1, 2].map((item) => <span key={item} />)}
+              </div>
+            ) : pendentes.length === 0 ? (
+              <div className="fc-registry-empty">
+                <div><Gauge className="h-6 w-6" /></div>
+                <span>Nenhum laudo pendente</span>
+                <p>Tudo em dia - todos os exames realizados ja tem laudo finalizado.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-ink-100">
+                {pendentes.map((item) => (
+                  <div key={item.exame_id} className="fc-clinical-row">
+                    <div className="fc-clinical-row-layout">
+                      <div
+                        className={`fc-clinical-row-icon ${
+                          item.atrasado ? "fc-clinical-row-icon-exam" : ""
+                        }`}
+                      >
+                        {item.atrasado ? (
+                          <AlertTriangle className="h-5 w-5" />
+                        ) : (
+                          <Clock className="h-5 w-5" />
+                        )}
+                      </div>
+                      <div className="fc-clinical-row-main">
+                        <h3>{item.tipo_exame}</h3>
+                        <div>
+                          <span>{item.paciente_nome || "Paciente nao informado"}</span>
+                          {item.tutor_nome ? <span>Tutor: {item.tutor_nome}</span> : null}
+                          {item.clinica_nome ? <span>{item.clinica_nome}</span> : null}
+                          <span>{formatCalendarDate(item.data_atendimento)}</span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          {item.atrasado && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-800">
+                              Atrasado ({item.horas_uteis_decorridas}h uteis)
+                            </span>
+                          )}
+                          {item.tem_rascunho && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-gray-100 text-gray-800">
+                              Rascunho em aberto
+                            </span>
+                          )}
+                          {item.urgente && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+                              Urgente
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="fc-clinical-actions">
+                        <button
+                          onClick={() => toggleUrgente(item)}
+                          disabled={togglingUrgenteId === item.exame_id}
+                          className="fc-clinical-action"
+                          title={item.urgente ? "Remover urgencia" : "Marcar como urgente"}
+                          aria-label={item.urgente ? "Remover urgencia" : "Marcar como urgente"}
+                        >
+                          <Star className={`w-4 h-4 ${item.urgente ? "fill-current text-amber-600" : ""}`} />
+                        </button>
+                        <button
+                          onClick={() =>
+                            item.tem_rascunho && item.laudo_id
+                              ? router.push(getLaudoEditPath(item.laudo_id, item.tipo_exame))
+                              : router.push(
+                                  `/laudos/novo?atendimento_id=${item.atendimento_id}&tipo=${encodeURIComponent(item.tipo_exame)}`
+                                )
+                          }
+                          className="fc-clinical-action"
+                          title={item.tem_rascunho ? "Continuar laudo" : "Criar laudo"}
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )
           ) : loadingExames ? (
             <div className="fc-registry-loading" aria-label="Carregando exames">

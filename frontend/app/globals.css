@@ -4001,6 +4001,595 @@ body {
     }
   }
 
+  /* Central de Atendimento WhatsApp - layout operacional em tres paineis. */
+  .fc-wa-page {
+    max-width: 1880px;
+  }
+
+  .fc-wa-header-actions {
+    @apply flex flex-wrap items-center gap-2;
+  }
+
+  .fc-wa-live-dot {
+    @apply inline-flex min-h-10 items-center gap-2 rounded-lg border border-emerald-300/25 bg-emerald-400/10 px-4 py-2 text-xs font-black uppercase text-emerald-100;
+  }
+
+  .fc-wa-live-dot > span {
+    @apply h-2 w-2 rounded-full bg-emerald-300;
+    box-shadow: 0 0 0 4px rgba(110, 231, 183, 0.12);
+  }
+
+  .fc-wa-live-dot-checking {
+    @apply border-amber-300/25 bg-amber-400/10 text-amber-100;
+  }
+
+  .fc-wa-live-dot-checking > span {
+    @apply bg-amber-300;
+  }
+
+  .fc-wa-live-dot-unavailable {
+    @apply border-rose-300/25 bg-rose-400/10 text-rose-100;
+  }
+
+  .fc-wa-live-dot-unavailable > span {
+    @apply bg-rose-300;
+  }
+
+  .fc-wa-workspace {
+    @apply grid min-w-0 grid-cols-1 items-start gap-4;
+  }
+
+  .fc-wa-inbox,
+  .fc-wa-chat,
+  .fc-wa-context {
+    @apply relative min-w-0 overflow-hidden rounded-xl border border-ink-100 bg-white shadow-fort-card;
+  }
+
+  .fc-wa-inbox {
+    box-shadow: inset 3px 0 0 #be123c, 0 1px 2px rgba(23, 32, 29, 0.06), 0 18px 34px rgba(23, 32, 29, 0.08);
+  }
+
+  .fc-wa-chat {
+    box-shadow: inset 3px 0 0 #0d9488, 0 1px 2px rgba(23, 32, 29, 0.06), 0 18px 34px rgba(23, 32, 29, 0.08);
+  }
+
+  .fc-wa-context {
+    box-shadow: inset 3px 0 0 #44524c, 0 1px 2px rgba(23, 32, 29, 0.06), 0 18px 34px rgba(23, 32, 29, 0.08);
+  }
+
+  .fc-wa-panel-heading,
+  .fc-wa-context-heading {
+    @apply flex min-h-20 items-center gap-3 border-b border-ink-100 px-4 py-4;
+  }
+
+  .fc-wa-panel-heading {
+    background: linear-gradient(90deg, rgba(190, 18, 60, 0.06), transparent 72%);
+  }
+
+  .fc-wa-context-heading {
+    @apply text-ink-600;
+    background: linear-gradient(90deg, rgba(68, 82, 76, 0.08), transparent 72%);
+  }
+
+  .fc-wa-heading-icon {
+    @apply grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-cordis-50 text-cordis-700;
+  }
+
+  .fc-wa-panel-heading span,
+  .fc-wa-context-heading span {
+    @apply block text-[10px] font-black uppercase tracking-wider text-ink-400;
+  }
+
+  .fc-wa-panel-heading h2,
+  .fc-wa-context-heading h2 {
+    @apply mt-0.5 text-lg font-black text-ink-900;
+  }
+
+  .fc-wa-icon-button {
+    @apply grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-ink-200 bg-white text-ink-500 outline-none transition hover:bg-ink-50 hover:text-ink-900 focus-visible:ring-2 focus-visible:ring-vital-100 disabled:cursor-not-allowed disabled:opacity-45;
+  }
+
+  .fc-wa-search {
+    @apply m-3 flex items-center gap-2 rounded-lg border border-ink-200 bg-ink-50 pl-3 text-ink-400 transition focus-within:border-vital-500 focus-within:bg-white focus-within:ring-2 focus-within:ring-vital-100;
+  }
+
+  .fc-wa-search input {
+    @apply min-h-10 flex-1 border-0 bg-transparent p-0 text-sm shadow-none ring-0 focus:border-0 focus:bg-transparent focus:ring-0;
+  }
+
+  .fc-wa-search button {
+    @apply grid h-9 w-9 place-items-center rounded-md text-ink-400 transition hover:bg-white hover:text-vital-600;
+  }
+
+  .fc-wa-queue-tabs {
+    @apply flex gap-1 overflow-x-auto border-y border-ink-100 bg-ink-50 px-3 py-2;
+  }
+
+  .fc-wa-queue-tabs button {
+    @apply shrink-0 rounded-full border border-transparent px-3 py-1.5 text-xs font-bold text-ink-500 transition hover:bg-white hover:text-ink-900;
+  }
+
+  .fc-wa-queue-tabs button.active {
+    @apply border-cordis-200 bg-white text-cordis-700 shadow-sm;
+  }
+
+  .fc-wa-assignment-filter {
+    @apply flex items-center gap-2 border-b border-ink-100 px-3 py-2 text-ink-400;
+  }
+
+  .fc-wa-assignment-filter select {
+    @apply min-h-8 flex-1 border-0 bg-transparent py-0 text-xs font-bold shadow-none focus:bg-transparent focus:ring-0;
+  }
+
+  .fc-wa-conversation-list {
+    @apply max-h-[650px] divide-y divide-ink-100 overflow-auto;
+  }
+
+  .fc-wa-conversation {
+    @apply relative flex w-full gap-3 border-l-4 border-l-transparent p-3 text-left outline-none transition hover:border-l-ink-200 hover:bg-ink-50 focus-visible:ring-2 focus-visible:ring-vital-100;
+  }
+
+  .fc-wa-conversation-active {
+    @apply border-l-cordis-600 bg-cordis-50;
+  }
+
+  .fc-wa-avatar {
+    @apply grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-ink-700 to-vital-700 text-xs font-black text-white shadow-sm;
+  }
+
+  .fc-wa-avatar-large {
+    @apply h-11 w-11 text-sm;
+  }
+
+  .fc-wa-avatar-xl {
+    @apply h-16 w-16 text-lg;
+  }
+
+  .fc-wa-conversation-content {
+    @apply min-w-0 flex-1;
+  }
+
+  .fc-wa-conversation-line {
+    @apply flex items-start justify-between gap-2;
+  }
+
+  .fc-wa-conversation-line strong {
+    @apply truncate text-sm font-black text-ink-900;
+  }
+
+  .fc-wa-conversation-line time {
+    @apply shrink-0 text-[10px] font-medium text-ink-400;
+  }
+
+  .fc-wa-conversation-content > small {
+    @apply mt-0.5 block truncate text-[10px] font-medium text-ink-400;
+  }
+
+  .fc-wa-conversation-preview {
+    @apply mt-1 block truncate text-xs text-ink-500;
+  }
+
+  .fc-wa-conversation-meta {
+    @apply mt-2 flex items-center justify-between gap-2 text-[10px] font-bold text-ink-400;
+  }
+
+  .fc-wa-status {
+    @apply inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[10px] font-black;
+  }
+
+  .fc-wa-status-open { @apply border-emerald-200 bg-emerald-50 text-emerald-700; }
+  .fc-wa-status-pending { @apply border-amber-200 bg-amber-50 text-amber-700; }
+  .fc-wa-status-closed { @apply border-ink-200 bg-ink-100 text-ink-600; }
+  .fc-wa-status-neutral { @apply border-slate-200 bg-slate-50 text-slate-600; }
+
+  .fc-wa-pagination {
+    @apply flex items-center justify-between border-t border-ink-100 bg-ink-50 p-3 text-[11px] font-bold text-ink-400;
+  }
+
+  .fc-wa-pagination > div {
+    @apply flex gap-1;
+  }
+
+  .fc-wa-pagination button {
+    @apply grid h-8 w-8 place-items-center rounded-lg border border-ink-200 bg-white text-lg font-black text-ink-600 transition hover:bg-ink-100 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .fc-wa-chat-heading {
+    @apply flex min-h-20 items-center gap-3 border-b border-ink-100 px-4 py-3;
+    background: linear-gradient(90deg, rgba(13, 148, 136, 0.07), transparent 72%);
+  }
+
+  .fc-wa-chat-heading h2 {
+    @apply text-base font-black text-ink-900;
+  }
+
+  .fc-wa-chat-heading p {
+    @apply mt-0.5 text-xs font-medium text-ink-500;
+  }
+
+  .fc-wa-window {
+    @apply mx-4 mt-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold;
+  }
+
+  .fc-wa-window-open { @apply border-emerald-200 bg-emerald-50 text-emerald-800; }
+  .fc-wa-window-closed { @apply border-amber-200 bg-amber-50 text-amber-900; }
+
+  .fc-wa-message-stream {
+    @apply min-h-[360px] max-h-[540px] overflow-auto p-4;
+    background-color: #f5f8f6;
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(68, 82, 76, 0.08) 1px, transparent 0);
+    background-size: 26px 26px;
+  }
+
+  .fc-wa-empty {
+    @apply flex min-h-40 flex-col items-center justify-center gap-2 p-6 text-center text-sm text-ink-400;
+  }
+
+  .fc-wa-empty svg { @apply text-ink-400; }
+  .fc-wa-empty strong { @apply text-ink-700; }
+  .fc-wa-empty span { @apply text-xs; }
+
+  .fc-wa-day-separator {
+    @apply my-4 flex items-center justify-center;
+  }
+
+  .fc-wa-day-separator span {
+    @apply rounded-full border border-ink-100 bg-white/90 px-3 py-1 text-[10px] font-black uppercase text-ink-400 shadow-sm;
+  }
+
+  .fc-wa-bubble {
+    @apply max-w-[82%] rounded-2xl border px-3.5 py-2.5 shadow-sm;
+  }
+
+  .fc-wa-bubble-agent {
+    @apply ml-auto rounded-br-sm border-vital-200 bg-vital-50;
+  }
+
+  .fc-wa-bubble-client {
+    @apply mr-auto rounded-bl-sm border-ink-100 bg-white;
+  }
+
+  .fc-wa-bubble > p {
+    @apply whitespace-pre-wrap text-sm leading-5 text-ink-900;
+  }
+
+  .fc-wa-bubble footer {
+    @apply mt-1.5 flex items-center justify-end gap-2 text-[10px] font-medium text-ink-400;
+  }
+
+  .fc-wa-delivery {
+    @apply inline-flex items-center gap-1 font-bold;
+  }
+
+  .fc-wa-delivery-read,
+  .fc-wa-delivery-delivered { @apply text-sky-600; }
+  .fc-wa-delivery-failed { @apply text-rose-600; }
+
+  .fc-wa-bubble details {
+    @apply mt-2 border-t border-ink-100/80 pt-1 text-[10px] text-ink-400;
+  }
+
+  .fc-wa-bubble details summary {
+    @apply cursor-pointer select-none font-bold;
+  }
+
+  .fc-wa-bubble details span {
+    @apply mt-1 block break-all;
+  }
+
+  .fc-wa-composer {
+    @apply border-t border-ink-100 bg-white p-0;
+  }
+
+  .fc-wa-composer-tabs {
+    @apply flex border-b border-ink-100 px-3;
+  }
+
+  .fc-wa-composer-tabs button {
+    @apply inline-flex items-center gap-2 border-b-2 border-transparent px-3 py-3 text-xs font-black text-ink-400 transition hover:text-ink-700;
+  }
+
+  .fc-wa-composer-tabs button.active {
+    @apply border-vital-600 text-vital-700;
+  }
+
+  .fc-wa-composer form,
+  .fc-wa-template-composer {
+    @apply p-3;
+  }
+
+  .fc-wa-quick-responses {
+    @apply mb-2 flex gap-2 overflow-x-auto pb-1;
+  }
+
+  .fc-wa-quick-responses button {
+    @apply shrink-0 rounded-full border border-ink-200 bg-ink-50 px-3 py-1.5 text-[11px] font-bold text-ink-600 transition hover:border-vital-200 hover:bg-vital-50 hover:text-vital-700 disabled:cursor-not-allowed disabled:opacity-45;
+  }
+
+  .fc-wa-compose-row {
+    @apply flex items-end gap-2;
+  }
+
+  .fc-wa-page textarea {
+    @apply min-h-20 min-w-0 flex-1 resize-y rounded-xl border border-ink-200 bg-ink-50 px-3 py-2 text-sm text-ink-900 outline-none transition focus:border-vital-500 focus:bg-white focus:ring-2 focus:ring-vital-100 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .fc-wa-composer-hint {
+    @apply mt-1.5 text-right text-[10px] font-medium text-ink-400;
+  }
+
+  .fc-wa-template-notice,
+  .fc-wa-template-error {
+    @apply mb-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs font-medium;
+  }
+
+  .fc-wa-template-notice { @apply border-sky-200 bg-sky-50 text-sky-800; }
+  .fc-wa-template-error { @apply border-rose-200 bg-rose-50 text-rose-700; }
+
+  .fc-wa-field {
+    @apply block min-w-0;
+  }
+
+  .fc-wa-field > span {
+    @apply mb-1 block text-[10px] font-black uppercase tracking-wide text-ink-500;
+  }
+
+  .fc-wa-template-grid {
+    @apply mt-3 grid gap-3 lg:grid-cols-2;
+  }
+
+  .fc-wa-template-fields {
+    @apply grid content-start gap-2 sm:grid-cols-2;
+  }
+
+  .fc-wa-template-preview {
+    @apply rounded-xl border border-emerald-100 bg-[#efeae2] p-3;
+  }
+
+  .fc-wa-template-preview > span {
+    @apply block text-[10px] font-black uppercase text-ink-500;
+  }
+
+  .fc-wa-template-preview em {
+    @apply mt-2 flex items-center gap-1 text-[10px] font-bold not-italic text-sky-700;
+  }
+
+  .fc-wa-template-preview p {
+    @apply mt-2 rounded-lg bg-white p-3 text-sm leading-5 text-ink-900 shadow-sm;
+  }
+
+  .fc-wa-template-preview > div {
+    @apply mt-1 grid gap-1;
+  }
+
+  .fc-wa-template-preview > div span {
+    @apply rounded-md bg-white px-3 py-1.5 text-center text-xs font-bold text-vital-700 shadow-sm;
+  }
+
+  .fc-wa-template-actions {
+    @apply mt-3 flex flex-col items-start justify-between gap-3 rounded-lg border border-ink-100 bg-ink-50 p-3 sm:flex-row sm:items-center;
+  }
+
+  .fc-wa-template-actions p {
+    @apply max-w-2xl text-xs leading-5 text-ink-500;
+  }
+
+  .fc-wa-secondary,
+  .fc-wa-ghost-danger {
+    @apply inline-flex min-h-10 items-center justify-center rounded-lg border px-3 py-2 text-xs font-black outline-none transition focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-45;
+  }
+
+  .fc-wa-secondary {
+    @apply border-vital-200 bg-vital-50 text-vital-700 hover:bg-vital-100 focus-visible:ring-vital-100;
+  }
+
+  .fc-wa-ghost-danger {
+    @apply border-rose-200 bg-white text-rose-600 hover:bg-rose-50 focus-visible:ring-rose-100;
+  }
+
+  .fc-wa-context-body {
+    @apply divide-y divide-ink-100;
+  }
+
+  .fc-wa-contact-card {
+    @apply flex flex-col items-center p-5 text-center;
+  }
+
+  .fc-wa-contact-card h3 {
+    @apply mt-3 text-base font-black text-ink-900;
+  }
+
+  .fc-wa-contact-card p {
+    @apply mb-2 mt-1 text-xs font-medium text-ink-500;
+  }
+
+  .fc-wa-context-section {
+    @apply space-y-3 p-4;
+  }
+
+  .fc-wa-context-section-title {
+    @apply flex items-center gap-2 text-ink-500;
+  }
+
+  .fc-wa-context-section-title h3 {
+    @apply text-xs font-black uppercase tracking-wide text-ink-700;
+  }
+
+  .fc-wa-current-agent {
+    @apply rounded-lg border border-ink-100 bg-ink-50 p-3 text-sm font-black text-ink-900;
+  }
+
+  .fc-wa-current-agent small {
+    @apply mt-0.5 block break-all text-[10px] font-medium text-ink-400;
+  }
+
+  .fc-wa-owner-actions {
+    @apply grid grid-cols-1 gap-2 sm:grid-cols-2;
+  }
+
+  .fc-wa-context-list {
+    @apply space-y-2;
+  }
+
+  .fc-wa-context-list > div {
+    @apply flex items-start justify-between gap-3 text-xs;
+  }
+
+  .fc-wa-context-list dt { @apply text-ink-400; }
+  .fc-wa-context-list dd { @apply text-right font-bold text-ink-700; }
+
+  .fc-wa-domain-context {
+    @apply space-y-3 p-4;
+  }
+
+  .fc-wa-domain-state,
+  .fc-wa-domain-ambiguous {
+    @apply flex items-start gap-2 rounded-lg border border-dashed border-ink-200 bg-ink-50 p-3 text-xs text-ink-500;
+  }
+
+  .fc-wa-domain-state strong,
+  .fc-wa-domain-ambiguous strong {
+    @apply block font-black text-ink-700;
+  }
+
+  .fc-wa-domain-state span,
+  .fc-wa-domain-ambiguous span {
+    @apply mt-1 block text-[11px] leading-4;
+  }
+
+  .fc-wa-domain-state-error {
+    @apply border-red-200 bg-red-50 text-red-700;
+  }
+
+  .fc-wa-domain-ambiguous {
+    @apply border-amber-200 bg-amber-50 text-amber-800;
+  }
+
+  .fc-wa-domain-ambiguous ul {
+    @apply mt-2 space-y-1;
+  }
+
+  .fc-wa-domain-ambiguous li {
+    @apply flex items-center gap-1.5 rounded-md bg-white/75 px-2 py-1 font-bold;
+  }
+
+  .fc-wa-domain-groups {
+    @apply space-y-3;
+  }
+
+  .fc-wa-domain-match {
+    @apply flex items-center gap-2 rounded-lg border border-vital-200 bg-vital-50 px-3 py-2 text-[11px] font-bold text-vital-700;
+  }
+
+  .fc-wa-domain-match strong {
+    @apply ml-auto rounded-full bg-white px-2 py-1 text-[9px] font-black uppercase tracking-wide;
+  }
+
+  .fc-wa-domain-group {
+    @apply overflow-hidden rounded-lg border border-ink-100 bg-ink-50;
+  }
+
+  .fc-wa-domain-group > div {
+    @apply flex items-center gap-2 border-b border-ink-100 bg-white px-3 py-2 text-ink-500;
+  }
+
+  .fc-wa-domain-group > div h4 {
+    @apply text-[11px] font-black uppercase tracking-wide text-ink-700;
+  }
+
+  .fc-wa-domain-group > div > span {
+    @apply ml-auto rounded-full bg-ink-100 px-2 py-0.5 text-[9px] font-black text-ink-600;
+  }
+
+  .fc-wa-domain-group > p {
+    @apply px-3 py-3 text-[11px] text-ink-400;
+  }
+
+  .fc-wa-domain-group ul {
+    @apply divide-y divide-ink-100;
+  }
+
+  .fc-wa-domain-group li {
+    @apply flex items-center gap-2 px-3 py-2.5;
+  }
+
+  .fc-wa-domain-group li > span {
+    @apply min-w-0 flex-1;
+  }
+
+  .fc-wa-domain-group li strong {
+    @apply block truncate text-xs font-black text-ink-700;
+  }
+
+  .fc-wa-domain-group li small {
+    @apply mt-0.5 block truncate text-[10px] text-ink-400;
+  }
+
+  .fc-wa-domain-group li a {
+    @apply shrink-0 rounded-md border border-vital-200 bg-white px-2 py-1 text-[10px] font-black text-vital-700 transition hover:bg-vital-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vital-100;
+  }
+
+  .fc-wa-technical-details {
+    @apply m-4 rounded-lg border border-ink-100 p-3 text-[10px] text-ink-400;
+  }
+
+  .fc-wa-technical-details summary { @apply cursor-pointer font-black uppercase; }
+  .fc-wa-technical-details span { @apply mt-1 block break-all; }
+
+  .fc-wa-team-admin {
+    @apply overflow-hidden rounded-xl border border-ink-100 bg-white shadow-fort-soft;
+  }
+
+  .fc-wa-team-admin > summary {
+    @apply flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-xs font-black uppercase text-ink-600;
+  }
+
+  .fc-wa-team-admin-body {
+    @apply grid gap-4 border-t border-ink-100 p-4 lg:grid-cols-2;
+  }
+
+  .fc-wa-team-admin form {
+    @apply grid content-start gap-3 sm:grid-cols-2;
+  }
+
+  .fc-wa-agent-list {
+    @apply rounded-lg border border-ink-100 bg-ink-50 p-3 text-sm text-ink-600;
+  }
+
+  .fc-wa-agent-list > strong { @apply text-xs font-black uppercase text-ink-700; }
+  .fc-wa-agent-list ul { @apply mt-2 grid gap-2 sm:grid-cols-2; }
+  .fc-wa-agent-list li { @apply flex items-center gap-2 rounded-lg bg-white p-2 font-bold; }
+  .fc-wa-agent-list li small { @apply block text-[10px] font-medium text-ink-400; }
+
+  @media (min-width: 1024px) {
+    .fc-wa-workspace {
+      grid-template-columns: minmax(300px, 0.78fr) minmax(480px, 1.3fr);
+    }
+    .fc-wa-context { grid-column: 1 / -1; }
+  }
+
+  @media (min-width: 1440px) {
+    .fc-wa-workspace {
+      grid-template-columns: minmax(300px, 0.72fr) minmax(520px, 1.35fr) minmax(270px, 0.68fr);
+    }
+    .fc-wa-context { grid-column: auto; }
+  }
+
+  @media (max-width: 639px) {
+    .fc-wa-header-actions,
+    .fc-wa-live-dot,
+    .fc-wa-environment,
+    .fc-wa-send,
+    .fc-wa-secondary {
+      @apply w-full;
+    }
+    .fc-wa-compose-row { @apply flex-col items-stretch; }
+    .fc-wa-bubble { @apply max-w-[94%]; }
+    .fc-wa-composer-tabs { @apply overflow-x-auto; }
+    .fc-wa-composer-tabs button { @apply shrink-0; }
+  }
+
   .fc-reports-page {
     max-width: 1680px;
     margin: 0 auto;
