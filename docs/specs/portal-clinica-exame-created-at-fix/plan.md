@@ -27,7 +27,7 @@ Status: implementado
   query que antes quebrava agora roda e devolve o resultado
   semanticamente correto.
 - [x] T5 Suite completa do backend (`pytest tests/ -q`) sem regressao.
-- [ ] T6 Deploy em stage e reverificacao ao vivo via a mesma sessao
+- [x] T6 Deploy em stage e reverificacao ao vivo via a mesma sessao
   real de clinica parceira (Clinica #8) que originou o achado -
   confirmar que `/api/v1/portal/clinicas/exames` deixa de retornar
   500.

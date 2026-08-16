@@ -2,7 +2,7 @@
 
 Data: 2026-08-16
 Responsavel: Claude (pareado com Martiniano)
-Status: implementado, deploy em stage pendente de confirmacao
+Status: implementado, deploy em stage confirmado
 
 ## 1) Matriz de rastreabilidade
 
@@ -96,10 +96,11 @@ contra uma instancia Postgres local descartavel (Homebrew,
   como texto) - o escopo desta correcao foi estritamente o bug
   reproduzido.
 
-## 6) Pendente
+## 6) Confirmacao ao vivo em stage
 
-- [ ] Deploy em stage (push -> `Deploy to Stage (VPS)` roda a
-  migration automaticamente) e reverificacao ao vivo via a mesma sessao
-  real de clinica parceira (Clinica #8) que originou o achado -
-  confirmar que `GET /api/v1/portal/clinicas/exames` deixa de
-  retornar 500.
+Push para `origin/stage` (commit `24076b05`) -> `quality-gate`,
+`sdd-guardrail` e `deploy-stage` passaram (migration rodou no deploy).
+Usuario recarregou a mesma sessao real de clinica parceira (Clinica #8)
+que originou o achado: erro sumiu, exames carregando normalmente.
+
+- [x] Deploy em stage e reverificacao ao vivo confirmados.
