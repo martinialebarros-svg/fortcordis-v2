@@ -2,7 +2,7 @@
 
 Data: 2026-08-16
 Responsavel: Claude (pareado com Martiniano)
-Status: implementado, verificado em ambiente local
+Status: implementado, confirmado ao vivo em stage
 
 ## 1) Matriz de rastreabilidade
 
@@ -61,12 +61,20 @@ Ambiente: local (`backend`/`frontend` dev, não stage/produção).
   parcialmente fora da viewport inicial mas acessível por scroll.
 - Conta/convite de teste (clínica 11, email `teste-abas@example.com`)
   removidos do banco local ao final da verificação.
+- Cenário 4 (stage, 2026-08-16): confirmado a nível de código que o
+  bundle JS servido por stage para `/clinica-parceira` contém a
+  implementação (`grep` nos chunks publicados por
+  `curl` encontrou `portal-tab-visao-geral`, `portal-tab-laudos`,
+  `portal-tab-agenda`, `portal-tab-financeiro`). Usuário recarregou a
+  sessão real da Clínica #8 e confirmou as 4 abas aparecendo.
 
 ## 4) Regressao e riscos residuais
 
-- Risco residual: verificação feita em ambiente local, não em stage
-  com a Clínica #8 real (que tem volume de dados maior). Recomendo
-  reverificar rapidamente em stage após o deploy, aproveitando a mesma
+- Risco residual (baixo, restante): verificação de rede completa
+  (lazy-load confirmado via `read_network_requests`) foi feita em
+  ambiente local; em stage a confirmação foi visual (4 abas presentes)
+  - o comportamento de rede em stage não foi reinspecionado, mas usa o
+  mesmo código já validado localmente.
   sessão real já usada no achado de `portal-clinica-exame-created-at-fix`.
 - Nenhuma regressão encontrada nas 6 seções originais - todo o conteúdo
   e toda a lógica de carregamento/erro permanecem inalterados, só a
