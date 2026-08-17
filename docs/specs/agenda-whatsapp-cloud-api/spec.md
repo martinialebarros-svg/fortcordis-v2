@@ -73,6 +73,7 @@ Status: stage-br-phone-alias-fix
 - Em stage, os nomes dos segredos de CI sao `WHATSAPP_ACCESS_TOKEN_STAGE`, `WHATSAPP_APP_SECRET_STAGE` e `WHATSAPP_VERIFY_TOKEN_STAGE`; somente os nomes podem aparecer em logs e documentacao.
 - Em producao, o runtime usa `/var/www/fortcordis-v2/whatsapp-stage-backend/.env`, porta `3020` e o backend principal `http://127.0.0.1:8000`; o callback publico e `https://app.fortcordis.com.br/whatsapp/webhook`.
 - Quando o banco de producao apresenta certificado autoassinado e a URL exige `sslmode=require`, `DATABASE_SSL_REJECT_UNAUTHORIZED=false` mantem TLS ativo apenas para o cliente PostgreSQL do servico WhatsApp e desativa a validacao da cadeia somente nesse cliente; certificados explicitos nao podem ser sobrescritos.
+- A troca do callback Meta e executada somente depois do deploy e smoke de producao: o script aceita apenas URLs FortCordis predefinidas, usa os segredos protegidos do CI, preserva a lista atual de campos e confirma que `messages` permanece inscrito sem imprimir credenciais.
 - O token interno core -> WhatsApp e gerado/preservado separadamente em producao; ele nao e copiado de stage.
 
 ## 6) Criterios de aceitacao
@@ -95,6 +96,7 @@ Status: stage-br-phone-alias-fix
 - CA-016: `/whatsapp/health` responde `200` em producao e o smoke assinado/autenticado passa antes da alteracao na Meta.
 - CA-017: o workflow de producao executa `scripts/deploy_prod_vps.sh` a partir do snapshot de `origin/main` que sera publicado, mantendo o checkout anterior intacto ate o proprio script registrar o hash de rollback.
 - CA-018: a excecao para certificado autoassinado e explicita, limitada ao PostgreSQL do runtime de producao, exige `sslmode=require`, preserva TLS e falha fechado para valores invalidos, conexao sem TLS ou certificados configurados explicitamente.
+- CA-019: o callback da Meta so muda apos deploy aprovado, preserva todos os campos inscritos, confirma URL e `messages` por leitura posterior e falha fechado sem expor App Secret ou verify token.
 
 ## 7) Fora de escopo
 
