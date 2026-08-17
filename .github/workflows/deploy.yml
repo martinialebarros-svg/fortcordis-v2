@@ -261,5 +261,15 @@ jobs:
 
           cd "$APP_DIR"
           echo "Running standardized production deploy script..."
-          SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' APP_DIR="$APP_DIR" BRANCH="$BRANCH" bash scripts/deploy_prod_vps.sh
+          SUDO_PASSWORD='${{ secrets.VPS_SUDO_PASSWORD }}' \
+            APP_DIR="$APP_DIR" \
+            BRANCH="$BRANCH" \
+            ENABLE_WHATSAPP_STAGE_BACKEND=1 \
+            WHATSAPP_STAGE_BACKEND_SERVICE=fortcordis-whatsapp-backend \
+            WHATSAPP_STAGE_BACKEND_PORT=3020 \
+            WHATSAPP_STAGE_BACKEND_URL=http://127.0.0.1:3020 \
+            WHATSAPP_META_SOURCE_ENV_FILE=/var/www/fortcordis-stage/whatsapp-stage-backend/.env \
+            WHATSAPP_RUNTIME_LABEL=Production \
+            ENABLE_WHATSAPP_STAGE_SMOKE=1 \
+            bash scripts/deploy_prod_vps.sh
         EOF

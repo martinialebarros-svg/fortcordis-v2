@@ -31,6 +31,8 @@ Status: stage-br-phone-alias-fix
 - NFR-009 (quality gate): o pipeline de stage compila e testa o servico WhatsApp, incluindo template, retry, autorizacao, redacao de logs e auditoria de dependencias, antes do deploy.
 - NFR-010 (segredos por ambiente): o workflow injeta access token, App Secret e verify token somente no `.env` do servico WhatsApp de stage, a partir de GitHub Secrets dedicados, sem registrar valores nos logs.
 - NFR-011 (versao Graph): o servico e o runtime de stage usam Graph API `v26.0`, alinhada a configuracao corrente do app FortZap.
+- NFR-012 (cutover sem indisponibilidade): producao usa servico `fortcordis-whatsapp-backend` na porta local `3020`; stage permanece ativo ate o health e o smoke de producao passarem.
+- NFR-013 (segredo sem exposicao): durante a transicao do mesmo app/WABA/numero, o VPS sincroniza somente as chaves Meta necessarias do `.env` protegido de stage para o `.env` protegido de producao, preserva um token interno distinto e nunca registra valores.
 
 ## 3) Contratos
 
@@ -69,6 +71,8 @@ Status: stage-br-phone-alias-fix
 - IDs publicos esperados para esta conta: App `975334532125008`, WABA `1369494994627980`, telefone `1279142515283484`.
 - Segredos nunca sao armazenados em Git, documentacao ou mensagens de suporte.
 - Em stage, os nomes dos segredos de CI sao `WHATSAPP_ACCESS_TOKEN_STAGE`, `WHATSAPP_APP_SECRET_STAGE` e `WHATSAPP_VERIFY_TOKEN_STAGE`; somente os nomes podem aparecer em logs e documentacao.
+- Em producao, o runtime usa `/var/www/fortcordis-v2/whatsapp-stage-backend/.env`, porta `3020` e o backend principal `http://127.0.0.1:8000`; o callback publico e `https://app.fortcordis.com.br/whatsapp/webhook`.
+- O token interno core -> WhatsApp e gerado/preservado separadamente em producao; ele nao e copiado de stage.
 
 ## 6) Criterios de aceitacao
 
@@ -86,6 +90,8 @@ Status: stage-br-phone-alias-fix
 - CA-012: chamadas Graph do servico usam `v26.0` quando o ambiente nao define outra versao valida.
 - CA-013: `5585988018899` e `558588018899` sao aceitos como a mesma identidade; mudanca no DDD ou no restante do numero permanece rejeitada.
 - CA-014: novas mensagens enviadas e recebidas pelas duas variantes brasileiras sao vinculadas a mesma chave de conversa.
+- CA-015: o deploy de producao falha fechado se o arquivo-fonte protegido ou qualquer chave Meta obrigatoria estiver ausente, antes de trocar o callback.
+- CA-016: `/whatsapp/health` responde `200` em producao e o smoke assinado/autenticado passa antes da alteracao na Meta.
 
 ## 7) Fora de escopo
 
