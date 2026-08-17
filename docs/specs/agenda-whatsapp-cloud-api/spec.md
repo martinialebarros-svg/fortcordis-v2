@@ -92,6 +92,7 @@ Status: stage-br-phone-alias-fix
 - CA-014: novas mensagens enviadas e recebidas pelas duas variantes brasileiras sao vinculadas a mesma chave de conversa.
 - CA-015: o deploy de producao falha fechado se o arquivo-fonte protegido ou qualquer chave Meta obrigatoria estiver ausente, antes de trocar o callback.
 - CA-016: `/whatsapp/health` responde `200` em producao e o smoke assinado/autenticado passa antes da alteracao na Meta.
+- CA-017: o workflow de producao executa `scripts/deploy_prod_vps.sh` a partir do snapshot de `origin/main` que sera publicado, mantendo o checkout anterior intacto ate o proprio script registrar o hash de rollback.
 
 ## 7) Fora de escopo
 
