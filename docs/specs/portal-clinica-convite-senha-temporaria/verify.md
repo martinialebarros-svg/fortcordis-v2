@@ -90,3 +90,33 @@ Ambiente: local (backend/frontend dev), clínica "casa do caralho" (id 11).
 - [ ] Aprovado para stage.
 - [ ] Aprovado para producao.
 - [ ] Nao aprovado (descrever motivo).
+
+## 6) Correcao de escopo - segunda tela de convite (2026-08-17)
+
+Usuario reportou ao vivo em stage: "vi aqui que a opcao de gerar o
+convite com a senha provisoria so aparece no menu de cadastro das
+clinicas. Quando entro no menu portal das clinicas essa opcao nao
+aparece" - ver `intent.md` secao 7.
+
+- CA-8 verificado localmente: `frontend/app/clinicas/portal/page.tsx`
+  (clinica "vetworld", id 9) - marcado o checkbox "Gerar senha
+  temporaria", preenchido "Nome do responsavel na clinica", clicado
+  "Gerar convite" - `POST /portal/admin/clinicas/9/convites` retornou
+  200; UI exibiu "Conta criada com senha temporaria", a senha
+  (`jardim-7548`) em destaque com botao "Copiar senha" (testado,
+  mensagem "Senha temporaria copiada." confirmada); campo "Nome do
+  responsavel" foi limpo automaticamente apos o sucesso.
+- Confirmado no banco local: `PortalClinicAccount` criada com
+  `status=active`, `must_change_password=True`,
+  `responsavel_nome="Responsavel Teste Verificacao"`,
+  `email_normalized="portal-verificacao@vetworld.com"` - mesmo
+  resultado que o fluxo ja validado em `ClinicaPortalAccessCard.tsx`.
+- `tsc --noEmit` e `eslint app/clinicas/portal/page.tsx` sem erros;
+  suite completa do backend (790 testes, inalterada por este fix - so
+  frontend) verde.
+- Conta de teste removida do banco local ao final da verificacao.
+- Risco residual: `handleQuickInvite` (reenvio de um clique) continua
+  sem a opcao de senha temporaria, por design (ver `intent.md` secao
+  7) - se o usuario preferir ter a opcao ali tambem no futuro, precisa
+  de uma decisao de UX separada (ex.: modal rapido pedindo so o nome
+  do responsavel).

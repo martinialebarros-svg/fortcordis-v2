@@ -106,3 +106,32 @@ quiserem.
   pode quebrar o fluxo de ativacao tradicional que ja funciona hoje -
   mitigar reaproveitando a funcao sem alterar sua assinatura/logica
   existente, so chamando-a de um novo ponto de entrada.
+
+## 7) Correcao de escopo (2026-08-17)
+
+O usuario encontrou, ao vivo em stage, que o checkbox de senha
+temporaria so aparecia no card "Acesso da clinica ao portal"
+(`ClinicaPortalAccessCard.tsx`, dentro do cadastro individual da
+clinica `/clinicas/{id}`) - "vi aqui que a opcao de gerar o convite com
+a senha provisoria so aparece no menu de cadastro das clinicas. Quando
+entro no menu portal das clinicas essa opcao nao aparece".
+
+Investigacao: existe uma SEGUNDA tela de envio de convite, o card
+"Envio de convite" em `frontend/app/clinicas/portal/page.tsx`
+(`handleGenerateInvite`, rota `/clinicas/portal`, nav "Portal
+Clinicas"), que chama o **mesmo** endpoint (`POST
+/portal/admin/clinicas/{id}/convites`, `criar_convite_clinica`) mas
+nunca foi atualizada quando este spec foi implementado - o autor do
+spec original nao sabia/considerou que essa segunda tela existia (nao
+e mencionada em nenhum dos 4 documentos deste spec). O backend
+(`PortalAdminClinicInviteCreateRequest.senha_temporaria`,
+`backend/app/schemas/portal.py:186-193`) ja suporta o campo
+completamente - o gap era 100% frontend.
+
+Corrigido: `frontend/app/clinicas/portal/page.tsx` ganhou o mesmo
+checkbox "Gerar senha temporaria" + campo "Nome do responsavel" +
+bloco de exibicao da senha gerada (com botao copiar), espelhando
+exatamente `ClinicaPortalAccessCard.tsx`. O botao rapido de reenvio
+("Enviar convite" nos cards da lista, `handleQuickInvite`) foi
+deixado sem essa opcao de proposito - e uma acao de um clique sem
+formulario, nao caberia pedir o nome do responsavel ali.

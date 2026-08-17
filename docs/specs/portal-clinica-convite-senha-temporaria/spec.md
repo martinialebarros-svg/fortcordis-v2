@@ -70,6 +70,15 @@ atalho de configuracao no portal da clinica.
 - RF-9: `ClinicaPortalAccessCard.tsx` ganha um checkbox "Gerar senha
   temporaria (recomendado para quem tem menos familiaridade com
   sistemas)" no formulario de convite.
+- RF-9b (2026-08-17): o mesmo checkbox + campo "Nome do responsavel" +
+  exibicao da senha gerada existem tambem no formulario "Envio de
+  convite" de `frontend/app/clinicas/portal/page.tsx`
+  (`handleGenerateInvite`) - segunda tela que gera convite pelo mesmo
+  endpoint e que a versao original deste spec nao cobriu (gap
+  encontrado ao vivo em stage, ver `intent.md` secao 7). O reenvio
+  rapido de um clique (`handleQuickInvite`, botao "Enviar convite" nos
+  cards da lista) fica de fora - sem formulario, nao pede o nome do
+  responsavel.
 - RF-10: quando a resposta do convite traz `senha_temporaria`, exibe
   a senha em destaque (fonte monoespacada, botao "Copiar senha"),
   junto do link de ativacao, com aviso "essa senha so aparece agora -
@@ -130,3 +139,7 @@ atalho de configuracao no portal da clinica.
 - CA-7: sessao de espelho administrativo (`admin_preview`) nao mostra
   o banner nem o atalho de configuracoes (nao se aplica a uma
   pre-visualizacao, sem conta real por tras).
+- CA-8: gerar convite com senha temporaria a partir do formulario
+  "Envio de convite" em `/clinicas/portal` (RF-9b) - mesmo
+  comportamento de CA-1 (senha exibida, botao copiar); campo "Nome do
+  responsavel" e obrigatorio quando o checkbox esta marcado.
