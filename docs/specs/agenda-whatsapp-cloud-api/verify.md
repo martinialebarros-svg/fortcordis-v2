@@ -2,7 +2,7 @@
 
 Data: 2026-08-14
 Responsavel: Martiniano + Codex
-Status: local-br-phone-alias-fix-passed-stage-pending
+Status: production-cutover-in-progress
 
 ## Matriz
 
@@ -21,6 +21,8 @@ Status: local-br-phone-alias-fix-passed-stage-pending
 | CA-012 | fallback do cliente Graph e default do deploy usam `v26.0` | passou no deploy e no callback real de stage |
 | CA-013 | `test-phone-number.ts` cobre equivalencia com/sem nono digito e rejeita DDD/sufixo diferentes | passou localmente |
 | CA-014 | controllers inbound/outbound usam `canonicalWhatsAppIdentity` como chave de conversa | build + inspecao passaram localmente |
+| CA-015 | deploy sincroniza chaves Meta a partir de arquivo protegido, valida presenca/formato e nao imprime valores | pendente de deploy |
+| CA-016 | runtime exclusivo na porta `3020`, health publico e smoke autenticado/assinado | pendente de deploy |
 
 ## Comandos executados
 
@@ -39,6 +41,8 @@ cd frontend && npx tsc --noEmit
 cd frontend && npm run lint
 cd frontend && npm run build
 bash scripts/whatsapp_stage_preflight.sh  # fixtures valida e invalida, sem servicos/HTTP
+bash -n scripts/deploy_prod_vps.sh
+ruby -e 'require "yaml"; YAML.load_file(".github/workflows/deploy.yml")'
 ```
 
 ## Resultados atuais
@@ -68,6 +72,8 @@ bash scripts/whatsapp_stage_preflight.sh  # fixtures valida e invalida, sem serv
 - O template `reserva_de_agendamento` em `pt_BR`, com cinco variaveis e os quick replies `Confirmar` e `Solicitar alteracao`, foi criado na WABA correta com ID `1850190569695780` e aparece como ativo no WhatsApp Manager.
 - O primeiro teste real enviou para `5585988018899`, mas a Meta devolveu o clique de botao como `558588018899`; a comparacao literal rejeitou o evento e manteve a reserva como `Reservado`.
 - A correcao local agora usa a representacao sem o nono digito apenas como chave interna e para auditoria do callback; o numero original continua sendo enviado para a Graph API.
+- Em 17/08/2026, o usuario confirmou que o teste real de confirmacao alterou corretamente o status no FortCordis e que os modelos necessarios aparecem aprovados e ativos na WABA Fort Cordis.
+- O callback Meta ainda apontava para `https://app.stage.fortcordis.com.br/whatsapp/webhook`; a troca para producao deve ocorrer somente depois do novo runtime responder `200` e concluir o smoke.
 
 ## Pendencias para nova prova real
 
