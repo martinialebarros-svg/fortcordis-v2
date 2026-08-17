@@ -1,4 +1,5 @@
 import { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
+import { buildPostgresConfig } from "../config/database";
 import { logger } from "../utils/logger";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -7,9 +8,7 @@ if (!databaseUrl) {
   throw new Error("DATABASE_URL is required");
 }
 
-export const pool = new Pool({
-  connectionString: databaseUrl
-});
+export const pool = new Pool(buildPostgresConfig(databaseUrl));
 
 pool.on("error", (err: Error) => {
   logger.error("Unexpected PostgreSQL pool error", { message: err.message });

@@ -2,6 +2,7 @@ import "dotenv/config";
 import fs from "fs/promises";
 import path from "path";
 import { Client } from "pg";
+import { buildPostgresConfig } from "../config/database";
 
 async function runMigration(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
@@ -13,7 +14,7 @@ async function runMigration(): Promise<void> {
   const sqlPath = path.resolve(__dirname, "../../migrations/init.sql");
   const sql = await fs.readFile(sqlPath, "utf8");
 
-  const client = new Client({ connectionString: databaseUrl });
+  const client = new Client(buildPostgresConfig(databaseUrl));
 
   await client.connect();
   try {
