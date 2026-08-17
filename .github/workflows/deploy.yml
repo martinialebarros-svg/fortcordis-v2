@@ -281,12 +281,3 @@ jobs:
             ENABLE_WHATSAPP_STAGE_SMOKE=1 \
             bash "$DEPLOY_SCRIPT_PATH"
         EOF
-
-    - name: Configure Meta WhatsApp production callback
-      env:
-        META_APP_ID: "975334532125008"
-        META_APP_SECRET: ${{ secrets.WHATSAPP_APP_SECRET_STAGE }}
-        WHATSAPP_VERIFY_TOKEN: ${{ secrets.WHATSAPP_VERIFY_TOKEN_STAGE }}
-        META_GRAPH_API_VERSION: v26.0
-        META_WHATSAPP_CALLBACK_URL: https://app.fortcordis.com.br/whatsapp/webhook
-      run: bash scripts/configure_meta_whatsapp_webhook.sh
