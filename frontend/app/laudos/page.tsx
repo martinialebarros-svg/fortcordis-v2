@@ -332,7 +332,7 @@ export default function LaudosPage() {
 
   useEffect(() => {
     const token = localStorage.getItem("token");
-    if (!token || tab !== "pendentes") {
+    if (!token) {
       return;
     }
 
@@ -377,7 +377,7 @@ export default function LaudosPage() {
     return () => {
       ativo = false;
     };
-  }, [tab]);
+  }, []);
 
   const toggleUrgente = async (item: LaudoPendenteItem) => {
     if (!item.agendamento_id) return;

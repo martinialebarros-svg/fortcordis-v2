@@ -111,3 +111,19 @@ Executado localmente (backend porta 8000, frontend porta 3002), migration
 - [x] Aprovado para stage.
 - [ ] Aprovado para producao.
 - [ ] Nao aprovado (descrever motivo).
+
+## 6) Ajuste de UX (2026-08-17, apos confirmacao em stage)
+
+Confirmado ao vivo em stage pelo usuario que a fila e o indicador de
+agilidade agora aparecem corretamente ("Pendentes (8)" com selos
+"Atrasado" e horas uteis corretas). Reportado um efeito colateral:
+"quando entro na tela de laudos, a aba pendentes renderiza 0. So
+atualiza pro valor correto quando eu clico nela" - o `useEffect` que
+busca `/laudos/pendentes`/`/laudos/agilidade`
+(`frontend/app/laudos/page.tsx`) so disparava quando `tab ===
+"pendentes"`, diferente do `useEffect` de `/exames`, que sempre busca
+no carregamento da pagina (por isso "Exames (11)" ja aparecia certo
+sem clicar). Corrigido removendo o guard de `tab` (busca uma vez no
+mount, igual ao padrao ja usado pelas exames) - confirmado localmente:
+"Pendentes (1)" carregou correto sem clicar na aba, com `tsc`/`eslint`
+limpos e suite completa (790 testes) verde.

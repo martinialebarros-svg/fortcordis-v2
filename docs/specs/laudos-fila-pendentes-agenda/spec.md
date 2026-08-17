@@ -108,7 +108,10 @@ A fila cobre dois fluxos, mesclados num unico resultado:
 ### Frontend
 
 - RF-12: `/laudos` ganha uma 3a aba "Pendentes", com contagem no
-  rotulo (ex.: "Pendentes (7)").
+  rotulo (ex.: "Pendentes (7)"). A contagem e buscada no carregamento
+  da pagina (mesmo padrao ja usado pela aba "Exames"), nao so quando o
+  usuario clica na aba - o rotulo deve mostrar o valor real
+  imediatamente.
 - RF-13: cada item mostra paciente, tutor, clinica, tipo de exame
   (rotulado via `getTipoLaudoLabel`), data de realizacao, selo
   "Atrasado" (se `atrasado`), selo "Rascunho em aberto" (se
