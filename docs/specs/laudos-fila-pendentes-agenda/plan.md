@@ -15,6 +15,9 @@ Status: implementado
 - Fase 4 (frontend): aba "Pendentes" + card de agilidade em
   `/laudos`.
 - Fase 5 (verificacao): testes automatizados + manual ponta a ponta.
+- Fase 6 (correcao de escopo, 2026-08-17): fila e agilidade reescritos
+  pra cobrir o fluxo comum (agendamento sem Atendimento Clinico) - ver
+  `intent.md` secao 8.
 
 ## 2) Tarefas por fase
 
@@ -73,6 +76,30 @@ Status: implementado
   cenarios variados (realizado sem laudo, realizado com rascunho,
   nao realizado, atrasado cruzando fim de semana, urgente) + laudos
   finalizados em datas variadas para o indicador de agilidade.
+
+### Fase 6 (correcao de escopo, 2026-08-17 - ver `intent.md` secao 8)
+
+- [x] T6.1 Migration `20260817_71`: adiciona `Agendamento.urgente_laudo`,
+  remove `Exame.urgente_laudo` (idempotente, dialect-aware).
+- [x] T6.2 `AgendamentoUpdate.urgente_laudo` (schema) pra reaproveitar
+  `PUT /agenda/{id}` no toggle.
+- [x] T6.3 Mapeamento `SERVICO_NOME_TIPOS_LAUDO` +
+  `resolver_servico_nome` (`laudo_agilidade_service.py`).
+- [x] T6.4 `GET /laudos/pendentes` reescrito - mescla Fonte A (exame)
+  + Fonte B (agendamento sem atendimento clinico, via mapeamento de
+  servico).
+- [x] T6.5 `GET /laudos/agilidade` simplificado - `Laudo.agendamento_id
+  -> Agendamento` direto, sem depender de `Exame`/`AtendimentoClinico`.
+- [x] T6.6 Frontend: toggle de urgencia migrado pra `PUT
+  /agenda/{id}`, navegacao com 3a opcao (`agendamento_id` sem
+  `atendimento_id`), rotulo de tipo via `getTipoLaudoLabel`.
+- [x] T6.7 Testes: 14 novos casos em `test_laudos_fila_pendentes.py`
+  (Fonte B, combos, fallback de servico, agilidade sem exame) + nova
+  suite de migration (`test_agendamento_urgente_laudo_migration.py`).
+- [x] T6.8 Regressao completa (790 testes) + verificacao manual local
+  cobrindo os dois fluxos (Fonte A pre-existente + Fonte B nova, combo
+  "Eco + Eletro", toggle de urgencia por agendamento, finalizacao e
+  reflexo no indicador de agilidade).
 
 ## 3) Dependencias e bloqueios
 

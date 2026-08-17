@@ -6,6 +6,7 @@ import unittest.mock
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -17,13 +18,14 @@ sys.path.insert(0, str(BACKEND_DIR))
 os.environ.setdefault("DATABASE_URL", "sqlite:///./fortcordis.db")
 os.environ.setdefault("SECRET_KEY", "laudos-fila-pendentes-test-secret-key-1234567890")
 
-from app.api.v1.endpoints import laudos
+from app.api.v1.endpoints import agenda, laudos
 from app.models.agendamento import Agendamento
 from app.models.atendimento_clinico import AtendimentoClinico
 from app.models.clinica import Clinica
 from app.models.configuracao import Configuracao
 from app.models.laudo import Exame, Laudo
 from app.models.paciente import Paciente
+from app.models.servico import Servico
 from app.models.tutor import Tutor
 
 
@@ -36,6 +38,7 @@ class LaudosFilaPendentesTest(unittest.TestCase):
             Paciente.__table__,
             Tutor.__table__,
             Clinica.__table__,
+            Servico.__table__,
             Agendamento.__table__,
             AtendimentoClinico.__table__,
             Exame.__table__,
@@ -47,9 +50,10 @@ class LaudosFilaPendentesTest(unittest.TestCase):
         return tmpdir, session_factory(), engine
 
     def _user(self):
-        return SimpleNamespace(id=1, nome="Dr Teste")
+        return SimpleNamespace(id=1, nome="Dr Teste", tem_papel=lambda papel: False)
 
     def _seed_atendimento(self, db, *, agendamento_status: str, data_atendimento: datetime, clinica_id=None):
+        """Fluxo A (raro): Atendimento Clinico completo, gera Exame."""
         tutor = Tutor(nome="Tutor Teste")
         db.add(tutor)
         db.flush()
@@ -71,6 +75,27 @@ class LaudosFilaPendentesTest(unittest.TestCase):
         db.add(atendimento)
         db.commit()
         return paciente, tutor, agendamento, atendimento
+
+    def _seed_agendamento_sem_atendimento(
+        self, db, *, servico_nome: str, inicio: datetime, status: str = "Realizado", servico_id_denormalizado_apenas=False
+    ):
+        """Fluxo B (comum): so Agendamento, sem Atendimento Clinico - o Laudo
+        (se existir) e criado direto via `Laudo.agendamento_id` (fluxo do
+        dropdown "Laudar" da Agenda)."""
+        servico = Servico(nome=servico_nome, duracao_minutos=30, ativo=True)
+        db.add(servico)
+        db.flush()
+        agendamento = Agendamento(
+            inicio=inicio,
+            status=status,
+            servico_id=None if servico_id_denormalizado_apenas else servico.id,
+            servico=servico_nome,
+        )
+        db.add(agendamento)
+        db.commit()
+        return agendamento
+
+    # --- Fluxo A: exame vinculado a Atendimento Clinico completo ---
 
     def test_exame_realizado_sem_laudo_aparece_na_fila(self) -> None:
         tmpdir, db, engine = self._build_session()
@@ -201,28 +226,27 @@ class LaudosFilaPendentesTest(unittest.TestCase):
             engine.dispose()
             tmpdir.cleanup()
 
-    def test_urgente_aparece_primeiro_mesmo_sendo_mais_recente(self) -> None:
+    def test_urgente_no_agendamento_aparece_primeiro_mesmo_sendo_mais_recente(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
-            _, _, _, atendimento_antigo = self._seed_atendimento(
+            _, _, agendamento_antigo, atendimento_antigo = self._seed_atendimento(
                 db, agendamento_status="Realizado", data_atendimento=datetime(2026, 8, 1, 10, 0)
             )
             exame_antigo = Exame(
                 atendimento_id=atendimento_antigo.id,
                 paciente_id=atendimento_antigo.paciente_id,
                 tipo_exame="Ecocardiograma",
-                urgente_laudo=False,
             )
             db.add(exame_antigo)
 
-            _, _, _, atendimento_recente = self._seed_atendimento(
+            _, _, agendamento_recente, atendimento_recente = self._seed_atendimento(
                 db, agendamento_status="Realizado", data_atendimento=datetime(2026, 8, 15, 10, 0)
             )
+            agendamento_recente.urgente_laudo = True
             exame_urgente = Exame(
                 atendimento_id=atendimento_recente.id,
                 paciente_id=atendimento_recente.paciente_id,
                 tipo_exame="Ecocardiograma",
-                urgente_laudo=True,
             )
             db.add(exame_urgente)
             db.commit()
@@ -232,52 +256,217 @@ class LaudosFilaPendentesTest(unittest.TestCase):
             self.assertEqual(resultado["total"], 2)
             self.assertEqual(resultado["items"][0]["exame_id"], exame_urgente.id)
             self.assertTrue(resultado["items"][0]["urgente"])
+            self.assertEqual(resultado["items"][0]["agendamento_id"], agendamento_recente.id)
         finally:
             db.close()
             engine.dispose()
             tmpdir.cleanup()
 
-    def test_toggle_urgente_via_atualizar_exame(self) -> None:
+    def test_toggle_urgente_via_atualizar_agendamento(self) -> None:
         tmpdir, db, engine = self._build_session()
         try:
-            paciente = Paciente(nome="Paciente Teste")
-            db.add(paciente)
-            db.commit()
-            exame = Exame(paciente_id=paciente.id, tipo_exame="Ecocardiograma")
-            db.add(exame)
+            agendamento = Agendamento(inicio=datetime(2026, 8, 10, 10, 0), status="Realizado")
+            db.add(agendamento)
             db.commit()
 
-            from fastapi import Request
-
-            request = Request(
-                {
-                    "type": "http",
-                    "method": "PUT",
-                    "path": f"/api/v1/exames/{exame.id}",
-                    "headers": [],
-                    "client": ("127.0.0.1", 1234),
-                    "server": ("testserver", 80),
-                    "scheme": "http",
-                    "query_string": b"",
-                }
-            )
-            with unittest.mock.patch(
-                "app.api.v1.endpoints.laudos.registrar_auditoria", return_value=None
+            with patch.object(agenda, "registrar_auditoria", return_value=None), patch.object(
+                agenda, "_notificar_agenda_update", return_value=None
             ):
-                laudos.atualizar_exame(
-                    exame_id=exame.id,
-                    exame_data={"urgente_laudo": True},
-                    request=request,
+                agenda.atualizar_agendamento(
+                    agendamento_id=agendamento.id,
+                    agendamento=agenda.AgendamentoUpdate(urgente_laudo=True),
+                    request=SimpleNamespace(),
                     db=db,
                     current_user=self._user(),
                 )
 
-            db.refresh(exame)
-            self.assertTrue(exame.urgente_laudo)
+            db.refresh(agendamento)
+            self.assertTrue(agendamento.urgente_laudo)
         finally:
             db.close()
             engine.dispose()
             tmpdir.cleanup()
+
+    # --- Fluxo B: agendamento "Realizado" sem Atendimento Clinico ---
+
+    def test_agendamento_sem_atendimento_com_servico_exame_aparece_na_fila(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            agendamento = self._seed_agendamento_sem_atendimento(
+                db, servico_nome="Ecocardiograma", inicio=datetime(2026, 8, 10, 10, 0)
+            )
+
+            resultado = laudos.listar_laudos_pendentes(db=db, current_user=self._user())
+
+            self.assertEqual(resultado["total"], 1)
+            item = resultado["items"][0]
+            self.assertIsNone(item["exame_id"])
+            self.assertEqual(item["agendamento_id"], agendamento.id)
+            self.assertEqual(item["tipo_exame"], "ecocardiograma")
+            self.assertFalse(item["tem_rascunho"])
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_agendamento_servico_nao_exame_nao_aparece(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            for nome in ("Consulta", "Drenagem de Efusão Pericárdica", "Reavaliação/Retorno"):
+                self._seed_agendamento_sem_atendimento(db, servico_nome=nome, inicio=datetime(2026, 8, 10, 10, 0))
+
+            resultado = laudos.listar_laudos_pendentes(db=db, current_user=self._user())
+
+            self.assertEqual(resultado["total"], 0)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_agendamento_combo_gera_dois_itens_pendentes(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_agendamento_sem_atendimento(
+                db, servico_nome="Eco + Eletro", inicio=datetime(2026, 8, 10, 10, 0)
+            )
+
+            resultado = laudos.listar_laudos_pendentes(db=db, current_user=self._user())
+
+            self.assertEqual(resultado["total"], 2)
+            tipos = sorted(item["tipo_exame"] for item in resultado["items"])
+            self.assertEqual(tipos, ["ecocardiograma", "eletrocardiograma"])
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_agendamento_combo_com_um_tipo_finalizado_gera_um_item(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            agendamento = self._seed_agendamento_sem_atendimento(
+                db, servico_nome="Eco + PA", inicio=datetime(2026, 8, 10, 10, 0)
+            )
+            laudo_eco = Laudo(
+                paciente_id=1,
+                veterinario_id=1,
+                agendamento_id=agendamento.id,
+                tipo="ecocardiograma",
+                titulo="L",
+                status="Finalizado",
+            )
+            db.add(laudo_eco)
+            db.commit()
+
+            resultado = laudos.listar_laudos_pendentes(db=db, current_user=self._user())
+
+            self.assertEqual(resultado["total"], 1)
+            self.assertEqual(resultado["items"][0]["tipo_exame"], "pressao_arterial")
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_agendamento_com_laudo_rascunho_aparece_marcado(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            agendamento = self._seed_agendamento_sem_atendimento(
+                db, servico_nome="Eletrocardiograma", inicio=datetime(2026, 8, 10, 10, 0)
+            )
+            laudo = Laudo(
+                paciente_id=1,
+                veterinario_id=1,
+                agendamento_id=agendamento.id,
+                tipo="eletrocardiograma",
+                titulo="L",
+                status="Rascunho",
+            )
+            db.add(laudo)
+            db.commit()
+
+            resultado = laudos.listar_laudos_pendentes(db=db, current_user=self._user())
+
+            self.assertEqual(resultado["total"], 1)
+            self.assertTrue(resultado["items"][0]["tem_rascunho"])
+            self.assertEqual(resultado["items"][0]["laudo_id"], laudo.id)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_agendamento_com_laudo_finalizado_nao_aparece(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            agendamento = self._seed_agendamento_sem_atendimento(
+                db, servico_nome="Pressão Arterial", inicio=datetime(2026, 8, 10, 10, 0)
+            )
+            laudo = Laudo(
+                paciente_id=1,
+                veterinario_id=1,
+                agendamento_id=agendamento.id,
+                tipo="pressao_arterial",
+                titulo="L",
+                status="Finalizado",
+            )
+            db.add(laudo)
+            db.commit()
+
+            resultado = laudos.listar_laudos_pendentes(db=db, current_user=self._user())
+
+            self.assertEqual(resultado["total"], 0)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_agendamento_servico_id_nulo_usa_nome_denormalizado(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_agendamento_sem_atendimento(
+                db,
+                servico_nome="Ecocardiograma",
+                inicio=datetime(2026, 8, 10, 10, 0),
+                servico_id_denormalizado_apenas=True,
+            )
+
+            resultado = laudos.listar_laudos_pendentes(db=db, current_user=self._user())
+
+            self.assertEqual(resultado["total"], 1)
+            self.assertEqual(resultado["items"][0]["tipo_exame"], "ecocardiograma")
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_agendamento_atrasado_usa_horario_agendado_como_referencia(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            inicio_antigo = datetime.utcnow() - timedelta(days=10)
+            self._seed_agendamento_sem_atendimento(db, servico_nome="Ecocardiograma", inicio=inicio_antigo)
+
+            resultado = laudos.listar_laudos_pendentes(db=db, current_user=self._user())
+
+            self.assertTrue(resultado["items"][0]["atrasado"])
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_agendamento_nao_realizado_com_servico_exame_nao_aparece(self) -> None:
+        tmpdir, db, engine = self._build_session()
+        try:
+            self._seed_agendamento_sem_atendimento(
+                db, servico_nome="Ecocardiograma", inicio=datetime(2026, 8, 10, 10, 0), status="Confirmado"
+            )
+
+            resultado = laudos.listar_laudos_pendentes(db=db, current_user=self._user())
+
+            self.assertEqual(resultado["total"], 0)
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    # --- Indicador de agilidade ---
 
     def test_agilidade_calcula_percentual_e_tendencia(self) -> None:
         tmpdir, db, engine = self._build_session()
@@ -285,49 +474,33 @@ class LaudosFilaPendentesTest(unittest.TestCase):
             agora = datetime.utcnow()
 
             # Janela atual (ultimos 90 dias): 1 no prazo, 1 atrasado -> 50%.
-            _, _, _, atendimento_1 = self._seed_atendimento(
-                db, agendamento_status="Realizado", data_atendimento=agora - timedelta(days=10)
-            )
+            agendamento_1 = Agendamento(inicio=agora - timedelta(days=10), status="Realizado")
+            db.add(agendamento_1)
+            db.flush()
             laudo_1 = Laudo(
-                paciente_id=atendimento_1.paciente_id,
+                paciente_id=1,
                 veterinario_id=1,
+                agendamento_id=agendamento_1.id,
                 tipo="ecocardiograma",
                 titulo="L1",
                 status="Finalizado",
                 finalizado_em=agora - timedelta(days=10) + timedelta(hours=10),
             )
             db.add(laudo_1)
-            db.commit()
-            db.add(
-                Exame(
-                    atendimento_id=atendimento_1.id,
-                    paciente_id=atendimento_1.paciente_id,
-                    tipo_exame="Ecocardiograma",
-                    laudo_id=laudo_1.id,
-                )
-            )
 
-            _, _, _, atendimento_2 = self._seed_atendimento(
-                db, agendamento_status="Realizado", data_atendimento=agora - timedelta(days=20)
-            )
+            agendamento_2 = Agendamento(inicio=agora - timedelta(days=20), status="Realizado")
+            db.add(agendamento_2)
+            db.flush()
             laudo_2 = Laudo(
-                paciente_id=atendimento_2.paciente_id,
+                paciente_id=1,
                 veterinario_id=1,
+                agendamento_id=agendamento_2.id,
                 tipo="ecocardiograma",
                 titulo="L2",
                 status="Finalizado",
                 finalizado_em=agora - timedelta(days=5),  # 15 dias corridos depois = bem atrasado
             )
             db.add(laudo_2)
-            db.commit()
-            db.add(
-                Exame(
-                    atendimento_id=atendimento_2.id,
-                    paciente_id=atendimento_2.paciente_id,
-                    tipo_exame="Ecocardiograma",
-                    laudo_id=laudo_2.id,
-                )
-            )
             db.commit()
 
             resultado = laudos.obter_agilidade_laudos(db=db, current_user=self._user())
@@ -337,6 +510,38 @@ class LaudosFilaPendentesTest(unittest.TestCase):
             self.assertEqual(resultado["janela_atual"]["percentual_no_prazo"], 50.0)
             # Sem dados na janela anterior (91-180 dias atras) -> tendencia None.
             self.assertIsNone(resultado["tendencia"])
+        finally:
+            db.close()
+            engine.dispose()
+            tmpdir.cleanup()
+
+    def test_agilidade_conta_laudo_sem_exame_vinculado(self) -> None:
+        """Cobre o fluxo comum (dropdown "Laudar"): Laudo.agendamento_id
+        preenchido sem nenhum Exame/AtendimentoClinico - a versao anterior
+        do indicador so contava laudos com Exame vinculado e subcontava
+        esse caso (a maioria)."""
+        tmpdir, db, engine = self._build_session()
+        try:
+            agora = datetime.utcnow()
+            agendamento = Agendamento(inicio=agora - timedelta(days=3), status="Realizado")
+            db.add(agendamento)
+            db.flush()
+            laudo = Laudo(
+                paciente_id=1,
+                veterinario_id=1,
+                agendamento_id=agendamento.id,
+                tipo="ecocardiograma",
+                titulo="L",
+                status="Finalizado",
+                finalizado_em=agora - timedelta(days=3) + timedelta(hours=5),
+            )
+            db.add(laudo)
+            db.commit()
+
+            resultado = laudos.obter_agilidade_laudos(db=db, current_user=self._user())
+
+            self.assertEqual(resultado["janela_atual"]["total_finalizados"], 1)
+            self.assertEqual(resultado["janela_atual"]["no_prazo"], 1)
         finally:
             db.close()
             engine.dispose()

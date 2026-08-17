@@ -127,3 +127,48 @@ prazo + tempo medio, ultimos 90 dias vs. 90 dias anteriores).
   feriado corretamente) tornaria o indicador de agilidade enganoso -
   cobrir com testes unitarios de casos de borda (fim de semana no
   meio, feriado, exame realizado numa sexta a noite, etc.).
+
+## 8) Correcao de escopo (2026-08-17)
+
+Testado ao vivo em stage pelo usuario logo apos o primeiro deploy: "conferi
+aqui e esta vazia mesmo eu mudando um status na agenda para realizado".
+Investigacao revelou que a premissa da secao 5 (cadeia
+`Exame -> AtendimentoClinico -> Agendamento`) so cobre o fluxo raro de
+Atendimento Clinico completo. Confirmado pelo usuario: "nem todo
+agendamento gera atendimento clinico. A maioria dos agendamentos e apenas
+para realizacao de exames".
+
+- Fluxo comum (a maioria dos agendamentos): marcar `Agendamento.status =
+  "Realizado"` (`PATCH /agenda/{id}/status`, `backend/app/api/v1/endpoints/agenda.py:5747`)
+  so gera uma Ordem de Servico - nao cria `AtendimentoClinico` nem
+  `Exame`. O usuario entao usa o dropdown "Laudar" na Agenda
+  (`abrirFluxoLaudo`, `frontend/app/agenda/page.tsx:1592`), que cria o
+  `Laudo` direto via `Laudo.agendamento_id`
+  (`backend/app/models/laudo.py:13`), sem nunca gerar `Exame`. O tipo de
+  laudo (ecocardiograma/eletrocardiograma/pressao_arterial) e uma escolha
+  manual do usuario no momento de laudar - nao vem do servico agendado.
+- Como nao ha campo que diga "este agendamento vai virar laudo do tipo
+  X" antes do laudo existir, a fila agora infere isso do nome do servico
+  agendado (`Agendamento.servico_id` -> `Servico.nome`, com fallback pro
+  campo denormalizado `Agendamento.servico` quando `servico_id` e nulo -
+  ocorrencia real, nao so de teste). Mapeamento confirmado com o usuario
+  a partir do catalogo real de servicos em stage (`/servicos`):
+  Ecocardiograma, Eletrocardiograma e Pressao Arterial geram 1 laudo
+  esperado cada; "Eco + Eletro" e "Eco + PA" (combos) geram 2 cada;
+  Consulta, Drenagem de Efusao Pericardica e Reavaliacao/Retorno nao
+  geram laudo (ficam fora da fila).
+- O marcador de urgencia (secao 3 original) foi movido de `Exame` para
+  `Agendamento.urgente_laudo` - a maioria dos itens da fila (fluxo comum)
+  nao tem `Exame` nenhum pra marcar. Consequencia aceita: para um combo
+  ("Eco + Eletro"), marcar urgente vale pro agendamento inteiro (os 2
+  tipos), nao por tipo individual - condiz com a pratica (a urgencia e da
+  visita, nao de um exame especifico dela).
+- Referencia de inicio do prazo de 48h para o fluxo comum: confirmado
+  com o usuario o **horario agendado** (`Agendamento.inicio`), nao o
+  momento em que o status foi marcado como Realizado (`updated_at`) -
+  nao ha campo dedicado "realizado em" no schema atual.
+- Efeito colateral corrigido no indicador de agilidade: a versao original
+  tambem so contava laudos com `Exame` vinculado (mesma cadeia
+  incompleta), subcontando o indicador na pratica. Corrigido para somar
+  direto por `Laudo.agendamento_id -> Agendamento.status == "Realizado"`,
+  cobrindo os dois fluxos.

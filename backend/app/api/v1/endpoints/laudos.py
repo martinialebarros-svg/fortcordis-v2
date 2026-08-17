@@ -1274,6 +1274,12 @@ def _resolver_ou_criar_paciente(paciente: Dict[str, Any], db: Session) -> int:
         return paciente_existente.id
 
 
+def _naive_datetime(valor):
+    if valor is None:
+        return None
+    return valor.replace(tzinfo=None) if valor.tzinfo else valor
+
+
 @router.get("/laudos/pendentes")
 def listar_laudos_pendentes(
     skip: int = 0,
@@ -1283,8 +1289,15 @@ def listar_laudos_pendentes(
 ):
     """Fila pessoal de exames realizados (via Agenda) que ainda precisam
     de laudo - sem laudo nenhum, ou com laudo em rascunho. So considera
-    exames cujo agendamento foi marcado como "Realizado" (ver
-    docs/specs/laudos-fila-pendentes-agenda)."""
+    agendamentos marcados como "Realizado" (ver
+    docs/specs/laudos-fila-pendentes-agenda).
+
+    Duas fontes, mescladas: (A) exames vinculados a um Atendimento Clinico
+    completo (fluxo raro); (B) agendamentos "Realizado" sem Atendimento
+    Clinico (fluxo comum, via dropdown "Laudar" da Agenda - o Laudo e
+    criado direto via `Laudo.agendamento_id`, sem nunca gerar Exame). O
+    tipo de laudo esperado em (B) vem do servico agendado
+    (`tipos_laudo_esperados`)."""
     from app.models.agendamento import Agendamento
     from app.models.clinica import Clinica
     from app.models.paciente import Paciente
@@ -1293,29 +1306,105 @@ def listar_laudos_pendentes(
         PRAZO_LAUDO_HORAS_UTEIS,
         carregar_feriados,
         horas_uteis_entre,
+        resolver_servico_nome,
+        tipos_laudo_esperados,
     )
 
-    query = (
-        db.query(Exame, AtendimentoClinico.data_atendimento, AtendimentoClinico.clinica_id)
+    feriados = carregar_feriados(db)
+    agora = datetime.utcnow()
+    itens_brutos = []
+
+    # --- Fonte A: exames vinculados a Atendimento Clinico completo ---
+    rows_exames = (
+        db.query(
+            Exame,
+            AtendimentoClinico.data_atendimento,
+            AtendimentoClinico.clinica_id,
+            Agendamento.id,
+            Agendamento.urgente_laudo,
+        )
         .join(AtendimentoClinico, AtendimentoClinico.id == Exame.atendimento_id)
         .join(Agendamento, Agendamento.id == AtendimentoClinico.agendamento_id)
         .outerjoin(Laudo, Laudo.id == Exame.laudo_id)
         .filter(Agendamento.status == "Realizado")
         .filter(or_(Exame.laudo_id.is_(None), Laudo.status == "Rascunho"))
+        .all()
     )
+    for exame, data_atendimento, clinica_id, agendamento_id, urgente in rows_exames:
+        horas = horas_uteis_entre(data_atendimento, agora, feriados) if data_atendimento else 0.0
+        itens_brutos.append(
+            {
+                "exame_id": exame.id,
+                "atendimento_id": exame.atendimento_id,
+                "agendamento_id": agendamento_id,
+                "laudo_id": exame.laudo_id,
+                "tem_rascunho": exame.laudo_id is not None,
+                "urgente": bool(urgente),
+                "paciente_id": exame.paciente_id,
+                "clinica_id": clinica_id,
+                "tipo_exame": exame.tipo_exame,
+                "data_referencia": _naive_datetime(data_atendimento),
+                "horas_uteis_decorridas": round(horas, 1),
+                "atrasado": horas > PRAZO_LAUDO_HORAS_UTEIS,
+            }
+        )
 
-    total = query.count()
-    rows = (
-        query.order_by(Exame.urgente_laudo.desc(), AtendimentoClinico.data_atendimento.asc())
-        .offset(skip)
-        .limit(limit)
+    # --- Fonte B: agendamentos "Realizado" sem Atendimento Clinico ---
+    agendamentos_com_atendimento = db.query(AtendimentoClinico.agendamento_id).filter(
+        AtendimentoClinico.agendamento_id.isnot(None)
+    )
+    agendamentos_sem_atendimento = (
+        db.query(Agendamento)
+        .filter(Agendamento.status == "Realizado")
+        .filter(~Agendamento.id.in_(agendamentos_com_atendimento))
         .all()
     )
 
-    feriados = carregar_feriados(db)
-    agora = datetime.utcnow()
+    if agendamentos_sem_atendimento:
+        agendamento_ids = [a.id for a in agendamentos_sem_atendimento]
+        laudos_por_agendamento_tipo: Dict[tuple, Laudo] = {}
+        for laudo in db.query(Laudo).filter(Laudo.agendamento_id.in_(agendamento_ids)).all():
+            chave = (laudo.agendamento_id, (laudo.tipo or "").strip().lower())
+            existente = laudos_por_agendamento_tipo.get(chave)
+            if existente is None or (laudo.created_at or datetime.min) > (existente.created_at or datetime.min):
+                laudos_por_agendamento_tipo[chave] = laudo
 
-    paciente_ids = {exame.paciente_id for exame, _, _ in rows}
+        for agendamento in agendamentos_sem_atendimento:
+            servico_nome = resolver_servico_nome(db, agendamento.servico_id, agendamento.servico)
+            tipos_esperados = tipos_laudo_esperados(servico_nome)
+            if not tipos_esperados:
+                continue
+            horas = horas_uteis_entre(agendamento.inicio, agora, feriados)
+            for tipo in tipos_esperados:
+                laudo = laudos_por_agendamento_tipo.get((agendamento.id, tipo))
+                if laudo is not None and laudo.status != "Rascunho":
+                    continue
+                itens_brutos.append(
+                    {
+                        "exame_id": None,
+                        "atendimento_id": None,
+                        "agendamento_id": agendamento.id,
+                        "laudo_id": laudo.id if laudo else None,
+                        "tem_rascunho": laudo is not None,
+                        "urgente": bool(agendamento.urgente_laudo),
+                        "paciente_id": agendamento.paciente_id,
+                        "clinica_id": agendamento.clinica_id,
+                        # Codigo cru (ecocardiograma/eletrocardiograma/pressao_arterial),
+                        # nao rotulo - o frontend converte pra exibicao e usa o
+                        # mesmo valor no link `/laudos/novo?agendamento_id=X&tipo=Y`
+                        # (mesmo padrao do dropdown "Laudar" da Agenda).
+                        "tipo_exame": tipo,
+                        "data_referencia": _naive_datetime(agendamento.inicio),
+                        "horas_uteis_decorridas": round(horas, 1),
+                        "atrasado": horas > PRAZO_LAUDO_HORAS_UTEIS,
+                    }
+                )
+
+    itens_brutos.sort(key=lambda item: (not item["urgente"], item["data_referencia"] or datetime.min))
+    total = len(itens_brutos)
+    pagina = itens_brutos[skip : skip + limit]
+
+    paciente_ids = {item["paciente_id"] for item in pagina if item["paciente_id"]}
     pacientes_map = (
         {p.id: p for p in db.query(Paciente).filter(Paciente.id.in_(paciente_ids)).all()}
         if paciente_ids
@@ -1327,7 +1416,7 @@ def listar_laudos_pendentes(
         if tutor_ids
         else {}
     )
-    clinica_ids = {clinica_id for _, _, clinica_id in rows if clinica_id}
+    clinica_ids = {item["clinica_id"] for item in pagina if item["clinica_id"]}
     clinicas_map = (
         {c.id: c for c in db.query(Clinica).filter(Clinica.id.in_(clinica_ids)).all()}
         if clinica_ids
@@ -1335,25 +1424,26 @@ def listar_laudos_pendentes(
     )
 
     items = []
-    for exame, data_atendimento, clinica_id in rows:
-        paciente = pacientes_map.get(exame.paciente_id)
+    for item in pagina:
+        paciente = pacientes_map.get(item["paciente_id"])
         tutor = tutores_map.get(getattr(paciente, "tutor_id", None))
-        clinica = clinicas_map.get(clinica_id)
-        horas = horas_uteis_entre(data_atendimento, agora, feriados) if data_atendimento else 0.0
+        clinica = clinicas_map.get(item["clinica_id"])
+        data_referencia = item["data_referencia"]
         items.append(
             {
-                "exame_id": exame.id,
-                "atendimento_id": exame.atendimento_id,
-                "laudo_id": exame.laudo_id,
-                "tem_rascunho": exame.laudo_id is not None,
-                "urgente": bool(exame.urgente_laudo),
+                "exame_id": item["exame_id"],
+                "atendimento_id": item["atendimento_id"],
+                "agendamento_id": item["agendamento_id"],
+                "laudo_id": item["laudo_id"],
+                "tem_rascunho": item["tem_rascunho"],
+                "urgente": item["urgente"],
                 "paciente_nome": getattr(paciente, "nome", None),
                 "tutor_nome": getattr(tutor, "nome", None),
                 "clinica_nome": getattr(clinica, "nome", None),
-                "tipo_exame": exame.tipo_exame,
-                "data_atendimento": data_atendimento.isoformat() if data_atendimento else None,
-                "horas_uteis_decorridas": round(horas, 1),
-                "atrasado": horas > PRAZO_LAUDO_HORAS_UTEIS,
+                "tipo_exame": item["tipo_exame"],
+                "data_atendimento": data_referencia.isoformat() if data_referencia else None,
+                "horas_uteis_decorridas": item["horas_uteis_decorridas"],
+                "atrasado": item["atrasado"],
             }
         )
 
@@ -1367,7 +1457,14 @@ def obter_agilidade_laudos(
 ):
     """Indicador pessoal de agilidade: % de laudos finalizados dentro do
     prazo de 48h uteis, ultimos 90 dias comparado aos 90 dias anteriores
-    (ver docs/specs/laudos-fila-pendentes-agenda)."""
+    (ver docs/specs/laudos-fila-pendentes-agenda).
+
+    Une direto por `Laudo.agendamento_id` (preenchido nos dois fluxos -
+    Atendimento Clinico completo e o dropdown "Laudar" direto da Agenda),
+    sem depender de `Exame`/`AtendimentoClinico`, que so existem no fluxo
+    raro e antes subcontavam o indicador. `Agendamento.inicio` e usado
+    como referencia do prazo (ver docs/specs/laudos-fila-pendentes-agenda
+    secao de decisoes 2026-08-17)."""
     from app.models.agendamento import Agendamento
     from app.services.laudo_agilidade_service import (
         PRAZO_LAUDO_HORAS_UTEIS,
@@ -1380,27 +1477,14 @@ def obter_agilidade_laudos(
 
     def _calcular_janela(inicio_janela: datetime, fim_janela: datetime) -> dict:
         rows = (
-            db.query(Laudo.id, Laudo.finalizado_em, AtendimentoClinico.data_atendimento)
-            .join(Exame, Exame.laudo_id == Laudo.id)
-            .join(AtendimentoClinico, AtendimentoClinico.id == Exame.atendimento_id)
-            .join(Agendamento, Agendamento.id == AtendimentoClinico.agendamento_id)
+            db.query(Laudo.finalizado_em, Agendamento.inicio)
+            .join(Agendamento, Agendamento.id == Laudo.agendamento_id)
             .filter(Agendamento.status == "Realizado")
             .filter(Laudo.finalizado_em >= inicio_janela, Laudo.finalizado_em < fim_janela)
             .all()
         )
 
-        # Um laudo pode ter mais de um exame vinculado - deduplica por
-        # laudo_id (mantendo a realizacao mais antiga) para nao contar o
-        # mesmo laudo 2x no indicador.
-        por_laudo: dict[int, tuple] = {}
-        for laudo_id, finalizado_em, data_atendimento in rows:
-            if data_atendimento is None:
-                continue
-            existente = por_laudo.get(laudo_id)
-            if existente is None or data_atendimento < existente[1]:
-                por_laudo[laudo_id] = (finalizado_em, data_atendimento)
-
-        total = len(por_laudo)
+        total = len(rows)
         if total == 0:
             return {
                 "total_finalizados": 0,
@@ -1411,8 +1495,8 @@ def obter_agilidade_laudos(
 
         no_prazo = 0
         soma_horas = 0.0
-        for finalizado_em, data_atendimento in por_laudo.values():
-            horas = horas_uteis_entre(data_atendimento, finalizado_em, feriados)
+        for finalizado_em, inicio_agendamento in rows:
+            horas = horas_uteis_entre(inicio_agendamento, finalizado_em, feriados)
             soma_horas += horas
             if horas <= PRAZO_LAUDO_HORAS_UTEIS:
                 no_prazo += 1

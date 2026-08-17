@@ -68,8 +68,9 @@ interface Exame {
 }
 
 interface LaudoPendenteItem {
-  exame_id: number;
+  exame_id: number | null;
   atendimento_id: number | null;
+  agendamento_id: number | null;
   laudo_id: number | null;
   tem_rascunho: boolean;
   urgente: boolean;
@@ -379,12 +380,14 @@ export default function LaudosPage() {
   }, [tab]);
 
   const toggleUrgente = async (item: LaudoPendenteItem) => {
-    setTogglingUrgenteId(item.exame_id);
+    if (!item.agendamento_id) return;
+    const agendamentoId = item.agendamento_id;
+    setTogglingUrgenteId(agendamentoId);
     try {
-      await api.put(`/exames/${item.exame_id}`, { urgente_laudo: !item.urgente });
+      await api.put(`/agenda/${agendamentoId}`, { urgente_laudo: !item.urgente });
       setPendentes((prev) =>
         prev
-          .map((p) => (p.exame_id === item.exame_id ? { ...p, urgente: !p.urgente } : p))
+          .map((p) => (p.agendamento_id === agendamentoId ? { ...p, urgente: !p.urgente } : p))
           .sort((a, b) => {
             if (a.urgente !== b.urgente) return a.urgente ? -1 : 1;
             return (a.data_atendimento || "").localeCompare(b.data_atendimento || "");
@@ -930,7 +933,10 @@ export default function LaudosPage() {
             ) : (
               <div className="divide-y divide-ink-100">
                 {pendentes.map((item) => (
-                  <div key={item.exame_id} className="fc-clinical-row">
+                  <div
+                    key={item.exame_id ?? `agendamento-${item.agendamento_id}-${item.tipo_exame}`}
+                    className="fc-clinical-row"
+                  >
                     <div className="fc-clinical-row-layout">
                       <div
                         className={`fc-clinical-row-icon ${
@@ -944,7 +950,7 @@ export default function LaudosPage() {
                         )}
                       </div>
                       <div className="fc-clinical-row-main">
-                        <h3>{item.tipo_exame}</h3>
+                        <h3>{getTipoLaudoLabel(item.tipo_exame)}</h3>
                         <div>
                           <span>{item.paciente_nome || "Paciente nao informado"}</span>
                           {item.tutor_nome ? <span>Tutor: {item.tutor_nome}</span> : null}
@@ -972,7 +978,7 @@ export default function LaudosPage() {
                       <div className="fc-clinical-actions">
                         <button
                           onClick={() => toggleUrgente(item)}
-                          disabled={togglingUrgenteId === item.exame_id}
+                          disabled={togglingUrgenteId === item.agendamento_id}
                           className="fc-clinical-action"
                           title={item.urgente ? "Remover urgencia" : "Marcar como urgente"}
                           aria-label={item.urgente ? "Remover urgencia" : "Marcar como urgente"}
@@ -980,13 +986,19 @@ export default function LaudosPage() {
                           <Star className={`w-4 h-4 ${item.urgente ? "fill-current text-amber-600" : ""}`} />
                         </button>
                         <button
-                          onClick={() =>
-                            item.tem_rascunho && item.laudo_id
-                              ? router.push(getLaudoEditPath(item.laudo_id, item.tipo_exame))
-                              : router.push(
-                                  `/laudos/novo?atendimento_id=${item.atendimento_id}&tipo=${encodeURIComponent(item.tipo_exame)}`
-                                )
-                          }
+                          onClick={() => {
+                            if (item.tem_rascunho && item.laudo_id) {
+                              router.push(getLaudoEditPath(item.laudo_id, item.tipo_exame));
+                            } else if (item.atendimento_id) {
+                              router.push(
+                                `/laudos/novo?atendimento_id=${item.atendimento_id}&tipo=${encodeURIComponent(item.tipo_exame)}`
+                              );
+                            } else if (item.agendamento_id) {
+                              router.push(
+                                `/laudos/novo?agendamento_id=${item.agendamento_id}&tipo=${encodeURIComponent(item.tipo_exame)}`
+                              );
+                            }
+                          }}
                           className="fc-clinical-action"
                           title={item.tem_rascunho ? "Continuar laudo" : "Criar laudo"}
                         >

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text
 from sqlalchemy.sql import func
 from app.db.database import Base
 
@@ -51,3 +51,11 @@ class Agendamento(Base):
     confirmado_por_id = Column(Integer)
     confirmado_por_nome = Column(String)
     confirmado_em = Column(DateTime(timezone=True))
+
+    # Marcador manual de urgencia da fila de laudos pendentes - vive aqui
+    # (nao em Exame) porque a maioria dos agendamentos nunca gera Exame/
+    # AtendimentoClinico (fluxo do dropdown "Laudar" na Agenda, que cria
+    # o Laudo direto via agendamento_id). Para agendamentos com mais de
+    # um tipo de laudo esperado (ex.: "Eco + Eletro"), o marcador vale
+    # para o agendamento inteiro, nao por tipo individual.
+    urgente_laudo = Column(Boolean, nullable=False, default=False)

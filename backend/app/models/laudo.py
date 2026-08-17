@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Float, Boolean, event
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Float, event
 from sqlalchemy.sql import func
 from datetime import datetime
 from app.db.database import Base
@@ -94,11 +94,6 @@ class Exame(Base):
     # portal (nulo = ainda nao visualizado). Zerado ao liberar/revogar de
     # novo, para nao carregar uma visualizacao de um ciclo anterior.
     visualizado_portal_em = Column(DateTime(timezone=True), nullable=True)
-
-    # Marcador manual de urgencia da fila de laudos pendentes (diferente de
-    # `prioridade`, que e a urgencia clinica definida na solicitacao do
-    # exame) - usado so para priorizar visualmente a escrita do laudo.
-    urgente_laudo = Column(Boolean, nullable=False, default=False)
 
     # Auditoria
     created_at = Column(DateTime(timezone=True), default=func.now())
