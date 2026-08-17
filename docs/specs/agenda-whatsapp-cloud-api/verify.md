@@ -23,6 +23,7 @@ Status: production-cutover-in-progress
 | CA-014 | controllers inbound/outbound usam `canonicalWhatsAppIdentity` como chave de conversa | build + inspecao passaram localmente |
 | CA-015 | deploy sincroniza chaves Meta a partir de arquivo protegido, valida presenca/formato e nao imprime valores | pendente de deploy |
 | CA-016 | runtime exclusivo na porta `3020`, health publico e smoke autenticado/assinado | pendente de deploy |
+| CA-017 | workflow busca e executa o script de deploy diretamente do snapshot remoto, sem depender da copia antiga presente no checkout do VPS | passou por inspecao + parse YAML |
 
 ## Comandos executados
 
@@ -74,6 +75,7 @@ ruby -e 'require "yaml"; YAML.load_file(".github/workflows/deploy.yml")'
 - A correcao local agora usa a representacao sem o nono digito apenas como chave interna e para auditoria do callback; o numero original continua sendo enviado para a Graph API.
 - Em 17/08/2026, o usuario confirmou que o teste real de confirmacao alterou corretamente o status no FortCordis e que os modelos necessarios aparecem aprovados e ativos na WABA Fort Cordis.
 - O callback Meta ainda apontava para `https://app.stage.fortcordis.com.br/whatsapp/webhook`; a troca para producao deve ocorrer somente depois do novo runtime responder `200` e concluir o smoke.
+- A primeira promocao de producao (`32073647259`) falhou fechada porque o checkout do VPS ainda carregou a versao anterior do proprio script antes do `git reset`; o rollback automatico restaurou `3ecf5ee`. O workflow agora materializa o script diretamente de `origin/main`, preservando o checkout anterior para que esse script ainda possa registrar e restaurar o hash correto.
 
 ## Pendencias para nova prova real
 
