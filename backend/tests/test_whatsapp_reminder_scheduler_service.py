@@ -74,6 +74,45 @@ class WhatsAppReminderSchedulerServiceTest(unittest.TestCase):
             finally:
                 engine.dispose()
 
+    def test_list_eligible_agendamentos_preview_nao_envia_nada_e_mascara_destino(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            SessionFactory, engine = self._build_session_factory(tmpdir)
+            try:
+                now = datetime.now(timezone.utc)
+                db = SessionFactory()
+                try:
+                    clinica = Clinica(nome="Clinica Preview", whatsapps=["5585999998888"], telefone=None)
+                    db.add(clinica)
+                    db.commit()
+
+                    elegivel = Agendamento(
+                        status="Agendado", inicio=now + timedelta(hours=10),
+                        clinica_id=clinica.id, whatsapp_reminder_attempts=0,
+                    )
+                    fora_da_janela = Agendamento(
+                        status="Agendado", inicio=now + timedelta(hours=30),
+                        clinica_id=clinica.id, whatsapp_reminder_attempts=0,
+                    )
+                    db.add_all([elegivel, fora_da_janela])
+                    db.commit()
+
+                    preview = scheduler.list_eligible_agendamentos_preview(db, now=now)
+
+                    self.assertEqual(len(preview), 1)
+                    item = preview[0]
+                    self.assertEqual(item["agendamento_id"], elegivel.id)
+                    self.assertEqual(item["recipient_nome"], "Clinica Preview")
+                    self.assertTrue(item["has_valid_destination"])
+                    self.assertEqual(item["destination_last4"], "8888")
+
+                    verify = db.query(Agendamento).filter(Agendamento.id == elegivel.id).first()
+                    self.assertIsNone(verify.whatsapp_reminder_sent_at)
+                    self.assertEqual(verify.whatsapp_reminder_attempts, 0)
+                finally:
+                    db.close()
+            finally:
+                engine.dispose()
+
     def test_resolve_destination_usa_primeiro_whatsapp_da_clinica(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             SessionFactory, engine = self._build_session_factory(tmpdir)

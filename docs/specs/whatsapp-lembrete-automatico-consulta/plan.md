@@ -19,6 +19,14 @@
   `app/core/runtime_checks.py` (`build_runtime_report`), mesmo padrão dos
   demais workers.
 
+## Fase 2b - preview somente leitura
+
+- [x] P2b.1 `list_eligible_agendamentos_preview` no serviço, reaproveitando
+  o mesmo filtro de elegibilidade do worker (`_eligibility_filters`);
+- [x] P2b.2 `GET /agenda/whatsapp/lembrete-preview` em
+  `whatsapp_agenda.py`, mesma autenticação dos demais endpoints;
+- [x] P2b.3 destino mascarado (últimos 4 dígitos) na resposta.
+
 ## Fase 3 - verificação
 
 - [x] P3.1 teste de migração (idempotência, no-op sem tabela);

@@ -11,6 +11,8 @@
 | CA-005 | `test_process_agendamento_marca_erro_quando_clinica_sem_whatsapp`: clínica sem `whatsapps`/`telefone` gera `result == "error"`, `attempts == 1`, `last_error` preenchido, `sent_at` continua `None` | passou |
 | CA-006 | `test_run_due_once_skips_cycle_when_distributed_lock_is_busy`: lock ocupado → `processed=0`, nenhuma linha tocada | passou |
 | CA-007 | `.env.example`/`config.py`: `WHATSAPP_REMINDER_SCHEDULER_ENABLED=False` por padrão; `_scheduler_worker_main` retorna sem agendar nada quando desligado | passou (inspeção de código + smoke de startup) |
+| CA-008 | `test_list_eligible_agendamentos_preview_nao_envia_nada_e_mascara_destino`: após chamar o preview, `whatsapp_reminder_sent_at` continua `None` e `attempts` continua `0` no agendamento elegível | passou |
+| CA-009 | Mesmo teste: `destination_last4 == "8888"` para o número `5585999998888` cadastrado, nunca o número completo | passou |
 
 ## Comandos executados
 
@@ -49,3 +51,18 @@ Risco residual: o worker só foi validado com dados sintéticos locais
 deve acontecer primeiro em stage, com `WHATSAPP_AGENDA_ENABLED` também
 avaliado com cuidado, antes de promover para produção — ambos os
 interruptores continuam desligados por padrão nesta entrega.
+
+## Resultado do endpoint de preview - 2026-08-18
+
+- Testado localmente contra o sqlite de dev com login real (usuário seed
+  `admin@fortcordis.com`): sem dados elegíveis, retornou `count: 0`.
+- Inserido um agendamento sintético elegível (clínica com WhatsApp
+  cadastrado, horário 10h no futuro): o preview retornou `count: 1`, com
+  `recipient_nome`, `has_valid_destination: true` e `destination_last4`
+  corretos; dados sintéticos removidos após o teste.
+- `unittest discover` completo (798 → 799 com o teste novo): passou sem
+  regressão.
+
+Este endpoint existe para o usuário inspecionar o alcance real em stage
+(quais agendamentos e clínicas seriam afetados) antes de decidir habilitar
+o envio automático de fato.

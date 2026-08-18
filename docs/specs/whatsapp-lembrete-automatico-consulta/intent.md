@@ -72,3 +72,13 @@ depender de ação manual.
 - Não reatribui responsabilidade quando o destinatário não tem WhatsApp
   válido — decisão deliberada para não mandar mensagem institucional da
   Fort Cordis para o tutor sem essa ter sido a escolha operacional.
+
+## Adendo - preview somente leitura antes de habilitar
+
+Antes de ligar `WHATSAPP_REMINDER_SCHEDULER_ENABLED` em stage/produção pela
+primeira vez, é preciso ver o alcance real: quais agendamentos já
+cadastrados cairiam na janela elegível agora, sem enviar nada. Adicionado
+`GET /api/v1/agenda/whatsapp/lembrete-preview` (mesma autenticação dos
+demais endpoints de agenda) que reaproveita a mesma função de elegibilidade
+do worker, mas apenas lista o resultado (nome da clínica, se há WhatsApp
+válido, últimos 4 dígitos do destino) — nunca chama `send_agenda_utility_template`.

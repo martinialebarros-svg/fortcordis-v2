@@ -37,6 +37,10 @@
   instâncias do backend.
 - RF-009: o worker é iniciado/parado junto com os demais workers de
   background em `app/main.py` (evento de startup/shutdown do FastAPI).
+- RF-010: `GET /agenda/whatsapp/lembrete-preview` (autenticado, mesma
+  dependência dos demais endpoints de agenda) retorna a contagem e a lista
+  de agendamentos elegíveis agora — mesmo filtro do worker, mas somente
+  leitura, sem chamar `send_agenda_utility_template`.
 
 ## Requisitos não funcionais
 
@@ -68,3 +72,8 @@
   (sem duplo processamento entre instâncias).
 - CA-007: com `WHATSAPP_REMINDER_SCHEDULER_ENABLED=false` (default), o
   worker não inicia nenhum envio.
+- CA-008: `GET /agenda/whatsapp/lembrete-preview` lista os agendamentos
+  elegíveis (mesmo critério do worker) sem enviar nenhuma mensagem e sem
+  alterar `whatsapp_reminder_sent_at`/`attempts`.
+- CA-009: o preview mostra só os últimos 4 dígitos do número de destino,
+  nunca o número completo.

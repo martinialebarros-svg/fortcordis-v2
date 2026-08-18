@@ -85,24 +85,70 @@ def _recipient_type() -> str:
     return value if value in {"clinica", "tutor"} else "clinica"
 
 
-def _fetch_next_due_agendamento(db: Session, *, now: datetime) -> Optional[Agendamento]:
+def _eligibility_filters(now: datetime) -> list:
     janela_min = now + timedelta(minutes=_min_lead_minutes())
     janela_max = now + timedelta(hours=_window_hours())
+    return [
+        Agendamento.status.in_(ELIGIBLE_STATUSES),
+        Agendamento.whatsapp_reminder_sent_at.is_(None),
+        Agendamento.whatsapp_reminder_attempts < _max_attempts(),
+        Agendamento.inicio >= janela_min,
+        Agendamento.inicio <= janela_max,
+    ]
 
+
+def _fetch_next_due_agendamento(db: Session, *, now: datetime) -> Optional[Agendamento]:
     query = (
         db.query(Agendamento)
-        .filter(
-            Agendamento.status.in_(ELIGIBLE_STATUSES),
-            Agendamento.whatsapp_reminder_sent_at.is_(None),
-            Agendamento.whatsapp_reminder_attempts < _max_attempts(),
-            Agendamento.inicio >= janela_min,
-            Agendamento.inicio <= janela_max,
-        )
+        .filter(*_eligibility_filters(now))
         .order_by(Agendamento.inicio.asc(), Agendamento.id.asc())
     )
     if _is_postgres(db):
         query = query.with_for_update(skip_locked=True)
     return query.first()
+
+
+def list_eligible_agendamentos_preview(
+    db: Session, *, now: datetime, limit: int = 200
+) -> list[dict[str, Any]]:
+    """Lista (somente leitura, sem enviar nada) os agendamentos que o worker
+
+    consideraria elegiveis agora, para inspecao manual antes de habilitar o
+    envio automatico de fato.
+    """
+    from app.models.clinica import Clinica
+    from app.models.tutor import Tutor
+
+    recipient_type = _recipient_type()
+    rows = (
+        db.query(Agendamento)
+        .filter(*_eligibility_filters(now))
+        .order_by(Agendamento.inicio.asc(), Agendamento.id.asc())
+        .limit(max(1, int(limit)))
+        .all()
+    )
+
+    preview: list[dict[str, Any]] = []
+    for agendamento in rows:
+        destination = _resolve_destination(db, agendamento, recipient_type)
+        recipient_nome = None
+        if recipient_type == "clinica" and agendamento.clinica_id:
+            clinica = db.query(Clinica).filter(Clinica.id == agendamento.clinica_id).first()
+            recipient_nome = clinica.nome if clinica else None
+        elif recipient_type == "tutor" and agendamento.tutor_id:
+            tutor = db.query(Tutor).filter(Tutor.id == agendamento.tutor_id).first()
+            recipient_nome = tutor.nome if tutor else None
+
+        preview.append({
+            "agendamento_id": agendamento.id,
+            "status": agendamento.status,
+            "inicio": agendamento.inicio.isoformat() if agendamento.inicio else None,
+            "recipient_type": recipient_type,
+            "recipient_nome": recipient_nome,
+            "has_valid_destination": bool(destination),
+            "destination_last4": destination[-4:] if destination else None,
+        })
+    return preview
 
 
 def _mark_error(agendamento: Agendamento, error: str) -> None:
